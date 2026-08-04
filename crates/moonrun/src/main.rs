@@ -362,7 +362,7 @@ fn init_env(
     wasm_file_name: &str,
     args: &[String],
     async_policy: Arc<async_policy::AsyncPolicy>,
-) {
+) -> async_api::ExitRequest {
     let global_proxy = scope.get_current_context().global(scope);
 
     let print_env_box = Box::<PrintEnv>::default();
@@ -392,10 +392,10 @@ fn init_env(
         time.set_func(scope, "now", now);
     }
 
-    {
+    let exit_request = {
         let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
-        async_api::init_env(async_runtime, scope, dtors, Arc::clone(&async_policy));
-    }
+        async_api::init_env(async_runtime, scope, dtors, Arc::clone(&async_policy))
+    };
 
     {
         let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
@@ -440,6 +440,7 @@ fn init_env(
         sys.set_func(scope, "exit", exit);
         sys.set_func(scope, "is_windows", is_windows);
     }
+    exit_request
 }
 
 fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
@@ -460,13 +461,18 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
     )
 }
 
+enum RunOutcome {
+    Completed,
+    Exited(i32),
+}
+
 fn wasm_mode(
     file: &Path,
     args: &[String],
     no_stack_trace: bool,
     test_args: Option<String>,
     async_policy: Arc<async_policy::AsyncPolicy>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<RunOutcome> {
     let isolate = &mut v8::Isolate::new(Default::default());
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope, Default::default());
@@ -484,7 +490,7 @@ fn wasm_mode(
     let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
 
     let mut dtors = Vec::new();
-    init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
+    let exit_request = init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
 
     let memory_sanitizer_imports =
         global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
@@ -520,9 +526,13 @@ fn wasm_mode(
     let script = v8::Script::compile(scope, code, Some(&script_origin)).unwrap();
 
     script.run(scope);
+    let exit_code = exit_request.take();
     drop(dtors);
+    if let Some(code) = exit_code {
+        return Ok(RunOutcome::Exited(code));
+    }
     memory_sanitizer.check_for_leaks()?;
-    Ok(())
+    Ok(RunOutcome::Completed)
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -623,13 +633,16 @@ fn main() -> anyhow::Result<()> {
     match matches.path.extension().unwrap().to_str() {
         Some("wasm") => {
             initialize_v8();
-            wasm_mode(
+            match wasm_mode(
                 &matches.path,
                 &matches.args,
                 matches.no_stack_trace,
                 matches.test_args,
                 async_policy,
-            )
+            )? {
+                RunOutcome::Completed => Ok(()),
+                RunOutcome::Exited(code) => std::process::exit(code),
+            }
         }
         _ => anyhow::bail!("Unsupported file type"),
     }

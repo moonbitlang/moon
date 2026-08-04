@@ -21,12 +21,15 @@ use std::sync::OnceLock;
 
 use crate::async_host::{AsyncHost, AsyncHostError, AsyncHostResult};
 
+use super::ExitRequest;
+
 pub(super) struct AsyncContext {
     pub(super) host: AsyncHost,
     imports: v8::Global<v8::Object>,
     // The memory object is stable, but memory.grow may replace its buffer.
     // Cache the object while reacquiring buffer storage for every import.
     memory: OnceLock<v8::Global<v8::WasmMemoryObject>>,
+    exit_request: ExitRequest,
 }
 
 impl AsyncContext {
@@ -34,11 +37,13 @@ impl AsyncContext {
         scope: &mut v8::HandleScope<'s>,
         imports: v8::Local<'s, v8::Object>,
         host: AsyncHost,
+        exit_request: ExitRequest,
     ) -> Self {
         Self {
             host,
             imports: v8::Global::new(scope, imports),
             memory: OnceLock::new(),
+            exit_request,
         }
     }
 }
@@ -62,6 +67,7 @@ pub(super) struct ImportContext<'a, 'scope> {
     pub(super) host: &'a AsyncHost,
     imports: &'a v8::Global<v8::Object>,
     memory: &'a OnceLock<v8::Global<v8::WasmMemoryObject>>,
+    exit_request: &'a ExitRequest,
 }
 
 impl<'a, 'scope> ImportContext<'a, 'scope> {
@@ -71,7 +77,15 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
             host: &context.host,
             imports: &context.imports,
             memory: &context.memory,
+            exit_request: &context.exit_request,
         }
+    }
+
+    pub(super) fn request_exit(&mut self, code: i32) {
+        self.exit_request.request(code);
+        // Termination cannot be caught by the guest's JavaScript glue. The run
+        // loop converts the recorded request into its runtime outcome.
+        self.scope.terminate_execution();
     }
 
     pub(super) fn with_host_and_memory_mut<T>(
