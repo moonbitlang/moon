@@ -23,25 +23,32 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::async_policy::AsyncPolicy;
-use crate::host_fs::{HostFs, HostFsState};
+use crate::host_fs::{HostFs, LegacyFsResults};
 use crate::util::get_ref;
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
 struct FsImports {
-    host: HostFs,
+    filesystem: HostFs,
     // V8 invokes these imports synchronously on the isolate thread. Keep the
     // adapter's mutable protocol state local without imposing a threading
-    // model on the engine-neutral HostFsState.
-    state: RefCell<HostFsState>,
+    // model on the engine-neutral LegacyFsResults.
+    legacy_results: RefCell<LegacyFsResults>,
 }
 
 impl FsImports {
     fn new(policy: Arc<AsyncPolicy>) -> Self {
         Self {
-            host: HostFs::new(policy),
-            state: RefCell::new(HostFsState::default()),
+            filesystem: HostFs::new(policy),
+            legacy_results: RefCell::new(LegacyFsResults::default()),
         }
     }
+}
+
+fn fs_imports<'a>(args: &v8::FunctionCallbackArguments<'a>) -> &'a FsImports {
+    // SAFETY: every callback using this helper is registered by `init_fs`
+    // through `set_host_func` with a pointer to the same boxed `FsImports`.
+    // `dtors` owns that box until after V8 can no longer invoke the callbacks.
+    unsafe { get_ref::<FsImports>(args) }
 }
 
 /// `fn read_file_to_string(path: JSString) -> JSString`
@@ -50,10 +57,10 @@ fn read_file_to_string(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let contents = fs
-        .host
+    let contents = imports
+        .filesystem
         .read_file_to_string(&path)
         .unwrap_or_else(|error| panic!("{error}"));
     ret.set(scope.string(&contents).into());
@@ -65,10 +72,11 @@ fn write_string_to_file(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
     let contents = args.string_lossy(scope, 1);
-    fs.host
+    imports
+        .filesystem
         .write_string_to_file(&path, &contents)
         .unwrap_or_else(|error| panic!("{error}"));
     ret.set_undefined();
@@ -79,9 +87,10 @@ fn write_bytes_to_file(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    fs.host
+    imports
+        .filesystem
         .write_bytes_to_file(&path, || {
             let array = v8::Local::<v8::Uint8Array>::try_from(args.get(1)).unwrap();
             copy_uint8_array(array)
@@ -95,9 +104,10 @@ fn create_dir(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    fs.host
+    imports
+        .filesystem
         .create_dir(&path)
         .unwrap_or_else(|error| panic!("{error}"));
     ret.set_undefined();
@@ -108,10 +118,10 @@ fn read_dir(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let entries = fs
-        .host
+    let entries = imports
+        .filesystem
         .read_dir(&path)
         .unwrap_or_else(|error| panic!("{error}"));
     let result = v8::Array::new(scope, 0);
@@ -127,9 +137,9 @@ fn is_file(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    ret.set_bool(fs.host.is_file(&path));
+    ret.set_bool(imports.filesystem.is_file(&path));
 }
 
 fn is_dir(
@@ -137,9 +147,9 @@ fn is_dir(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    ret.set_bool(fs.host.is_dir(&path));
+    ret.set_bool(imports.filesystem.is_dir(&path));
 }
 
 fn remove_file(
@@ -147,9 +157,10 @@ fn remove_file(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    fs.host
+    imports
+        .filesystem
         .remove_file(&path)
         .unwrap_or_else(|error| panic!("{error}"));
     ret.set_undefined();
@@ -160,9 +171,10 @@ fn remove_dir(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    fs.host
+    imports
+        .filesystem
         .remove_dir(&path)
         .unwrap_or_else(|error| panic!("{error}"));
     ret.set_undefined();
@@ -173,9 +185,9 @@ fn path_exists(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    ret.set_bool(fs.host.path_exists(&path));
+    ret.set_bool(imports.filesystem.path_exists(&path));
 }
 
 fn current_dir(
@@ -183,8 +195,8 @@ fn current_dir(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
-    ret.set(scope.string(&fs.host.current_dir()).into());
+    let imports = fs_imports(&args);
+    ret.set(scope.string(&imports.filesystem.current_dir()).into());
 }
 
 fn write_bytes_to_file_new(
@@ -192,16 +204,16 @@ fn write_bytes_to_file_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs
-        .host
-        .write_bytes_to_file_new(&mut fs.state.borrow_mut(), &path, || {
-            match v8::Local::<v8::Uint8Array>::try_from(args.get(1)) {
-                Ok(array) => Ok(copy_uint8_array(array)),
-                Err(_) => Err("Failed to convert contents to Uint8Array".to_string()),
-            }
-        });
+    let status = imports.filesystem.write_bytes_to_file_new(
+        &mut imports.legacy_results.borrow_mut(),
+        &path,
+        || match v8::Local::<v8::Uint8Array>::try_from(args.get(1)) {
+            Ok(array) => Ok(copy_uint8_array(array)),
+            Err(_) => Err("Failed to convert contents to Uint8Array".to_string()),
+        },
+    );
     ret.set_int32(status);
 }
 
@@ -210,11 +222,11 @@ fn read_file_to_bytes_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs
-        .host
-        .read_file_to_bytes_new(&mut fs.state.borrow_mut(), &path);
+    let status = imports
+        .filesystem
+        .read_file_to_bytes_new(&mut imports.legacy_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -223,8 +235,8 @@ fn get_file_content(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
-    let contents = fs.state.borrow().file_content().to_vec();
+    let imports = fs_imports(&args);
+    let contents = imports.legacy_results.borrow().file_content().to_vec();
     let length = contents.len();
     let backing_store = v8::ArrayBuffer::new_backing_store_from_bytes(contents).make_shared();
     let array_buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store);
@@ -237,8 +249,8 @@ fn get_dir_files(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
-    let files = fs.state.borrow().dir_files().to_vec();
+    let imports = fs_imports(&args);
+    let files = imports.legacy_results.borrow().dir_files().to_vec();
     let array = v8::Array::new(scope, 0);
     for (index, file) in files.iter().enumerate() {
         let file = scope.string(file);
@@ -252,9 +264,11 @@ fn create_dir_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs.host.create_dir_new(&mut fs.state.borrow_mut(), &path);
+    let status = imports
+        .filesystem
+        .create_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -263,9 +277,11 @@ fn read_dir_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs.host.read_dir_new(&mut fs.state.borrow_mut(), &path);
+    let status = imports
+        .filesystem
+        .read_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -274,9 +290,11 @@ fn is_file_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs.host.is_file_new(&mut fs.state.borrow_mut(), &path);
+    let status = imports
+        .filesystem
+        .is_file_new(&mut imports.legacy_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -285,9 +303,11 @@ fn is_dir_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs.host.is_dir_new(&mut fs.state.borrow_mut(), &path);
+    let status = imports
+        .filesystem
+        .is_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -296,9 +316,11 @@ fn remove_file_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs.host.remove_file_new(&mut fs.state.borrow_mut(), &path);
+    let status = imports
+        .filesystem
+        .remove_file_new(&mut imports.legacy_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -307,9 +329,11 @@ fn remove_dir_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
+    let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
-    let status = fs.host.remove_dir_new(&mut fs.state.borrow_mut(), &path);
+    let status = imports
+        .filesystem
+        .remove_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -318,8 +342,8 @@ fn get_error_message(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let fs = unsafe { get_ref::<FsImports>(&args) };
-    let message = fs.state.borrow().error_message().to_owned();
+    let imports = fs_imports(&args);
+    let message = imports.legacy_results.borrow().error_message().to_owned();
     ret.set(scope.string(&message).into());
 }
 
@@ -335,62 +359,74 @@ pub(crate) fn init_fs<'s>(
     policy: Arc<AsyncPolicy>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
-    let fs = Box::new(FsImports::new(policy));
-    let fs_ptr = &*fs as *const FsImports;
-    dtors.push(fs);
+    let imports = Box::new(FsImports::new(policy));
+    let imports_ptr = &*imports as *const FsImports;
+    dtors.push(imports);
 
     set_host_func(
         obj,
         scope,
         "read_file_to_string",
         read_file_to_string,
-        fs_ptr,
+        imports_ptr,
     );
     set_host_func(
         obj,
         scope,
         "write_string_to_file",
         write_string_to_file,
-        fs_ptr,
+        imports_ptr,
     );
     set_host_func(
         obj,
         scope,
         "write_bytes_to_file",
         write_bytes_to_file,
-        fs_ptr,
+        imports_ptr,
     );
-    set_host_func(obj, scope, "create_dir", create_dir, fs_ptr);
-    set_host_func(obj, scope, "read_dir", read_dir, fs_ptr);
-    set_host_func(obj, scope, "is_file", is_file, fs_ptr);
-    set_host_func(obj, scope, "is_dir", is_dir, fs_ptr);
-    set_host_func(obj, scope, "remove_file", remove_file, fs_ptr);
-    set_host_func(obj, scope, "remove_dir", remove_dir, fs_ptr);
-    set_host_func(obj, scope, "path_exists", path_exists, fs_ptr);
-    set_host_func(obj, scope, "current_dir", current_dir, fs_ptr);
+    set_host_func(obj, scope, "create_dir", create_dir, imports_ptr);
+    set_host_func(obj, scope, "read_dir", read_dir, imports_ptr);
+    set_host_func(obj, scope, "is_file", is_file, imports_ptr);
+    set_host_func(obj, scope, "is_dir", is_dir, imports_ptr);
+    set_host_func(obj, scope, "remove_file", remove_file, imports_ptr);
+    set_host_func(obj, scope, "remove_dir", remove_dir, imports_ptr);
+    set_host_func(obj, scope, "path_exists", path_exists, imports_ptr);
+    set_host_func(obj, scope, "current_dir", current_dir, imports_ptr);
     set_host_func(
         obj,
         scope,
         "read_file_to_bytes_new",
         read_file_to_bytes_new,
-        fs_ptr,
+        imports_ptr,
     );
     set_host_func(
         obj,
         scope,
         "write_bytes_to_file_new",
         write_bytes_to_file_new,
-        fs_ptr,
+        imports_ptr,
     );
-    set_host_func(obj, scope, "get_file_content", get_file_content, fs_ptr);
-    set_host_func(obj, scope, "get_dir_files", get_dir_files, fs_ptr);
-    set_host_func(obj, scope, "get_error_message", get_error_message, fs_ptr);
-    set_host_func(obj, scope, "create_dir_new", create_dir_new, fs_ptr);
-    set_host_func(obj, scope, "read_dir_new", read_dir_new, fs_ptr);
-    set_host_func(obj, scope, "is_file_new", is_file_new, fs_ptr);
-    set_host_func(obj, scope, "is_dir_new", is_dir_new, fs_ptr);
-    set_host_func(obj, scope, "remove_file_new", remove_file_new, fs_ptr);
-    set_host_func(obj, scope, "remove_dir_new", remove_dir_new, fs_ptr);
+    set_host_func(
+        obj,
+        scope,
+        "get_file_content",
+        get_file_content,
+        imports_ptr,
+    );
+    set_host_func(obj, scope, "get_dir_files", get_dir_files, imports_ptr);
+    set_host_func(
+        obj,
+        scope,
+        "get_error_message",
+        get_error_message,
+        imports_ptr,
+    );
+    set_host_func(obj, scope, "create_dir_new", create_dir_new, imports_ptr);
+    set_host_func(obj, scope, "read_dir_new", read_dir_new, imports_ptr);
+    set_host_func(obj, scope, "is_file_new", is_file_new, imports_ptr);
+    set_host_func(obj, scope, "is_dir_new", is_dir_new, imports_ptr);
+    set_host_func(obj, scope, "remove_file_new", remove_file_new, imports_ptr);
+    set_host_func(obj, scope, "remove_dir_new", remove_dir_new, imports_ptr);
 }
 
 fn set_host_func<'s>(
@@ -398,9 +434,9 @@ fn set_host_func<'s>(
     scope: &mut v8::HandleScope<'s>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,
-    fs_ptr: *const FsImports,
+    imports_ptr: *const FsImports,
 ) {
-    let data = v8::External::new(scope, fs_ptr as *mut std::ffi::c_void);
+    let data = v8::External::new(scope, imports_ptr as *mut std::ffi::c_void);
     let function = v8::Function::builder(callback)
         .data(data.into())
         .build(scope)
