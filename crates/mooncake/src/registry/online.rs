@@ -19,12 +19,12 @@
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
-    io::BufRead,
-    path::Path,
+    io::{BufRead, Read, Write},
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use indexmap::map::IndexMap;
 use moonutil::{
     dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
@@ -131,6 +131,20 @@ impl super::Registry for OnlineRegistry {
     ) -> anyhow::Result<()> {
         self.install_to_impl(name, version, to, quiet)
     }
+
+    fn extract_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
+        OnlineRegistry::extract_to(self, name, version, to, quiet)
+    }
+
+    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
+        self.read_checksum_from_index_file(name, version)
+    }
 }
 
 fn calc_sha2(p: &Path) -> anyhow::Result<String> {
@@ -188,20 +202,20 @@ impl OnlineRegistry {
         );
     }
 
-    fn download_or_using_cache(
+    fn download_or_use_cache(
         &self,
         name: &ModuleName,
         version: &Version,
         quiet: bool,
-    ) -> anyhow::Result<bytes::Bytes> {
+    ) -> anyhow::Result<PathBuf> {
         let pkg_index = self.index_file_of(name);
         if !pkg_index.exists() {
             anyhow::bail!("Module {}@{} not found", name, version);
         }
         let cache_file = cache_of(name, version);
+        let checksum = self.read_checksum_from_index_file(name, version)?;
         let mut checksum_ok = false;
         if cache_file.exists() {
-            let checksum = self.read_checksum_from_index_file(name, version)?;
             let current_checksum = calc_sha2(&cache_file);
             if current_checksum.is_ok() && current_checksum.unwrap() == checksum {
                 checksum_ok = true;
@@ -211,8 +225,7 @@ impl OnlineRegistry {
             if !quiet {
                 eprintln!("Using cached {name}@{version}");
             }
-            let data = std::fs::read(cache_file)?;
-            return Ok(bytes::Bytes::from(data));
+            return Ok(cache_file);
         }
         if !quiet {
             eprintln!("Downloading {name}@{version}");
@@ -222,18 +235,40 @@ impl OnlineRegistry {
             .finish();
         let url = format!("{}/{}.zip", self.url_base, filepath);
         let client = reqwest::blocking::Client::new();
-        let data = client
+        let mut response = client
             .get(url)
             .header(
                 USER_AGENT,
                 format!("mooncake/{}", env!("CARGO_PKG_VERSION")),
             )
             .send()?
-            .error_for_status()?
-            .bytes()?;
-        std::fs::create_dir_all(cache_file.parent().unwrap())?;
-        std::fs::write(cache_file, &data)?;
-        Ok(data)
+            .error_for_status()?;
+
+        let parent = cache_file
+            .parent()
+            .expect("registry cache file has a parent");
+        std::fs::create_dir_all(parent)?;
+        let mut archive = tempfile::NamedTempFile::new_in(parent)?;
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let bytes_read = response.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+            archive.write_all(&buffer[..bytes_read])?;
+        }
+        let actual_checksum = format!("{:x}", hasher.finalize());
+        if actual_checksum != checksum {
+            bail!(
+                "Checksum mismatch for {name}@{version}: expected {checksum}, got {actual_checksum}"
+            );
+        }
+        archive.flush()?;
+        archive.persist(&cache_file).map_err(|error| error.error)?;
+        Ok(cache_file)
     }
 
     pub fn install_to_impl(
@@ -264,8 +299,14 @@ impl OnlineRegistry {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
         }
 
-        let data = self.download_or_using_cache(name, version, quiet)?;
-        extract_zip_to_dir(pkg_install_dir, data)?;
+        let archive_path = self.download_or_use_cache(name, version, quiet)?;
+        let archive = std::fs::File::open(&archive_path).with_context(|| {
+            format!(
+                "failed to open cached registry archive `{}`",
+                archive_path.display()
+            )
+        })?;
+        extract_zip_to_dir(pkg_install_dir, archive)?;
         Ok(())
     }
 }

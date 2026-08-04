@@ -77,6 +77,19 @@ pub trait Registry {
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()>;
+
+    /// Extract the published package source without executing
+    /// package-controlled hooks such as `scripts.postadd`.
+    fn extract_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()>;
+
+    /// Return the checksum that identifies the published source archive.
+    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String>;
 }
 
 impl<R> Registry for &mut R
@@ -98,6 +111,20 @@ where
         quiet: bool,
     ) -> anyhow::Result<()> {
         (**self).install_to(name, version, to, quiet)
+    }
+
+    fn extract_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
+        (**self).extract_to(name, version, to, quiet)
+    }
+
+    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
+        (**self).source_checksum(name, version)
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
@@ -128,6 +155,20 @@ where
         quiet: bool,
     ) -> anyhow::Result<()> {
         (**self).install_to(name, version, to, quiet)
+    }
+
+    fn extract_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
+        (**self).extract_to(name, version, to, quiet)
+    }
+
+    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
+        (**self).source_checksum(name, version)
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {

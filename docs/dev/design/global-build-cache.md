@@ -3,10 +3,11 @@
 ## Status
 
 This document records the intended direction for global dependency and build
-caches. Cache-root configuration and cleaning are implemented, as is the pure
-canonical identity calculation for lowered actions. Builds do not yet read
-from or write to either global cache, and identity calculation is not connected
-to execution.
+caches. Cache-root configuration and cleaning are implemented. Standalone
+`moon run` inputs reuse immutable registry dependency sources through the
+dependency cache. The pure canonical identity calculation for lowered actions
+is also implemented, but builds do not yet read from or write to the global
+artifact cache and identity calculation is not connected to execution.
 
 ## Problem
 
@@ -49,14 +50,18 @@ Two environment variables select the cache roots:
 | `MOON_DEP_CACHE` | `$MOON_HOME/cache/deps` | Disable dependency caching | Use that dependency-cache root |
 | `MOON_BUILD_CACHE` | `$MOON_HOME/cache/build` | Disable build caching | Use that build-cache root |
 
-A relative path is rejected. `off` means that a future build must use
-invocation-private temporary state instead of the corresponding global cache.
-For a disabled dependency cache, dependencies still have to be downloaded and
-prepared somewhere private; disabling the cache must not disable dependency
+A relative path is rejected. `off` means that a build uses project-local or
+invocation-private state instead of the corresponding global cache. For a
+disabled dependency cache, dependencies still have to be downloaded and
+prepared privately; disabling the cache does not disable dependency
 resolution.
 
-The environment variables currently configure and clean roots only. Their
-presence does not yet change build execution.
+`MOON_DEP_CACHE` currently affects registry dependencies of standalone
+`moon run` inputs: persistent `.mbt` and `.mbtx` files, inline `-e` programs,
+and stdin programs passed as `-`. Single-file check and test commands, ordinary
+projects, and workspaces retain their existing project-local dependency
+directories.
+`MOON_BUILD_CACHE` still configures and cleans its future root only.
 
 Canonical action identity is also implemented as a pure consumer of Rupes
 Recta `LoweredAction` values. It is not connected to build execution or either
@@ -222,6 +227,19 @@ The script's own rapidly changing compilation may often miss, but its stable
 dependencies can still be hits. This is the main opportunity for faster script
 startup.
 
+The implemented source-only step resolves each registry package to an entry
+addressed by module, version, and registry checksum. Registry versions are
+intended to be immutable, but the checksum remains part of the physical
+identity so a replaced historical archive cannot alias the source tree that
+was originally published under that version. A miss is extracted in a
+same-filesystem staging directory and published by rename while holding the
+dependency-cache lock. Existing entries are never replaced or pruned during
+resolution. Package installation uses one dependency-source interface to
+ensure the resolved sources exist and obtain their paths; project-local
+`.mooncakes` and the shared immutable cache are internal storage choices.
+Compiler outputs remain invocation-local and continue through the standalone
+n2 dependency graph.
+
 `post-add` hooks will not run in globally shared prepared sources. They make
 source state mutable and can have effects that are not captured by an artifact
 key. The initial shared-source flow should reject a dependency that requires
@@ -243,8 +261,9 @@ Each stage should be useful and reviewable without requiring the next:
 
 1. **Root contract and lifecycle (implemented):** environment selection,
    disabled semantics, safe explicit cleaning, and no internal data layout.
-2. **Prepared dependency sources:** immutable publication in the dependency
-   cache, no shared `post-add`, and private fallback when caching is off.
+2. **Prepared dependency sources (implemented for standalone `moon run`):**
+   immutable publication in the dependency cache, no shared `post-add`, and
+   private fallback when caching is off. Other command families remain local.
 3. **Private standalone work:** stop sharing mutable `_build` trees between
    standalone invocations; place `__moonbin__` there.
 4. **Action model (implemented, not execution-wired):** define and test

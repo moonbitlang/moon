@@ -273,6 +273,17 @@ work as `LoweredAction` values and lowers script work into an n2 graph. Moon
 passes the dependency actions through the current n2 adapter before execution,
 producing the same two disjoint n2 graphs as before.
 
+For `moon run` standalone inputs, registry package acquisition is separate from
+that build projection. Persistent standalone `.mbt` and `.mbtx` files, inline
+`-e` programs, and stdin programs passed as `-` resolve registry modules to
+immutable entries in the global dependency source cache. Entries are addressed
+by module, version, and registry checksum, published atomically, and reused
+without replacing other versions or checksum variants. Registry acquisition
+verifies the published archive checksum before extraction. `MOON_DEP_CACHE=off`
+retains the previous
+project-local or temporary `.mooncakes` preparation. Single-file check and test
+commands do not use this global source path.
+
 All actions owned by packages other than the synthesized script package seed
 the dependency projection. Following their producer edges to a fixed point
 also includes package-less shared prerequisites such as `BuildRuntimeLib` and
@@ -300,9 +311,9 @@ dependency product contract.
 For `.mbt` and `.mbtx` files built from persistent paths, the dependency n2
 database remains available to later invocations. `moon run -e` and
 `moon run -` also use the split graphs, but their synthesized temporary projects
-are removed after each invocation, so they do not currently reuse the
-dependency database across invocations. Stable or global cache storage for
-those entry points remains future work.
+are removed after each invocation. They reuse globally prepared registry
+sources but do not yet reuse the dependency n2 database or compiled dependency
+artifacts across invocations.
 
 Ordinary project and workspace commands continue to produce and execute one
 plan and one n2 graph.

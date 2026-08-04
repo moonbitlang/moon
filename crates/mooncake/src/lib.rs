@@ -18,7 +18,7 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-pub(crate) mod dep_dir;
+pub(crate) mod dependency_source;
 pub mod pkg;
 pub mod registry;
 pub(crate) mod resolver;

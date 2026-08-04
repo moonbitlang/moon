@@ -2,7 +2,7 @@
   "name": "username/hello",
   "version": "0.1.0",
   "deps": {
-    "lijunchen/hello18": "0.1.30"
+    "lijunchen/hello18": "0.1.31"
   },
   "readme": "README.md",
   "repository": "",
