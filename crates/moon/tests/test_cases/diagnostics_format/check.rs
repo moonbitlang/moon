@@ -310,8 +310,9 @@ fn test_moon_check_complete_json_starts_after_argument_parsing() {
         .assert()
         .success()
         .stderr_eq("");
+    let help = String::from_utf8_lossy(&help.get_output().stdout);
     assert!(
-        String::from_utf8_lossy(&help.get_output().stdout).contains("Usage: moon check"),
+        help.contains("Usage:") && help.contains("--json"),
         "--help should keep Clap's human-readable output"
     );
 
