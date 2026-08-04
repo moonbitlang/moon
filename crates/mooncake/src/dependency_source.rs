@@ -83,8 +83,15 @@ mod tests {
     };
     use semver::Version;
 
-    use super::{global::ImmutableDependencySource, select};
+    use super::{
+        global::{ImmutableDependencySource, SOURCE_ARCHIVE_CHECKSUM_FILE},
+        select,
+    };
     use crate::registry::{Registry, RegistryVersionInfo};
+
+    const FIRST_CHECKSUM: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const SECOND_CHECKSUM: &str =
+        "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
     struct TestRegistry {
         version: Version,
@@ -99,7 +106,7 @@ mod tests {
         fn new(postadd: bool) -> Self {
             Self {
                 version: Version::new(1, 2, 3),
-                checksum: "0123456789abcdef".to_string(),
+                checksum: FIRST_CHECKSUM.to_string(),
                 checksum_after_first_read: None,
                 checksum_reads: AtomicUsize::new(0),
                 postadd,
@@ -125,13 +132,19 @@ mod tests {
         ) -> anyhow::Result<()> {
             self.installations.fetch_add(1, Ordering::SeqCst);
             let scripts = if self.postadd {
-                r#", "scripts": {"postadd": "must-not-run"}"#
+                r#"
+options(
+  "scripts": {
+    "postadd": "must-not-run",
+  },
+)
+"#
             } else {
                 ""
             };
             std::fs::write(
-                to.join("moon.mod.json"),
-                format!(r#"{{"name":"{name}","version":"{version}"{scripts}}}"#),
+                to.join("moon.mod"),
+                format!("name = \"{name}\"\nversion = \"{version}\"\n{scripts}"),
             )?;
             Ok(())
         }
@@ -161,7 +174,7 @@ mod tests {
             self.install_source(name, version, to)
         }
 
-        fn extract_to(
+        fn acquire_source_to(
             &self,
             name: &ModuleName,
             version: &Version,
@@ -170,11 +183,11 @@ mod tests {
             _quiet: bool,
         ) -> anyhow::Result<()> {
             self.install_source(name, version, to)?;
-            std::fs::write(to.join("archive-checksum"), expected_checksum)?;
+            std::fs::write(to.join("acquired-archive-checksum"), expected_checksum)?;
             Ok(())
         }
 
-        fn source_checksum(
+        fn source_archive_checksum(
             &self,
             _name: &ModuleName,
             _version: &Version,
@@ -226,10 +239,8 @@ mod tests {
         let (resolved, module) = test_env();
 
         assert_eq!(
-            store.source_dir(resolved.module_source(module), "0123456789abcdef"),
-            cache
-                .path()
-                .join("v1/sources/test/module/1.2.3/0123456789abcdef")
+            store.source_dir(resolved.module_source(module)),
+            cache.path().join("v1/sources/test/module/1.2.3")
         );
     }
 
@@ -253,6 +264,10 @@ mod tests {
         assert_eq!(first[module], second[module]);
         assert_eq!(registry.installations.load(Ordering::SeqCst), 1);
         assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "keep");
+        assert_eq!(
+            std::fs::read_to_string(first[module].join(SOURCE_ARCHIVE_CHECKSUM_FILE)).unwrap(),
+            FIRST_CHECKSUM
+        );
     }
 
     #[test]
@@ -263,8 +278,8 @@ mod tests {
         let registry = TestRegistry::new(true);
         let (resolved, module) = test_env();
         let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
-        let directory = ImmutableDependencySource::new(&cache_dir)
-            .source_dir(resolved.module_source(module), &registry.checksum);
+        let directory =
+            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
 
         let error = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -326,35 +341,46 @@ mod tests {
     }
 
     #[test]
-    fn changed_checksum_publishes_a_distinct_source() {
+    fn changed_checksum_is_rejected_without_replacing_the_source() {
         // `lijunchen/hello18@0.1.30` was historically replaced after
-        // publication, so module and version alone are not a safe physical
-        // cache identity even though registry versions should be immutable.
+        // publication. Registry versions are nevertheless immutable from the
+        // dependency source cache's perspective: accepting the replacement
+        // requires an explicit cache clean.
         let sandbox = tempfile::TempDir::new().unwrap();
         let cache = global_cache(&sandbox.path().join("cache"));
         let first_registry = TestRegistry::new(false);
-        let second_registry = TestRegistry::new(false).with_checksum("fedcba9876543210");
+        let second_registry = TestRegistry::new(false).with_checksum(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
         let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
 
         let first = source
             .ensure(&first_registry, &resolved, false, &user_log())
             .unwrap();
-        let second = source
-            .ensure(&second_registry, &resolved, false, &user_log())
-            .unwrap();
+        let sentinel = first[module].join("must-survive");
+        std::fs::write(&sentinel, "original source").unwrap();
 
-        assert_ne!(first[module], second[module]);
-        assert!(first[module].join("moon.mod.json").is_file());
-        assert!(second[module].join("moon.mod.json").is_file());
+        let error = source
+            .ensure(&second_registry, &resolved, false, &user_log())
+            .unwrap_err();
+
+        assert!(
+            format!("{error:#}").contains("registry archive checksum changed"),
+            "{error:#}"
+        );
+        assert!(format!("{error:#}").contains("moon clean --dep-cache"));
+        assert_eq!(
+            std::fs::read_to_string(sentinel).unwrap(),
+            "original source"
+        );
+        assert_eq!(second_registry.installations.load(Ordering::SeqCst), 0);
     }
 
     #[test]
-    fn extraction_uses_the_checksum_selected_for_the_source_path() {
+    fn extraction_and_metadata_use_one_archive_checksum_read() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let cache_dir = sandbox.path().join("cache");
         let cache = global_cache(&cache_dir);
-        let registry = TestRegistry::new(false).with_checksum_after_first_read("fedcba9876543210");
+        let registry = TestRegistry::new(false).with_checksum_after_first_read(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
         let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
 
@@ -364,14 +390,57 @@ mod tests {
 
         assert_eq!(
             paths[module],
-            ImmutableDependencySource::new(&cache_dir)
-                .source_dir(resolved.module_source(module), "0123456789abcdef")
+            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module))
         );
         assert_eq!(
-            std::fs::read_to_string(paths[module].join("archive-checksum")).unwrap(),
-            "0123456789abcdef"
+            std::fs::read_to_string(paths[module].join("acquired-archive-checksum")).unwrap(),
+            FIRST_CHECKSUM
+        );
+        assert_eq!(
+            std::fs::read_to_string(paths[module].join(SOURCE_ARCHIVE_CHECKSUM_FILE)).unwrap(),
+            FIRST_CHECKSUM
         );
         assert_eq!(registry.checksum_reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn source_with_missing_or_invalid_checksum_metadata_is_rejected() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let cache_dir = sandbox.path().join("cache");
+        let cache = global_cache(&cache_dir);
+        let registry = TestRegistry::new(false);
+        let (resolved, module) = test_env();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+        let directory =
+            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("moon.mod"),
+            "name = \"test/module\"\nversion = \"1.2.3\"\n",
+        )
+        .unwrap();
+
+        let missing_error = source
+            .ensure(&registry, &resolved, false, &user_log())
+            .unwrap_err();
+
+        assert!(
+            format!("{missing_error:#}").contains("missing archive checksum metadata"),
+            "{missing_error:#}"
+        );
+        assert!(format!("{missing_error:#}").contains("moon clean --dep-cache"));
+
+        std::fs::write(directory.join(SOURCE_ARCHIVE_CHECKSUM_FILE), "not-a-sha256").unwrap();
+        let invalid_error = source
+            .ensure(&registry, &resolved, false, &user_log())
+            .unwrap_err();
+
+        assert!(
+            format!("{invalid_error:#}").contains("invalid archive checksum metadata"),
+            "{invalid_error:#}"
+        );
+        assert!(format!("{invalid_error:#}").contains("moon clean --dep-cache"));
+        assert_eq!(registry.installations.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -388,7 +457,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(paths[module], project_dir.join("test/module"));
-        assert!(paths[module].join("moon.mod.json").is_file());
+        assert!(paths[module].join("moon.mod").is_file());
         assert_eq!(registry.installations.load(Ordering::SeqCst), 1);
     }
 }

@@ -26,9 +26,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, bail};
-
-use crate::{constants::MOON_LOCK, locks::FileLock};
+use anyhow::bail;
 
 const OWNERSHIP_MARKER: &str = ".moon-cache";
 
@@ -97,11 +95,6 @@ impl CacheRoot {
             Err(error) => return Err(error.into()),
         }
 
-        // Claiming an empty root and writing its ownership marker is one
-        // operation. Without the lock, another process can observe the marker
-        // after creation but before its contents have been written.
-        let _lock = FileLock::lock_with_verbosity(root, false)
-            .with_context(|| format!("Unable to lock Moon cache root `{}`", root.display()))?;
         initialize_ownership_marker(root, *kind)?;
         Ok(Some(root))
     }
@@ -128,50 +121,71 @@ pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
 }
 
 fn initialize_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::Result<()> {
-    let marker = root.join(OWNERSHIP_MARKER);
-    match std::fs::read(&marker) {
-        Ok(contents) if contents == kind.ownership() => return Ok(()),
-        Ok(_) => {
-            bail!(
-                "refusing to use Moon cache root `{}` with an incompatible ownership marker",
-                root.display()
-            )
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+    if validate_existing_ownership_marker(root, kind)? {
+        return Ok(());
     }
 
-    let mut contains_unrecognized_entry = false;
-    for entry in std::fs::read_dir(root)? {
-        if entry?.file_name() != MOON_LOCK {
-            contains_unrecognized_entry = true;
-            break;
+    if std::fs::read_dir(root)?.next().transpose()?.is_some() {
+        // Another initializer may have published the marker after our first
+        // lookup. Recheck before classifying the root as unowned.
+        if validate_existing_ownership_marker(root, kind)? {
+            return Ok(());
         }
-    }
-    if contains_unrecognized_entry {
         bail!(
             "refusing to use unrecognized non-empty Moon cache root `{}`",
             root.display()
         );
     }
 
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&marker)
-    {
-        Ok(mut file) => file.write_all(kind.ownership())?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if std::fs::read(&marker)? != kind.ownership() {
+    // Build the complete marker next to the root, then publish it without
+    // replacing an existing claim. Keeping the temporary file outside `root`
+    // means another initializer never mistakes our staging file for user data.
+    let parent = root.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Moon cache root `{}` must have a parent directory",
+            root.display()
+        )
+    })?;
+    let mut marker = tempfile::NamedTempFile::new_in(parent)?;
+    marker.write_all(kind.ownership())?;
+    marker.flush()?;
+    match marker.persist_noclobber(root.join(OWNERSHIP_MARKER)) {
+        Ok(_) => Ok(()),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if !validate_existing_ownership_marker(root, kind)? {
                 bail!(
-                    "refusing to use Moon cache root `{}` with an incompatible ownership marker",
+                    "Moon cache ownership marker disappeared while initializing `{}`",
                     root.display()
                 );
             }
+            Ok(())
         }
-        Err(error) => return Err(error.into()),
+        Err(error) => Err(error.error.into()),
     }
-    Ok(())
+}
+
+fn validate_existing_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::Result<bool> {
+    let marker = root.join(OWNERSHIP_MARKER);
+    match std::fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            if std::fs::read(marker)? == kind.ownership() {
+                Ok(true)
+            } else {
+                bail!(
+                    "refusing to use Moon cache root `{}` with an incompatible ownership marker",
+                    root.display()
+                )
+            }
+        }
+        Ok(_) => {
+            bail!(
+                "refusing to use Moon cache root `{}` with an incompatible ownership marker",
+                root.display()
+            )
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
@@ -193,12 +207,7 @@ pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
         std::fs::remove_dir(root)?;
         return Ok(());
     }
-    if metadata.is_dir()
-        && matches!(
-            std::fs::read(root.join(OWNERSHIP_MARKER)),
-            Ok(contents) if contents == kind.ownership()
-        )
-    {
+    if metadata.is_dir() && validate_existing_ownership_marker(&root, kind)? {
         std::fs::remove_dir_all(root)?;
         return Ok(());
     }
@@ -210,6 +219,8 @@ pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use crate::constants::MOON_LOCK;
+
     use super::*;
 
     #[test]
@@ -220,7 +231,7 @@ mod tests {
         initialize_ownership_marker(&empty, CacheKind::DependencySources).unwrap();
         assert_eq!(
             std::fs::read(empty.join(OWNERSHIP_MARKER)).unwrap(),
-            b"dependency-sources\n"
+            CacheKind::DependencySources.ownership()
         );
 
         let unowned = parent.path().join("unowned");
@@ -239,11 +250,39 @@ mod tests {
     #[test]
     fn rejects_incompatible_ownership_marker() {
         let root = tempfile::TempDir::new().unwrap();
-        std::fs::write(root.path().join(OWNERSHIP_MARKER), b"build-artifacts\n").unwrap();
+        std::fs::write(
+            root.path().join(OWNERSHIP_MARKER),
+            CacheKind::BuildArtifacts.ownership(),
+        )
+        .unwrap();
 
         let error =
             initialize_ownership_marker(root.path(), CacheKind::DependencySources).unwrap_err();
         assert!(error.to_string().contains("incompatible ownership marker"));
+    }
+
+    #[test]
+    fn initialize_does_not_modify_an_unowned_root() {
+        let root = tempfile::TempDir::new().unwrap();
+        std::fs::write(root.path().join("user-data"), "keep").unwrap();
+        std::fs::write(root.path().join(MOON_LOCK), "unrelated lock contents").unwrap();
+        let cache = CacheRoot::Path {
+            kind: CacheKind::DependencySources,
+            path: root.path().to_path_buf(),
+        };
+
+        let error = cache.initialize().unwrap_err();
+
+        assert!(error.to_string().contains("unrecognized non-empty"));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("user-data")).unwrap(),
+            "keep"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(MOON_LOCK)).unwrap(),
+            "unrelated lock contents"
+        );
+        assert!(!root.path().join(OWNERSHIP_MARKER).exists());
     }
 
     #[test]
@@ -266,7 +305,44 @@ mod tests {
         };
         assert_eq!(
             std::fs::read(path.join(OWNERSHIP_MARKER)).unwrap(),
-            b"dependency-sources\n"
+            CacheKind::DependencySources.ownership()
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_ownership_marker() {
+        let root = tempfile::TempDir::new().unwrap();
+        std::fs::write(root.path().join(OWNERSHIP_MARKER), "user data").unwrap();
+
+        let error =
+            initialize_ownership_marker(root.path(), CacheKind::DependencySources).unwrap_err();
+
+        assert!(error.to_string().contains("incompatible ownership marker"));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(OWNERSHIP_MARKER)).unwrap(),
+            "user data"
+        );
+    }
+
+    #[test]
+    fn different_cache_kinds_cannot_claim_the_same_root() {
+        let parent = tempfile::TempDir::new().unwrap();
+        let root = parent.path().join("cache");
+        std::fs::create_dir(&root).unwrap();
+
+        let (dependency_result, build_result) = std::thread::scope(|scope| {
+            let dependency =
+                scope.spawn(|| initialize_ownership_marker(&root, CacheKind::DependencySources));
+            let build =
+                scope.spawn(|| initialize_ownership_marker(&root, CacheKind::BuildArtifacts));
+            (dependency.join().unwrap(), build.join().unwrap())
+        });
+
+        assert_ne!(dependency_result.is_ok(), build_result.is_ok());
+        let ownership = std::fs::read(root.join(OWNERSHIP_MARKER)).unwrap();
+        assert!(
+            ownership == CacheKind::DependencySources.ownership()
+                || ownership == CacheKind::BuildArtifacts.ownership()
         );
     }
 }

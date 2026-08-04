@@ -277,10 +277,13 @@ For `moon run` standalone inputs, registry package acquisition is separate from
 that build projection. Persistent standalone `.mbt` and `.mbtx` files, inline
 `-e` programs, and stdin programs passed as `-` resolve registry modules to
 immutable entries in the global dependency source cache. Entries are addressed
-by module, version, and registry checksum, published atomically, and reused
-without replacing other versions or checksum variants. Registry acquisition
-verifies the published archive checksum before extraction. `MOON_DEP_CACHE=off`
-retains the previous
+by module and version and published atomically. Each entry records the SHA-256
+of the registry ZIP archive that produced it. Reuse compares that metadata with
+the current registry index and validates the `moon.mod` or `moon.mod.json`
+manifest; a checksum change is an error that requires an explicit dependency
+cache clean rather than a replacement or a second path. Registry acquisition
+uses one selected checksum to verify and extract one open archive handle.
+`MOON_DEP_CACHE=off` retains the previous
 project-local or temporary `.mooncakes` preparation. Single-file check and test
 commands do not use this global source path.
 

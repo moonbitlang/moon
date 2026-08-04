@@ -94,6 +94,15 @@ fn test_single_file_run_inputs_share_immutable_dependency_sources() {
         .stdout_eq("hello\n");
 
     assert!(!mbtx_dir.join(".mooncakes/moonbitlang/x").exists());
+    let cached_source = dependency_cache
+        .path()
+        .join("v1/sources/moonbitlang/x/0.4.38");
+    assert!(
+        cached_source.join("moon.mod").is_file() || cached_source.join("moon.mod.json").is_file()
+    );
+    let checksum = fs::read_to_string(cached_source.join(".moon-source-archive-checksum")).unwrap();
+    assert_eq!(checksum.len(), 64);
+    assert!(checksum.bytes().all(|byte| byte.is_ascii_hexdigit()));
 
     moon_cmd(&inline_dir)
         .env("MOON_DEP_CACHE", dependency_cache.path())

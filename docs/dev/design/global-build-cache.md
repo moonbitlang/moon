@@ -41,6 +41,13 @@ and cleanup rules, so they use separate caches. An artifact is reusable only
 when all compiler-observable inputs have the same identity. Directory names
 are for storage organization, not correctness.
 
+“Immutable after publication” is currently a cache contract, not filesystem
+enforcement. Module prebuild configuration still runs with the shared source
+directory as its working directory and can mutate it. Such mutation is
+unsupported; package authors and users are responsible for keeping prebuild
+configuration read-only with respect to dependency sources until Moon gains a
+private-copy or sandboxed prebuild model.
+
 ## Implemented public seam
 
 Two environment variables select the cache roots:
@@ -82,11 +89,24 @@ When either cache flag is present, only the selected global cache roots are
 cleaned; the local `_build` is left alone. A disabled or missing root is a
 successful no-op, so these commands work outside a project.
 
+Cleaning is an explicit maintenance operation and does not acquire a lease
+from active readers. Users must not run `moon clean --dep-cache` concurrently
+with a command consuming shared dependency sources; doing so may make the
+active command fail. Consumption-lifetime coordination is deferred until the
+cache needs stronger operational guarantees.
+
 Deleting a user-configurable absolute path is dangerous. Moon therefore
 removes a non-empty root only when it contains Moon's matching ownership
 marker. Empty roots may be removed, and symlinked or unrecognized roots are
 refused. The marker is lifecycle safety metadata, not a promise about the
 future data layout.
+
+Initialization performs the same ownership checks before writing anything
+inside an existing root. An unrecognized non-empty directory is therefore left
+byte-for-byte unchanged, including any unrelated `.moon.lock`. An empty root
+is claimed with an exclusively created ownership marker; concurrent
+initializers may observe and validate that marker, but do not need to create a
+lock file before the root is owned.
 
 ## Why `module@version` is not an artifact key
 
@@ -227,21 +247,33 @@ The script's own rapidly changing compilation may often miss, but its stable
 dependencies can still be hits. This is the main opportunity for faster script
 startup.
 
-The implemented source-only step resolves each registry package to an entry
-addressed by module, version, and registry checksum. Registry versions are
-intended to be immutable, but the checksum remains part of the physical
-identity so a replaced historical archive cannot alias the source tree that
-was originally published under that version. Source acquisition observes the
-checksum once and uses that value for both the physical path and archive
-verification; it does not follow registry-index changes during extraction.
-Verification and extraction consume the same open archive handle, so replacing
-the version-keyed download-cache path cannot change the source being published.
-A miss is extracted in a same-filesystem staging directory and published by
-rename while holding the dependency-cache lock. Existing entries are never
-replaced or pruned during resolution. Package installation uses one
-dependency-source interface to ensure the resolved sources exist and obtain
-their paths; project-local `.mooncakes` and the shared immutable cache are
-internal storage choices.
+The implemented source-only step gives each registry `module@version` one
+canonical directory:
+
+```text
+<dependency-cache>/v1/sources/<username>/<unqualified-name>/<version>
+```
+
+As in project-local `.mooncakes`, `/` inside a legacy unqualified module name
+is escaped as `+`. The archive checksum is deliberately not a path component.
+Registry versions are treated as immutable: each published directory contains
+cache-private `.moon-source-archive-checksum` metadata recording the registry
+index's SHA-256 for the ZIP archive that produced it. Reuse requires that
+recorded value to equal the current index value and validates the module
+manifest (`moon.mod` or `moon.mod.json`). If a registry republishes the same
+version with another checksum, Moon refuses to replace or coexist with the new
+source and asks the user to run `moon clean --dep-cache` explicitly.
+
+Source acquisition reads the archive checksum once and uses that value for
+both archive verification and the published metadata. Verification and
+extraction consume the same open archive handle, so replacing the
+version-keyed download-cache path cannot change the source being published. A
+miss is extracted in a same-filesystem staging directory, validated, annotated
+with the checksum, and published by rename while holding the dependency-cache
+lock. Existing entries are never replaced or pruned during resolution. Package
+installation uses one dependency-source interface to ensure the resolved
+sources exist and obtain their paths; project-local `.mooncakes` and the shared
+immutable cache are internal storage choices.
 Compiler outputs remain invocation-local and continue through the standalone
 n2 dependency graph.
 

@@ -35,6 +35,7 @@ use super::DependencySource;
 
 const LAYOUT_VERSION: &str = "v1";
 const SOURCES_DIRECTORY: &str = "sources";
+pub(super) const SOURCE_ARCHIVE_CHECKSUM_FILE: &str = ".moon-source-archive-checksum";
 
 /// The append-only global store for registry source trees.
 ///
@@ -49,17 +50,13 @@ impl<'a> ImmutableDependencySource<'a> {
         Self { root }
     }
 
-    pub(super) fn source_dir(&self, module: &ModuleSource, checksum: &str) -> PathBuf {
+    pub(super) fn source_dir(&self, module: &ModuleSource) -> PathBuf {
         self.root
             .join(LAYOUT_VERSION)
             .join(SOURCES_DIRECTORY)
             .join(module.name().username.as_str())
             .join(module.name().unqual.replace('/', "+"))
             .join(module.version().to_string())
-            // Registry versions are intended to be immutable, but keeping the
-            // checksum in the physical identity also isolates historical
-            // archives that were replaced after publication.
-            .join(checksum)
     }
 
     fn prepare_source(
@@ -73,7 +70,7 @@ impl<'a> ImmutableDependencySource<'a> {
     ) -> anyhow::Result<()> {
         match std::fs::symlink_metadata(directory) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-                validate_source(directory, module)
+                validate_cached_source(directory, module, checksum)
             }
             Ok(_) => anyhow::bail!(
                 "Dependency source cache entry is not a directory: `{}`",
@@ -105,7 +102,7 @@ impl<'a> ImmutableDependencySource<'a> {
                     module.version(),
                     directory.display()
                 );
-                registry.extract_to(
+                registry.acquire_source_to(
                     module.name(),
                     module.version(),
                     checksum,
@@ -113,6 +110,7 @@ impl<'a> ImmutableDependencySource<'a> {
                     !user_log.is_enabled(log::Level::Info),
                 )?;
                 validate_source(staging.path(), module)?;
+                std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
                 let staging = staging.into_path();
                 if let Err(error) = std::fs::rename(&staging, directory) {
                     let _ = std::fs::remove_dir_all(&staging);
@@ -150,16 +148,18 @@ impl DependencySource for ImmutableDependencySource<'_> {
             let directory = match module.source() {
                 ModuleSourceKind::Registry if module.is_core() => toolchain::core(),
                 ModuleSourceKind::Registry => {
-                    let checksum = registry.source_checksum(module.name(), module.version())?;
-                    if checksum.is_empty() || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    let checksum =
+                        registry.source_archive_checksum(module.name(), module.version())?;
+                    if checksum.len() != 64
+                        || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
                     {
                         anyhow::bail!(
-                            "Registry returned an invalid checksum for {}@{}",
+                            "Registry returned an invalid source archive checksum for {}@{}",
                             module.name(),
                             module.version()
                         );
                     }
-                    let directory = self.source_dir(module, &checksum);
+                    let directory = self.source_dir(module);
                     self.prepare_source(registry, module, &checksum, &directory, frozen, user_log)?;
                     directory
                 }
@@ -175,6 +175,48 @@ impl DependencySource for ImmutableDependencySource<'_> {
 
         Ok(result)
     }
+}
+
+fn validate_cached_source(
+    directory: &Path,
+    module: &ModuleSource,
+    expected_checksum: &str,
+) -> anyhow::Result<()> {
+    let checksum_file = directory.join(SOURCE_ARCHIVE_CHECKSUM_FILE);
+    let cached_checksum = match std::fs::read_to_string(&checksum_file) {
+        Ok(checksum) => checksum,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            anyhow::bail!(
+                "dependency source cache entry for {}@{} is missing archive checksum metadata; run `moon clean --dep-cache` before retrying",
+                module.name(),
+                module.version()
+            )
+        }
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "Unable to read dependency source cache metadata `{}`",
+                    checksum_file.display()
+                )
+            });
+        }
+    };
+    if cached_checksum.len() != 64 || !cached_checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        anyhow::bail!(
+            "dependency source cache entry for {}@{} has invalid archive checksum metadata; run `moon clean --dep-cache` before retrying",
+            module.name(),
+            module.version()
+        );
+    }
+    if cached_checksum != expected_checksum {
+        anyhow::bail!(
+            "registry archive checksum changed for {}@{}; run `moon clean --dep-cache` before retrying",
+            module.name(),
+            module.version()
+        );
+    }
+    validate_source(directory, module)
 }
 
 fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<()> {

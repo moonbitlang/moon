@@ -78,10 +78,13 @@ pub trait Registry {
         quiet: bool,
     ) -> anyhow::Result<()>;
 
-    /// Extract the published package source verified against the checksum
-    /// selected by the caller, without executing package-controlled hooks such
-    /// as `scripts.postadd`.
-    fn extract_to(
+    /// Ensure the published source archive is available, verify it against the
+    /// checksum selected by the caller, and extract it without executing
+    /// package-controlled hooks such as `scripts.postadd`.
+    ///
+    /// The registry adapter decides whether to reuse a downloaded archive or
+    /// acquire it remotely; callers do not need to prepare an archive first.
+    fn acquire_source_to(
         &self,
         name: &ModuleName,
         version: &Version,
@@ -90,8 +93,13 @@ pub trait Registry {
         quiet: bool,
     ) -> anyhow::Result<()>;
 
-    /// Return the checksum that identifies the published source archive.
-    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String>;
+    /// Return the registry index's SHA-256 checksum for the published source
+    /// ZIP archive.
+    fn source_archive_checksum(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<String>;
 }
 
 impl<R> Registry for &mut R
@@ -115,7 +123,7 @@ where
         (**self).install_to(name, version, to, quiet)
     }
 
-    fn extract_to(
+    fn acquire_source_to(
         &self,
         name: &ModuleName,
         version: &Version,
@@ -123,11 +131,15 @@ where
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        (**self).extract_to(name, version, expected_checksum, to, quiet)
+        (**self).acquire_source_to(name, version, expected_checksum, to, quiet)
     }
 
-    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
-        (**self).source_checksum(name, version)
+    fn source_archive_checksum(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<String> {
+        (**self).source_archive_checksum(name, version)
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
@@ -160,7 +172,7 @@ where
         (**self).install_to(name, version, to, quiet)
     }
 
-    fn extract_to(
+    fn acquire_source_to(
         &self,
         name: &ModuleName,
         version: &Version,
@@ -168,11 +180,15 @@ where
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        (**self).extract_to(name, version, expected_checksum, to, quiet)
+        (**self).acquire_source_to(name, version, expected_checksum, to, quiet)
     }
 
-    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
-        (**self).source_checksum(name, version)
+    fn source_archive_checksum(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<String> {
+        (**self).source_archive_checksum(name, version)
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {

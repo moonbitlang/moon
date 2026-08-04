@@ -25,7 +25,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use indexmap::map::IndexMap;
 use moonutil::{
     dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
@@ -48,6 +48,7 @@ struct RegistryIndexEntry {
 pub struct OnlineRegistry {
     index: std::path::PathBuf,
     url_base: String, // TODO: add download feature to registry interface
+    archive_cache: std::path::PathBuf,
     cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
 }
 
@@ -57,6 +58,7 @@ impl OnlineRegistry {
         OnlineRegistry {
             index: moonutil::registry::index(),
             url_base: registry_download_base(&registry),
+            archive_cache: moonutil::registry::cache(),
             cache: RefCell::new(HashMap::new()),
         }
     }
@@ -66,6 +68,13 @@ impl OnlineRegistry {
             .join("user")
             .join(name.username.as_str())
             .join(format!("{}.index", name.unqual))
+    }
+
+    fn archive_cache_file_of(&self, name: &ModuleName, version: &Version) -> std::path::PathBuf {
+        self.archive_cache
+            .join(name.username.as_str())
+            .join(name.unqual.as_str())
+            .join(format!("{version}.zip"))
     }
 }
 
@@ -133,7 +142,7 @@ impl super::Registry for OnlineRegistry {
         self.install_to_impl(name, version, to, quiet)
     }
 
-    fn extract_to(
+    fn acquire_source_to(
         &self,
         name: &ModuleName,
         version: &Version,
@@ -141,15 +150,19 @@ impl super::Registry for OnlineRegistry {
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        OnlineRegistry::extract_to(self, name, version, expected_checksum, to, quiet)
+        OnlineRegistry::acquire_source_to(self, name, version, expected_checksum, to, quiet)
     }
 
-    fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
+    fn source_archive_checksum(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<String> {
         self.read_checksum_from_index_file(name, version)
     }
 }
 
-fn calc_sha2(reader: &mut impl Read) -> anyhow::Result<String> {
+fn calc_sha2(reader: &mut impl Read) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
@@ -169,7 +182,7 @@ fn calc_sha2(reader: &mut impl Read) -> anyhow::Result<String> {
 
 /// Keep the file that was hashed open so a concurrent cache-path replacement
 /// cannot change the bytes later consumed by extraction.
-fn open_verified_archive(path: &Path, expected_checksum: &str) -> anyhow::Result<Option<File>> {
+fn open_verified_archive(path: &Path, expected_checksum: &str) -> std::io::Result<Option<File>> {
     let mut archive = File::open(path)?;
     if calc_sha2(&mut archive)? != expected_checksum {
         return Ok(None);
@@ -222,12 +235,24 @@ impl OnlineRegistry {
         if !pkg_index.exists() {
             anyhow::bail!("Module {}@{} not found", name, version);
         }
-        let cache_file = cache_of(name, version);
-        if let Ok(Some(archive)) = open_verified_archive(&cache_file, expected_checksum) {
-            if !quiet {
-                eprintln!("Using cached {name}@{version}");
+        let cache_file = self.archive_cache_file_of(name, version);
+        match open_verified_archive(&cache_file, expected_checksum) {
+            Ok(Some(archive)) => {
+                if !quiet {
+                    eprintln!("Using cached {name}@{version}");
+                }
+                return Ok(archive);
             }
-            return Ok(archive);
+            Ok(None) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "Unable to read cached registry archive `{}`",
+                        cache_file.display()
+                    )
+                });
+            }
         }
         if !quiet {
             eprintln!("Downloading {name}@{version}");
@@ -282,13 +307,14 @@ impl OnlineRegistry {
         quiet: bool,
     ) -> anyhow::Result<()> {
         let checksum = self.read_checksum_from_index_file(name, version)?;
-        self.extract_to(name, version, &checksum, pkg_install_dir, quiet)?;
+        self.acquire_source_to(name, version, &checksum, pkg_install_dir, quiet)?;
         execute_postadd_script(pkg_install_dir)?;
         Ok(())
     }
 
-    /// Download and extract a registry package without running `scripts.postadd`.
-    pub fn extract_to(
+    /// Reuse or download, verify, and extract a registry package without
+    /// running `scripts.postadd`.
+    pub fn acquire_source_to(
         &self,
         name: &ModuleName,
         version: &Version,
@@ -310,15 +336,6 @@ impl OnlineRegistry {
     }
 }
 
-fn cache_of(name: &ModuleName, version: &Version) -> std::path::PathBuf {
-    let cache_dir = moonutil::registry::cache();
-
-    cache_dir
-        .join(name.username.as_str())
-        .join(name.unqual.as_str())
-        .join(format!("{version}.zip"))
-}
-
 #[test]
 fn test_urlencode() {
     let s = form_urlencoded::Serializer::new(String::new())
@@ -330,7 +347,8 @@ fn test_urlencode() {
 #[cfg(test)]
 mod tests {
     use std::{
-        io::Read,
+        io::{Cursor, Read, Write},
+        net::TcpListener,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -375,6 +393,120 @@ mod tests {
         assert_eq!(contents, "verified archive");
     }
 
+    fn test_registry(sandbox: &tempfile::TempDir) -> (OnlineRegistry, ModuleName, Version) {
+        let name: ModuleName = "test/module".into();
+        let version = Version::new(1, 2, 3);
+        let index = sandbox.path().join("index");
+        let index_file = index.join("user/test/module.index");
+        std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
+        std::fs::write(&index_file, "registry entry exists").unwrap();
+        (
+            OnlineRegistry {
+                index,
+                url_base: String::new(),
+                archive_cache: sandbox.path().join("archive-cache"),
+                cache: RefCell::new(HashMap::new()),
+            },
+            name,
+            version,
+        )
+    }
+
+    fn test_archive() -> Vec<u8> {
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file("moon.mod", zip::write::FileOptions::default())
+            .unwrap();
+        archive
+            .write_all(b"name = \"test/module\"\nversion = \"1.2.3\"\n")
+            .unwrap();
+        archive.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn acquire_source_to_reuses_and_extracts_a_verified_cached_zip() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (registry, name, version) = test_registry(&sandbox);
+        let archive = test_archive();
+        let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
+        let archive_path = registry.archive_cache_file_of(&name, &version);
+        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        std::fs::write(archive_path, archive).unwrap();
+        let destination = sandbox.path().join("source");
+
+        registry
+            .acquire_source_to(&name, &version, &checksum, &destination, true)
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(destination.join("moon.mod")).unwrap(),
+            "name = \"test/module\"\nversion = \"1.2.3\"\n"
+        );
+    }
+
+    #[test]
+    fn acquire_source_to_rejects_cached_and_downloaded_checksum_mismatches() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (mut registry, name, version) = test_registry(&sandbox);
+        let archive = test_archive();
+        let archive_path = registry.archive_cache_file_of(&name, &version);
+        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        std::fs::write(&archive_path, &archive).unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        registry.url_base = format!("http://{}", listener.local_addr().unwrap());
+        let response_archive = archive.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                response_archive.len()
+            )
+            .unwrap();
+            stream.write_all(&response_archive).unwrap();
+        });
+        let destination = sandbox.path().join("source");
+        let expected_checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        let error = registry
+            .acquire_source_to(&name, &version, expected_checksum, &destination, true)
+            .unwrap_err();
+        server.join().unwrap();
+
+        assert!(
+            format!("{error:#}").contains("Checksum mismatch for test/module@1.2.3"),
+            "{error:#}"
+        );
+        assert!(!destination.join("moon.mod").exists());
+        assert_eq!(std::fs::read(archive_path).unwrap(), archive);
+    }
+
+    #[test]
+    fn acquire_source_to_reports_cached_archive_io_errors() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (registry, name, version) = test_registry(&sandbox);
+        let archive_path = registry.archive_cache_file_of(&name, &version);
+        std::fs::create_dir_all(&archive_path).unwrap();
+        let destination = sandbox.path().join("source");
+
+        let error = registry
+            .acquire_source_to(
+                &name,
+                &version,
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                &destination,
+                true,
+            )
+            .unwrap_err();
+
+        assert!(
+            format!("{error:#}").contains("Unable to read cached registry archive"),
+            "{error:#}"
+        );
+        assert!(!destination.join("moon.mod").exists());
+    }
+
     fn temp_index_dir() -> std::path::PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -401,6 +533,7 @@ mod tests {
         let registry = OnlineRegistry {
             index: index.clone(),
             url_base: String::new(),
+            archive_cache: index.join("archive-cache"),
             cache: RefCell::new(HashMap::new()),
         };
         let versions = registry

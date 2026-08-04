@@ -180,7 +180,7 @@ impl Registry for MockRegistry {
         panic!("Mock registry does not support installing")
     }
 
-    fn extract_to(
+    fn acquire_source_to(
         &self,
         _name: &ModuleName,
         _version: &Version,
@@ -191,7 +191,11 @@ impl Registry for MockRegistry {
         panic!("Mock registry does not support extracting sources")
     }
 
-    fn source_checksum(&self, _name: &ModuleName, _version: &Version) -> anyhow::Result<String> {
+    fn source_archive_checksum(
+        &self,
+        _name: &ModuleName,
+        _version: &Version,
+    ) -> anyhow::Result<String> {
         panic!("Mock registry does not provide source checksums")
     }
 }
