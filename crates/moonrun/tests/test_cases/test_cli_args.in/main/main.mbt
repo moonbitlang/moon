@@ -17,7 +17,17 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 fn main {
+  check_lossless_utf16_round_trip()
   let args = get_args()
+  let reader_args = get_args_from_reader()
+  if args.length() != reader_args.length() {
+    abort("String-array reader returned the wrong number of arguments")
+  }
+  for i in 0..<args.length() {
+    if args[i] != reader_args[i] {
+      abort("String-array reader returned different arguments")
+    }
+  }
   if args.length() > 1 && args[1] == "exit-7" {
     exit_with_code(7)
   }
@@ -71,6 +81,28 @@ fn JSArray::op_get(self : JSArray, idx : Int) -> JSValue {
   return array_get(self, idx)
 }
 
+#external
+type StringArrayReadHandle
+
+fn begin_read_string_array(arr : JSArray) -> StringArrayReadHandle = "__moonbit_fs_unstable" "begin_read_string_array"
+
+fn string_array_read_string(handle : StringArrayReadHandle) -> ExternString = "__moonbit_fs_unstable" "string_array_read_string"
+
+fn finish_read_string_array(handle : StringArrayReadHandle) = "__moonbit_fs_unstable" "finish_read_string_array"
+
+fn get_args_from_reader() -> Array[String] {
+  let handle = begin_read_string_array(args_get())
+  let result = []
+  while true {
+    let value = string_from_extern(string_array_read_string(handle))
+    if value == "ffi_end_of_/string_array" {
+      break
+    }
+    result.push(value)
+  }
+  finish_read_string_array(handle)
+  result
+}
 
 
 #external
@@ -85,6 +117,8 @@ type ExternString
 fn begin_create_string() -> StringCreateHandle = "__moonbit_fs_unstable" "begin_create_string"
 
 fn string_append_char(handle : StringCreateHandle, ch : Char) = "__moonbit_fs_unstable" "string_append_char"
+
+fn string_append_code_unit(handle : StringCreateHandle, code_unit : Int) = "__moonbit_fs_unstable" "string_append_char"
 
 fn finish_create_string(handle : StringCreateHandle) -> ExternString = "__moonbit_fs_unstable" "finish_create_string"
 
@@ -101,6 +135,24 @@ fn begin_read_string(s : ExternString) -> StringReadHandle = "__moonbit_fs_unsta
 fn string_read_char(handle : StringReadHandle) -> Int = "__moonbit_fs_unstable" "string_read_char"
 
 fn finish_read_string(handle : StringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
+
+fn check_lossless_utf16_round_trip() -> Unit {
+  let builder = begin_create_string()
+  let expected = [0x61, 0xd800, 0x62, 0xdc00, 0xd83d, 0xde00]
+  for code_unit in expected {
+    string_append_code_unit(builder, code_unit)
+  }
+  let reader = begin_read_string(finish_create_string(builder))
+  for code_unit in expected {
+    if string_read_char(reader) != code_unit {
+      abort("Extern string did not preserve its UTF-16 code units")
+    }
+  }
+  if string_read_char(reader) != -1 {
+    abort("Extern string reader did not stop at the end")
+  }
+  finish_read_string(reader)
+}
 
 fn string_from_extern(e : ExternString) -> String {
   let buf = @buffer.new()
