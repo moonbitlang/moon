@@ -28,7 +28,7 @@ use serde::{Deserialize, Deserializer};
 
 use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend, user_log::UserLog};
 
-const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
+pub(crate) const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,7 +84,7 @@ pub fn read_workspace_file(path: &Path, user_log: &UserLog) -> anyhow::Result<Mo
         .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
     let workspace = parse_workspace_file_content(path, &content)?;
     if workspace.preferred_target.is_some() {
-        user_log.warn(PREFERRED_TARGET_DEPRECATION_WARNING);
+        user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
     }
     Ok(workspace)
 }
@@ -94,7 +94,7 @@ pub fn format_workspace_file(path: &Path, user_log: &UserLog) -> anyhow::Result<
         .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
     let workspace = parse_workspace_file_content(path, &content)?;
     if workspace.preferred_target.is_some() {
-        user_log.warn(PREFERRED_TARGET_DEPRECATION_WARNING);
+        user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
     }
     format_workspace_dsl_for_moon_fmt(&workspace)
 }

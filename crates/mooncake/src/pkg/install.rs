@@ -111,8 +111,17 @@ pub(crate) fn install_impl(
 
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots, user_log)?;
     let dependency_source = dependency_source::select(&dirs.mooncakes_dir, source_cache, &res)?;
-    let dependency_paths =
-        dependency_source.ensure(resolve_config.registry.as_ref(), &res, dont_sync, user_log)?;
+    let dependency_user_log = if output_options.quiet() {
+        user_log.with_level(log::LevelFilter::Error)
+    } else {
+        user_log.clone()
+    };
+    let dependency_paths = dependency_source.ensure(
+        resolve_config.registry.as_ref(),
+        &res,
+        dont_sync,
+        &dependency_user_log,
+    )?;
 
     install_bin_deps(
         output_options.capture_child_output(),

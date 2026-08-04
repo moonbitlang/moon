@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
+    collections::HashSet,
     fmt::Display,
     io::Write,
     sync::{Arc, Mutex},
@@ -65,6 +66,7 @@ enum UserLogDestination {
 pub struct UserLog {
     level: LevelFilter,
     destination: UserLogDestination,
+    emitted_once: Arc<Mutex<HashSet<String>>>,
 }
 
 /// Maps legacy CLI verbosity flags to the shared user-log level.
@@ -85,6 +87,7 @@ impl UserLog {
         Self {
             level,
             destination: UserLogDestination::Stderr,
+            emitted_once: Default::default(),
         }
     }
 
@@ -94,9 +97,18 @@ impl UserLog {
             Self {
                 level,
                 destination: UserLogDestination::Capture(capture.clone()),
+                emitted_once: Default::default(),
             },
             capture,
         )
+    }
+
+    pub fn with_level(&self, level: LevelFilter) -> Self {
+        Self {
+            level,
+            destination: self.destination.clone(),
+            emitted_once: Arc::clone(&self.emitted_once),
+        }
     }
 
     pub fn is_enabled(&self, level: log::Level) -> bool {
@@ -142,6 +154,21 @@ impl UserLog {
                     message: message.to_string(),
                 }),
             UserLogDestination::Capture(_) => {}
+        }
+    }
+
+    pub fn warn_once(&self, message: impl Display) {
+        if self.level < LevelFilter::Warn {
+            return;
+        }
+        let message = message.to_string();
+        if self
+            .emitted_once
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(message.clone())
+        {
+            self.warn(message);
         }
     }
 
@@ -272,6 +299,22 @@ mod tests {
         let (quiet, capture) = UserLog::captured(LevelFilter::Error);
         quiet.status("hidden");
         assert!(capture.take().is_empty());
+    }
+
+    #[test]
+    fn cloned_logs_share_once_warnings_without_quiet_consuming_them() {
+        let (output, capture) = UserLog::captured(LevelFilter::Warn);
+
+        output
+            .with_level(LevelFilter::Error)
+            .warn_once("deprecated option");
+        output.clone().warn_once("deprecated option");
+        output.warn_once("deprecated option");
+
+        let entries = capture.take();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0].level, UserLogEntryLevel::Warning));
+        assert_eq!(entries[0].message, "deprecated option");
     }
 
     #[test]

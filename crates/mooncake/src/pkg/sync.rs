@@ -39,10 +39,20 @@ use semver::Version;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOutputOptions {
+    quiet: bool,
     capture_child_output: bool,
 }
 
 impl SyncOutputOptions {
+    pub fn with_quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
+        self
+    }
+
+    pub fn quiet(self) -> bool {
+        self.quiet
+    }
+
     pub fn with_captured_child_output(mut self, capture: bool) -> Self {
         self.capture_child_output = capture;
         self

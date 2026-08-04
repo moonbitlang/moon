@@ -134,7 +134,7 @@ impl RunOutputVerbosity {
     }
 
     fn sync_output(self) -> SyncOutputOptions {
-        SyncOutputOptions::default()
+        SyncOutputOptions::default().with_quiet(!self.verbose)
     }
 
     fn suppress_build_progress(self) -> bool {
