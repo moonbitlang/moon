@@ -16,8 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::context::ImportContext;
+///|
+fn runtime_exit(code : Int) = "moonbitlang/async" "runtime/exit"
 
-pub(super) fn exit(context: &mut ImportContext<'_, '_>, code: i32) {
-    context.request_exit(code)
+///|
+fn main {
+  runtime_exit(9)
+  println("unreachable")
 }
