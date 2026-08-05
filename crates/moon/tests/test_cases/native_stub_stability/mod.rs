@@ -1,4 +1,4 @@
-use crate::{TestDir, get_stdout};
+use crate::{TestDir, get_stdout, get_stdout_with_envs};
 
 /// Ensure that the C stub linking order is stable and does not change between runs.
 ///
@@ -23,4 +23,35 @@ fn test_native_stub_linking_order_stability() {
             stdout1, stdout
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_native_stub_archive_drops_removed_members_without_clean() {
+    let dir = TestDir::new("native_stub_archive_membership");
+    let cc = which::which("cc").expect("C compiler should be available");
+    let ar = which::which("ar").expect("ar should be available");
+    let envs = [("MOON_CC", cc.as_os_str()), ("MOON_AR", ar.as_os_str())];
+
+    assert_eq!(
+        get_stdout_with_envs(&dir, ["run", "main", "--target", "native"], envs),
+        "1\n"
+    );
+
+    std::fs::write(
+        dir.join("lib/moon.pkg.json"),
+        r#"{
+  "native-stub": [
+    "entry.c",
+    "new.c"
+  ]
+}
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        get_stdout_with_envs(&dir, ["run", "main", "--target", "native"], envs),
+        "2\n"
+    );
 }

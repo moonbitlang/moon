@@ -22,7 +22,7 @@ fn assert_dry_run_graph(
         // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
         *s = s.replace(" -Wno-unused-value", "");
         *s = s.replace(".dylib", ".so");
-        crate::util::normalize_apple_archiver(s);
+        crate::util::normalize_host_archiver(s);
     });
 }
 

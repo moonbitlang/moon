@@ -24,6 +24,8 @@ use std::{
 
 use expect_test::Expect;
 use moonutil::{compiler_flags, target::TargetBackend, text::StringExt};
+#[cfg(unix)]
+use regex::Regex;
 use sha2::{Digest, Sha256};
 
 static MOONRUN_BIN: OnceLock<PathBuf> = OnceLock::new();
@@ -55,23 +57,84 @@ pub(crate) fn moonrun_bin() -> PathBuf {
 }
 
 #[cfg(unix)]
-pub(crate) fn normalize_apple_archiver(s: &mut String) {
-    #[cfg(target_os = "macos")]
-    if let Ok(output) = std::process::Command::new("xcrun")
-        .args(["--find", "libtool"])
-        .output()
-        && output.status.success()
-        && let Some(libtool) = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .map(str::trim)
-    {
-        *s = s.replace(libtool, "/usr/bin/libtool");
-    }
-    *s = s.replace("libtool -static -o", "ar -r -c -s");
-    // Keep the normalized command and its executable input portable together.
-    *s = s.replace("/usr/bin/libtool", "$HOST_AR");
-    *s = s.replace("/usr/bin/ar", "$HOST_AR");
+pub(crate) fn normalize_host_archiver(s: &mut String) {
+    static HOST_ARCHIVER: OnceLock<snapbox::Redactions> = OnceLock::new();
+    static ARCHIVE_CREATE_ARGS: OnceLock<snapbox::Redactions> = OnceLock::new();
+
+    let host_archiver = HOST_ARCHIVER.get_or_init(|| {
+        let mut redactions = snapbox::Redactions::new();
+        redactions
+            .insert("[ARCHIVER]", "/usr/bin/libtool")
+            .expect("valid libtool redaction");
+        redactions
+            .insert("[ARCHIVER]", "/usr/bin/ar")
+            .expect("valid ar redaction");
+        #[cfg(target_os = "macos")]
+        if let Ok(output) = std::process::Command::new("xcrun")
+            .args(["--find", "libtool"])
+            .output()
+            && output.status.success()
+            && let Some(libtool) = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .map(str::trim)
+        {
+            redactions
+                .insert("[ARCHIVER]", libtool.to_owned())
+                .expect("valid xcrun libtool redaction");
+        }
+        redactions
+            .insert(
+                "[ARCHIVER]",
+                Regex::new(r"(?m)^(?<redacted>libtool|ar) ")
+                    .expect("valid bare archiver command regex"),
+            )
+            .expect("valid bare archiver redaction");
+        redactions
+    });
+    *s = host_archiver.redact(s);
+
+    // Redact create arguments only after a recognized host archiver. A build
+    // graph can also contain an explicit package archiver whose arguments must
+    // remain visible in the snapshot.
+    let archive_create_args = ARCHIVE_CREATE_ARGS.get_or_init(|| {
+        let mut redactions = snapbox::Redactions::new();
+        redactions
+            .insert(
+                "[CREATE_ARGS]",
+                Regex::new(r"\[ARCHIVER\] (?<redacted>-static -o|-r -c -s)")
+                    .expect("valid archive create arguments regex"),
+            )
+            .expect("valid archive create arguments redaction");
+        redactions
+    });
+    *s = archive_create_args.redact(s);
+    normalize_archive_fingerprints(s);
+}
+
+#[cfg(unix)]
+pub(crate) fn normalize_archive_fingerprints(s: &mut String) {
+    static ARCHIVE_FINGERPRINTS: OnceLock<snapbox::Redactions> = OnceLock::new();
+    let redactions = ARCHIVE_FINGERPRINTS.get_or_init(|| {
+        let mut redactions = snapbox::Redactions::new();
+        redactions
+            .insert(
+                "[FINGER_PRINT]",
+                Regex::new(r"(?<redacted>-[0-9a-f]{16})\.a")
+                    .expect("valid archive fingerprint regex"),
+            )
+            .expect("valid fingerprint redaction");
+        #[cfg(target_os = "macos")]
+        redactions
+            .insert(
+                "[FINGER_PRINT]",
+                Regex::new(r"libruntime(?<redacted>)\.a")
+                    .expect("valid stable runtime archive regex"),
+            )
+            .expect("valid fingerprint redaction");
+        redactions
+    });
+    *s = redactions.redact(s);
 }
 
 pub(crate) fn toolchain_root_for_tests() -> PathBuf {
@@ -434,16 +497,51 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn normalize_apple_archiver_uses_host_marker_for_commands_and_inputs() {
+    fn normalize_host_archiver_keeps_platform_choices_visible() {
         let mut apple_command = "/usr/bin/libtool -static -o output.a input.o".to_string();
-        super::normalize_apple_archiver(&mut apple_command);
-        assert_eq!(apple_command, "$HOST_AR -r -c -s output.a input.o");
+        super::normalize_host_archiver(&mut apple_command);
+        assert_eq!(apple_command, "[ARCHIVER] [CREATE_ARGS] output.a input.o");
+
+        let mut ar_command = "/usr/bin/ar -r -c -s output.a input.o".to_string();
+        super::normalize_host_archiver(&mut ar_command);
+        assert_eq!(ar_command, "[ARCHIVER] [CREATE_ARGS] output.a input.o");
+
+        let mut custom_archiver = "stubar -r -c -s output.a input.o".to_string();
+        super::normalize_host_archiver(&mut custom_archiver);
+        assert_eq!(custom_archiver, "stubar -r -c -s output.a input.o");
+
+        let mut multiline = "previous command\nlibtool -static -o output.a input.o".to_string();
+        super::normalize_host_archiver(&mut multiline);
+        assert_eq!(
+            multiline,
+            "previous command\n[ARCHIVER] [CREATE_ARGS] output.a input.o"
+        );
 
         for input in ["/usr/bin/libtool", "/usr/bin/ar"] {
             let mut input = input.to_string();
-            super::normalize_apple_archiver(&mut input);
-            assert_eq!(input, "$HOST_AR");
+            super::normalize_host_archiver(&mut input);
+            assert_eq!(input, "[ARCHIVER]");
         }
+
+        for archive in [
+            "./_build/native/debug/build/libruntime.a",
+            "./_build/native/debug/build/libruntime-0123456789abcdef.a",
+        ] {
+            let mut archive = archive.to_string();
+            super::normalize_host_archiver(&mut archive);
+            assert_eq!(
+                archive,
+                "./_build/native/debug/build/libruntime[FINGER_PRINT].a"
+            );
+        }
+
+        let mut explicit_ar_archive =
+            "./_build/native/debug/build/lib/liblib-0123456789abcdef.a".to_string();
+        super::normalize_archive_fingerprints(&mut explicit_ar_archive);
+        assert_eq!(
+            explicit_ar_archive,
+            "./_build/native/debug/build/lib/liblib[FINGER_PRINT].a"
+        );
     }
 
     #[test]

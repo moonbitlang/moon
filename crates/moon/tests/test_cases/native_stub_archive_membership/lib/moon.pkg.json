@@ -1,0 +1,6 @@
+{
+  "native-stub": [
+    "entry.c",
+    "old.c"
+  ]
+}

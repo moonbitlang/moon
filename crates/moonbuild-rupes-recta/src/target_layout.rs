@@ -463,12 +463,13 @@ impl TargetLayout {
                 result.push(format!("libruntime{}", dynamic_library_ext(os)))
             }
             ExecutableArtifact::NativeExecutable | ExecutableArtifact::LlvmExecutable => {
-                let fingerprint = static_archive_fingerprint
-                    .expect("static runtime archive should have a membership fingerprint");
-                result.push(format!(
-                    "libruntime-{fingerprint}{}",
-                    static_library_ext(os)
-                ))
+                let filename = match static_archive_fingerprint {
+                    Some(fingerprint) => {
+                        format!("libruntime-{fingerprint}{}", static_library_ext(os))
+                    }
+                    None => format!("libruntime{}", static_library_ext(os)),
+                };
+                result.push(filename)
             }
         }
         result
@@ -582,21 +583,26 @@ impl TargetLayout {
 
     /// Returns the path for a C stub static library archive.
     ///
-    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/lib{package_name}.a`
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/lib{package_name}[-{fingerprint}].a`
     pub fn c_stub_archive_path(
         &self,
         pkg_list: &DiscoverResult,
         package: PackageId,
         backend: TargetBackend,
         os: OperatingSystem,
+        static_archive_fingerprint: Option<&str>,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(format!(
-            "lib{}{}",
-            pkg_fqn.short_alias(),
-            static_library_ext(os)
-        ));
+        let filename = match static_archive_fingerprint {
+            Some(fingerprint) => format!(
+                "lib{}-{fingerprint}{}",
+                pkg_fqn.short_alias(),
+                static_library_ext(os)
+            ),
+            None => format!("lib{}{}", pkg_fqn.short_alias(), static_library_ext(os)),
+        };
+        base_dir.push(filename);
         base_dir
     }
 
@@ -852,6 +858,9 @@ impl ArtifactPathResolver {
                 ]
             }
             BuildProduct::CStubLibrary { package } => {
+                let BuildAction::ArchiveOrLinkCStubs { info, .. } = action_context else {
+                    unreachable!("C stub library products require C stub archive actions")
+                };
                 if options.executable.uses_tcc_run() {
                     vec![self.target_layout.c_stub_link_dylib_path(
                         packages,
@@ -865,6 +874,7 @@ impl ArtifactPathResolver {
                         *package,
                         options.target_backend(),
                         options.os,
+                        info.static_archive_fingerprint.as_deref(),
                     )]
                 }
             }
@@ -1417,6 +1427,7 @@ mod tests {
             effective_native_toolchain: system_cc_toolchain(),
             cc_flags: Vec::new(),
             link_flags: Vec::new(),
+            static_archive_fingerprint: Some("c-stubs-test".to_string()),
         }
     }
 
@@ -1772,7 +1783,23 @@ mod tests {
             }),
             None,
         );
-        let info = c_stubs_info();
+        let mut info = c_stubs_info();
+        assert_eq!(
+            resolver.paths_for_product(
+                &BuildProduct::CStubLibrary { package },
+                BuildAction::ArchiveOrLinkCStubs {
+                    package,
+                    info: &info,
+                },
+                &packages,
+                &modules,
+                artifact_options(ExecutableArtifact::NativeExecutable),
+            ),
+            vec![PathBuf::from(
+                "_build/native/debug/build/ffi/libffi-c-stubs-test.a"
+            )],
+        );
+        info.static_archive_fingerprint = None;
         assert_eq!(
             resolver.paths_for_product(
                 &BuildProduct::CStubLibrary { package },
@@ -1831,6 +1858,21 @@ mod tests {
             vec![PathBuf::from(
                 "_build/native/debug/build/libruntime-runtime-test.a"
             )],
+        );
+
+        let mut exact_runtime_info = runtime_info();
+        exact_runtime_info.static_archive_fingerprint = None;
+        assert_eq!(
+            resolver.paths_for_product(
+                &BuildProduct::RuntimeLib,
+                BuildAction::BuildRuntimeLib {
+                    info: &exact_runtime_info,
+                },
+                &packages,
+                &modules,
+                static_options,
+            ),
+            vec![PathBuf::from("_build/native/debug/build/libruntime.a")],
         );
 
         assert_eq!(

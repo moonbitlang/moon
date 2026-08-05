@@ -88,7 +88,8 @@ junction = "1"
 
 [dev-dependencies]
 tempfile = "3.6.0"
-snapbox.workspace = true
+regex.workspace = true
+snapbox = { workspace = true, features = ["regex"] }
 expect-test.workspace = true
 escargot.workspace = true
 clap-markdown = "0.1.4"

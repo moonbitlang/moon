@@ -420,6 +420,12 @@ impl CC {
         }
     }
 
+    /// Whether invoking this archiver can leave members from an existing archive
+    /// that are absent from the current input list.
+    pub fn archiver_updates_existing_archive(&self) -> bool {
+        matches!(self.ar_kind, ARKind::GnuAr | ARKind::LlvmAr | ARKind::TccAr)
+    }
+
     pub fn cc_path(&self) -> &str {
         &self.cc_path
     }
@@ -1820,6 +1826,20 @@ mod tests {
             ar_path: "ar".to_string(),
             target_triple: target_triple.map(str::to_string),
             is_env_override: false,
+        }
+    }
+
+    #[test]
+    fn archive_membership_fingerprint_is_limited_to_update_style_archivers() {
+        let mut cc = fake_cc(CCKind::SystemCC, None);
+
+        for ar_kind in [ARKind::GnuAr, ARKind::LlvmAr, ARKind::TccAr] {
+            cc.ar_kind = ar_kind;
+            assert!(cc.archiver_updates_existing_archive());
+        }
+        for ar_kind in [ARKind::AppleLibtool, ARKind::MsvcLib] {
+            cc.ar_kind = ar_kind;
+            assert!(!cc.archiver_updates_existing_archive());
         }
     }
 

@@ -54,7 +54,7 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
-    MakeExecutableInfo,
+    MakeExecutableInfo, c_stub_archive_fingerprint,
     constructor::{BuildPlanConstructor, PackageFileSet},
     runtime_archive_fingerprint,
 };
@@ -891,10 +891,17 @@ impl<'a> BuildPlanConstructor<'a> {
             &mut link_flags,
         );
 
+        let static_archive_fingerprint = (self.build_env.tcc_run().is_none()
+            && effective_native_toolchain
+                .cc()
+                .archiver_updates_existing_archive())
+        .then(|| c_stub_archive_fingerprint(&pkg.c_stub_files));
+
         let c_info = BuildCStubsInfo {
             effective_native_toolchain,
             cc_flags,
             link_flags,
+            static_archive_fingerprint,
         };
         self.res.c_stubs_info.insert(target, c_info);
         self.resolved_node(node);
@@ -1449,8 +1456,11 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             Vec::new()
         };
-        let static_archive_fingerprint = builds_static_archive
-            .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
+        let static_archive_fingerprint = (builds_static_archive
+            && effective_native_toolchain
+                .cc()
+                .archiver_updates_existing_archive())
+        .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
         self.res.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
             source_files,
