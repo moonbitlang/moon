@@ -370,10 +370,10 @@ fn run_check_impl(
     }
 
     // Check if we're running within a project
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
+    let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let (mut dirs, single_file) = match query.probe_project()? {
         ProjectProbe::Found(_) => {
-            let dirs = query.package_dirs(user_log)?;
+            let dirs = query.select(user_log)?.package_dirs()?;
             (dirs, None)
         }
         ProjectProbe::NotFound(not_found) => {

@@ -61,7 +61,6 @@ use moonutil::{
     },
     package::resolve_supported_targets,
     user_log::UserLog,
-    workspace::{canonical_workspace_module_dirs, read_workspace_file},
 };
 use relative_path::{PathExt, RelativePath};
 use tracing::{Level, instrument};
@@ -129,34 +128,9 @@ pub fn discover_local_project(
         source_dir.display()
     );
 
-    let workspace = if let ProjectManifest::Workspace(workspace_manifest_path) = project_manifest {
-        read_workspace_file(workspace_manifest_path)
-            .map(Some)
-            .map_err(|inner| DiscoverError::CantReadLocalWorkspace {
-                path: workspace_manifest_path.to_owned(),
-                inner,
-            })?
-    } else {
-        None
-    };
-    let workspace_root = match project_manifest {
-        ProjectManifest::Workspace(workspace_manifest_path) => workspace_manifest_path
-            .parent()
-            .ok_or_else(|| DiscoverError::CantReadLocalWorkspace {
-                path: workspace_manifest_path.to_owned(),
-                inner: anyhow::anyhow!("workspace manifest path has no parent directory"),
-            })?,
-        ProjectManifest::None | ProjectManifest::Module(_) => source_dir,
-    };
-    let module_dirs = if let Some(workspace) = workspace.as_ref() {
-        canonical_workspace_module_dirs(workspace_root, workspace).map_err(|inner| {
-            DiscoverError::CantReadLocalWorkspace {
-                path: workspace_root.to_owned(),
-                inner,
-            }
-        })?
-    } else {
-        vec![source_dir.to_path_buf()]
+    let module_dirs = match project_manifest {
+        ProjectManifest::Workspace(workspace) => workspace.members().to_vec(),
+        ProjectManifest::None | ProjectManifest::Module(_) => vec![source_dir.to_path_buf()],
     };
 
     let mut root_modules = ResolvedRootModules::with_key();

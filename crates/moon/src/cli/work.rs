@@ -19,7 +19,8 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use moonutil::project::{PackageDirs, WorkRootSelection};
+use moonutil::constants::MOON_WORK;
+use moonutil::project::WorkspaceEditTarget;
 use moonutil::user_log::UserLog;
 
 use super::UniversalFlags;
@@ -65,7 +66,7 @@ pub(crate) fn work_cli(
                 bail!("dry-run is not supported for work init")
             }
 
-            let workspace_root = work_root(&cli, WorkRootSelection::CreateWorkspace, user_log)?;
+            let workspace_root = cli.source_tgt_dir.workspace_creation_root()?;
             mooncake::pkg::init_workspace(&workspace_root, &cmd.paths, cli.quiet, user_log)
         }
         WorkSubcommands::Use(cmd) => {
@@ -73,30 +74,29 @@ pub(crate) fn work_cli(
                 bail!("dry-run is not supported for work use")
             }
 
-            let workspace_root =
-                work_root(&cli, WorkRootSelection::ReuseExistingWorkspace, user_log)?;
-            mooncake::pkg::use_workspace(&workspace_root, &cmd.paths, cli.quiet, user_log)
+            let target = cli
+                .source_tgt_dir
+                .workspace_edit_target(cli.workspace_env.clone(), user_log)?;
+            mooncake::pkg::use_workspace(target, &cmd.paths, cli.quiet, user_log)
         }
         WorkSubcommands::Sync => {
             if cli.dry_run {
                 bail!("dry-run is not supported for work sync")
             }
 
-            let PackageDirs { source_dir, .. } = cli
+            let target = cli
                 .source_tgt_dir
-                .query(cli.workspace_env.clone())?
-                .package_dirs(user_log)?;
-            mooncake::pkg::sync_workspace(&source_dir, cli.quiet, user_log)
+                .workspace_edit_target(cli.workspace_env.clone(), user_log)?;
+            match target {
+                WorkspaceEditTarget::Existing(workspace) => {
+                    mooncake::pkg::sync_workspace(&workspace, cli.quiet, user_log)
+                }
+                WorkspaceEditTarget::CreateAt(root) => Err(anyhow::anyhow!(
+                    "`moon work sync` requires `{}` at `{}`",
+                    MOON_WORK,
+                    root.display()
+                )),
+            }
         }
     }
-}
-
-fn work_root(
-    cli: &UniversalFlags,
-    selection: WorkRootSelection,
-    user_log: &UserLog,
-) -> anyhow::Result<PathBuf> {
-    Ok(cli
-        .source_tgt_dir
-        .work_root(selection, cli.workspace_env.clone(), user_log)?)
 }

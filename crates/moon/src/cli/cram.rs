@@ -121,7 +121,8 @@ fn run_cram_test(
     let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs(user_log)?;
+        .select(user_log)?
+        .package_dirs()?;
     let PackageDirs {
         source_dir,
         target_dir,

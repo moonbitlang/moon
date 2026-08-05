@@ -129,6 +129,9 @@ project paths, the command layer captures user input and passes the result
 forward instead of letting later phases infer it again. In particular:
 
 - project and workspace selection are captured before package discovery;
+- the selected workspace manifest and canonical member list are carried as one
+  completed layout, so dependency sync and package discovery do not reopen
+  `moon.work`;
 - the `.mooncakes` directory is computed during project discovery and passed
   into dependency sync;
 - `$mooncake_bin` is resolved by the command adapter to a `mooncake_bin_dir`

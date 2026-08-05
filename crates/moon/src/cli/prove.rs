@@ -102,24 +102,30 @@ pub(crate) fn run_prove(
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project(user_log)?;
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
     let module_dir = if cmd.path.is_some() {
-        project.selected_module().map(|module| module.root.clone())
+        project
+            .context()
+            .selected_module()
+            .map(|module| module.root.clone())
     } else {
         Some(
             project
+                .context()
                 .selected_module()
                 .map(|module| module.root.clone())
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "`moon prove` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> prove ...`.",
-                        project.root().display(),
+                        project.context().root().display(),
                     )
                 })?,
         )
     };
-    let dirs = query.package_dirs(user_log)?;
+    let dirs = project.package_dirs()?;
     let PackageDirs {
         source_dir: project_root,
         target_dir,

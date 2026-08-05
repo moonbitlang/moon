@@ -108,7 +108,8 @@ pub(crate) fn fetch_cli(
     let source_dir = match cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())
-        .and_then(|mut query| query.package_dirs(user_log))
+        .and_then(|query| query.select(user_log))
+        .and_then(|project| project.package_dirs())
     {
         Ok(PackageDirs { source_dir, .. }) => source_dir,
         Err(_) => std::env::current_dir()?,

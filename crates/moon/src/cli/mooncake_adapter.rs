@@ -131,8 +131,11 @@ fn single_module_mooncake_cli(
     command: &str,
     user_log: &UserLog,
 ) -> anyhow::Result<UniversalFlags> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project(user_log)?;
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
+    let project = project.context();
     if project.selected_module().is_none() {
         bail!(
             "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",

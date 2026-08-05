@@ -52,7 +52,7 @@ pub(crate) fn run_format_workspace(
     cmd: FormatWorkspaceSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let workspace = moonutil::workspace::read_workspace_file(&cmd.old)?;
+    let workspace = moonutil::workspace::MoonWork::read(&cmd.old)?;
     if workspace.preferred_target.is_some() {
         user_log.warn(moonutil::workspace::PREFERRED_TARGET_DEPRECATION_WARNING);
     }

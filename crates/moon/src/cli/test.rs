@@ -350,9 +350,9 @@ fn run_test_impl(
         "starting moon test command"
     );
     // Check if we're running within a project
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
+    let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let dirs = match query.probe_project()? {
-        ProjectProbe::Found(_) => query.package_dirs(user_log)?,
+        ProjectProbe::Found(_) => query.select(user_log)?.package_dirs()?,
         ProjectProbe::NotFound(not_found) => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {

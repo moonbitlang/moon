@@ -32,8 +32,7 @@ use moonutil::{
     },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::{
-        MoonWork, canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
-        write_workspace,
+        MoonWork, WorkspaceEditTarget, WorkspaceLayout, workspace_manifest_path, write_workspace,
     },
     resolution::{
         DependencyEdge, DependencyKind, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
@@ -87,50 +86,27 @@ pub fn init_workspace(
 }
 
 pub fn use_workspace(
-    workspace_root: &Path,
+    target: WorkspaceEditTarget,
     paths: &[PathBuf],
     quiet: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let existing = workspace_manifest_path(workspace_root)
-        .map(|path| read_workspace_file(&path))
-        .transpose()?;
-    let preferred_target = existing
-        .as_ref()
-        .and_then(|workspace| workspace.preferred_target);
-
-    let mut use_paths = Vec::new();
-    let mut member_dirs = BTreeSet::new();
-    if let Some(workspace) = existing.as_ref() {
-        for use_path in &workspace.use_paths {
-            let member_dir = if use_path.is_absolute() {
-                use_path.to_path_buf()
-            } else {
-                workspace_root.join(use_path)
-            };
-            let member_dir = dunce::canonicalize(&member_dir).with_context(|| {
-                format!(
-                    "failed to resolve workspace member `{}` from `{}`",
-                    use_path.display(),
-                    workspace_root.display()
-                )
-            })?;
-            if !member_dir.is_dir() {
-                bail!(
-                    "workspace member `{}` is not a directory",
-                    use_path.display()
-                );
-            }
-            member_dirs.insert(member_dir);
-            use_paths.push(use_path.clone());
-        }
-    }
+    let (workspace_root, preferred_target, mut use_paths, mut member_dirs, existed) = match target {
+        WorkspaceEditTarget::CreateAt(root) => (root, None, Vec::new(), BTreeSet::new(), false),
+        WorkspaceEditTarget::Existing(workspace) => (
+            workspace.root().to_path_buf(),
+            workspace.manifest().preferred_target,
+            workspace.manifest().use_paths.clone(),
+            workspace.members().iter().cloned().collect(),
+            true,
+        ),
+    };
 
     let previous_len = use_paths.len();
     for path in paths {
         let member_dir = resolve_workspace_member(path, user_log)?;
         if member_dirs.insert(member_dir.clone()) {
-            use_paths.push(workspace_use_path(workspace_root, &member_dir));
+            use_paths.push(workspace_use_path(&workspace_root, &member_dir));
         }
     }
 
@@ -138,13 +114,13 @@ pub fn use_workspace(
         use_paths,
         preferred_target,
     };
-    write_workspace(workspace_root, &workspace).context(format!(
+    write_workspace(&workspace_root, &workspace).context(format!(
         "failed to write `{}`",
         workspace_root.join(MOON_WORK).display()
     ))?;
 
     if !quiet {
-        if existing.is_none() {
+        if !existed {
             println!("Created {}", MOON_WORK);
         } else if workspace.use_paths.len() == previous_len {
             println!("{} is already up to date", MOON_WORK);
@@ -156,17 +132,12 @@ pub fn use_workspace(
     Ok(0)
 }
 
-pub fn sync_workspace(source_dir: &Path, quiet: bool, user_log: &UserLog) -> anyhow::Result<i32> {
-    let workspace = workspace_manifest_path(source_dir)
-        .map(|path| read_workspace_file(&path))
-        .transpose()?
-        .context(format!(
-            "`moon work sync` requires `{}` at `{}`",
-            MOON_WORK,
-            source_dir.display()
-        ))?;
-    let member_dirs = canonical_workspace_module_dirs(source_dir, &workspace)?;
-    let roots = workspace_roots(&member_dirs, user_log)?;
+pub fn sync_workspace(
+    workspace: &WorkspaceLayout,
+    quiet: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let roots = workspace_roots(workspace.members(), user_log)?;
     let resolved_env = resolve_workspace(roots, user_log)?;
     let updated = sync_workspace_manifests(&resolved_env)?;
 
@@ -176,7 +147,7 @@ pub fn sync_workspace(source_dir: &Path, quiet: bool, user_log: &UserLog) -> any
         } else {
             println!("Synced workspace manifests:");
             for path in updated {
-                let display = path.strip_prefix(source_dir).unwrap_or(&path);
+                let display = path.strip_prefix(workspace.root()).unwrap_or(&path);
                 println!("{}", display.display());
             }
         }

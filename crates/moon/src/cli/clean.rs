@@ -53,7 +53,8 @@ pub(crate) fn run_clean(
     let src_tgt = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs(user_log)?;
+        .select(user_log)?
+        .package_dirs()?;
 
     let _lock = FileLock::lock(&src_tgt.target_dir)?;
 

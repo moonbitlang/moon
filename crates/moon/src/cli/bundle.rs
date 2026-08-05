@@ -59,7 +59,8 @@ pub(crate) fn run_bundle(
     let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs(output.user_log())?;
+        .select(output.user_log())?
+        .package_dirs()?;
 
     let mut surface_targets = cmd.build_flags.target.clone();
     if cmd.all {

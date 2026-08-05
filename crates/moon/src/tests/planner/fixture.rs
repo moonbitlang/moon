@@ -83,7 +83,8 @@ impl PlanningFixture {
             target_dir: None,
         }
         .query_from(&fixture_dir, WorkspaceEnv::Auto)?
-        .package_dirs(&user_log)?;
+        .select(&user_log)?
+        .package_dirs()?;
         let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
             true,
             false,

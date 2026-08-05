@@ -955,6 +955,30 @@ fn test_member_dir_can_disable_implicit_workspace_mode() {
 }
 
 #[test]
+fn test_workspace_maintenance_uses_local_manifest_when_workspace_mode_is_off() {
+    let dir = same_root_workspace_dir();
+
+    check(
+        get_stdout_with_envs(&dir, ["work", "use", "./dep"], [(MOON_WORK_ENV, "off")]),
+        expect![[r#"
+            moon.work is already up to date
+        "#]],
+    );
+    assert!(
+        std::fs::read_to_string(dir.join("moon.work"))
+            .unwrap()
+            .contains(r#"".""#),
+        "work use must preserve existing members"
+    );
+
+    let stdout = get_stdout_with_envs(&dir, ["work", "sync"], [(MOON_WORK_ENV, "off")]);
+    assert!(
+        stdout.contains("Synced workspace manifests:"),
+        "expected work sync to use the local workspace, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_member_dir_targets_dsl_member_for_tree() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();

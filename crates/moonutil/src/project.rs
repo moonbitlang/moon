@@ -23,10 +23,9 @@
 
 pub use crate::dirs::{
     ModuleRef, PackageDirs, PackageDirsError, ProjectContext, ProjectManifest, ProjectNotFound,
-    ProjectProbe, ProjectQuery, SingleFilePackageDirs, SourceModulePackageDirs, SourceTargetDirs,
-    WorkRootSelection, WorkspaceEnv, WorkspaceRef, current_workspace_env,
+    ProjectProbe, ProjectQuery, SelectedProject, SingleFilePackageDirs, SourceModulePackageDirs,
+    SourceTargetDirs, WorkspaceEditTarget, WorkspaceEnv, WorkspaceLayout, current_workspace_env,
 };
 pub use crate::workspace::{
-    MoonWork, canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
-    write_workspace,
+    MoonWork, canonical_workspace_module_dirs, workspace_manifest_path, write_workspace,
 };

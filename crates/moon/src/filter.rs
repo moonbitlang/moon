@@ -588,7 +588,9 @@ mod tests {
         }
         .query_from(source_dir, WorkspaceEnv::Auto)
         .unwrap()
-        .package_dirs(&user_log)
+        .select(&user_log)
+        .unwrap()
+        .package_dirs()
         .unwrap();
         let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs, &user_log).unwrap();
         moonbuild_rupes_recta::resolve_synced_project(&cfg, synced_env, &user_log).unwrap()

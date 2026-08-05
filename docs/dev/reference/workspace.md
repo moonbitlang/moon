@@ -23,8 +23,9 @@ Workspace support is meant to provide one consistent model for:
 3. deciding whether the command needs one selected member module or the whole
    selected project
 
-The design intentionally avoids a separate enum like "project mode". The source
-of truth is the selected manifest path itself.
+The selected project is represented explicitly. A module selection carries its
+module manifest path; a workspace selection carries one completed workspace
+layout.
 
 ## Manifest Model
 
@@ -46,30 +47,33 @@ A workspace manifest defines:
   - the module directories contained by the workspace
 
 Workspace members are canonicalized relative to the workspace root and deduped.
-`preferred_target` in `moon.work` is deprecated: commands warn when they read
-it, but they do not use it for backend selection. `moon fmt` removes it. Use
+Project discovery reads the selected `moon.work` and resolves its members once;
+dependency sync, package discovery, and workspace maintenance receive that
+completed layout instead of reopening the manifest. `preferred_target` in
+`moon.work` is deprecated: commands warn once when they select that layout, but
+they do not use it for backend selection. `moon fmt` removes it. Use
 module-level `preferred_target` instead.
 
 The workspace root may or may not also contain a module manifest.
 
 ## Selection Result
 
-`SourceTargetDirs` resolves command input into:
+`ProjectQuery` resolves command input into a `SelectedProject` containing:
 
-- `project_manifest_path`
-  - one of `moon.mod`, `moon.mod.json`, or `moon.work`
-- `project_root`
-  - the parent directory of `project_manifest_path`
-- `module_dir`
-  - `Some(member_dir)` when the selected workspace explicitly lists the module
-    containing the command's start point, including a colocated root module
-  - `None` when a workspace was selected without an applicable member module
+- a `ProjectContext`, with:
+  - `project_manifest_path`: one of `moon.mod`, `moon.mod.json`, or `moon.work`
+  - `project_root`: the parent directory of `project_manifest_path`
+  - `module_dir`: `Some(member_dir)` when the selected workspace explicitly
+    lists the module containing the command's start point, including a
+    colocated root module; otherwise `None`
+- a completed workspace layout when `project_manifest_path` is `moon.work`,
+  containing the parsed manifest and canonical member directories
 
-The intended interpretation is simple:
+When commands create `PackageDirs`, this becomes a `ProjectManifest` value:
 
-- `project_manifest_path = moon.mod` or `moon.mod.json`
+- `ProjectManifest::Module(path)`
   - single-module behavior
-- `project_manifest_path = moon.work`
+- `ProjectManifest::Workspace(layout)`
   - workspace behavior
 
 `module_dir` is orthogonal:

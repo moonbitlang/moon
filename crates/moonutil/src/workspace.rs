@@ -39,6 +39,23 @@ pub struct MoonWork {
     pub preferred_target: Option<TargetBackend>,
 }
 
+impl MoonWork {
+    pub fn read(path: &Path) -> anyhow::Result<Self> {
+        if path.file_name().and_then(|name| name.to_str()) != Some(MOON_WORK) {
+            anyhow::bail!(
+                "expected workspace file to be `{}`, got `{}`",
+                MOON_WORK,
+                path.display()
+            );
+        }
+
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
+        parse_workspace_dsl(&content)
+            .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
+    }
+}
+
 fn deserialize_preferred_target<'de, D>(deserializer: D) -> Result<Option<TargetBackend>, D::Error>
 where
     D: Deserializer<'de>,
@@ -71,24 +88,6 @@ pub fn workspace_manifest_path(dir: &Path) -> Option<PathBuf> {
     dsl.exists().then_some(dsl)
 }
 
-pub fn read_workspace_file(path: &Path) -> anyhow::Result<MoonWork> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    parse_workspace_file_content(path, &content)
-}
-
-fn parse_workspace_file_content(path: &Path, content: &str) -> anyhow::Result<MoonWork> {
-    match path.file_name().and_then(|name| name.to_str()) {
-        Some(MOON_WORK) => parse_workspace_dsl(content),
-        _ => anyhow::bail!(
-            "expected workspace file to be `{}`, got `{}`",
-            MOON_WORK,
-            path.display()
-        ),
-    }
-    .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
-}
-
 pub fn write_workspace(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {
     let path = dir.join(MOON_WORK);
     let file = File::create(path)?;
@@ -115,6 +114,12 @@ pub fn canonical_workspace_module_dirs(
                 workspace_root.display()
             )
         })?;
+        if !path.is_dir() {
+            anyhow::bail!(
+                "workspace member `{}` is not a directory",
+                use_path.display()
+            );
+        }
         deduped.insert(path);
     }
 
@@ -201,6 +206,23 @@ mod tests {
 
         assert!(parsed.use_paths.is_empty());
         assert_eq!(parsed.preferred_target, None);
+    }
+
+    #[test]
+    fn workspace_members_must_be_directories() {
+        let workspace_root = tempfile::tempdir().unwrap();
+        std::fs::write(workspace_root.path().join("member.mbt"), "").unwrap();
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from("member.mbt")],
+            preferred_target: None,
+        };
+
+        let error = canonical_workspace_module_dirs(workspace_root.path(), &workspace).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "workspace member `member.mbt` is not a directory"
+        );
     }
 
     #[test]

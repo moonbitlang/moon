@@ -123,7 +123,8 @@ fn run_coverage_clean(cli: UniversalFlags, user_log: &UserLog) -> Result<i32, an
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs(user_log)?;
+        .select(user_log)?
+        .package_dirs()?;
     clean_coverage_artifacts(&src, &tgt)?;
     Ok(0)
 }
@@ -152,7 +153,8 @@ fn run_coverage_report(
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs(output.user_log())?;
+        .select(output.user_log())?
+        .package_dirs()?;
 
     let mut command = coverage_report_command(args.args, &src);
     if cli.dry_run {

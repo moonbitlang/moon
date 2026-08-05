@@ -306,11 +306,12 @@ pub(super) fn install_from_local(
         )
     })?;
 
-    let mut query = cli
+    let project = cli
         .source_tgt_dir
-        .query_from(&input_path, cli.workspace_env.clone())?;
-    let project = query.project(user_log)?;
+        .query_from(&input_path, cli.workspace_env.clone())?
+        .select(user_log)?;
     let module_root = project
+        .context()
         .selected_module()
         .map(|module| module.root)
         .ok_or_else(|| {
@@ -321,7 +322,7 @@ pub(super) fn install_from_local(
                 MOON_MOD_JSON
             )
         })?;
-    let package_dirs = query.package_dirs(user_log)?;
+    let package_dirs = project.package_dirs()?;
 
     let module = moonutil::manifest::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;

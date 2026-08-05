@@ -73,7 +73,8 @@ fn run_fmt_rr(
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs(user_log)?;
+        .select(user_log)?
+        .package_dirs()?;
 
     let resolved =
         moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, &project_manifest, user_log)
