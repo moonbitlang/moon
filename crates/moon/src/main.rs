@@ -23,7 +23,7 @@ use std::{
     io::{IsTerminal, Write},
 };
 
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::MoonBuildSubcommands;
 use moonutil::{command_output::CommandOutput, user_log::UserLogCapture};
 
@@ -113,40 +113,58 @@ fn init_tracing(trace_flag: bool, suppress_terminal_output: bool) -> Box<dyn Any
     Box::new(chrome_guard)
 }
 
-fn exit_check_json(
+fn finish_check_json(
     output: &CommandOutput,
     capture: &UserLogCapture,
     outcome: cli::CheckJsonOutcome,
-) -> ! {
+) -> i32 {
     let exit_code = outcome.exit_code();
     if cli::write_check_json(output, capture, outcome).is_err() {
-        std::process::exit(-1);
+        return -1;
     }
-    std::process::exit(exit_code)
+    exit_code
 }
 
 pub fn main() {
     panic::setup_panic_hook();
+    std::process::exit(run());
+}
 
+fn run() -> i32 {
     let raw_args = std::env::args_os().collect::<Vec<_>>();
     if cli::moonx::is_moonx_invocation(&raw_args) {
-        std::process::exit(cli::moonx::run_from_args(&raw_args));
+        return cli::moonx::run_from_args(&raw_args);
     }
     if cli::tool::exec::is_tool_exec(&raw_args) {
-        match cli::tool::exec::run_from_raw_args(&raw_args) {
-            Ok(code) => std::process::exit(code),
+        return match cli::tool::exec::run_from_raw_args(&raw_args) {
+            Ok(code) => code,
             Err(err) => {
                 eprintln!("Error: {err:?}");
-                std::process::exit(-1);
+                -1
             }
-        }
+        };
     }
 
-    let cli = cli::MoonBuildCli::try_parse_from(&raw_args).unwrap_or_else(|err| {
-        cli::exit_if_ide_help_request(&err, &raw_args);
-        cli::exit_if_cram_external_request(&err, &raw_args);
-        err.exit();
-    });
+    let cli = match cli::MoonBuildCli::try_parse_from(&raw_args) {
+        Ok(cli) => cli,
+        Err(err) => {
+            let delegated = match err.kind() {
+                ErrorKind::InvalidSubcommand => cli::run_ide_help_if_requested(&raw_args),
+                ErrorKind::UnknownArgument => cli::run_cram_external_if_requested(&raw_args),
+                _ => None,
+            };
+            if let Some(result) = delegated {
+                return match result {
+                    Ok(code) => code,
+                    Err(err) => {
+                        eprintln!("Error: {err:?}");
+                        -1
+                    }
+                };
+            }
+            err.exit();
+        }
+    };
     let mut flags = cli.flags;
     let subcommand = if cli.version {
         MoonBuildSubcommands::Version(cli::VersionSubcommand {
@@ -160,8 +178,21 @@ pub fn main() {
         let mut stderr = std::io::stderr().lock();
         let _ = cli::MoonBuildCli::command().write_long_help(&mut stderr);
         let _ = writeln!(stderr);
-        std::process::exit(2);
+        return 2;
     };
+    let delegated_name = subcommand.delegated_name();
+    if flags.trace
+        && let Some(delegated_name) = delegated_name
+    {
+        let error = cli::MoonBuildCli::command().error(
+            clap::error::ErrorKind::ArgumentConflict,
+            format!("`--trace` is not supported for delegated command `{delegated_name}`"),
+        );
+        let exit_code = error.exit_code();
+        let _ = error.print();
+        return exit_code;
+    }
+    let owns_tracing = delegated_name.is_none();
     let check_json = matches!(&subcommand, MoonBuildSubcommands::Check(cmd) if cmd.json);
     let (output, check_json_capture) = if check_json {
         let (output, capture) = CommandOutput::captured(flags.user_log_level());
@@ -175,32 +206,32 @@ pub fn main() {
         if let Err(err) = std::env::set_current_dir(dir) {
             let message = format!("failed to change directory to {}: {}", dir.display(), err);
             if let Some(capture) = &check_json_capture {
-                exit_check_json(
+                return finish_check_json(
                     &output,
                     capture,
                     cli::CheckJsonOutcome::from_error(-1, message),
                 );
             }
             output.user_log().error(message);
-            std::process::exit(-1)
+            return -1;
         }
     }
 
-    let _trace_guard = init_tracing(flags.trace, check_json);
+    let _trace_guard = owns_tracing.then(|| init_tracing(flags.trace, check_json));
 
     let (workspace_env, workspace_env_deprecation_warning) =
         match moonutil::project::current_workspace_env() {
             Ok(result) => result,
             Err(err) => {
                 if let Some(capture) = &check_json_capture {
-                    exit_check_json(
+                    return finish_check_json(
                         &output,
                         capture,
                         cli::CheckJsonOutcome::from_error(-1, format!("{err:#}")),
                     );
                 }
                 output.user_log().error(format!("{:?}", err));
-                std::process::exit(-1)
+                return -1;
             }
         };
     flags.workspace_env = workspace_env;
@@ -217,8 +248,7 @@ pub fn main() {
         && cmd.json
     {
         let outcome = cli::run_check_json(&flags, cmd, &output);
-        drop(_trace_guard);
-        exit_check_json(
+        return finish_check_json(
             &output,
             check_json_capture
                 .as_ref()
@@ -266,13 +296,11 @@ pub fn main() {
         External(args) => cli::run_external(args),
     };
 
-    drop(_trace_guard);
-
     match res {
-        Ok(code) => std::process::exit(code),
+        Ok(code) => code,
         Err(e) => {
             output.user_log().error(format!("{:?}", e));
-            std::process::exit(-1);
+            -1
         }
     }
 }

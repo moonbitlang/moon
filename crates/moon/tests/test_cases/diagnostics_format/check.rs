@@ -34,6 +34,23 @@ fn test_moon_check_complete_json_success() {
 }
 
 #[test]
+fn test_moon_check_complete_json_flushes_trace_on_success() {
+    let dir = TestDir::new("warns/deny_warn");
+    let report = parse_complete_json(
+        moon_cmd(&dir)
+            .args(["check", "--json", "--trace", "--sort-input", "-j1"])
+            .assert()
+            .success(),
+    );
+
+    assert_eq!(report["status"], "success");
+    let trace: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("trace.json")).unwrap())
+            .expect("trace should be complete JSON after a successful check");
+    assert!(trace.as_array().is_some_and(|events| !events.is_empty()));
+}
+
+#[test]
 fn test_moon_check_complete_json_compiler_failure() {
     let dir = TestDir::new("dedup_diag_error_limit.in");
     let report = parse_complete_json(
@@ -52,6 +69,30 @@ fn test_moon_check_complete_json_compiler_failure() {
     assert_eq!(report["summary"]["moon_warnings"], 1);
     assert_eq!(report["summary"]["diagnostic_errors"], 1);
     assert_eq!(report["summary"]["diagnostic_warnings"], 3);
+}
+
+#[test]
+fn test_moon_check_complete_json_flushes_trace_on_failure() {
+    let dir = TestDir::new("dedup_diag_error_limit.in");
+    let report = parse_complete_json(
+        moon_cmd(&dir)
+            .args([
+                "check",
+                "--json",
+                "--trace",
+                "--diagnostic-limit",
+                "1",
+                "-j1",
+            ])
+            .assert()
+            .failure(),
+    );
+
+    assert_eq!(report["status"], "failure");
+    let trace: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("trace.json")).unwrap())
+            .expect("trace should be complete JSON after a failed check");
+    assert!(trace.as_array().is_some_and(|events| !events.is_empty()));
 }
 
 #[test]

@@ -67,7 +67,7 @@ pub fn add_latest(
     let pkg_name_str = pkg_name.to_string();
     if pkg_name_str == MOONBITLANG_CORE {
         user_log.warn(format!("no need to add `{MOONBITLANG_CORE}` as dependency"));
-        std::process::exit(0);
+        return Ok(0);
     }
 
     let registry = registry::OnlineRegistry::mooncakes_io();
@@ -118,7 +118,7 @@ pub fn add(
     let pkg_name_str = pkg_name.to_string();
     if pkg_name_str == MOONBITLANG_CORE {
         user_log.warn(format!("no need to add `{MOONBITLANG_CORE}` as dependency"));
-        std::process::exit(0);
+        return Ok(0);
     }
 
     if upgrade {

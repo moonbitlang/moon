@@ -46,7 +46,7 @@ pub struct UniversalFlags {
     #[clap(long, short = 'v', global = true)]
     pub verbose: bool,
 
-    /// Trace the execution of the program
+    /// Record Moon's internal execution trace
     // The module `n2::trace` doesn't suppose parallelism now, so `--trace`
     // should be used in conjunction with `--serial` and `--no-parallelize`.
     #[clap(long, global = true)]

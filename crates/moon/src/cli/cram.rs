@@ -24,7 +24,6 @@ use std::{
 };
 
 use anyhow::Context;
-use clap::error::ErrorKind;
 use clap::{Subcommand, ValueEnum};
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonutil::{
@@ -213,21 +212,12 @@ fn delegate_moon_cram_with_current_dir(
     Ok(process::delegate(&mut command)?.code().unwrap_or(0))
 }
 
-pub(crate) fn exit_if_cram_external_request(err: &clap::Error, raw_args: &[OsString]) {
-    if err.kind() != ErrorKind::UnknownArgument {
-        return;
-    }
-
-    let Some((current_dir, args)) = cram_external_args(raw_args) else {
-        return;
-    };
-    match delegate_moon_cram_with_current_dir(current_dir.as_deref(), args) {
-        Ok(code) => std::process::exit(code),
-        Err(err) => {
-            eprintln!("Error: {err:?}");
-            std::process::exit(-1);
-        }
-    }
+pub(crate) fn run_cram_external_if_requested(raw_args: &[OsString]) -> Option<anyhow::Result<i32>> {
+    let (current_dir, args) = cram_external_args(raw_args)?;
+    Some(delegate_moon_cram_with_current_dir(
+        current_dir.as_deref(),
+        args,
+    ))
 }
 
 fn cram_external_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
@@ -371,7 +361,7 @@ fn display_path_with_executable_dirs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
+    use clap::{Parser, error::ErrorKind};
 
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()

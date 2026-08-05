@@ -94,7 +94,7 @@ fn test_moon_help() {
               -v, --verbose
                       Increase verbosity
                   --trace
-                      Trace the execution of the program
+                      Record Moon's internal execution trace
                   --dry-run
                       Do not actually run the command
               -Z, --unstable-feature <UNSTABLE_FEATURE>
@@ -662,6 +662,44 @@ fn test_external_subcommand_delegation_handles_interrupt() {
         Some(42),
         "fake moon-test-behavior did not handle interrupt itself; status was {status}"
     );
+}
+
+#[test]
+fn test_delegated_commands_reject_trace_before_initializing_tracing() {
+    for args in [
+        &["--trace", "not-a-real-subcommand"][..],
+        &["--trace", "cram", "list"],
+        &["--trace", "runwasm", "not-a-real-package"],
+        &["--trace", "login"],
+        &["--trace", "register"],
+        &["--trace", "publish"],
+        &["--trace", "package"],
+    ] {
+        let dir = TestDir::new_empty();
+        moon_cmd(&dir)
+            .args(args)
+            .assert()
+            .code(2)
+            .stdout_eq("")
+            .stderr_eq(
+                "error: `--trace` is not supported for delegated command `[..]`\n\n\
+                 Usage: moon [OPTIONS] <COMMAND>\n\n\
+                 For more information, try '--help'.\n",
+            );
+        assert!(!dir.join("trace.json").exists());
+    }
+}
+
+#[test]
+fn test_delegated_commands_ignore_moon_trace_environment() {
+    let dir = TestDir::new_empty();
+    moon_cmd(&dir)
+        .env("MOON_TRACE", "trace")
+        .arg("not-a-real-subcommand")
+        .assert()
+        .failure();
+
+    assert!(!dir.join("trace.json").exists());
 }
 
 #[test]
@@ -1245,7 +1283,7 @@ fn test_moon_explain_without_flags_shows_guidance() {
                   --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`
               -q, --quiet                    Suppress output
               -v, --verbose                  Increase verbosity
-                  --trace                    Trace the execution of the program
+                  --trace                    Record Moon's internal execution trace
                   --dry-run                  Do not actually run the command
 
             Resources:

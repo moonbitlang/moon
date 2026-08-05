@@ -160,6 +160,27 @@ pub(crate) enum MoonBuildSubcommands {
     #[clap(external_subcommand)]
     External(Vec<String>),
 }
+
+impl MoonBuildSubcommands {
+    /// Return the delegated command name when Moon does not own its complete
+    /// tracing lifecycle.
+    ///
+    /// Delegated commands hand control to another executable, so accepting
+    /// `--trace` would either produce an incomplete Moon trace or imply that
+    /// Moon can observe work performed inside the delegated process.
+    pub(crate) fn delegated_name(&self) -> Option<&'static str> {
+        match self {
+            Self::RunWasm(_) => Some("runwasm"),
+            Self::Cram(_) => Some("cram"),
+            Self::Login(_) => Some("login"),
+            Self::Register(_) => Some("register"),
+            Self::Publish(_) => Some("publish"),
+            Self::Package(_) => Some("package"),
+            Self::External(_) => Some("external"),
+            _ => None,
+        }
+    }
+}
 #[test]
 fn gen_docs_for_moon_help_page() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();

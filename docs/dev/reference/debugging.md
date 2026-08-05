@@ -67,4 +67,10 @@ For timing/task/thread details, set `MOON_TRACE=<level>`
 Moon writes a Chromium trace JSON file to the working directory;
 open it in <https://ui.perfetto.dev> to inspect the timeline.
 
+Tracing covers commands whose execution lifecycle is owned by Moon. Commands
+that delegate their work to another executable reject an explicit `--trace`
+instead of producing an incomplete trace; `MOON_TRACE` is ignored for those
+commands. Cross-process tracing requires a separate propagation and collection
+protocol and is not implied by process passthrough.
+
 [tracing]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html

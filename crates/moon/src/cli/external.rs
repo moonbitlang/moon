@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context as _, bail};
-use clap::error::ErrorKind;
 use std::{
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
@@ -80,21 +79,9 @@ fn run_external_command(
     process::delegate(cmd.args(args))
 }
 
-pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString]) {
-    if err.kind() != ErrorKind::InvalidSubcommand {
-        return;
-    }
-
-    let Some((current_dir, args)) = ide_help_args(raw_args) else {
-        return;
-    };
-    match run_external_help("ide", current_dir.as_deref(), args) {
-        Ok(code) => std::process::exit(code),
-        Err(err) => {
-            eprintln!("Error: {err:?}");
-            std::process::exit(-1);
-        }
-    }
+pub(crate) fn run_ide_help_if_requested(raw_args: &[OsString]) -> Option<anyhow::Result<i32>> {
+    let (current_dir, args) = ide_help_args(raw_args)?;
+    Some(run_external_help("ide", current_dir.as_deref(), args))
 }
 
 fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
