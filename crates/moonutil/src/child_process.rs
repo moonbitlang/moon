@@ -47,7 +47,10 @@ pub fn run_managed_child(
             command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
         }
         ChildOutputMode::Capture => {
-            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
         }
     }
 
@@ -79,40 +82,44 @@ pub fn run_managed_child(
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+
     use log::LevelFilter;
 
     use super::{ChildOutputMode, run_managed_child};
     use crate::user_log::{UserLog, UserLogEntryLevel};
 
+    const EMIT_HELPER_ENV: &str = "MOON_CHILD_OUTPUT_EMIT_HELPER";
     const INHERIT_HELPER_ENV: &str = "MOON_CHILD_OUTPUT_INHERIT_HELPER";
+    const CAPTURE_STDIN_HELPER_ENV: &str = "MOON_CHILD_OUTPUT_CAPTURE_STDIN_HELPER";
 
     fn emitting_command(success: bool) -> std::process::Command {
-        #[cfg(unix)]
-        {
-            let mut command = std::process::Command::new("/bin/sh");
-            command.args([
-                "-c",
-                if success {
-                    "printf CHILD_STDOUT; printf CHILD_STDERR >&2"
-                } else {
-                    "printf CHILD_STDOUT; printf CHILD_STDERR >&2; exit 7"
-                },
-            ]);
-            command
-        }
-        #[cfg(windows)]
-        {
-            let mut command = std::process::Command::new("cmd");
-            command.args([
-                "/C",
-                if success {
-                    "<nul set /p =CHILD_STDOUT & <nul set /p =CHILD_STDERR 1>&2"
-                } else {
-                    "<nul set /p =CHILD_STDOUT & <nul set /p =CHILD_STDERR 1>&2 & exit /b 7"
-                },
-            ]);
-            command
-        }
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "child_process::tests::emit_helper",
+                "--nocapture",
+            ])
+            .env(EMIT_HELPER_ENV, success.to_string());
+        command
+    }
+
+    #[test]
+    fn emit_helper() -> Result<(), &'static str> {
+        let Ok(success) = std::env::var(EMIT_HELPER_ENV) else {
+            return Ok(());
+        };
+
+        print!("CHILD_STDOUT");
+        eprint!("CHILD_STDERR");
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        success
+            .parse::<bool>()
+            .unwrap()
+            .then_some(())
+            .ok_or("requested failure")
     }
 
     #[test]
@@ -135,8 +142,73 @@ mod tests {
             } else {
                 matches!(entry.level, UserLogEntryLevel::Error)
             }));
-            assert!(entries[0].message.contains("stdout:\nCHILD_STDOUT"));
-            assert!(entries[1].message.contains("stderr:\nCHILD_STDERR"));
+            assert!(
+                entries[0]
+                    .message
+                    .starts_with("test child wrote to stdout:\n")
+            );
+            assert!(entries[0].message.contains("CHILD_STDOUT"));
+            assert!(
+                entries[1]
+                    .message
+                    .starts_with("test child wrote to stderr:\n")
+            );
+            assert!(entries[1].message.contains("CHILD_STDERR"));
+        }
+    }
+
+    #[test]
+    fn captured_output_closes_child_stdin() {
+        let mut input = tempfile::NamedTempFile::new().unwrap();
+        input.write_all(b"PARENT_STDIN").unwrap();
+
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "child_process::tests::capture_stdin_helper",
+                "--nocapture",
+            ])
+            .env(CAPTURE_STDIN_HELPER_ENV, "1")
+            .stdin(std::fs::File::open(input.path()).unwrap());
+        let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
+
+        let status = run_managed_child(
+            &mut command,
+            ChildOutputMode::Capture,
+            &user_log,
+            "test child",
+        )
+        .unwrap();
+
+        assert!(status.success());
+        let entries = capture.take();
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.message.contains("STDIN_EOF")),
+            "captured child inherited parent input: {entries:#?}"
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| !entry.message.contains("PARENT_STDIN")),
+            "captured child consumed parent input: {entries:#?}"
+        );
+    }
+
+    #[test]
+    fn capture_stdin_helper() {
+        if std::env::var_os(CAPTURE_STDIN_HELPER_ENV).is_none() {
+            return;
+        }
+
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).unwrap();
+        if input.is_empty() {
+            print!("STDIN_EOF");
+        } else {
+            print!("STDIN:{input}");
         }
     }
 
