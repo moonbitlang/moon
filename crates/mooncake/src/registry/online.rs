@@ -220,6 +220,26 @@ fn copy_archive_and_verify_checksum(
     Ok(())
 }
 
+fn persist_verified_archive(
+    source: &mut impl Read,
+    cache_file: &Path,
+    name: &ModuleName,
+    version: &Version,
+    expected_checksum: &str,
+) -> anyhow::Result<File> {
+    let parent = cache_file
+        .parent()
+        .expect("registry cache file has a parent");
+    std::fs::create_dir_all(parent)?;
+    let mut archive = tempfile::NamedTempFile::new_in(parent)?;
+    copy_archive_and_verify_checksum(source, &mut archive, name, version, expected_checksum)?;
+    archive.flush()?;
+    archive.as_file_mut().sync_all()?;
+    let mut archive = archive.persist(cache_file).map_err(|error| error.error)?;
+    archive.rewind()?;
+    Ok(archive)
+}
+
 impl OnlineRegistry {
     fn read_checksum_from_index_file(
         &self,
@@ -296,22 +316,7 @@ impl OnlineRegistry {
             .send()?
             .error_for_status()?;
 
-        let parent = cache_file
-            .parent()
-            .expect("registry cache file has a parent");
-        std::fs::create_dir_all(parent)?;
-        let mut archive = tempfile::NamedTempFile::new_in(parent)?;
-        copy_archive_and_verify_checksum(
-            &mut response,
-            &mut archive,
-            name,
-            version,
-            expected_checksum,
-        )?;
-        archive.flush()?;
-        let mut archive = archive.persist(&cache_file).map_err(|error| error.error)?;
-        archive.rewind()?;
-        Ok(archive)
+        persist_verified_archive(&mut response, &cache_file, name, version, expected_checksum)
     }
 
     pub fn install_to_impl(
@@ -507,6 +512,27 @@ mod tests {
             "{error:#}"
         );
         assert_eq!(downloaded, archive);
+    }
+
+    #[test]
+    fn checksum_mismatch_does_not_publish_archive_cache_file() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let cache_file = sandbox.path().join("archive.zip");
+        let archive = test_archive();
+        let name: ModuleName = "test/module".into();
+        let version = Version::new(1, 2, 3);
+
+        let error = persist_verified_archive(
+            &mut Cursor::new(&archive),
+            &cache_file,
+            &name,
+            &version,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap_err();
+
+        assert!(format!("{error:#}").contains("Checksum mismatch for test/module@1.2.3"));
+        assert!(!cache_file.exists());
     }
 
     #[test]
