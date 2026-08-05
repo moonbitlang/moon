@@ -24,15 +24,52 @@ pub mod path;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use indexmap::IndexMap;
-use moonutil::dependency::SourceDependencyInfo;
-use moonutil::resolution::ModuleName;
-use moonutil::user_log::UserLog;
+use moonutil::{
+    child_process::ChildOutputMode, dependency::SourceDependencyInfo, resolution::ModuleName,
+    scripts::execute_postadd_script, user_log::UserLog,
+};
 pub use online::*;
 use semver::Version;
 
 #[derive(Debug, Clone, Default)]
 pub struct RegistryVersionInfo {
     pub deps: IndexMap<String, SourceDependencyInfo>,
+}
+
+/// Install a registry package and run its package-controlled setup hook.
+///
+/// Registry adapters only acquire verified source. This module owns the
+/// separate execution policy required by `scripts.postadd`.
+pub struct RegistryPackageInstaller<'a> {
+    registry: &'a dyn Registry,
+    child_output: ChildOutputMode,
+    user_log: &'a UserLog,
+}
+
+impl<'a> RegistryPackageInstaller<'a> {
+    pub fn new(
+        registry: &'a dyn Registry,
+        child_output: ChildOutputMode,
+        user_log: &'a UserLog,
+    ) -> Self {
+        Self {
+            registry,
+            child_output,
+            user_log,
+        }
+    }
+
+    pub fn install_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        to: &Path,
+    ) -> anyhow::Result<()> {
+        let checksum = self.registry.source_archive_checksum(name, version)?;
+        self.registry
+            .acquire_source_to(name, version, &checksum, to, self.user_log)?;
+        execute_postadd_script(to, self.child_output, self.user_log)
+    }
 }
 
 pub trait Registry {
@@ -71,14 +108,6 @@ pub trait Registry {
             .map(|(version, _)| version.clone())
     }
 
-    fn install_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()>;
-
     /// Ensure the published source archive is available, verify it against the
     /// checksum selected by the caller, and extract it without executing
     /// package-controlled hooks such as `scripts.postadd`.
@@ -112,16 +141,6 @@ where
         name: &ModuleName,
     ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         (**self).all_versions_of(name)
-    }
-
-    fn install_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        (**self).install_to(name, version, to, user_log)
     }
 
     fn acquire_source_to(
@@ -161,16 +180,6 @@ where
         name: &ModuleName,
     ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         (**self).all_versions_of(name)
-    }
-
-    fn install_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        (**self).install_to(name, version, to, user_log)
     }
 
     fn acquire_source_to(

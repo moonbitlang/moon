@@ -24,6 +24,7 @@ use indexmap::IndexMap;
 use moonutil::{
     build_options::{MoonbuildOpt, MooncOpt},
     cache::CacheRoot,
+    child_process::ChildOutputMode,
     cli_support::AutoSyncFlags,
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
@@ -35,28 +36,8 @@ use semver::Version;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOutputOptions {
-    quiet: bool,
-    capture_child_output: bool,
-}
-
-impl SyncOutputOptions {
-    pub fn with_quiet(mut self, quiet: bool) -> Self {
-        self.quiet = quiet;
-        self
-    }
-
-    pub fn quiet(self) -> bool {
-        self.quiet
-    }
-
-    pub fn with_captured_child_output(mut self, capture: bool) -> Self {
-        self.capture_child_output = capture;
-        self
-    }
-
-    pub fn capture_child_output(self) -> bool {
-        self.capture_child_output
-    }
+    pub quiet: bool,
+    pub child_output: ChildOutputMode,
 }
 
 /// Given the specified source directory, resolve the module dependency relation

@@ -33,7 +33,9 @@ use anyhow::Context;
 use log::LevelFilter;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
+use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::build_options::RunMode;
+use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::cli_support::UniversalFlags;
 use moonutil::command_output::CommandOutput;
@@ -494,7 +496,14 @@ fn run_check_for_single_file_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_captured_sync_child_output(cmd.json);
+    .with_sync_output(SyncOutputOptions {
+        quiet: false,
+        child_output: if cmd.json {
+            ChildOutputMode::Capture
+        } else {
+            ChildOutputMode::Inherit
+        },
+    });
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         dirs,
@@ -688,7 +697,14 @@ fn run_check_normal_internal_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_captured_sync_child_output(json.is_some());
+    .with_sync_output(SyncOutputOptions {
+        quiet: false,
+        child_output: if json.is_some() {
+            ChildOutputMode::Capture
+        } else {
+            ChildOutputMode::Inherit
+        },
+    });
     let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs, user_log)
         .context("Failed to calculate build plan")?;
     let resolve_output =

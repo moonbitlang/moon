@@ -25,10 +25,11 @@ use moonbuild_rupes_recta::{
 };
 use mooncake::{
     pkg::sync::SyncOutputOptions,
-    registry::{OnlineRegistry, Registry, path as registry_path},
+    registry::{OnlineRegistry, Registry, RegistryPackageInstaller, path as registry_path},
 };
 use moonutil::{
     build_options::RunMode,
+    child_process::ChildOutputMode,
     cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::FileLock,
@@ -274,7 +275,11 @@ pub(super) fn install_binary(
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let module_dir = tmp_dir.path();
 
-    registry.install_to(&spec.module_name, &version, module_dir, user_log)?;
+    RegistryPackageInstaller::new(&registry, ChildOutputMode::Inherit, user_log).install_to(
+        &spec.module_name,
+        &version,
+        module_dir,
+    )?;
 
     let filter =
         PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);

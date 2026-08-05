@@ -20,7 +20,11 @@ use std::path::Path;
 
 use anyhow::bail;
 
-use crate::{manifest::read_module_desc_file_in_dir, user_log::UserLog};
+use crate::{
+    child_process::{ChildOutputMode, run_managed_child},
+    manifest::read_module_desc_file_in_dir,
+    user_log::UserLog,
+};
 
 pub enum PrePostBuild {
     PreBuild,
@@ -57,7 +61,11 @@ pub fn is_moon_script_ignored(script: IgnoredMoonScript) -> bool {
     std::env::var_os(script.env_var()).is_some()
 }
 
-pub fn execute_postadd_script(dir: &Path, user_log: &UserLog) -> anyhow::Result<()> {
+pub fn execute_postadd_script(
+    dir: &Path,
+    output_mode: ChildOutputMode,
+    user_log: &UserLog,
+) -> anyhow::Result<()> {
     if is_moon_script_ignored(IgnoredMoonScript::Postadd) {
         return Ok(());
     }
@@ -75,43 +83,13 @@ pub fn execute_postadd_script(dir: &Path, user_log: &UserLog) -> anyhow::Result<
             let args = &postadd[1..];
             let mut process = std::process::Command::new(command);
             process.args(args).current_dir(dir);
-            if user_log.is_captured() {
-                let output = process.output()?;
-                for (channel, content) in [
-                    ("stdout", output.stdout.as_slice()),
-                    ("stderr", output.stderr.as_slice()),
-                ] {
-                    let content = String::from_utf8_lossy(content);
-                    let content = content.trim();
-                    if content.is_empty() {
-                        continue;
-                    }
-                    let message = format!("postadd script wrote to {channel}:\n{content}");
-                    if output.status.success() {
-                        user_log.status(message);
-                    } else {
-                        user_log.error(message);
-                    }
-                }
-                if !output.status.success() {
-                    bail!(
-                        "failed to execute postadd script in {},\ncommand: {}",
-                        dir.display(),
-                        command
-                    );
-                }
-            } else {
-                let status = process
-                    .stdout(std::process::Stdio::inherit())
-                    .stderr(std::process::Stdio::inherit())
-                    .status()?;
-                if !status.success() {
-                    bail!(
-                        "failed to execute postadd script in {},\ncommand: {}",
-                        dir.display(),
-                        command
-                    );
-                }
+            let status = run_managed_child(&mut process, output_mode, user_log, "postadd script")?;
+            if !status.success() {
+                bail!(
+                    "failed to execute postadd script in {},\ncommand: {}",
+                    dir.display(),
+                    command
+                );
             }
         }
     }
@@ -125,7 +103,10 @@ mod tests {
     use log::LevelFilter;
 
     use super::execute_postadd_script;
-    use crate::user_log::{UserLog, UserLogEntryLevel};
+    use crate::{
+        child_process::ChildOutputMode,
+        user_log::{UserLog, UserLogEntryLevel},
+    };
 
     #[test]
     fn captured_postadd_output_is_routed_to_user_log() {
@@ -151,7 +132,7 @@ mod tests {
         .unwrap();
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
 
-        execute_postadd_script(sandbox.path(), &user_log).unwrap();
+        execute_postadd_script(sandbox.path(), ChildOutputMode::Capture, &user_log).unwrap();
 
         let entries = capture.take();
         assert_eq!(entries.len(), 2);
@@ -170,7 +151,8 @@ mod tests {
         .unwrap();
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
 
-        let error = execute_postadd_script(sandbox.path(), &user_log).unwrap_err();
+        let error = execute_postadd_script(sandbox.path(), ChildOutputMode::Capture, &user_log)
+            .unwrap_err();
 
         assert!(
             error

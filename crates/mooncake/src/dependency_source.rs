@@ -25,6 +25,7 @@ use std::path::PathBuf;
 
 use moonutil::{
     cache::CacheRoot,
+    child_process::ChildOutputMode,
     resolution::{DirSyncResult, ModuleSourceKind, ResolvedEnv},
     user_log::UserLog,
 };
@@ -53,6 +54,7 @@ pub(crate) fn select<'a>(
     project_dir: impl Into<PathBuf>,
     cache: &'a CacheRoot,
     resolved: &ResolvedEnv,
+    child_output: ChildOutputMode,
 ) -> anyhow::Result<Box<dyn DependencySource + 'a>> {
     let has_registry_sources = resolved
         .all_modules()
@@ -61,14 +63,17 @@ pub(crate) fn select<'a>(
         return Ok(Box::new(ImmutableDependencySource::new(root)));
     }
 
-    Ok(Box::new(ProjectDependencySource::new(project_dir)))
+    Ok(Box::new(ProjectDependencySource::new(
+        project_dir,
+        child_output,
+    )))
 }
 
 #[cfg(test)]
 mod tests {
     use std::{
         collections::BTreeMap,
-        path::Path,
+        path::{Path, PathBuf},
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -77,6 +82,7 @@ mod tests {
 
     use moonutil::{
         cache::{CacheKind, CacheRoot},
+        child_process::ChildOutputMode,
         manifest::MoonMod,
         resolution::{ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv},
         user_log::UserLog,
@@ -84,6 +90,7 @@ mod tests {
     use semver::Version;
 
     use super::{
+        DependencySource,
         global::{ImmutableDependencySource, SOURCE_ARCHIVE_CHECKSUM_FILE},
         select,
     };
@@ -163,17 +170,6 @@ options(
             )])))
         }
 
-        fn install_to(
-            &self,
-            name: &ModuleName,
-            version: &Version,
-            to: &Path,
-            _user_log: &UserLog,
-        ) -> anyhow::Result<()> {
-            std::fs::create_dir_all(to)?;
-            self.install_source(name, version, to)
-        }
-
         fn acquire_source_to(
             &self,
             name: &ModuleName,
@@ -182,6 +178,7 @@ options(
             to: &Path,
             _user_log: &UserLog,
         ) -> anyhow::Result<()> {
+            std::fs::create_dir_all(to)?;
             self.install_source(name, version, to)?;
             std::fs::write(to.join("acquired-archive-checksum"), expected_checksum)?;
             Ok(())
@@ -232,6 +229,14 @@ options(
         }
     }
 
+    fn select_source<'a>(
+        project_dir: impl Into<PathBuf>,
+        cache: &'a CacheRoot,
+        resolved: &ResolvedEnv,
+    ) -> Box<dyn DependencySource + 'a> {
+        select(project_dir, cache, resolved, ChildOutputMode::Inherit).unwrap()
+    }
+
     #[test]
     fn source_layout_is_canonical() {
         let cache = tempfile::TempDir::new().unwrap();
@@ -250,7 +255,7 @@ options(
         let cache = global_cache(&sandbox.path().join("cache"));
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+        let source = select_source(sandbox.path().join(".mooncakes"), &cache, &resolved);
 
         let first = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -277,7 +282,7 @@ options(
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(true);
         let (resolved, module) = test_env();
-        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+        let source = select_source(sandbox.path().join(".mooncakes"), &cache, &resolved);
         let directory =
             ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
 
@@ -299,7 +304,7 @@ options(
         let cache = global_cache(&sandbox.path().join("cache"));
         let registry = TestRegistry::new(false);
         let (resolved, _) = test_env();
-        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+        let source = select_source(sandbox.path().join(".mooncakes"), &cache, &resolved);
 
         let error = source
             .ensure(&registry, &resolved, true, &user_log())
@@ -322,13 +327,13 @@ options(
 
         std::thread::scope(|scope| {
             let first = scope.spawn(|| {
-                let source = select(&project_dir, &cache, &resolved).unwrap();
+                let source = select_source(&project_dir, &cache, &resolved);
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
             });
             let second = scope.spawn(|| {
-                let source = select(&project_dir, &cache, &resolved).unwrap();
+                let source = select_source(&project_dir, &cache, &resolved);
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
@@ -351,7 +356,7 @@ options(
         let first_registry = TestRegistry::new(false);
         let second_registry = TestRegistry::new(false).with_checksum(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
-        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+        let source = select_source(sandbox.path().join(".mooncakes"), &cache, &resolved);
 
         let first = source
             .ensure(&first_registry, &resolved, false, &user_log())
@@ -382,7 +387,7 @@ options(
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(false).with_checksum_after_first_read(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
-        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+        let source = select_source(sandbox.path().join(".mooncakes"), &cache, &resolved);
 
         let paths = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -410,7 +415,7 @@ options(
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+        let source = select_source(sandbox.path().join(".mooncakes"), &cache, &resolved);
         let directory =
             ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
         std::fs::create_dir_all(&directory).unwrap();
@@ -450,7 +455,7 @@ options(
         let cache = CacheRoot::Disabled;
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let source = select(&project_dir, &cache, &resolved).unwrap();
+        let source = select_source(&project_dir, &cache, &resolved);
 
         let paths = source
             .ensure(&registry, &resolved, false, &user_log())

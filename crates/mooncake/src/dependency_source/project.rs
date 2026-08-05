@@ -26,6 +26,7 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
+    child_process::ChildOutputMode,
     constants::MOONBITLANG_CORE,
     locks::FileLock,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
@@ -34,7 +35,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::Registry;
+use crate::registry::{Registry, RegistryPackageInstaller};
 
 use super::DependencySource;
 
@@ -53,11 +54,15 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
 pub(super) struct ProjectDependencySource {
     path: PathBuf,
+    child_output: ChildOutputMode,
 }
 
 impl ProjectDependencySource {
-    pub(super) fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+    pub(super) fn new(path: impl Into<PathBuf>, child_output: ChildOutputMode) -> Self {
+        Self {
+            path: path.into(),
+            child_output,
+        }
     }
 
     fn path(&self) -> &Path {
@@ -268,6 +273,7 @@ fn sync(
         std::fs::create_dir_all(user_path)?;
     }
     // Finally, Download and install packages that are needed.
+    let installer = RegistryPackageInstaller::new(registry, dep_dir.child_output, user_log);
     for (user, pkgs) in diff.add_pkg {
         for (pkg, version) in pkgs {
             let pkg_path = pkg_to_dir(dep_dir, &user, &pkg);
@@ -279,7 +285,7 @@ fn sync(
             let ModuleSourceKind::Registry = version.source() else {
                 unreachable!()
             };
-            registry.install_to(version.name(), version.version(), &pkg_path, user_log)?;
+            installer.install_to(version.name(), version.version(), &pkg_path)?;
             // TODO: parallelize this
         }
     }

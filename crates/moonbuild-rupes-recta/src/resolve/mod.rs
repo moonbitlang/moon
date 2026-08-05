@@ -302,11 +302,6 @@ impl ResolveConfig {
         self
     }
 
-    pub fn with_captured_sync_child_output(mut self, capture: bool) -> Self {
-        self.sync_output = self.sync_output.with_captured_child_output(capture);
-        self
-    }
-
     pub fn without_bin_deps(mut self) -> Self {
         self.include_bin_deps = false;
         self

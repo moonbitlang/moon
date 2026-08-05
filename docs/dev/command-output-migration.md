@@ -41,6 +41,8 @@ The quiet user-log level follows `UserLog` and suppresses warnings. Default leve
 
 After argument parsing selects a command, commands that promise one complete machine-readable result are a scoped exception to the usual channel mapping: the CLI may construct a capturing `UserLog`, preserve its level filtering and event order, and serialize those events inside the stdout Command Result. Help and argument-parse failures remain on the parser's native output path. Build executors return compiler diagnostics as data for the same final render; they do not receive `CommandOutput`. Such a mode must suppress terminal progress and tracing output so stderr remains empty.
 
+Moon-managed setup children, such as dependency hooks and binary-dependency builds, receive an explicit output mode from that command boundary. Inherit mode remains Process Passthrough. Capture mode pipes both channels and turns non-empty successful output into informational User Logs and failed output into error User Logs. The child-output policy must not be inferred from the `UserLog` destination. User programs remain Process Passthrough in every command mode.
+
 ## Slices and Blocking Edges
 
 ### CO-1: Prove the seam with `moon info`

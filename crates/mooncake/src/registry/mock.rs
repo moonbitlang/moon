@@ -170,16 +170,6 @@ impl Registry for MockRegistry {
             .map(Arc::new)
     }
 
-    fn install_to(
-        &self,
-        _name: &ModuleName,
-        _version: &Version,
-        _to: &std::path::Path,
-        _user_log: &moonutil::user_log::UserLog,
-    ) -> anyhow::Result<()> {
-        panic!("Mock registry does not support installing")
-    }
-
     fn acquire_source_to(
         &self,
         _name: &ModuleName,

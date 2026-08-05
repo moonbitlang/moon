@@ -18,9 +18,10 @@
 
 use anyhow::bail;
 use colored::Colorize;
-use mooncake::registry::Registry;
+use mooncake::registry::{Registry, RegistryPackageInstaller};
 use moonutil::{
-    project::PackageDirs, registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
+    child_process::ChildOutputMode, project::PackageDirs, registry::RegistryConfig,
+    resolution::ModuleName, user_log::UserLog,
 };
 
 use super::UniversalFlags;
@@ -136,7 +137,8 @@ pub(crate) fn fetch_cli(
         println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
     }
 
-    registry.install_to(&pkg_name, &version, &pkg_dir, user_log)?;
+    RegistryPackageInstaller::new(&registry, ChildOutputMode::Inherit, user_log)
+        .install_to(&pkg_name, &version, &pkg_dir)?;
 
     if !cli.quiet {
         println!(
