@@ -8,6 +8,7 @@
   "description": "",
   "source": "src",
   "include": [
+    "moon.mod.json",
     "*.mbt",
     "*.txt"
   ]
