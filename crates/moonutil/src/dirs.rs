@@ -37,17 +37,12 @@ use crate::workspace::{
 
 const COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING: &str = "`moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum WorkspaceEnv {
+    #[default]
     Auto,
     Off,
     Pinned(PathBuf),
-}
-
-impl Default for WorkspaceEnv {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 #[derive(Debug, Error)]
@@ -490,6 +485,10 @@ impl ProjectQuery {
             // normal project selection before a maintenance command edits them.
             self.project_context_from_start_dir()?;
             self.emit_workspace_warnings(user_log);
+            #[expect(
+                clippy::unnecessary_unwrap,
+                reason = "validation must borrow the workspace before it is moved into the result"
+            )]
             return Ok(WorkspaceEditTarget::Existing(
                 self.workspace
                     .expect("workspace was present before maintenance selection"),

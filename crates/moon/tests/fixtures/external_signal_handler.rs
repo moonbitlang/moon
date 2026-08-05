@@ -40,7 +40,8 @@ mod signal {
 
     pub fn install() {
         unsafe {
-            signal(SIGINT, handler as usize);
+            let handler_fn: unsafe extern "C" fn(i32) = handler;
+            signal(SIGINT, handler_fn as usize);
         }
     }
 }

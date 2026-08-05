@@ -215,11 +215,7 @@ mod test {
             .all_versions_of(&"foo/bar".parse().unwrap())
             .unwrap();
         assert_eq!(
-            module
-                .keys()
-                .cloned()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>(),
+            module.keys().map(|x| x.to_string()).collect::<Vec<_>>(),
             vec!["0.1.0", "0.1.2", "0.2.0"]
         )
     }

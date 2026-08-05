@@ -44,7 +44,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cargo cache
         uses: Swatinem/rust-cache@v2
@@ -85,7 +85,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: ${{ env.LINUX_TARGET }}
 

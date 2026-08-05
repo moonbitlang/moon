@@ -135,7 +135,8 @@ fn init_worker_signal_handler() {
     INIT.call_once(|| unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
         let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = nop_signal_handler as usize;
+        let signal_handler: extern "C" fn(i32) = nop_signal_handler;
+        action.sa_sigaction = signal_handler as usize;
         libc::sigemptyset(&mut action.sa_mask);
         action.sa_flags = 0;
         libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut());

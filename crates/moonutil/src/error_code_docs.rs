@@ -27,7 +27,7 @@ pub fn get_error_code_doc(error_code: &str) -> Option<&'static str> {
 
 pub fn get_all_error_code_docs() -> Vec<(&'static str, &'static str)> {
     let mut docs: Vec<_> = ERROR_DOCS.iter().map(|(code, doc)| (*code, *doc)).collect();
-    docs.sort_by(|(left, _), (right, _)| left.cmp(right));
+    docs.sort_by_key(|(code, _)| *code);
     docs
 }
 
@@ -36,6 +36,6 @@ pub fn get_all_attribute_docs() -> Vec<(&'static str, &'static str)> {
         .iter()
         .map(|(attribute, doc)| (*attribute, *doc))
         .collect();
-    docs.sort_by(|(left, _), (right, _)| left.cmp(right));
+    docs.sort_by_key(|(attribute, _)| *attribute);
     docs
 }

@@ -27,7 +27,7 @@ resolver = "2"
 default-members = ["./crates/*"]
 
 [workspace.package]
-rust-version = "1.90"
+rust-version = "1.95"
 edition = "2024"
 
 [workspace.dependencies]
