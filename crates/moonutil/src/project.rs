@@ -27,6 +27,6 @@ pub use crate::dirs::{
     WorkRootSelection, WorkspaceEnv, WorkspaceRef, current_workspace_env,
 };
 pub use crate::workspace::{
-    MoonWork, canonical_workspace_module_dirs, format_workspace, read_workspace_file,
-    workspace_manifest_path, write_workspace,
+    MoonWork, canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
+    write_workspace,
 };

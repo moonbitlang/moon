@@ -32,7 +32,7 @@ use moonutil::{
     cond_expr::OptLevel,
     constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
     manifest::{MoonMod, MoonModRule},
-    package::{MoonPkgGenerate, NativeLinkConfig, SupportedTargetsDeclKind},
+    package::{MoonPkgGenerate, SupportedTargetsDeclKind},
     resolution::ModuleId,
     scripts::{IgnoredMoonScript, is_moon_script_ignored},
     toolchain::{self, BINARIES},
@@ -62,17 +62,6 @@ use super::{
 static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
-
-fn moon_cc_override_fields(native: Option<&NativeLinkConfig>) -> Vec<&'static str> {
-    let mut fields = Vec::new();
-    if native.is_some_and(|native| native.cc.is_some()) {
-        fields.push("`link.native.cc`");
-    }
-    if native.is_some_and(|native| native.stub_cc.is_some()) {
-        fields.push("`link.native.stub-cc`");
-    }
-    fields
-}
 
 #[derive(Clone, Copy)]
 enum DependencyInterfaceMode {
@@ -132,45 +121,52 @@ impl<'a> BuildPlanConstructor<'a> {
         );
     }
 
-    fn effective_native_toolchain(
-        &mut self,
-        package: Option<PackageId>,
-        package_cc: Option<&CC>,
-    ) -> anyhow::Result<Toolchain> {
+    fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
         debug_assert!(self.build_env.target_backend().is_native());
-        let toolchain =
-            if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
-                self.warn_incompatible_windows_msvc_env_override();
-                compiler_flags::windows_msvc_native_toolchain(package_cc)?
-            } else {
-                compiler_flags::effective_native_toolchain(
-                    package_cc,
-                    self.build_env.tcc_run().map(|config| config.internal_tcc()),
-                )?
-            };
-
-        if package_cc.is_some()
-            && toolchain.source() == ToolchainSource::EnvOverride
-            && let Some(package) = package
-        {
-            self.warn_moon_cc_override(package);
+        if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+            self.warn_incompatible_windows_msvc_env_override();
+            return compiler_flags::windows_msvc_native_toolchain(package_cc);
         }
-        Ok(toolchain)
+
+        compiler_flags::effective_native_toolchain(
+            package_cc,
+            self.build_env.tcc_run().map(|config| config.internal_tcc()),
+        )
     }
 
-    fn warn_moon_cc_override(&mut self, package: PackageId) {
-        if !self.warned_moon_cc_overrides.insert(package) {
+    pub(super) fn warn_moon_cc_overrides(&self) {
+        if !self.build_env.target_backend().is_native() {
             return;
         }
 
-        let pkg = self.input.pkg_dirs.get_package(package);
-        let native = pkg.raw.link.as_ref().and_then(|link| link.native.as_ref());
-        let fields = moon_cc_override_fields(native);
-        self.user_log.warn(format!(
-            "`MOON_CC` overrides {} configured by package `{}`.",
-            fields.join(" and "),
-            pkg.fqn
-        ));
+        for (package, pkg) in self.input.pkg_dirs.all_packages(true) {
+            let Some(native) = pkg.raw.link.as_ref().and_then(|link| link.native.as_ref()) else {
+                continue;
+            };
+            let cc_overridden = native.cc.is_some()
+                && self.res.make_executable_info.iter().any(|(target, info)| {
+                    target.package == package
+                        && info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
+                });
+            let stub_cc_overridden = native.stub_cc.is_some()
+                && self.res.c_stubs_info.get(&package).is_some_and(|info| {
+                    info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
+                });
+            let fields = [
+                cc_overridden.then_some("`link.native.cc`"),
+                stub_cc_overridden.then_some("`link.native.stub-cc`"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+            if !fields.is_empty() {
+                self.user_log.warn(format!(
+                    "`MOON_CC` overrides {} configured by package `{}`.",
+                    fields.join(" and "),
+                    pkg.fqn
+                ));
+            }
+        }
     }
 
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
@@ -881,7 +877,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .unwrap_or_default();
 
         let effective_native_toolchain = self
-            .effective_native_toolchain(Some(target), stub_cc.as_ref())
+            .effective_native_toolchain(stub_cc.as_ref())
             .map_err(|e| {
                 BuildPlanConstructError::FailedToSetStubCC(
                     self.new_native_linker_context(e),
@@ -1022,9 +1018,8 @@ impl<'a> BuildPlanConstructor<'a> {
             link_pkgs.push(target.package);
         }
 
-        let effective_native_toolchain = self
-            .effective_native_toolchain(Some(target.package), cc.as_ref())
-            .map_err(|e| {
+        let effective_native_toolchain =
+            self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
                 BuildPlanConstructError::FailedToSetCC(
                     self.new_native_linker_context(e),
                     pkg.fqn.clone().into(),
@@ -1434,10 +1429,9 @@ impl<'a> BuildPlanConstructor<'a> {
         &mut self,
         node: BuildPlanNode,
     ) -> Result<(), BuildPlanConstructError> {
-        let effective_native_toolchain =
-            self.effective_native_toolchain(None, None).map_err(|e| {
-                BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
-            })?;
+        let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
+            BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
+        })?;
         let source_files = toolchain::runtime_source_paths()
             .map_err(BuildPlanConstructError::FailedToFindRuntimeSources)?;
         let builds_static_archive = self.build_env.tcc_run().is_none();
@@ -1925,34 +1919,6 @@ mod tests {
             target_triple: Some(target_triple.to_string()),
             is_env_override: false,
         })
-    }
-
-    fn native_link_config(cc: Option<&str>, stub_cc: Option<&str>) -> NativeLinkConfig {
-        NativeLinkConfig {
-            exports: None,
-            cc: cc.map(str::to_owned),
-            cc_flags: None,
-            cc_link_flags: None,
-            stub_cc: stub_cc.map(str::to_owned),
-            stub_cc_flags: None,
-            stub_cc_link_flags: None,
-            stub_lib_deps: None,
-        }
-    }
-
-    #[test]
-    fn moon_cc_override_warning_groups_fields_per_package() {
-        let both = native_link_config(Some("package-cc"), Some("package-stub-cc"));
-        assert_eq!(
-            moon_cc_override_fields(Some(&both)),
-            vec!["`link.native.cc`", "`link.native.stub-cc`"]
-        );
-
-        let only_stub = native_link_config(None, Some("package-stub-cc"));
-        assert_eq!(
-            moon_cc_override_fields(Some(&only_stub)),
-            vec!["`link.native.stub-cc`"]
-        );
     }
 
     #[test]

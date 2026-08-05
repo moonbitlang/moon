@@ -77,10 +77,6 @@ pub fn read_workspace_file(path: &Path) -> anyhow::Result<MoonWork> {
     parse_workspace_file_content(path, &content)
 }
 
-pub fn format_workspace(workspace: &MoonWork) -> anyhow::Result<String> {
-    format_workspace_dsl_for_moon_fmt(workspace)
-}
-
 fn parse_workspace_file_content(path: &Path, content: &str) -> anyhow::Result<MoonWork> {
     match path.file_name().and_then(|name| name.to_str()) {
         Some(MOON_WORK) => parse_workspace_dsl(content),
@@ -138,7 +134,7 @@ fn parse_workspace_dsl(content: &str) -> anyhow::Result<MoonWork> {
     Ok(workspace)
 }
 
-fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
+pub fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
     let mut out = String::new();
 
     if work.use_paths.is_empty() {
@@ -168,10 +164,6 @@ fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
     }
 
     Ok(out)
-}
-
-fn format_workspace_dsl_for_moon_fmt(work: &MoonWork) -> anyhow::Result<String> {
-    format_workspace_members(work)
 }
 
 fn write_text_with_trailing_newline(writer: &mut impl Write, content: &str) -> anyhow::Result<()> {
@@ -232,7 +224,7 @@ mod tests {
             preferred_target: Some(TargetBackend::WasmGC),
         };
 
-        let json = format_workspace_dsl_for_moon_fmt(&workspace).unwrap();
+        let json = format_workspace_members(&workspace).unwrap();
         assert_eq!(json, "members = [\n  \"./app/main\",\n]\n");
     }
 

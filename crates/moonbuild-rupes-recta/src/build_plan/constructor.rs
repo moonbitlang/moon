@@ -53,7 +53,6 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
     pub(super) warned_incompatible_windows_msvc_env_override: bool,
-    pub(super) warned_moon_cc_overrides: HashSet<PackageId>,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
 
@@ -152,7 +151,6 @@ impl<'a> BuildPlanConstructor<'a> {
             pending: Vec::new(),
             resolved: HashSet::new(),
             warned_incompatible_windows_msvc_env_override: false,
-            warned_moon_cc_overrides: HashSet::new(),
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
             #[cfg(debug_assertions)]
@@ -202,6 +200,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         self.postprocess_coalesce();
+        self.warn_moon_cc_overrides();
 
         Ok(())
     }

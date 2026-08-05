@@ -43,6 +43,8 @@ pub(crate) fn roots_for_selected_module(
         let workspace_root = project_manifest
             .parent()
             .context("workspace manifest path has no parent directory")?;
+        // Project discovery owns workspace deprecation warnings. Package
+        // operations can reread the manifest here without producing output.
         let workspace = read_workspace_file(project_manifest)?;
         let mut roots = ResolvedRootModules::with_key();
         for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
