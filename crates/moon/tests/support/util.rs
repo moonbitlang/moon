@@ -124,12 +124,11 @@ pub(crate) fn normalize_archive_fingerprints(s: &mut String) {
                     .expect("valid archive fingerprint regex"),
             )
             .expect("valid fingerprint redaction");
-        #[cfg(target_os = "macos")]
         redactions
             .insert(
                 "[FINGER_PRINT]",
-                Regex::new(r"libruntime(?<redacted>)\.a")
-                    .expect("valid stable runtime archive regex"),
+                Regex::new(r"libruntime(?<redacted>(?:-[0-9a-f]{16})?)\.a")
+                    .expect("valid runtime archive fingerprint regex"),
             )
             .expect("valid fingerprint redaction");
         redactions

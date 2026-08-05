@@ -1,4 +1,6 @@
-use crate::{TestDir, get_stdout, get_stdout_with_envs};
+#[cfg(unix)]
+use crate::get_stdout_with_envs;
+use crate::{TestDir, get_stdout};
 
 /// Ensure that the C stub linking order is stable and does not change between runs.
 ///
