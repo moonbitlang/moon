@@ -24,17 +24,20 @@ use std::{
 
 pub(crate) struct EarlySubcommand<'a> {
     pub(crate) current_dir: Option<PathBuf>,
+    pub(crate) moon_trace: bool,
     pub(crate) name: &'a OsStr,
     pub(crate) args: &'a [OsString],
 }
 
 /// Locate a top-level subcommand before clap has successfully parsed the CLI.
 ///
-/// Early delegation must interpret global options exactly far enough to derive
-/// the same effective `-C` directory that `main` would apply before a normally
-/// parsed subcommand runs.
+/// Early delegation must interpret global options exactly far enough to apply
+/// the same effective `-C` directory and explicit tracing policy as a normally
+/// parsed subcommand. Once the subcommand is found, its arguments are opaque:
+/// a later `--trace` belongs to the delegated command, not Moon.
 pub(crate) fn early_subcommand(raw_args: &[OsString]) -> Option<EarlySubcommand<'_>> {
     let mut current_dir = None;
+    let mut moon_trace = false;
     let mut index = 1;
     while index < raw_args.len() {
         let arg = &raw_args[index];
@@ -58,9 +61,10 @@ pub(crate) fn early_subcommand(raw_args: &[OsString]) -> Option<EarlySubcommand<
                 if arg.starts_with("--target-dir=")
                     || arg.starts_with("--unstable-feature=")
                     || (arg.starts_with("-Z") && arg.len() > 2) => {}
+            Some("--trace") => moon_trace = true,
             Some(
-                "-V" | "--version" | "-q" | "--quiet" | "-v" | "--verbose" | "--trace"
-                | "--dry-run" | "--build-graph",
+                "-V" | "--version" | "-q" | "--quiet" | "-v" | "--verbose" | "--dry-run"
+                | "--build-graph",
             ) => {}
             Some(arg) if arg.starts_with('-') && !arg.starts_with("--") && arg.len() > 2 => {
                 let mut flags = &arg[1..];
@@ -85,6 +89,7 @@ pub(crate) fn early_subcommand(raw_args: &[OsString]) -> Option<EarlySubcommand<
                 } else if !flags.starts_with('Z') {
                     return Some(EarlySubcommand {
                         current_dir,
+                        moon_trace,
                         name: &raw_args[index],
                         args: &raw_args[index + 1..],
                     });
@@ -93,6 +98,7 @@ pub(crate) fn early_subcommand(raw_args: &[OsString]) -> Option<EarlySubcommand<
             _ => {
                 return Some(EarlySubcommand {
                     current_dir,
+                    moon_trace,
                     name: arg,
                     args: &raw_args[index + 1..],
                 });

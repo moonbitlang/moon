@@ -683,6 +683,8 @@ fn test_external_subcommand_delegation_handles_interrupt() {
 fn test_delegated_commands_reject_trace_before_initializing_tracing() {
     for args in [
         &["--trace", "not-a-real-subcommand"][..],
+        &["--trace", "help", "ide"],
+        &["--trace", "cram", "--version"],
         &["--trace", "cram", "list"],
         &["--trace", "runwasm", "not-a-real-package"],
         &["--trace", "login"],
@@ -843,6 +845,28 @@ fn test_cram_parent_flag_delegates_to_moon_cram() {
         stdout.contains("fake-moon-cram-args=--version"),
         "moon cram parent flags should be handled by moon-cram:\n{stdout}"
     );
+}
+
+#[test]
+fn test_cram_parses_trace_after_delegation_boundary() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "--trace"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("fake-moon-cram-args=--trace"),
+        "trace after `cram` should be handled by moon-cram:\n{stdout}"
+    );
+    assert!(!dir.join("trace.json").exists());
 }
 
 #[test]

@@ -212,22 +212,20 @@ fn delegate_moon_cram_with_current_dir(
     Ok(process::delegate(&mut command)?.code().unwrap_or(0))
 }
 
-pub(crate) fn run_cram_external_if_requested(raw_args: &[OsString]) -> Option<anyhow::Result<i32>> {
-    let (current_dir, args) = cram_external_args(raw_args)?;
-    Some(delegate_moon_cram_with_current_dir(
-        current_dir.as_deref(),
-        args,
-    ))
-}
-
-fn cram_external_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
+pub(crate) fn select_delegated_cram(raw_args: &[OsString]) -> Option<process::EarlySubcommand<'_>> {
     let early = process::early_subcommand(raw_args)?;
-    (early.name == OsStr::new("cram") && is_external_cram_tail(early.args))
-        .then(|| (early.current_dir, early.args.to_vec()))
+    (early.name == OsStr::new("cram") && is_delegated_cram_tail(early.args)).then_some(early)
 }
 
-fn is_external_cram_tail(tail: &[OsString]) -> bool {
-    matches!(tail.first(), Some(arg) if arg != OsStr::new("test"))
+pub(crate) fn run_delegated_cram(command: process::EarlySubcommand<'_>) -> anyhow::Result<i32> {
+    if command.moon_trace {
+        return Ok(super::report_delegated_trace_conflict("cram"));
+    }
+    delegate_moon_cram_with_current_dir(command.current_dir.as_deref(), command.args)
+}
+
+fn is_delegated_cram_tail(tail: &[OsString]) -> bool {
+    matches!(tail.first(), Some(arg) if !matches!(arg.to_str(), Some("test" | "-h" | "--help")))
 }
 
 fn resolve_moon_cram() -> anyhow::Result<PathBuf> {
@@ -367,6 +365,17 @@ mod tests {
         args.iter().map(OsString::from).collect()
     }
 
+    fn select_cram(args: &[&str]) -> Option<(Option<PathBuf>, bool, Vec<OsString>)> {
+        let args = os(args);
+        select_delegated_cram(&args).map(|command| {
+            (
+                command.current_dir,
+                command.moon_trace,
+                command.args.to_vec(),
+            )
+        })
+    }
+
     fn parse_command(args: &[&str]) -> CramCommand {
         CramSubcommand::try_parse_from(std::iter::once("moon cram").chain(args.iter().copied()))
             .unwrap()
@@ -456,52 +465,55 @@ mod tests {
     #[test]
     fn detects_parent_flag_as_external_cram_args() {
         assert_eq!(
-            cram_external_args(&os(&["moon", "cram", "--version"])),
-            Some((None, os(&["--version"])))
+            select_cram(&["moon", "cram", "--version"]),
+            Some((None, false, os(&["--version"])))
         );
     }
 
     #[test]
     fn detects_parent_flag_as_external_cram_args_after_global_flag() {
         assert_eq!(
-            cram_external_args(&os(&["moon", "-q", "cram", "--version"])),
-            Some((None, os(&["--version"])))
+            select_cram(&["moon", "-q", "cram", "--version"]),
+            Some((None, false, os(&["--version"])))
+        );
+    }
+
+    #[test]
+    fn leaves_delegated_trace_for_cram() {
+        assert_eq!(
+            select_cram(&["moon", "cram", "--version", "--trace"]),
+            Some((None, false, os(&["--version", "--trace"])))
+        );
+        assert_eq!(
+            select_cram(&["moon", "--trace", "cram", "--version"]),
+            Some((None, true, os(&["--version"])))
         );
     }
 
     #[test]
     fn detects_parent_flag_as_external_cram_args_after_global_value_flag() {
         assert_eq!(
-            cram_external_args(&os(&[
-                "moon",
-                "--target-dir",
-                "_build-alt",
-                "cram",
-                "--version"
-            ])),
-            Some((None, os(&["--version"])))
+            select_cram(&["moon", "--target-dir", "_build-alt", "cram", "--version"]),
+            Some((None, false, os(&["--version"])))
         );
     }
 
     #[test]
     fn preserves_chdir_for_external_cram_args() {
         assert_eq!(
-            cram_external_args(&os(&["moon", "-Csub", "cram", "--version"])),
-            Some((Some(PathBuf::from("sub")), os(&["--version"])))
+            select_cram(&["moon", "-Csub", "cram", "--version"]),
+            Some((Some(PathBuf::from("sub")), false, os(&["--version"])))
         );
     }
 
     #[test]
     fn ignores_cram_argument_under_other_top_level_subcommand() {
-        assert_eq!(
-            cram_external_args(&os(&["moon", "build", "cram", "--bad-flag"])),
-            None
-        );
+        assert_eq!(select_cram(&["moon", "build", "cram", "--bad-flag"]), None);
     }
 
     #[test]
     fn keeps_builtin_test_parse_errors_in_moon() {
-        assert_eq!(cram_external_args(&os(&["moon", "cram", "test"])), None);
+        assert_eq!(select_cram(&["moon", "cram", "test"]), None);
     }
 
     #[test]

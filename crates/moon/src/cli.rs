@@ -56,6 +56,7 @@ pub(crate) use build::*;
 pub(crate) use build_matrix::*;
 pub(crate) use bundle::*;
 pub(crate) use check::*;
+use clap::CommandFactory;
 pub(crate) use clean::*;
 pub(crate) use coverage::*;
 pub(crate) use cram::*;
@@ -161,28 +162,16 @@ pub(crate) enum MoonBuildSubcommands {
     External(Vec<String>),
 }
 
-impl MoonBuildSubcommands {
-    /// Return the delegated command name when Moon does not own its complete
-    /// tracing lifecycle.
-    ///
-    /// Delegated commands hand control to another executable, so accepting
-    /// `--trace` would either produce an incomplete Moon trace or imply that
-    /// Moon can observe work performed inside the delegated process.
-    pub(crate) fn delegated_name(&self) -> Option<&'static str> {
-        match self {
-            // Local runwasm inputs are selected into `Run` before tracing
-            // ownership is decided, so only registry-asset mode reaches here.
-            Self::RunWasm(_) => Some("runwasm"),
-            Self::Cram(_) => Some("cram"),
-            Self::Login(_) => Some("login"),
-            Self::Register(_) => Some("register"),
-            Self::Publish(_) => Some("publish"),
-            Self::Package(_) => Some("package"),
-            Self::External(_) => Some("external"),
-            _ => None,
-        }
-    }
+pub(crate) fn report_delegated_trace_conflict(delegated_name: &str) -> i32 {
+    let error = MoonBuildCli::command().error(
+        clap::error::ErrorKind::ArgumentConflict,
+        format!("`--trace` is not supported for delegated command `{delegated_name}`"),
+    );
+    let exit_code = error.exit_code();
+    let _ = error.print();
+    exit_code
 }
+
 #[test]
 fn gen_docs_for_moon_help_page() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();

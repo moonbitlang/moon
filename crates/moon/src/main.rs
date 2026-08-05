@@ -40,6 +40,8 @@ mod watch;
 
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
+const FAILURE_EXIT_CODE: i32 = -1;
+
 /// Initialize logging and tracing-related functionality.
 ///
 /// This includes configuration based on multiple flags and configs:
@@ -120,9 +122,19 @@ fn finish_check_json(
 ) -> i32 {
     let exit_code = outcome.exit_code();
     if cli::write_check_json(output, capture, outcome).is_err() {
-        return -1;
+        return FAILURE_EXIT_CODE;
     }
     exit_code
+}
+
+fn finish_command(result: anyhow::Result<i32>, user_log: &moonutil::user_log::UserLog) -> i32 {
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            user_log.error(format!("{error:?}"));
+            FAILURE_EXIT_CODE
+        }
+    }
 }
 
 pub fn main() {
@@ -140,17 +152,18 @@ fn run() -> i32 {
             Ok(code) => code,
             Err(err) => {
                 eprintln!("Error: {err:?}");
-                -1
+                FAILURE_EXIT_CODE
             }
         };
     }
-
     let cli = match cli::MoonBuildCli::try_parse_from(&raw_args) {
         Ok(cli) => cli,
         Err(err) => {
             let delegated = match err.kind() {
                 ErrorKind::InvalidSubcommand => cli::run_ide_help_if_requested(&raw_args),
-                ErrorKind::UnknownArgument => cli::run_cram_external_if_requested(&raw_args),
+                ErrorKind::UnknownArgument => {
+                    cli::select_delegated_cram(&raw_args).map(cli::run_delegated_cram)
+                }
                 _ => None,
             };
             if let Some(result) = delegated {
@@ -158,13 +171,24 @@ fn run() -> i32 {
                     Ok(code) => code,
                     Err(err) => {
                         eprintln!("Error: {err:?}");
-                        -1
+                        FAILURE_EXIT_CODE
                     }
                 };
             }
             err.exit();
         }
     };
+    if !cli.version
+        && let Some(command) = cli::select_delegated_cram(&raw_args)
+    {
+        return match cli::run_delegated_cram(command) {
+            Ok(code) => code,
+            Err(err) => {
+                eprintln!("Error: {err:?}");
+                FAILURE_EXIT_CODE
+            }
+        };
+    }
     let mut flags = cli.flags;
     let subcommand = if cli.version {
         MoonBuildSubcommands::Version(cli::VersionSubcommand {
@@ -196,11 +220,10 @@ fn run() -> i32 {
                 return finish_check_json(
                     &output,
                     capture,
-                    cli::CheckJsonOutcome::from_error(-1, message),
+                    cli::CheckJsonOutcome::from_error(FAILURE_EXIT_CODE, message),
                 );
             }
-            output.user_log().error(message);
-            return -1;
+            return finish_command(Err(anyhow::anyhow!(message)), output.user_log());
         }
     }
 
@@ -209,27 +232,11 @@ fn run() -> i32 {
             Ok(cli::SelectedRunWasm::Local(cmd)) => MoonBuildSubcommands::Run(cmd),
             Ok(cli::SelectedRunWasm::RegistryAsset(cmd)) => MoonBuildSubcommands::RunWasm(cmd),
             Err(err) => {
-                output.user_log().error(format!("{err:?}"));
-                return -1;
+                return finish_command(Err(err), output.user_log());
             }
         },
         subcommand => subcommand,
     };
-    let delegated_name = subcommand.delegated_name();
-    if flags.trace
-        && let Some(delegated_name) = delegated_name
-    {
-        let error = cli::MoonBuildCli::command().error(
-            clap::error::ErrorKind::ArgumentConflict,
-            format!("`--trace` is not supported for delegated command `{delegated_name}`"),
-        );
-        let exit_code = error.exit_code();
-        let _ = error.print();
-        return exit_code;
-    }
-    let owns_tracing = delegated_name.is_none();
-
-    let _trace_guard = owns_tracing.then(|| init_tracing(flags.trace, check_json));
 
     let (workspace_env, workspace_env_deprecation_warning) =
         match moonutil::project::current_workspace_env() {
@@ -239,11 +246,10 @@ fn run() -> i32 {
                     return finish_check_json(
                         &output,
                         capture,
-                        cli::CheckJsonOutcome::from_error(-1, format!("{err:#}")),
+                        cli::CheckJsonOutcome::from_error(FAILURE_EXIT_CODE, format!("{err:#}")),
                     );
                 }
-                output.user_log().error(format!("{:?}", err));
-                return -1;
+                return finish_command(Err(err), output.user_log());
             }
         };
     flags.workspace_env = workspace_env;
@@ -259,6 +265,7 @@ fn run() -> i32 {
     if let MoonBuildSubcommands::Check(cmd) = &subcommand
         && cmd.json
     {
+        let _trace_guard = init_tracing(flags.trace, true);
         let outcome = cli::run_check_json(&flags, cmd, &output);
         return finish_check_json(
             &output,
@@ -269,6 +276,69 @@ fn run() -> i32 {
         );
     }
 
+    let subcommand = match subcommand {
+        MoonBuildSubcommands::RunWasm(command) => {
+            if flags.trace {
+                return cli::report_delegated_trace_conflict("runwasm");
+            }
+            return finish_command(
+                cli::run_runwasm(&flags, command, &output),
+                output.user_log(),
+            );
+        }
+        MoonBuildSubcommands::Cram(command) => {
+            if flags.trace {
+                return cli::report_delegated_trace_conflict("cram");
+            }
+            return finish_command(cli::run_cram(&flags, command, &output), output.user_log());
+        }
+        MoonBuildSubcommands::Login(command) => {
+            if flags.trace {
+                return cli::report_delegated_trace_conflict("login");
+            }
+            return finish_command(
+                cli::mooncake_adapter::login_cli(flags, command),
+                output.user_log(),
+            );
+        }
+        MoonBuildSubcommands::Register(command) => {
+            if flags.trace {
+                return cli::report_delegated_trace_conflict("register");
+            }
+            return finish_command(
+                cli::mooncake_adapter::register_cli(flags, command),
+                output.user_log(),
+            );
+        }
+        MoonBuildSubcommands::Publish(command) => {
+            if flags.trace {
+                return cli::report_delegated_trace_conflict("publish");
+            }
+            return finish_command(
+                cli::mooncake_adapter::publish_cli(flags, command, output.user_log()),
+                output.user_log(),
+            );
+        }
+        MoonBuildSubcommands::Package(command) => {
+            if flags.trace {
+                return cli::report_delegated_trace_conflict("package");
+            }
+            return finish_command(
+                cli::mooncake_adapter::package_cli(flags, command, output.user_log()),
+                output.user_log(),
+            );
+        }
+        MoonBuildSubcommands::External(args) => {
+            if flags.trace {
+                return cli::report_delegated_trace_conflict("external");
+            }
+            return finish_command(cli::run_external(args), output.user_log());
+        }
+        subcommand => subcommand,
+    };
+
+    let _trace_guard = init_tracing(flags.trace, false);
+
     use MoonBuildSubcommands::*;
     let res = match subcommand {
         Add(a) => cli::add_cli(flags, a, output.user_log()),
@@ -278,7 +348,9 @@ fn run() -> i32 {
         Check(c) => cli::run_check(&flags, &c, &output),
         Prove(p) => cli::run_prove(&flags, &p, &output),
         Clean(cmd) => cli::run_clean(&flags, &cmd, output.user_log()),
-        Cram(c) => cli::run_cram(&flags, c, &output),
+        Cram(_) | Login(_) | Register(_) | Publish(_) | Package(_) | RunWasm(_) | External(_) => {
+            unreachable!("delegated commands return before tracing initialization")
+        }
         Coverage(c) => cli::run_coverage(flags, c, &output),
         Doc(d) => cli::run_doc(flags, d, &output),
         Fetch(f) => cli::fetch_cli(flags, f, output.user_log()),
@@ -289,15 +361,10 @@ fn run() -> i32 {
         Info(i) => cli::run_info(flags, i, &output),
         Explain(e) => cli::run_explain(&flags, e),
         Install(i) => cli::install_cli(flags, i, output.user_log()),
-        Login(l) => cli::mooncake_adapter::login_cli(flags, l),
         Whoami(w) => cli::run_whoami(&flags, w),
         New(n) => cli::run_new(&flags, n, output.user_log()),
-        Publish(p) => cli::mooncake_adapter::publish_cli(flags, p, output.user_log()),
-        Package(p) => cli::mooncake_adapter::package_cli(flags, p, output.user_log()),
-        Register(r) => cli::mooncake_adapter::register_cli(flags, r),
         Remove(r) => cli::remove_cli(flags, r, output.user_log()),
         Run(r) => cli::run_run(&flags, r, &output),
-        RunWasm(r) => cli::run_runwasm(&flags, r, &output),
         Test(t) => cli::run_test(flags, t, &output),
         Tree(t) => cli::tree_cli(flags, t, output.user_log()),
         Update(u) => cli::update_cli(flags, u),
@@ -305,14 +372,6 @@ fn run() -> i32 {
         ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
         Version(v) => cli::run_version(&flags, v),
         Tool(v) => cli::run_tool(&flags, v, output.user_log()),
-        External(args) => cli::run_external(args),
     };
-
-    match res {
-        Ok(code) => code,
-        Err(e) => {
-            output.user_log().error(format!("{:?}", e));
-            -1
-        }
-    }
+    finish_command(res, output.user_log())
 }

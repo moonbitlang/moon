@@ -80,11 +80,14 @@ fn run_external_command(
 }
 
 pub(crate) fn run_ide_help_if_requested(raw_args: &[OsString]) -> Option<anyhow::Result<i32>> {
-    let (current_dir, args) = ide_help_args(raw_args)?;
+    let (current_dir, moon_trace, args) = ide_help_args(raw_args)?;
+    if moon_trace {
+        return Some(Ok(super::report_delegated_trace_conflict("ide")));
+    }
     Some(run_external_help("ide", current_dir.as_deref(), args))
 }
 
-fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
+fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, bool, Vec<OsString>)> {
     let early = process::early_subcommand(raw_args)?;
     if early.name != OsStr::new("help") {
         return None;
@@ -98,7 +101,7 @@ fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString
 
     let mut delegated = tail.to_vec();
     delegated.push(OsString::from("--help"));
-    Some((early.current_dir, delegated))
+    Some((early.current_dir, early.moon_trace, delegated))
 }
 
 #[cfg(test)]
@@ -114,7 +117,7 @@ mod tests {
     fn delegates_top_level_help_for_ide() {
         assert_eq!(
             ide_help_args(&os(&["moon", "help", "ide"])),
-            Some((None, os(&["--help"])))
+            Some((None, false, os(&["--help"])))
         );
     }
 
@@ -122,7 +125,7 @@ mod tests {
     fn delegates_subcommand_help_for_ide() {
         assert_eq!(
             ide_help_args(&os(&["moon", "help", "ide", "doc"])),
-            Some((None, os(&["doc", "--help"])))
+            Some((None, false, os(&["doc", "--help"])))
         );
     }
 
@@ -138,7 +141,20 @@ mod tests {
                 "ide",
                 "doc"
             ])),
-            Some((Some(PathBuf::from(".")), os(&["doc", "--help"])))
+            Some((Some(PathBuf::from(".")), true, os(&["doc", "--help"])))
+        );
+    }
+
+    #[test]
+    fn leaves_delegated_trace_for_ide() {
+        assert_eq!(
+            ide_help_args(&os(&["moon", "help", "ide", "--trace"])),
+            Some((None, false, os(&["--trace", "--help"])))
+        );
+
+        assert_eq!(
+            ide_help_args(&os(&["moon", "help", "ide", "--", "--trace"])),
+            Some((None, false, os(&["--", "--trace", "--help"])))
         );
     }
 
