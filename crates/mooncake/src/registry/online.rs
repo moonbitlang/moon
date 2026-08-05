@@ -397,6 +397,69 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn registry_download_returns_error_when_system_proxy_service_is_unavailable() {
+        const CHILD_PROCESS: &str = "MOON_TEST_SYSTEM_PROXY_UNAVAILABLE_CHILD";
+
+        if std::env::var_os(CHILD_PROCESS).is_some() {
+            let sandbox = tempfile::TempDir::new().unwrap();
+            let (mut registry, name, version) = test_registry(&sandbox);
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let unavailable_address = listener.local_addr().unwrap();
+            drop(listener);
+            registry.url_base = format!("http://{unavailable_address}");
+
+            registry
+                .acquire_source_to(
+                    &name,
+                    &version,
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    &sandbox.path().join("source"),
+                    &quiet_user_log(),
+                )
+                .unwrap_err();
+            return;
+        }
+
+        // Apply the macOS profile to a child process, then run only this test there.
+        let mut child = std::process::Command::new("/usr/bin/sandbox-exec");
+        child
+            .args([
+                "-p",
+                r#"(version 1)
+(allow default)
+(deny mach-lookup (global-name "com.apple.SystemConfiguration.configd"))"#,
+            ])
+            .arg(std::env::current_exe().unwrap())
+            .args([
+                "registry_download_returns_error_when_system_proxy_service_is_unavailable",
+                "--nocapture",
+            ])
+            .env(CHILD_PROCESS, "1");
+        for name in [
+            "ALL_PROXY",
+            "all_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "NO_PROXY",
+            "no_proxy",
+        ] {
+            child.env_remove(name);
+        }
+
+        let output = child.output().unwrap();
+        assert!(
+            output.status.success(),
+            "sandboxed registry download failed with {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn verified_archive_handle_survives_cache_path_replacement() {
