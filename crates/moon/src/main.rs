@@ -180,19 +180,6 @@ fn run() -> i32 {
         let _ = writeln!(stderr);
         return 2;
     };
-    let delegated_name = subcommand.delegated_name();
-    if flags.trace
-        && let Some(delegated_name) = delegated_name
-    {
-        let error = cli::MoonBuildCli::command().error(
-            clap::error::ErrorKind::ArgumentConflict,
-            format!("`--trace` is not supported for delegated command `{delegated_name}`"),
-        );
-        let exit_code = error.exit_code();
-        let _ = error.print();
-        return exit_code;
-    }
-    let owns_tracing = delegated_name.is_none();
     let check_json = matches!(&subcommand, MoonBuildSubcommands::Check(cmd) if cmd.json);
     let (output, check_json_capture) = if check_json {
         let (output, capture) = CommandOutput::captured(flags.user_log_level());
@@ -216,6 +203,31 @@ fn run() -> i32 {
             return -1;
         }
     }
+
+    let subcommand = match subcommand {
+        MoonBuildSubcommands::RunWasm(cmd) => match cmd.select() {
+            Ok(cli::SelectedRunWasm::Local(cmd)) => MoonBuildSubcommands::Run(cmd),
+            Ok(cli::SelectedRunWasm::RegistryAsset(cmd)) => MoonBuildSubcommands::RunWasm(cmd),
+            Err(err) => {
+                output.user_log().error(format!("{err:?}"));
+                return -1;
+            }
+        },
+        subcommand => subcommand,
+    };
+    let delegated_name = subcommand.delegated_name();
+    if flags.trace
+        && let Some(delegated_name) = delegated_name
+    {
+        let error = cli::MoonBuildCli::command().error(
+            clap::error::ErrorKind::ArgumentConflict,
+            format!("`--trace` is not supported for delegated command `{delegated_name}`"),
+        );
+        let exit_code = error.exit_code();
+        let _ = error.print();
+        return exit_code;
+    }
+    let owns_tracing = delegated_name.is_none();
 
     let _trace_guard = owns_tracing.then(|| init_tracing(flags.trace, check_json));
 

@@ -420,6 +420,21 @@ arg2
 }
 
 #[test]
+fn test_runwasm_local_package_flushes_trace() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+
+    moon_cmd(&dir)
+        .args(["--trace", "runwasm", "./main", "--arg1", "arg2"])
+        .assert()
+        .success();
+
+    let trace: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("trace.json")).unwrap())
+            .expect("local runwasm trace should be complete JSON");
+    assert!(trace.as_array().is_some_and(|events| !events.is_empty()));
+}
+
+#[test]
 fn test_runwasm_help_marks_policy_as_experimental() {
     let dir = TestDir::new_empty();
     let help = get_stdout(&dir, ["runwasm", "--help"]);

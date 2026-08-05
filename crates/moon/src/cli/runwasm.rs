@@ -70,6 +70,25 @@ pub(crate) struct RunWasmSubcommand {
     pub args: Vec<String>,
 }
 
+pub(crate) enum SelectedRunWasm {
+    Local(RunSubcommand),
+    RegistryAsset(RunWasmSubcommand),
+}
+
+impl RunWasmSubcommand {
+    /// Select the lifecycle owner before tracing is initialized.
+    ///
+    /// Local packages become ordinary `moon run` commands. Registry assets
+    /// retain the `runwasm` variant because they delegate to another process.
+    pub(crate) fn select(self) -> anyhow::Result<SelectedRunWasm> {
+        if should_run_as_local_package(&self.package)? {
+            Ok(SelectedRunWasm::Local(runwasm_as_run_subcommand(self)))
+        } else {
+            Ok(SelectedRunWasm::RegistryAsset(self))
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvedRunWasmAsset {
     url: String,
@@ -116,10 +135,6 @@ pub(crate) fn run_runwasm(
     cmd: RunWasmSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    if should_run_as_local_package(&cmd.package)? {
-        return super::run_run(cli, runwasm_as_run_subcommand(cmd), output);
-    }
-
     if cli.dry_run {
         bail!("--dry-run is not supported for Mooncakes assets in `moon runwasm`");
     }

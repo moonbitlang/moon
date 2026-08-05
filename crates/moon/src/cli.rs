@@ -170,6 +170,8 @@ impl MoonBuildSubcommands {
     /// Moon can observe work performed inside the delegated process.
     pub(crate) fn delegated_name(&self) -> Option<&'static str> {
         match self {
+            // Local runwasm inputs are selected into `Run` before tracing
+            // ownership is decided, so only registry-asset mode reaches here.
             Self::RunWasm(_) => Some("runwasm"),
             Self::Cram(_) => Some("cram"),
             Self::Login(_) => Some("login"),
