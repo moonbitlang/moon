@@ -32,8 +32,8 @@ use crate::constants::{
 };
 use crate::user_log::UserLog;
 use crate::workspace::{
-    PREFERRED_TARGET_DEPRECATION_WARNING, canonical_workspace_module_dirs, read_workspace_file,
-    workspace_manifest_path,
+    MoonWork, PREFERRED_TARGET_DEPRECATION_WARNING, canonical_workspace_module_dirs,
+    read_workspace_file, workspace_manifest_path,
 };
 
 const COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING: &str = "`moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.";
@@ -360,6 +360,7 @@ fn find_enclosing_module_root(source_dir: &Path) -> Option<PathBuf> {
 struct WorkspaceFacts {
     manifest_path: PathBuf,
     root: PathBuf,
+    manifest: Option<MoonWork>,
     // Applicability checks already parse and canonicalize members. Retain that
     // work so selecting the member does not read the manifest a second time.
     members: Option<Vec<PathBuf>>,
@@ -409,6 +410,7 @@ impl WorkspaceFacts {
         Ok(Self {
             manifest_path,
             root,
+            manifest: None,
             members: None,
             preferred_target_deprecation: false,
             pending_warning: None,
@@ -468,6 +470,9 @@ impl ProjectQuery {
     pub fn project(&mut self, user_log: &UserLog) -> Result<ProjectContext, PackageDirsError> {
         match self.probe_project()? {
             ProjectProbe::Found(project) => {
+                if matches!(&project, ProjectContext::Workspace { .. }) {
+                    self.ensure_workspace_manifest()?;
+                }
                 self.emit_pending_warnings(user_log);
                 Ok(project)
             }
@@ -505,6 +510,7 @@ impl ProjectQuery {
         if selection.prefers_existing_workspace()
             && let Some(work_root) = self.workspace_root_for_sync()?
         {
+            self.ensure_workspace_manifest()?;
             self.emit_pending_warnings(user_log);
             return Ok(work_root);
         }
@@ -691,7 +697,7 @@ impl ProjectQuery {
             return;
         };
         if std::mem::take(&mut workspace.preferred_target_deprecation) {
-            user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
+            user_log.warn(PREFERRED_TARGET_DEPRECATION_WARNING);
         }
         if let Some(warning) = workspace.pending_warning.take() {
             user_log.warn(warning);
@@ -699,23 +705,39 @@ impl ProjectQuery {
     }
 
     fn ensure_workspace_members(&mut self) -> Result<Option<&[PathBuf]>, PackageDirsError> {
-        let Some(workspace) = &mut self.workspace else {
+        let Some(workspace) = &self.workspace else {
             return Ok(None);
         };
         if workspace.members.is_none() {
-            let moon_work = read_workspace_file(
-                &workspace.manifest_path,
-                &UserLog::new(log::LevelFilter::Error),
-            )
-            .map_err(PackageDirsError::from)?;
-            if moon_work.preferred_target.is_some() {
-                workspace.preferred_target_deprecation = true;
-            }
+            let moon_work = self.ensure_workspace_manifest()?.clone();
+            let workspace = self
+                .workspace
+                .as_mut()
+                .expect("workspace was present before loading its manifest");
             let member_dirs = canonical_workspace_module_dirs(&workspace.root, &moon_work)
                 .map_err(PackageDirsError::from)?;
             workspace.members = Some(member_dirs);
         }
-        Ok(workspace.members.as_deref())
+        Ok(self
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.members.as_deref()))
+    }
+
+    fn ensure_workspace_manifest(&mut self) -> Result<&MoonWork, PackageDirsError> {
+        let Some(workspace) = &mut self.workspace else {
+            unreachable!("workspace manifest requested outside workspace mode");
+        };
+        if workspace.manifest.is_none() {
+            let manifest =
+                read_workspace_file(&workspace.manifest_path).map_err(PackageDirsError::from)?;
+            workspace.preferred_target_deprecation = manifest.preferred_target.is_some();
+            workspace.manifest = Some(manifest);
+        }
+        Ok(workspace
+            .manifest
+            .as_ref()
+            .expect("workspace manifest was just loaded"))
     }
 
     fn work_start_dir(&self) -> PathBuf {
@@ -839,15 +861,16 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
         };
 
         if let Some(module_root) = module_root {
-            let workspace =
-                read_workspace_file(&workspace_path, &UserLog::new(log::LevelFilter::Error))?;
+            let workspace = read_workspace_file(&workspace_path)?;
             let members = canonical_workspace_module_dirs(dir, &workspace)?;
             if members.iter().any(|member_dir| member_dir == module_root) {
+                let preferred_target_deprecation = workspace.preferred_target.is_some();
                 return Ok(Some(WorkspaceFacts {
                     manifest_path: workspace_path,
                     root: dir.to_path_buf(),
+                    manifest: Some(workspace),
                     members: Some(members),
-                    preferred_target_deprecation: workspace.preferred_target.is_some(),
+                    preferred_target_deprecation,
                     pending_warning: None,
                 }));
             }
@@ -855,15 +878,16 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
         }
 
         if has_module_manifest(dir) {
-            let workspace =
-                read_workspace_file(&workspace_path, &UserLog::new(log::LevelFilter::Error))?;
+            let workspace = read_workspace_file(&workspace_path)?;
             let members = canonical_workspace_module_dirs(dir, &workspace)?;
             let module_not_member = !members.iter().any(|member_dir| member_dir == dir);
+            let preferred_target_deprecation = workspace.preferred_target.is_some();
             return Ok(Some(WorkspaceFacts {
                 manifest_path: workspace_path,
                 root: dir.to_path_buf(),
+                manifest: Some(workspace),
                 members: Some(members),
-                preferred_target_deprecation: workspace.preferred_target.is_some(),
+                preferred_target_deprecation,
                 pending_warning: module_not_member
                     .then_some(ProjectDiscoveryWarning::ColocatedModuleNotInWorkspace),
             }));
@@ -872,6 +896,7 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
         return Ok(Some(WorkspaceFacts {
             manifest_path: workspace_path,
             root: dir.to_path_buf(),
+            manifest: None,
             members: None,
             preferred_target_deprecation: false,
             pending_warning: None,

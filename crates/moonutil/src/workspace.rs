@@ -26,9 +26,9 @@ use std::{
 use anyhow::Context;
 use serde::{Deserialize, Deserializer};
 
-use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend, user_log::UserLog};
+use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend};
 
-pub(crate) const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
+pub const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,32 +71,14 @@ pub fn workspace_manifest_path(dir: &Path) -> Option<PathBuf> {
     dsl.exists().then_some(dsl)
 }
 
-pub fn read_workspace(dir: &Path, user_log: &UserLog) -> anyhow::Result<Option<MoonWork>> {
-    let Some(path) = workspace_manifest_path(dir) else {
-        return Ok(None);
-    };
-
-    read_workspace_file(&path, user_log).map(Some)
-}
-
-pub fn read_workspace_file(path: &Path, user_log: &UserLog) -> anyhow::Result<MoonWork> {
+pub fn read_workspace_file(path: &Path) -> anyhow::Result<MoonWork> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    let workspace = parse_workspace_file_content(path, &content)?;
-    if workspace.preferred_target.is_some() {
-        user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
-    }
-    Ok(workspace)
+    parse_workspace_file_content(path, &content)
 }
 
-pub fn format_workspace_file(path: &Path, user_log: &UserLog) -> anyhow::Result<String> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    let workspace = parse_workspace_file_content(path, &content)?;
-    if workspace.preferred_target.is_some() {
-        user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
-    }
-    format_workspace_dsl_for_moon_fmt(&workspace)
+pub fn format_workspace(workspace: &MoonWork) -> anyhow::Result<String> {
+    format_workspace_dsl_for_moon_fmt(workspace)
 }
 
 fn parse_workspace_file_content(path: &Path, content: &str) -> anyhow::Result<MoonWork> {

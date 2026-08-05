@@ -23,7 +23,6 @@ use moonutil::{
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{ProjectManifest, canonical_workspace_module_dirs, read_workspace_file},
     resolution::{ModuleSource, ResolvedModule, ResolvedRootModules},
-    user_log::UserLog,
 };
 
 pub mod add;
@@ -39,13 +38,12 @@ pub(crate) fn roots_for_selected_module(
     module_dir: &Path,
     module: Arc<MoonMod>,
     project_manifest: &ProjectManifest,
-    user_log: &UserLog,
 ) -> anyhow::Result<ResolvedRootModules> {
     if let ProjectManifest::Workspace(project_manifest) = project_manifest {
         let workspace_root = project_manifest
             .parent()
             .context("workspace manifest path has no parent directory")?;
-        let workspace = read_workspace_file(project_manifest, user_log)?;
+        let workspace = read_workspace_file(project_manifest)?;
         let mut roots = ResolvedRootModules::with_key();
         for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
             let member = if member_dir == module_dir {

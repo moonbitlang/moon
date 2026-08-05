@@ -61,7 +61,7 @@ pub fn remove(
         )
     }
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest, user_log)?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
 
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),

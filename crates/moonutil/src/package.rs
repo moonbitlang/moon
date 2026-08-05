@@ -777,14 +777,6 @@ impl Import {
     }
 }
 
-/// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
-pub fn convert_pkg_dsl_to_package(
-    dsl: moon_pkg::Dsl,
-    user_log: &UserLog,
-) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true, user_log)?.0)
-}
-
 pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     dsl: moon_pkg::Dsl,
     emit_warnings: bool,

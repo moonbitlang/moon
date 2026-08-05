@@ -19,12 +19,13 @@
 fn run(source: &str) -> String {
     moonutil::moon_pkg::parse(source)
         .and_then(|dsl| {
-            moonutil::package::convert_pkg_dsl_to_package(
+            moonutil::package::convert_pkg_dsl_to_package_with_supported_targets_decl(
                 dsl,
+                true,
                 &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
             )
         })
-        .map(|pkg| format!("{:#?}", pkg))
+        .map(|(pkg, _)| format!("{:#?}", pkg))
         .unwrap_or_else(|e| format!("Error: {:?}", e))
 }
 

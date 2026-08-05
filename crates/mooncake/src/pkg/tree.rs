@@ -131,8 +131,7 @@ pub fn tree(
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let module = Arc::new(read_module_desc_file_in_dir(module_dir)?);
-    let roots =
-        roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest, user_log)?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest)?;
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),
         inject_std: false,

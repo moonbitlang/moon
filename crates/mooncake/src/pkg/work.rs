@@ -32,7 +32,7 @@ use moonutil::{
     },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::{
-        MoonWork, canonical_workspace_module_dirs, read_workspace, workspace_manifest_path,
+        MoonWork, canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
         write_workspace,
     },
     resolution::{
@@ -92,7 +92,9 @@ pub fn use_workspace(
     quiet: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let existing = read_workspace(workspace_root, user_log)?;
+    let existing = workspace_manifest_path(workspace_root)
+        .map(|path| read_workspace_file(&path))
+        .transpose()?;
     let preferred_target = existing
         .as_ref()
         .and_then(|workspace| workspace.preferred_target);
@@ -155,11 +157,14 @@ pub fn use_workspace(
 }
 
 pub fn sync_workspace(source_dir: &Path, quiet: bool, user_log: &UserLog) -> anyhow::Result<i32> {
-    let workspace = read_workspace(source_dir, user_log)?.context(format!(
-        "`moon work sync` requires `{}` at `{}`",
-        MOON_WORK,
-        source_dir.display()
-    ))?;
+    let workspace = workspace_manifest_path(source_dir)
+        .map(|path| read_workspace_file(&path))
+        .transpose()?
+        .context(format!(
+            "`moon work sync` requires `{}` at `{}`",
+            MOON_WORK,
+            source_dir.display()
+        ))?;
     let member_dirs = canonical_workspace_module_dirs(source_dir, &workspace)?;
     let roots = workspace_roots(&member_dirs, user_log)?;
     let resolved_env = resolve_workspace(roots, user_log)?;

@@ -79,7 +79,7 @@ pub fn auto_sync(
     if let ProjectManifest::Workspace(project_manifest) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
-        let workspace = read_workspace_file(project_manifest, user_log)?;
+        let workspace = read_workspace_file(project_manifest)?;
         return resolve_workspace_sync(
             dirs,
             cli,

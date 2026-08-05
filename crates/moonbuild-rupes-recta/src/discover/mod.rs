@@ -130,7 +130,7 @@ pub fn discover_local_project(
     );
 
     let workspace = if let ProjectManifest::Workspace(workspace_manifest_path) = project_manifest {
-        read_workspace_file(workspace_manifest_path, user_log)
+        read_workspace_file(workspace_manifest_path)
             .map(Some)
             .map_err(|inner| DiscoverError::CantReadLocalWorkspace {
                 path: workspace_manifest_path.to_owned(),
