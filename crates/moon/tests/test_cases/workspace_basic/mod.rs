@@ -420,6 +420,18 @@ preferred_target = "wasm-gc"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
         "#]],
     );
+
+    check(
+        get_stderr(&dir, ["work", "use", "app"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
+
+    check(
+        get_stderr(&dir, ["--quiet", "build", "--dry-run"]),
+        expect![[r#""#]],
+    );
 }
 
 #[test]
@@ -940,6 +952,30 @@ fn test_member_dir_can_disable_implicit_workspace_mode() {
         [(MOON_WORK_ENV, "off")],
     );
     assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
+fn test_workspace_maintenance_uses_local_manifest_when_workspace_mode_is_off() {
+    let dir = same_root_workspace_dir();
+
+    check(
+        get_stdout_with_envs(&dir, ["work", "use", "./dep"], [(MOON_WORK_ENV, "off")]),
+        expect![[r#"
+            moon.work is already up to date
+        "#]],
+    );
+    assert!(
+        std::fs::read_to_string(dir.join("moon.work"))
+            .unwrap()
+            .contains(r#"".""#),
+        "work use must preserve existing members"
+    );
+
+    let stdout = get_stdout_with_envs(&dir, ["work", "sync"], [(MOON_WORK_ENV, "off")]);
+    assert!(
+        stdout.contains("Synced workspace manifests:"),
+        "expected work sync to use the local workspace, got:\n{stdout}"
+    );
 }
 
 #[test]

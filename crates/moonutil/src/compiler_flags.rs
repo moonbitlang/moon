@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{moon_dir::MOON_DIRS, user_log::UserLog};
+use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
@@ -31,13 +31,6 @@ use std::{
 
 const ENV_MOON_CC: &str = "MOON_CC";
 const ENV_MOON_AR: &str = "MOON_AR";
-const MOON_CC_PRECEDENCE_WARNING: &str = "Both MOON_CC environment variable and user-specified CC are provided. \
-     MOON_CC takes precedence.";
-
-fn warn_moon_cc_precedence(user_log: &UserLog) {
-    user_log.warn_once(MOON_CC_PRECEDENCE_WARNING);
-}
-
 #[derive(Copy, Clone, Debug)]
 pub enum CCKind {
     Msvc,     // cl-compatible driver, such as cl.exe or clang-cl.exe
@@ -307,14 +300,8 @@ fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
     }
 }
 
-pub fn windows_msvc_native_toolchain(
-    package_cc: Option<&CC>,
-    user_log: &UserLog,
-) -> anyhow::Result<Toolchain> {
+pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref().filter(|cc| cc.is_msvc()) {
-        if package_cc.is_some() {
-            warn_moon_cc_precedence(user_log);
-        }
         let override_toolchain = Toolchain::from_env_override(env_cc.clone());
         let resolved = if is_path_like_tool(&env_cc.cc_path) {
             override_toolchain
@@ -918,12 +905,8 @@ pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::R
 pub fn effective_native_toolchain(
     package_cc: Option<&CC>,
     internal_tcc_fallback: Option<&CC>,
-    user_log: &UserLog,
 ) -> anyhow::Result<Toolchain> {
     let selected = if let Some(env_cc) = ENV_CC.as_ref() {
-        if package_cc.is_some() {
-            warn_moon_cc_precedence(user_log);
-        }
         Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
     } else if let Some(package_cc) = package_cc {
         Toolchain::from_package_override(package_cc.clone())
@@ -1816,22 +1799,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn moon_cc_precedence_warning_uses_user_log_once() {
-        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-
-        warn_moon_cc_precedence(&user_log);
-        warn_moon_cc_precedence(&user_log);
-
-        let entries = capture.take();
-        assert_eq!(entries.len(), 1);
-        assert!(matches!(
-            entries[0].level,
-            crate::user_log::UserLogEntryLevel::Warning
-        ));
-        assert_eq!(entries[0].message, MOON_CC_PRECEDENCE_WARNING);
-    }
 
     fn native_toolchain_fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/native-toolchain")

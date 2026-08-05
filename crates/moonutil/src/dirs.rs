@@ -18,7 +18,6 @@
 
 use std::{
     ffi::OsString,
-    fmt::Display,
     path::{Path, PathBuf},
 };
 
@@ -32,7 +31,7 @@ use crate::constants::{
 };
 use crate::user_log::UserLog;
 use crate::workspace::{
-    PREFERRED_TARGET_DEPRECATION_WARNING, canonical_workspace_module_dirs, read_workspace_file,
+    MoonWork, PREFERRED_TARGET_DEPRECATION_WARNING, canonical_workspace_module_dirs,
     workspace_manifest_path,
 };
 
@@ -111,7 +110,7 @@ impl SourceTargetDirs {
         let source_dir = dunce::canonicalize(source_root.as_ref())
             .context("failed to resolve source directory")
             .map_err(PackageDirsError::from)?;
-        let target_dir = self.resolve_target_dir(&source_dir)?;
+        let target_dir = resolve_target_dir(self.target_dir.as_deref(), &source_dir)?;
         let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
         let mooncakes_dir = source_dir.join(DEP_PATH);
         Ok(PackageDirs {
@@ -163,19 +162,21 @@ impl SourceTargetDirs {
         })
     }
 
-    pub fn work_root(
+    pub fn workspace_creation_root(&self) -> Result<PathBuf, PackageDirsError> {
+        let start_dir = Self::current_dir()?;
+        Ok(self
+            .query_from(&start_dir, WorkspaceEnv::Off)?
+            .workspace_creation_root())
+    }
+
+    pub fn workspace_edit_target(
         &self,
-        selection: WorkRootSelection,
         workspace_env: WorkspaceEnv,
         user_log: &UserLog,
-    ) -> Result<PathBuf, PackageDirsError> {
+    ) -> Result<WorkspaceEditTarget, PackageDirsError> {
         let start_dir = Self::current_dir()?;
-        let mut query = if selection.prefers_existing_workspace() {
-            self.query_from(&start_dir, workspace_env)?
-        } else {
-            self.query_from(&start_dir, WorkspaceEnv::Off)?
-        };
-        query.work_root(selection, user_log)
+        self.query_from(&start_dir, workspace_env)?
+            .workspace_edit_target(user_log)
     }
 
     fn current_dir() -> Result<PathBuf, PackageDirsError> {
@@ -186,32 +187,81 @@ impl SourceTargetDirs {
             .context("failed to resolve current directory")
             .map_err(PackageDirsError::from)
     }
+}
 
-    fn resolve_target_dir(&self, project_root: &Path) -> Result<PathBuf, PackageDirsError> {
-        let target_dir = self
-            .target_dir
-            .clone()
-            .unwrap_or_else(|| project_root.join(BUILD_DIR));
-        if !target_dir.exists() {
-            std::fs::create_dir_all(&target_dir)
-                .context("failed to create target directory")
-                .map_err(PackageDirsError::from)?;
-        }
-        dunce::canonicalize(target_dir)
-            .context("failed to set target directory")
-            .map_err(PackageDirsError::from)
+fn resolve_target_dir(
+    configured_target_dir: Option<&Path>,
+    project_root: &Path,
+) -> Result<PathBuf, PackageDirsError> {
+    let target_dir = configured_target_dir
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| project_root.join(BUILD_DIR));
+    if !target_dir.exists() {
+        std::fs::create_dir_all(&target_dir)
+            .context("failed to create target directory")
+            .map_err(PackageDirsError::from)?;
     }
+    dunce::canonicalize(target_dir)
+        .context("failed to set target directory")
+        .map_err(PackageDirsError::from)
 }
 
 /// The project manifest selected during project query.
 ///
 /// Downstream stages should treat this as authoritative instead of rediscovering
 /// whether a directory belongs to a module or workspace.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProjectManifest {
     None,
     Module(PathBuf),
-    Workspace(PathBuf),
+    Workspace(WorkspaceLayout),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct WorkspaceLayout {
+    manifest_path: PathBuf,
+    root: PathBuf,
+    manifest: MoonWork,
+    members: Vec<PathBuf>,
+}
+
+impl WorkspaceLayout {
+    fn read(manifest_path: PathBuf) -> Result<Self, PackageDirsError> {
+        let root = manifest_path
+            .parent()
+            .context("workspace manifest path has no parent directory")
+            .map(Path::to_path_buf)
+            .map_err(PackageDirsError::from)?;
+        let manifest = MoonWork::read(&manifest_path).map_err(PackageDirsError::from)?;
+        let members =
+            canonical_workspace_module_dirs(&root, &manifest).map_err(PackageDirsError::from)?;
+        Ok(Self {
+            manifest_path,
+            root,
+            manifest,
+            members,
+        })
+    }
+
+    pub fn manifest_path(&self) -> &Path {
+        &self.manifest_path
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn manifest(&self) -> &MoonWork {
+        &self.manifest
+    }
+
+    pub fn members(&self) -> &[PathBuf] {
+        &self.members
+    }
+
+    fn contains_member(&self, module_dir: &Path) -> bool {
+        self.members.iter().any(|member| member == module_dir)
+    }
 }
 
 /// Authoritative directories resolved at the start of a project operation.
@@ -226,6 +276,36 @@ pub struct PackageDirs {
     pub project_manifest: ProjectManifest,
 }
 
+pub struct SelectedProject {
+    context: ProjectContext,
+    target_dir: Option<PathBuf>,
+    workspace: Option<WorkspaceLayout>,
+}
+
+impl SelectedProject {
+    pub fn context(&self) -> &ProjectContext {
+        &self.context
+    }
+
+    pub fn package_dirs(self) -> Result<PackageDirs, PackageDirsError> {
+        let source_dir = self.context.root().to_path_buf();
+        let target_dir = resolve_target_dir(self.target_dir.as_deref(), &source_dir)?;
+        let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
+        let mooncakes_dir = source_dir.join(DEP_PATH);
+        let project_manifest = match self.workspace {
+            Some(workspace) => ProjectManifest::Workspace(workspace),
+            None => ProjectManifest::Module(self.context.manifest_path().to_path_buf()),
+        };
+        Ok(PackageDirs {
+            source_dir,
+            target_dir,
+            mooncake_bin_dir,
+            mooncakes_dir,
+            project_manifest,
+        })
+    }
+}
+
 pub struct SingleFilePackageDirs {
     pub file_path: PathBuf,
     pub package_dirs: PackageDirs,
@@ -236,16 +316,11 @@ pub struct SourceModulePackageDirs {
     pub package_dirs: PackageDirs,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkRootSelection {
-    CreateWorkspace,
-    ReuseExistingWorkspace,
-}
-
-impl WorkRootSelection {
-    fn prefers_existing_workspace(self) -> bool {
-        matches!(self, Self::ReuseExistingWorkspace)
-    }
+/// Existing workspace state, or the directory where a maintenance command
+/// should create it.
+pub enum WorkspaceEditTarget {
+    CreateAt(PathBuf),
+    Existing(WorkspaceLayout),
 }
 
 #[derive(Debug)]
@@ -267,12 +342,6 @@ impl ProjectNotFound {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleRef {
-    pub root: PathBuf,
-    pub manifest_path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceRef {
     pub root: PathBuf,
     pub manifest_path: PathBuf,
 }
@@ -319,31 +388,6 @@ impl ProjectContext {
             }),
         }
     }
-
-    pub fn workspace_ref(&self) -> Option<WorkspaceRef> {
-        match self {
-            Self::Workspace {
-                root,
-                manifest_path,
-                ..
-            } => Some(WorkspaceRef {
-                root: root.clone(),
-                manifest_path: manifest_path.clone(),
-            }),
-            Self::Module { .. } => None,
-        }
-    }
-}
-
-impl From<&ProjectContext> for ProjectManifest {
-    fn from(project: &ProjectContext) -> Self {
-        match project {
-            ProjectContext::Workspace { manifest_path, .. } => {
-                Self::Workspace(manifest_path.clone())
-            }
-            ProjectContext::Module { manifest_path, .. } => Self::Module(manifest_path.clone()),
-        }
-    }
 }
 
 fn has_module_manifest(source_dir: &Path) -> bool {
@@ -357,42 +401,13 @@ fn find_enclosing_module_root(source_dir: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
-struct WorkspaceFacts {
-    manifest_path: PathBuf,
-    root: PathBuf,
-    // Applicability checks already parse and canonicalize members. Retain that
-    // work so selecting the member does not read the manifest a second time.
-    members: Option<Vec<PathBuf>>,
-    // Discovery stays side-effect free. The command consumes this through its
-    // own UserLog when it uses the selected project.
-    preferred_target_deprecation: bool,
-    pending_warning: Option<ProjectDiscoveryWarning>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ProjectDiscoveryWarning {
-    ColocatedModuleNotInWorkspace,
-}
-
-impl Display for ProjectDiscoveryWarning {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ColocatedModuleNotInWorkspace => {
-                f.write_str(COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING)
-            }
-        }
-    }
-}
-
 pub struct ProjectQuery {
-    // Inputs and cheap markers are captured once, then higher-level methods
-    // project only the artifacts their callers ask for.
     target_dir: Option<PathBuf>,
     start_dir: PathBuf,
     workspace_env: WorkspaceEnv,
     module_dir: Option<PathBuf>,
     module_manifest_path: Option<PathBuf>,
-    workspace: Option<WorkspaceFacts>,
+    workspace: Option<WorkspaceLayout>,
 }
 
 fn module_manifest_path(module_dir: &Path) -> PathBuf {
@@ -400,19 +415,6 @@ fn module_manifest_path(module_dir: &Path) -> PathBuf {
         module_dir.join(MOON_MOD)
     } else {
         module_dir.join(MOON_MOD_JSON)
-    }
-}
-
-impl WorkspaceFacts {
-    fn from_manifest_path(manifest_path: PathBuf) -> Result<Self, PackageDirsError> {
-        let root = manifest_root(&manifest_path).map_err(PackageDirsError::from)?;
-        Ok(Self {
-            manifest_path,
-            root,
-            members: None,
-            preferred_target_deprecation: false,
-            pending_warning: None,
-        })
     }
 }
 
@@ -438,9 +440,9 @@ impl ProjectQuery {
                 let manifest_path = dunce::canonicalize(workspace_path)
                     .context("failed to resolve pinned workspace path")
                     .map_err(PackageDirsError::from)?;
-                Some(WorkspaceFacts::from_manifest_path(manifest_path)?)
+                Some(WorkspaceLayout::read(manifest_path)?)
             }
-            WorkspaceEnv::Auto => None,
+            WorkspaceEnv::Auto => find_applicable_workspace(&start_dir)?,
         };
 
         Ok(Self {
@@ -453,7 +455,7 @@ impl ProjectQuery {
         })
     }
 
-    pub fn probe_project(&mut self) -> Result<ProjectProbe, PackageDirsError> {
+    pub fn probe_project(&self) -> Result<ProjectProbe, PackageDirsError> {
         let project_context = self.project_context_from_start_dir();
 
         match project_context {
@@ -465,80 +467,78 @@ impl ProjectQuery {
         }
     }
 
-    pub fn project(&mut self, user_log: &UserLog) -> Result<ProjectContext, PackageDirsError> {
+    pub fn select(self, user_log: &UserLog) -> Result<SelectedProject, PackageDirsError> {
         match self.probe_project()? {
             ProjectProbe::Found(project) => {
-                self.emit_pending_warnings(user_log);
-                Ok(project)
+                self.emit_workspace_warnings(user_log);
+                Ok(SelectedProject {
+                    context: project,
+                    target_dir: self.target_dir,
+                    workspace: self.workspace,
+                })
             }
             ProjectProbe::NotFound(not_found) => Err(not_found.into_error()),
         }
     }
 
-    pub fn package_dirs(&mut self, user_log: &UserLog) -> Result<PackageDirs, PackageDirsError> {
-        let project = self.project(user_log)?;
-        let target_dir = self.resolve_target_dir(project.root())?;
-        let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
-        let source_dir = project.root().to_path_buf();
-        let mooncakes_dir = source_dir.join(DEP_PATH);
-        Ok(PackageDirs {
-            source_dir,
-            target_dir,
-            mooncake_bin_dir,
-            mooncakes_dir,
-            project_manifest: ProjectManifest::from(&project),
-        })
-    }
-
-    pub fn workspace_ref(
-        &mut self,
+    fn workspace_edit_target(
+        self,
         user_log: &UserLog,
-    ) -> Result<Option<WorkspaceRef>, PackageDirsError> {
-        Ok(self.project(user_log)?.workspace_ref())
-    }
-
-    pub fn work_root(
-        &mut self,
-        selection: WorkRootSelection,
-        user_log: &UserLog,
-    ) -> Result<PathBuf, PackageDirsError> {
-        if selection.prefers_existing_workspace()
-            && let Some(work_root) = self.workspace_root_for_sync()?
-        {
-            self.emit_pending_warnings(user_log);
-            return Ok(work_root);
+    ) -> Result<WorkspaceEditTarget, PackageDirsError> {
+        if self.workspace.is_some() {
+            // Pinned workspaces still need the same applicability validation as
+            // normal project selection before a maintenance command edits them.
+            self.project_context_from_start_dir()?;
+            self.emit_workspace_warnings(user_log);
+            return Ok(WorkspaceEditTarget::Existing(
+                self.workspace
+                    .expect("workspace was present before maintenance selection"),
+            ));
         }
 
-        let start_dir = self.work_start_dir();
-        if let Some(module_dir) = find_enclosing_module_root(&start_dir) {
-            Ok(module_dir)
-        } else {
-            Ok(start_dir)
+        let root = self.workspace_creation_root();
+        let Some(manifest_path) = workspace_manifest_path(&root) else {
+            return Ok(WorkspaceEditTarget::CreateAt(root));
+        };
+
+        // `MOON_WORK=off` disables project selection, but workspace maintenance
+        // still operates on an existing moon.work at the local module root.
+        let workspace = WorkspaceLayout::read(manifest_path)?;
+        if workspace.manifest().preferred_target.is_some() {
+            user_log.warn(PREFERRED_TARGET_DEPRECATION_WARNING);
         }
+        Ok(WorkspaceEditTarget::Existing(workspace))
     }
 
-    fn project_context_from_start_dir(&mut self) -> Result<ProjectContext, PackageDirsError> {
+    fn workspace_creation_root(self) -> PathBuf {
+        self.module_dir.unwrap_or(self.start_dir)
+    }
+
+    fn project_context_from_start_dir(&self) -> Result<ProjectContext, PackageDirsError> {
         match &self.workspace_env {
             WorkspaceEnv::Off => {
                 self.module_context_with_workspace_disabled(self.start_dir.clone())
             }
             WorkspaceEnv::Pinned(_) => {
-                let workspace = self.pinned_workspace_ref();
+                let workspace = self
+                    .workspace
+                    .as_ref()
+                    .expect("pinned workspace discovery must include a workspace layout");
                 let module_dir = match self.module_dir.clone() {
                     // When invoked at a pinned workspace root nested under an
                     // unrelated module, the outer module is not the selection.
                     Some(module_dir)
-                        if self.start_dir.starts_with(&workspace.root)
-                            && !module_dir.starts_with(&workspace.root) =>
+                        if self.start_dir.starts_with(workspace.root())
+                            && !module_dir.starts_with(workspace.root()) =>
                     {
                         None
                     }
                     Some(module_dir) => {
-                        if self.workspace_contains_member(&module_dir)? {
+                        if workspace.contains_member(&module_dir) {
                             Some(module_dir)
                         } else {
                             return Err(PackageDirsError::PinnedWorkspaceDoesNotApply {
-                                workspace: workspace.manifest_path.clone(),
+                                workspace: workspace.manifest_path().to_path_buf(),
                                 module: module_dir,
                             });
                         }
@@ -547,8 +547,8 @@ impl ProjectQuery {
                 };
 
                 Ok(ProjectContext::Workspace {
-                    root: workspace.root.clone(),
-                    manifest_path: workspace.manifest_path.clone(),
+                    root: workspace.root().to_path_buf(),
+                    manifest_path: workspace.manifest_path().to_path_buf(),
                     selected_module: module_dir.map(|root| ModuleRef {
                         manifest_path: module_manifest_path(&root),
                         root,
@@ -556,22 +556,19 @@ impl ProjectQuery {
                 })
             }
             WorkspaceEnv::Auto => {
-                let start_dir = self.start_dir.clone();
-                if let Some(workspace) = self.find_applicable_workspace_from(&start_dir)? {
+                if let Some(workspace) = &self.workspace {
                     return Ok(ProjectContext::Workspace {
-                        root: workspace.root.clone(),
-                        manifest_path: workspace.manifest_path.clone(),
+                        root: workspace.root().to_path_buf(),
+                        manifest_path: workspace.manifest_path().to_path_buf(),
                         // Only explicit workspace members may become selected modules.
                         selected_module: match self.module_dir.clone() {
-                            Some(root) if self.workspace_contains_member(&root)? => {
-                                Some(ModuleRef {
-                                    manifest_path: self
-                                        .module_manifest_path
-                                        .clone()
-                                        .unwrap_or_else(|| module_manifest_path(&root)),
-                                    root,
-                                })
-                            }
+                            Some(root) if workspace.contains_member(&root) => Some(ModuleRef {
+                                manifest_path: self
+                                    .module_manifest_path
+                                    .clone()
+                                    .unwrap_or_else(|| module_manifest_path(&root)),
+                                root,
+                            }),
                             _ => None,
                         },
                     });
@@ -611,125 +608,18 @@ impl ProjectQuery {
         })
     }
 
-    fn workspace_root_for_sync(&mut self) -> Result<Option<PathBuf>, PackageDirsError> {
-        match &self.workspace_env {
-            WorkspaceEnv::Off => Ok(None),
-            WorkspaceEnv::Auto => {
-                let start_dir = self.work_start_dir();
-                Ok(self
-                    .find_applicable_workspace_from(&start_dir)?
-                    .map(|workspace| workspace.root))
-            }
-            WorkspaceEnv::Pinned(_) => {
-                let workspace = self.pinned_workspace_ref();
-                let start_dir = self.work_start_dir();
-                if start_dir.starts_with(&workspace.root) {
-                    if let Some(module_dir) = self.module_dir.clone()
-                        && module_dir.starts_with(&workspace.root)
-                        && !self.workspace_contains_member(&module_dir)?
-                    {
-                        return Err(PackageDirsError::PinnedWorkspaceDoesNotApply {
-                            workspace: workspace.manifest_path.clone(),
-                            module: module_dir,
-                        });
-                    }
-                    return Ok(Some(workspace.root.clone()));
-                }
-
-                let Some(module_dir) = self.module_dir.clone() else {
-                    return Ok(Some(workspace.root.clone()));
-                };
-                if self.workspace_contains_member(&module_dir)? {
-                    Ok(Some(workspace.root.clone()))
-                } else {
-                    Err(PackageDirsError::PinnedWorkspaceDoesNotApply {
-                        workspace: workspace.manifest_path.clone(),
-                        module: module_dir,
-                    })
-                }
-            }
-        }
-    }
-
-    fn resolve_target_dir(&self, project_root: &Path) -> Result<PathBuf, PackageDirsError> {
-        let target_dir = self
-            .target_dir
-            .clone()
-            .unwrap_or_else(|| project_root.join(BUILD_DIR));
-        if !target_dir.exists() {
-            std::fs::create_dir_all(&target_dir)
-                .context("failed to create target directory")
-                .map_err(PackageDirsError::from)?;
-        }
-        dunce::canonicalize(target_dir)
-            .context("failed to set target directory")
-            .map_err(PackageDirsError::from)
-    }
-
-    fn workspace_contains_member(&mut self, module_dir: &Path) -> Result<bool, PackageDirsError> {
-        Ok(self
-            .ensure_workspace_members()?
-            .is_some_and(|members| members.iter().any(|member_dir| member_dir == module_dir)))
-    }
-
-    fn find_applicable_workspace_from(
-        &mut self,
-        source_dir: &Path,
-    ) -> Result<Option<WorkspaceRef>, PackageDirsError> {
-        if self.workspace.is_none() {
-            self.workspace =
-                find_applicable_workspace(source_dir).map_err(PackageDirsError::from)?;
-        }
-        Ok(self.workspace.as_ref().map(|workspace| WorkspaceRef {
-            root: workspace.root.clone(),
-            manifest_path: workspace.manifest_path.clone(),
-        }))
-    }
-
-    fn emit_pending_warnings(&mut self, user_log: &UserLog) {
-        let Some(workspace) = self.workspace.as_mut() else {
+    fn emit_workspace_warnings(&self, user_log: &UserLog) {
+        let Some(workspace) = &self.workspace else {
             return;
         };
-        if std::mem::take(&mut workspace.preferred_target_deprecation) {
-            user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
+        if workspace.manifest().preferred_target.is_some() {
+            user_log.warn(PREFERRED_TARGET_DEPRECATION_WARNING);
         }
-        if let Some(warning) = workspace.pending_warning.take() {
-            user_log.warn(warning);
-        }
-    }
-
-    fn ensure_workspace_members(&mut self) -> Result<Option<&[PathBuf]>, PackageDirsError> {
-        let Some(workspace) = &mut self.workspace else {
-            return Ok(None);
-        };
-        if workspace.members.is_none() {
-            let moon_work = read_workspace_file(
-                &workspace.manifest_path,
-                &UserLog::new(log::LevelFilter::Error),
-            )
-            .map_err(PackageDirsError::from)?;
-            if moon_work.preferred_target.is_some() {
-                workspace.preferred_target_deprecation = true;
-            }
-            let member_dirs = canonical_workspace_module_dirs(&workspace.root, &moon_work)
-                .map_err(PackageDirsError::from)?;
-            workspace.members = Some(member_dirs);
-        }
-        Ok(workspace.members.as_deref())
-    }
-
-    fn work_start_dir(&self) -> PathBuf {
-        self.start_dir.clone()
-    }
-
-    fn pinned_workspace_ref(&self) -> WorkspaceRef {
-        let workspace = self
-            .workspace
-            .as_ref()
-            .expect("pinned workspace discovery must include workspace facts");
-        WorkspaceRef {
-            root: workspace.root.clone(),
-            manifest_path: workspace.manifest_path.clone(),
+        if matches!(self.workspace_env, WorkspaceEnv::Auto)
+            && self.module_dir.as_deref() == Some(workspace.root())
+            && !workspace.contains_member(workspace.root())
+        {
+            user_log.warn(COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING);
         }
     }
 }
@@ -751,8 +641,9 @@ fn resolve_project_context_from_start_dir(
     start_dir: PathBuf,
     workspace_env: &WorkspaceEnv,
 ) -> Result<ProjectContext, PackageDirsError> {
-    project_query_from_start_dir(start_dir, workspace_env)?
-        .project(&UserLog::new(log::LevelFilter::Error))
+    let selected = project_query_from_start_dir(start_dir, workspace_env)?
+        .select(&UserLog::new(log::LevelFilter::Error))?;
+    Ok(selected.context)
 }
 
 pub fn current_workspace_env() -> anyhow::Result<(WorkspaceEnv, Option<&'static str>)> {
@@ -827,7 +718,9 @@ fn canonicalize_workspace_env_path(path: PathBuf) -> anyhow::Result<PathBuf> {
 
     Ok(path)
 }
-fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<WorkspaceFacts>> {
+fn find_applicable_workspace(
+    source_dir: &Path,
+) -> Result<Option<WorkspaceLayout>, PackageDirsError> {
     let mut module_root = None;
 
     for dir in source_dir.ancestors() {
@@ -838,61 +731,31 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
             continue;
         };
 
+        let workspace = WorkspaceLayout::read(workspace_path)?;
+
         if let Some(module_root) = module_root {
-            let workspace =
-                read_workspace_file(&workspace_path, &UserLog::new(log::LevelFilter::Error))?;
-            let members = canonical_workspace_module_dirs(dir, &workspace)?;
-            if members.iter().any(|member_dir| member_dir == module_root) {
-                return Ok(Some(WorkspaceFacts {
-                    manifest_path: workspace_path,
-                    root: dir.to_path_buf(),
-                    members: Some(members),
-                    preferred_target_deprecation: workspace.preferred_target.is_some(),
-                    pending_warning: None,
-                }));
+            if workspace
+                .members()
+                .iter()
+                .any(|member_dir| member_dir == module_root)
+            {
+                return Ok(Some(workspace));
             }
             continue;
         }
 
-        if has_module_manifest(dir) {
-            let workspace =
-                read_workspace_file(&workspace_path, &UserLog::new(log::LevelFilter::Error))?;
-            let members = canonical_workspace_module_dirs(dir, &workspace)?;
-            let module_not_member = !members.iter().any(|member_dir| member_dir == dir);
-            return Ok(Some(WorkspaceFacts {
-                manifest_path: workspace_path,
-                root: dir.to_path_buf(),
-                members: Some(members),
-                preferred_target_deprecation: workspace.preferred_target.is_some(),
-                pending_warning: module_not_member
-                    .then_some(ProjectDiscoveryWarning::ColocatedModuleNotInWorkspace),
-            }));
-        }
-
-        return Ok(Some(WorkspaceFacts {
-            manifest_path: workspace_path,
-            root: dir.to_path_buf(),
-            members: None,
-            preferred_target_deprecation: false,
-            pending_warning: None,
-        }));
+        return Ok(Some(workspace));
     }
 
     Ok(None)
 }
 
-fn manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
-    manifest_path
-        .parent()
-        .context("manifest path has no parent directory")
-        .map(Path::to_path_buf)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        PackageDirsError, ProjectContext, ProjectProbe, SourceTargetDirs, WorkspaceEnv,
-        parse_workspace_env, project_query_from_start_dir, resolve_project_context_from_start_dir,
+        PackageDirsError, ProjectContext, ProjectManifest, ProjectProbe, SourceTargetDirs,
+        WorkspaceEnv, parse_workspace_env, project_query_from_start_dir,
+        resolve_project_context_from_start_dir,
     };
     use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON};
     use std::{
@@ -1002,9 +865,8 @@ version = "0.1.0"
     #[test]
     fn project_probe_reports_not_found_without_project() {
         let project = tempfile::tempdir().expect("create test project");
-        let mut query =
-            project_query_from_start_dir(project.path().to_path_buf(), &WorkspaceEnv::Auto)
-                .unwrap();
+        let query = project_query_from_start_dir(project.path().to_path_buf(), &WorkspaceEnv::Auto)
+            .unwrap();
 
         let ProjectProbe::NotFound(not_found) = query.probe_project().unwrap() else {
             panic!("expected project probe to report not found");
@@ -1013,6 +875,39 @@ version = "0.1.0"
             not_found.into_error(),
             PackageDirsError::NotInProject(path) if path == canonical(project.path())
         ));
+    }
+
+    #[test]
+    fn selected_workspace_uses_the_layout_loaded_during_query() {
+        let project = tempfile::tempdir().expect("create test project");
+        write_file(
+            &project.path().join("moon.work"),
+            r#"members = [
+  "./app",
+]
+"#,
+        );
+        write_json_module(&project.path().join("app"), "alice/app");
+
+        let query =
+            project_query_from_start_dir(project.path().join("app"), &WorkspaceEnv::Auto).unwrap();
+
+        // Once discovery has selected a workspace, later phases consume that
+        // exact layout instead of reopening moon.work.
+        write_file(&project.path().join("moon.work"), "invalid = [");
+        let dirs = query
+            .select(&crate::user_log::UserLog::new(log::LevelFilter::Error))
+            .unwrap()
+            .package_dirs()
+            .unwrap();
+
+        let ProjectManifest::Workspace(workspace) = dirs.project_manifest else {
+            panic!("expected workspace project manifest");
+        };
+        assert_eq!(
+            workspace.members(),
+            &[canonical(project.path().join("app"))]
+        );
     }
 
     #[test]

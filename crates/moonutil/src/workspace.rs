@@ -26,9 +26,9 @@ use std::{
 use anyhow::Context;
 use serde::{Deserialize, Deserializer};
 
-use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend, user_log::UserLog};
+use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend};
 
-pub(crate) const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
+pub const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,6 +37,23 @@ pub struct MoonWork {
     pub use_paths: Vec<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_preferred_target")]
     pub preferred_target: Option<TargetBackend>,
+}
+
+impl MoonWork {
+    pub fn read(path: &Path) -> anyhow::Result<Self> {
+        if path.file_name().and_then(|name| name.to_str()) != Some(MOON_WORK) {
+            anyhow::bail!(
+                "expected workspace file to be `{}`, got `{}`",
+                MOON_WORK,
+                path.display()
+            );
+        }
+
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
+        parse_workspace_dsl(&content)
+            .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
+    }
 }
 
 fn deserialize_preferred_target<'de, D>(deserializer: D) -> Result<Option<TargetBackend>, D::Error>
@@ -71,46 +88,6 @@ pub fn workspace_manifest_path(dir: &Path) -> Option<PathBuf> {
     dsl.exists().then_some(dsl)
 }
 
-pub fn read_workspace(dir: &Path, user_log: &UserLog) -> anyhow::Result<Option<MoonWork>> {
-    let Some(path) = workspace_manifest_path(dir) else {
-        return Ok(None);
-    };
-
-    read_workspace_file(&path, user_log).map(Some)
-}
-
-pub fn read_workspace_file(path: &Path, user_log: &UserLog) -> anyhow::Result<MoonWork> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    let workspace = parse_workspace_file_content(path, &content)?;
-    if workspace.preferred_target.is_some() {
-        user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
-    }
-    Ok(workspace)
-}
-
-pub fn format_workspace_file(path: &Path, user_log: &UserLog) -> anyhow::Result<String> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    let workspace = parse_workspace_file_content(path, &content)?;
-    if workspace.preferred_target.is_some() {
-        user_log.warn_once(PREFERRED_TARGET_DEPRECATION_WARNING);
-    }
-    format_workspace_dsl_for_moon_fmt(&workspace)
-}
-
-fn parse_workspace_file_content(path: &Path, content: &str) -> anyhow::Result<MoonWork> {
-    match path.file_name().and_then(|name| name.to_str()) {
-        Some(MOON_WORK) => parse_workspace_dsl(content),
-        _ => anyhow::bail!(
-            "expected workspace file to be `{}`, got `{}`",
-            MOON_WORK,
-            path.display()
-        ),
-    }
-    .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
-}
-
 pub fn write_workspace(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {
     let path = dir.join(MOON_WORK);
     let file = File::create(path)?;
@@ -137,6 +114,12 @@ pub fn canonical_workspace_module_dirs(
                 workspace_root.display()
             )
         })?;
+        if !path.is_dir() {
+            anyhow::bail!(
+                "workspace member `{}` is not a directory",
+                use_path.display()
+            );
+        }
         deduped.insert(path);
     }
 
@@ -156,7 +139,7 @@ fn parse_workspace_dsl(content: &str) -> anyhow::Result<MoonWork> {
     Ok(workspace)
 }
 
-fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
+pub fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
     let mut out = String::new();
 
     if work.use_paths.is_empty() {
@@ -186,10 +169,6 @@ fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
     }
 
     Ok(out)
-}
-
-fn format_workspace_dsl_for_moon_fmt(work: &MoonWork) -> anyhow::Result<String> {
-    format_workspace_members(work)
 }
 
 fn write_text_with_trailing_newline(writer: &mut impl Write, content: &str) -> anyhow::Result<()> {
@@ -230,6 +209,23 @@ mod tests {
     }
 
     #[test]
+    fn workspace_members_must_be_directories() {
+        let workspace_root = tempfile::tempdir().unwrap();
+        std::fs::write(workspace_root.path().join("member.mbt"), "").unwrap();
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from("member.mbt")],
+            preferred_target: None,
+        };
+
+        let error = canonical_workspace_module_dirs(workspace_root.path(), &workspace).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "workspace member `member.mbt` is not a directory"
+        );
+    }
+
+    #[test]
     fn format_relative_workspace_paths_with_forward_slashes() {
         let workspace = MoonWork {
             use_paths: vec![PathBuf::from(".").join("app").join("main")],
@@ -250,7 +246,7 @@ mod tests {
             preferred_target: Some(TargetBackend::WasmGC),
         };
 
-        let json = format_workspace_dsl_for_moon_fmt(&workspace).unwrap();
+        let json = format_workspace_members(&workspace).unwrap();
         assert_eq!(json, "members = [\n  \"./app/main\",\n]\n");
     }
 

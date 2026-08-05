@@ -777,7 +777,10 @@ impl Import {
     }
 }
 
-/// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
+/// Convert a parsed `moon.pkg` into the package model used by ordinary callers.
+///
+/// Whether `supported_targets` used the legacy or current spelling is migration
+/// metadata needed by manifest loading, not part of normal package conversion.
 pub fn convert_pkg_dsl_to_package(
     dsl: moon_pkg::Dsl,
     user_log: &UserLog,
@@ -785,7 +788,7 @@ pub fn convert_pkg_dsl_to_package(
     Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true, user_log)?.0)
 }
 
-pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
+pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     dsl: moon_pkg::Dsl,
     emit_warnings: bool,
     user_log: &UserLog,

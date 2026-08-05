@@ -20,7 +20,6 @@
 
 use std::{path::Path, sync::Arc};
 
-use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
     build_options::{MoonbuildOpt, MooncOpt},
@@ -28,10 +27,7 @@ use moonutil::{
     cli_support::AutoSyncFlags,
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
-    project::{
-        MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, canonical_workspace_module_dirs,
-        read_workspace_file,
-    },
+    project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
     resolution::{DirSyncResult, ModuleSource, ResolvedEnv, ResolvedModule, ResolvedRootModules},
     user_log::UserLog,
 };
@@ -76,10 +72,9 @@ pub fn auto_sync(
     workspace_env: WorkspaceEnv,
     include_bin_deps: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
-    if let ProjectManifest::Workspace(project_manifest) = &dirs.project_manifest
+    if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
-        let workspace = read_workspace_file(project_manifest, user_log)?;
         return resolve_workspace_sync(
             dirs,
             cli,
@@ -118,23 +113,17 @@ fn resolve_workspace_sync(
     output_options: SyncOutputOptions,
     user_log: &UserLog,
     no_std: bool,
-    workspace: MoonWork,
+    workspace: &WorkspaceLayout,
     include_bin_deps: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
-    let ProjectManifest::Workspace(project_manifest) = &dirs.project_manifest else {
-        unreachable!("workspace sync requires a workspace manifest");
-    };
-    let workspace_root = project_manifest
-        .parent()
-        .context("workspace manifest path has no parent directory")?;
     let mut roots = ResolvedRootModules::with_key();
-    for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
-        let mut module = read_module_desc_file_in_dir(&member_dir)?;
+    for member_dir in workspace.members() {
+        let mut module = read_module_desc_file_in_dir(member_dir)?;
         if !include_bin_deps {
             module.bin_deps = None;
         }
         let module = Arc::new(module);
-        let source = ModuleSource::from_local_module(&module, &member_dir);
+        let source = ModuleSource::from_local_module(&module, member_dir);
         roots.insert(ResolvedModule::new(source, module));
     }
 
@@ -148,7 +137,11 @@ fn resolve_workspace_sync(
         &CacheRoot::Disabled,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((resolved_env, sync_result, Some(workspace)))
+    Ok((
+        resolved_env,
+        sync_result,
+        Some(workspace.manifest().clone()),
+    ))
 }
 
 pub fn auto_sync_for_single_mbt_md(

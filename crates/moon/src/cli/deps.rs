@@ -80,7 +80,8 @@ pub(crate) fn install_cli(
         let dirs = cli
             .source_tgt_dir
             .query(cli.workspace_env.clone())?
-            .package_dirs(user_log)?;
+            .select(user_log)?
+            .package_dirs()?;
         mooncake::pkg::sync::auto_sync(
             &dirs,
             &AutoSyncFlags { frozen: false },
@@ -180,12 +181,14 @@ pub(crate) fn remove_cli(
     cmd: RemoveSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project(user_log)?;
-    let module_dir = require_selected_module(&project, "remove")?;
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
+    let module_dir = require_selected_module(project.context(), "remove")?;
     let PackageDirs {
         project_manifest, ..
-    } = query.package_dirs(user_log)?;
+    } = project.package_dirs()?;
     let package_path = cmd.package_path;
     let parts: Vec<&str> = package_path.splitn(2, '/').collect();
     if parts.len() != 2 {
@@ -201,10 +204,12 @@ pub(crate) fn add_cli(
     cmd: AddSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project(user_log)?;
-    let module_dir = require_selected_module(&project, "add")?;
-    let dirs = query.package_dirs(user_log)?;
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
+    let module_dir = require_selected_module(project.context(), "add")?;
+    let dirs = project.package_dirs()?;
 
     // Update registry index by default (issue #963).
     // - `--no-update` keeps the previous behavior.
@@ -278,12 +283,14 @@ pub(crate) fn tree_cli(
     _cmd: TreeSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project(user_log)?;
-    let module_dir = require_selected_module(&project, "tree")?;
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
+    let module_dir = require_selected_module(project.context(), "tree")?;
     let PackageDirs {
         project_manifest, ..
-    } = query.package_dirs(user_log)?;
+    } = project.package_dirs()?;
     mooncake::pkg::tree::tree(&module_dir, &project_manifest, user_log)
 }
 

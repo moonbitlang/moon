@@ -28,7 +28,7 @@ fn project_facade_exposes_selected_module_ref() {
     };
     let project = ProjectContext::Workspace {
         root: PathBuf::from("."),
-        manifest_path: PathBuf::from("moon.work.json"),
+        manifest_path: PathBuf::from("moon.work"),
         selected_module: Some(selected_module.clone()),
     };
 

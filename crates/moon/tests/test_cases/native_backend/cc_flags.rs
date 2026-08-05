@@ -2,7 +2,7 @@
 use std::process::Command;
 
 #[cfg(not(windows))]
-use crate::{TestDir, get_err_stderr_with_envs};
+use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs};
 #[cfg(windows)]
 use crate::{TestDir, get_stdout_with_envs};
 #[cfg(unix)]
@@ -184,6 +184,38 @@ fn test_native_backend_cc_flags_with_env_override() {
         &path_override_env,
         expect_file!["cc_flags/run_native_env_paths_graph.jsonl.snap"],
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_moon_cc_override_warning_is_reported_per_package() {
+    let dir = TestDir::new("native_backend/cc_flags");
+    let fake_path = dir.join("fake-toolchain/bin").display().to_string();
+    let stderr = get_stderr_with_envs(
+        &dir,
+        ["build", "--target", "native", "--dry-run", "--sort-input"],
+        [
+            ("MOONBIT_NEW_NATIVE", "0"),
+            ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+            ("PATH", fake_path.as_str()),
+        ],
+    );
+    let warnings = stderr
+        .lines()
+        .filter(|message| message.contains("`MOON_CC` overrides"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(warnings.len(), 2, "unexpected warnings: {warnings:#?}");
+    assert!(warnings.iter().any(|message| {
+        message.contains("`moon_new/lib`")
+            && message.contains("`link.native.cc`")
+            && message.contains("`link.native.stub-cc`")
+    }));
+    assert!(warnings.iter().any(|message| {
+        message.contains("`moon_new/main`")
+            && message.contains("`link.native.cc`")
+            && !message.contains("`link.native.stub-cc`")
+    }));
 }
 
 #[test]

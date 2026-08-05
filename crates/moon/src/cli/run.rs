@@ -424,7 +424,7 @@ pub(crate) fn build_run_executable(
     let is_mbtx = input.ends_with(".mbtx");
     let run_start_dir = resolve_run_start_dir(input)?;
 
-    let mut query = cli
+    let query = cli
         .source_tgt_dir
         .query_from(&run_start_dir, cli.workspace_env.clone())?;
     match query.probe_project()? {
@@ -471,7 +471,8 @@ fn build_package_executable(
     let dirs = cli
         .source_tgt_dir
         .query_from(&run_start_dir, cli.workspace_env.clone())?
-        .package_dirs(user_log)?;
+        .select(user_log)?
+        .package_dirs()?;
     let PackageDirs {
         source_dir,
         target_dir,

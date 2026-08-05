@@ -179,8 +179,7 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    let roots =
-        roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest, user_log)?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest)?;
     install_impl(
         dirs,
         roots,

@@ -242,6 +242,36 @@ fn test_moon_check_complete_json_captures_workspace_override_warning() {
 }
 
 #[test]
+fn test_moon_check_complete_json_captures_workspace_deprecation_once() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::write(
+        dir.join("moon.work"),
+        r#"members = [
+  "./app",
+  "./liba",
+]
+preferred_target = "wasm-gc"
+"#,
+    )
+    .unwrap();
+
+    let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
+    let warnings = report["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| {
+            message["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("`preferred_target` in `moon.work`"))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0]["level"], "warning");
+}
+
+#[test]
 fn test_moon_check_complete_json_captures_bin_dep_prebuild_failure() {
     let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
     let dir = top_dir.join("user.in");

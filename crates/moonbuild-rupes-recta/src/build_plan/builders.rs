@@ -28,7 +28,7 @@ use std::{
 
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
-    compiler_flags::{self, CC, Toolchain},
+    compiler_flags::{self, CC, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
     manifest::{MoonMod, MoonModRule},
@@ -125,14 +125,48 @@ impl<'a> BuildPlanConstructor<'a> {
         debug_assert!(self.build_env.target_backend().is_native());
         if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             self.warn_incompatible_windows_msvc_env_override();
-            return compiler_flags::windows_msvc_native_toolchain(package_cc, self.user_log);
+            return compiler_flags::windows_msvc_native_toolchain(package_cc);
         }
 
         compiler_flags::effective_native_toolchain(
             package_cc,
             self.build_env.tcc_run().map(|config| config.internal_tcc()),
-            self.user_log,
         )
+    }
+
+    pub(super) fn warn_moon_cc_overrides(&self) {
+        if !self.build_env.target_backend().is_native() {
+            return;
+        }
+
+        for (package, pkg) in self.input.pkg_dirs.all_packages(true) {
+            let Some(native) = pkg.raw.link.as_ref().and_then(|link| link.native.as_ref()) else {
+                continue;
+            };
+            let cc_overridden = native.cc.is_some()
+                && self.res.make_executable_info.iter().any(|(target, info)| {
+                    target.package == package
+                        && info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
+                });
+            let stub_cc_overridden = native.stub_cc.is_some()
+                && self.res.c_stubs_info.get(&package).is_some_and(|info| {
+                    info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
+                });
+            let fields = [
+                cc_overridden.then_some("`link.native.cc`"),
+                stub_cc_overridden.then_some("`link.native.stub-cc`"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+            if !fields.is_empty() {
+                self.user_log.warn(format!(
+                    "`MOON_CC` overrides {} configured by package `{}`.",
+                    fields.join(" and "),
+                    pkg.fqn
+                ));
+            }
+        }
     }
 
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {

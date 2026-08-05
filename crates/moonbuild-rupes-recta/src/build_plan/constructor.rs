@@ -200,6 +200,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         self.postprocess_coalesce();
+        self.warn_moon_cc_overrides();
 
         Ok(())
     }

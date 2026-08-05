@@ -33,7 +33,6 @@
 use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
-use anyhow::Context;
 use moonutil::project::ProjectManifest;
 use moonutil::resolution::{ModuleSourceKind, ResolvedModule};
 use moonutil::toolchain::BINARIES;
@@ -387,15 +386,12 @@ fn format_workspace_node(
     layout: &TargetLayout,
     project_manifest: &ProjectManifest,
 ) -> anyhow::Result<bool> {
-    let ProjectManifest::Workspace(workspace_manifest_path) = project_manifest else {
+    let ProjectManifest::Workspace(workspace) = project_manifest else {
         return Ok(false);
     };
-    workspace_manifest_path
-        .parent()
-        .context("workspace manifest path has no parent directory")?;
 
     let target_moon_work = layout.format_root_artifact_path(std::ffi::OsStr::new(MOON_WORK));
-    format_moon_work_dsl(graph, cfg, workspace_manifest_path, &target_moon_work)?;
+    format_moon_work_dsl(graph, cfg, workspace.manifest_path(), &target_moon_work)?;
     Ok(true)
 }
 

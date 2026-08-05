@@ -52,7 +52,11 @@ pub(crate) fn run_format_workspace(
     cmd: FormatWorkspaceSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let formatted = moonutil::workspace::format_workspace_file(&cmd.old, user_log)?;
+    let workspace = moonutil::workspace::MoonWork::read(&cmd.old)?;
+    if workspace.preferred_target.is_some() {
+        user_log.warn(moonutil::workspace::PREFERRED_TARGET_DEPRECATION_WARNING);
+    }
+    let formatted = moonutil::workspace::format_workspace_members(&workspace)?;
 
     if let Some(parent) = cmd.new.parent() {
         std::fs::create_dir_all(parent)?;

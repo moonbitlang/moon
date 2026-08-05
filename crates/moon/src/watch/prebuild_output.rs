@@ -113,7 +113,9 @@ mod tests {
         }
         .query_from(temp_dir.path(), WorkspaceEnv::Auto)
         .unwrap()
-        .package_dirs(&user_log)
+        .select(&user_log)
+        .unwrap()
+        .package_dirs()
         .unwrap();
         let synced_env = sync_dependencies(&resolve_cfg, &dirs, &user_log).unwrap();
         let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
@@ -156,7 +158,9 @@ mod tests {
         }
         .query_from(temp_dir.path(), WorkspaceEnv::Auto)
         .unwrap()
-        .package_dirs(&user_log)
+        .select(&user_log)
+        .unwrap()
+        .package_dirs()
         .unwrap();
         let synced_env = sync_dependencies(&resolve_cfg, &dirs, &user_log).unwrap();
         let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
