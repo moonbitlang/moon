@@ -42,7 +42,8 @@ use moonutil::locks::FileLock;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
-use moonutil::user_log::UserLog;
+use moonutil::user_log::{UserLog, UserLogCapture, UserLogEntry, UserLogEntryLevel};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
@@ -62,6 +63,123 @@ use super::BuildFlags;
 struct ResolvedCheckSelection {
     packages: Vec<PackageId>,
     patch_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Serialize)]
+struct MoonMessage {
+    #[serde(rename = "$message_type")]
+    message_type: &'static str,
+    level: UserLogEntryLevel,
+    message: String,
+}
+
+impl From<UserLogEntry> for MoonMessage {
+    fn from(entry: UserLogEntry) -> Self {
+        Self {
+            message_type: "moon",
+            level: entry.level,
+            message: entry.message,
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize)]
+struct CheckJsonSummary {
+    tasks_executed: Option<usize>,
+    moon_errors: usize,
+    moon_warnings: usize,
+    diagnostic_errors: usize,
+    diagnostic_warnings: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct CheckJsonReport {
+    version: u32,
+    status: &'static str,
+    diagnostics: Vec<serde_json::Value>,
+    messages: Vec<MoonMessage>,
+    summary: CheckJsonSummary,
+}
+
+#[derive(Debug, Default)]
+struct CheckJsonAccumulator {
+    diagnostics: Vec<serde_json::Value>,
+    messages: Vec<MoonMessage>,
+    tasks_executed: Option<usize>,
+    build_failed: bool,
+    diagnostic_errors: usize,
+    diagnostic_warnings: usize,
+}
+
+impl CheckJsonAccumulator {
+    fn append_build(
+        &mut self,
+        target_backend: TargetBackend,
+        mut result: rr_build::JsonBuildOutput,
+        user_log: &UserLog,
+    ) {
+        let successful = result.successful();
+        for diagnostic in &mut result.diagnostics {
+            diagnostic
+                .as_object_mut()
+                .expect("Moonc diagnostic should be a JSON object")
+                .insert(
+                    "target_backend".to_string(),
+                    serde_json::Value::String(target_backend.to_flag().to_string()),
+                );
+        }
+        self.diagnostics.extend(result.diagnostics);
+        self.diagnostic_errors += result.n_errors;
+        self.diagnostic_warnings += result.n_warnings;
+        self.tasks_executed = if successful && !self.build_failed {
+            Some(self.tasks_executed.unwrap_or_default() + result.n_tasks_executed.unwrap())
+        } else {
+            None
+        };
+        self.build_failed |= !successful;
+
+        for message in result.non_diagnostic_output {
+            if successful {
+                user_log.info(message);
+            } else {
+                user_log.error(message);
+            }
+        }
+        if result.hidden_errors != 0 || result.hidden_warnings != 0 {
+            user_log.warn(format!(
+                    "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
+                    result.hidden_errors, result.hidden_warnings
+                ));
+        }
+    }
+
+    fn error(&mut self, error: impl std::fmt::Display) {
+        self.messages.push(MoonMessage {
+            message_type: "moon",
+            level: UserLogEntryLevel::Error,
+            message: error.to_string(),
+        });
+    }
+}
+
+pub(crate) struct CheckJsonOutcome {
+    exit_code: i32,
+    accumulator: CheckJsonAccumulator,
+}
+
+impl CheckJsonOutcome {
+    pub(crate) fn from_error(exit_code: i32, error: impl std::fmt::Display) -> Self {
+        let mut accumulator = CheckJsonAccumulator::default();
+        accumulator.error(error);
+        Self {
+            exit_code,
+            accumulator,
+        }
+    }
+
+    pub(crate) fn exit_code(&self) -> i32 {
+        self.exit_code
+    }
 }
 
 impl ResolvedCheckSelection {
@@ -126,6 +244,93 @@ pub(crate) struct CheckSubcommand {
     /// Check whether the code is properly formatted
     #[clap(long)]
     pub fmt: bool,
+
+    /// Output one complete JSON result to stdout
+    #[clap(long)]
+    pub json: bool,
+}
+
+pub(crate) fn write_check_json(
+    output: &CommandOutput,
+    capture: &UserLogCapture,
+    mut outcome: CheckJsonOutcome,
+) -> anyhow::Result<()> {
+    let mut captured_messages = capture
+        .take()
+        .into_iter()
+        .map(MoonMessage::from)
+        .collect::<Vec<_>>();
+    captured_messages.append(&mut outcome.accumulator.messages);
+    let moon_errors = captured_messages
+        .iter()
+        .filter(|message| matches!(message.level, UserLogEntryLevel::Error))
+        .count();
+    let moon_warnings = captured_messages
+        .iter()
+        .filter(|message| matches!(message.level, UserLogEntryLevel::Warning))
+        .count();
+    let report = CheckJsonReport {
+        version: 1,
+        status: if outcome.exit_code == 0 {
+            "success"
+        } else {
+            "failure"
+        },
+        diagnostics: outcome.accumulator.diagnostics,
+        messages: captured_messages,
+        summary: CheckJsonSummary {
+            tasks_executed: outcome.accumulator.tasks_executed,
+            moon_errors,
+            moon_warnings,
+            diagnostic_errors: outcome.accumulator.diagnostic_errors,
+            diagnostic_warnings: outcome.accumulator.diagnostic_warnings,
+        },
+    };
+    output.write_result(|writer| -> anyhow::Result<()> {
+        serde_json::to_writer(&mut *writer, &report)?;
+        writeln!(writer)?;
+        Ok(())
+    })
+}
+
+pub(crate) fn run_check_json(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    output: &CommandOutput,
+) -> CheckJsonOutcome {
+    let incompatible = [
+        (cmd.watch, "--watch"),
+        (cli.dry_run, "--dry-run"),
+        (cmd.fmt, "--fmt"),
+        (cmd.build_flags.no_render, "--no-render"),
+        (cmd.build_flags.output_json, "--output-json"),
+    ]
+    .into_iter()
+    .filter_map(|(enabled, flag)| enabled.then_some(flag))
+    .collect::<Vec<_>>();
+    if !incompatible.is_empty() {
+        return CheckJsonOutcome::from_error(
+            2,
+            format!("--json cannot be used with {}", incompatible.join(", ")),
+        );
+    }
+
+    let mut json_cmd = cmd.clone();
+    json_cmd.build_flags.output_json = true;
+    let mut accumulator = CheckJsonAccumulator::default();
+    match run_check_impl(cli, &json_cmd, output, Some(&mut accumulator)) {
+        Ok(exit_code) => CheckJsonOutcome {
+            exit_code,
+            accumulator,
+        },
+        Err(error) => {
+            accumulator.error(format!("{error:#}"));
+            CheckJsonOutcome {
+                exit_code: -1,
+                accumulator,
+            }
+        }
+    }
 }
 
 #[instrument(skip_all)]
@@ -133,6 +338,15 @@ pub(crate) fn run_check(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    run_check_impl(cli, cmd, output, None)
+}
+
+fn run_check_impl(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    output: &CommandOutput,
+    mut json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
     if cmd.fmt {
@@ -191,6 +405,7 @@ pub(crate) fn run_check(
             single_file.as_deref(),
             None,
             output,
+            json,
         );
     }
 
@@ -206,6 +421,7 @@ pub(crate) fn run_check(
             single_file.as_deref(),
             Some(t),
             output,
+            json.as_deref_mut(),
         )
         .context(format!("failed to run check for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -223,6 +439,7 @@ fn run_check_internal(
     single_file: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
+    json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<i32> {
     if let Some(single_file_path) = single_file {
         run_check_for_single_file_rr(
@@ -232,6 +449,7 @@ fn run_check_internal(
             dirs,
             selected_target_backend,
             output,
+            json,
         )
     } else {
         run_check_normal_internal(
@@ -241,6 +459,7 @@ fn run_check_internal(
             watch_ignored_subtree,
             selected_target_backend,
             output,
+            json,
         )
     }
 }
@@ -253,6 +472,7 @@ fn run_check_for_single_file_rr(
     dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
+    json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
     let PackageDirs {
@@ -273,7 +493,8 @@ fn run_check_for_single_file_rr(
         false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_captured_sync_child_output(cmd.json);
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         dirs,
@@ -326,7 +547,12 @@ fn run_check_for_single_file_rr(
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(target_dir).with_context(|| {
+    let lock = if json.is_some() {
+        FileLock::lock_with_user_log(target_dir, user_log)
+    } else {
+        FileLock::lock(target_dir)
+    };
+    let _lock = lock.with_context(|| {
         format!(
             "failed to acquire build lock in target directory `{}`",
             target_dir.display()
@@ -347,9 +573,25 @@ fn run_check_for_single_file_rr(
         filename.as_deref(),
     )?;
 
-    let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let mut cfg = BuildConfig::from_flags(
+        &cmd.build_flags,
+        &cli.unstable_feature,
+        cli.verbose && json.is_none(),
+    );
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
+
+    if let Some(json) = json {
+        let target_backend = build_meta.target_backend();
+        let result = rr_build::execute_build_json(
+            &cfg.with_suppressed_progress(true),
+            build_graph,
+            target_dir,
+        )?;
+        let successful = result.successful();
+        json.append_build(target_backend, result, user_log);
+        return Ok(if successful { 0 } else { 1 });
+    }
 
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
@@ -383,9 +625,30 @@ fn run_check_normal_internal(
     watch_ignored_subtree: &Path,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
+    json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<i32> {
+    if let Some(json) = json {
+        return run_check_normal_internal_rr(
+            cli,
+            cmd,
+            dirs,
+            false,
+            selected_target_backend,
+            output,
+            Some(json),
+        )
+        .map(|output| if output.ok { 0 } else { 1 });
+    }
     let run_once = || -> anyhow::Result<WatchOutput> {
-        run_check_normal_internal_rr(cli, cmd, dirs, cmd.watch, selected_target_backend, output)
+        run_check_normal_internal_rr(
+            cli,
+            cmd,
+            dirs,
+            cmd.watch,
+            selected_target_backend,
+            output,
+            None,
+        )
     };
     if cmd.watch {
         watching(run_once, &dirs.source_dir, watch_ignored_subtree)
@@ -403,6 +666,7 @@ fn run_check_normal_internal_rr(
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
+    mut json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
     let PackageDirs {
@@ -423,8 +687,9 @@ fn run_check_normal_internal_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs)
+    )
+    .with_captured_sync_child_output(json.is_some());
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs, user_log)
         .context("Failed to calculate build plan")?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)
@@ -464,13 +729,22 @@ fn run_check_normal_internal_rr(
         })?;
         true
     } else {
-        let _lock = FileLock::lock(target_dir).with_context(|| {
+        let lock = if json.is_some() {
+            FileLock::lock_with_user_log(target_dir, user_log)
+        } else {
+            FileLock::lock(target_dir)
+        };
+        let _lock = lock.with_context(|| {
             format!(
                 "failed to acquire build lock in target directory `{}`",
                 target_dir.display()
             )
         })?;
-        let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+        let mut cfg = BuildConfig::from_flags(
+            &cmd.build_flags,
+            &cli.unstable_feature,
+            cli.verbose && json.is_none(),
+        );
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
         let mut ok = true;
@@ -480,9 +754,21 @@ fn run_check_normal_internal_rr(
             // Generate metadata for IDE. The last executed backend wins.
             rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
-            let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-            result.print_info(cli.quiet, "checking")?;
-            ok &= result.successful();
+            if let Some(json) = json.as_deref_mut() {
+                let target_backend = build_meta.target_backend();
+                let result = rr_build::execute_build_json(
+                    &cfg.clone().with_suppressed_progress(true),
+                    build_graph,
+                    target_dir,
+                )?;
+                let successful = result.successful();
+                json.append_build(target_backend, result, user_log);
+                ok &= successful;
+            } else {
+                let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+                result.print_info(cli.quiet, "checking")?;
+                ok &= result.successful();
+            }
         }
         ok
     };

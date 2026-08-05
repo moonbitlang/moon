@@ -581,21 +581,17 @@ mod tests {
 
     fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
         let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
             target_dir: None,
         }
         .query_from(source_dir, WorkspaceEnv::Auto)
         .unwrap()
-        .package_dirs(&UserLog::new(LevelFilter::Error))
+        .package_dirs(&user_log)
         .unwrap();
-        let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs).unwrap();
-        moonbuild_rupes_recta::resolve_synced_project(
-            &cfg,
-            synced_env,
-            &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
-        )
-        .unwrap()
+        let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs, &user_log).unwrap();
+        moonbuild_rupes_recta::resolve_synced_project(&cfg, synced_env, &user_log).unwrap()
     }
 
     #[test]

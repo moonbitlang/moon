@@ -168,7 +168,7 @@ options(
             name: &ModuleName,
             version: &Version,
             to: &Path,
-            _quiet: bool,
+            _user_log: &UserLog,
         ) -> anyhow::Result<()> {
             std::fs::create_dir_all(to)?;
             self.install_source(name, version, to)
@@ -180,7 +180,7 @@ options(
             version: &Version,
             expected_checksum: &str,
             to: &Path,
-            _quiet: bool,
+            _user_log: &UserLog,
         ) -> anyhow::Result<()> {
             self.install_source(name, version, to)?;
             std::fs::write(to.join("acquired-archive-checksum"), expected_checksum)?;

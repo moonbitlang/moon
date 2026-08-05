@@ -135,7 +135,7 @@ pub(crate) fn fetch_cli(
         println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
     }
 
-    registry.install_to(&pkg_name, &version, &pkg_dir, cli.quiet)?;
+    registry.install_to(&pkg_name, &version, &pkg_dir, user_log)?;
 
     if !cli.quiet {
         println!(

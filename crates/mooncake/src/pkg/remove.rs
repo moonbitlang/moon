@@ -26,6 +26,7 @@ use moonutil::{
     },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::ProjectManifest,
+    user_log::UserLog,
 };
 
 use crate::{
@@ -47,6 +48,7 @@ pub fn remove(
     project_manifest: &ProjectManifest,
     username: &str,
     pkgname: &str,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(module_dir)?;
     let dep_name = format!("{username}/{pkgname}");
@@ -59,13 +61,13 @@ pub fn remove(
         )
     }
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest, user_log)?;
 
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),
         inject_std: false, // no need to inject
     };
-    resolve_with_default_env_and_resolver(&resolve_cfg, roots)?;
+    resolve_with_default_env_and_resolver(&resolve_cfg, roots, user_log)?;
 
     if module_dir.join(MOON_MOD).exists() {
         patch_module_dsl_to_file(

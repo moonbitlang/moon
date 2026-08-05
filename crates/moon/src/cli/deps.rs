@@ -84,7 +84,8 @@ pub(crate) fn install_cli(
         mooncake::pkg::sync::auto_sync(
             &dirs,
             &AutoSyncFlags { frozen: false },
-            SyncOutputOptions::new(cli.quiet, true),
+            SyncOutputOptions::default(),
+            user_log,
             true,
             cli.workspace_env.clone(),
             true,
@@ -192,7 +193,7 @@ pub(crate) fn remove_cli(
     }
     let username = parts[0];
     let pkgname = parts[1];
-    mooncake::pkg::remove::remove(&module_dir, &project_manifest, username, pkgname)
+    mooncake::pkg::remove::remove(&module_dir, &project_manifest, username, pkgname, user_log)
 }
 
 pub(crate) fn add_cli(
@@ -256,8 +257,8 @@ pub(crate) fn add_cli(
             &pkg_name,
             cmd.bin,
             &version,
-            cli.quiet,
             cmd.upgrade,
+            user_log,
         )
     } else {
         mooncake::pkg::add::add_latest(
@@ -265,9 +266,9 @@ pub(crate) fn add_cli(
             &dirs,
             &pkg_name,
             cmd.bin,
-            cli.quiet,
             index_updated,
             cmd.upgrade,
+            user_log,
         )
     }
 }
@@ -283,7 +284,7 @@ pub(crate) fn tree_cli(
     let PackageDirs {
         project_manifest, ..
     } = query.package_dirs(user_log)?;
-    mooncake::pkg::tree::tree(&module_dir, &project_manifest)
+    mooncake::pkg::tree::tree(&module_dir, &project_manifest, user_log)
 }
 
 #[cfg(test)]

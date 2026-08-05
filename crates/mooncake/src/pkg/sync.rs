@@ -37,39 +37,29 @@ use moonutil::{
 };
 use semver::Version;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOutputOptions {
     quiet: bool,
-    verbose: bool,
+    capture_child_output: bool,
 }
 
 impl SyncOutputOptions {
-    pub fn new(quiet: bool, verbose: bool) -> Self {
-        Self { quiet, verbose }
-    }
-
     pub fn with_quiet(mut self, quiet: bool) -> Self {
         self.quiet = quiet;
         self
     }
 
-    pub(crate) fn user_log(self) -> UserLog {
-        // Preserve the existing sync policy while expressing it as one log
-        // level: acquisition is informational, while lock waits are verbose.
-        let level = if self.quiet {
-            log::LevelFilter::Error
-        } else if self.verbose {
-            log::LevelFilter::Debug
-        } else {
-            log::LevelFilter::Info
-        };
-        UserLog::new(level)
+    pub fn quiet(self) -> bool {
+        self.quiet
     }
-}
 
-impl Default for SyncOutputOptions {
-    fn default() -> Self {
-        Self::new(false, true)
+    pub fn with_captured_child_output(mut self, capture: bool) -> Self {
+        self.capture_child_output = capture;
+        self
+    }
+
+    pub fn capture_child_output(self) -> bool {
+        self.capture_child_output
     }
 }
 
@@ -81,6 +71,7 @@ pub fn auto_sync(
     dirs: &PackageDirs,
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
+    user_log: &UserLog,
     no_std: bool,
     workspace_env: WorkspaceEnv,
     include_bin_deps: bool,
@@ -88,16 +79,14 @@ pub fn auto_sync(
     if let ProjectManifest::Workspace(project_manifest) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
-        let workspace_root = project_manifest
-            .parent()
-            .context("workspace manifest path has no parent directory")?;
+        let workspace = read_workspace_file(project_manifest, user_log)?;
         return resolve_workspace_sync(
             dirs,
             cli,
             output_options,
+            user_log,
             no_std,
-            workspace_root,
-            read_workspace_file(project_manifest)?,
+            workspace,
             include_bin_deps,
         );
     }
@@ -114,7 +103,7 @@ pub fn auto_sync(
         dirs,
         roots,
         output_options,
-        false,
+        user_log,
         cli.dont_sync(),
         no_std,
         &CacheRoot::Disabled,
@@ -127,11 +116,17 @@ fn resolve_workspace_sync(
     dirs: &PackageDirs,
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
+    user_log: &UserLog,
     no_std: bool,
-    workspace_root: &Path,
     workspace: MoonWork,
     include_bin_deps: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
+    let ProjectManifest::Workspace(project_manifest) = &dirs.project_manifest else {
+        unreachable!("workspace sync requires a workspace manifest");
+    };
+    let workspace_root = project_manifest
+        .parent()
+        .context("workspace manifest path has no parent directory")?;
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
         let mut module = read_module_desc_file_in_dir(&member_dir)?;
@@ -147,7 +142,7 @@ fn resolve_workspace_sync(
         dirs,
         roots,
         output_options,
-        false,
+        user_log,
         cli.dont_sync(),
         no_std,
         &CacheRoot::Disabled,
@@ -162,6 +157,7 @@ pub fn auto_sync_for_single_mbt_md(
     mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     front_matter_config: Option<MbtMdHeader>,
+    user_log: &UserLog,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Arc<MoonMod>)> {
     let mut deps = IndexMap::new();
 
@@ -196,8 +192,8 @@ pub fn auto_sync_for_single_mbt_md(
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         &dirs,
         roots,
-        SyncOutputOptions::new(moonbuild_opt.quiet, true),
-        moonbuild_opt.verbose,
+        SyncOutputOptions::default(),
+        user_log,
         dont_sync,
         false,
         &CacheRoot::Disabled,
@@ -212,6 +208,7 @@ pub fn auto_sync_for_single_file_rr(
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
     output_options: SyncOutputOptions,
     source_cache: &CacheRoot,
+    user_log: &UserLog,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
     if let Some(deps_map) = front_matter_deps {
@@ -233,7 +230,7 @@ pub fn auto_sync_for_single_file_rr(
         dirs,
         roots,
         output_options,
-        false,
+        user_log,
         sync_flags.dont_sync(),
         false,
         source_cache,
@@ -241,22 +238,4 @@ pub fn auto_sync_for_single_file_rr(
 
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((resolved_env, dir_sync_result))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::SyncOutputOptions;
-
-    #[test]
-    fn sync_output_options_configure_user_log() {
-        let normal = SyncOutputOptions::new(false, false).user_log();
-        assert!(normal.is_enabled(log::Level::Info));
-        assert!(!normal.is_enabled(log::Level::Debug));
-
-        let verbose = SyncOutputOptions::new(false, true).user_log();
-        assert!(verbose.is_enabled(log::Level::Debug));
-
-        let quiet = SyncOutputOptions::new(true, true).user_log();
-        assert!(!quiet.is_enabled(log::Level::Info));
-    }
 }

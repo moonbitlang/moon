@@ -20,7 +20,7 @@ use std::io::Write;
 
 use log::LevelFilter;
 
-use crate::user_log::UserLog;
+use crate::user_log::{UserLog, UserLogCapture};
 
 /// Owns the two MoonBuild-authored communication channels for one command.
 ///
@@ -38,6 +38,13 @@ impl CommandOutput {
         Self {
             user_log: UserLog::new(user_log_level),
         }
+    }
+
+    /// Construct an output facade whose User Logs are captured for later
+    /// inclusion in a structured Command Result.
+    pub fn captured(user_log_level: LevelFilter) -> (Self, UserLogCapture) {
+        let (user_log, capture) = UserLog::captured(user_log_level);
+        (Self { user_log }, capture)
     }
 
     pub fn user_log(&self) -> &UserLog {

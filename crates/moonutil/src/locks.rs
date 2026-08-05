@@ -52,7 +52,7 @@ impl FileLock {
                 #[cfg(test)]
                 let _ = user_log;
                 #[cfg(not(test))]
-                user_log.debug(format!(
+                user_log.status(format!(
                     "Blocking waiting for file lock {} ...",
                     path.join(MOON_LOCK).display()
                 ));

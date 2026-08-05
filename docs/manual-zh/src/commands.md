@@ -178,6 +178,7 @@ Check the current package, but don't build object files
 * `--patch-file <PATCH_FILE>` — The patch file to check. Only valid when the selector resolves to a single package
 * `--explain` — Whether to explain the error code with details
 * `--fmt` — Check whether the code is properly formatted
+* `--json` — Output one complete JSON result to stdout
 
 
 

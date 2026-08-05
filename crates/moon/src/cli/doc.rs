@@ -134,7 +134,7 @@ pub(crate) fn run_doc_rr(
     preconfig.docs_serve = cmd.serve;
 
     let resolve_cfg = preconfig.resolve_config();
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 

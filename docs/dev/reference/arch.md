@@ -163,9 +163,10 @@ without rediscovery.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment
-explicitly and passes it to prebuild execution. Commands that skip prebuild,
-such as `check`, should not capture that environment just to construct a build
-plan.
+explicitly and passes it to prebuild execution. Commands that skip prebuild
+configuration, such as `check`, should not capture that environment just to
+construct a build plan. This does not disable package pre-build rules or the
+bin-dependencies that provide their tools.
 
 Dependency synchronization is explicit in the normal project path. Command
 adapters first call dependency sync, then pass the synced dependency result to

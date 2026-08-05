@@ -39,6 +39,8 @@ The facade does not own Process Passthrough, Progress Displays, compiler diagnos
 
 The quiet user-log level follows `UserLog` and suppresses warnings. Default levels and informational formatting remain command-specific until affected command snapshots make any intended behavior change visible.
 
+After argument parsing selects a command, commands that promise one complete machine-readable result are a scoped exception to the usual channel mapping: the CLI may construct a capturing `UserLog`, preserve its level filtering and event order, and serialize those events inside the stdout Command Result. Help and argument-parse failures remain on the parser's native output path. Build executors return compiler diagnostics as data for the same final render; they do not receive `CommandOutput`. Such a mode must suppress terminal progress and tracing output so stderr remains empty.
+
 ## Slices and Blocking Edges
 
 ### CO-1: Prove the seam with `moon info`

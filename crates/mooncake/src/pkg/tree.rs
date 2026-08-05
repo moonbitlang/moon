@@ -24,6 +24,7 @@ use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::project::ProjectManifest;
 use moonutil::resolution::{ModuleId, ModuleName, ResolvedEnv};
+use moonutil::user_log::UserLog;
 
 use crate::pkg::roots_for_selected_module;
 use crate::registry;
@@ -124,14 +125,19 @@ fn format_module_label(
     label
 }
 
-pub fn tree(module_dir: &Path, project_manifest: &ProjectManifest) -> anyhow::Result<i32> {
+pub fn tree(
+    module_dir: &Path,
+    project_manifest: &ProjectManifest,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let module = Arc::new(read_module_desc_file_in_dir(module_dir)?);
-    let roots = roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest)?;
+    let roots =
+        roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest, user_log)?;
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),
         inject_std: false,
     };
-    let resolved = resolve_with_default_env_and_resolver(&resolve_cfg, roots)?;
+    let resolved = resolve_with_default_env_and_resolver(&resolve_cfg, roots, user_log)?;
 
     let module_name: ModuleName = module.name.as_str().into();
     let selected_root = resolved

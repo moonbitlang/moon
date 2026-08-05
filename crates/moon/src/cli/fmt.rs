@@ -75,8 +75,9 @@ fn run_fmt_rr(
         .query(cli.workspace_env.clone())?
         .package_dirs(user_log)?;
 
-    let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, &project_manifest)
-        .context("Failed to resolve environment")?;
+    let resolved =
+        moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, &project_manifest, user_log)
+            .context("Failed to resolve environment")?;
 
     let mut selected_packages = Vec::new();
 

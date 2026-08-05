@@ -15,6 +15,7 @@ MoonBuild will place a small `CommandOutput` interface at the CLI orchestration 
 - Color follows the actual destination channel. Redirecting stdout does not disable color on an interactive stderr, and redirecting stderr does not affect stdout.
 - The build engines do not receive the whole `CommandOutput` merely to print; they return data or accept the narrower `UserLog` or writer their operation requires.
 - Existing direct output migrates command by command. Explicitly classified passthrough, progress, and tracing sites are not mechanical conversion targets.
+- After CLI argument parsing selects a command, a command whose contract is one machine-readable result may capture its filtered User Logs at the CLI seam and embed them in that Command Result. Help and argument-parse failures retain the CLI parser's native output. In the machine-readable command mode, terminal-only progress and tracing output are suppressed, while lower layers still receive only `UserLog` or return structured data.
 
 ## Considered Options
 

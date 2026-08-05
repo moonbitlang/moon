@@ -66,7 +66,7 @@ pub(crate) fn work_cli(
             }
 
             let workspace_root = work_root(&cli, WorkRootSelection::CreateWorkspace, user_log)?;
-            mooncake::pkg::init_workspace(&workspace_root, &cmd.paths, cli.quiet)
+            mooncake::pkg::init_workspace(&workspace_root, &cmd.paths, cli.quiet, user_log)
         }
         WorkSubcommands::Use(cmd) => {
             if cli.dry_run {
@@ -75,7 +75,7 @@ pub(crate) fn work_cli(
 
             let workspace_root =
                 work_root(&cli, WorkRootSelection::ReuseExistingWorkspace, user_log)?;
-            mooncake::pkg::use_workspace(&workspace_root, &cmd.paths, cli.quiet)
+            mooncake::pkg::use_workspace(&workspace_root, &cmd.paths, cli.quiet, user_log)
         }
         WorkSubcommands::Sync => {
             if cli.dry_run {
@@ -86,7 +86,7 @@ pub(crate) fn work_cli(
                 .source_tgt_dir
                 .query(cli.workspace_env.clone())?
                 .package_dirs(user_log)?;
-            mooncake::pkg::sync_workspace(&source_dir, cli.quiet)
+            mooncake::pkg::sync_workspace(&source_dir, cli.quiet, user_log)
         }
     }
 }

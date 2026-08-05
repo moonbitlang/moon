@@ -240,8 +240,6 @@ pub(super) fn install_binary(
     install_all: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let quiet = cli.quiet;
-
     let index_dir = moonutil::registry::index();
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
@@ -276,7 +274,7 @@ pub(super) fn install_binary(
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let module_dir = tmp_dir.path();
 
-    registry.install_to(&spec.module_name, &version, module_dir, quiet)?;
+    registry.install_to(&spec.module_name, &version, module_dir, user_log)?;
 
     let filter =
         PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
@@ -496,7 +494,8 @@ fn prepare_native_build(
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
             .with_sync_output(sync_output);
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &package_dirs)?;
+    let synced_env =
+        moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &package_dirs, user_log)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let target_dir = package_dirs.target_dir;
@@ -652,7 +651,7 @@ fn build_native_executable_to(
         module_name,
         module_dir,
         package_dirs,
-        SyncOutputOptions::new(!cli.verbose, cli.verbose),
+        SyncOutputOptions::default(),
         PackageFilter::package_path(package_path.to_string(), false),
         user_log,
     )?;
@@ -714,7 +713,7 @@ pub(super) fn build_registry_native_executable_to(
     // installation hooks or let acquisition progress precede program stdout.
     let registry = OnlineRegistry::mooncakes_io();
     let checksum = registry.source_archive_checksum(module_name, version)?;
-    registry.acquire_source_to(module_name, version, &checksum, source.path(), !verbose)?;
+    registry.acquire_source_to(module_name, version, &checksum, source.path(), user_log)?;
 
     let cli = UniversalFlags {
         source_tgt_dir: SourceTargetDirs {
@@ -778,7 +777,7 @@ fn build_and_install_packages(
         module_name,
         module_dir,
         package_dirs,
-        SyncOutputOptions::new(cli.quiet, cli.verbose),
+        SyncOutputOptions::default(),
         filter,
         user_log,
     )?;

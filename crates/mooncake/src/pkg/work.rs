@@ -39,6 +39,7 @@ use moonutil::{
         DependencyEdge, DependencyKind, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
         ResolvedEnv, ResolvedModule, ResolvedRootModules,
     },
+    user_log::UserLog,
 };
 
 use crate::{
@@ -50,6 +51,7 @@ pub fn init_workspace(
     workspace_root: &Path,
     paths: &[PathBuf],
     quiet: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     if let Some(workspace_path) = workspace_manifest_path(workspace_root) {
         bail!(
@@ -63,7 +65,7 @@ pub fn init_workspace(
     } else {
         let mut use_paths = BTreeSet::new();
         for path in paths {
-            let member_dir = resolve_workspace_member(path)?;
+            let member_dir = resolve_workspace_member(path, user_log)?;
             use_paths.insert(workspace_use_path(workspace_root, &member_dir));
         }
         use_paths.into_iter().collect()
@@ -84,8 +86,13 @@ pub fn init_workspace(
     Ok(0)
 }
 
-pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> anyhow::Result<i32> {
-    let existing = read_workspace(workspace_root)?;
+pub fn use_workspace(
+    workspace_root: &Path,
+    paths: &[PathBuf],
+    quiet: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let existing = read_workspace(workspace_root, user_log)?;
     let preferred_target = existing
         .as_ref()
         .and_then(|workspace| workspace.preferred_target);
@@ -119,7 +126,7 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
 
     let previous_len = use_paths.len();
     for path in paths {
-        let member_dir = resolve_workspace_member(path)?;
+        let member_dir = resolve_workspace_member(path, user_log)?;
         if member_dirs.insert(member_dir.clone()) {
             use_paths.push(workspace_use_path(workspace_root, &member_dir));
         }
@@ -147,15 +154,15 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
     Ok(0)
 }
 
-pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
-    let workspace = read_workspace(source_dir)?.context(format!(
+pub fn sync_workspace(source_dir: &Path, quiet: bool, user_log: &UserLog) -> anyhow::Result<i32> {
+    let workspace = read_workspace(source_dir, user_log)?.context(format!(
         "`moon work sync` requires `{}` at `{}`",
         MOON_WORK,
         source_dir.display()
     ))?;
     let member_dirs = canonical_workspace_module_dirs(source_dir, &workspace)?;
-    let roots = workspace_roots(&member_dirs)?;
-    let resolved_env = resolve_workspace(roots)?;
+    let roots = workspace_roots(&member_dirs, user_log)?;
+    let resolved_env = resolve_workspace(roots, user_log)?;
     let updated = sync_workspace_manifests(&resolved_env)?;
 
     if !quiet {
@@ -173,7 +180,7 @@ pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
     Ok(0)
 }
 
-fn resolve_workspace_member(path: &Path) -> anyhow::Result<PathBuf> {
+fn resolve_workspace_member(path: &Path, user_log: &UserLog) -> anyhow::Result<PathBuf> {
     let member_dir = dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve workspace member `{}`", path.display()))?;
     if !member_dir.is_dir() {
@@ -184,6 +191,7 @@ fn resolve_workspace_member(path: &Path) -> anyhow::Result<PathBuf> {
         MOON_MOD_JSON,
         MOON_MOD,
         &format!("at module root '{}'", member_dir.display()),
+        user_log,
     );
     read_module_desc_file_in_dir(&member_dir).with_context(|| {
         format!(
@@ -208,7 +216,10 @@ fn workspace_use_path(workspace_root: &Path, member_dir: &Path) -> PathBuf {
     PathBuf::from(".").join(relative)
 }
 
-fn resolve_workspace(roots: ResolvedRootModules) -> anyhow::Result<ResolvedEnv> {
+fn resolve_workspace(
+    roots: ResolvedRootModules,
+    user_log: &UserLog,
+) -> anyhow::Result<ResolvedEnv> {
     let mut includes_core = false;
     for (_, module) in roots.iter() {
         if module.module_info().name == MOONBITLANG_CORE {
@@ -225,10 +236,13 @@ fn resolve_workspace(roots: ResolvedRootModules) -> anyhow::Result<ResolvedEnv> 
         registry: registry::default_registry(),
         inject_std: !includes_core,
     };
-    resolve_with_default_env_and_resolver(&resolve_config, roots).map_err(Into::into)
+    resolve_with_default_env_and_resolver(&resolve_config, roots, user_log).map_err(Into::into)
 }
 
-fn workspace_roots(member_dirs: &[PathBuf]) -> anyhow::Result<ResolvedRootModules> {
+fn workspace_roots(
+    member_dirs: &[PathBuf],
+    user_log: &UserLog,
+) -> anyhow::Result<ResolvedRootModules> {
     let mut roots = ResolvedRootModules::with_key();
 
     for member_dir in member_dirs {
@@ -237,6 +251,7 @@ fn workspace_roots(member_dirs: &[PathBuf]) -> anyhow::Result<ResolvedRootModule
             MOON_MOD_JSON,
             MOON_MOD,
             &format!("at module root '{}'", member_dir.display()),
+            user_log,
         );
         let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
         let source = ModuleSource::from_local_module(&module, member_dir);

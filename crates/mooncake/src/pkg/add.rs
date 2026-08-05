@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use colored::Colorize;
 use indexmap::IndexMap;
 use moonutil::constants::{MOON_MOD, MOONBITLANG_CORE};
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
@@ -27,6 +26,7 @@ use moonutil::manifest::{
 use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleName;
+use moonutil::user_log::UserLog;
 use semver::Version;
 use std::path::Path;
 use std::sync::Arc;
@@ -60,17 +60,13 @@ pub fn add_latest(
     dirs: &PackageDirs,
     pkg_name: &ModuleName,
     bin: bool,
-    quiet: bool,
     index_updated: bool,
     upgrade: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let pkg_name_str = pkg_name.to_string();
     if pkg_name_str == MOONBITLANG_CORE {
-        eprintln!(
-            "{}: no need to add `{}` as dependency",
-            "Warning".yellow().bold(),
-            MOONBITLANG_CORE
-        );
+        user_log.warn(format!("no need to add `{MOONBITLANG_CORE}` as dependency"));
         std::process::exit(0);
     }
 
@@ -96,8 +92,8 @@ pub fn add_latest(
         pkg_name,
         bin,
         &latest_version,
-        quiet,
         upgrade,
+        user_log,
     )
 }
 
@@ -114,18 +110,14 @@ pub fn add(
     pkg_name: &ModuleName,
     bin: bool,
     version: &Version,
-    quiet: bool,
     upgrade: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(module_dir)?;
 
     let pkg_name_str = pkg_name.to_string();
     if pkg_name_str == MOONBITLANG_CORE {
-        eprintln!(
-            "{}: no need to add `{}` as dependency",
-            "Warning".yellow().bold(),
-            MOONBITLANG_CORE
-        );
+        user_log.warn(format!("no need to add `{MOONBITLANG_CORE}` as dependency"));
         std::process::exit(0);
     }
 
@@ -141,10 +133,9 @@ pub fn add(
         }
 
         if dep.version() == Some(version) {
-            eprintln!(
-                "{}: dependency `{pkg_name_str}` is already at version {version}",
-                "Warning".yellow().bold(),
-            );
+            user_log.warn(format!(
+                "dependency `{pkg_name_str}` is already at version {version}"
+            ));
             return Ok(0);
         }
 
@@ -160,11 +151,11 @@ pub fn add(
         );
     } else {
         if m.deps.contains_key(&pkg_name_str) {
-            eprintln!(
-                "{}: dependency `{pkg_name_str}` already exists, `moon add` will not update it. \
-                To update the dependency, run `moon add --upgrade {pkg_name_str}@<version>` or `moon add --upgrade {pkg_name_str}` for the latest version.",
-                "Warning".yellow().bold(),
-            );
+            user_log.warn(format!(
+                "dependency `{pkg_name_str}` already exists, `moon add` will not update it. \
+                 To update the dependency, run `moon add --upgrade {pkg_name_str}@<version>` or \
+                 `moon add --upgrade {pkg_name_str}` for the latest version."
+            ));
             return Ok(0);
         }
 
@@ -188,12 +179,13 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest)?;
+    let roots =
+        roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest, user_log)?;
     install_impl(
         dirs,
         roots,
-        SyncOutputOptions::new(quiet, true),
-        false,
+        SyncOutputOptions::default(),
+        user_log,
         false,
         true,
         &moonutil::cache::CacheRoot::Disabled,

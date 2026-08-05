@@ -94,11 +94,18 @@ fn mooncakes_io_smoke_test() {
     )
     .unwrap();
 
+    std::fs::remove_dir_all(&mooncakes_dir).unwrap();
+    let assert = moon_cmd(&dir).args(["run", "main"]).assert().success();
     check(
-        get_stdout(&dir, ["run", "main"]),
+        std::str::from_utf8(&assert.get_output().stdout).unwrap(),
         expect![[r#"
             Hello, world!Hello, world2!
         "#]],
+    );
+    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
+    assert!(
+        !stderr.contains("Using cached ") && !stderr.contains("Downloading "),
+        "moon run should keep dependency sync quiet by default, got:\n{stderr}"
     );
 }
 
