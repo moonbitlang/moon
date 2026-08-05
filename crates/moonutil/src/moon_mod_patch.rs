@@ -62,14 +62,12 @@ struct MoonModImportBlock {
 }
 
 fn byte_offset_for_pos(contents: &str, pos: &moon_pkg::Pos) -> usize {
-    let mut line = 1usize;
     let mut offset = 0usize;
-    for segment in contents.split_inclusive('\n') {
+    for (line, segment) in (1usize..).zip(contents.split_inclusive('\n')) {
         if line == pos.line {
             return offset + pos.column.saturating_sub(1);
         }
         offset += segment.len();
-        line += 1;
     }
     contents.len()
 }
