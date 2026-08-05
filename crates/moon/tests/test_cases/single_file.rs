@@ -30,7 +30,7 @@ fn test_moon_run_single_file_dry_run() {
     )
     // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
     .replace(" -Wno-unused-value", "");
-    crate::util::normalize_apple_archiver(&mut output);
+    crate::util::normalize_host_archiver(&mut output);
     check(
         collapse_core_import_args(&output, TargetBackend::Native),
         expect![[r#"
@@ -41,8 +41,8 @@ fn test_moon_run_single_file_dry_run() {
             cc -o ./_build/native/debug/build/runtime-runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '$MOON_HOME/lib/runtime/runtime.c'
             cc -o ./_build/native/debug/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '$MOON_HOME/lib/runtime/env.c'
             cc -o ./_build/native/debug/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '$MOON_HOME/lib/runtime/backtrace.c'
-            ar -r -c -s ./_build/native/debug/build/libruntime-04e898fec81fcecb.a ./_build/native/debug/build/runtime-backtrace.o ./_build/native/debug/build/runtime-env.o ./_build/native/debug/build/runtime-runtime.o ./_build/native/debug/build/runtime-sync_io.o ./_build/native/debug/build/runtime-utf.o
-            cc -o ./_build/native/debug/build/single/single.exe '-I$MOON_HOME/include' -g -fwrapv -fno-strict-aliasing -Og '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/debug/build/single/single.c ./_build/native/debug/build/libruntime-04e898fec81fcecb.a -lm '$MOON_HOME/lib/libbacktrace.a'
+            [ARCHIVER] [CREATE_ARGS] ./_build/native/debug/build/libruntime[FINGER_PRINT].a ./_build/native/debug/build/runtime-backtrace.o ./_build/native/debug/build/runtime-env.o ./_build/native/debug/build/runtime-runtime.o ./_build/native/debug/build/runtime-sync_io.o ./_build/native/debug/build/runtime-utf.o
+            cc -o ./_build/native/debug/build/single/single.exe '-I$MOON_HOME/include' -g -fwrapv -fno-strict-aliasing -Og '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/debug/build/single/single.c ./_build/native/debug/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
             ./_build/native/debug/build/single/single.exe
         "#]],
     );
@@ -60,7 +60,7 @@ fn test_moon_run_single_file_dry_run() {
     )
     // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
     .replace(" -Wno-unused-value", "");
-    crate::util::normalize_apple_archiver(&mut output);
+    crate::util::normalize_host_archiver(&mut output);
     check(
         collapse_core_import_args(&output, TargetBackend::Native),
         expect![[r#"
@@ -71,8 +71,8 @@ fn test_moon_run_single_file_dry_run() {
             cc -o ./_build/native/release/build/runtime-runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '$MOON_HOME/lib/runtime/runtime.c'
             cc -o ./_build/native/release/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '$MOON_HOME/lib/runtime/env.c'
             cc -o ./_build/native/release/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '$MOON_HOME/lib/runtime/backtrace.c'
-            ar -r -c -s ./_build/native/release/build/libruntime-41cad80b78cd0e22.a ./_build/native/release/build/runtime-backtrace.o ./_build/native/release/build/runtime-env.o ./_build/native/release/build/runtime-runtime.o ./_build/native/release/build/runtime-sync_io.o ./_build/native/release/build/runtime-utf.o '$MOON_HOME/lib/moonbit_simdutf.o' '$MOON_HOME/lib/simdutf.o'
-            cc -o ./_build/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -O2 '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/release/build/single/single.c ./_build/native/release/build/libruntime-41cad80b78cd0e22.a -lm '$MOON_HOME/lib/libbacktrace.a'
+            [ARCHIVER] [CREATE_ARGS] ./_build/native/release/build/libruntime[FINGER_PRINT].a ./_build/native/release/build/runtime-backtrace.o ./_build/native/release/build/runtime-env.o ./_build/native/release/build/runtime-runtime.o ./_build/native/release/build/runtime-sync_io.o ./_build/native/release/build/runtime-utf.o '$MOON_HOME/lib/moonbit_simdutf.o' '$MOON_HOME/lib/simdutf.o'
+            cc -o ./_build/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -O2 '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/release/build/single/single.c ./_build/native/release/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
             ./_build/native/release/build/single/single.exe
         "#]],
     );

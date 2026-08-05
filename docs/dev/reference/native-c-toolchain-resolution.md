@@ -321,15 +321,16 @@ triple does not contain `msvc`.
 - `tcc -ar` for TCC
 
 `libtool`, `lib.exe`, and `llvm-lib` create an archive from the complete member list passed by
-Moon. GNU- and LLVM-style `ar rcs` normally update an existing archive and retain members that are
-no longer present in the input list. The runtime static archive avoids that update ambiguity by
-including a fingerprint of the ordered member names and layout version in its output path. The
-fingerprint is computed once during build planning. File contents are not hashed; they remain
-ordinary n2 inputs, so content changes update the same archive while membership changes select a
-fresh path. Build lowering then invokes the resolved librarian directly.
+Moon. GNU- and LLVM-style `ar rcs`, and TCC's equivalent archive mode, update an existing archive
+and can retain members that are no longer present in the input list. Moon classifies this behavior
+from the resolved `ARKind`, not from the host OS.
 
-This fingerprint is specific to the runtime archive introduced for the split runtime. Existing
-package C-stub archives retain their stable paths and direct librarian invocation.
+For update-style archivers, runtime and package C-stub static archive output paths include a
+fingerprint of the ordered logical member identities. The fingerprint is computed once during
+build planning. File contents are not hashed; they remain ordinary n2 inputs, so content changes
+update the same archive while membership changes select a fresh path. Apple libtool and MSVC-style
+librarians keep stable output paths because they recreate the archive from the complete input
+list. Build lowering invokes the resolved librarian directly in both cases.
 
 ### Generate macOS debug symbols
 

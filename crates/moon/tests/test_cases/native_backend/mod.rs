@@ -35,11 +35,18 @@ mod unix_graph {
             .collect();
         env_pairs.push((ENV_VAR.to_string(), graph.to_string_lossy().into_owned()));
         get_stdout_with_envs(dir, args.iter().copied(), env_pairs);
+        let uses_host_archiver = !envs
+            .iter()
+            .any(|(name, _)| matches!(*name, "MOON_CC" | "MOON_AR"));
         compare_graphs_with_replacements(&graph, expected, |s| {
             // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
             *s = s.replace(" -Wno-unused-value", "");
             *s = s.replace(".dylib", ".so");
-            crate::util::normalize_apple_archiver(s);
+            if uses_host_archiver {
+                crate::util::normalize_host_archiver(s);
+            } else {
+                crate::util::normalize_archive_fingerprints(s);
+            }
             normalize_macos_sdk_path(s);
             normalize_fake_toolchain_path(s, dir);
         });

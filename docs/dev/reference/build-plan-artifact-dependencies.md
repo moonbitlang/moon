@@ -178,10 +178,12 @@ edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
 The runtime archive follows the same contract with `RuntimeObject`
 dependencies and a `RuntimeLib` output. Optional prebuilt SIMDUTF objects in
 release builds are selected during planning and become external file inputs of
-the archive action because the build plan does not produce them. Planning also
-computes the runtime archive's member-list fingerprint once; product
-realization uses it in the static archive path, so consumers do not recalculate
-the fingerprint.
+the archive action because the build plan does not produce them. For archivers
+that update an existing archive, planning also computes the ordered member-list
+fingerprint once for runtime and C-stub archives. Product realization uses it
+in the static archive path, so consumers do not recalculate the fingerprint.
+Archivers that recreate the archive from the complete input list leave this
+fingerprint unset and retain stable output paths.
 
 ## Action Lowering and n2 Adaptation
 

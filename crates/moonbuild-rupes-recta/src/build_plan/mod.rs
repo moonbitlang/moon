@@ -46,6 +46,7 @@
 
 use std::{
     collections::HashMap,
+    ffi::OsStr,
     fmt::Write,
     path::{Path, PathBuf},
 };
@@ -428,6 +429,10 @@ pub struct BuildCStubsInfo {
     /// Additional flags to pass to the linker (TCC only)
     #[allow(unused)]
     pub(crate) link_flags: Vec<String>,
+    /// Identity of the ordered static archive member list.
+    ///
+    /// This is only needed for archivers that update an existing archive.
+    pub(crate) static_archive_fingerprint: Option<String>,
 }
 
 #[derive(Debug)]
@@ -457,28 +462,46 @@ pub struct BuildRuntimeInfo {
 }
 
 fn runtime_archive_fingerprint(source_files: &[PathBuf], external_objects: &[PathBuf]) -> String {
-    let mut hash = Sha256::new();
-    // This version also identifies how runtime source stems map to object
-    // member names. Bump it if that naming scheme changes.
-    hash.update(b"moon-runtime-archive-v1");
+    archive_member_fingerprint(
+        source_files
+            .iter()
+            .map(|source| {
+                (
+                    0,
+                    source
+                        .file_stem()
+                        .expect("runtime source should have a file stem"),
+                )
+            })
+            .chain(external_objects.iter().map(|object| {
+                (
+                    1,
+                    object
+                        .file_name()
+                        .expect("runtime archive member should have a file name"),
+                )
+            })),
+    )
+}
 
-    for source in source_files {
-        let stem = source
-            .file_stem()
-            .expect("runtime source should have a file stem")
-            .as_encoded_bytes();
-        hash.update([0]);
-        hash.update((stem.len() as u64).to_le_bytes());
-        hash.update(stem);
-    }
-    for object in external_objects {
-        let filename = object
-            .file_name()
-            .expect("runtime archive member should have a file name")
-            .as_encoded_bytes();
-        hash.update([1]);
-        hash.update((filename.len() as u64).to_le_bytes());
-        hash.update(filename);
+fn c_stub_archive_fingerprint(source_files: &[PathBuf]) -> String {
+    archive_member_fingerprint(source_files.iter().map(|source| {
+        (
+            0,
+            source
+                .file_stem()
+                .expect("C stub source should have a file stem"),
+        )
+    }))
+}
+
+fn archive_member_fingerprint<'a>(members: impl IntoIterator<Item = (u8, &'a OsStr)>) -> String {
+    let mut hash = Sha256::new();
+    for (kind, member) in members {
+        let member = member.as_encoded_bytes();
+        hash.update([kind]);
+        hash.update((member.len() as u64).to_le_bytes());
+        hash.update(member);
     }
 
     let digest = hash.finalize();
@@ -514,6 +537,20 @@ mod runtime_archive_fingerprint_tests {
             runtime_archive_fingerprint(&[sources[1].clone(), sources[0].clone()], &simd)
         );
         assert_eq!(fingerprint.len(), 16);
+    }
+
+    #[test]
+    fn c_stub_fingerprint_tracks_logical_members() {
+        let sources = [PathBuf::from("src/a.c"), PathBuf::from("src/b.c")];
+        let relocated = [PathBuf::from("other/a.c"), PathBuf::from("other/b.c")];
+        let fingerprint = c_stub_archive_fingerprint(&sources);
+
+        assert_eq!(fingerprint, c_stub_archive_fingerprint(&relocated));
+        assert_ne!(fingerprint, c_stub_archive_fingerprint(&sources[..1]));
+        assert_ne!(
+            fingerprint,
+            c_stub_archive_fingerprint(&[sources[1].clone(), sources[0].clone()])
+        );
     }
 
     #[cfg(unix)]

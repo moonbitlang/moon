@@ -741,6 +741,7 @@ mod tests {
                 effective_native_toolchain: msvc_toolchain(),
                 cc_flags: Vec::new(),
                 link_flags: Vec::new(),
+                static_archive_fingerprint: None,
             },
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
@@ -818,6 +819,7 @@ mod tests {
                 effective_native_toolchain: msvc_toolchain(),
                 cc_flags: Vec::new(),
                 link_flags: Vec::new(),
+                static_archive_fingerprint: None,
             },
         );
 
@@ -873,6 +875,7 @@ mod tests {
                 effective_native_toolchain: toolchain.clone(),
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
                 link_flags: Vec::new(),
+                static_archive_fingerprint: None,
             },
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
