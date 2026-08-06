@@ -19,7 +19,7 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use moonutil::user_log::{UserLog, user_log_level};
+use moonutil::user_log::UserLog;
 
 use super::registry_runner::{self, RegistryRunTarget};
 
@@ -69,6 +69,15 @@ enum MoonxPackage {
     External(Vec<String>),
 }
 
+#[derive(Debug)]
+pub(crate) struct MoonxInvocation {
+    pub(crate) target: MoonxTarget,
+    pub(crate) experimental_policy: Option<PathBuf>,
+    pub(crate) verbose: bool,
+    package: String,
+    args: Vec<String>,
+}
+
 pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
     raw_args
         .first()
@@ -82,8 +91,8 @@ pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
         })
 }
 
-pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
-    let cli = MoonxCli::try_parse_from(raw_args).unwrap_or_else(|err| err.exit());
+pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
+    let cli = MoonxCli::try_parse_from(raw_args)?;
     let MoonxPackage::External(package_and_args) = cli.package;
     let (package, args) = package_and_args
         .split_first()
@@ -93,33 +102,37 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
         [separator, args @ ..] if separator == "--" => args,
         _ => args,
     };
-    // moonx is a transparent runner unless the user explicitly requests details.
-    let quiet = !cli.verbose;
-    let output = UserLog::new(user_log_level(cli.verbose, quiet));
-    let target = match cli.target {
+    Ok(MoonxInvocation {
+        target: cli.target,
+        experimental_policy: cli.experimental_policy,
+        verbose: cli.verbose,
+        package: package.clone(),
+        args: args.to_vec(),
+    })
+}
+
+pub(crate) fn prepare(
+    invocation: MoonxInvocation,
+    user_log: &UserLog,
+) -> anyhow::Result<std::process::Command> {
+    let quiet = !invocation.verbose;
+    let target = match invocation.target {
         MoonxTarget::Wasm => RegistryRunTarget::Wasm {
-            experimental_policy: cli.experimental_policy,
+            experimental_policy: invocation.experimental_policy,
         },
-        MoonxTarget::Native if cli.experimental_policy.is_some() => {
-            output.error("--experimental-policy is only valid with `--target wasm`");
-            return -1;
+        MoonxTarget::Native if invocation.experimental_policy.is_some() => {
+            anyhow::bail!("--experimental-policy is only valid with `--target wasm`")
         }
         MoonxTarget::Native => RegistryRunTarget::Native,
     };
-    match registry_runner::run(
-        package.clone(),
+    registry_runner::prepare(
+        invocation.package,
         target,
-        args.to_vec(),
+        invocation.args,
         quiet,
-        cli.verbose,
-        &output,
-    ) {
-        Ok(code) => code,
-        Err(err) => {
-            output.error(format!("{:?}", err));
-            -1
-        }
-    }
+        invocation.verbose,
+        user_log,
+    )
 }
 
 #[cfg(test)]

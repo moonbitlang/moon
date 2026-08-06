@@ -287,21 +287,21 @@ pub(super) fn ensure_cached_file(
     Ok(cache_path.to_path_buf())
 }
 
-pub(crate) fn run(
+pub(crate) fn prepare(
     package: String,
     target: RegistryRunTarget,
     args: Vec<String>,
     quiet: bool,
     verbose: bool,
     user_log: &UserLog,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<std::process::Command> {
     let package = resolve_registry_package(&package, user_log)?;
     match target {
         RegistryRunTarget::Wasm {
             experimental_policy,
         } => {
             let wasm_path = super::runwasm::cached_wasm_path(&package, user_log)?;
-            run_artifact(
+            prepare_artifact(
                 crate::run::ExecutionMode::MoonRun,
                 &wasm_path,
                 experimental_policy.as_deref(),
@@ -311,7 +311,7 @@ pub(crate) fn run(
         }
         RegistryRunTarget::Native => {
             let executable = cached_native_executable(&package, user_log, quiet, verbose)?;
-            run_artifact(
+            prepare_artifact(
                 crate::run::ExecutionMode::Native,
                 &executable,
                 None,
@@ -343,24 +343,20 @@ fn cached_native_executable(
     })
 }
 
-fn run_artifact(
+fn prepare_artifact(
     mode: crate::run::ExecutionMode<'_>,
     artifact: &Path,
     experimental_policy: Option<&Path>,
     args: &[String],
     user_log: &UserLog,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<std::process::Command> {
     let mut run_cmd =
         crate::run::command_for_with_moonrun_policy(mode, artifact, None, experimental_policy);
     run_cmd.args(args);
 
     user_log.info(rr_build::format_dry_run_command(&run_cmd, Path::new(".")));
 
-    let status = super::process::delegate(&mut run_cmd)
-        .context("failed to delegate to registry executable")?;
-    status
-        .code()
-        .context("registry executable exited without a return code")
+    Ok(run_cmd)
 }
 
 #[cfg(test)]

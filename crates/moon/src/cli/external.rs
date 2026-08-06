@@ -17,38 +17,30 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context as _, bail};
-use clap::error::ErrorKind;
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus},
+    process::Command,
 };
 
 use super::process;
 
-pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
-    if args.is_empty() {
-        bail!("no external subcommand provided");
-    };
-    let subcmd = args.remove(0);
-    let mut command = process::command_in_effective_dir(None, |current_dir| {
-        resolve_external_subcommand_in(&subcmd, current_dir)
-    })?;
-    Ok(process::delegate(command.args(args))?.code().unwrap_or(0))
-}
-
-pub(crate) fn run_external_help(
-    subcmd: &str,
-    current_dir: Option<&Path>,
+pub(crate) fn prepare_external(
     args: impl IntoIterator<Item = OsString>,
-) -> anyhow::Result<i32> {
-    let mut cmd = process::command_in_effective_dir(current_dir, |current_dir| {
+    current_dir: Option<&Path>,
+) -> anyhow::Result<Command> {
+    let mut args = args.into_iter();
+    let Some(subcmd) = args.next() else {
+        bail!("no external subcommand provided")
+    };
+    let subcmd = subcmd
+        .to_str()
+        .context("external subcommand name is not valid UTF-8")?;
+    let mut command = process::command_in_effective_dir(current_dir, |current_dir| {
         resolve_external_subcommand_in(subcmd, current_dir)
     })?;
-    run_external_command(&mut cmd, args)
-        .with_context(|| format!("Unable to get help from `{subcmd}` utility"))?
-        .code()
-        .ok_or_else(|| anyhow::anyhow!("Unable to get exit code"))
+    command.args(args);
+    Ok(command)
 }
 
 fn resolve_external_subcommand_in(
@@ -71,97 +63,4 @@ fn resolve_external_subcommand_in(
             "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
         )
     })
-}
-
-fn run_external_command(
-    cmd: &mut Command,
-    args: impl IntoIterator<Item = OsString>,
-) -> anyhow::Result<ExitStatus> {
-    process::delegate(cmd.args(args))
-}
-
-pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString]) {
-    if err.kind() != ErrorKind::InvalidSubcommand {
-        return;
-    }
-
-    let Some((current_dir, args)) = ide_help_args(raw_args) else {
-        return;
-    };
-    match run_external_help("ide", current_dir.as_deref(), args) {
-        Ok(code) => std::process::exit(code),
-        Err(err) => {
-            eprintln!("Error: {err:?}");
-            std::process::exit(-1);
-        }
-    }
-}
-
-fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
-    let early = process::early_subcommand(raw_args)?;
-    if early.name != OsStr::new("help") {
-        return None;
-    }
-    let [ide, tail @ ..] = early.args else {
-        return None;
-    };
-    if ide != OsStr::new("ide") {
-        return None;
-    }
-
-    let mut delegated = tail.to_vec();
-    delegated.push(OsString::from("--help"));
-    Some((early.current_dir, delegated))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ide_help_args;
-    use std::{ffi::OsString, path::PathBuf};
-
-    fn os(args: &[&str]) -> Vec<OsString> {
-        args.iter().map(OsString::from).collect()
-    }
-
-    #[test]
-    fn delegates_top_level_help_for_ide() {
-        assert_eq!(
-            ide_help_args(&os(&["moon", "help", "ide"])),
-            Some((None, os(&["--help"])))
-        );
-    }
-
-    #[test]
-    fn delegates_subcommand_help_for_ide() {
-        assert_eq!(
-            ide_help_args(&os(&["moon", "help", "ide", "doc"])),
-            Some((None, os(&["doc", "--help"])))
-        );
-    }
-
-    #[test]
-    fn delegates_help_for_ide_after_chdir() {
-        assert_eq!(
-            ide_help_args(&os(&[
-                "moon",
-                "--target-dir=_build-alt",
-                "-qvC=.",
-                "--trace",
-                "help",
-                "ide",
-                "doc"
-            ])),
-            Some((Some(PathBuf::from(".")), os(&["doc", "--help"])))
-        );
-    }
-
-    #[test]
-    fn ignores_other_help_targets() {
-        assert_eq!(ide_help_args(&os(&["moon", "help", "build"])), None);
-    }
-
-    #[test]
-    fn ignores_regular_ide_execution() {
-        assert_eq!(ide_help_args(&os(&["moon", "ide", "--help"])), None);
-    }
 }

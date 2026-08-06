@@ -29,6 +29,7 @@ use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use super::{BuildFlags, RunSubcommand, registry_runner::ResolvedExecutablePackage};
+use crate::cli::process::ProcessAction;
 
 /// Run a local package as WebAssembly or a prebuilt WebAssembly binary
 #[derive(Debug, clap::Parser)]
@@ -115,15 +116,16 @@ pub(crate) fn run_runwasm(
     cli: &UniversalFlags,
     cmd: RunWasmSubcommand,
     output: &CommandOutput,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<ProcessAction> {
     if should_run_as_local_package(&cmd.package)? {
-        return super::run_run(cli, runwasm_as_run_subcommand(cmd), output);
+        return super::run_run(cli, runwasm_as_run_subcommand(cmd), output)
+            .map(ProcessAction::Exit);
     }
 
     if cli.dry_run {
         bail!("--dry-run is not supported for Mooncakes assets in `moon runwasm`");
     }
-    super::registry_runner::run(
+    super::registry_runner::prepare(
         cmd.package,
         super::registry_runner::RegistryRunTarget::Wasm {
             experimental_policy: cmd.experimental_policy,
@@ -133,6 +135,7 @@ pub(crate) fn run_runwasm(
         cli.verbose,
         output.user_log(),
     )
+    .map(ProcessAction::Delegate)
 }
 
 pub(super) fn cached_wasm_path(

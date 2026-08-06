@@ -536,6 +536,42 @@ fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
 }
 
 #[test]
+fn test_runwasm_cached_asset_flushes_trace_before_delegation() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "--trace",
+            "runwasm",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+            "exit-7",
+        ])
+        .assert()
+        .code(7);
+
+    let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+    let events: serde_json::Value = serde_json::from_str(&trace).unwrap();
+    assert!(events.as_array().is_some_and(|events| !events.is_empty()));
+}
+
+#[test]
 fn test_runwasm_cached_asset_forwards_experimental_policy() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
@@ -740,6 +776,23 @@ fn test_cram_delegates_with_built_binary_dirs_on_path() {
 }
 
 #[test]
+fn test_cram_flushes_trace_before_delegation() {
+    let dir = TestDir::new("hello");
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    moon_cmd(&dir)
+        .env("MOON_CRAM_OVERRIDE", fake_cram)
+        .args(["--trace", "cram", "test", "--shell", "bash"])
+        .assert()
+        .success();
+
+    let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+    let events: serde_json::Value = serde_json::from_str(&trace).unwrap();
+    assert!(events.as_array().is_some_and(|events| !events.is_empty()));
+}
+
+#[test]
 fn test_cram_makes_built_executable_available_on_path() {
     let dir = TestDir::new("cram");
 
@@ -899,6 +952,40 @@ fn test_cram_parent_flag_after_moon_global_delegates_to_moon_cram() {
     assert!(
         stdout.contains("fake-moon-cram-args=--version"),
         "moon cram parent flags should still delegate after Moon globals:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_trace_ownership_follows_delegation_point() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["--trace", "cram", "--version"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+    assert!(
+        stderr.contains("`--trace` is not supported before delegated command `cram`"),
+        "Moon-owned trace should be rejected for transparent delegation:\n{stderr}"
+    );
+    assert!(!dir.join("trace.json").exists());
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "--trace"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+    assert!(
+        stdout.contains("fake-moon-cram-args=--trace"),
+        "trace after the delegation point should be forwarded:\n{stdout}"
     );
 }
 
