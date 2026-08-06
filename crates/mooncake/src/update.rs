@@ -376,15 +376,30 @@ fn inspect_registry_index(
         return Ok(RegistryIndexState::MissingOrigin);
     }
 
-    let remote_url = run_git_query(
+    // Git fetch uses the first configured URL. Read all raw values to preserve
+    // that ordering without applying `url.*.insteadOf` rewrites.
+    let remote_urls = match run_git_query(
         target_dir,
-        &["config", "--local", "--get", "remote.origin.url"],
-    )?
-    .stdout;
-    if remote_url.is_empty() {
+        &["config", "--local", "--get-all", "remote.origin.url"],
+    ) {
+        Ok(output) => output,
+        Err(error)
+            if matches!(
+                &error.source,
+                InspectRegistryIndexErrorKind::NonZeroExitCode { status, .. }
+                    if status.code() == Some(1)
+            ) =>
+        {
+            return Ok(RegistryIndexState::MissingOrigin);
+        }
+        Err(error) => return Err(error),
+    };
+    let Some(remote_url) = remote_urls.stdout.lines().next() else {
         return Ok(RegistryIndexState::MissingOrigin);
-    }
-    Ok(RegistryIndexState::Ready { remote_url })
+    };
+    Ok(RegistryIndexState::Ready {
+        remote_url: remote_url.to_owned(),
+    })
 }
 
 fn download_symbols_zip() -> anyhow::Result<bytes::Bytes> {
@@ -567,6 +582,38 @@ mod tests {
     }
 
     #[test]
+    fn inspect_registry_index_uses_primary_origin_url() {
+        let repo = tempfile::tempdir().unwrap();
+        run_git(&["-C", repo.path().to_str().unwrap(), "init", "--quiet"]);
+
+        let primary_url = "https://primary.invalid/index";
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "remote",
+            "add",
+            "origin",
+            primary_url,
+        ]);
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "remote",
+            "set-url",
+            "--add",
+            "origin",
+            "https://secondary.invalid/index",
+        ]);
+
+        assert_eq!(
+            inspect_registry_index(repo.path()).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: primary_url.to_owned()
+            }
+        );
+    }
+
+    #[test]
     fn inspect_registry_index_recognizes_non_git_directory() {
         let not_a_repo = tempfile::tempdir().unwrap();
 
@@ -606,6 +653,35 @@ mod tests {
         let index = registry_home.path().join("index");
         std::fs::create_dir(&index).unwrap();
         run_git(&["-C", index.to_str().unwrap(), "init", "--quiet"]);
+
+        let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+
+        assert_eq!(
+            update,
+            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::MissingOrigin)
+        );
+        assert_eq!(
+            inspect_registry_index(&index).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: config.index
+            }
+        );
+    }
+
+    #[test]
+    fn update_registry_index_reclones_origin_without_url() {
+        let (_registry, config) = empty_registry();
+        let registry_home = tempfile::tempdir().unwrap();
+        let index = registry_home.path().join("index");
+        std::fs::create_dir(&index).unwrap();
+        run_git(&["-C", index.to_str().unwrap(), "init", "--quiet"]);
+        run_git(&[
+            "-C",
+            index.to_str().unwrap(),
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ]);
 
         let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
 
