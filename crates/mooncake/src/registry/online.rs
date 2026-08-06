@@ -29,7 +29,7 @@ use anyhow::{Context, bail};
 use indexmap::map::IndexMap;
 use moonutil::{
     dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
-    scripts::execute_postadd_script, user_log::UserLog,
+    user_log::UserLog,
 };
 use reqwest::header::USER_AGENT;
 use semver::Version;
@@ -130,16 +130,6 @@ impl super::Registry for OnlineRegistry {
             .insert(name.clone(), Arc::clone(&res));
 
         Ok(res)
-    }
-
-    fn install_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        self.install_to_impl(name, version, to, user_log)
     }
 
     fn acquire_source_to(
@@ -317,19 +307,6 @@ impl OnlineRegistry {
             .error_for_status()?;
 
         persist_verified_archive(&mut response, &cache_file, name, version, expected_checksum)
-    }
-
-    pub fn install_to_impl(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        pkg_install_dir: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        let checksum = self.read_checksum_from_index_file(name, version)?;
-        self.acquire_source_to(name, version, &checksum, pkg_install_dir, user_log)?;
-        execute_postadd_script(pkg_install_dir, user_log)?;
-        Ok(())
     }
 
     /// Reuse or download, verify, and extract a registry package without

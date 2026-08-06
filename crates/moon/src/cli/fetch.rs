@@ -18,7 +18,7 @@
 
 use anyhow::bail;
 use colored::Colorize;
-use mooncake::registry::Registry;
+use mooncake::{pkg::legacy_postadd, registry::Registry};
 use moonutil::{
     project::PackageDirs, registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
 };
@@ -136,7 +136,8 @@ pub(crate) fn fetch_cli(
         println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
     }
 
-    registry.install_to(&pkg_name, &version, &pkg_dir, user_log)?;
+    registry.materialize_source_to(&pkg_name, &version, &pkg_dir, user_log)?;
+    legacy_postadd::run(&pkg_dir, user_log)?;
 
     if !cli.quiet {
         println!(

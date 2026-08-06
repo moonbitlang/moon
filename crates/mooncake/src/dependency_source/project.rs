@@ -34,7 +34,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::Registry;
+use crate::{pkg::legacy_postadd, registry::Registry};
 
 use super::DependencySource;
 
@@ -279,7 +279,13 @@ fn sync(
             let ModuleSourceKind::Registry = version.source() else {
                 unreachable!()
             };
-            registry.install_to(version.name(), version.version(), &pkg_path, user_log)?;
+            registry.materialize_source_to(
+                version.name(),
+                version.version(),
+                &pkg_path,
+                user_log,
+            )?;
+            legacy_postadd::run(&pkg_path, user_log)?;
             // TODO: parallelize this
         }
     }

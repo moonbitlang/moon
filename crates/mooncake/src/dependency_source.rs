@@ -163,17 +163,6 @@ options(
             )])))
         }
 
-        fn install_to(
-            &self,
-            name: &ModuleName,
-            version: &Version,
-            to: &Path,
-            _user_log: &UserLog,
-        ) -> anyhow::Result<()> {
-            std::fs::create_dir_all(to)?;
-            self.install_source(name, version, to)
-        }
-
         fn acquire_source_to(
             &self,
             name: &ModuleName,
@@ -182,6 +171,7 @@ options(
             to: &Path,
             _user_log: &UserLog,
         ) -> anyhow::Result<()> {
+            std::fs::create_dir_all(to)?;
             self.install_source(name, version, to)?;
             std::fs::write(to.join("acquired-archive-checksum"), expected_checksum)?;
             Ok(())

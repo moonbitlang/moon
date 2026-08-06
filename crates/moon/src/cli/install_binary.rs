@@ -24,7 +24,7 @@ use moonbuild_rupes_recta::{
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
 };
 use mooncake::{
-    pkg::sync::SyncOutputOptions,
+    pkg::{legacy_postadd, sync::SyncOutputOptions},
     registry::{OnlineRegistry, Registry, path as registry_path},
 };
 use moonutil::{
@@ -274,7 +274,8 @@ pub(super) fn install_binary(
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let module_dir = tmp_dir.path();
 
-    registry.install_to(&spec.module_name, &version, module_dir, user_log)?;
+    registry.materialize_source_to(&spec.module_name, &version, module_dir, user_log)?;
+    legacy_postadd::run(module_dir, user_log)?;
 
     let filter =
         PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
