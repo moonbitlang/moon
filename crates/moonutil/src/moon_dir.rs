@@ -284,8 +284,8 @@ fn test_moon_dir() {
             "bin",
             "include",
             "lib",
-            "lib|why3|share|why3",
-            "lib|why3|lib|why3",
+            "share|why3",
+            "lib|why3",
             "lib|core|_build|wasm|release|bundle",
         ]
     "#]]
