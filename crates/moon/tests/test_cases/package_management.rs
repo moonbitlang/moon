@@ -358,6 +358,32 @@ fn test_postadd_script() {
 fn test_fetch_and_binary_install_run_legacy_postadd() {
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new().expect("failed to create temporary MOON_HOME");
+    let registry = tempfile::TempDir::new().expect("failed to create temporary registry");
+    let registry_index = registry.path().join("git/index");
+    std::fs::create_dir_all(registry_index.parent().unwrap()).unwrap();
+    let output = std::process::Command::new("git")
+        .args(["init", "--bare", "--initial-branch=main"])
+        .arg(&registry_index)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to initialize local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let local_index = moon_home.path().join("registry/index");
+    std::fs::create_dir_all(local_index.parent().unwrap()).unwrap();
+    let output = std::process::Command::new("git")
+        .arg("clone")
+        .arg(&registry_index)
+        .arg(&local_index)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to clone local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let moon_path = std::env::join_paths(
         std::iter::once(
             moon_bin()
@@ -393,6 +419,49 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
             ),
         ],
     );
+    let output = std::process::Command::new("git")
+        .current_dir(&local_index)
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let output = std::process::Command::new("git")
+        .current_dir(&local_index)
+        .args([
+            "-c",
+            "user.name=Moon Test",
+            "-c",
+            "user.email=moon-test@example.com",
+            "commit",
+            "-m",
+            "Add fixture package",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to commit local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = std::process::Command::new("git")
+        .current_dir(&local_index)
+        .args(["push", "origin", "main"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to publish local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(
+        moon_home.path().join("config.json"),
+        serde_json::json!({
+            "registry": "https://registry.invalid",
+            "index": registry_index,
+        })
+        .to_string(),
+    )
+    .unwrap();
 
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
@@ -406,13 +475,18 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
     );
 
     let bin_dir = dir.join("bin");
-    moon_cmd(&dir)
+    let install = moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("PATH", &moon_path)
         .args(["install", "testuser/postadd/tool@1.0.0", "--bin"])
         .arg(&bin_dir)
         .assert()
         .success();
+    let stderr = String::from_utf8_lossy(&install.get_output().stderr);
+    assert!(
+        stderr.contains("Registry index updated successfully"),
+        "local registry update did not succeed:\n{stderr}"
+    );
     #[cfg(unix)]
     assert!(bin_dir.join("tool").is_file());
     #[cfg(windows)]
