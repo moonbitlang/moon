@@ -804,6 +804,7 @@ impl<'a> LoweringContext<'a> {
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref())
         {
             WasmConfig {
+                module_name: None,
                 export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
                 import_memory: cfg.import_memory.as_ref(),
                 memory_limits: cfg.memory_limits.as_ref(),
@@ -816,6 +817,7 @@ impl<'a> LoweringContext<'a> {
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
         {
             WasmConfig {
+                module_name: None,
                 export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
                 import_memory: cfg.import_memory.as_ref(),
                 memory_limits: cfg.memory_limits.as_ref(),
@@ -830,6 +832,21 @@ impl<'a> LoweringContext<'a> {
 
         if self.should_link_wasi(target, pkg) {
             wasm_config.wasi = true;
+        }
+
+        if matches!(
+            &self.opt.backend,
+            BackendConfig::Wasm { use_wat: false, .. } | BackendConfig::WasmGc { use_wat: false }
+        ) && self.opt.opt_level == OptLevel::Release
+        {
+            let module = self.packages.module_info(pkg.module);
+            // Use the manifest's optional version directly: version resolution
+            // may represent a missing version as `0.0.0` elsewhere.
+            let module_name = module.version.as_ref().map_or_else(
+                || pkg.fqn.to_string(),
+                |version| format!("{}@{version}", pkg.fqn),
+            );
+            wasm_config.module_name = Some(module_name.into());
         }
 
         wasm_config

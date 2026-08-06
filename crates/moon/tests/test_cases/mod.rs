@@ -139,6 +139,7 @@ mod virtual_pkg_dep;
 mod virtual_pkg_test;
 mod warns;
 mod wasm_memory;
+mod wasm_module_name;
 mod wbtest_coverage;
 mod whitespace_test;
 #[cfg(windows)]
