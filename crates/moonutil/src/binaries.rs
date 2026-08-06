@@ -89,6 +89,10 @@ pub fn moon_cram_in(current_dir: &std::path::Path) -> PathBuf {
     moon_executable_in("moon-cram", "MOON_CRAM_OVERRIDE", current_dir)
 }
 
+pub fn mooncake_in(current_dir: &std::path::Path) -> PathBuf {
+    moon_executable_in("mooncake", "MOONCAKE_OVERRIDE", current_dir)
+}
+
 fn moon_payload(file_name: &str, env_var: &str) -> PathBuf {
     if let Some(path) = std::env::var_os(env_var) {
         return PathBuf::from(path);

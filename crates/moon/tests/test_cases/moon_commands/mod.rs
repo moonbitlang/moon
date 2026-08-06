@@ -909,6 +909,23 @@ fn test_cram_relative_override_resolves_after_change_directory() {
 }
 
 #[test]
+fn test_mooncake_direct_commands_resolve_relative_override_after_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cram-override-cwd");
+
+    for command in ["login", "register"] {
+        let stdout = get_stdout_with_envs(
+            &dir,
+            ["-C", "subdir", command],
+            [("MOONCAKE_OVERRIDE", "bin/fake-moon-cram")],
+        );
+        assert!(
+            stdout.contains("fake-moon-cram-location=subdir"),
+            "moon {command} should resolve mooncake from the -C directory:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn test_cram_bare_override_on_relative_path_resolves_after_change_directory() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cram-override-cwd");
     let path = std::env::join_paths(std::iter::once(PathBuf::from("bin")).chain(

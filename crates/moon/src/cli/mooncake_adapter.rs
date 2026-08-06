@@ -28,6 +28,8 @@ use moonutil::cli_support::{
 use moonutil::user_log::UserLog;
 use serde::Serialize;
 
+use super::process;
+
 pub(crate) fn execute_cli<T: Serialize>(
     cli: UniversalFlags,
     cmd: T,
@@ -63,7 +65,12 @@ pub(crate) fn execute_cli<T: Serialize>(
 
 pub(crate) fn prepare_direct(current_dir: Option<&Path>, args: &[&str]) -> anyhow::Result<Command> {
     let current_moon = std::env::current_exe()?;
-    let mut command = Command::new(&*moonutil::toolchain::BINARIES.mooncake);
+    let mut command = process::command_in_effective_dir(current_dir, |current_dir| {
+        Ok(current_dir.map_or_else(
+            || moonutil::toolchain::BINARIES.mooncake.clone(),
+            moonutil::toolchain::mooncake_in,
+        ))
+    })?;
     command
         .args(args)
         .env("MOONCAKE_ALLOW_DIRECT", "1")
@@ -71,9 +78,6 @@ pub(crate) fn prepare_direct(current_dir: Option<&Path>, args: &[&str]) -> anyho
         .stdout(Stdio::inherit())
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit());
-    if let Some(current_dir) = current_dir {
-        command.current_dir(current_dir);
-    }
     Ok(command)
 }
 
