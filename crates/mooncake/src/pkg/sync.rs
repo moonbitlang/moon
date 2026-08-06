@@ -24,6 +24,7 @@ use indexmap::IndexMap;
 use moonutil::{
     build_options::{MoonbuildOpt, MooncOpt},
     cache::CacheRoot,
+    child_process::ChildOutputMode,
     cli_support::AutoSyncFlags,
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
@@ -33,30 +34,17 @@ use moonutil::{
 };
 use semver::Version;
 
+/// User-visible output policy while synchronizing dependencies.
+///
+/// Dependency progress and Moon-managed setup children are independent: a
+/// quiet human command may still let a child inherit the terminal, while a
+/// structured command captures child output without hiding sync warnings.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOutputOptions {
-    quiet: bool,
-    capture_child_output: bool,
-}
-
-impl SyncOutputOptions {
-    pub fn with_quiet(mut self, quiet: bool) -> Self {
-        self.quiet = quiet;
-        self
-    }
-
-    pub fn quiet(self) -> bool {
-        self.quiet
-    }
-
-    pub fn with_captured_child_output(mut self, capture: bool) -> Self {
-        self.capture_child_output = capture;
-        self
-    }
-
-    pub fn capture_child_output(self) -> bool {
-        self.capture_child_output
-    }
+    /// Suppress dependency acquisition progress below error level.
+    pub quiet: bool,
+    /// Output policy for setup children such as postadd and bin-dep builds.
+    pub child_output: ChildOutputMode,
 }
 
 /// Given the specified source directory, resolve the module dependency relation
