@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use moonbuild_rupes_recta::{
     ResolveConfig,
-    build_plan::{InputDirective, PackagePrebuildPolicy},
+    build_plan::{InputDirective, PackageSourceGenerationPolicy},
     discover::DiscoveredPackage,
     intent::UserIntent,
     model::PackageId,
@@ -171,7 +171,7 @@ pub(crate) fn run_build_binary_dep(
         let intent = (
             vec![UserIntent::Build(pkg)],
             InputDirective {
-                package_prebuild: PackagePrebuildPolicy::ConsumeExistingOutputs,
+                package_source_generation: PackageSourceGenerationPolicy::ConsumeExistingOutputs,
                 ..InputDirective::default()
             },
         )

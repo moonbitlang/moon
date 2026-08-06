@@ -272,7 +272,7 @@ preferred_target = "wasm-gc"
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_bin_dep_prebuild_failure() {
+fn test_moon_check_complete_json_captures_bin_dep_unstable_prebuild_config_failure() {
     let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
     let dir = top_dir.join("user.in");
     std::fs::write(
