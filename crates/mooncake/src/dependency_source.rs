@@ -25,38 +25,47 @@ use std::path::PathBuf;
 
 use moonutil::{
     cache::CacheRoot,
-    resolution::{ModuleSourceKind, ResolvedEnv},
+    child_process::ManagedChildRunner,
+    resolution::{DirSyncResult, ModuleSourceKind, ResolvedEnv},
+    user_log::UserLog,
 };
+
+use crate::registry::Registry;
 
 use self::{global::ImmutableDependencySource, project::ProjectDependencySource};
 
-pub(crate) enum SelectedDependencySource<'a> {
-    Immutable(ImmutableDependencySource<'a>),
-    Project(ProjectDependencySource),
+pub(crate) trait DependencySource {
+    /// Ensure that every resolved dependency has a source directory and return
+    /// those directories indexed by module ID.
+    fn ensure(
+        &self,
+        registry: &dyn Registry,
+        resolved: &ResolvedEnv,
+        frozen: bool,
+        user_log: &UserLog,
+    ) -> anyhow::Result<DirSyncResult>;
 }
 
 /// Select the dependency source adapter for one resolution.
 ///
-/// Selection has no hook-execution policy. The caller supplies a managed-child
-/// runner only when the selected project source may run legacy postadd;
-/// immutable sources reject postadd and never receive that policy.
+/// The project-local `.mooncakes` directory and the shared immutable cache are
+/// hidden behind the same [`DependencySource`] seam. The project implementation
+/// receives the runner needed to preserve its legacy postadd behavior; the
+/// immutable implementation never receives or executes that hook.
 pub(crate) fn select<'a>(
     project_dir: impl Into<PathBuf>,
     cache: &'a CacheRoot,
     resolved: &ResolvedEnv,
-) -> anyhow::Result<SelectedDependencySource<'a>> {
+    child: &'a ManagedChildRunner,
+) -> anyhow::Result<Box<dyn DependencySource + 'a>> {
     let has_registry_sources = resolved
         .all_modules()
         .any(|module| matches!(module.source(), ModuleSourceKind::Registry) && !module.is_core());
     if has_registry_sources && let Some(root) = cache.initialize()? {
-        return Ok(SelectedDependencySource::Immutable(
-            ImmutableDependencySource::new(root),
-        ));
+        return Ok(Box::new(ImmutableDependencySource::new(root)));
     }
 
-    Ok(SelectedDependencySource::Project(
-        ProjectDependencySource::new(project_dir),
-    ))
+    Ok(Box::new(ProjectDependencySource::new(project_dir, child)))
 }
 
 #[cfg(test)]
@@ -80,7 +89,6 @@ mod tests {
     use semver::Version;
 
     use super::{
-        SelectedDependencySource,
         global::{ImmutableDependencySource, SOURCE_ARCHIVE_CHECKSUM_FILE},
         select,
     };
@@ -212,6 +220,10 @@ options(
         UserLog::new(log::LevelFilter::Error)
     }
 
+    fn managed_child() -> ManagedChildRunner {
+        ManagedChildRunner::new(ChildOutputMode::Inherit, &user_log())
+    }
+
     fn global_cache(path: &Path) -> CacheRoot {
         CacheRoot::Path {
             kind: CacheKind::DependencySources,
@@ -237,11 +249,8 @@ options(
         let cache = global_cache(&sandbox.path().join("cache"));
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let SelectedDependencySource::Immutable(source) =
-            select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap()
-        else {
-            panic!("global cache should select immutable sources")
-        };
+        let child = managed_child();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, &child).unwrap();
 
         let first = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -268,11 +277,8 @@ options(
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(true);
         let (resolved, module) = test_env();
-        let SelectedDependencySource::Immutable(source) =
-            select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap()
-        else {
-            panic!("global cache should select immutable sources")
-        };
+        let child = managed_child();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, &child).unwrap();
         let directory =
             ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
 
@@ -294,11 +300,8 @@ options(
         let cache = global_cache(&sandbox.path().join("cache"));
         let registry = TestRegistry::new(false);
         let (resolved, _) = test_env();
-        let SelectedDependencySource::Immutable(source) =
-            select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap()
-        else {
-            panic!("global cache should select immutable sources")
-        };
+        let child = managed_child();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, &child).unwrap();
 
         let error = source
             .ensure(&registry, &resolved, true, &user_log())
@@ -321,21 +324,15 @@ options(
 
         std::thread::scope(|scope| {
             let first = scope.spawn(|| {
-                let SelectedDependencySource::Immutable(source) =
-                    select(&project_dir, &cache, &resolved).unwrap()
-                else {
-                    panic!("global cache should select immutable sources")
-                };
+                let child = managed_child();
+                let source = select(&project_dir, &cache, &resolved, &child).unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
             });
             let second = scope.spawn(|| {
-                let SelectedDependencySource::Immutable(source) =
-                    select(&project_dir, &cache, &resolved).unwrap()
-                else {
-                    panic!("global cache should select immutable sources")
-                };
+                let child = managed_child();
+                let source = select(&project_dir, &cache, &resolved, &child).unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
@@ -358,11 +355,8 @@ options(
         let first_registry = TestRegistry::new(false);
         let second_registry = TestRegistry::new(false).with_checksum(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
-        let SelectedDependencySource::Immutable(source) =
-            select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap()
-        else {
-            panic!("global cache should select immutable sources")
-        };
+        let child = managed_child();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, &child).unwrap();
 
         let first = source
             .ensure(&first_registry, &resolved, false, &user_log())
@@ -393,11 +387,8 @@ options(
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(false).with_checksum_after_first_read(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
-        let SelectedDependencySource::Immutable(source) =
-            select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap()
-        else {
-            panic!("global cache should select immutable sources")
-        };
+        let child = managed_child();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, &child).unwrap();
 
         let paths = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -425,11 +416,8 @@ options(
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let SelectedDependencySource::Immutable(source) =
-            select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap()
-        else {
-            panic!("global cache should select immutable sources")
-        };
+        let child = managed_child();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, &child).unwrap();
         let directory =
             ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
         std::fs::create_dir_all(&directory).unwrap();
@@ -469,16 +457,12 @@ options(
         let cache = CacheRoot::Disabled;
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let SelectedDependencySource::Project(source) =
-            select(&project_dir, &cache, &resolved).unwrap()
-        else {
-            panic!("disabled cache should select project sources")
-        };
         let user_log = user_log();
         let child = ManagedChildRunner::new(ChildOutputMode::Inherit, &user_log);
+        let source = select(&project_dir, &cache, &resolved, &child).unwrap();
 
         let paths = source
-            .ensure(&registry, &resolved, false, &child, &user_log)
+            .ensure(&registry, &resolved, false, &user_log)
             .unwrap();
 
         assert_eq!(paths[module], project_dir.join("test/module"));

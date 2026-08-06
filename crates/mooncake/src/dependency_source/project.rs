@@ -50,13 +50,17 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// dependencies directory for ease of scanning. Instead, we replace all slashes
 /// in the `pkgname` part with plus `+` sign. For example, a package
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
-pub(crate) struct ProjectDependencySource {
+pub(crate) struct ProjectDependencySource<'a> {
     path: PathBuf,
+    child: &'a ManagedChildRunner,
 }
 
-impl ProjectDependencySource {
-    pub(super) fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+impl<'a> ProjectDependencySource<'a> {
+    pub(super) fn new(path: impl Into<PathBuf>, child: &'a ManagedChildRunner) -> Self {
+        Self {
+            path: path.into(),
+            child,
+        }
     }
 
     fn path(&self) -> &Path {
@@ -94,15 +98,17 @@ impl ProjectDependencySource {
 
         Ok(user_list)
     }
-    pub(crate) fn ensure(
+}
+
+impl super::DependencySource for ProjectDependencySource<'_> {
+    fn ensure(
         &self,
         registry: &dyn Registry,
         resolved: &ResolvedEnv,
         frozen: bool,
-        child: &ManagedChildRunner,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {
-        sync(self, registry, resolved, frozen, child, user_log)
+        sync(self, registry, resolved, frozen, self.child, user_log)
             .context("When installing packages")?;
         resolve_paths(self, resolved)
     }
@@ -211,7 +217,7 @@ fn diff_dep_dir_state<'a>(
 /// dependency directory. If the desired dependency list cannot be created
 /// from the current directory, this function will return an error.
 fn sync(
-    dep_dir: &ProjectDependencySource,
+    dep_dir: &ProjectDependencySource<'_>,
     registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
     frozen: bool,
@@ -294,7 +300,7 @@ fn sync(
     Ok(())
 }
 
-fn pkg_to_dir(dep_dir: &ProjectDependencySource, username: &str, pkgname: &str) -> PathBuf {
+fn pkg_to_dir(dep_dir: &ProjectDependencySource<'_>, username: &str, pkgname: &str) -> PathBuf {
     // Special case: core library locates in ~/.moon
     if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
         return toolchain::core();
@@ -305,7 +311,7 @@ fn pkg_to_dir(dep_dir: &ProjectDependencySource, username: &str, pkgname: &str) 
 
 /// The result of a directory sync.
 fn map_source_to_dir(
-    dep_dir: &ProjectDependencySource,
+    dep_dir: &ProjectDependencySource<'_>,
     module: &ModuleSource,
 ) -> anyhow::Result<PathBuf> {
     Ok(match module.source() {
@@ -326,7 +332,7 @@ fn map_source_to_dir(
 /// Assumes [`sync`] is already called. Otherwise, modules might point to
 /// directories that don't exist yet because they are not synced yet.
 fn resolve_paths(
-    dep_dir: &ProjectDependencySource,
+    dep_dir: &ProjectDependencySource<'_>,
     pkg_list: &ResolvedEnv,
 ) -> anyhow::Result<DirSyncResult> {
     let mut res = DirSyncResult::default();

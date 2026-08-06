@@ -128,27 +128,19 @@ pub(crate) fn install_impl(
     // Child output follows the command's User Log policy. Sync quietness only
     // narrows dependency acquisition progress below this point.
     let managed_child = ManagedChildRunner::new(output_options.child_output, user_log);
-    let dependency_source = dependency_source::select(&dirs.mooncakes_dir, source_cache, &res)?;
+    let dependency_source =
+        dependency_source::select(&dirs.mooncakes_dir, source_cache, &res, &managed_child)?;
     let dependency_user_log = if output_options.quiet {
         user_log.with_level(log::LevelFilter::Error)
     } else {
         user_log.clone()
     };
-    let dependency_paths = match dependency_source {
-        dependency_source::SelectedDependencySource::Immutable(source) => source.ensure(
-            resolve_config.registry.as_ref(),
-            &res,
-            dont_sync,
-            &dependency_user_log,
-        )?,
-        dependency_source::SelectedDependencySource::Project(source) => source.ensure(
-            resolve_config.registry.as_ref(),
-            &res,
-            dont_sync,
-            &managed_child,
-            &dependency_user_log,
-        )?,
-    };
+    let dependency_paths = dependency_source.ensure(
+        resolve_config.registry.as_ref(),
+        &res,
+        dont_sync,
+        &dependency_user_log,
+    )?;
 
     install_bin_deps(
         &managed_child,

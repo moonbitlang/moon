@@ -126,8 +126,8 @@ impl<'a> ImmutableDependencySource<'a> {
     }
 }
 
-impl ImmutableDependencySource<'_> {
-    pub(crate) fn ensure(
+impl super::DependencySource for ImmutableDependencySource<'_> {
+    fn ensure(
         &self,
         registry: &dyn Registry,
         resolved: &ResolvedEnv,
