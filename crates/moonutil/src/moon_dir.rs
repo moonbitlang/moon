@@ -121,12 +121,16 @@ pub fn lib() -> PathBuf {
     toolchain_root().join("lib")
 }
 
+pub fn share() -> PathBuf {
+    toolchain_root().join("share")
+}
+
 pub fn why3_datadir() -> PathBuf {
-    lib().join("why3").join("share").join("why3")
+    share().join("why3")
 }
 
 pub fn why3_libdir() -> PathBuf {
-    lib().join("why3").join("lib").join("why3")
+    lib().join("why3")
 }
 
 pub fn core() -> PathBuf {
