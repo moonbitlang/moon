@@ -191,10 +191,11 @@ fn test_moonrun_help_describes_policy_shape() {
 
     assert!(stdout.contains("Experimental: Sandbox wasm runtime host access"));
     assert!(stdout.contains("deny-by-default mode"));
-    assert!(stdout.contains("from_host = [\"*\"]"));
-    assert!(stdout.contains("read = [\"*\"]"));
-    assert!(stdout.contains("spawn = true"));
-    assert!(stdout.contains("connect = [\"api.deepseek.com:443\"]"));
+    assert!(stdout.contains(r#""from_host": ["*"]"#));
+    assert!(stdout.contains(r#""read": ["*"]"#));
+    assert!(stdout.contains(r#""spawn": true"#));
+    assert!(stdout.contains(r#"net.connect containing "api.deepseek.com:443""#));
+    assert!(!stdout.contains("TOML"));
     assert!(stdout.contains("Hostname connect rules also permit DNS lookup"));
     assert!(stdout.contains("ambient filesystem, network, and process access"));
 }
