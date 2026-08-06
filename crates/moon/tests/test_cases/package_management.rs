@@ -136,10 +136,7 @@ fn test_moon_update_reclones_for_different_registry_url() {
         .assert()
         .success()
         .stdout_eq("")
-        .stderr_eq(snapbox::str![[r#"
-            Registry index cloned successfully
-            Symbols updated successfully
-        "#]]);
+        .stderr_eq("Registry index cloned successfully\nSymbols updated successfully\n");
 
     let _ = std::process::Command::new("git")
         .args([
@@ -159,11 +156,9 @@ fn test_moon_update_reclones_for_different_registry_url() {
         .assert()
         .success()
         .stdout_eq("")
-        .stderr_eq(snapbox::str![[r#"
-            Registry index remote does not match the configured URL, re-cloning
-            Registry index re-cloned successfully
-            Symbols updated successfully
-        "#]]);
+        .stderr_eq(
+            "Registry index remote does not match the configured URL, re-cloning\nRegistry index re-cloned successfully\nSymbols updated successfully\n",
+        );
 
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home)
