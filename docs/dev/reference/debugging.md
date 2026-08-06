@@ -67,4 +67,19 @@ For timing/task/thread details, set `MOON_TRACE=<level>`
 Moon writes a Chromium trace JSON file to the working directory;
 open it in <https://ui.perfetto.dev> to inspect the timeline.
 
+Moon traces only work whose lifecycle it owns. A transparent external command
+does not initialize Moon tracing. `--trace` before such a delegation point is
+rejected, while an identically named argument after the point belongs to the
+delegated executable. For example, `moon --trace cram --version` is rejected,
+but `moon cram --trace` forwards the flag to `moon-cram`.
+
+Commands that perform Moon-owned preparation and then delegate, such as
+`moon cram test` and registry-backed `moon runwasm`, trace the preparation and
+finalize the trace file before starting the delegated program. The trace does
+not include work inside that program. `MOON_TRACE` is ignored for transparent
+delegates because no Moon tracing lifecycle is created.
+
+See the [CLI execution lifecycle](../design/cli-execution-lifecycle.md) for the
+selection and finalization rules.
+
 [tracing]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html
