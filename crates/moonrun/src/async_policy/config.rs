@@ -73,8 +73,17 @@ impl PolicyConfig {
     pub(super) fn from_file(path: &Path) -> anyhow::Result<Self> {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read policy {}", path.display()))?;
-        toml::from_str(&contents)
-            .with_context(|| format!("failed to parse policy {}", path.display()))
+        if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+            || contents.trim_start().starts_with('{')
+        {
+            serde_json::from_str(&contents)
+                .with_context(|| format!("failed to parse JSON policy {}", path.display()))
+        } else {
+            toml::from_str(&contents)
+                .with_context(|| format!("failed to parse policy {}", path.display()))
+        }
     }
 }
 
@@ -102,9 +111,9 @@ APP_ENV = "test"
     }
 
     #[test]
-    fn parses_process_spawn_permission() {
+    fn parses_toml_without_json_extension() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy_file = tmp.path().join("policy.toml");
+        let policy_file = tmp.path().join("policy");
         std::fs::write(
             &policy_file,
             r#"
@@ -116,6 +125,35 @@ spawn = true
 
         let config = PolicyConfig::from_file(&policy_file).unwrap();
 
+        assert!(config.process.unwrap().spawn);
+    }
+
+    #[test]
+    fn parses_json_without_json_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy");
+        std::fs::write(
+            &policy_file,
+            r#"
+{
+  "env": {
+    "set": {
+      "APP_ENV": "test"
+    }
+  },
+  "process": {
+    "spawn": true
+  }
+}"#,
+        )
+        .unwrap();
+
+        let config = PolicyConfig::from_file(&policy_file).unwrap();
+
+        assert_eq!(
+            config.env.unwrap().set.get("APP_ENV").map(String::as_str),
+            Some("test")
+        );
         assert!(config.process.unwrap().spawn);
     }
 
