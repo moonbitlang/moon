@@ -153,6 +153,15 @@ containing all compiled MoonBit code for the package to build:
   according to the selected Native Payload Form.
 - The LLVM backend outputs an object file to be linked with the system library.
 
+Release-profile binary WASM and WASM-GC outputs carry a human-readable module
+name in the optional WebAssembly `name` custom section. The name identifies the
+package being linked as `module/package@version` when its module manifest
+declares a version, or as `module/package` otherwise. Release-profile test build
+targets use the owning source package's identity rather than a synthetic
+test-target suffix. This name is debugging information that tools may strip or
+rewrite; it is not trusted provenance. Moon does not request this name for debug
+builds or plain WAT output.
+
 ### Executable package resource mappings
 
 When an executable source package declares
