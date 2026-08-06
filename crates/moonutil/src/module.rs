@@ -120,7 +120,8 @@ pub struct MoonModJSON {
     #[schemars(with = "Option<std::collections::HashMap<String, SourceDependencyInfo>>")]
     pub deps: Option<IndexMap<String, SourceDependencyInfo>>,
 
-    /// third-party binary dependencies of the module
+    /// Deprecated third-party binary dependencies. Publish portable Wasm tools
+    /// and run them with `moonx` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, BinaryDependencyInfoJson>>")]
     pub bin_deps: Option<IndexMap<String, BinaryDependencyInfoJson>>,

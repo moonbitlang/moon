@@ -226,6 +226,10 @@ fn test_pre_build_mooncake_bin_shape() {
     let dir = top_dir.join("user.in");
     let target_dir = dir.join("artifacts");
     let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    // The local fixture and cached registry module both carry invalid
+    // moonlex/moonyacc inputs alongside their generated outputs. The build can
+    // succeed only if bin-deps consume those outputs without rerunning source
+    // generation.
     cache_registry_package(
         moon_home.path(),
         "username/registry_shape_tool",
@@ -253,7 +257,7 @@ fn test_pre_build_mooncake_bin_shape() {
     {
       "input": [],
       "output": ["generated.mbt"],
-      "command": "moon tool write-tcc-rsp-file \"$output\" fn \"generated()->Int{42}\""
+      "command": "bin-dep-package-prebuild-must-not-run"
     }
   ]
 }"#
@@ -263,13 +267,38 @@ fn test_pre_build_mooncake_bin_shape() {
                 "src/main-js/main.mbt",
                 br#"fn main { println(generated()) }"#.to_vec(),
             ),
+            (
+                "src/main-js/generated.mbt",
+                br#"fn generated() -> Int { 42 }"#.to_vec(),
+            ),
+            (
+                "src/main-js/lexer.mbl",
+                br#"this is not a valid lexer grammar"#.to_vec(),
+            ),
+            (
+                "src/main-js/lexer.mbt",
+                br#"fn generated_by_lexer() -> Int { 1 }"#.to_vec(),
+            ),
+            (
+                "src/main-js/parser.mby",
+                br#"this is not a valid parser grammar"#.to_vec(),
+            ),
+            (
+                "src/main-js/parser.mbt",
+                br#"fn generated_by_parser() -> Int { 2 }"#.to_vec(),
+            ),
         ],
     );
 
-    get_stderr_with_envs(
+    let stderr = get_stderr_with_envs(
         &dir,
         ["--target-dir", "artifacts", "check"],
         [("MOON_HOME", moon_home.path())],
+    );
+    assert_eq!(
+        stderr.matches("`bin-deps` is deprecated").count(),
+        1,
+        "expected one bin-deps deprecation for the declaring module, got:\n{stderr}"
     );
 
     #[cfg(unix)]
@@ -277,6 +306,12 @@ fn test_pre_build_mooncake_bin_shape() {
     #[cfg(target_os = "windows")]
     let launcher = top_dir.join("provider.in").join("shape-tool.ps1");
     assert!(launcher.exists(), "expected bin-dep launcher: {launcher:?}");
+    assert!(
+        top_dir
+            .join("provider.in/src/main-js/generated.mbt")
+            .exists(),
+        "local bin-dep must use its already-generated source"
+    );
 
     #[cfg(unix)]
     let registry_launcher = target_dir.join(MOON_BIN_DIR).join("registry-shape-tool");
@@ -305,8 +340,8 @@ fn test_pre_build_mooncake_bin_shape() {
         "registry bin-dep build must not write under mooncakes_dir"
     );
     assert!(
-        !registry_source.join("src/main-js/generated.mbt").exists(),
-        "registry bin-dep pre-build must not write under mooncakes_dir"
+        registry_source.join("src/main-js/generated.mbt").exists(),
+        "published registry packages must contain generated sources"
     );
     let bin_dep_temp_dirs = std::fs::read_dir(&target_dir)
         .unwrap()

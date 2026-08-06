@@ -87,9 +87,10 @@ selection, and release build behavior of `moon install`, but publishes the
 finished executable into the registry cache instead of the user's binary
 directory.
 
-Source acquisition for `moonx` does not execute the downloaded module's
-`scripts.postadd` hook. Normal registry installation retains its existing
-postadd behavior.
+Registry source acquisition never executes the downloaded module's
+`scripts.postadd` hook. `moonx` stops after source acquisition and therefore
+does not opt into the legacy hook. Existing project sync, `moon fetch`, and
+binary-install paths retain an explicit postadd compatibility step.
 
 By default, `moonx` emits no informational output of its own. With `--verbose`,
 registry acquisition, build progress, and execution details are written to

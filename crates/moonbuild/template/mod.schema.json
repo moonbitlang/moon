@@ -15,7 +15,7 @@
       ]
     },
     "bin-deps": {
-      "description": "third-party binary dependencies of the module",
+      "description": "Deprecated third-party binary dependencies. Publish portable Wasm tools and run them with `moonx` instead.",
       "type": [
         "object",
         "null"

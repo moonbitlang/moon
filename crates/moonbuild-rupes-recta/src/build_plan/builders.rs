@@ -42,7 +42,9 @@ use relative_path::PathExt;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{BuildBundleInfo, FileDependencyKind, PlanArtifactNeed, PrebuildInfo},
+    build_plan::{
+        BuildBundleInfo, FileDependencyKind, PackagePrebuildPolicy, PlanArtifactNeed, PrebuildInfo,
+    },
     cond_comp,
     discover::DiscoveredPackage,
     model::{
@@ -205,14 +207,15 @@ impl<'a> BuildPlanConstructor<'a> {
         })
     }
 
-    /// Add need to all prebuild scripts of the given package, and add edge to this node
+    /// Add all package-level prebuild rules and edges to this node.
     ///
-    /// According to the semantics, only local packages require prebuild scripts
-    /// to be run. Remote packages should already have their prebuild outputs
-    /// ready when they are fetched.
+    /// According to the semantics, only local packages require package-level
+    /// prebuild to run. Remote packages should already contain their outputs.
     fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
-        if !self.input.local_modules().contains(&pkg.module) {
+        if self.input_directive.package_prebuild != PackagePrebuildPolicy::Run
+            || !self.input.local_modules().contains(&pkg.module)
+        {
             return;
         }
 

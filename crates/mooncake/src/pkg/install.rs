@@ -97,6 +97,20 @@ pub(crate) fn install_impl(
     no_std: bool,
     source_cache: &CacheRoot,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+    for (_, module) in roots.iter() {
+        let module = module.module_info();
+        if module
+            .bin_deps
+            .as_ref()
+            .is_some_and(|dependencies| !dependencies.is_empty())
+        {
+            user_log.warn(format!(
+                "`bin-deps` is deprecated; publish portable Wasm tools and run them with `moonx` instead (declared by module `{}`)",
+                module.name
+            ));
+        }
+    }
+
     let includes_core = roots
         .iter()
         .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);

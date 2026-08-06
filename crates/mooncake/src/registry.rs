@@ -71,13 +71,17 @@ pub trait Registry {
             .map(|(version, _)| version.clone())
     }
 
-    fn install_to(
+    /// Materialize verified published source without executing package hooks.
+    fn materialize_source_to(
         &self,
         name: &ModuleName,
         version: &Version,
         to: &Path,
         user_log: &UserLog,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<()> {
+        let checksum = self.source_archive_checksum(name, version)?;
+        self.acquire_source_to(name, version, &checksum, to, user_log)
+    }
 
     /// Ensure the published source archive is available, verify it against the
     /// checksum selected by the caller, and extract it without executing
@@ -112,16 +116,6 @@ where
         name: &ModuleName,
     ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         (**self).all_versions_of(name)
-    }
-
-    fn install_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        (**self).install_to(name, version, to, user_log)
     }
 
     fn acquire_source_to(
@@ -161,16 +155,6 @@ where
         name: &ModuleName,
     ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         (**self).all_versions_of(name)
-    }
-
-    fn install_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        (**self).install_to(name, version, to, user_log)
     }
 
     fn acquire_source_to(

@@ -616,6 +616,19 @@ impl BuildEnvironment {
     }
 }
 
+/// How package-level prebuild participates in this plan.
+///
+/// Package-level prebuild includes custom `pre-build` rules, `moonlex`, and
+/// `moonyacc`. Binary dependencies must already contain their generated
+/// outputs, so their internal compatibility build consumes existing outputs
+/// instead of running any of these rules.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum PackagePrebuildPolicy {
+    #[default]
+    Run,
+    ConsumeExistingOutputs,
+}
+
 /// Directives provided along the input actions.
 #[derive(Debug, Default)]
 pub struct InputDirective {
@@ -635,6 +648,9 @@ pub struct InputDirective {
 
     /// Use the given Why3 config file for `moon prove`.
     pub prove_why3_config: Option<PathBuf>,
+
+    /// Control package-level prebuild for this invocation.
+    pub package_prebuild: PackagePrebuildPolicy,
 }
 
 /// Represents errors that may occur during build graph construction.

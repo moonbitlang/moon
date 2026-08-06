@@ -4,9 +4,13 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
 
 - Scope: Applies only to packages in the input module being built.
   Third-party dependencies are expected to already contain their generated outputs.
-- A registry module being built as a direct bin-dep is the input module of its
-  child build, so its package-level prebuild tasks run in the temporary source
-  copy rather than in the registry cache.
+- The deprecated bin-dep compatibility build does not run package-level
+  prebuild, including custom `pre-build`, `moonlex`, and `moonyacc`, even
+  though its child build presents the distributed module as an input module.
+  Published packages must contain their generated outputs.
+- Package-level prebuild tasks are separate from the experimental module-level
+  prebuild configuration script. The latter may still run for a bin-dep to
+  produce build configuration such as native link flags.
 
 ## Package Configuration
 
@@ -32,7 +36,10 @@ Notes:
 
 - `input`/`output` paths are package-relative in config and expand to prebuild-cwd-relative paths inside the command.
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
-- All declared outputs are tracked as build outputs.
+- During ordinary input-module builds, all declared outputs are tracked as
+  build outputs. Bin-dep compatibility builds do not create package-level
+  prebuild nodes; they consume existing `.mbt` and `.mbt.md` outputs as package
+  sources.
 - Only `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit source set.
 - An executable package's `data_dir` does not restrict prebuild paths. Inputs
   and outputs may be below it and retain the same dependency and source-set
@@ -47,7 +54,9 @@ Notes:
   Project discovery computes this `mooncake_bin_dir` with the other
   authoritative project directories. Command adapters pass it unchanged
   through dependency sync and build planning; downstream stages do not
-  reconstruct it from another directory.
+  reconstruct it from another directory. `bin-deps` is deprecated; new tools
+  should be published as portable Wasm executable packages and run with
+  `moonx` instead.
 
 ## Placeholder Substitution
 
@@ -100,7 +109,8 @@ Behavior:
 
 ## Ordering and Inclusion
 
-- Each `pre-build` entry becomes its own prebuild node in the build graph.
+- During ordinary input-module builds, each `pre-build` entry becomes its own
+  prebuild node in the build graph. Bin-dep compatibility builds create none.
 - There is no explicit build-graph edge between two prebuild tasks solely because one is
   written earlier in `pre-build`.
 - If one prebuild task consumes another task's declared output, the dependency is currently
@@ -118,7 +128,8 @@ Behavior:
 
 ## Failure Conditions
 
-A task is considered failed (for the build) if any of the following holds after substitution and tool semantics:
+When a task is scheduled, it is considered failed if any of the following
+holds after substitution and tool semantics:
 
 - Any declared `input` path does not exist.
 - Any declared `output` cannot be created or written by the invoked tool.
