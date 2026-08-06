@@ -348,25 +348,31 @@ fn test_moon_prove_selected_failed_package() {
 }
 
 #[test]
-fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
+fn test_invpred_package_only_threads_mbtp_into_check_and_prove_dry_runs() {
     if skip_unless_verification_tests_enabled(
-        "test_invpred_package_threads_mbtp_into_compile_dry_runs",
+        "test_invpred_package_only_threads_mbtp_into_check_and_prove_dry_runs",
     ) {
         return;
     }
     let dir = TestDir::new("moon_prove/mixed.in");
+    let mbtp = "./invpred/invpred.mbtp";
 
     for (label, args) in [
         (
             "check",
             vec!["check", "invpred", "--dry-run", "--sort-input"],
         ),
+        ("prove", vec!["prove", "invpred", "--dry-run"]),
+    ] {
+        assert_stdout_contains_mbtp(&dir, args, mbtp, label);
+    }
+
+    for (label, args) in [
         (
             "build",
             vec!["build", "invpred", "--dry-run", "--sort-input"],
         ),
         ("test", vec!["test", "invpred", "--dry-run", "--sort-input"]),
-        ("prove", vec!["prove", "invpred", "--dry-run"]),
         (
             "bench",
             vec![
@@ -380,7 +386,11 @@ fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
         ),
         ("bundle", vec!["bundle", "--dry-run", "--sort-input"]),
     ] {
-        assert_stdout_contains_mbtp(&dir, args, "./invpred/invpred.mbtp", label);
+        let stdout = get_stdout(&dir, args);
+        assert!(
+            !stdout.contains(mbtp),
+            "{label} output should not include `{mbtp}`, got:\n{stdout}"
+        );
     }
 }
 
