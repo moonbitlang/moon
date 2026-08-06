@@ -123,28 +123,20 @@ fn mooncake_cli_smoke_test() {
 }
 
 #[test]
-fn test_moon_update_failed() {
+fn test_moon_update_reclones_for_different_registry_url() {
     if std::env::var("CI").is_err() {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
     let moon_home = dir;
-    let out = moon_process_cmd(&dir)
+    moon_cmd(&dir)
         .env("MOON_HOME", moon_home)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .args(["update"])
-        .output()
-        .unwrap();
-    let out = String::from_utf8(out.stderr).unwrap();
-    check(
-        &out,
-        expect![[r#"
-            Registry index cloned successfully
-            Symbols updated successfully
-        "#]],
-    );
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("Registry index cloned successfully\nSymbols updated successfully\n");
 
     let _ = std::process::Command::new("git")
         .args([
@@ -158,22 +150,23 @@ fn test_moon_update_failed() {
         .output()
         .unwrap();
 
-    let out = moon_process_cmd(&dir)
+    moon_cmd(&dir)
         .env("MOON_HOME", moon_home)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .args(["update"])
-        .output()
-        .unwrap();
-    let out = String::from_utf8(out.stderr).unwrap();
-    check(
-        &out,
-        expect![[r#"
-            Registry index is not cloned from the same URL, re-cloning
-            Registry index re-cloned successfully
-            Symbols updated successfully
-        "#]],
-    );
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq(
+            "Registry index remote does not match the configured URL, re-cloning\nRegistry index re-cloned successfully\nSymbols updated successfully\n",
+        );
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home)
+        .args(["update", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
 }
 
 #[test]

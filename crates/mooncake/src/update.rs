@@ -20,10 +20,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use colored::Colorize;
 use moonutil::{
     git::{GitCommandError, Stdios},
     registry::RegistryConfig,
+    user_log::UserLog,
 };
 use reqwest::header::USER_AGENT;
 
@@ -63,22 +63,30 @@ impl std::fmt::Display for CommandOutput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UpdateOutput {
-    Verbose,
-    Quiet,
+pub enum RegistryIndexRecloneReason {
+    PullFailed,
+    RemoteMismatch,
+    NotGitRepository,
+    MissingOrigin,
 }
 
-impl UpdateOutput {
-    fn emit(self, message: impl std::fmt::Display) {
-        if matches!(self, UpdateOutput::Verbose) {
-            eprintln!("{message}");
-        }
-    }
-
-    fn warn(self, message: impl std::fmt::Display) {
-        eprintln!("{}: {message}", "Warning".yellow().bold());
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryIndexUpdate {
+    Cloned,
+    Updated,
+    Recloned(RegistryIndexRecloneReason),
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpdateOutcome {
+    pub registry_index: RegistryIndexUpdate,
+    /// Whether the best-effort symbols update succeeded.
+    ///
+    /// A failure is reported through `UserLog` and does not make the registry
+    /// index update fail.
+    pub symbols_updated: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("failed to clone registry index")]
 struct CloneRegistryIndexError {
@@ -176,7 +184,7 @@ fn unique_sibling_dir(parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
 fn safe_reclone_registry_index(
     registry_config: &RegistryConfig,
     target_dir: &Path,
-    output: UpdateOutput,
+    user_log: &UserLog,
 ) -> Result<(), UpdateError> {
     // Determine parent directory so we can `rename` within the same filesystem.
     let Some(parent) = target_dir.parent() else {
@@ -220,7 +228,7 @@ fn safe_reclone_registry_index(
     }
 
     if let Err(e) = std::fs::remove_dir_all(&backup_dir) {
-        output.warn(format!(
+        user_log.warn(format!(
             "failed to remove old registry index at `{}`: {e}",
             backup_dir.display()
         ));
@@ -283,48 +291,113 @@ enum UpdateErrorKind {
     PullLatestRegistryIndexError(#[from] PullLatestRegistryIndexError),
 
     #[error(transparent)]
-    GetRemoteUrlError(#[from] GetRemoteUrlError),
+    InspectRegistryIndexError(#[from] InspectRegistryIndexError),
 
     #[error(transparent)]
     IO(#[from] std::io::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("failed to get remote url")]
-struct GetRemoteUrlError {
+#[error("failed to inspect registry index")]
+struct InspectRegistryIndexError {
     #[source]
-    source: GetRemoteUrlErrorKind,
+    source: InspectRegistryIndexErrorKind,
 }
 
 #[derive(Debug, thiserror::Error)]
-enum GetRemoteUrlErrorKind {
+enum InspectRegistryIndexErrorKind {
     #[error(transparent)]
     GitCommandError(#[from] GitCommandError),
 
     #[error(transparent)]
     IO(#[from] std::io::Error),
+
+    #[error("`git {command}` exited with {status}{output}")]
+    NonZeroExitCode {
+        command: String,
+        status: std::process::ExitStatus,
+        output: CommandOutput,
+    },
 }
 
-fn get_remote_url(target_dir: &Path) -> Result<String, GetRemoteUrlError> {
-    let output = moonutil::git::git_command(
-        &[
-            "-C",
-            target_dir.to_str().unwrap(),
-            "remote",
-            "get-url",
-            "origin",
-        ],
-        Stdios::npp(),
-    )
-    .map_err(|e| GetRemoteUrlError {
-        source: GetRemoteUrlErrorKind::GitCommandError(e),
-    })?
-    .wait_with_output()
-    .map_err(|e| GetRemoteUrlError {
-        source: GetRemoteUrlErrorKind::IO(e),
-    })?;
-    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(url)
+#[derive(Debug, PartialEq, Eq)]
+enum RegistryIndexState {
+    NotGitRepository,
+    MissingOrigin,
+    Ready { remote_url: String },
+}
+
+fn run_git_query(
+    target_dir: &Path,
+    args: &[&str],
+) -> Result<CommandOutput, InspectRegistryIndexError> {
+    let mut command = vec!["-C", target_dir.to_str().unwrap()];
+    command.extend_from_slice(args);
+    let output = moonutil::git::git_command(&command, Stdios::npp())
+        .map_err(|e| InspectRegistryIndexError {
+            source: InspectRegistryIndexErrorKind::GitCommandError(e),
+        })?
+        .wait_with_output()
+        .map_err(|e| InspectRegistryIndexError {
+            source: InspectRegistryIndexErrorKind::IO(e),
+        })?;
+    if !output.status.success() {
+        return Err(InspectRegistryIndexError {
+            source: InspectRegistryIndexErrorKind::NonZeroExitCode {
+                command: command.join(" "),
+                status: output.status,
+                output: CommandOutput::from_output(&output),
+            },
+        });
+    }
+    Ok(CommandOutput::from_output(&output))
+}
+
+fn inspect_registry_index(
+    target_dir: &Path,
+) -> Result<RegistryIndexState, InspectRegistryIndexError> {
+    if !target_dir
+        .join(".git")
+        .try_exists()
+        .map_err(|e| InspectRegistryIndexError {
+            source: InspectRegistryIndexErrorKind::IO(e),
+        })?
+    {
+        return Ok(RegistryIndexState::NotGitRepository);
+    }
+
+    let inside_work_tree = run_git_query(target_dir, &["rev-parse", "--is-inside-work-tree"])?;
+    if inside_work_tree.stdout != "true" {
+        return Ok(RegistryIndexState::NotGitRepository);
+    }
+
+    let remotes = run_git_query(target_dir, &["remote"])?;
+    if !remotes.stdout.lines().any(|remote| remote == "origin") {
+        return Ok(RegistryIndexState::MissingOrigin);
+    }
+
+    // Git fetch uses the first configured URL. Read all effective raw values
+    // to preserve that ordering without applying `url.*.insteadOf` rewrites.
+    let remote_urls = match run_git_query(target_dir, &["config", "--get-all", "remote.origin.url"])
+    {
+        Ok(output) => output,
+        Err(error)
+            if matches!(
+                &error.source,
+                InspectRegistryIndexErrorKind::NonZeroExitCode { status, .. }
+                    if status.code() == Some(1)
+            ) =>
+        {
+            return Ok(RegistryIndexState::MissingOrigin);
+        }
+        Err(error) => return Err(error),
+    };
+    let Some(remote_url) = remote_urls.stdout.lines().next() else {
+        return Ok(RegistryIndexState::MissingOrigin);
+    };
+    Ok(RegistryIndexState::Ready {
+        remote_url: remote_url.to_owned(),
+    })
 }
 
 fn download_symbols_zip() -> anyhow::Result<bytes::Bytes> {
@@ -344,7 +417,7 @@ fn download_symbols_zip() -> anyhow::Result<bytes::Bytes> {
     Ok(data)
 }
 
-fn update_symbols(registry_dir: &Path, output: UpdateOutput) -> anyhow::Result<()> {
+fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
     let data = download_symbols_zip()?;
 
     std::fs::create_dir_all(registry_dir)
@@ -383,59 +456,294 @@ fn update_symbols(registry_dir: &Path, output: UpdateOutput) -> anyhow::Result<(
             .context("failed to move symbols directory into place")?;
     }
 
-    output.emit("Symbols updated successfully".bold().green());
     Ok(())
 }
 
-pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Result<i32> {
-    update_with_output(target_dir, registry_config, UpdateOutput::Verbose)
-}
-
-pub fn update_with_output(
+pub fn update(
     target_dir: &Path,
     registry_config: &RegistryConfig,
-    output: UpdateOutput,
-) -> anyhow::Result<i32> {
-    if target_dir.exists() {
-        let url = get_remote_url(target_dir).map_err(|e| UpdateError {
-            source: UpdateErrorKind::GetRemoteUrlError(e),
-        })?;
-        if url == registry_config.index {
-            let result = pull_latest_registry_index(target_dir);
-            match result {
-                Err(_) => {
-                    output.emit(format!(
-                        "failed to update registry, {}",
-                        "re-cloning".bold().yellow()
-                    ));
-                    safe_reclone_registry_index(registry_config, target_dir, output)?;
-                    output.emit("Registry index re-cloned successfully".bold().green());
-                }
-                Ok(()) => {
-                    output.emit("Registry index updated successfully".bold().green());
-                }
-            }
-        } else {
-            output.emit(format!(
-                "Registry index is not cloned from the same URL, {}",
-                "re-cloning".yellow().bold()
-            ));
-            safe_reclone_registry_index(registry_config, target_dir, output)?;
-            output.emit("Registry index re-cloned successfully".bold().green());
-        }
-    } else {
-        clone_registry_index(registry_config, target_dir).map_err(|e| UpdateError {
-            source: UpdateErrorKind::CloneRegistryIndexError(e),
-        })?;
-        output.emit("Registry index cloned successfully".bold().green());
-    }
+    user_log: &UserLog,
+) -> anyhow::Result<UpdateOutcome> {
+    let registry_index = update_registry_index(target_dir, registry_config, user_log)?;
 
     let registry_dir = target_dir
         .parent()
         .context("registry index directory has no parent")?;
-    if let Err(e) = update_symbols(registry_dir, output) {
-        output.warn(format!("failed to update symbols: {e:#}"));
+    let symbols_updated = match update_symbols(registry_dir) {
+        Ok(()) => true,
+        Err(e) => {
+            user_log.warn(format!("failed to update symbols: {e:#}"));
+            false
+        }
+    };
+
+    Ok(UpdateOutcome {
+        registry_index,
+        symbols_updated,
+    })
+}
+
+fn update_registry_index(
+    target_dir: &Path,
+    registry_config: &RegistryConfig,
+    user_log: &UserLog,
+) -> Result<RegistryIndexUpdate, UpdateError> {
+    if target_dir.try_exists().map_err(|e| UpdateError {
+        source: UpdateErrorKind::IO(e),
+    })? {
+        let state = inspect_registry_index(target_dir).map_err(|e| UpdateError {
+            source: UpdateErrorKind::InspectRegistryIndexError(e),
+        })?;
+        let reclone_reason = match state {
+            RegistryIndexState::Ready { remote_url } if remote_url == registry_config.index => {
+                if pull_latest_registry_index(target_dir).is_ok() {
+                    return Ok(RegistryIndexUpdate::Updated);
+                }
+                RegistryIndexRecloneReason::PullFailed
+            }
+            RegistryIndexState::Ready { .. } => RegistryIndexRecloneReason::RemoteMismatch,
+            RegistryIndexState::NotGitRepository => RegistryIndexRecloneReason::NotGitRepository,
+            RegistryIndexState::MissingOrigin => RegistryIndexRecloneReason::MissingOrigin,
+        };
+        safe_reclone_registry_index(registry_config, target_dir, user_log)?;
+        Ok(RegistryIndexUpdate::Recloned(reclone_reason))
+    } else {
+        clone_registry_index(registry_config, target_dir).map_err(|e| UpdateError {
+            source: UpdateErrorKind::CloneRegistryIndexError(e),
+        })?;
+        Ok(RegistryIndexUpdate::Cloned)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run_git(args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
-    Ok(0)
+    fn empty_registry() -> (tempfile::TempDir, RegistryConfig) {
+        let base = tempfile::tempdir().unwrap();
+        let index = base.path().join("index.git");
+        run_git(&["init", "--bare", "--quiet", index.to_str().unwrap()]);
+        let index = index.to_str().unwrap().to_owned();
+        (
+            base,
+            RegistryConfig {
+                registry: index.clone(),
+                index,
+            },
+        )
+    }
+
+    fn quiet_user_log() -> UserLog {
+        UserLog::new(log::LevelFilter::Off)
+    }
+
+    #[test]
+    fn inspect_registry_index_does_not_expand_instead_of_rewrites() {
+        let repo = tempfile::tempdir().unwrap();
+        run_git(&["-C", repo.path().to_str().unwrap(), "init", "--quiet"]);
+
+        let registry_url = "https://registry.invalid/git/index";
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "remote",
+            "add",
+            "origin",
+            registry_url,
+        ]);
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "config",
+            "url.https://mirror.example/.insteadOf",
+            "https://registry.invalid/",
+        ]);
+
+        assert_eq!(
+            inspect_registry_index(repo.path()).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: registry_url.to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn inspect_registry_index_uses_primary_origin_url() {
+        let repo = tempfile::tempdir().unwrap();
+        run_git(&["-C", repo.path().to_str().unwrap(), "init", "--quiet"]);
+
+        let primary_url = "https://primary.invalid/index";
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "remote",
+            "add",
+            "origin",
+            primary_url,
+        ]);
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "remote",
+            "set-url",
+            "--add",
+            "origin",
+            "https://secondary.invalid/index",
+        ]);
+
+        assert_eq!(
+            inspect_registry_index(repo.path()).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: primary_url.to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn inspect_registry_index_reads_worktree_origin_url() {
+        let repo = tempfile::tempdir().unwrap();
+        run_git(&["-C", repo.path().to_str().unwrap(), "init", "--quiet"]);
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "config",
+            "extensions.worktreeConfig",
+            "true",
+        ]);
+
+        let registry_url = "https://worktree.invalid/index";
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "config",
+            "--worktree",
+            "remote.origin.url",
+            registry_url,
+        ]);
+
+        assert_eq!(
+            inspect_registry_index(repo.path()).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: registry_url.to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn inspect_registry_index_recognizes_non_git_directory() {
+        let not_a_repo = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            inspect_registry_index(not_a_repo.path()).unwrap(),
+            RegistryIndexState::NotGitRepository
+        );
+    }
+
+    #[test]
+    fn update_registry_index_reclones_non_git_directory() {
+        let (_registry, config) = empty_registry();
+        let registry_home = tempfile::tempdir().unwrap();
+        let index = registry_home.path().join("index");
+        std::fs::create_dir(&index).unwrap();
+        std::fs::write(index.join("stale"), "stale index").unwrap();
+
+        let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+
+        assert_eq!(
+            update,
+            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::NotGitRepository)
+        );
+        assert!(!index.join("stale").exists());
+        assert_eq!(
+            inspect_registry_index(&index).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: config.index
+            }
+        );
+    }
+
+    #[test]
+    fn update_registry_index_reclones_repository_without_origin() {
+        let (_registry, config) = empty_registry();
+        let registry_home = tempfile::tempdir().unwrap();
+        let index = registry_home.path().join("index");
+        std::fs::create_dir(&index).unwrap();
+        run_git(&["-C", index.to_str().unwrap(), "init", "--quiet"]);
+
+        let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+
+        assert_eq!(
+            update,
+            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::MissingOrigin)
+        );
+        assert_eq!(
+            inspect_registry_index(&index).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: config.index
+            }
+        );
+    }
+
+    #[test]
+    fn update_registry_index_reclones_origin_without_url() {
+        let (_registry, config) = empty_registry();
+        let registry_home = tempfile::tempdir().unwrap();
+        let index = registry_home.path().join("index");
+        std::fs::create_dir(&index).unwrap();
+        run_git(&["-C", index.to_str().unwrap(), "init", "--quiet"]);
+        run_git(&[
+            "-C",
+            index.to_str().unwrap(),
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ]);
+
+        let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+
+        assert_eq!(
+            update,
+            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::MissingOrigin)
+        );
+        assert_eq!(
+            inspect_registry_index(&index).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: config.index
+            }
+        );
+    }
+
+    #[test]
+    fn update_registry_index_preserves_directory_when_inspection_fails() {
+        let (_registry, config) = empty_registry();
+        let registry_home = tempfile::tempdir().unwrap();
+        let index = registry_home.path().join("index");
+        std::fs::create_dir(&index).unwrap();
+        run_git(&["-C", index.to_str().unwrap(), "init", "--quiet"]);
+        std::fs::write(index.join("cached-index"), "preserve me").unwrap();
+        std::fs::write(index.join(".git").join("config"), "[invalid").unwrap();
+
+        let error = update_registry_index(&index, &config, &quiet_user_log()).unwrap_err();
+
+        assert!(matches!(
+            error.source,
+            UpdateErrorKind::InspectRegistryIndexError(_)
+        ));
+        assert_eq!(
+            std::fs::read_to_string(index.join("cached-index")).unwrap(),
+            "preserve me"
+        );
+    }
 }
