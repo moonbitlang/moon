@@ -26,7 +26,7 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    child_process::ManagedChildRunner,
+    child_process::{ChildOutputMode, ManagedChildRunner},
     constants::MOONBITLANG_CORE,
     locks::FileLock,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
@@ -36,6 +36,8 @@ use moonutil::{
 use semver::Version;
 
 use crate::{pkg::legacy_postadd, registry::Registry};
+
+use super::DependencySource;
 
 type DepDirState = HashMap<ArcStr, HashMap<ArcStr, Option<Version>>>;
 type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
@@ -50,16 +52,16 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// dependencies directory for ease of scanning. Instead, we replace all slashes
 /// in the `pkgname` part with plus `+` sign. For example, a package
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
-pub(crate) struct ProjectDependencySource<'a> {
+pub(super) struct ProjectDependencySource {
     path: PathBuf,
-    child: &'a ManagedChildRunner,
+    postadd_output: ChildOutputMode,
 }
 
-impl<'a> ProjectDependencySource<'a> {
-    pub(super) fn new(path: impl Into<PathBuf>, child: &'a ManagedChildRunner) -> Self {
+impl ProjectDependencySource {
+    pub(super) fn new(path: impl Into<PathBuf>, postadd_output: ChildOutputMode) -> Self {
         Self {
             path: path.into(),
-            child,
+            postadd_output,
         }
     }
 
@@ -100,7 +102,7 @@ impl<'a> ProjectDependencySource<'a> {
     }
 }
 
-impl super::DependencySource for ProjectDependencySource<'_> {
+impl DependencySource for ProjectDependencySource {
     fn ensure(
         &self,
         registry: &dyn Registry,
@@ -108,7 +110,8 @@ impl super::DependencySource for ProjectDependencySource<'_> {
         frozen: bool,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {
-        sync(self, registry, resolved, frozen, self.child, user_log)
+        let postadd_runner = ManagedChildRunner::new(self.postadd_output, user_log);
+        sync(self, registry, resolved, frozen, &postadd_runner, user_log)
             .context("When installing packages")?;
         resolve_paths(self, resolved)
     }
@@ -217,11 +220,11 @@ fn diff_dep_dir_state<'a>(
 /// dependency directory. If the desired dependency list cannot be created
 /// from the current directory, this function will return an error.
 fn sync(
-    dep_dir: &ProjectDependencySource<'_>,
+    dep_dir: &ProjectDependencySource,
     registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
     frozen: bool,
-    child: &ManagedChildRunner,
+    postadd_runner: &ManagedChildRunner,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
     // If nothing needs to be installed, don't bother
@@ -290,7 +293,7 @@ fn sync(
                 &pkg_path,
                 user_log,
             )?;
-            legacy_postadd::run(&pkg_path, child)?;
+            legacy_postadd::run(&pkg_path, postadd_runner)?;
             // TODO: parallelize this
         }
     }
@@ -300,7 +303,7 @@ fn sync(
     Ok(())
 }
 
-fn pkg_to_dir(dep_dir: &ProjectDependencySource<'_>, username: &str, pkgname: &str) -> PathBuf {
+fn pkg_to_dir(dep_dir: &ProjectDependencySource, username: &str, pkgname: &str) -> PathBuf {
     // Special case: core library locates in ~/.moon
     if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
         return toolchain::core();
@@ -311,7 +314,7 @@ fn pkg_to_dir(dep_dir: &ProjectDependencySource<'_>, username: &str, pkgname: &s
 
 /// The result of a directory sync.
 fn map_source_to_dir(
-    dep_dir: &ProjectDependencySource<'_>,
+    dep_dir: &ProjectDependencySource,
     module: &ModuleSource,
 ) -> anyhow::Result<PathBuf> {
     Ok(match module.source() {
@@ -332,7 +335,7 @@ fn map_source_to_dir(
 /// Assumes [`sync`] is already called. Otherwise, modules might point to
 /// directories that don't exist yet because they are not synced yet.
 fn resolve_paths(
-    dep_dir: &ProjectDependencySource<'_>,
+    dep_dir: &ProjectDependencySource,
     pkg_list: &ResolvedEnv,
 ) -> anyhow::Result<DirSyncResult> {
     let mut res = DirSyncResult::default();

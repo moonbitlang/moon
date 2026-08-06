@@ -31,6 +31,8 @@ use moonutil::{
 
 use crate::registry::Registry;
 
+use super::DependencySource;
+
 const LAYOUT_VERSION: &str = "v1";
 const SOURCES_DIRECTORY: &str = "sources";
 pub(super) const SOURCE_ARCHIVE_CHECKSUM_FILE: &str = ".moon-source-archive-checksum";
@@ -39,7 +41,7 @@ pub(super) const SOURCE_ARCHIVE_CHECKSUM_FILE: &str = ".moon-source-archive-chec
 ///
 /// This module owns the complete on-disk layout and publication protocol. A
 /// caller only asks for the resolved module directories returned by `ensure`.
-pub(crate) struct ImmutableDependencySource<'a> {
+pub(super) struct ImmutableDependencySource<'a> {
     root: &'a Path,
 }
 
@@ -126,7 +128,7 @@ impl<'a> ImmutableDependencySource<'a> {
     }
 }
 
-impl super::DependencySource for ImmutableDependencySource<'_> {
+impl DependencySource for ImmutableDependencySource<'_> {
     fn ensure(
         &self,
         registry: &dyn Registry,

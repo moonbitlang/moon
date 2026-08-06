@@ -497,7 +497,7 @@ fn run_check_for_single_file_rr(
     )
     .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
         quiet: false,
-        child_output: if cmd.json {
+        child_output: if json.is_some() {
             ChildOutputMode::Capture
         } else {
             ChildOutputMode::Inherit

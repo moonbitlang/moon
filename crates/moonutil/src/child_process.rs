@@ -43,6 +43,8 @@ pub struct ManagedChildRunner {
 
 impl ManagedChildRunner {
     pub fn new(output_mode: ChildOutputMode, user_log: &UserLog) -> Self {
+        // Captured UserLog clones retain the same Arc-backed destination, so a
+        // runner can own its handle without imposing a lifetime on callers.
         Self {
             output_mode,
             user_log: user_log.clone(),

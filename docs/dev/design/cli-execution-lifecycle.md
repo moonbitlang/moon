@@ -158,15 +158,43 @@ This lifecycle does not merge the communication categories defined by
 Command Results, User Logs, Process Passthrough, Progress Displays, tracing,
 and Moon-managed setup-child output remain separate mechanisms.
 
-In particular, this change does not select or infer setup-child output capture.
-That policy belongs to the later child-output slice built on top of this
-lifecycle.
+## Moon-managed setup children
+
+Moon-managed setup children currently include legacy `postadd` hooks and the
+nested Moon process used for deprecated binary dependencies. Their output mode
+is selected explicitly at the command seam:
+
+```rust
+enum ChildOutputMode {
+    Inherit,
+    Capture,
+}
+```
+
+Human commands inherit the child's stdout and stderr. JSON check captures both
+channels, closes the child's stdin, and waits for completion before producing
+the Command Result. Non-empty output from a successful child becomes an
+informational User Log entry; output from a failed child becomes an error.
+User Log filtering and child-output mode remain independent decisions: capture
+is never inferred from the User Log destination.
+
+Registry adapters only acquire and verify source. Project-local dependency
+installation invokes the isolated legacy-postadd module after materialization,
+while immutable cached sources reject postadd and never receive process-output
+policy. Package prebuild tasks, including custom `pre-build`, moonlex, and
+moonyacc, remain build-graph work owned by the build executor. An unstable
+module prebuild script run by a nested binary-dependency build is covered by
+the output mode of that nested Moon process as a whole. User programs remain
+Process Passthrough.
 
 ## Regression coverage
 
 Selection tests use raw argument vectors and cover ordinary commands, JSON
 selection, executable-name dispatch, tool exec, IDE help, cram ownership, and
 trace placement.
+
+Managed-child runner tests cover inherited and captured output on both output
+channels, stdin EOF, and success/failure classification.
 
 Public CLI tests cover:
 
@@ -175,5 +203,6 @@ Public CLI tests cover:
 - trace ownership around the cram delegation point;
 - complete traces before `cram test` and registry `runwasm` delegation;
 - complete JSON stdout and trace files for successful and failed JSON checks;
-  and
+- JSON check capture for successful and failed legacy postadd hooks and nested
+  binary-dependency builds; and
 - existing `moon run` trace and temporary-project cleanup invariants.

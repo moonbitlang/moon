@@ -29,7 +29,7 @@ use anyhow::bail;
 use moonutil::{child_process::ManagedChildRunner, manifest::read_module_desc_file_in_dir};
 
 /// Run the legacy hook declared by the materialized module at `module_dir`.
-pub fn run(module_dir: &Path, child: &ManagedChildRunner) -> anyhow::Result<()> {
+pub fn run(module_dir: &Path, runner: &ManagedChildRunner) -> anyhow::Result<()> {
     if std::env::var_os("MOON_IGNORE_POSTADD").is_some() {
         return Ok(());
     }
@@ -48,7 +48,7 @@ pub fn run(module_dir: &Path, child: &ManagedChildRunner) -> anyhow::Result<()> 
     };
     let mut process = std::process::Command::new(command);
     process.args(args).current_dir(module_dir);
-    let status = child.run(&mut process, "postadd script")?;
+    let status = runner.run(&mut process, "postadd script")?;
     if !status.success() {
         bail!(
             "failed to execute postadd script in {},\ncommand: {}",
