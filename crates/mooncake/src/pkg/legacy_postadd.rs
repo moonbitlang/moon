@@ -21,16 +21,14 @@
 //! Registry source acquisition deliberately does not call this module. The
 //! remaining command paths opt into the legacy behavior after source has been
 //! materialized, so rejecting postadd in the future does not change the
-//! Registry interface. This compatibility module preserves the existing child
-//! output behavior; making that lifecycle explicit belongs to the separate
-//! command-output migration.
+//! Registry interface.
 
 use std::path::Path;
 
 use anyhow::bail;
-use moonutil::{manifest::read_module_desc_file_in_dir, user_log::UserLog};
+use moonutil::{child_process::ManagedChildRunner, manifest::read_module_desc_file_in_dir};
 
-pub fn run(dir: &Path, user_log: &UserLog) -> anyhow::Result<()> {
+pub fn run(dir: &Path, child: &ManagedChildRunner) -> anyhow::Result<()> {
     if std::env::var_os("MOON_IGNORE_POSTADD").is_some() {
         return Ok(());
     }
@@ -49,43 +47,13 @@ pub fn run(dir: &Path, user_log: &UserLog) -> anyhow::Result<()> {
     };
     let mut process = std::process::Command::new(command);
     process.args(args).current_dir(dir);
-    if user_log.is_captured() {
-        let output = process.output()?;
-        for (channel, content) in [
-            ("stdout", output.stdout.as_slice()),
-            ("stderr", output.stderr.as_slice()),
-        ] {
-            let content = String::from_utf8_lossy(content);
-            let content = content.trim();
-            if content.is_empty() {
-                continue;
-            }
-            let message = format!("postadd script wrote to {channel}:\n{content}");
-            if output.status.success() {
-                user_log.status(message);
-            } else {
-                user_log.error(message);
-            }
-        }
-        if !output.status.success() {
-            bail!(
-                "failed to execute postadd script in {},\ncommand: {}",
-                dir.display(),
-                command
-            );
-        }
-    } else {
-        let status = process
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status()?;
-        if !status.success() {
-            bail!(
-                "failed to execute postadd script in {},\ncommand: {}",
-                dir.display(),
-                command
-            );
-        }
+    let status = child.run(&mut process, "postadd script")?;
+    if !status.success() {
+        bail!(
+            "failed to execute postadd script in {},\ncommand: {}",
+            dir.display(),
+            command
+        );
     }
     Ok(())
 }
@@ -95,7 +63,10 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use log::LevelFilter;
-    use moonutil::user_log::{UserLog, UserLogEntryLevel};
+    use moonutil::{
+        child_process::{ChildOutputMode, ManagedChildRunner},
+        user_log::{UserLog, UserLogEntryLevel},
+    };
 
     use super::run;
 
@@ -122,8 +93,9 @@ mod tests {
         )
         .unwrap();
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
+        let child = ManagedChildRunner::new(ChildOutputMode::Capture, &user_log);
 
-        run(sandbox.path(), &user_log).unwrap();
+        run(sandbox.path(), &child).unwrap();
 
         let entries = capture.take();
         assert_eq!(entries.len(), 2);
@@ -141,8 +113,9 @@ mod tests {
         )
         .unwrap();
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
+        let child = ManagedChildRunner::new(ChildOutputMode::Capture, &user_log);
 
-        let error = run(sandbox.path(), &user_log).unwrap_err();
+        let error = run(sandbox.path(), &child).unwrap_err();
 
         assert!(
             error

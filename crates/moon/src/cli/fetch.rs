@@ -20,7 +20,11 @@ use anyhow::bail;
 use colored::Colorize;
 use mooncake::{pkg::legacy_postadd, registry::Registry};
 use moonutil::{
-    project::PackageDirs, registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
+    child_process::{ChildOutputMode, ManagedChildRunner},
+    project::PackageDirs,
+    registry::RegistryConfig,
+    resolution::ModuleName,
+    user_log::UserLog,
 };
 
 use super::UniversalFlags;
@@ -137,7 +141,8 @@ pub(crate) fn fetch_cli(
     }
 
     registry.materialize_source_to(&pkg_name, &version, &pkg_dir, user_log)?;
-    legacy_postadd::run(&pkg_dir, user_log)?;
+    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
+    legacy_postadd::run(&pkg_dir, &child)?;
 
     if !cli.quiet {
         println!(

@@ -25,6 +25,7 @@ use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
     cache::CacheRoot,
+    child_process::ManagedChildRunner,
     constants::MOONBITLANG_CORE,
     project::PackageDirs,
     resolution::{
@@ -124,21 +125,33 @@ pub(crate) fn install_impl(
     };
 
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots, user_log)?;
+    // Child output follows the command's User Log policy. Sync quietness only
+    // narrows dependency acquisition progress below this point.
+    let managed_child = ManagedChildRunner::new(output_options.child_output, user_log);
     let dependency_source = dependency_source::select(&dirs.mooncakes_dir, source_cache, &res)?;
-    let dependency_user_log = if output_options.quiet() {
+    let dependency_user_log = if output_options.quiet {
         user_log.with_level(log::LevelFilter::Error)
     } else {
         user_log.clone()
     };
-    let dependency_paths = dependency_source.ensure(
-        resolve_config.registry.as_ref(),
-        &res,
-        dont_sync,
-        &dependency_user_log,
-    )?;
+    let dependency_paths = match dependency_source {
+        dependency_source::SelectedDependencySource::Immutable(source) => source.ensure(
+            resolve_config.registry.as_ref(),
+            &res,
+            dont_sync,
+            &dependency_user_log,
+        )?,
+        dependency_source::SelectedDependencySource::Project(source) => source.ensure(
+            resolve_config.registry.as_ref(),
+            &res,
+            dont_sync,
+            &managed_child,
+            &dependency_user_log,
+        )?,
+    };
 
     install_bin_deps(
-        output_options.capture_child_output(),
+        &managed_child,
         &res,
         &dependency_paths,
         &dirs.target_dir,
@@ -150,7 +163,7 @@ pub(crate) fn install_impl(
 }
 
 fn install_bin_deps(
-    capture_child_output: bool,
+    child: &ManagedChildRunner,
     res: &ResolvedEnv,
     dependency_paths: &DirSyncResult,
     target_dir: &Path,
@@ -204,46 +217,10 @@ fn install_bin_deps(
             if verbose {
                 user_log.info(format!("Installing binary dependency `{}`", edge.name));
             }
-            let status = if capture_child_output {
-                let output = cmd.output().with_context(|| {
-                    format!("Failed to run build process for binary dep `{}`", edge.name)
-                })?;
-                for (channel, content) in [
-                    ("stdout", output.stdout.as_slice()),
-                    ("stderr", output.stderr.as_slice()),
-                ] {
-                    let content = String::from_utf8_lossy(content);
-                    let content = content.trim();
-                    if content.is_empty() {
-                        continue;
-                    }
-                    let message = format!(
-                        "binary dependency `{}` wrote to {channel}:\n{content}",
-                        edge.name
-                    );
-                    if output.status.success() {
-                        user_log.status(message);
-                    } else {
-                        user_log.error(message);
-                    }
-                }
-                output.status
-            } else {
-                cmd.spawn()
-                    .with_context(|| {
-                        format!(
-                            "Failed to spawn build process for binary dep `{}`",
-                            edge.name
-                        )
-                    })?
-                    .wait()
-                    .with_context(|| {
-                        format!(
-                            "Failed to wait for build process of binary dep `{}`",
-                            edge.name
-                        )
-                    })?
-            };
+            let subject = format!("binary dependency `{}`", edge.name);
+            let status = child.run(&mut cmd, &subject).with_context(|| {
+                format!("Failed to run build process for binary dep `{}`", edge.name)
+            })?;
             if !status.success() {
                 return Err(anyhow::anyhow!(
                     "Building binary dependency `{}` failed",

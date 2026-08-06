@@ -110,12 +110,6 @@ impl UserLog {
         self.level >= level.to_level_filter()
     }
 
-    /// Whether user-facing output is being collected for a command result
-    /// instead of rendered directly to stderr.
-    pub fn is_captured(&self) -> bool {
-        matches!(&self.destination, UserLogDestination::Capture(_))
-    }
-
     pub fn error(&self, message: impl Display) {
         match &self.destination {
             UserLogDestination::Stderr => {

@@ -28,6 +28,7 @@ use moonbuild_rupes_recta::{
     model::{BackendConfig, PackageId},
 };
 use mooncake::pkg::sync::SyncOutputOptions;
+use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
@@ -134,7 +135,10 @@ impl RunOutputVerbosity {
     }
 
     fn sync_output(self) -> SyncOutputOptions {
-        SyncOutputOptions::default().with_quiet(!self.verbose)
+        SyncOutputOptions {
+            quiet: !self.verbose,
+            child_output: ChildOutputMode::Inherit,
+        }
     }
 
     fn suppress_build_progress(self) -> bool {

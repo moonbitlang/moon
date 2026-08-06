@@ -26,6 +26,7 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
+    child_process::ManagedChildRunner,
     constants::MOONBITLANG_CORE,
     locks::FileLock,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
@@ -35,8 +36,6 @@ use moonutil::{
 use semver::Version;
 
 use crate::{pkg::legacy_postadd, registry::Registry};
-
-use super::DependencySource;
 
 type DepDirState = HashMap<ArcStr, HashMap<ArcStr, Option<Version>>>;
 type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
@@ -51,7 +50,7 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// dependencies directory for ease of scanning. Instead, we replace all slashes
 /// in the `pkgname` part with plus `+` sign. For example, a package
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
-pub(super) struct ProjectDependencySource {
+pub(crate) struct ProjectDependencySource {
     path: PathBuf,
 }
 
@@ -95,17 +94,16 @@ impl ProjectDependencySource {
 
         Ok(user_list)
     }
-}
-
-impl DependencySource for ProjectDependencySource {
-    fn ensure(
+    pub(crate) fn ensure(
         &self,
         registry: &dyn Registry,
         resolved: &ResolvedEnv,
         frozen: bool,
+        child: &ManagedChildRunner,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {
-        sync(self, registry, resolved, frozen, user_log).context("When installing packages")?;
+        sync(self, registry, resolved, frozen, child, user_log)
+            .context("When installing packages")?;
         resolve_paths(self, resolved)
     }
 }
@@ -217,6 +215,7 @@ fn sync(
     registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
     frozen: bool,
+    child: &ManagedChildRunner,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
     // If nothing needs to be installed, don't bother
@@ -285,7 +284,7 @@ fn sync(
                 &pkg_path,
                 user_log,
             )?;
-            legacy_postadd::run(&pkg_path, user_log)?;
+            legacy_postadd::run(&pkg_path, child)?;
             // TODO: parallelize this
         }
     }
