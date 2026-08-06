@@ -33,7 +33,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{
-    ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
+    ResolveConfig,
+    build_plan::{InputDirective, PackagePrebuildPolicy},
+    discover::DiscoveredPackage,
+    intent::UserIntent,
+    model::PackageId,
 };
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
@@ -164,7 +168,14 @@ pub(crate) fn run_build_binary_dep(
             user_log,
             &resolve_output,
         )?;
-        let intent = vec![UserIntent::Build(pkg)].into();
+        let intent = (
+            vec![UserIntent::Build(pkg)],
+            InputDirective {
+                package_prebuild: PackagePrebuildPolicy::ConsumeExistingOutputs,
+                ..InputDirective::default()
+            },
+        )
+            .into();
         let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
             preconfig,
             &cli.unstable_feature,

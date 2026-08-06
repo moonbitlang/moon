@@ -4,9 +4,13 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
 
 - Scope: Applies only to packages in the input module being built.
   Third-party dependencies are expected to already contain their generated outputs.
-- A registry module being built as a direct bin-dep is the input module of its
-  child build, so its package-level prebuild tasks run in the temporary source
-  copy rather than in the registry cache.
+- The deprecated bin-dep compatibility build does not run package-level
+  source generation, including `pre-build`, `moonlex`, and `moonyacc`, even
+  though its child build presents the distributed module as an input module.
+  Published packages must contain their generated outputs.
+- Package-level prebuild tasks are separate from the experimental module-level
+  prebuild configuration script. The latter may still run for a bin-dep to
+  produce build configuration such as native link flags.
 
 ## Package Configuration
 
@@ -47,7 +51,9 @@ Notes:
   Project discovery computes this `mooncake_bin_dir` with the other
   authoritative project directories. Command adapters pass it unchanged
   through dependency sync and build planning; downstream stages do not
-  reconstruct it from another directory.
+  reconstruct it from another directory. `bin-deps` is deprecated; new tools
+  should be published as portable Wasm executable packages and run with
+  `moonx` instead.
 
 ## Placeholder Substitution
 

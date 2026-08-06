@@ -98,7 +98,7 @@ fn test_prebuild_config_not_run_in_check() {
 }
 
 #[test]
-fn test_prebuild_config_in_bin_dep_runs_for_check_install() {
+fn test_unstable_prebuild_config_in_bin_dep_runs_for_check_install() {
     let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
     let dir = top_dir.join("user.in");
     let generated_stub = top_dir.join("author.in/src/main/generated_stub.c");

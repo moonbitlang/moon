@@ -41,7 +41,7 @@ pub struct AddSubcommand {
     #[clap(value_name = "MODULE")]
     pub package_path: String,
 
-    /// Whether to add the dependency as a binary
+    /// Add the deprecated binary dependency (prefer portable Wasm with moonx)
     #[clap(long)]
     pub bin: bool,
 

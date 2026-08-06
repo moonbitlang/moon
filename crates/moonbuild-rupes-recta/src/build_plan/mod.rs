@@ -616,6 +616,19 @@ impl BuildEnvironment {
     }
 }
 
+/// How package-level source generation participates in this plan.
+///
+/// Distributed packages must already contain their generated outputs. The
+/// internal binary-dependency compatibility build therefore uses published
+/// outputs instead of running `pre-build`, `moonlex`, or `moonyacc`, even
+/// though it presents the distributed module as the build input.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum PackagePrebuildPolicy {
+    #[default]
+    Run,
+    ConsumeExistingOutputs,
+}
+
 /// Directives provided along the input actions.
 #[derive(Debug, Default)]
 pub struct InputDirective {
@@ -635,6 +648,9 @@ pub struct InputDirective {
 
     /// Use the given Why3 config file for `moon prove`.
     pub prove_why3_config: Option<PathBuf>,
+
+    /// Control package-level source generation for this invocation.
+    pub package_prebuild: PackagePrebuildPolicy,
 }
 
 /// Represents errors that may occur during build graph construction.

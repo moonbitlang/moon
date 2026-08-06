@@ -300,7 +300,7 @@ fn test_moon_check_complete_json_captures_bin_dep_prebuild_failure() {
 }
 
 #[test]
-fn test_moon_check_complete_json_runs_bin_dep_prebuild() {
+fn test_moon_check_complete_json_runs_bin_dep_unstable_prebuild_config() {
     let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
     let dir = top_dir.join("user.in");
     let generated_stub = top_dir.join("author.in/src/main/generated_stub.c");
@@ -319,7 +319,20 @@ fn test_moon_check_complete_json_runs_bin_dep_prebuild() {
     );
 
     assert_eq!(report["status"], "success");
-    assert_eq!(report["summary"]["moon_warnings"], 0);
+    assert_eq!(report["summary"]["moon_warnings"], 1);
+    assert!(
+        report["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["level"] == "warning"
+                    && message["message"]
+                        .as_str()
+                        .unwrap()
+                        .contains("`bin-deps` is deprecated")
+            })
+    );
     assert!(
         report["messages"]
             .as_array()

@@ -503,7 +503,7 @@ Add a dependency
 
 ###### **Options:**
 
-* `--bin` — Whether to add the dependency as a binary
+* `--bin` — Add the deprecated binary dependency (prefer portable Wasm with moonx)
 * `-u`, `--upgrade` — Upgrade an existing dependency
 * `--no-update` — Do not update the registry index before adding the dependency
 

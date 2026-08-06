@@ -267,7 +267,9 @@ There are two types of dependencies in a module.
 
 - A regular dependency is a dependency that can be accessed from code.
 - A **binary dependency** (bin-dep) is a dependency that is used for its executable.
-  Bin-deps are declared in `moon.mod.json` under `bin-deps`.
+  Bin-deps are declared in `moon.mod.json` under `bin-deps`, which is
+  deprecated. New tools should be published as portable Wasm executable
+  packages and run with `moonx` instead.
   They are resolved only for the input/root modules themselves: bin-deps of regular
   dependencies are not propagated transitively.
   After dependency sync, direct bin-deps of each workspace root are built and
@@ -276,11 +278,16 @@ There are two types of dependencies in a module.
   project target directory before that command runs. The child command uses
   the temporary directory as its target, copies the runnable artifact into
   private storage under `<project target dir>/__moonbin__`, and then removes
-  the work directory. Compilation, pre-build outputs, and nested dependency
-  state therefore do not modify the registry source under `.mooncakes`. Local
-  bin-deps retain their existing in-place build behavior. The child build
-  resolves the bin-dep's regular dependencies but excludes its own bin-deps,
-  preserving the non-transitive bin-dep model.
+  the work directory. Compilation and nested dependency state therefore do not
+  modify the registry source under `.mooncakes`. The compatibility build never
+  runs package-level source generation (`pre-build`, `moonlex`, or `moonyacc`);
+  distributed packages must already contain their generated outputs.
+  Experimental module-level prebuild configuration scripts still run so they
+  can provide build configuration such as native link flags. Local bin-deps
+  retain their existing in-place build behavior, subject to the same
+  package-level prebuild prohibition. The child build resolves the bin-dep's
+  regular dependencies but excludes its own bin-deps, preserving the
+  non-transitive bin-dep model.
 
 There are two kinds of sources that dependencies come from:
 
