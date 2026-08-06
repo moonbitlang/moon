@@ -795,8 +795,8 @@ mod tests {
     fn generate_config(solvers: &[DetectedSolver]) -> String {
         generate_why3_config(
             solvers,
-            Path::new("/moon/lib/why3/share/why3"),
-            Path::new("/moon/lib/why3/lib/why3"),
+            Path::new("/moon/share/why3"),
+            Path::new("/moon/lib/why3"),
         )
     }
 
@@ -856,8 +856,8 @@ mod tests {
     fn test_generate_config_single_solver() {
         let solvers = vec![make_solver("Z3", "/usr/bin/z3", "4.15.3")];
         let config = generate_config(&solvers);
-        assert!(config.contains("datadir = \"/moon/lib/why3/share/why3\""));
-        assert!(config.contains("libdir = \"/moon/lib/why3/lib/why3\""));
+        assert!(config.contains("datadir = \"/moon/share/why3\""));
+        assert!(config.contains("libdir = \"/moon/lib/why3\""));
         assert!(config.contains("[partial_prover]\nname = \"Z3\""));
         assert!(config.contains("name = \"MoonBit_Auto\""));
         assert!(!config.contains("Alt-Ergo"));
@@ -868,11 +868,11 @@ mod tests {
         let solvers = vec![make_solver("Z3", r"C:\Users\guest\bin\z3.exe", "4.16.0")];
         let config = generate_why3_config(
             &solvers,
-            Path::new(r"C:\Users\guest\.moon\lib\why3\share\why3"),
-            Path::new(r"C:\Users\guest\.moon\lib\why3\lib\why3"),
+            Path::new(r"C:\Users\guest\.moon\share\why3"),
+            Path::new(r"C:\Users\guest\.moon\lib\why3"),
         );
-        assert!(config.contains(r#"datadir = "C:/Users/guest/.moon/lib/why3/share/why3""#));
-        assert!(config.contains(r#"libdir = "C:/Users/guest/.moon/lib/why3/lib/why3""#));
+        assert!(config.contains(r#"datadir = "C:/Users/guest/.moon/share/why3""#));
+        assert!(config.contains(r#"libdir = "C:/Users/guest/.moon/lib/why3""#));
         assert!(config.contains(r#"path = "C:/Users/guest/bin/z3.exe""#));
     }
 
