@@ -5,7 +5,7 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
 - Scope: Applies only to packages in the input module being built.
   Third-party dependencies are expected to already contain their generated outputs.
 - The deprecated bin-dep compatibility build does not run package-level
-  source generation, including `pre-build`, `moonlex`, and `moonyacc`, even
+  prebuild, including custom `pre-build`, `moonlex`, and `moonyacc`, even
   though its child build presents the distributed module as an input module.
   Published packages must contain their generated outputs.
 - Package-level prebuild tasks are separate from the experimental module-level
@@ -37,8 +37,9 @@ Notes:
 - `input`/`output` paths are package-relative in config and expand to prebuild-cwd-relative paths inside the command.
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
 - During ordinary input-module builds, all declared outputs are tracked as
-  build outputs. Bin-dep compatibility builds do not create source-generation
-  nodes; they consume existing `.mbt` and `.mbt.md` outputs as package sources.
+  build outputs. Bin-dep compatibility builds do not create package-level
+  prebuild nodes; they consume existing `.mbt` and `.mbt.md` outputs as package
+  sources.
 - Only `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit source set.
 - An executable package's `data_dir` does not restrict prebuild paths. Inputs
   and outputs may be below it and retain the same dependency and source-set

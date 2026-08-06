@@ -616,14 +616,14 @@ impl BuildEnvironment {
     }
 }
 
-/// How package-level source generation participates in this plan.
+/// How package-level prebuild participates in this plan.
 ///
-/// Binary dependencies must already contain their generated outputs. Their
-/// internal compatibility build therefore consumes existing outputs instead
-/// of running `pre-build`, `moonlex`, or `moonyacc`, even though it presents
-/// the binary-dependency module as the build input.
+/// Package-level prebuild includes custom `pre-build` rules, `moonlex`, and
+/// `moonyacc`. Binary dependencies must already contain their generated
+/// outputs, so their internal compatibility build consumes existing outputs
+/// instead of running any of these rules.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum PackageSourceGenerationPolicy {
+pub enum PackagePrebuildPolicy {
     #[default]
     Run,
     ConsumeExistingOutputs,
@@ -649,8 +649,8 @@ pub struct InputDirective {
     /// Use the given Why3 config file for `moon prove`.
     pub prove_why3_config: Option<PathBuf>,
 
-    /// Control package-level source generation for this invocation.
-    pub package_source_generation: PackageSourceGenerationPolicy,
+    /// Control package-level prebuild for this invocation.
+    pub package_prebuild: PackagePrebuildPolicy,
 }
 
 /// Represents errors that may occur during build graph construction.

@@ -43,8 +43,7 @@ use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     build_plan::{
-        BuildBundleInfo, FileDependencyKind, PackageSourceGenerationPolicy, PlanArtifactNeed,
-        PrebuildInfo,
+        BuildBundleInfo, FileDependencyKind, PackagePrebuildPolicy, PlanArtifactNeed, PrebuildInfo,
     },
     cond_comp,
     discover::DiscoveredPackage,
@@ -208,14 +207,13 @@ impl<'a> BuildPlanConstructor<'a> {
         })
     }
 
-    /// Add the package's source-generation rules and edges to this node.
+    /// Add all package-level prebuild rules and edges to this node.
     ///
-    /// According to the semantics, only local packages require prebuild scripts
-    /// to be run. Remote packages should already have their prebuild outputs
-    /// ready when they are fetched.
-    fn need_all_package_source_generation(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
+    /// According to the semantics, only local packages require package-level
+    /// prebuild to run. Remote packages should already contain their outputs.
+    fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
-        if self.input_directive.package_source_generation != PackageSourceGenerationPolicy::Run
+        if self.input_directive.package_prebuild != PackagePrebuildPolicy::Run
             || !self.input.local_modules().contains(&pkg.module)
         {
             return;
@@ -439,7 +437,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.need_proof_of_dep(node, dep);
         }
 
-        self.need_all_package_source_generation(node, target.package);
+        self.need_all_package_prebuild(node, target.package);
         self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
         self.resolved_node(node);
@@ -474,7 +472,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.need_interface_of_dep(node, dep, DependencyInterfaceMode::CheckOnly);
         }
 
-        self.need_all_package_source_generation(node, target.package);
+        self.need_all_package_prebuild(node, target.package);
 
         self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
@@ -525,7 +523,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.need_virtual_if_necessary(pkg, node, target);
 
-        self.need_all_package_source_generation(node, target.package);
+        self.need_all_package_prebuild(node, target.package);
 
         self.populate_target_info(target);
         self.resolved_node(node);
