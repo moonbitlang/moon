@@ -17,90 +17,28 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    ffi::{OsStr, OsString},
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
 };
 
-pub(crate) struct EarlySubcommand<'a> {
-    pub(crate) current_dir: Option<PathBuf>,
-    pub(crate) name: &'a OsStr,
-    pub(crate) args: &'a [OsString],
+/// The only process-wide actions a selected Moon invocation may request.
+pub(crate) enum ProcessAction {
+    Exit(i32),
+    Delegate(Command),
 }
 
-/// Locate a top-level subcommand before clap has successfully parsed the CLI.
-///
-/// Early delegation must interpret global options exactly far enough to derive
-/// the same effective `-C` directory that `main` would apply before a normally
-/// parsed subcommand runs.
-pub(crate) fn early_subcommand(raw_args: &[OsString]) -> Option<EarlySubcommand<'_>> {
-    let mut current_dir = None;
-    let mut index = 1;
-    while index < raw_args.len() {
-        let arg = &raw_args[index];
-        match arg.to_str() {
-            Some("-C") => {
-                index += 1;
-                current_dir = Some(PathBuf::from(raw_args.get(index)?));
-            }
-            Some(arg) if arg.starts_with("-C") && arg.len() > 2 => {
-                let dir = &arg[2..];
-                if dir.is_empty() || dir == "=" {
-                    return None;
-                }
-                current_dir = Some(PathBuf::from(dir.strip_prefix('=').unwrap_or(dir)));
-            }
-            Some("--target-dir" | "--unstable-feature" | "-Z") => {
-                index += 1;
-                raw_args.get(index)?;
-            }
-            Some(arg)
-                if arg.starts_with("--target-dir=")
-                    || arg.starts_with("--unstable-feature=")
-                    || (arg.starts_with("-Z") && arg.len() > 2) => {}
-            Some(
-                "-V" | "--version" | "-q" | "--quiet" | "-v" | "--verbose" | "--trace"
-                | "--dry-run" | "--build-graph",
-            ) => {}
-            Some(arg) if arg.starts_with('-') && !arg.starts_with("--") && arg.len() > 2 => {
-                let mut flags = &arg[1..];
-                while matches!(flags.as_bytes().first().copied(), Some(b'V' | b'q' | b'v')) {
-                    flags = &flags[1..];
-                }
-                if flags.is_empty() {
-                    index += 1;
-                    continue;
-                }
-                if let Some(dir) = flags.strip_prefix('C') {
-                    let dir = dir.strip_prefix('=').unwrap_or(dir);
-                    if dir.is_empty() {
-                        index += 1;
-                        current_dir = Some(PathBuf::from(raw_args.get(index)?));
-                    } else {
-                        current_dir = Some(PathBuf::from(dir));
-                    }
-                } else if flags == "Z" {
-                    index += 1;
-                    raw_args.get(index)?;
-                } else if !flags.starts_with('Z') {
-                    return Some(EarlySubcommand {
-                        current_dir,
-                        name: &raw_args[index],
-                        args: &raw_args[index + 1..],
-                    });
-                }
-            }
-            _ => {
-                return Some(EarlySubcommand {
-                    current_dir,
-                    name: arg,
-                    args: &raw_args[index + 1..],
-                });
-            }
-        }
-        index += 1;
+impl From<i32> for ProcessAction {
+    fn from(code: i32) -> Self {
+        Self::Exit(code)
     }
-    None
+}
+
+/// Execute an action after the invocation's tracing state has been dropped.
+pub(crate) fn execute(action: ProcessAction) -> anyhow::Result<i32> {
+    match action {
+        ProcessAction::Exit(code) => Ok(code),
+        ProcessAction::Delegate(mut command) => Ok(delegate(&mut command)?.code().unwrap_or(0)),
+    }
 }
 
 /// Construct a delegated command whose executable lookup and child working
@@ -122,7 +60,7 @@ pub(crate) fn command_in_effective_dir(
 /// equivalent, so we run the child and wait while letting it handle Ctrl-C.
 /// Use this only for command paths that return directly to process exit.
 #[cfg(unix)]
-pub(crate) fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
+fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     use std::os::unix::prelude::*;
 
     Err(cmd.exec().into())
@@ -154,7 +92,7 @@ pub(crate) fn install_ctrl_c_passthrough_handler() -> anyhow::Result<()> {
 /// equivalent, so we run the child and wait while letting it handle Ctrl-C.
 /// Use this only for command paths that return directly to process exit.
 #[cfg(windows)]
-pub(crate) fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
+fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     install_ctrl_c_passthrough_handler()?;
     Ok(cmd.status()?)
 }

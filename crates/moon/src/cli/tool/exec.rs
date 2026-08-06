@@ -20,7 +20,7 @@
 
 use std::{ffi::OsString, path::PathBuf, process::Command};
 
-use anyhow::{Context, bail};
+use anyhow::bail;
 use clap::Parser;
 
 #[derive(Debug, clap::Parser)]
@@ -67,7 +67,7 @@ impl EnvAssignment {
     }
 }
 
-pub(crate) fn run_exec(cmd: Exec) -> anyhow::Result<i32> {
+pub(crate) fn prepare(cmd: Exec) -> anyhow::Result<Command> {
     let envs = cmd
         .envs
         .iter()
@@ -85,7 +85,7 @@ pub(crate) fn run_exec(cmd: Exec) -> anyhow::Result<i32> {
         command.env_remove(key);
     }
 
-    delegate(command)
+    Ok(command)
 }
 
 pub(crate) fn is_tool_exec(raw_args: &[OsString]) -> bool {
@@ -93,10 +93,10 @@ pub(crate) fn is_tool_exec(raw_args: &[OsString]) -> bool {
         && raw_args.get(2).is_some_and(|arg| arg == "exec")
 }
 
-pub(crate) fn run_from_raw_args(raw_args: &[OsString]) -> anyhow::Result<i32> {
+pub(crate) fn parse_from_raw_args(raw_args: &[OsString]) -> Result<Exec, clap::Error> {
     let args =
         std::iter::once(OsString::from("moon tool exec")).chain(raw_args[3..].iter().cloned());
-    run_exec(Exec::parse_from(args))
+    Exec::try_parse_from(args)
 }
 
 fn build_command(shell: Option<String>, argv: Vec<OsString>) -> anyhow::Result<Command> {
@@ -140,20 +140,6 @@ fn build_direct_command(argv: Vec<OsString>) -> anyhow::Result<Command> {
     let mut cmd = Command::new(program);
     cmd.args(argv);
     Ok(cmd)
-}
-
-#[cfg(unix)]
-fn delegate(mut command: Command) -> anyhow::Result<i32> {
-    use std::os::unix::process::CommandExt;
-
-    let err = command.exec();
-    Err(err).context("failed to exec command")
-}
-
-#[cfg(windows)]
-fn delegate(mut command: Command) -> anyhow::Result<i32> {
-    let status = command.status().context("failed to run command")?;
-    Ok(status.code().unwrap_or(1))
 }
 
 #[cfg(test)]

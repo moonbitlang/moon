@@ -16,12 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::process::{Command, Stdio};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use anyhow::bail;
 use moonutil::cli_support::{
-    LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
-    UniversalFlags,
+    MooncakeSubcommands, PackageSubcommand, PublishSubcommand, UniversalFlags,
 };
 use moonutil::user_log::UserLog;
 use serde::Serialize;
@@ -61,14 +63,14 @@ pub(crate) fn execute_cli<T: Serialize>(
     }
 }
 
-pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
-    _cli: UniversalFlags,
-    _cmd: T,
-    args: &[&str],
-    display_name: &str,
-) -> anyhow::Result<i32> {
+pub(crate) fn prepare_direct(current_dir: Option<&Path>, args: &[&str]) -> anyhow::Result<Command> {
     let current_moon = std::env::current_exe()?;
-    let mut command = Command::new(&*moonutil::toolchain::BINARIES.mooncake);
+    let mut command = process::command_in_effective_dir(current_dir, |current_dir| {
+        Ok(current_dir.map_or_else(
+            || moonutil::toolchain::BINARIES.mooncake.clone(),
+            moonutil::toolchain::mooncake_in,
+        ))
+    })?;
     command
         .args(args)
         .env("MOONCAKE_ALLOW_DIRECT", "1")
@@ -76,26 +78,7 @@ pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
         .stdout(Stdio::inherit())
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit());
-
-    let status = process::delegate(&mut command)?;
-    if status.success() {
-        Ok(0)
-    } else {
-        bail!("`moon {}` failed", display_name)
-    }
-}
-
-pub(crate) fn login_cli(cli: UniversalFlags, cmd: LoginSubcommand) -> anyhow::Result<i32> {
-    execute_cli_with_inherit_stdin(cli, MooncakeSubcommands::Login(cmd), &["login"], "login")
-}
-
-pub(crate) fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyhow::Result<i32> {
-    execute_cli_with_inherit_stdin(
-        cli,
-        MooncakeSubcommands::Register(cmd),
-        &["register"],
-        "register",
-    )
+    Ok(command)
 }
 
 pub(crate) fn publish_cli(

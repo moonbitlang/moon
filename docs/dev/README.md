@@ -32,7 +32,7 @@ behavior.
 | Compiler commands, target backends, conditional compilation, supported targets, or virtual packages | [Compiler commands](reference/compiler-cmd-ref.md), [supported targets](reference/supported-targets.md), [conditional compilation](reference/cond-comp.md), and [virtual packages](reference/virtual-pkg.md) as applicable |
 | Native compilation, C stubs, toolchain selection, Windows ABI/CRT policy, or `tcc -run` | [Native ABI policy ADR](../adr/0002-native-abi-policy-belongs-to-toolchains.md), [native C toolchain resolution](reference/native-c-toolchain-resolution.md), [toolchain layout](reference/toolchain-layout.md), and [`tcc -run`](reference/tcc-run.md) as applicable |
 | `moon test`, test-driver events, test filtering, snapshots, or choosing a test level | [Test suite strategy](reference/testing-strategy.md) and [`moon test` execution flow](reference/tests.md); use the repository-local [`snapbox-testing` skill](../../.agents/skills/snapbox-testing/SKILL.md) for snapbox assertions |
-| Command stdout/stderr, logs, progress, child output, or dry-run output | The glossary's [Command Communication](../../CONTEXT.md#command-communication), [command-results ADR](../adr/0004-separate-command-results-from-user-logs.md), [command output migration](command-output-migration.md), and [dry-run behavior](reference/dry-run.md) |
+| Command stdout/stderr, logs, progress, child output, tracing lifecycle, delegation, or dry-run output | The glossary's [Command Communication](../../CONTEXT.md#command-communication), [command-results ADR](../adr/0004-separate-command-results-from-user-logs.md), [command output migration](command-output-migration.md), [CLI execution lifecycle](design/cli-execution-lifecycle.md), and [dry-run behavior](reference/dry-run.md) |
 | `moon run` process launch, stdin, signals, temporary cleanup, or Windows Job Objects | [`moon run` process lifecycle](design/moon-run-process-lifecycle.md). This is the `moon` CLI process layer, not the wasm runtime implementation. |
 | Executable-package resources, runtime resource lookup, or development resource mappings | [Executable package resources](design/executable-package-resources.md), [`moon run` process lifecycle](design/moon-run-process-lifecycle.md), and the [`moonrun` developer documentation](../../crates/moonrun/docs/dev/README.md) |
 | Global build cache, artifact identity, cleaning, or cross-compilation cache constraints | [Global build state and cache design](design/global-build-cache.md) and [build plan artifact dependencies](reference/build-plan-artifact-dependencies.md) |
@@ -131,6 +131,7 @@ cargo install --path ./crates/moon --debug --offline
 
 ### Design
 
+- [Moon CLI execution lifecycle](design/cli-execution-lifecycle.md)
 - [Global build state and cache design](design/global-build-cache.md)
 - [Executable package resources](design/executable-package-resources.md)
 - [`moon run` process lifecycle](design/moon-run-process-lifecycle.md)
