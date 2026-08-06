@@ -76,6 +76,7 @@ impl PolicyConfig {
         if path
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+            || contents.trim_start().starts_with('{')
         {
             serde_json::from_str(&contents)
                 .with_context(|| format!("failed to parse JSON policy {}", path.display()))
@@ -128,12 +129,13 @@ spawn = true
     }
 
     #[test]
-    fn parses_json_policy() {
+    fn parses_json_without_json_extension() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy_file = tmp.path().join("policy.json");
+        let policy_file = tmp.path().join("policy");
         std::fs::write(
             &policy_file,
-            r#"{
+            r#"
+{
   "env": {
     "set": {
       "APP_ENV": "test"
