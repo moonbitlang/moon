@@ -55,8 +55,11 @@ pub(crate) fn fetch_cli(
     if !cmd.no_update {
         let had_index = index_dir.exists();
         let registry_config = RegistryConfig::load();
-        match mooncake::update::update(&index_dir, &registry_config) {
-            Ok(_) => index_updated = true,
+        match mooncake::update::update(&index_dir, &registry_config, user_log) {
+            Ok(outcome) => {
+                index_updated = true;
+                super::log_registry_update(outcome, user_log);
+            }
             Err(e) => {
                 if had_index {
                     user_log.warn(format!(

@@ -135,14 +135,7 @@ fn resolve_latest_version(
         had_index,
         policy,
         || latest_version_from_local_registry(module_name),
-        || {
-            mooncake::update::update_with_output(
-                &index_dir,
-                &registry_config,
-                mooncake::update::UpdateOutput::Quiet,
-            )
-            .map(|_| ())
-        },
+        || mooncake::update::update(&index_dir, &registry_config, user_log).map(|_| ()),
     )
 }
 

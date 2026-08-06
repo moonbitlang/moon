@@ -245,9 +245,9 @@ pub(super) fn install_binary(
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
 
-    match mooncake::update::update(&index_dir, &registry_config) {
-        Ok(_) => {
-            user_log.info("Updated registry index");
+    match mooncake::update::update(&index_dir, &registry_config, user_log) {
+        Ok(outcome) => {
+            crate::cli::log_registry_update(outcome, user_log);
         }
         Err(e) => {
             if had_index {
@@ -703,10 +703,10 @@ pub(super) fn build_registry_native_executable_to(
                 .is_ok_and(|versions| versions.contains_key(version))
         },
         || {
-            mooncake::update::update_with_output(
+            mooncake::update::update(
                 &moonutil::registry::index(),
                 &RegistryConfig::load(),
-                mooncake::update::UpdateOutput::Quiet,
+                user_log,
             )
             .map(|_| ())
         },
