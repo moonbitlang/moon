@@ -27,6 +27,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 serde_json_lenient.workspace = true
 slotmap.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }

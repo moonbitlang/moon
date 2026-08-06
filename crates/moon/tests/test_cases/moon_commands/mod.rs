@@ -428,8 +428,12 @@ fn test_runwasm_help_marks_policy_as_experimental() {
         "expected runwasm help to expose experimental policy flag, got:\n{help}"
     );
     assert!(
-        help.contains("Experimental: pass a moonrun TOML policy file"),
+        help.contains("Experimental: pass a moonrun JSON policy file"),
         "expected runwasm help to mark policy as experimental, got:\n{help}"
+    );
+    assert!(
+        !help.contains("TOML"),
+        "expected runwasm help to advertise only JSON policies, got:\n{help}"
     );
     assert!(
         help.contains("WASI is not covered"),

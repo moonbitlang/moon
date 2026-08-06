@@ -40,7 +40,7 @@ Local package inputs are handled like `moon run --target wasm`:
   moon runwasm ./main
 
 Experimental moonrun policy forwarding:
-  moon runwasm --experimental-policy moonrun-policy.toml main
+  moon runwasm --experimental-policy moonrun-policy.json main
 
 Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
@@ -58,7 +58,7 @@ pub(crate) struct RunWasmSubcommand {
     #[clap(value_name = "LOCAL_PACKAGE|PACKAGE[@VERSION]")]
     pub package: String,
 
-    /// Experimental: pass a moonrun TOML policy file for moonbitlang/async runtime access.
+    /// Experimental: pass a moonrun JSON policy file for moonbitlang/async runtime access.
     ///
     /// The policy applies to moonbitlang/async and moonrun-owned unstable FFI;
     /// WASI is not covered.

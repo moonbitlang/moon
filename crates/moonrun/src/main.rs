@@ -570,37 +570,36 @@ struct Commandline {
     #[clap(long)]
     stack_size: Option<String>,
 
-    /// Experimental: sandbox wasm runtime host access using a TOML policy file.
+    /// Experimental: sandbox wasm runtime host access using a JSON policy file.
     #[clap(
         long,
         value_name = "PATH",
-        long_help = r#"Experimental: Sandbox wasm runtime host access using a TOML policy file. WASI is not covered.
+        long_help = r#"Experimental: Sandbox wasm runtime host access using a JSON policy file. WASI is not covered.
 
-Supplying --policy enables deny-by-default mode: omitted or empty [fs], [net], and [env] sections deny that surface, and process spawning is disabled unless explicitly enabled.
+Supplying --policy enables deny-by-default mode: omitted or empty fs, net, and env objects deny that surface, and process spawning is disabled unless explicitly enabled.
 
 Common allow-all policy:
-  [env]
-  from_host = ["*"]
-
-  [fs]
-  read = ["*"]
-  write = ["*"]
-
-  [net]
-  dns = ["*"]
-  connect = ["*:*"]
-  bind = ["*:*"]
-
-  [process]
-  spawn = true
+  {
+    "env": { "from_host": ["*"] },
+    "fs": {
+      "read": ["*"],
+      "write": ["*"]
+    },
+    "net": {
+      "dns": ["*"],
+      "connect": ["*:*"],
+      "bind": ["*:*"]
+    },
+    "process": { "spawn": true }
+  }
 
 Filesystem roots are host paths. Relative roots are resolved relative to the policy file. "*" allows every host path on every platform.
 
-Environment values default to empty in sandbox policy mode. Use from_host for optional host variables, required_from_host for required host variables and secrets, and [env.set] for non-secret literals. [env.set] overrides copied host values.
+Environment values default to empty in sandbox policy mode. Use env.from_host for optional host variables, env.required_from_host for required host variables and secrets, and env.set for non-secret literals. env.set overrides copied host values.
 
-Network connect controls outbound sockets; bind controls local bind/listen addresses. Hostname connect rules also permit DNS lookup for those hostnames, so connect = ["api.deepseek.com:443"] does not require a separate dns entry. Bind rules must use IP addresses or *.
+Network connect controls outbound sockets; bind controls local bind/listen addresses. Hostname connect rules also permit DNS lookup for those hostnames, so net.connect containing "api.deepseek.com:443" does not require a separate dns entry. Bind rules must use IP addresses or *.
 
-Process spawning is disabled by default. Setting [process] spawn = true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes."#
+Process spawning is disabled by default. Setting process.spawn to true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes."#
     )]
     policy: Option<PathBuf>,
 }

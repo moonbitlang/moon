@@ -36,39 +36,38 @@ unsuccessfully.
 
 By default, running `moonrun` without `--policy` preserves existing behavior.
 
-Supplying `--policy <path>` enables an experimental policy system and switches
-supported moonrun-owned host surfaces into sandbox mode. The policy is
-deny-by-default: omitted or empty `[fs]`, `[net]`, and `[env]` sections deny
-that surface, and process spawning is disabled unless explicitly enabled. Add
-entries only for the access the program should have. The
-policy covers `moonbitlang/async` and moonrun's own `__moonbit_*_unstable` FFI
-surfaces. It does not apply to WASI
+Supplying a JSON file with `--policy <path>` enables an experimental policy
+system and switches supported moonrun-owned host surfaces into sandbox mode.
+The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
+deny that surface, and process spawning is disabled unless explicitly enabled.
+Add entries only for the access the program should have. The policy covers
+`moonbitlang/async` and moonrun's own `__moonbit_*_unstable` FFI surfaces. It
+does not apply to WASI
 (`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`).
 
-An empty policy file denies all policy-covered filesystem, network, and
+An empty JSON object denies all policy-covered filesystem, network, and
 environment access:
 
-```toml
-# deny-all.toml
+```json
+{}
 ```
 
 To allow everything while still passing a policy file, use explicit wildcards:
 
-```toml
-[env]
-from_host = ["*"]
-
-[fs]
-read = ["*"]
-write = ["*"]
-
-[net]
-dns = ["*"]
-connect = ["*:*"]
-bind = ["*:*"]
-
-[process]
-spawn = true
+```json
+{
+  "env": { "from_host": ["*"] },
+  "fs": {
+    "read": ["*"],
+    "write": ["*"]
+  },
+  "net": {
+    "dns": ["*"],
+    "connect": ["*:*"],
+    "bind": ["*:*"]
+  },
+  "process": { "spawn": true }
+}
 ```
 
 The simplest way to preserve legacy allow-all behavior is still to run without
@@ -80,53 +79,59 @@ guest filesystem, mount table, or portable `/` namespace. Relative filesystem
 roots are resolved relative to the policy file. Runtime relative paths are
 resolved using the process current directory. Paths use the host platform's path
 syntax; Windows policies may use normal Windows paths such as `C:\work` or
-`C:/work`. The filesystem wildcard `"*"` allows every host path on every
-platform. List a root in both `read` and `write` to allow read-write filesystem
-access.
+`C:/work`; JSON strings must escape backslashes as `C:\\work`. The filesystem
+wildcard `"*"` allows every host path on every platform. List a root in both
+`read` and `write` to allow read-write filesystem access.
 
 The environment policy constructs the guest environment. Use `from_host` to copy
 selected host variables if present, `required_from_host` to require selected
-host variables, and `[env.set]` for literal values. `[env.set]` overrides values
+host variables, and `env.set` for literal values. `env.set` overrides values
 copied from the host. Do not put secrets directly in the policy file; pass them
 by name through `from_host` or `required_from_host`.
 
-Process spawning is disabled unless `[process] spawn = true` is present. This
-is a coarse escape hatch: a native child receives the host user's ambient
-filesystem, network, and process access. The `[fs]` and `[net]` sections do not
+Process spawning is disabled unless `process.spawn` is `true`. This is a coarse
+escape hatch: a native child receives the host user's ambient
+filesystem, network, and process access. The `fs` and `net` objects do not
 sandbox child processes. PID-based process operations are restricted to
 children spawned by the current moonrun instance while policy mode is active.
 
-```toml
-[env]
-from_host = ["PATH", "SSL_CERT_FILE", "SSL_CERT_DIR"]
-required_from_host = ["DEEPSEEK_API_KEY"]
-
-[env.set]
-APP_ENV = "prod"
-API_BASE = "https://api.deepseek.com"
-
-[fs]
-read = ["allowed"]
-write = ["scratch"]
-
-[net]
-connect = [
-  "api.deepseek.com:443",
-  "hacker-news.firebaseio.com:443",
-  "127.0.0.1:443",
-  "[::1]:*",
-]
-bind = ["127.0.0.1:*"]
+```json
+{
+  "env": {
+    "from_host": ["PATH", "SSL_CERT_FILE", "SSL_CERT_DIR"],
+    "required_from_host": ["DEEPSEEK_API_KEY"],
+    "set": {
+      "APP_ENV": "prod",
+      "API_BASE": "https://api.deepseek.com"
+    }
+  },
+  "fs": {
+    "read": ["allowed"],
+    "write": ["scratch"]
+  },
+  "net": {
+    "connect": [
+      "api.deepseek.com:443",
+      "hacker-news.firebaseio.com:443",
+      "127.0.0.1:443",
+      "[::1]:*"
+    ],
+    "bind": ["127.0.0.1:*"]
+  }
+}
 ```
 
 To allow outbound access only to DeepSeek and Hacker News:
 
-```toml
-[net]
-connect = [
-  "api.deepseek.com:443",
-  "hacker-news.firebaseio.com:443",
-]
+```json
+{
+  "net": {
+    "connect": [
+      "api.deepseek.com:443",
+      "hacker-news.firebaseio.com:443"
+    ]
+  }
+}
 ```
 
 Hostname entries in `connect` allow DNS lookup for that host and allow
