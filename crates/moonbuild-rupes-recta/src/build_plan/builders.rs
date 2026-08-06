@@ -662,17 +662,28 @@ impl<'a> BuildPlanConstructor<'a> {
         // artifact layout, so we might not be able to do that here, unless we
         // add some kind of `SpecialFile::TestDriver` or something.
         let (regular_files, mbtp_files, whitebox_files, doctest_files) = {
+            // Discovery keeps `.mbtp` files for metadata, but only verification
+            // commands project them into compiler inputs.
+            let uses_mbtp = matches!(
+                self.build_env.action,
+                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
+            );
             let file_set = self.package_file_set(target.package);
+            let mbtp_files = if uses_mbtp {
+                file_set.mbtp_files.clone()
+            } else {
+                Vec::new()
+            };
             match target.kind {
                 Source | SubPackage | InlineTest => (
                     file_set.no_test_files.clone(),
-                    file_set.mbtp_files.clone(),
+                    mbtp_files,
                     Vec::new(),
                     Vec::new(),
                 ),
                 WhiteboxTest => (
                     file_set.no_test_files.clone(),
-                    file_set.mbtp_files.clone(),
+                    mbtp_files,
                     file_set.whitebox_files.clone(),
                     Vec::new(),
                 ),
