@@ -376,12 +376,10 @@ fn inspect_registry_index(
         return Ok(RegistryIndexState::MissingOrigin);
     }
 
-    // Git fetch uses the first configured URL. Read all raw values to preserve
-    // that ordering without applying `url.*.insteadOf` rewrites.
-    let remote_urls = match run_git_query(
-        target_dir,
-        &["config", "--local", "--get-all", "remote.origin.url"],
-    ) {
+    // Git fetch uses the first configured URL. Read all effective raw values
+    // to preserve that ordering without applying `url.*.insteadOf` rewrites.
+    let remote_urls = match run_git_query(target_dir, &["config", "--get-all", "remote.origin.url"])
+    {
         Ok(output) => output,
         Err(error)
             if matches!(
@@ -609,6 +607,36 @@ mod tests {
             inspect_registry_index(repo.path()).unwrap(),
             RegistryIndexState::Ready {
                 remote_url: primary_url.to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn inspect_registry_index_reads_worktree_origin_url() {
+        let repo = tempfile::tempdir().unwrap();
+        run_git(&["-C", repo.path().to_str().unwrap(), "init", "--quiet"]);
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "config",
+            "extensions.worktreeConfig",
+            "true",
+        ]);
+
+        let registry_url = "https://worktree.invalid/index";
+        run_git(&[
+            "-C",
+            repo.path().to_str().unwrap(),
+            "config",
+            "--worktree",
+            "remote.origin.url",
+            registry_url,
+        ]);
+
+        assert_eq!(
+            inspect_registry_index(repo.path()).unwrap(),
+            RegistryIndexState::Ready {
+                remote_url: registry_url.to_owned()
             }
         );
     }
