@@ -98,7 +98,6 @@ fn expect_import() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -141,7 +140,6 @@ fn expect_is_main() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -188,7 +186,6 @@ fn expect_formatter() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -240,7 +237,6 @@ fn expect_supported_targets() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 Js,
@@ -283,7 +279,6 @@ fn expect_supported_targets_expr() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Js,
             },
@@ -324,7 +319,6 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 WasmGC,
             },
@@ -362,7 +356,6 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {},
             native_stub: None,
             virtual_pkg: None,
@@ -433,7 +426,6 @@ fn expect_build() {
             ),
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -481,7 +473,6 @@ fn expect_warnings() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -527,7 +518,6 @@ fn expect_supported_targets_prefers_new_config() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Js,
             },
@@ -733,7 +723,6 @@ fn expect_options() {
             bin_target: Some(
                 Wasm,
             ),
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -796,7 +785,6 @@ fn expect_max_concurrent_tests() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -815,37 +803,4 @@ fn expect_max_concurrent_tests() {
             local_rules: None,
         }"#]]
     .assert_eq(&actual);
-}
-
-#[test]
-fn data_dir_requires_a_direct_child_directory_name() {
-    for data_dir in [
-        "",
-        ".",
-        "./assets",
-        "assets/.",
-        "assets/..",
-        "assets/../resources",
-        "assets//images",
-        "assets/",
-        "assets/images",
-        "/assets",
-        r"assets\images",
-        "C:/assets",
-        "assets:stream",
-    ] {
-        let encoded_data_dir = data_dir.replace('\\', "\\\\");
-        let actual = run(&format!(
-            r#"pkgtype(kind: "executable")
-
-options(
-  data_dir: "{encoded_data_dir}",
-)
-"#
-        ));
-        assert!(
-            actual.contains("`data_dir` in `moon.pkg` must name a direct child directory"),
-            "{data_dir:?} was accepted: {actual}"
-        );
-    }
 }

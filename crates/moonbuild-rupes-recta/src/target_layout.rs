@@ -1368,7 +1368,6 @@ mod tests {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            data_dir: None,
             supported_targets,
             native_stub: None,
             virtual_pkg: None,

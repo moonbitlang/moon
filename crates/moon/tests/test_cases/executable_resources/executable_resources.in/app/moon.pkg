@@ -1,5 +1,0 @@
-pkgtype(kind: "executable")
-
-options(
-  data_dir: "assets",
-)

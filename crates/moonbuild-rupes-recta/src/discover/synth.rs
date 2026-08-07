@@ -129,7 +129,6 @@ pub fn build_synth_single_file_package(
         pre_build: None,
         bin_name: None,
         bin_target: None,
-        data_dir: None,
         supported_targets: supported.clone(),
         native_stub: None,
         virtual_pkg: None,
