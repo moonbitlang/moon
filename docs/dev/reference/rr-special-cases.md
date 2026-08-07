@@ -77,11 +77,11 @@ important ones and why they exist.
   (use prebuilt paths vs local artifacts) are gated by whether stdlib is
   injected (`build_env.std` / `stdlib_dir.is_some()`), not by mutating
   `abort_pkg`.
-- **Metadata files respect stdlib mode.** When either `packages.json` or
-  `all_pkgs.json` is generated for the stdlib (core module), it is generated
-  without a stdlib directory so package metadata and indirect dependency
-  resolution use the locally built `.mi` files. For non-core projects, the
-  stdlib directory is set so prebuilt artifacts can be used.
+- **Metadata files respect stdlib mode.** When building the stdlib (core
+  module), `packages.json` and `all_pkgs.json` are generated without a stdlib
+  directory so package metadata and indirect dependency resolution use the
+  locally built `.mi` files. For non-core projects, the stdlib directory is set
+  so prebuilt artifacts can be used.
 
 ## Runtime + tooling side effects
 

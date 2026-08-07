@@ -128,7 +128,6 @@ fn test_indirect_dep_bundle() {
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
-    assert!(!dir.join("_build/packages.json").exists());
     let all_pkgs_path = dir.join("_build/wasm-gc/release/bundle/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["bundle_all_pkgs.json"].assert_eq(&all_pkgs_json);
