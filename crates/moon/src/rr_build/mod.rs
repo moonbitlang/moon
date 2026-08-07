@@ -817,7 +817,7 @@ pub fn plan_fmt(
     })
 }
 
-/// Generate metadata file `packages.json` in the target directory.
+/// Generate `packages.json` at both its legacy and configuration-scoped paths.
 ///
 /// To ensure the correct paths are generated, `build_meta` should come from the
 /// same configuration used in [`plan_build`].
@@ -832,11 +832,17 @@ pub fn generate_metadata(
     build_input: &BuildInput,
     single_file_filename: Option<&str>,
 ) -> anyhow::Result<()> {
-    let metadata_file = if let Some(filename) = single_file_filename {
-        target_dir.join(format!("{}.packages.json", filename))
+    let metadata_filename = if let Some(filename) = single_file_filename {
+        format!("{}.packages.json", filename)
     } else {
-        target_dir.join("packages.json")
+        "packages.json".to_string()
     };
+    let scoped_metadata_file = build_meta
+        .artifact_paths
+        .target_layout()
+        .run_mode_dir(build_meta.target_backend())
+        .join(&metadata_filename);
+    let legacy_metadata_file = target_dir.join(&metadata_filename);
 
     let check_commands = collect_check_commands_by_output(build_input);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
@@ -847,17 +853,28 @@ pub fn generate_metadata(
         build_meta.target_backend(),
         &check_commands,
     );
-    let orig_meta = std::fs::read_to_string(&metadata_file);
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
 
-    // Only overwrite if changed
-    if !orig_meta.is_ok_and(|o| o == meta) {
-        std::fs::write(&metadata_file, meta).with_context(|| {
-            format!(
-                "Failed to write build metadata to {}",
-                metadata_file.display()
-            )
-        })?;
+    // Both paths are projections of the same metadata value. Preserve the
+    // existing behavior of leaving either file untouched when its bytes match.
+    for metadata_file in [scoped_metadata_file, legacy_metadata_file] {
+        let orig_meta = std::fs::read_to_string(&metadata_file);
+        if !orig_meta.is_ok_and(|o| o == meta) {
+            if let Some(parent) = metadata_file.parent() {
+                std::fs::create_dir_all(parent).with_context(|| {
+                    format!(
+                        "Failed to create directory for build metadata at {}",
+                        parent.display()
+                    )
+                })?;
+            }
+            std::fs::write(&metadata_file, &meta).with_context(|| {
+                format!(
+                    "Failed to write build metadata to {}",
+                    metadata_file.display()
+                )
+            })?;
+        }
     }
     Ok(())
 }

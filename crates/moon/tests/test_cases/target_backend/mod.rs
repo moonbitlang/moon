@@ -781,15 +781,25 @@ fn test_check_paths_split_by_module_preferred_targets() {
 }
 
 #[test]
-fn test_check_last_executed_backend_wins_for_packages_json() {
+fn test_check_publishes_backend_scoped_packages_json() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     get_stdout(&dir, ["check", "--sort-input"]);
-    let packages_json: serde_json::Value =
+    let legacy_packages_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
             .unwrap();
+    let js_packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("_build/js/debug/check/packages.json")).unwrap(),
+    )
+    .unwrap();
+    let native_packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("_build/native/debug/check/packages.json")).unwrap(),
+    )
+    .unwrap();
 
-    assert_eq!(packages_json["backend"], serde_json::json!("native"));
+    assert_eq!(legacy_packages_json["backend"], serde_json::json!("native"));
+    assert_eq!(js_packages_json["backend"], serde_json::json!("js"));
+    assert_eq!(native_packages_json["backend"], serde_json::json!("native"));
 }
 
 #[test]
