@@ -84,6 +84,9 @@ self.require_artifact(
 Normal downstream `BuildCore` derivations require both Build MI and Core IR so
 a dependency implementation change that leaves its interface stable still
 rebuilds the dependent package. Check derivations require Check MI only.
+`LinkCore` and `Bundle` require Core IR, while `BuildDocs` requires Check MI.
+Builders do not choose the `Check` or `BuildCore` derivation that satisfies
+these requirements.
 
 Virtual-contract compilation chooses the dependency MI artifact from the
 invocation lifecycle:
@@ -101,10 +104,13 @@ match run_mode {
 There is no Check-to-Build coalescing. The two derivations provide different
 artifacts and can never substitute for one another.
 
-Proof, generated-test-info, prebuild, C-stub, runtime, link, and other
-not-yet-migrated dependencies continue to use `FileDependencyKind` edges. The
-derived MI/Core edges use the same representation after provider resolution so
-the action-plan and lowering interfaces remain unchanged during this migration.
+Every package MI and Core IR dependency is recorded as an Artifact Requirement.
+The compatibility projection is the only build-planning code that constructs
+`FileDependencyKind::Artifacts` edges. Proof, generated-test-info, prebuild,
+C-stub, runtime, and other not-yet-migrated dependencies continue to use other
+`FileDependencyKind` variants. The derived MI/Core edges use the same
+representation after provider resolution so the action-plan and lowering
+interfaces remain unchanged during this migration.
 
 ## Build Action Plan
 
