@@ -83,6 +83,7 @@ pub const SINGLE_FILE_TEST_MODULE: &str = "moon/test";
 pub const SUB_PKG_POSTFIX: &str = "_sub";
 
 pub const PRELUDE_PROOF_DIR: &str = "prelude_proof";
+pub const PRELUDE_PROOF_FILE: &str = "moonbit_builtin_prelude.mlw";
 
 pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
 #[allow(unused)]

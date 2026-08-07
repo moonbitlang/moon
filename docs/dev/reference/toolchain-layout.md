@@ -34,7 +34,12 @@ Mutable user state must stay outside the package-managed prefix.
 In code, facts about the selected MoonBit toolchain tree should be accessed via
 `moonutil::toolchain`. This includes known tool executables, the toolchain root,
 `bin`/`lib`/`include`, shipped stdlib artifacts under `lib/core`, and shipped
-runtime translation units under `lib/runtime`.
+runtime translation units under `lib/runtime`. The proof prelude under
+`lib/prelude_proof` is also a toolchain fact and is available independently of
+whether a build injects the installed stdlib. `moon prove` may select an
+alternate provider directory through `MOON_PROVE_PRELUDE_OVERRIDE`; the
+directory must contain `moonbit_builtin_prelude.mlw` and replaces, rather than
+augments, the default provider.
 
 Project-local layout remains outside this module. For example, `.mooncakes`,
 `_build`, resolved package roots, and workspace discovery are project facts,

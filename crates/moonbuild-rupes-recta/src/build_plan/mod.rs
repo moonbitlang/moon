@@ -377,6 +377,9 @@ pub struct BuildTargetInfo {
     /// The Why3 configuration file to supply to proof commands.
     pub(crate) why3_config: Option<PathBuf>,
 
+    /// The directory containing the selected proof prelude provider.
+    pub(crate) proof_prelude: Option<PathBuf>,
+
     /// Check the `.mi` file against the given target. Used in virtual packages.
     /// Also implies that the target must not generate a `.mi` file.
     pub(crate) check_mi_against: Option<BuildTarget>,
@@ -657,6 +660,9 @@ pub struct InputDirective {
 
     /// Use the given Why3 config file for `moon prove`.
     pub prove_why3_config: Option<PathBuf>,
+
+    /// Use the proof prelude provider from this directory for `moon prove`.
+    pub proof_prelude: Option<PathBuf>,
 
     /// Control package-level prebuild for this invocation.
     pub package_prebuild: PackagePrebuildPolicy,

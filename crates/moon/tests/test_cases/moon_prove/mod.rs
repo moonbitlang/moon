@@ -1,6 +1,7 @@
 use crate::{
-    TestDir, assert_success, get_stderr, get_stdout,
-    util::{check, moon_bin, replace_dir, toolchain_root_for_tests},
+    TestDir, assert_success, get_err_stderr_with_envs, get_stderr, get_stdout,
+    get_stdout_with_envs,
+    util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
 
@@ -45,11 +46,6 @@ fn assert_stdout_contains_mbtp(
 }
 
 fn assert_stdout_contains_prelude_proof(stdout: &str, label: &str) {
-    let prelude_proof = toolchain_root_for_tests().join("lib").join("prelude_proof");
-    if !prelude_proof.is_dir() {
-        return;
-    }
-
     assert!(
         stdout.contains("prelude_proof"),
         "{label} output should include `prelude_proof`, got:\n{stdout}"
@@ -94,6 +90,68 @@ fn test_moon_prove_dry_run() {
     let stdout = get_stdout(&dir, ["prove", "zzok", "--dry-run"]);
     expect_file!["snapshots/zzok.stdout"].assert_eq(&stdout);
     assert_stdout_contains_prelude_proof(&stdout, "dry-run");
+}
+
+#[test]
+fn test_moon_prove_core_always_loads_prelude_proof() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_core_always_loads_prelude_proof") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/core.in");
+    let stdout = get_stdout(&dir, ["prove", "prelude", "--dry-run"]);
+
+    assert!(
+        stdout.contains("-why3-loadpath '$MOON_HOME/lib/prelude_proof'"),
+        "proving core should load the proof prelude without an injected stdlib, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_moon_prove_uses_prelude_override() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_uses_prelude_override") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/mixed.in");
+    let override_dir = dir.join("custom-proof-prelude");
+    std::fs::create_dir(&override_dir).unwrap();
+    std::fs::write(override_dir.join("moonbit_builtin_prelude.mlw"), []).unwrap();
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["prove", "zzok", "--dry-run"],
+        [("MOON_PROVE_PRELUDE_OVERRIDE", override_dir.as_os_str())],
+    );
+
+    assert!(
+        stdout.contains("custom-proof-prelude"),
+        "prove should use the overridden proof prelude, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("$MOON_HOME/lib/prelude_proof"),
+        "prove should replace the default proof prelude, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_moon_prove_rejects_invalid_prelude_override() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_rejects_invalid_prelude_override") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/mixed.in");
+    let override_dir = dir.join("invalid-proof-prelude");
+    std::fs::create_dir(&override_dir).unwrap();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["prove", "zzok", "--dry-run"],
+        [("MOON_PROVE_PRELUDE_OVERRIDE", override_dir.as_os_str())],
+    );
+
+    assert!(
+        stderr.contains("MOON_PROVE_PRELUDE_OVERRIDE")
+            && stderr.contains("moonbit_builtin_prelude.mlw"),
+        "invalid proof prelude override should report the expected provider, got:\n{stderr}"
+    );
 }
 
 #[test]

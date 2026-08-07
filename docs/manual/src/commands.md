@@ -186,6 +186,8 @@ Check the current package, but don't build object files
 
 Prove the current package
 
+Set `MOON_PROVE_PRELUDE_OVERRIDE` to a directory containing `moonbit_builtin_prelude.mlw` to replace the toolchain's proof prelude.
+
 **Usage:** `moon prove [OPTIONS] [PATH]`
 
 ###### **Arguments:**
