@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use moonutil::resolution::ResolvedEnv;
 
 use crate::{
-    build_plan::{BuildPlan, FileDependencyKind, PlanArtifactKind},
+    build_plan::{BuildPlan, FileDependencyKind, PlanArtifactNeed},
     discover::DiscoverResult,
     model::{BuildPlanNode, BuildTarget, PackageId},
 };
@@ -341,10 +341,15 @@ impl<'a> BuildActionPlan<'a> {
             FileDependencyKind::AllFiles => self.output_products_for_node(node),
             FileDependencyKind::Artifacts(need) => {
                 let mut products = Vec::new();
-                if need.contains(PlanArtifactKind::Interface) {
+                let (needs_interface, needs_core_ir) = match need {
+                    PlanArtifactNeed::Interface => (true, false),
+                    PlanArtifactNeed::CoreIr => (false, true),
+                    PlanArtifactNeed::InterfaceAndCoreIr => (true, true),
+                };
+                if needs_interface {
                     self.push_package_interface(node, &mut products);
                 }
-                if need.contains(PlanArtifactKind::CoreIr) {
+                if needs_core_ir {
                     self.push_package_core_ir(node, &mut products);
                 }
                 products
