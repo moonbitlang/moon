@@ -13,7 +13,7 @@ fn implement_third_party1() {
         expect_file!["./check_graph.jsonl"],
     );
 
-    let s = get_stderr(&dir, ["check", "--target", "wasm-gc", "."]);
+    let s = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
     check(
         s,
         expect![[r#"

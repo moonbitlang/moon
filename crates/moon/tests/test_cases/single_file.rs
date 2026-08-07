@@ -545,6 +545,8 @@ fn test_single_file_commands_work_with_workspace_disabled() {
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
+    assert!(!dir.join("_build/packages.json").exists());
+    assert!(dir.join("_build/hello.mbt.packages.json").exists());
 
     check(
         get_stdout_with_envs(&dir, ["test", "test.mbt"], [(MOON_NO_WORKSPACE, "1")]),

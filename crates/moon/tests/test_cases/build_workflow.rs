@@ -134,6 +134,28 @@ fn test_check_failed_should_write_pkg_json() {
 }
 
 #[test]
+fn test_packages_json_full_check_and_focused_check_behavior() {
+    let dir = TestDir::new("hello");
+    let pkg_json = dir.join("_build/packages.json");
+    std::fs::create_dir_all(pkg_json.parent().unwrap()).unwrap();
+    std::fs::write(&pkg_json, "existing metadata").unwrap();
+
+    moon_cmd(&dir).args(["check"]).assert().success();
+    assert_ne!(
+        std::fs::read_to_string(&pkg_json).unwrap(),
+        "existing metadata"
+    );
+
+    std::fs::write(&pkg_json, "existing metadata").unwrap();
+
+    moon_cmd(&dir).args(["check", "main"]).assert().success();
+    assert_eq!(
+        std::fs::read_to_string(&pkg_json).unwrap(),
+        "existing metadata"
+    );
+}
+
+#[test]
 fn test_failed_to_fill_whole_buffer() {
     // TODO: Do we really need to test about database corruption?!
 
