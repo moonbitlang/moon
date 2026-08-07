@@ -813,9 +813,6 @@ fn build_executable_from_plan(
             rr_build::execute_standalone_build(&build_config, build_graph, target_dir, user_log)?
         }
     };
-    if build_result.successful() {
-        crate::resources::reconcile_resource_mappings(build_meta)?;
-    }
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),

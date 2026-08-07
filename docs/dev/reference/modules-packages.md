@@ -120,21 +120,12 @@ meaning the packages are relative to the root of the module.
 Newer modules created by `moon new` by default sets this to `src`.
 
 To discover all package within the module,
-one recursively searches from the scanning root for files named `moon.pkg` or
-`moon.pkg.json`, unless the folder contains `moon.mod` or `moon.mod.json`.
+one recursively search from the scanning root for files named `moon.pkg.json`,
+unless the folder contains `moon.mod.json`.
 Dot-prefixed directories and common non-code folders such as `node_modules`
 and `_build` are skipped during this process. The configured scanning root
 itself remains explicit and is still scanned when its name starts with `.`;
 the filtering applies to its descendants.
-
-An executable package's valid `data_dir` child is also a recursive package-scan
-boundary. It must be a real directory, not a symbolic link or Windows
-junction. Files named `moon.pkg`,
-`moon.pkg.json`, or like MoonBit source below that directory do not declare
-nested packages or enter the Package File Set through automatic discovery.
-This boundary also applies to recursive C-stub header discovery. It does not
-override explicit package configuration: pre-build tasks and `native-stub` may
-still name files below `data_dir`.
 
 The followings are examples of folder structure and search result,
 for common folder layouts with root `.` and root `src`:

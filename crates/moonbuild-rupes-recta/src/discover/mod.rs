@@ -27,24 +27,23 @@
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
 mod model;
-mod package_files;
 pub mod special_case;
 pub mod synth;
 
 pub use model::{
     DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage, SingleFileSourceKind,
 };
+use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
 use moonutil::project::ProjectManifest;
 
 use std::{
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use indexmap::IndexSet;
-use log::{debug, info};
-use moonutil::package::{MoonPkg, validate_data_directory};
+use log::{debug, info, trace};
+use moonutil::package::MoonPkg;
 use moonutil::resolution::{
     DirSyncResult, ModuleId, ModuleSource, ModuleSourceKind, ResolvedEnv, ResolvedModule,
     ResolvedRootModules,
@@ -71,8 +70,6 @@ use crate::{
     special_cases::{add_prelude_as_import_for_core, module_name_is_core},
     util::strip_trailing_slash,
 };
-
-use self::package_files::DiscoveredPackageFiles;
 
 /// Discover packages contained by all dependencies from their paths
 #[instrument(skip_all)]
@@ -232,7 +229,6 @@ pub(crate) fn discover_packages_for_mod(
         .sort_by_file_name()
         .into_iter()
         .filter_entry(|x| x.file_type().is_dir());
-    let mut application_data_roots = HashSet::new();
     while let Some(entry) = walkdir.next() {
         let entry = entry.map_err(|e| DiscoverError::CantReadModulePackages {
             module: module_source.clone(),
@@ -240,15 +236,6 @@ pub(crate) fn discover_packages_for_mod(
         })?;
 
         let abs_path = strip_trailing_slash(entry.path());
-        if application_data_roots.contains(abs_path) {
-            debug!(
-                "Skipping declared executable data directory {} recursively",
-                abs_path.display()
-            );
-            walkdir.skip_current_dir();
-            continue;
-        }
-
         // this will be fed to package path
         let rel_path = abs_path
             .relative_to(&scan_source_root)
@@ -304,7 +291,7 @@ pub(crate) fn discover_packages_for_mod(
         // Begin discovering the package
         debug!("Discovering package at {}", abs_path.display());
         let is_stdlib_pkg = matches!(module_source.source(), ModuleSourceKind::Stdlib(_));
-        let (pkg, application_data_root) = discover_one_package(
+        let pkg = discover_one_package(
             id,
             module_source,
             &rel_path,
@@ -319,9 +306,6 @@ pub(crate) fn discover_packages_for_mod(
             pkg.fqn,
             pkg.source_files.len()
         );
-        if let Some(data_root) = application_data_root {
-            application_data_roots.insert(data_root);
-        }
         res.add_package(id, pkg.fqn.package().clone(), pkg)?;
     }
 
@@ -341,7 +325,7 @@ fn discover_one_package(
     module_supported_targets: &IndexSet<TargetBackend>,
     pkg_manifest_path: &Path,
     user_log: &UserLog,
-) -> Result<(DiscoveredPackage, Option<PathBuf>), DiscoverError> {
+) -> Result<DiscoveredPackage, DiscoverError> {
     let abs = pkg_manifest_path
         .parent()
         .expect("package manifest path should be inside package root");
@@ -366,27 +350,59 @@ fn discover_one_package(
     let mut effective_supported_targets = pkg_json.supported_targets.clone();
     effective_supported_targets.retain(|t| module_supported_targets.contains(t));
 
-    let application_data_root = match pkg_json.data_dir.as_deref() {
-        Some(data_dir) => {
-            let data_root = validate_data_directory(abs, data_dir).map_err(|inner| {
-                DiscoverError::CantReadPackageFile {
-                    module: m.clone(),
-                    package: fqn.package().clone(),
-                    path: abs.to_owned(),
-                    inner,
-                }
+    // Discover source files within the package
+    let mut source_files = Vec::new();
+    let mut mbt_lex_files = Vec::new();
+    let mut mbt_yacc_files = Vec::new();
+    let mut mbt_md_files = Vec::new();
+    let mut mbtp_files = Vec::new();
+
+    let dir = abs
+        .read_dir()
+        .map_err(|x| DiscoverError::CantListPackageDir {
+            module: m.clone(),
+            package: fqn.package().clone(),
+            path: abs.to_owned(),
+            inner: x.into(),
+        })?;
+    for file in dir {
+        let file = file.map_err(|e| DiscoverError::CantListPackageDir {
+            module: m.clone(),
+            package: fqn.package().clone(),
+            path: abs.to_owned(),
+            inner: e.into(),
+        })?;
+        let path = file.path();
+        let file_type = file
+            .file_type()
+            .map_err(|e| DiscoverError::CantReadFileInfo {
+                module: m.clone(),
+                package: fqn.package().clone(),
+                file: path.clone(),
+                inner: e.into(),
             })?;
-            Some(dunce::canonicalize(data_root).map_err(|inner| {
-                DiscoverError::CantReadPackageFile {
-                    module: m.clone(),
-                    package: fqn.package().clone(),
-                    path: abs.to_owned(),
-                    inner: inner.into(),
-                }
-            })?)
+
+        if !file_type.is_file() && !file_type.is_symlink() {
+            // Only files (including symlinked files) are included within the package
+            continue;
         }
-        None => None,
-    };
+        trace!("Found file {}", path.display());
+
+        let filename = path
+            .file_name()
+            .expect("We are listing a dir, file should have name");
+        let filename_str = filename.to_string_lossy();
+        match package_source_file_kind(&filename_str) {
+            Some(PackageSourceFileKind::Mbt) => source_files.push(path),
+            Some(PackageSourceFileKind::MbtMd) => mbt_md_files.push(path),
+            Some(PackageSourceFileKind::Mbtp) => mbtp_files.push(path),
+            Some(PackageSourceFileKind::Mbl) => mbt_lex_files.push(path),
+            Some(PackageSourceFileKind::Mby) => mbt_yacc_files.push(path),
+            None => {
+                // File is not one of our expected types, skip
+            }
+        }
+    }
 
     // Read C stubs from package json
     let mut c_stubs = Vec::new();
@@ -405,22 +421,30 @@ fn discover_one_package(
             c_stubs.push(rel_path.to_path(abs));
         }
     };
-    let package_files = DiscoveredPackageFiles::discover(
-        abs,
-        !c_stubs.is_empty(),
-        application_data_root.as_deref(),
-    )
-    .map_err(|inner| DiscoverError::CantListPackageDir {
-        module: m.clone(),
-        package: fqn.package().clone(),
-        path: abs.to_owned(),
-        inner,
-    })?;
+    let c_stub_headers = if c_stubs.is_empty() {
+        Vec::new()
+    } else {
+        discover_c_stub_headers(abs).map_err(|inner| DiscoverError::CantListPackageDir {
+            module: m.clone(),
+            package: fqn.package().clone(),
+            path: abs.to_owned(),
+            inner,
+        })?
+    };
+
+    // Sort the source files for repeatable results
+    let _sort_guard = tracing::debug_span!("sorting_files").entered();
+    source_files.sort();
+    mbt_lex_files.sort();
+    mbt_yacc_files.sort();
+    mbt_md_files.sort();
+    mbtp_files.sort();
+    drop(_sort_guard);
 
     // Get the virtual mbti file if any
     let virtual_mbti = discover_virtual_mbti(&pkg_json, &fqn, abs)?;
 
-    let package = DiscoveredPackage {
+    Ok(DiscoveredPackage {
         root_path: abs.to_path_buf(),
         module: mid,
         fqn,
@@ -429,17 +453,49 @@ fn discover_one_package(
         raw: Box::new(pkg_json),
         supported_targets_decl,
         effective_supported_targets,
-        source_files: package_files.source_files,
-        mbt_lex_files: package_files.mbt_lex_files,
-        mbt_yacc_files: package_files.mbt_yacc_files,
-        mbt_md_files: package_files.mbt_md_files,
-        mbtp_files: package_files.mbtp_files,
+        source_files,
+        mbt_lex_files,
+        mbt_yacc_files,
+        mbt_md_files,
+        mbtp_files,
         c_stub_files: c_stubs,
-        c_stub_header_files: package_files.c_stub_header_files,
+        c_stub_header_files: c_stub_headers,
         virtual_mbti,
         is_stdlib: pkg_is_stdlib,
-    };
-    Ok((package, application_data_root))
+    })
+}
+
+fn discover_c_stub_headers(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut headers = Vec::new();
+    let mut entries = WalkDir::new(root).sort_by_file_name().into_iter();
+    while let Some(entry) = entries.next() {
+        let entry = entry?;
+        if entry.depth() != 0 && entry.file_type().is_dir() {
+            if is_ignored_directory_name(entry.file_name()) {
+                entries.skip_current_dir();
+                continue;
+            }
+
+            let path = entry.path();
+            if [MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON]
+                .iter()
+                .any(|manifest| path.join(manifest).exists())
+            {
+                entries.skip_current_dir();
+                continue;
+            }
+        }
+
+        if (entry.file_type().is_file() || entry.file_type().is_symlink())
+            && entry.path().extension().is_some_and(|extension| {
+                matches!(extension.to_str(), Some("h" | "hh" | "hpp" | "hxx"))
+            })
+        {
+            headers.push(entry.into_path());
+        }
+    }
+    headers.sort();
+    Ok(headers)
 }
 
 fn discover_virtual_mbti(
@@ -483,7 +539,7 @@ mod tests {
         user_log::UserLog,
     };
 
-    use super::discover_packages;
+    use super::{discover_c_stub_headers, discover_packages};
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -600,70 +656,32 @@ mod tests {
     #[test]
     fn c_stub_headers_follow_package_file_set_boundaries() -> anyhow::Result<()> {
         let dir = temp_dir("c-stub-headers");
-        std::fs::write(
-            dir.join("moon.mod.json"),
-            r#"{"name":"example/pkg","version":"0.2.1"}"#,
-        )?;
-        let package_root = dir.join("app");
-        std::fs::create_dir_all(package_root.join("native/include"))?;
-        std::fs::create_dir_all(package_root.join("assets"))?;
-        std::fs::write(
-            package_root.join("moon.pkg.json"),
-            r#"{
-  "is-main": true,
-  "native-stub": ["native/stub.c"],
-  "data_dir": "assets"
-}"#,
-        )?;
-        std::fs::write(package_root.join("main.mbt"), "fn main {}")?;
-        std::fs::write(package_root.join("native/stub.c"), "stub")?;
-        std::fs::write(package_root.join("native/stub.h"), "stub")?;
-        std::fs::write(package_root.join("native/include/detail.hpp"), "detail")?;
-        std::fs::write(package_root.join("native/ignored.txt"), "ignored")?;
-        std::fs::write(package_root.join("assets/application-data.h"), "data")?;
-        std::fs::write(package_root.join("assets/application-data.mbt"), "data")?;
+        std::fs::create_dir_all(dir.join("native/include"))?;
+        std::fs::write(dir.join("native/stub.h"), "stub")?;
+        std::fs::write(dir.join("native/include/detail.hpp"), "detail")?;
+        std::fs::write(dir.join("native/ignored.txt"), "ignored")?;
 
-        std::fs::create_dir_all(package_root.join("_build/generated"))?;
-        std::fs::write(package_root.join("_build/generated/stale.h"), "stale")?;
+        std::fs::create_dir_all(dir.join("_build/generated"))?;
+        std::fs::write(dir.join("_build/generated/stale.h"), "stale")?;
 
-        std::fs::create_dir_all(package_root.join(".generated"))?;
-        std::fs::write(package_root.join(".generated/stale.hpp"), "stale")?;
+        std::fs::create_dir_all(dir.join(".generated"))?;
+        std::fs::write(dir.join(".generated/stale.hpp"), "stale")?;
 
-        std::fs::create_dir_all(package_root.join("nested-module"))?;
+        std::fs::create_dir_all(dir.join("nested-module"))?;
         std::fs::write(
-            package_root.join("nested-module/moon.mod.json"),
+            dir.join("nested-module/moon.mod.json"),
             r#"{"name":"nested/module"}"#,
         )?;
-        std::fs::write(package_root.join("nested-module/foreign.h"), "foreign")?;
+        std::fs::write(dir.join("nested-module/foreign.h"), "foreign")?;
 
-        std::fs::create_dir_all(package_root.join("nested-package"))?;
-        std::fs::write(package_root.join("nested-package/moon.pkg.json"), "{}")?;
-        std::fs::write(package_root.join("nested-package/foreign.hpp"), "foreign")?;
+        std::fs::create_dir_all(dir.join("nested-package"))?;
+        std::fs::write(dir.join("nested-package/moon.pkg.json"), "{}")?;
+        std::fs::write(dir.join("nested-package/foreign.hpp"), "foreign")?;
 
-        let source: ModuleSource = "example/pkg@0.2.1"
-            .parse()
-            .expect("failed to parse test module source");
-        let stub = MoonMod {
-            name: "example/pkg".to_string(),
-            version: Some(source.version().clone()),
-            ..Default::default()
-        };
-        let (resolved_env, id) = ResolvedEnv::only_one_module(source, stub);
-        let mut dirs = DirSyncResult::default();
-        dirs.insert(id, dir.clone());
-
-        let discovered =
-            discover_packages(&resolved_env, &dirs, &UserLog::new(log::LevelFilter::Error))?;
-        let package_id = discovered
-            .get_package_id_by_name("example/pkg/app")
-            .expect("expected executable package");
-        let package = discovered.get_package(package_id);
-        assert_eq!(package.source_files, [package.root_path.join("main.mbt")]);
-        let headers = package
-            .c_stub_header_files
-            .iter()
+        let headers = discover_c_stub_headers(&dir)?
+            .into_iter()
             .map(|path| {
-                path.strip_prefix(&package.root_path)
+                path.strip_prefix(&dir)
                     .map(Path::to_path_buf)
                     .map_err(anyhow::Error::from)
             })

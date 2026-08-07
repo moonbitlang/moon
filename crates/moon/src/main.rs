@@ -22,7 +22,6 @@ mod build_flags;
 mod cli;
 mod filter;
 mod panic;
-mod resources;
 pub mod rr_build;
 mod run;
 #[cfg(test)]

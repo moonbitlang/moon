@@ -41,9 +41,6 @@ Notes:
   prebuild nodes; they consume existing `.mbt` and `.mbt.md` outputs as package
   sources.
 - Only `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit source set.
-- An executable package's `data_dir` does not restrict prebuild paths. Inputs
-  and outputs may be below it and retain the same dependency and source-set
-  semantics as paths elsewhere in the package.
 
 ## Path Resolution
 

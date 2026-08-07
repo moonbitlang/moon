@@ -162,45 +162,6 @@ test-target suffix. This name is debugging information that tools may strip or
 rewrite; it is not trusted provenance. Moon does not request this name for debug
 builds or plain WAT output.
 
-### Executable package resource mappings
-
-When an executable source package declares
-`options(data_dir: "<directory-name>")` in `moon.pkg`, a successful `moon build`
-or `moon run` reconciles a sibling mapping for each applicable executable
-artifact:
-
-```text
-<artifact-parent>/<data_dir> -> <package-root>/<data_dir>
-```
-
-Unix uses a symbolic link and Windows uses an NTFS junction. An existing
-mapping to the same source is reused; a stale link or junction is replaced.
-A real file or directory at the destination is never replaced and causes an
-error when a mapping is required. Windows reports an error rather than copying
-when the filesystem cannot create a junction.
-
-`data_dir` is only valid for executable packages. It must name one direct
-child directory of the package: empty, `.`, `..`, path separators, and
-platform-specific path syntax are rejected rather than normalized. That child
-must exist as a real directory, not a symbolic link or Windows junction.
-Without the option, even a source directory named `resources` has no special
-meaning. Automatic package discovery skips the complete declared subtree, so
-manifest-shaped files do not declare nested packages and MoonBit-shaped files
-or C-stub headers are not inferred as build inputs merely from their names.
-Explicit configuration remains effective: `native-stub` and pre-build
-inputs or outputs may name files below `data_dir` and retain their ordinary
-build semantics.
-
-This is a command-level post-build action, not a compiler or Rupes Recta build
-action. `moon run` reconciles it while holding the target-directory lock and
-before launching the program. Moon does not record or garbage-collect old
-mappings after `data_dir` is changed or removed; `moon clean` removes stale
-target-directory contents. `moon test` and `moon bench` do not yet create these
-mappings.
-
-The broader runtime lookup and packaging design is documented in
-[Executable package resources](../design/executable-package-resources.md).
-
 ### Example
 
 Assume we have a dependency graph as following (edge point from one item to its dependency):
@@ -248,11 +209,8 @@ Compiling C stubs of a package involves 3 steps:
    Each action conservatively tracks every package-local `.h`, `.hh`, `.hpp`,
    and `.hxx` file because MoonBuild does not interpret transitive `#include`
    directives. Dot-prefixed directories, ignored generated directories, and
-   nested module or package roots are outside the Package File Set. A declared
-   executable `data_dir` is also outside that set. Headers under any of these
-   boundaries are not discovered automatically. This does not prevent an
-   explicitly configured `native-stub` source below `data_dir` from being
-   compiled.
+   nested module or package roots are outside the Package File Set, so headers
+   under those boundaries are not discovered automatically.
 2. `ArchiveOrLinkCStubs` -- All C stubs in a package is archived using AR.
    If [TCC-run mode](./tcc-run.md) is enabled, this instead links the C stubs.
    This is out of scope of a regular compilation.
