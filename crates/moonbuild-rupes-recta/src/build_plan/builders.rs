@@ -43,9 +43,7 @@ use relative_path::PathExt;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{
-        BuildBundleInfo, FileDependencyKind, PackagePrebuildPolicy, PlanArtifactNeed, PrebuildInfo,
-    },
+    build_plan::{BuildBundleInfo, FileDependencyKind, PackagePrebuildPolicy, PrebuildInfo},
     cond_comp,
     discover::DiscoveredPackage,
     model::{
@@ -977,12 +975,12 @@ impl<'a> BuildPlanConstructor<'a> {
         // Add edges to all dependencies
         // Note that we have already replaced unnecessary dependencies
         for target in &link_core_deps {
-            let dep_node = BuildPlanNode::BuildCore(*target);
-            self.need_node(dep_node);
-            self.add_edge_spec(
+            self.require_artifact(
                 link_core_node,
-                dep_node,
-                FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr),
+                ArtifactKey::CoreIr {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
             );
         }
 
@@ -1318,7 +1316,7 @@ impl<'a> BuildPlanConstructor<'a> {
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_bundle(
         &mut self,
-        _node: BuildPlanNode,
+        node: BuildPlanNode,
         module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
         // Bundling a module gathers the build result of all its non-virtual packages, in topo order
@@ -1345,13 +1343,13 @@ impl<'a> BuildPlanConstructor<'a> {
                 continue;
             }
 
-            let build_node = BuildPlanNode::BuildCore(target);
             trace!(?module_id, ?target, "enqueuing bundle dependency");
-            self.need_node(build_node);
-            self.add_edge_spec(
-                _node,
-                build_node,
-                FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr),
+            self.require_artifact(
+                node,
+                ArtifactKey::CoreIr {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
             );
 
             if pkg.is_virtual() {
@@ -1567,16 +1565,19 @@ impl<'a> BuildPlanConstructor<'a> {
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_build_docs(
         &mut self,
-        _node: BuildPlanNode,
+        node: BuildPlanNode,
         _module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
         // For now, `moondoc` depends on *every check*, as specified in its
         // packages.json input. I guess bad things might happen if you don't?
         for (pkg_id, _) in self.input.pkg_dirs.all_packages(true) {
-            let check_node = self.need_node(BuildPlanNode::Check(
-                pkg_id.build_target(TargetKind::Source),
-            ));
-            self.add_edge(_node, check_node);
+            self.require_artifact(
+                node,
+                ArtifactKey::CheckMi {
+                    package: pkg_id,
+                    target_kind: TargetKind::Source,
+                },
+            );
         }
         Ok(())
     }

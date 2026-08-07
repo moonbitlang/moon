@@ -137,20 +137,11 @@ pub struct BuildPlan {
     input_nodes: Vec<BuildPlanNode>,
 }
 
-/// Logical artifacts that can be requested from build-plan nodes.
+/// The logical package products needed from a compatibility dependency edge.
 ///
-/// These are planning-level package artifacts. `BuildActionPlan` expands them,
-/// together with node-specific edge selectors, into the logical artifact set
-/// consumed by backend lowering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PlanArtifactKind {
-    /// Package interface artifact, currently written as a `.mi` file.
-    Interface,
-    /// Compiler Core IR artifact, currently written as a `.core` file.
-    CoreIr,
-}
-
-/// The logical artifacts needed from a dependency node.
+/// Build-plan builders name `ArtifactKey` values instead. The compatibility
+/// projection converts those Artifact Requirements to this selector, which
+/// `BuildActionPlan` expands for backend lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlanArtifactNeed {
     Interface,
@@ -159,14 +150,6 @@ pub enum PlanArtifactNeed {
 }
 
 impl PlanArtifactNeed {
-    pub fn contains(self, kind: PlanArtifactKind) -> bool {
-        match self {
-            Self::Interface => matches!(kind, PlanArtifactKind::Interface),
-            Self::CoreIr => matches!(kind, PlanArtifactKind::CoreIr),
-            Self::InterfaceAndCoreIr => true,
-        }
-    }
-
     pub fn is_subset_of(self, other: Self) -> bool {
         matches!(
             (self, other),
@@ -200,7 +183,7 @@ pub enum FileDependencyKind {
     /// Depending on all files available
     AllFiles,
 
-    /// Depending on logical artifacts produced by a node.
+    /// Depending on package products selected from a compatibility action edge.
     Artifacts(PlanArtifactNeed),
 
     /// Depending on proof artifacts of an `EmitProof`/`Prove` node.
