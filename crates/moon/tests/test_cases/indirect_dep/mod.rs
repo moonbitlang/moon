@@ -128,7 +128,11 @@ fn test_indirect_dep_bundle() {
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
-    assert!(!dir.join("_build/packages.json").exists());
+    let packages_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
+            .unwrap();
+    assert_eq!(packages_json["backend"], serde_json::json!("wasm-gc"));
+    assert_eq!(packages_json["opt_level"], serde_json::json!("release"));
     let all_pkgs_path = dir.join("_build/wasm-gc/release/bundle/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["bundle_all_pkgs.json"].assert_eq(&all_pkgs_json);
