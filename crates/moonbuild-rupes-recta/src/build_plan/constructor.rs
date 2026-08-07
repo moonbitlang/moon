@@ -29,11 +29,10 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
 };
-use indexmap::IndexMap;
 use moonutil::user_log::UserLog;
-use tracing::{Level, debug, instrument};
+use tracing::{Level, instrument};
 
-use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
+use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError, artifact::ArtifactKey};
 
 /// The struct responsible for holding the states and dependencies used during
 /// the construction of a build plan.
@@ -116,20 +115,6 @@ fn merge_edge_kind(dst: &mut FileDependencyKind, src: FileDependencyKind) {
     }
 }
 
-fn edge_for_coalesced_check(edge: FileDependencyKind) -> FileDependencyKind {
-    match edge {
-        FileDependencyKind::AllFiles => FileDependencyKind::Artifacts(PlanArtifactNeed::Interface),
-        FileDependencyKind::Artifacts(need) => {
-            assert!(
-                need.is_subset_of(PlanArtifactNeed::Interface),
-                "Check only produces an interface artifact"
-            );
-            FileDependencyKind::Artifacts(need)
-        }
-        _ => panic!("Check edges can only request logical artifacts"),
-    }
-}
-
 impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn new(
         resolved: &'a ResolveOutput,
@@ -199,85 +184,35 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        self.postprocess_coalesce();
+        self.materialize_artifact_requirements();
         self.warn_moon_cc_overrides();
 
         Ok(())
     }
 
-    /// Coalesce redundant nodes as a postprocess step.
-    ///
-    /// `BuildCore(...)` and `Check(...)` both produce `.mi` files, so having
-    /// both in the graph will cause later stages to not know which one to use,
-    /// and result in an error. This function moves all edges from `Check(...)`
-    /// nodes to their corresponding `BuildCore(...)` nodes, if they exist. This
-    /// is also a fix for the virtual package semantics, because virtual
-    /// packages don't know if they will be built or checked.
-    fn postprocess_coalesce(&mut self) {
-        // list of nodes to coalesce and their input/output edges
-        let mut plan = IndexMap::new();
-        for node in self.res.all_nodes() {
-            let coalesced_to = match node {
-                BuildPlanNode::Check(build_target)
-                    if self
-                        .res
-                        .graph
-                        .contains_node(BuildPlanNode::BuildCore(build_target)) =>
-                {
-                    Some(BuildPlanNode::BuildCore(build_target))
+    /// Derive action edges from package artifact requirements after every
+    /// provider has been planned and has registered its outputs.
+    fn materialize_artifact_requirements(&mut self) {
+        let requirements = self.res.artifacts.requirements().collect::<Vec<_>>();
+        for (consumer, artifact) in requirements {
+            let provider = self.res.artifacts.provider(artifact).unwrap_or_else(|| {
+                panic!("required artifact {artifact:?} has no provider in the build plan")
+            });
+            let edge = match artifact {
+                ArtifactKey::CheckMi { .. } | ArtifactKey::BuildMi { .. } => {
+                    FileDependencyKind::Artifacts(PlanArtifactNeed::Interface)
                 }
-                _ => None,
+                ArtifactKey::CoreIr { .. } => {
+                    FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr)
+                }
+                ArtifactKey::VirtualContractMi { .. } => FileDependencyKind::AllFiles,
             };
 
-            if let Some(target_node) = coalesced_to {
-                debug!("Coalescing node {:?} to {:?}", node, target_node);
-                let in_edges = self
-                    .res
-                    .graph
-                    .edges_directed(node, petgraph::Incoming)
-                    .map(|(source, _, &edge)| (source, edge))
-                    .collect::<Vec<_>>();
-                let out_edges = self
-                    .res
-                    .graph
-                    .edges_directed(node, petgraph::Outgoing)
-                    .map(|(_, target, &edge)| (target, edge))
-                    .collect::<Vec<_>>();
-                plan.insert(node, (target_node, in_edges, out_edges));
+            if let Some(existing) = self.res.graph.edge_weight_mut(consumer, provider) {
+                merge_edge_kind(existing, edge);
+            } else {
+                self.add_edge_spec(consumer, provider, edge);
             }
-        }
-
-        // Perform the coalescing
-        for (&from, (to, in_edges, out_edges)) in &plan {
-            let to = *to;
-            // Input edges
-            for &(source, edge) in in_edges {
-                let edge = edge_for_coalesced_check(edge);
-                // Check if source is also coalesced
-                let source = if let Some((new_source, _, _)) = plan.get(&source) {
-                    *new_source
-                } else {
-                    source
-                };
-
-                // Insert or update the edge
-                if let Some(w) = self.res.graph.edge_weight_mut(source, to) {
-                    merge_edge_kind(w, edge);
-                } else {
-                    self.res.graph.add_edge(source, to, edge);
-                }
-            }
-
-            // Output edges
-            for &(target, edge) in out_edges {
-                // Skip if target is also coalesced -- handled in its own iteration
-                if plan.contains_key(&target) {
-                    continue;
-                }
-
-                self.res.graph.add_edge(to, target, edge);
-            }
-            self.res.graph.remove_node(from);
         }
     }
 
@@ -334,6 +269,72 @@ impl<'a> BuildPlanConstructor<'a> {
         // Ensure the resolved data is present in the build plan.
         // Panics if the node is not present in the resolved data.
         self.ensure_resolved(node);
+        self.register_artifact_outputs(node);
+    }
+
+    fn register_artifact_outputs(&mut self, node: BuildPlanNode) {
+        match node {
+            BuildPlanNode::Check(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::CheckMi {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::BuildCore(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::CoreIr {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+
+                let emits_mi = self.res.get_build_target_info(&target).is_some_and(|info| {
+                    info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
+                });
+                if emits_mi {
+                    self.res.artifacts.provide(
+                        node,
+                        ArtifactKey::BuildMi {
+                            package: target.package,
+                            target_kind: target.kind,
+                        },
+                    );
+                }
+            }
+            BuildPlanNode::BuildVirtual(package) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::VirtualContractMi { package });
+            }
+            _ => {}
+        }
+    }
+
+    /// Record an artifact requirement and schedule the artifact rule's unique
+    /// provider. The caller names only the artifact it consumes.
+    pub(super) fn require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
+        let provider = match artifact {
+            ArtifactKey::CheckMi {
+                package,
+                target_kind,
+            } => BuildPlanNode::Check(package.build_target(target_kind)),
+            ArtifactKey::BuildMi {
+                package,
+                target_kind,
+            }
+            | ArtifactKey::CoreIr {
+                package,
+                target_kind,
+            } => BuildPlanNode::BuildCore(package.build_target(target_kind)),
+            ArtifactKey::VirtualContractMi { package } => BuildPlanNode::BuildVirtual(package),
+        };
+
+        self.need_node(provider);
+        self.res.artifacts.require(consumer, artifact);
     }
 
     fn ensure_resolved(&self, node: BuildPlanNode) {
@@ -581,16 +582,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{edge_for_coalesced_check, merge_edge_kind};
+    use super::merge_edge_kind;
     use crate::build_plan::{FileDependencyKind, PlanArtifactNeed};
-
-    #[test]
-    fn coalesced_check_all_files_requests_build_core_interface() {
-        assert_eq!(
-            edge_for_coalesced_check(FileDependencyKind::AllFiles),
-            FileDependencyKind::Artifacts(PlanArtifactNeed::Interface)
-        );
-    }
 
     #[test]
     fn merging_logical_artifact_edges_unions_needs() {
@@ -605,11 +598,5 @@ mod tests {
             edge,
             FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr)
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "Check only produces an interface artifact")]
-    fn coalesced_check_rejects_core_ir_artifact_need() {
-        edge_for_coalesced_check(FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr));
     }
 }

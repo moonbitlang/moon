@@ -18,7 +18,7 @@ See [`scan::scan_one_package()`](crates/moonutil/src/scan.rs:311).
 
 The build stage adds three behaviours on top of what regular packages already do:
 
-1. **Compile the interface first.** The scanner chooses the `.mbti` file referenced in `virtual_pkg.interface`. Build compiles that file and pulls in the `.mi` files of any imports, producing the contract other packages must satisfy.
+1. **Compile the interface first.** The scanner chooses the `.mbti` file referenced in `virtual_pkg.interface`. Moon compiles that file and pulls in the lifecycle-appropriate `.mi` files of its imports: check interfaces for check/prove planning, and build interfaces for build/run/test/bench/bundle planning. This produces the contract other packages must satisfy; compiling the contract never requires an import's `.core`.
    See [`gen_build::gen_build_interface_item()`](crates/moonbuild/src/gen/gen_build.rs:98) and [`gen_build::gen_build_interface_command()`](crates/moonbuild/src/gen/gen_build.rs:369).
 
 2. **Validate the default body (if any).** When `virtual_pkg.has_default` is true, Moon compiles the bundled body right after the interface and checks that the resulting `.core` stays compatible with the interface before exposing it.

@@ -74,9 +74,11 @@ use crate::{
     prebuild::PrebuildOutput,
 };
 
+mod artifact;
 mod builders;
 mod constructor;
 
+use artifact::ArtifactPlan;
 use constructor::BuildPlanConstructor;
 
 /// A directed graph representation of build dependencies and targets.
@@ -93,6 +95,13 @@ pub struct BuildPlan {
     /// represent the dependencies between build steps, pointing **from each
     /// step to what it depends on**.
     graph: DiGraphMap<BuildPlanNode, FileDependencyKind>,
+
+    /// Package compilation artifacts provided and required by derivations.
+    ///
+    /// The action graph keeps non-migrated dependency kinds. Package `.mi`,
+    /// `.core`, and virtual-contract dependencies are recorded here first and
+    /// materialized into compatible action edges after planning.
+    artifacts: ArtifactPlan,
 
     /// The map of build target to its files and metadata.
     /// Used by nodes that require access to the raw MoonBit source files, like
