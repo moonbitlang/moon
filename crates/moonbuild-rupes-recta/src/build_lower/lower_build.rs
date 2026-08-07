@@ -509,10 +509,7 @@ impl<'a> LoweringContext<'a> {
             )
         });
         let dep_proofs = self.dep_proofs_of(target);
-        let proof_prelude = info
-            .proof_prelude
-            .as_deref()
-            .expect("Prove actions should have a selected proof prelude");
+        let proof_prelude = info.proof_prelude.as_path();
         // Why3 needs every reachable non-stdlib proof directory on its loadpath
         // once emitted proof artifacts live alongside package-local verification
         // outputs under `_build/verif/<pkg>/...`.

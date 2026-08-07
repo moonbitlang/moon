@@ -378,7 +378,7 @@ pub struct BuildTargetInfo {
     pub(crate) why3_config: Option<PathBuf>,
 
     /// The directory containing the selected proof prelude provider.
-    pub(crate) proof_prelude: Option<PathBuf>,
+    pub(crate) proof_prelude: PathBuf,
 
     /// Check the `.mi` file against the given target. Used in virtual packages.
     /// Also implies that the target must not generate a `.mi` file.
@@ -642,7 +642,7 @@ pub enum PackagePrebuildPolicy {
 }
 
 /// Directives provided along the input actions.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct InputDirective {
     /// Set `no_mi=true` for the given package.
     pub specify_no_mi_for: Option<PackageId>,
@@ -662,10 +662,23 @@ pub struct InputDirective {
     pub prove_why3_config: Option<PathBuf>,
 
     /// Use the proof prelude provider from this directory for `moon prove`.
-    pub proof_prelude: Option<PathBuf>,
+    pub proof_prelude: PathBuf,
 
     /// Control package-level prebuild for this invocation.
     pub package_prebuild: PackagePrebuildPolicy,
+}
+
+impl Default for InputDirective {
+    fn default() -> Self {
+        Self {
+            specify_no_mi_for: None,
+            specify_patch_file: None,
+            value_tracing: None,
+            prove_why3_config: None,
+            proof_prelude: moonutil::toolchain::prelude_proof(),
+            package_prebuild: PackagePrebuildPolicy::default(),
+        }
+    }
 }
 
 /// Represents errors that may occur during build graph construction.

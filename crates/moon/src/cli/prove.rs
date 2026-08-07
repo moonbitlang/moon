@@ -229,7 +229,7 @@ fn calc_user_intent(
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let directive = moonbuild_rupes_recta::build_plan::InputDirective {
         prove_why3_config: prove_why3_config.map(Path::to_path_buf),
-        proof_prelude: Some(proof_prelude.to_path_buf()),
+        proof_prelude: proof_prelude.to_path_buf(),
         ..Default::default()
     };
 

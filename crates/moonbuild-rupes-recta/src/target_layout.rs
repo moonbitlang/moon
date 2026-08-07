@@ -1416,7 +1416,7 @@ mod tests {
             specified_no_mi: false,
             patch_file: None,
             why3_config: None,
-            proof_prelude: None,
+            proof_prelude: PathBuf::from("proof-prelude"),
             check_mi_against: None,
             value_tracing: false,
         }
