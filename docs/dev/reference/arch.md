@@ -515,4 +515,5 @@ Its top-level shape remains single-module-oriented for compatibility.
 `moon doc` generates it because `moondoc` consumes it directly. Project checks
 without a selector publish it as well. Standalone-file checks continue to
 publish `<filename>.packages.json`; focused project checks leave metadata
-untouched, and `moon bundle` does not publish it.
+untouched. `moon bundle` continues to publish the legacy file for tooling
+compatibility.
