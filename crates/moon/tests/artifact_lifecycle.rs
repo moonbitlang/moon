@@ -18,23 +18,6 @@
 
 use std::path::PathBuf;
 
-fn dry_run(
-    dir: &moon_test_util::test_dir::TestDir,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-) -> String {
-    let output = snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .args(args)
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
-        .env("MOON_DEP_CACHE", "off")
-        .current_dir(dir)
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    String::from_utf8(output).expect("moon dry-run output should be UTF-8")
-}
-
 #[test]
 fn virtual_contract_uses_lifecycle_interface_dependencies() {
     let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
@@ -44,25 +27,29 @@ fn virtual_contract_uses_lifecycle_interface_dependencies() {
         true,
     );
 
-    let build = dry_run(
-        &dir,
-        ["build", "src/virtual", "--target", "wasm-gc", "--dry-run"],
-    );
-    let build_interface = build
-        .lines()
-        .find(|line| line.contains("moonc build-interface"))
-        .expect("build graph should compile the virtual contract");
-    assert!(build_interface.contains("/debug/build/dep/dep.mi"));
-    assert!(!build_interface.contains("/debug/check/dep/dep.mi"));
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+        .args(["build", "src/virtual", "--target", "wasm-gc", "--dry-run"])
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("MOON_DEP_CACHE", "off")
+        .current_dir(&dir)
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonc build-package ./src/dep/dep.mbt -o ./_build/wasm-gc/debug/build/dep/dep.core -pkg virtual_artifact_lifecycle/dep -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources virtual_artifact_lifecycle/dep:./src/dep -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+moonc build-interface ./src/virtual/pkg.mbti -o ./_build/wasm-gc/debug/build/virtual/virtual.mi -i ./_build/wasm-gc/debug/build/dep/dep.mi:dep -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg virtual_artifact_lifecycle/virtual -pkg-sources virtual_artifact_lifecycle/virtual:./src/virtual -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
 
-    let check = dry_run(
-        &dir,
-        ["check", "src/virtual", "--target", "wasm-gc", "--dry-run"],
-    );
-    let check_interface = check
-        .lines()
-        .find(|line| line.contains("moonc build-interface"))
-        .expect("check graph should compile the virtual contract");
-    assert!(check_interface.contains("/debug/check/dep/dep.mi"));
-    assert!(!check_interface.contains("/debug/build/dep/dep.mi"));
+"#]]);
+
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+        .args(["check", "src/virtual", "--target", "wasm-gc", "--dry-run"])
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("MOON_DEP_CACHE", "off")
+        .current_dir(&dir)
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonc check ./src/dep/dep.mbt -o ./_build/wasm-gc/debug/check/dep/dep.mi -pkg virtual_artifact_lifecycle/dep -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources virtual_artifact_lifecycle/dep:./src/dep -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+moonc build-interface ./src/virtual/pkg.mbti -o ./_build/wasm-gc/debug/check/virtual/virtual.mi -i ./_build/wasm-gc/debug/check/dep/dep.mi:dep -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg virtual_artifact_lifecycle/virtual -pkg-sources virtual_artifact_lifecycle/virtual:./src/virtual -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
+
+"#]]);
 }
