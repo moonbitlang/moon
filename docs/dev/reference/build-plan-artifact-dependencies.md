@@ -1,10 +1,10 @@
-# Build plan product dependencies
+# Build plan artifact and product dependencies
 
 Rupes Recta now uses a compiler-style split between planning, the action-level
 plan consumed by lowering, and backend graph construction:
 
 ```text
-BuildPlan       = planning IR: graph nodes, edge semantics, coalescing
+BuildPlan       = planning IR: derivations, artifact requirements, provider selection
 BuildActionPlan = action-level build plan: action ids, hydrated action data, logical products
 LoweredAction   = concrete action: realized products, paths, and process command
 n2::Build       = executor representation produced by the n2 adapter
@@ -43,65 +43,68 @@ by the Native Toolchain and realization they were built for first.
 
 ## Planning IR
 
-`BuildPlan` still owns graph traversal, action coalescing, and edge semantics.
-Edges describe what logical output a consumer needs from a producer:
+`BuildPlan` owns graph traversal, exact package artifact requirements, provider
+registration, and the derived action graph. The migrated package compilation
+artifacts are:
 
 ```rust
-pub enum FileDependencyKind {
-    AllFiles,
-    Artifacts(PlanArtifactNeed),
-    ProofArtifacts { mi: bool, mlw: bool, report: bool },
-    GenerateTestInfo { meta: bool },
-}
-
-pub enum PlanArtifactNeed {
-    Interface,
-    CoreIr,
-    InterfaceAndCoreIr,
+pub enum ArtifactKey {
+    CheckMi { package: PackageId, target_kind: TargetKind },
+    BuildMi { package: PackageId, target_kind: TargetKind },
+    CoreIr { package: PackageId, target_kind: TargetKind },
+    VirtualContractMi { package: PackageId },
 }
 ```
 
 `CoreIr` names the compiler IR artifact written with the `.core` extension. It
 is not related to the `moonbitlang/core` package.
 
-Builders request logical needs instead of path-shaped outputs. `Check`
-dependencies need only the interface. Normal downstream `BuildCore`
-dependencies also track Core IR as an n2 input, so a dependency implementation
-change that leaves the interface stable still rebuilds the dependent package:
+Artifact identity does not include the physical output root or a provider
+action ID. `CheckMi`, `BuildMi`, and `VirtualContractMi` are distinct because
+they are not interchangeable compiler inputs, even though all three currently
+use the `.mi` extension.
+
+Builders record Artifact Requirements. The artifact rule schedules the unique
+provider, and the provider registers its outputs when its derivation is fully
+planned. After all providers have been planned, BuildPlan validates each
+requirement and derives the compatible action edges consumed by
+`BuildActionPlan`:
 
 ```rust
-let edge = match dep_node {
-    BuildPlanNode::Check(_) => FileDependencyKind::Artifacts(PlanArtifactNeed::Interface),
-    BuildPlanNode::BuildCore(_) if check_only => {
-        FileDependencyKind::Artifacts(PlanArtifactNeed::Interface)
-    }
-    BuildPlanNode::BuildCore(_) => {
-        FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr)
-    }
-    BuildPlanNode::BuildVirtual(_) => FileDependencyKind::AllFiles,
-    _ => unreachable!(
-        "need_interface_of_dep only schedules Check, BuildCore or BuildVirtual"
-    ),
-};
-self.add_edge_spec(node, dep_node, edge);
+self.require_artifact(
+    consumer,
+    ArtifactKey::BuildMi { package, target_kind },
+);
+self.require_artifact(
+    consumer,
+    ArtifactKey::CoreIr { package, target_kind },
+);
 ```
 
-When `Check(target)` is coalesced into `BuildCore(target)`, `BuildPlan`
-converts broad `Check` edges to the logical interface need that `BuildCore` can
-satisfy:
+Normal downstream `BuildCore` derivations require both Build MI and Core IR so
+a dependency implementation change that leaves its interface stable still
+rebuilds the dependent package. Check derivations require Check MI only.
+
+Virtual-contract compilation chooses the dependency MI artifact from the
+invocation lifecycle:
 
 ```rust
-fn edge_for_coalesced_check(edge: FileDependencyKind) -> FileDependencyKind {
-    match edge {
-        FileDependencyKind::AllFiles => FileDependencyKind::Artifacts(PlanArtifactNeed::Interface),
-        FileDependencyKind::Artifacts(need) => {
-            assert!(need.is_subset_of(PlanArtifactNeed::Interface));
-            FileDependencyKind::Artifacts(need)
-        }
-        _ => panic!("Check edges can only request logical artifacts"),
+match run_mode {
+    RunMode::Check | RunMode::Prove => ArtifactKey::CheckMi { package, target_kind },
+    RunMode::Build | RunMode::Run | RunMode::Test | RunMode::Bench | RunMode::Bundle => {
+        ArtifactKey::BuildMi { package, target_kind }
     }
+    RunMode::Format => unreachable!(),
 }
 ```
+
+There is no Check-to-Build coalescing. The two derivations provide different
+artifacts and can never substitute for one another.
+
+Proof, generated-test-info, prebuild, C-stub, runtime, link, and other
+not-yet-migrated dependencies continue to use `FileDependencyKind` edges. The
+derived MI/Core edges use the same representation after provider resolution so
+the action-plan and lowering interfaces remain unchanged during this migration.
 
 ## Build Action Plan
 
@@ -260,7 +263,7 @@ consumes the executable product and produces the `.dSYM` bundle.
 
 This keeps responsibilities separate:
 
-- `BuildPlan` owns graph edges, coalescing, and planning-only terminology.
+- `BuildPlan` owns Artifact Requirements, provider registration, and the derived action graph.
 - `BuildActionPlan` owns the normalized action/product interface between phases.
 - `ArtifactPathResolver` owns logical product to path resolution.
 - action lowering owns concrete products, external inputs, and commands.

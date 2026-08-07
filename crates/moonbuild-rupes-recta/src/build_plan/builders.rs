@@ -28,6 +28,7 @@ use std::{
 
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
+    build_options::RunMode,
     compiler_flags::{self, CC, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
@@ -56,7 +57,9 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
-    MakeExecutableInfo, c_stub_archive_fingerprint,
+    MakeExecutableInfo,
+    artifact::ArtifactKey,
+    c_stub_archive_fingerprint,
     constructor::{BuildPlanConstructor, PackageFileSet},
     runtime_archive_fingerprint,
 };
@@ -64,22 +67,6 @@ use super::{
 static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
-
-#[derive(Clone, Copy)]
-enum DependencyInterfaceMode {
-    CheckOnly,
-    BuildWithCoreInput,
-}
-
-impl DependencyInterfaceMode {
-    fn check_only(self) -> bool {
-        matches!(self, Self::CheckOnly)
-    }
-
-    fn core_as_input(self) -> bool {
-        matches!(self, Self::BuildWithCoreInput)
-    }
-}
 
 fn should_generate_llvm_dsym(debug_symbols: bool, os: OperatingSystem) -> bool {
     debug_symbols && os == OperatingSystem::MacOS
@@ -288,10 +275,9 @@ impl<'a> BuildPlanConstructor<'a> {
 
     /// Validate backend compatibility for a dependency edge that needs `.mi`.
     ///
-    /// This function is intentionally parallel to `need_interface_of_dep`: callers can
-    /// choose policy (hard error vs warning+skip) before mutating the graph.
+    /// Callers choose policy (hard error vs warning+skip) before mutating the graph.
     ///
-    /// Note: This mirrors the stdlib short-circuit used by `need_interface_of_dep`.
+    /// Note: This mirrors the stdlib short-circuit used by the artifact helpers.
     /// When stdlib is injected, stdlib package deps are not planned and should
     /// not be backend-checked here either.
     fn check_backend_compatibility_for_mi_dep(
@@ -315,52 +301,74 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Specify a need on the interface artifacts of a dependency.
-    ///
-    /// In this build graph, "interface" usually means both `.mi` and `.core`
-    /// for normal package builds. The `.mi` is the compiler interface passed
-    /// via `-i`; the `.core` is tracked as an n2 input so implementation-only
-    /// dependency changes dirty downstream build-package actions. Check-only
-    /// paths still require just `.mi`.
-    ///
-    /// Backend compatibility is checked by `check_backend_compatibility_for_mi_dep`.
-    /// Keep this function focused on graph wiring only.
-    fn need_interface_of_dep(
-        &mut self,
-        node: BuildPlanNode,
-        dep: BuildTarget,
-        mode: DependencyInterfaceMode,
-    ) {
-        // Skip stdlib packages when stdlib is injected, since we can use prebuilt .mi files.
-        // When building the stdlib itself (build_env.std == false), treat stdlib packages
-        // like normal packages and build their dependencies.
+    fn require_check_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
         if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
-        let dep_node = if pkg_info.is_virtual() {
-            self.need_node(BuildPlanNode::BuildVirtual(dep.package))
-        } else if mode.check_only() {
-            self.need_node(BuildPlanNode::Check(dep))
+        let artifact = if pkg_info.is_virtual() {
+            ArtifactKey::VirtualContractMi {
+                package: dep.package,
+            }
         } else {
-            self.need_node(BuildPlanNode::BuildCore(dep))
+            ArtifactKey::CheckMi {
+                package: dep.package,
+                target_kind: dep.kind,
+            }
         };
+        self.require_artifact(node, artifact);
+    }
 
-        let edge = match dep_node {
-            BuildPlanNode::Check(_) => FileDependencyKind::Artifacts(PlanArtifactNeed::Interface),
-            BuildPlanNode::BuildCore(_) if !mode.core_as_input() => {
-                FileDependencyKind::Artifacts(PlanArtifactNeed::Interface)
+    fn require_build_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
+        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            return;
+        }
+
+        let pkg_info = self.input.pkg_dirs.get_package(dep.package);
+        let artifact = if pkg_info.is_virtual() {
+            ArtifactKey::VirtualContractMi {
+                package: dep.package,
             }
-            BuildPlanNode::BuildCore(_) => {
-                FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr)
+        } else {
+            ArtifactKey::BuildMi {
+                package: dep.package,
+                target_kind: dep.kind,
             }
-            BuildPlanNode::BuildVirtual(_) => FileDependencyKind::AllFiles,
-            _ => unreachable!(
-                "need_interface_of_dep only schedules Check, BuildCore or BuildVirtual"
-            ),
         };
-        self.add_edge_spec(node, dep_node, edge);
+        self.require_artifact(node, artifact);
+    }
+
+    fn require_build_outputs_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
+        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            return;
+        }
+
+        let pkg_info = self.input.pkg_dirs.get_package(dep.package);
+        if pkg_info.is_virtual() {
+            self.require_artifact(
+                node,
+                ArtifactKey::VirtualContractMi {
+                    package: dep.package,
+                },
+            );
+            return;
+        }
+
+        self.require_artifact(
+            node,
+            ArtifactKey::BuildMi {
+                package: dep.package,
+                target_kind: dep.kind,
+            },
+        );
+        self.require_artifact(
+            node,
+            ArtifactKey::CoreIr {
+                package: dep.package,
+                target_kind: dep.kind,
+            },
+        );
     }
 
     /// Specify a need on the proof artifacts of a dependency.
@@ -401,15 +409,18 @@ impl<'a> BuildPlanConstructor<'a> {
         // If the given target is a virtual package with default implementation,
         // we need to build its interface first.
         if pkg.is_virtual() {
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
-            self.add_edge(node, dep_node);
+            self.require_artifact(
+                node,
+                ArtifactKey::VirtualContractMi {
+                    package: target.package,
+                },
+            );
         }
 
         // If the given target implements a virtual package, we need to build
         // the virtual package's interface first.
         if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package) {
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(*vpkg_id));
-            self.add_edge(node, dep_node);
+            self.require_artifact(node, ArtifactKey::VirtualContractMi { package: *vpkg_id });
         }
     }
 
@@ -469,7 +480,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_interface_of_dep(node, dep, DependencyInterfaceMode::CheckOnly);
+            self.require_check_mi_of_dep(node, dep);
         }
 
         self.need_all_package_prebuild(node, target.package);
@@ -507,7 +518,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_interface_of_dep(node, dep, DependencyInterfaceMode::BuildWithCoreInput);
+            self.require_build_outputs_of_dep(node, dep);
         }
 
         // If the given target is a test, we will also need to generate the test driver.
@@ -1509,7 +1520,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
         // usually means `moonc check` instead of `moonc build`.
         self.check_backend_compatibility_for_mi_dep(_node, target)?;
-        self.need_interface_of_dep(_node, target, DependencyInterfaceMode::CheckOnly);
+        self.require_check_mi_of_dep(_node, target);
         self.resolved_node(_node);
         Ok(())
     }
@@ -1532,10 +1543,18 @@ impl<'a> BuildPlanConstructor<'a> {
             target.build_target(TargetKind::Source),
             petgraph::Direction::Outgoing,
         ) {
-            // Note: This depends on the `Check` node, which will be coalesced
-            // to `Build` later if necessary.
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_interface_of_dep(node, dep, DependencyInterfaceMode::CheckOnly);
+            match self.build_env.action {
+                RunMode::Check | RunMode::Prove => self.require_check_mi_of_dep(node, dep),
+                RunMode::Build
+                | RunMode::Run
+                | RunMode::Test
+                | RunMode::Bench
+                | RunMode::Bundle => self.require_build_mi_of_dep(node, dep),
+                RunMode::Format => {
+                    unreachable!("format plans do not compile virtual package contracts")
+                }
+            }
         }
 
         self.resolved_node(node);

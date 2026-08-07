@@ -78,6 +78,20 @@ _Avoid_: Using process names for durable data entities
 A noun or noun phrase used for stable MoonBuild concepts produced or consumed by build stages. A distinct entity name does not require a distinct data container.
 _Avoid_: Using entity names for operations, adding containers only to mirror vocabulary
 
+## Build Planning
+
+**Build Artifact**:
+A logical build result identified independently of its physical output root and provider derivation. Artifact identity includes the semantic output kind: check, build, proof, and virtual-contract `.mi` files are distinct. Identity is scoped to one backend-specific Build Plan.
+_Avoid_: Output path, action ID, build product
+
+**Artifact Requirement**:
+A declaration that a build-plan derivation needs a Build Artifact. It does not name the derivation that provides the artifact.
+_Avoid_: Action dependency, producer edge
+
+**Artifact Provider**:
+The build-plan derivation registered as producing a Build Artifact. Every required artifact has exactly one provider within a Build Plan.
+_Avoid_: Choosing a provider separately at each requirement call site
+
 ## Native Build
 
 **Target Backend**:
