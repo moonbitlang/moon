@@ -86,7 +86,8 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Expand the build graph according to rules into containing all transitive dependencies of these nodes.
    - Generate a concrete build graph containing the final commandlines to execute.
 3. Execute the build graph
-   - Generate metadata files required for the IDE and compilers to use.
+   - Generate metadata files required by compiler actions. Full project checks
+     also publish `packages.json` for tooling compatibility during migration.
    - Execute the concrete build graph in its executor ([n2][]).
      The executor ensures the graph is executed incrementally, rebuilding only the changed parts.
 4. Perform other operations required after build
@@ -511,3 +512,7 @@ one item per input build plan node.
 
 `packages.json` is the legacy metadata file shared with IDE tooling.
 Its top-level shape remains single-module-oriented for compatibility.
+`moon doc` generates it because `moondoc` consumes it directly. Project checks
+without a selector publish it as well. Standalone-file checks continue to
+publish `<filename>.packages.json`; focused project checks leave metadata
+untouched, and `moon bundle` does not publish it.

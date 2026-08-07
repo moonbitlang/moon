@@ -26,8 +26,8 @@
 //! 3. `plan_check_rr_from_resolved_all` turns those backend groups into an
 //!    ordered list of single-backend RR plans.
 //! 4. `plan_check_rr_from_resolved` still plans exactly one backend group.
-//! 5. The runtime executes planned runs in order; the last run updates
-//!    `packages.json`.
+//! 5. The runtime executes planned runs in order. Project checks without a
+//!    selector publish `packages.json`; focused checks leave it untouched.
 //!
 use anyhow::Context;
 use log::LevelFilter;
@@ -766,8 +766,15 @@ fn run_check_normal_internal_rr(
         for (build_meta, build_graph) in planned_runs {
             // Generate all_pkgs.json for indirect dependency resolution
             rr_build::generate_all_pkgs_json(&build_meta)?;
-            // Generate metadata for IDE. The last executed backend wins.
-            rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
+            if cmd.package_path.is_none() && cmd.path.is_empty() {
+                rr_build::generate_metadata(
+                    source_dir,
+                    target_dir,
+                    &build_meta,
+                    &build_graph,
+                    None,
+                )?;
+            }
 
             if let Some(json) = json.as_deref_mut() {
                 let target_backend = build_meta.target_backend();
