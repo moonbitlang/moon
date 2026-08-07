@@ -137,21 +137,37 @@ fn test_check_failed_should_write_pkg_json() {
 fn test_packages_json_full_check_and_focused_check_behavior() {
     let dir = TestDir::new("hello");
     let pkg_json = dir.join("_build/packages.json");
+    let scoped_pkg_json = dir.join("_build/wasm-gc/release/check/packages.json");
     std::fs::create_dir_all(pkg_json.parent().unwrap()).unwrap();
     std::fs::write(&pkg_json, "existing metadata").unwrap();
 
-    moon_cmd(&dir).args(["check"]).assert().success();
+    moon_cmd(&dir)
+        .args(["check", "--target", "wasm-gc", "--release"])
+        .assert()
+        .success();
     assert_ne!(
         std::fs::read_to_string(&pkg_json).unwrap(),
         "existing metadata"
     );
+    assert_eq!(
+        std::fs::read_to_string(&scoped_pkg_json).unwrap(),
+        std::fs::read_to_string(&pkg_json).unwrap()
+    );
 
     std::fs::write(&pkg_json, "existing metadata").unwrap();
+    std::fs::write(&scoped_pkg_json, "existing scoped metadata").unwrap();
 
-    moon_cmd(&dir).args(["check", "main"]).assert().success();
+    moon_cmd(&dir)
+        .args(["check", "main", "--target", "wasm-gc", "--release"])
+        .assert()
+        .success();
     assert_eq!(
         std::fs::read_to_string(&pkg_json).unwrap(),
         "existing metadata"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&scoped_pkg_json).unwrap(),
+        "existing scoped metadata"
     );
 }
 

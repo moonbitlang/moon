@@ -532,7 +532,7 @@ fn test_single_file_commands_work_with_workspace_disabled() {
 
     let check_result = moon_cmd(&dir)
         .env(MOON_NO_WORKSPACE, "1")
-        .args(["check", "hello.mbt"])
+        .args(["check", "hello.mbt", "--target", "wasm-gc"])
         .assert()
         .success()
         .get_output()
@@ -546,7 +546,12 @@ fn test_single_file_commands_work_with_workspace_disabled() {
         "#]],
     );
     assert!(!dir.join("_build/packages.json").exists());
-    assert!(dir.join("_build/hello.mbt.packages.json").exists());
+    let legacy_pkg_json = dir.join("_build/hello.mbt.packages.json");
+    let scoped_pkg_json = dir.join("_build/wasm-gc/debug/check/hello.mbt.packages.json");
+    assert_eq!(
+        std::fs::read_to_string(scoped_pkg_json).unwrap(),
+        std::fs::read_to_string(legacy_pkg_json).unwrap()
+    );
 
     check(
         get_stdout_with_envs(&dir, ["test", "test.mbt"], [(MOON_NO_WORKSPACE, "1")]),

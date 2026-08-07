@@ -512,8 +512,19 @@ one item per input build plan node.
 
 `packages.json` is the legacy metadata file shared with IDE tooling.
 Its top-level shape remains single-module-oriented for compatibility.
-`moon doc` generates it because `moondoc` consumes it directly. Project checks
-without a selector publish it as well. Standalone-file checks continue to
-publish `<filename>.packages.json`; focused project checks leave metadata
-untouched. `moon bundle` continues to publish the legacy file for tooling
-compatibility.
+When metadata is generated, the same serialized document is published both at
+the legacy path and beside the corresponding build artifacts:
+
+```text
+_build/packages.json
+_build/<backend>/<profile>/<run-mode>/packages.json
+```
+
+Standalone-file checks similarly publish both
+`_build/<filename>.packages.json` and
+`_build/<backend>/<profile>/check/<filename>.packages.json`. Project checks
+without a selector publish metadata; focused project checks leave it untouched,
+and `moon bundle` continues to publish it for tooling compatibility. `moon doc`
+continues to consume the legacy path during migration. No metadata index is
+published; consumers choose the backend, profile, and run mode before reading
+the corresponding fixed path.
