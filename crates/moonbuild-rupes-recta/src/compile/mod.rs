@@ -594,4 +594,77 @@ mod tests {
                 .any(|path| path.ends_with("dependency.core"))
         );
     }
+
+    #[test]
+    fn compile_uses_default_proof_prelude() {
+        let module_source = ModuleSource::local_path(
+            "test/single"
+                .parse::<ModuleName>()
+                .expect("test module should parse"),
+            PathBuf::from("."),
+            DEFAULT_VERSION.clone(),
+        );
+        let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let mut packages = DiscoverResult::default();
+        packages.test_register_module(module, moon_mod());
+        let package = packages.test_add_package(
+            module,
+            PackagePath::new("proof").expect("proof path should parse"),
+            package(module, &module_source, "proof", false, false),
+        );
+        let target = package.build_target(TargetKind::Source);
+        let mut module_dirs = DirSyncResult::default();
+        module_dirs.insert(module, PathBuf::from("."));
+        let resolved = ResolveOutput {
+            module_rel: modules,
+            module_dirs,
+            pkg_dirs: packages,
+            pkg_rel: DepRelationship::default(),
+        };
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Mono {
+                    main_module: module_source,
+                },
+                OptLevel::Debug,
+                RunMode::Prove,
+            ),
+            None,
+        );
+        let config = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            backend: BackendConfig::WasmGc { use_wat: false },
+            opt_level: OptLevel::Debug,
+            action: RunMode::Prove,
+            debug_symbols: false,
+            stdlib_path: None,
+            artifact_paths,
+            lowering_environment: LoweringEnvironment::default(),
+            debug_export_build_plan: false,
+            enable_coverage: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            warn_list: None,
+            info_no_alias: false,
+        };
+
+        let output = compile(
+            &config,
+            Path::new("."),
+            &resolved,
+            &[BuildPlanNode::Prove(target)],
+            &InputDirective::default(),
+            None,
+            &UserLog::new(log::LevelFilter::Error),
+        )
+        .expect("the default directive should select the toolchain proof prelude");
+
+        let proof_prelude = moonutil::toolchain::prelude_proof().display().to_string();
+        assert!(output.command_args_by_output.values().any(|args| {
+            args.windows(2)
+                .any(|pair| pair[0] == "-why3-loadpath" && pair[1] == proof_prelude)
+        }));
+    }
 }

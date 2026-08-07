@@ -19,7 +19,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use crate::{constants::BUILD_DIR, target::TargetBackend};
+use crate::{
+    constants::{BUILD_DIR, PRELUDE_PROOF_DIR},
+    target::TargetBackend,
+};
 
 pub struct MoonDirs {
     pub moon_home: PathBuf,
@@ -119,6 +122,10 @@ pub fn include() -> PathBuf {
 
 pub fn lib() -> PathBuf {
     toolchain_root().join("lib")
+}
+
+pub fn prelude_proof() -> PathBuf {
+    lib().join(PRELUDE_PROOF_DIR)
 }
 
 pub fn share() -> PathBuf {
@@ -268,6 +275,7 @@ fn test_moon_dir() {
         bin(),
         include(),
         lib(),
+        prelude_proof(),
         why3_datadir(),
         why3_libdir(),
         core_bundle(TargetBackend::default()),
@@ -288,6 +296,7 @@ fn test_moon_dir() {
             "bin",
             "include",
             "lib",
+            "lib|prelude_proof",
             "share|why3",
             "lib|why3",
             "lib|core|_build|wasm|release|bundle",

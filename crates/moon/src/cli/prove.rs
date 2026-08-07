@@ -22,8 +22,9 @@ use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode};
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    command_output::CommandOutput, locks::FileLock, project::PackageDirs, resolution::ModuleId,
-    target::TargetBackend, test_metadata::DiagnosticLevel, user_log::UserLog,
+    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, locks::FileLock,
+    project::PackageDirs, resolution::ModuleId, target::TargetBackend,
+    test_metadata::DiagnosticLevel, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;
@@ -37,7 +38,12 @@ use crate::{
     rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile},
 };
 
+const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
+
 /// Prove the current package
+///
+/// Set `MOON_PROVE_PRELUDE_OVERRIDE` to a directory containing
+/// `moonbit_builtin_prelude.mlw` to replace the toolchain's proof prelude.
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct ProveSubcommand {
     /// The file-system path to the package or file in package to prove
@@ -139,6 +145,7 @@ pub(crate) fn run_prove(
         .as_deref()
         .map(canonicalize_why3_config)
         .transpose()?;
+    let proof_prelude = resolve_proof_prelude()?;
     let generated_why3_config_path = verif_dir.join("why3.conf");
 
     if !cli.dry_run && why3_config_path.is_none() {
@@ -174,6 +181,7 @@ pub(crate) fn run_prove(
         &resolve_output,
         planning_context.target_backend(),
         prove_why3_config.as_deref(),
+        &proof_prelude,
         user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
@@ -216,10 +224,12 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
     prove_why3_config: Option<&Path>,
+    proof_prelude: &Path,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let directive = moonbuild_rupes_recta::build_plan::InputDirective {
         prove_why3_config: prove_why3_config.map(Path::to_path_buf),
+        proof_prelude: proof_prelude.to_path_buf(),
         ..Default::default()
     };
 
@@ -268,6 +278,27 @@ fn calc_user_intent(
 fn canonicalize_why3_config(path: &Path) -> anyhow::Result<PathBuf> {
     dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve why3 config `{}`", path.display()))
+}
+
+fn resolve_proof_prelude() -> anyhow::Result<PathBuf> {
+    let Some(override_path) = std::env::var_os(MOON_PROVE_PRELUDE_OVERRIDE) else {
+        return Ok(moonutil::toolchain::prelude_proof());
+    };
+    let override_path = PathBuf::from(override_path);
+    let resolved = dunce::canonicalize(&override_path).with_context(|| {
+        format!(
+            "failed to resolve {MOON_PROVE_PRELUDE_OVERRIDE} path `{}`",
+            override_path.display()
+        )
+    })?;
+    if !resolved.is_dir() || !resolved.join(PRELUDE_PROOF_FILE).is_file() {
+        bail!(
+            "{MOON_PROVE_PRELUDE_OVERRIDE} must point to a directory containing \
+             `{PRELUDE_PROOF_FILE}`; `{}` does not",
+            resolved.display()
+        );
+    }
+    Ok(resolved)
 }
 
 fn selected_main_module_id(

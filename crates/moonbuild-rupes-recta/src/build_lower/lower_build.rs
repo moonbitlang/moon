@@ -284,14 +284,12 @@ impl<'a> LoweringContext<'a> {
         deps
     }
 
-    fn proof_loadpaths_of(&self, target: BuildTarget) -> Vec<PathBuf> {
+    fn proof_loadpaths_of(&self, target: BuildTarget, proof_prelude: &Path) -> Vec<PathBuf> {
         let mut visited = HashSet::new();
         let mut pending = vec![target];
         let mut loadpaths = BTreeSet::new();
 
-        if let Some(prelude_proof) = self.stdlib_prelude_proof_loadpath() {
-            loadpaths.insert(prelude_proof);
-        }
+        loadpaths.insert(proof_prelude.to_path_buf());
 
         while let Some(current) = pending.pop() {
             if !visited.insert(current) {
@@ -317,17 +315,6 @@ impl<'a> LoweringContext<'a> {
         }
 
         loadpaths.into_iter().collect()
-    }
-
-    fn stdlib_prelude_proof_loadpath(&self) -> Option<PathBuf> {
-        let prelude_proof = self
-            .opt
-            .stdlib_path
-            .as_ref()
-            .and_then(|stdlib_root| stdlib_root.parent())
-            .map(|lib_root| lib_root.join(moonutil::constants::PRELUDE_PROOF_DIR))?;
-
-        prelude_proof.is_dir().then_some(prelude_proof)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -522,10 +509,11 @@ impl<'a> LoweringContext<'a> {
             )
         });
         let dep_proofs = self.dep_proofs_of(target);
+        let proof_prelude = info.proof_prelude.as_path();
         // Why3 needs every reachable non-stdlib proof directory on its loadpath
         // once emitted proof artifacts live alongside package-local verification
         // outputs under `_build/verif/<pkg>/...`.
-        let why3_loadpaths = self.proof_loadpaths_of(target);
+        let why3_loadpaths = self.proof_loadpaths_of(target, proof_prelude);
         let cmd = compiler::MooncProve {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -553,6 +541,7 @@ impl<'a> LoweringContext<'a> {
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
         extra_inputs.push(why3_config);
+        extra_inputs.push(proof_prelude.join(moonutil::constants::PRELUDE_PROOF_FILE));
         extra_inputs.extend(why3_loadpaths);
         if !package.is_single_file() {
             extra_inputs.push(package.config_path());
