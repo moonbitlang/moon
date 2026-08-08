@@ -42,13 +42,35 @@ fn moon_executable(binary_name: &str, env_var: &str) -> PathBuf {
     moon_executable_in(binary_name, env_var, &current_dir)
 }
 
+fn try_moon_executable(binary_name: &str, env_var: &str) -> Option<PathBuf> {
+    let current_dir = std::env::current_dir().ok()?;
+    try_moon_executable_in(binary_name, env_var, &current_dir)
+}
+
 fn moon_executable_in(binary_name: &str, env_var: &str, current_dir: &std::path::Path) -> PathBuf {
+    try_moon_executable_in(binary_name, env_var, current_dir).unwrap_or_else(|| {
+        let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
+        panic!(
+            "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
+             Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
+            in_toolchain.display()
+        )
+    })
+}
+
+fn try_moon_executable_in(
+    binary_name: &str,
+    env_var: &str,
+    current_dir: &std::path::Path,
+) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(env_var) {
-        return crate::toolchain::resolve_executable_in(&path, current_dir).unwrap_or_else(|_| {
-            // Keep unresolved overrides intact so each command preserves its
-            // existing user-facing error path.
-            PathBuf::from(path)
-        });
+        return Some(
+            crate::toolchain::resolve_executable_in(&path, current_dir).unwrap_or_else(|_| {
+                // Keep unresolved overrides intact so each command preserves its
+                // existing user-facing error path.
+                PathBuf::from(path)
+            }),
+        );
     }
 
     if binary_name == "moon"
@@ -58,31 +80,25 @@ fn moon_executable_in(binary_name: &str, env_var: &str, current_dir: &std::path:
             .and_then(|name| name.to_str())
             .is_some_and(|name| name == "moon" || name == "moon.exe")
     {
-        return dunce::canonicalize(&current_exe).unwrap_or(current_exe);
+        return Some(dunce::canonicalize(&current_exe).unwrap_or(current_exe));
     }
 
     // Try to find in the resolved toolchain root.
     let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
     if in_toolchain.exists() {
-        return crate::toolchain::resolve_executable_in(&in_toolchain, current_dir).unwrap_or_else(
-            |error| {
-                panic!(
-                    "failed to resolve MoonBit tool `{}`: {error:#}",
-                    in_toolchain.display()
-                )
-            },
+        return Some(
+            crate::toolchain::resolve_executable_in(&in_toolchain, current_dir).unwrap_or_else(
+                |error| {
+                    panic!(
+                        "failed to resolve MoonBit tool `{}`: {error:#}",
+                        in_toolchain.display()
+                    )
+                },
+            ),
         );
     }
 
-    if let Ok(in_path) = crate::toolchain::resolve_executable_in(binary_name, current_dir) {
-        return in_path;
-    }
-
-    panic!(
-        "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
-         Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
-        in_toolchain.display()
-    )
+    crate::toolchain::resolve_executable_in(binary_name, current_dir).ok()
 }
 
 pub fn moon_cram_in(current_dir: &std::path::Path) -> PathBuf {
@@ -94,26 +110,29 @@ pub fn mooncake_in(current_dir: &std::path::Path) -> PathBuf {
 }
 
 fn moon_payload(file_name: &str, env_var: &str) -> PathBuf {
+    try_moon_payload(file_name, env_var).unwrap_or_else(|| {
+        let in_toolchain = crate::moon_dir::bin().join(file_name);
+        panic!(
+            "failed to resolve MoonBit tool payload `{file_name}`; looked in `{}` and PATH. \
+             Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
+            in_toolchain.display()
+        )
+    })
+}
+
+fn try_moon_payload(file_name: &str, env_var: &str) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(env_var) {
-        return PathBuf::from(path);
+        return Some(PathBuf::from(path));
     }
 
     let in_toolchain = crate::moon_dir::bin().join(file_name);
     if in_toolchain.exists() {
-        return in_toolchain;
+        return Some(in_toolchain);
     }
 
     // Preserve PATH lookup for installations that expose these payloads there,
     // while keeping override values under ordinary file-path semantics.
-    if let Ok(in_path) = crate::toolchain::resolve_executable(file_name) {
-        return in_path;
-    }
-
-    panic!(
-        "failed to resolve MoonBit tool payload `{file_name}`; looked in `{}` and PATH. \
-         Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
-        in_toolchain.display()
-    )
+    crate::toolchain::resolve_executable(file_name).ok()
 }
 
 fn optional_executable(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
@@ -148,21 +167,38 @@ pub struct CachedBinaries {
 }
 
 impl CachedBinaries {
+    /// Toolchain binaries whose absolute paths can be rewritten for dry-run /
+    /// log display.
+    ///
+    /// Skips tools that are not installed. Path normalization only needs entries
+    /// for binaries that can appear in a command line; requiring every companion
+    /// (`mooncake`, `moondoc`, `moon_cove_report`, …) would panic on incomplete
+    /// installs (notably the Wasm toolchain) when `moon test` merely formats the
+    /// command it is about to run.
     pub fn all_moon_bins(&self) -> Vec<(&str, PathBuf)> {
-        vec![
-            ("moon", self.moonbuild.clone()),
-            ("moonc", self.moonc.clone()),
-            ("mooncake", self.mooncake.clone()),
-            ("moondoc", self.moondoc.clone()),
-            ("moonfmt", self.moonfmt.clone()),
-            ("mooninfo", self.mooninfo.clone()),
-            ("moonlex", self.moonlex.clone()),
-            ("moonrun", self.moonrun.clone()),
-            ("moonyacc", self.moonyacc.clone()),
-            ("moon_cove_report", self.moon_cove_report.clone()),
-            ("node", self.node_or_default()),
-            ("git", self.git_or_default()),
-        ]
+        let mut bins = Vec::new();
+        let mut push_exe = |name: &'static str, env_var: &str| {
+            if let Some(path) = try_moon_executable(name, env_var) {
+                bins.push((name, path));
+            }
+        };
+        push_exe("moon", "MOON_OVERRIDE");
+        push_exe("moonc", "MOONC_OVERRIDE");
+        push_exe("mooncake", "MOONCAKE_OVERRIDE");
+        push_exe("moondoc", "MOONDOC_OVERRIDE");
+        push_exe("moonfmt", "MOONFMT_OVERRIDE");
+        push_exe("mooninfo", "MOONINFO_OVERRIDE");
+        push_exe("moonrun", "MOONRUN_OVERRIDE");
+        push_exe("moon_cove_report", "MOON_COVE_REPORT_OVERRIDE");
+        if let Some(path) = try_moon_payload("moonlex.wasm", "MOONLEX_OVERRIDE") {
+            bins.push(("moonlex", path));
+        }
+        if let Some(path) = try_moon_payload("moonyacc.wasm", "MOONYACC_OVERRIDE") {
+            bins.push(("moonyacc", path));
+        }
+        bins.push(("node", self.node_or_default()));
+        bins.push(("git", self.git_or_default()));
+        bins
     }
 
     pub fn node_or_default(&self) -> PathBuf {
@@ -200,7 +236,7 @@ pub static BINARIES: CachedBinaries = CachedBinaries {
 
 #[cfg(test)]
 mod tests {
-    use super::moon_executable;
+    use super::{moon_executable, try_moon_executable, BINARIES};
 
     #[test]
     #[should_panic(expected = "failed to resolve MoonBit tool")]
@@ -214,5 +250,30 @@ mod tests {
             std::process::id()
         );
         moon_executable(&binary_name, &env_var);
+    }
+
+    #[test]
+    fn try_moon_executable_returns_none_for_missing_tool() {
+        let binary_name = format!(
+            "__missing_moonbit_tool_for_try_resolution_test_{}__",
+            std::process::id()
+        );
+        let env_var = format!(
+            "__MISSING_MOONBIT_TOOL_OVERRIDE_FOR_TRY_RESOLUTION_TEST_{}__",
+            std::process::id()
+        );
+        assert!(try_moon_executable(&binary_name, &env_var).is_none());
+    }
+
+    #[test]
+    fn all_moon_bins_skips_uninstalled_companions() {
+        // Must not panic when optional companions (mooncake, moondoc, …) are absent.
+        let names: Vec<&str> = BINARIES
+            .all_moon_bins()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert!(names.contains(&"node"));
+        assert!(names.contains(&"git"));
     }
 }

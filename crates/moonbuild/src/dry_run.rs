@@ -113,6 +113,9 @@ fn normalized_env_lines(env: &[(String, String)], replacer: &PathNormalizer) -> 
 // FIXME: `PathNormalizer` is production-facing dry-run output formatting, not
 // moonbuild debug support. Move it to a non-debug utility module after
 // `moonbuild-debug` is no longer needed on production dependency paths.
+//
+// `all_moon_bins()` intentionally skips missing companions so formatting a
+// `moon test` command line does not require `mooncake` / `moondoc` / etc.
 pub struct PathNormalizer {
     canonical: Option<PathBuf>,
     replace_table: Vec<(String, String)>,
