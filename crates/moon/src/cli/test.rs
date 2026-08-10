@@ -396,14 +396,34 @@ fn run_test_impl(
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));
     }
     let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
-
-    let mut ret_value = 0;
-    for t in targets {
-        info!(backend = ?t, "running tests for backend");
-        let x = run_test_internal(cli, cmd, &dirs, display_backend_hint, Some(t), output)
+    let test_cmd: TestLikeSubcommand<'_> = cmd.into();
+    validate_test_or_bench_invocation(cli, &test_cmd)?;
+    let resolve_output =
+        sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let run_targets = || -> anyhow::Result<i32> {
+        let mut ret_value = 0;
+        for t in targets.iter().copied() {
+            info!(backend = ?t, "running tests for backend");
+            let x = run_test_or_bench_from_resolved(
+                cli,
+                &test_cmd,
+                &dirs,
+                display_backend_hint,
+                Some(t),
+                resolve_output.clone(),
+                output,
+            )
             .context(format!("failed to run test for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+            ret_value = ret_value.max(x);
+        }
+        Ok(ret_value)
+    };
+
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
     }
+    let ret_value = run_targets()?;
     debug!(exit_code = ret_value, "completed moon test command");
     Ok(ret_value)
 }
@@ -579,6 +599,10 @@ fn run_test_in_single_file_rr(
     )?;
 
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(target_dir, output.user_log())?;
+    }
     rr_test_from_plan(
         cli,
         &test_cmd,
@@ -901,6 +925,23 @@ pub(crate) fn run_test_or_bench_internal(
         "cli filter state"
     );
 
+    validate_test_or_bench_invocation(cli, &cmd)?;
+
+    debug!("selecting test runner implementation");
+    run_test_rr(
+        cli,
+        &cmd,
+        dirs,
+        display_backend_hint,
+        selected_target_backend,
+        output,
+    )
+}
+
+pub(crate) fn validate_test_or_bench_invocation(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+) -> anyhow::Result<()> {
     // Accept -i/--doc-index when either --file is set or the positional PATH refers to a file.
     // explicit_is_file is true only when PATH is an existing regular file.
     let explicit_is_file = matches!(cmd.explicit_path_filters, [path] if path.is_file());
@@ -929,15 +970,22 @@ pub(crate) fn run_test_or_bench_internal(
         anyhow::bail!("`--profile` is only supported for `moon test`");
     }
 
-    debug!("selecting test runner implementation");
-    run_test_rr(
-        cli,
-        &cmd,
-        dirs,
-        display_backend_hint,
-        selected_target_backend,
-        output,
-    )
+    Ok(())
+}
+
+pub(crate) fn sync_and_resolve_test_or_bench_project(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
+    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    );
+    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
 }
 
 #[instrument(skip_all)]
@@ -950,6 +998,35 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
+    let resolve_output = sync_and_resolve_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+    }
+    run_test_or_bench_from_resolved(
+        cli,
+        cmd,
+        dirs,
+        display_backend_hint,
+        selected_target_backend,
+        resolve_output,
+        output,
+    )
+}
+
+/// Plans, builds, and runs tests from resolved project data.
+///
+/// The caller must hold the target-directory lock for a non-dry-run command.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_test_or_bench_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    dirs: &PackageDirs,
+    display_backend_hint: Option<()>,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    output: &CommandOutput,
+) -> Result<i32, anyhow::Error> {
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -958,15 +1035,6 @@ fn run_test_rr(
         ..
     } = dirs;
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-        cmd.auto_sync_flags.frozen,
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
-    );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let planned_runs = plan_test_or_bench_rr_from_resolved_all(
         cli,
         cmd,
@@ -1700,7 +1768,6 @@ fn rr_test_from_plan(
 }
 
 struct BuiltTestExecution {
-    _lock: FileLock,
     build_config: BuildConfig,
     build_graph_backup: Option<rr_build::BuildInput>,
 }
@@ -1737,7 +1804,6 @@ fn execute_test_build_from_plan(
         return Ok(TestBuildExecution::DryRun);
     }
 
-    let lock = FileLock::lock(target_dir)?;
     // Generate the all_pkgs.json for indirect dependency resolution
     // before executing the build
     rr_build::generate_all_pkgs_json(build_meta)?;
@@ -1761,7 +1827,6 @@ fn execute_test_build_from_plan(
     }
 
     Ok(TestBuildExecution::Built(Box::new(BuiltTestExecution {
-        _lock: lock,
         build_config,
         build_graph_backup,
     })))

@@ -412,22 +412,60 @@ fn run_check_impl(
 
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_check_internal(
-            cli,
-            cmd,
-            &dirs,
-            &watch_ignored_subtree,
-            single_file.as_deref(),
-            Some(t),
-            output,
-            json.as_deref_mut(),
-        )
-        .context(format!("failed to run check for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+
+    if single_file.is_some() || cmd.watch {
+        let mut ret_value = 0;
+        for t in targets {
+            let x = run_check_internal(
+                cli,
+                cmd,
+                &dirs,
+                &watch_ignored_subtree,
+                single_file.as_deref(),
+                Some(t),
+                output,
+                json.as_deref_mut(),
+            )
+            .context(format!("failed to run check for target {t:?}"))?;
+            ret_value = ret_value.max(x);
+        }
+        return Ok(ret_value);
     }
-    Ok(ret_value)
+
+    let resolve_output =
+        sync_and_resolve_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
+            .context("Failed to calculate build plan")?;
+    let mut run_targets = || -> anyhow::Result<i32> {
+        let mut ret_value = 0;
+        for t in targets.iter().copied() {
+            let x = run_check_normal_rr_from_resolved(
+                cli,
+                cmd,
+                &dirs,
+                false,
+                Some(t),
+                resolve_output.clone(),
+                output,
+                json.as_deref_mut(),
+            )
+            .context(format!("failed to run check for target {t:?}"))?;
+            ret_value = ret_value.max(if x.ok { 0 } else { 1 });
+        }
+        Ok(ret_value)
+    };
+
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log()).with_context(
+            || {
+                format!(
+                    "failed to acquire build lock in target directory `{}`",
+                    dirs.target_dir.display()
+                )
+            },
+        )?;
+    }
+    run_targets()
 }
 
 #[instrument(skip_all)]
@@ -555,12 +593,7 @@ fn run_check_for_single_file_rr(
         return Ok(0);
     }
 
-    let lock = if json.is_some() {
-        FileLock::lock_with_user_log(target_dir, user_log)
-    } else {
-        FileLock::lock(target_dir)
-    };
-    let _lock = lock.with_context(|| {
+    let _lock = FileLock::lock_with_user_log(target_dir, user_log).with_context(|| {
         format!(
             "failed to acquire build lock in target directory `{}`",
             target_dir.display()
@@ -674,6 +707,44 @@ fn run_check_normal_internal_rr(
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
+    json: Option<&mut CheckJsonAccumulator>,
+) -> anyhow::Result<WatchOutput> {
+    let user_log = output.user_log();
+    let resolve_output = sync_and_resolve_check_project(cli, cmd, dirs, user_log, json.is_some())
+        .context("Failed to calculate build plan")?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, user_log).with_context(|| {
+            format!(
+                "failed to acquire build lock in target directory `{}`",
+                dirs.target_dir.display()
+            )
+        })?;
+    }
+    run_check_normal_rr_from_resolved(
+        cli,
+        cmd,
+        dirs,
+        watch,
+        selected_target_backend,
+        resolve_output,
+        output,
+        json,
+    )
+}
+
+/// Plans and executes a check from resolved project data.
+///
+/// The caller must hold the target-directory lock for a non-dry-run check.
+#[allow(clippy::too_many_arguments)]
+fn run_check_normal_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    dirs: &PackageDirs,
+    watch: bool,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    output: &CommandOutput,
     mut json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
@@ -683,32 +754,6 @@ fn run_check_normal_internal_rr(
         mooncake_bin_dir,
         ..
     } = dirs;
-    std::fs::create_dir_all(target_dir).with_context(|| {
-        format!(
-            "Failed to create target directory: '{}'",
-            target_dir.display()
-        )
-    })?;
-
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
-        cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
-    )
-    .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
-        quiet: false,
-        child_output: if json.is_some() {
-            ChildOutputMode::Capture
-        } else {
-            ChildOutputMode::Inherit
-        },
-    });
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs, user_log)
-        .context("Failed to calculate build plan")?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)
-            .context("Failed to calculate build plan")?;
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
     } else {
@@ -744,17 +789,6 @@ fn run_check_normal_internal_rr(
         })?;
         true
     } else {
-        let lock = if json.is_some() {
-            FileLock::lock_with_user_log(target_dir, user_log)
-        } else {
-            FileLock::lock(target_dir)
-        };
-        let _lock = lock.with_context(|| {
-            format!(
-                "failed to acquire build lock in target directory `{}`",
-                target_dir.display()
-            )
-        })?;
         let mut cfg = BuildConfig::from_flags(
             &cmd.build_flags,
             &cli.unstable_feature,
@@ -800,6 +834,30 @@ fn run_check_normal_internal_rr(
         additional_ignored_paths: prebuild_list.ignored_paths,
         additional_watched_paths: prebuild_list.watched_paths,
     })
+}
+
+fn sync_and_resolve_check_project(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+    json: bool,
+) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
+    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    )
+    .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
+        quiet: false,
+        child_output: if json {
+            ChildOutputMode::Capture
+        } else {
+            ChildOutputMode::Inherit
+        },
+    });
+    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
 }
 
 #[allow(clippy::too_many_arguments)]

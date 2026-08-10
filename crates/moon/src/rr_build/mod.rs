@@ -59,7 +59,7 @@ use moonutil::{
     constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
     features::FeatureGate,
     package::SupportedTargetsDeclKind,
-    project::{ProjectManifest, WorkspaceEnv},
+    project::{PackageDirs, ProjectManifest, WorkspaceEnv},
     render::MooncDiagnostic,
     target::TargetBackend,
     test_metadata::DiagnosticLevel,
@@ -74,6 +74,25 @@ mod dry_run;
 pub use dry_run::{
     format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
 };
+
+/// Synchronize dependencies and return resolved project data.
+/// Target-directory lock ownership remains with the command layer.
+pub(crate) fn sync_and_resolve_project(
+    resolve_config: &ResolveConfig,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<ResolveOutput> {
+    std::fs::create_dir_all(&dirs.target_dir).with_context(|| {
+        format!(
+            "Failed to create target directory: '{}'",
+            dirs.target_dir.display()
+        )
+    })?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(resolve_config, dirs, user_log)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(resolve_config, synced_env, user_log)?;
+    Ok(resolve_output)
+}
 
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {

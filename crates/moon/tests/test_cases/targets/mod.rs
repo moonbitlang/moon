@@ -23,6 +23,20 @@ fn test_many_targets() {
 }
 
 #[test]
+fn test_many_targets_sync_dependencies_once() {
+    let top_dir = TestDir::new("targets/sync_once");
+    for command in ["check", "build", "test", "bench", "bundle"] {
+        let stderr = get_stderr(&top_dir.join("app"), [command, "--target", "all"]);
+
+        assert_eq!(
+            stderr.matches("`bin-deps` is deprecated").count(),
+            1,
+            "explicit multi-target {command} should sync dependencies once, got:\n{stderr}"
+        );
+    }
+}
+
+#[test]
 fn test_many_targets_auto_update_001() {
     let dir = TestDir::new("targets/auto_update");
     let _ = get_stdout(

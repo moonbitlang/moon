@@ -72,14 +72,29 @@ pub(crate) fn run_bundle(
     }
 
     let targets = lower_surface_targets(&surface_targets);
-
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_bundle_internal(&cli, &cmd, &dirs, Some(t), output)
+    let resolve_output = sync_and_resolve_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
+    let run_targets = || -> anyhow::Result<i32> {
+        let mut ret_value = 0;
+        for t in targets.iter().copied() {
+            let x = run_bundle_rr_from_resolved(
+                &cli,
+                &cmd,
+                &dirs,
+                Some(t),
+                resolve_output.clone(),
+                output,
+            )
             .context(format!("failed to run bundle for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+            ret_value = ret_value.max(x);
+        }
+        Ok(ret_value)
+    };
+
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
     }
-    Ok(ret_value)
+    run_targets()
 }
 
 #[instrument(skip_all)]
@@ -103,14 +118,47 @@ pub(crate) fn run_bundle_internal_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let resolve_output = sync_and_resolve_bundle_project(cli, cmd, dirs, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+    }
+    run_bundle_rr_from_resolved(
+        cli,
+        cmd,
+        dirs,
+        selected_target_backend,
+        resolve_output,
+        output,
+    )
+}
+
+/// Plans and executes a bundle from resolved project data.
+///
+/// The caller must hold the target-directory lock for a non-dry-run build.
+fn run_bundle_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    dirs: &PackageDirs,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
         target_dir,
         ..
     } = dirs;
-    let (build_meta, build_graph) =
-        plan_bundle_rr(cli, cmd, dirs, selected_target_backend, user_log)?;
+    let (build_meta, build_graph) = plan_bundle_rr_from_resolved(
+        cli,
+        cmd,
+        target_dir,
+        &dirs.mooncake_bin_dir,
+        selected_target_backend,
+        resolve_output,
+        user_log,
+    )?;
 
     if cli.dry_run {
         output.write_result(|writer| {
@@ -124,7 +172,6 @@ pub(crate) fn run_bundle_internal_rr(
         })?;
         Ok(0)
     } else {
-        let _lock = FileLock::lock(target_dir)?;
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&build_meta)?;
         // Generate legacy metadata for tooling compatibility
@@ -141,32 +188,19 @@ pub(crate) fn run_bundle_internal_rr(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_bundle_rr(
+fn sync_and_resolve_bundle_project(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
-    selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
+    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
-    plan_bundle_rr_from_resolved(
-        cli,
-        cmd,
-        &dirs.target_dir,
-        &dirs.mooncake_bin_dir,
-        selected_target_backend,
-        resolve_output,
-        user_log,
-    )
+    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
 }
 
 pub(crate) fn plan_bundle_rr_from_resolved(

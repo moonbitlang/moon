@@ -21,6 +21,7 @@ use moonutil::{
     build_options::TestIndexRange,
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
+    locks::FileLock,
     project::PackageDirs,
     target::{TargetBackend, lower_surface_targets},
 };
@@ -83,14 +84,33 @@ pub(crate) fn run_bench(
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
     let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
-
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_bench_internal(&cli, &cmd, &dirs, display_backend_hint, Some(t), output)
+    let bench_cmd: super::TestLikeSubcommand<'_> = (&cmd).into();
+    super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
+    let resolve_output =
+        super::sync_and_resolve_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
+    let run_targets = || -> anyhow::Result<i32> {
+        let mut ret_value = 0;
+        for t in targets.iter().copied() {
+            let x = super::run_test_or_bench_from_resolved(
+                &cli,
+                &bench_cmd,
+                &dirs,
+                display_backend_hint,
+                Some(t),
+                resolve_output.clone(),
+                output,
+            )
             .context(format!("failed to run bench for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+            ret_value = ret_value.max(x);
+        }
+        Ok(ret_value)
+    };
+
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
     }
-    Ok(ret_value)
+    run_targets()
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
