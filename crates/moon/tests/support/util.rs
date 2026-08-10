@@ -156,17 +156,6 @@ pub(crate) fn toolchain_root_for_tests() -> PathBuf {
 
 pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace("\\\\", "\\");
-    let s = moonutil::toolchain::BINARIES.all_moon_bins().iter().fold(
-        s.to_string(),
-        |s, (name, path)| {
-            let path = match *name {
-                #[allow(deprecated)]
-                "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
-                _ => path.clone(),
-            };
-            s.replace(path.to_string_lossy().as_ref(), name)
-        },
-    );
     let s = if let Some(path) = MOONRUN_BIN.get() {
         let path = path.to_string_lossy();
         let s = s.replace(path.as_ref(), "moonrun");

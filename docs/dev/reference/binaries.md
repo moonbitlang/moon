@@ -27,3 +27,8 @@ executable lookup.
 
 The cached entry point is `moonutil::toolchain::BINARIES`. Build engines should
 use it instead of duplicating tool lookup rules.
+
+Binary resolution is demand-driven. The cache must not expose an aggregate
+inventory API: code for display, diagnostics, or tests must never enumerate all
+entries or otherwise force resolution of the complete executable inventory.
+An unavailable unused executable must not make an operation fail.
