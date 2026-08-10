@@ -135,6 +135,9 @@ pub struct BuildPlan {
     /// Backend-independent package file-generation actions.
     package_prebuild: PackagePrebuildPlan,
 
+    /// The concrete `.mbti` input selected for each planned virtual contract.
+    virtual_contract_inputs: HashMap<PackageId, PathBuf>,
+
     /// The map of build target to its bundle information
     bundle_info: HashMap<ModuleId, BuildBundleInfo>,
 
@@ -226,6 +229,12 @@ impl BuildPlan {
 
     pub(crate) fn package_prebuild_plan(&self) -> &PackagePrebuildPlan {
         &self.package_prebuild
+    }
+
+    pub(crate) fn virtual_contract_input(&self, package: PackageId) -> Option<&Path> {
+        self.virtual_contract_inputs
+            .get(&package)
+            .map(PathBuf::as_path)
     }
 
     /// Get bundle information for the given module.
@@ -690,6 +699,9 @@ pub enum BuildPlanConstructError {
         package: PackageFQNWithSource,
         message: String,
     },
+
+    #[error("Cannot find `pkg.mbti` declaration file for virtual package {0}")]
+    MissingVirtualMbtiFile(PackageFQNWithSource),
 
     #[error(
         "Package {package}'s (possibly transitive) dependency {dep} \

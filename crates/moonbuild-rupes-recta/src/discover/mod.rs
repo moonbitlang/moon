@@ -441,8 +441,9 @@ fn discover_one_package(
     mbtp_files.sort();
     drop(_sort_guard);
 
-    // Get the virtual mbti file if any
-    let virtual_mbti = discover_virtual_mbti(&pkg_json, &fqn, abs)?;
+    // Record only virtual contracts that are already part of the Package File
+    // Set. Build planning later combines this with actual prebuild providers.
+    let virtual_mbti_files = discover_virtual_mbti_files(&pkg_json, &fqn, abs);
 
     Ok(DiscoveredPackage {
         root_path: abs.to_path_buf(),
@@ -460,7 +461,7 @@ fn discover_one_package(
         mbtp_files,
         c_stub_files: c_stubs,
         c_stub_header_files: c_stub_headers,
-        virtual_mbti,
+        virtual_mbti_files,
         is_stdlib: pkg_is_stdlib,
     })
 }
@@ -498,35 +499,23 @@ fn discover_c_stub_headers(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(headers)
 }
 
-fn discover_virtual_mbti(
-    pkg_json: &MoonPkg,
-    fqn: &PackageFQN,
-    abs: &Path,
-) -> Result<Option<PathBuf>, DiscoverError> {
-    let res = if pkg_json.virtual_pkg.is_some() {
+fn discover_virtual_mbti_files(pkg_json: &MoonPkg, fqn: &PackageFQN, abs: &Path) -> Vec<PathBuf> {
+    if pkg_json.virtual_pkg.is_some() {
         // There are two types of `.mbti` files accepted as input:
         // - The newer version is `pkg.mbti`
         // - The older version is `<pkg_short_name>.mbti`
-        // We prefer the newer one if possible.
         let short_name = fqn.short_alias();
 
         let new_mbti = abs.join(MBTI_USER_WRITTEN);
-        let has_new_mbti = new_mbti.exists();
         let old_mbti = abs.join(format!("{}.mbti", short_name));
-        let has_old_mbti = old_mbti.exists();
 
-        if has_new_mbti {
-            Some(new_mbti)
-        } else if has_old_mbti {
-            Some(old_mbti)
-        } else {
-            return Err(DiscoverError::MissingVirtualMbtiFile(fqn.clone().into()));
-        }
+        [new_mbti, old_mbti]
+            .into_iter()
+            .filter(|path| path.exists())
+            .collect()
     } else {
-        None
-    };
-
-    Ok(res)
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
@@ -534,12 +523,14 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use moonutil::{
-        manifest::MoonMod,
+        manifest::{MoonMod, read_package_desc_file_from_path_with_supported_targets_decl},
         resolution::{DirSyncResult, ModuleSource, ResolvedEnv},
         user_log::UserLog,
     };
+    use relative_path::RelativePath;
 
-    use super::{discover_c_stub_headers, discover_packages};
+    use super::{discover_c_stub_headers, discover_packages, discover_virtual_mbti_files};
+    use crate::pkg_name::{PackageFQN, PackagePath};
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -649,6 +640,51 @@ mod tests {
             discovered
                 .get_package_id_by_name("example/pkg/.hidden")
                 .is_none()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn discovery_records_only_existing_virtual_contracts() {
+        let dir = temp_dir("dependency-virtual-contract");
+        let manifest_path = dir.join("moon.pkg.json");
+        std::fs::write(
+            &manifest_path,
+            r#"{
+  "virtual": { "has-default": false },
+  "pre-build": [{
+    "input": "contract.txt",
+    "output": "./pkg.mbti",
+    "command": "generate"
+  }]
+}"#,
+        )
+        .expect("failed to write package manifest");
+        std::fs::write(dir.join("virtual.mbti"), "legacy contract")
+            .expect("failed to write legacy contract");
+
+        let source: ModuleSource = "example/pkg@0.2.1"
+            .parse()
+            .expect("failed to parse test module source");
+        let package = PackagePath::new_from_rel_path(RelativePath::new("virtual"))
+            .expect("failed to create package path");
+        let fqn = PackageFQN::new(source, package);
+        let (pkg, _) = read_package_desc_file_from_path_with_supported_targets_decl(
+            &manifest_path,
+            &UserLog::new(log::LevelFilter::Error),
+        )
+        .expect("failed to read package manifest");
+
+        assert_eq!(
+            discover_virtual_mbti_files(&pkg, &fqn, &dir),
+            [dir.join("virtual.mbti")]
+        );
+
+        std::fs::write(dir.join("pkg.mbti"), "canonical contract")
+            .expect("failed to write canonical contract");
+        assert_eq!(
+            discover_virtual_mbti_files(&pkg, &fqn, &dir),
+            [dir.join("pkg.mbti"), dir.join("virtual.mbti")]
         );
         let _ = std::fs::remove_dir_all(dir);
     }

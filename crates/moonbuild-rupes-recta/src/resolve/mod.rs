@@ -37,7 +37,7 @@ use mooncake::{
 use moonutil::{
     cache::CacheRoot,
     cli_support::AutoSyncFlags,
-    constants::{MBTI_USER_WRITTEN, MOONBITLANG_CORE},
+    constants::MOONBITLANG_CORE,
     dependency::SourceDependencyInfo,
     front_matter::{MbtMdHeader, parse_front_matter_config},
     manifest::MoonMod,
@@ -138,20 +138,6 @@ fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<F
     }
 
     Ok(config)
-}
-
-fn warn_virtual_mbti_deprecations(packages: &DiscoverResult, user_log: &UserLog) {
-    for (_pkg_id, pkg) in packages.all_packages(false) {
-        if let Some(virtual_mbti) = &pkg.virtual_mbti
-            && virtual_mbti.file_name().and_then(|name| name.to_str()) != Some(MBTI_USER_WRITTEN)
-        {
-            user_log.warn(format!(
-                "Using package name in MBTI file is deprecated. Please rename {} to {}",
-                virtual_mbti.display(),
-                MBTI_USER_WRITTEN
-            ));
-        }
-    }
 }
 
 fn parse_front_matter_imports(
@@ -377,7 +363,6 @@ pub fn resolve_synced_project(
         discover_result.package_count()
     );
 
-    warn_virtual_mbti_deprecations(&discover_result, user_log);
     let dep_relationship = pkg_solve::solve(
         &resolved_env,
         &discover_result,
@@ -466,8 +451,6 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     .map_err(ResolveError::SyncModulesError)?;
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
-    warn_virtual_mbti_deprecations(&discover_result, user_log);
-
     // Synthesize the single-file package that imports everything from discovered modules
     crate::discover::synth::build_synth_single_file_package(
         source_file,

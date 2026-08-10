@@ -50,8 +50,11 @@ Notes:
 - `MOON_IGNORE_PREBUILD` disables applicable custom actions and does not add
   their declared outputs to File Interpretation. Generated files already
   present in the Package File Set remain ordinary compiler inputs.
-- Other output extensions remain ordinary tracked files and can be consumed by
-  later prebuild actions through matching paths.
+- A virtual package's expected `pkg.mbti` or legacy contract path may be a
+  planned prebuild output. Build planning selects the preferred available
+  contract after package prebuild actions are known. Other output extensions
+  remain ordinary tracked files and can be consumed by later prebuild actions
+  through matching paths.
 
 ## Path Resolution
 
@@ -131,9 +134,9 @@ Behavior:
 - All planned package prebuild actions remain part of normal execution.
   Declared outputs that no backend action consumes are leaf outputs of the n2
   graph, so they are still requested and the invocation waits for them.
-- Generated `.mbt`/`.mbt.md`, `.mbtp`, and `.mbl`/`.mby` retain the meanings
-  described above. Producer/consumer ordering comes from equality of their
-  complete paths in n2.
+- Generated `.mbt`/`.mbt.md`, `.mbtp`, `.mbl`/`.mby`, and the selected virtual
+  `.mbti` path retain the meanings described above. Producer/consumer ordering
+  comes from equality of their complete paths in n2.
 
 ## Environment Capture
 

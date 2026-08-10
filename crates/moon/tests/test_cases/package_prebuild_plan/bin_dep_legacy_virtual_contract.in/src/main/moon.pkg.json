@@ -1,0 +1,5 @@
+{
+  "is-main": true,
+  "bin-target": "wasm-gc",
+  "import": ["username/bin_dep_legacy_virtual_contract/virtual"]
+}

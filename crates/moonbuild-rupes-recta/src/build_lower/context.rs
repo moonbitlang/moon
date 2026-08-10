@@ -313,7 +313,9 @@ impl<'a> LoweringContext<'a> {
             BuildAction::GenerateMbti { target } => {
                 self.lower_generate_mbti(&action_products, target)
             }
-            BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package)?,
+            BuildAction::BuildVirtual { package, input } => {
+                self.lower_parse_mbti(package, input)?
+            }
             BuildAction::Bundle { module, targets } => {
                 self.lower_bundle(&action_products, module, targets)?
             }

@@ -1390,14 +1390,9 @@ impl<'a> LoweringContext<'a> {
     pub(super) fn lower_parse_mbti(
         &mut self,
         pid: PackageId,
+        mbti_path: &Path,
     ) -> Result<BuildCommand, LoweringError> {
         let pkg = self.packages.get_package(pid);
-        let Some(mbti_path) = &pkg.virtual_mbti else {
-            panic!(
-                "Lowering ParseMbti node for non-virtual package {}, this is a bug",
-                pkg.fqn
-            );
-        };
 
         // The virtual package interface is emitted as the `.mi` of the source target
         let target = pid.build_target(TargetKind::Source);
@@ -1412,7 +1407,7 @@ impl<'a> LoweringContext<'a> {
 
         // Construct `moonc build-interface` command
         let mut cmd = compiler::MooncBuildInterface::new(
-            mbti_path.as_path(),
+            mbti_path,
             mi_out.as_path(),
             &mi_inputs,
             compiler::CompiledPackageName::new(&pkg.fqn, TargetKind::Source),
@@ -1430,7 +1425,7 @@ impl<'a> LoweringContext<'a> {
 
         Ok(BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
-            extra_inputs: vec![mbti_path.clone()],
+            extra_inputs: vec![mbti_path.to_path_buf()],
             commandline,
         })
     }

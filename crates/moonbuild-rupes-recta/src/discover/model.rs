@@ -112,10 +112,12 @@ pub struct DiscoveredPackage {
     /// MoonBuild does not interpret transitive `#include` directives.
     pub c_stub_header_files: Vec<PathBuf>,
 
-    /// The text-format module interface file for virtual packages.
+    /// Existing text-format module interface files for virtual packages.
     ///
-    /// This is `None` for non-virtual packages.
-    pub virtual_mbti: Option<PathBuf>,
+    /// These are only paths observed during Package File Set discovery. Build
+    /// planning combines them with actual package prebuild outputs and selects
+    /// the input for `BuildVirtual`.
+    pub virtual_mbti_files: Vec<PathBuf>,
 
     /// Whether this package is part of the standard library.    
     pub is_stdlib: bool,
@@ -410,9 +412,6 @@ pub enum DiscoverError {
         path: String,
         msg: &'static str,
     },
-
-    #[error("Cannot find `pkg.mbti` declaration file for virtual package {0}")]
-    MissingVirtualMbtiFile(PackageFQNWithSource),
 
     #[error("Duplicated package name `{}` used by both packages {first} from {} and {second} from {}", .first.fqn(), .first.fqn().module(), .second.fqn().module())]
     ConflictingPackageNameString {

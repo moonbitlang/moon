@@ -32,8 +32,8 @@ use moonutil::{
     compiler_flags::{self, CC, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
-        MOD_DIR, MOONCAKE_BIN, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
-        package_source_file_kind,
+        MBTI_USER_WRITTEN, MOD_DIR, MOONCAKE_BIN, PKG_DIR, PackageSourceFileKind, is_moon_mod,
+        is_moon_pkg, package_source_file_kind,
     },
     manifest::{MoonMod, MoonModRule},
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
@@ -1595,6 +1595,37 @@ impl<'a> BuildPlanConstructor<'a> {
             pkg.is_virtual(),
             "Only virtual packages can have their .mi parsed from .mbti files"
         );
+
+        // The virtual contract may itself be a declared package prebuild
+        // output. Lowering records the selected `.mbti` path as an ordinary
+        // file input, so n2 connects it to the matching prebuild provider.
+        self.plan_package_prebuild(target)?;
+
+        let canonical = pkg.root_path.join(MBTI_USER_WRITTEN);
+        let legacy = pkg
+            .root_path
+            .join(format!("{}.mbti", pkg.fqn.short_alias()));
+        let selected = [canonical, legacy].into_iter().find(|candidate| {
+            pkg.virtual_mbti_files.contains(candidate)
+                || self
+                    .res
+                    .package_prebuild
+                    .output_paths(target)
+                    .any(|output| output == candidate)
+        });
+        let Some(selected) = selected else {
+            return Err(BuildPlanConstructError::MissingVirtualMbtiFile(
+                pkg.fqn.clone().into(),
+            ));
+        };
+        if selected.file_name().and_then(OsStr::to_str) != Some(MBTI_USER_WRITTEN) {
+            self.user_log.warn(format!(
+                "Using package name in MBTI file is deprecated. Please rename {} to {}",
+                selected.display(),
+                MBTI_USER_WRITTEN
+            ));
+        }
+        self.res.virtual_contract_inputs.insert(target, selected);
 
         for dep in self.input.pkg_rel.dep_graph.neighbors_directed(
             target.build_target(TargetKind::Source),

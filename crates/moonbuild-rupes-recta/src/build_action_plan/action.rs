@@ -82,6 +82,7 @@ pub enum BuildAction<'a> {
     },
     BuildVirtual {
         package: PackageId,
+        input: &'a Path,
     },
     Bundle {
         module: ModuleId,

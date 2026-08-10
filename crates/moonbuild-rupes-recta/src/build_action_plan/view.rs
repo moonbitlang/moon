@@ -218,7 +218,13 @@ impl<'a> BuildActionPlan<'a> {
                     .expect("Build target info should be present for GenerateTestInfo nodes"),
             },
             BuildPlanNode::GenerateMbti(target) => BuildAction::GenerateMbti { target },
-            BuildPlanNode::BuildVirtual(package) => BuildAction::BuildVirtual { package },
+            BuildPlanNode::BuildVirtual(package) => BuildAction::BuildVirtual {
+                package,
+                input: self
+                    .plan
+                    .virtual_contract_input(package)
+                    .expect("virtual contract input should be selected during build planning"),
+            },
             BuildPlanNode::Bundle(module) => BuildAction::Bundle {
                 module,
                 targets: &self

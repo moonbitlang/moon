@@ -1493,7 +1493,7 @@ mod tests {
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("native/stub.c")],
             c_stub_header_files: vec![PathBuf::from("native/stub.h")],
-            virtual_mbti: None,
+            virtual_mbti_files: Vec::new(),
             is_stdlib: false,
         };
 
@@ -1737,7 +1737,10 @@ mod tests {
 
         let virtual_contract = resolver.paths_for_product(
             &BuildProduct::Artifact(ArtifactKey::VirtualContractMi { package }),
-            BuildAction::BuildVirtual { package },
+            BuildAction::BuildVirtual {
+                package,
+                input: Path::new("pkg.mbti"),
+            },
             &packages,
             &modules,
             options,
