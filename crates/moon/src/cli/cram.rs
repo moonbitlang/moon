@@ -317,7 +317,7 @@ fn write_dry_run_cram_command(
             "PATH={}",
             display_path_with_executable_dirs(executable_dirs, &replacer)
         ),
-        replacer.normalize_command_arg(&moon_cram.to_string_lossy()),
+        replacer.normalize_command_program(&moon_cram.to_string_lossy()),
     ];
     args.extend(
         cram_args

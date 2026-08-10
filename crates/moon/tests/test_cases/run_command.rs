@@ -73,7 +73,7 @@ fn test_moon_run_with_cli_args() {
         expect![[r#"
             moonc build-package ./main/exit_wasm_gc.mbt ./main/main_wasm.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.mi:debug' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
-            moonrun ./_build/wasm-gc/debug/build/main/main.wasm --
+            '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );
 
@@ -132,7 +132,7 @@ fn test_moon_run_with_cli_args() {
     check(
         replace_dir(std::str::from_utf8(&stdout).unwrap(), &dir),
         expect![[r#"
-            moonrun ./_build/wasm-gc/debug/build/main/main.wasm -- hello
+            '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/main/main.wasm -- hello
         "#]],
     );
 

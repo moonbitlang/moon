@@ -26,7 +26,7 @@ use std::{
     sync::LazyLock,
 };
 
-use moonutil::toolchain::{home, toolchain_root};
+pub use moonutil::path_normalizer::PathNormalizer;
 
 const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
 static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
@@ -108,133 +108,6 @@ fn normalized_env_lines(env: &[(String, String)], replacer: &PathNormalizer) -> 
     env.iter()
         .map(|(key, value)| format!("{key}={}", replacer.normalize_command_arg(value)))
         .collect()
-}
-
-// FIXME: `PathNormalizer` is production-facing dry-run output formatting, not
-// moonbuild debug support. Move it to a non-debug utility module after
-// `moonbuild-debug` is no longer needed on production dependency paths.
-pub struct PathNormalizer {
-    canonical: Option<PathBuf>,
-    replace_table: Vec<(String, String)>,
-    binary_file_name_table: Vec<(String, String)>,
-    show_toolchain_root: bool,
-    toolchain_root: String,
-    moon_home: String,
-}
-
-impl PathNormalizer {
-    pub fn new(source_dir: &Path) -> Self {
-        let all_moon_bins = moonutil::toolchain::BINARIES.all_moon_bins();
-        let replace_table = all_moon_bins
-            .iter()
-            .map(|(name, path)| (path.to_string_lossy().into_owned(), name.to_string()))
-            .collect();
-        let binary_file_name_table = all_moon_bins
-            .iter()
-            .filter_map(|(name, path)| {
-                let file_name = path.file_name()?.to_str()?;
-                (file_name != *name).then(|| (file_name.to_owned(), (*name).to_owned()))
-            })
-            .collect();
-        let toolchain_root = toolchain_root();
-        let moon_home = home();
-        let show_toolchain_root = match (
-            dunce::canonicalize(&toolchain_root),
-            dunce::canonicalize(&moon_home),
-        ) {
-            (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
-            _ => toolchain_root != moon_home,
-        };
-
-        let canonical = dunce::canonicalize(source_dir).ok();
-        PathNormalizer {
-            canonical,
-            replace_table,
-            binary_file_name_table,
-            show_toolchain_root,
-            toolchain_root: toolchain_root.to_string_lossy().into_owned(),
-            moon_home: moon_home.to_string_lossy().into_owned(),
-        }
-    }
-
-    pub fn normalize_command(&self, command: &str) -> String {
-        let args = moonutil::shlex::split_native(command);
-        let normalized_args = args
-            .iter()
-            .map(|s| self.normalize_command_arg(s))
-            .collect::<Vec<_>>();
-        moonutil::shlex::join_unix(normalized_args.iter().map(|s| s.as_ref()))
-    }
-
-    pub fn normalize_command_arg(&self, s: &str) -> String {
-        let mut s = s.to_owned();
-        if let Some(canonical) = &self.canonical {
-            let prefix = canonical.to_string_lossy();
-            let prefix_str = prefix.as_ref();
-            let with_sep = format!("{prefix_str}{}", std::path::MAIN_SEPARATOR);
-            s = s.replace(&with_sep, "./");
-            s = s.replace(prefix_str, ".");
-        }
-
-        for (from, to) in &self.replace_table {
-            s = s.replace(from, to);
-        }
-        if self.show_toolchain_root {
-            s = s.replace(&self.toolchain_root, "$MOON_TOOLCHAIN_ROOT");
-        }
-        s = s.replace(&self.moon_home, "$MOON_HOME");
-        s = s.replace('\\', "/");
-        s = self.normalize_binary_file_name(s);
-
-        s
-    }
-
-    pub fn normalize_path(&self, path: &str) -> String {
-        let path_obj = Path::new(path);
-        if let Some(canonical) = &self.canonical
-            && let Ok(stripped) = path_obj.strip_prefix(canonical)
-        {
-            return Self::relative_from_path(stripped);
-        }
-        let mut path = path.to_owned();
-        if self.show_toolchain_root {
-            path = path.replace(&self.toolchain_root, "$MOON_TOOLCHAIN_ROOT");
-        }
-        path = path.replace(&self.moon_home, "$MOON_HOME");
-        path = path.replace('\\', "/");
-        path = self.normalize_binary_file_name(path);
-
-        path
-    }
-
-    pub fn normalize_context_path(&self, path: &Path) -> String {
-        let normalized_path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        self.normalize_path(&normalized_path.to_string_lossy())
-    }
-
-    fn normalize_binary_file_name(&self, s: String) -> String {
-        self.binary_file_name_table
-            .iter()
-            .find_map(|(from, to)| {
-                if s == *from {
-                    Some(to.clone())
-                } else {
-                    s.strip_suffix(from)
-                        .filter(|prefix| prefix.ends_with('/'))
-                        .map(|prefix| format!("{prefix}{to}"))
-                }
-            })
-            .unwrap_or(s)
-    }
-
-    fn relative_from_path(stripped: &Path) -> String {
-        if stripped.as_os_str().is_empty() {
-            ".".to_owned()
-        } else {
-            let normalized = stripped.to_string_lossy().replace('\\', "/");
-            format!("./{}", normalized)
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -459,95 +332,17 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_known_tool_exe_suffix_without_touching_native_outputs() {
-        let replacer = PathNormalizer {
-            canonical: None,
-            replace_table: vec![],
-            binary_file_name_table: vec![("moonc.exe".to_owned(), "moonc".to_owned())],
-            show_toolchain_root: true,
-            toolchain_root: "$MOON_TOOLCHAIN_ROOT".to_owned(),
-            moon_home: "$MOON_HOME".to_owned(),
-        };
-
-        assert_eq!(replacer.normalize_command_arg("moonc.exe"), "moonc");
-        assert_eq!(
-            replacer.normalize_command_arg("$MOON_HOME/bin/moonc.exe"),
-            "$MOON_HOME/bin/moonc"
-        );
-        assert_eq!(
-            replacer.normalize_path("./_build/native/debug/build/main/main.exe"),
-            "./_build/native/debug/build/main/main.exe"
-        );
-    }
-
-    #[test]
-    fn keeps_moon_home_when_roots_match() {
-        let replacer = PathNormalizer {
-            canonical: None,
-            replace_table: vec![],
-            binary_file_name_table: vec![],
-            show_toolchain_root: false,
-            toolchain_root: "/tmp/.moon".to_owned(),
-            moon_home: "/tmp/.moon".to_owned(),
-        };
-
-        assert_eq!(
-            replacer.normalize_command_arg("/tmp/.moon/lib/core/prelude"),
-            "$MOON_HOME/lib/core/prelude"
-        );
-        assert_eq!(
-            replacer.normalize_path("/tmp/.moon/bin/moonc"),
-            "$MOON_HOME/bin/moonc"
-        );
-    }
-
-    #[test]
-    fn keeps_toolchain_root_distinct_when_needed() {
-        let replacer = PathNormalizer {
-            canonical: None,
-            replace_table: vec![],
-            binary_file_name_table: vec![],
-            show_toolchain_root: true,
-            toolchain_root: "/tmp/toolchain".to_owned(),
-            moon_home: "/tmp/home".to_owned(),
-        };
-
-        assert_eq!(
-            replacer.normalize_command_arg("/tmp/toolchain/lib/core/prelude"),
-            "$MOON_TOOLCHAIN_ROOT/lib/core/prelude"
-        );
-        assert_eq!(
-            replacer.normalize_path("/tmp/toolchain/bin/moonc"),
-            "$MOON_TOOLCHAIN_ROOT/bin/moonc"
-        );
-    }
-
-    #[test]
-    fn normalizes_context_path_relative_to_source_dir() {
-        let source_dir = tempfile::tempdir().unwrap();
-        let cwd = source_dir.path().join("pkg");
-        std::fs::create_dir(&cwd).unwrap();
-
-        let replacer = PathNormalizer::new(source_dir.path());
-        assert_eq!(replacer.normalize_context_path(&cwd), "./pkg");
-        assert_eq!(replacer.normalize_context_path(source_dir.path()), ".");
-    }
-
-    #[test]
     fn renders_build_env_with_normalized_values() {
-        let replacer = PathNormalizer {
-            canonical: Some("/workspace".into()),
-            replace_table: vec![],
-            binary_file_name_table: vec![],
-            show_toolchain_root: false,
-            toolchain_root: "/toolchain".to_owned(),
-            moon_home: "/home".to_owned(),
-        };
+        let source_dir = tempfile::tempdir().unwrap();
+        let include = dunce::canonicalize(source_dir.path())
+            .unwrap()
+            .join("crt/include");
+        let replacer = PathNormalizer::new(source_dir.path());
 
         let lines = normalized_env_lines(
             &[
                 ("LIB".to_owned(), "C:\\SDK\\Lib".to_owned()),
-                ("INCLUDE".to_owned(), "/workspace/crt/include".to_owned()),
+                ("INCLUDE".to_owned(), include.to_string_lossy().into_owned()),
             ],
             &replacer,
         );
