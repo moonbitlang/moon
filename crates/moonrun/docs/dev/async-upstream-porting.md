@@ -6,24 +6,31 @@ accepted by updating the submodule and making provenance checks pass.
 
 ## Port queue
 
-Use the upstream
+The labels are a one-way communication channel from `moonbitlang/async` to
+Moonrun. An async pull request that requires a Moonrun audit or backport is
+marked with the upstream
 [`wasm-runtime-port-required`](https://github.com/moonbitlang/async/issues?q=state%3Aopen%20label%3Awasm-runtime-port-required)
-label as the incoming queue. Do not use mentions as a substitute for the
-label. Also search merged and closed pull requests carrying the label: GitHub
-allows a merged pull request to retain it, so the open queue is not a complete
+label. Moon consumes that queue; Moon pull requests do not use the label to
+publish their own state. Do not use mentions as a substitute for the label.
+Also search merged and closed pull requests carrying it: GitHub allows a
+merged pull request to retain its labels, so the open queue is not a complete
 audit history.
 
-The workflow labels mean:
+On an async pull request, the labels mean:
 
-- `wasm-runtime-port-required`: runtime work or investigation is still needed.
-- `wasm-runtime-port-completed`: the behavior is available on Moon's `main`, or
-  an audit proved that Moon already implements it and no change is necessary.
+- `wasm-runtime-port-required`: async is telling Moon that this upstream change
+  still needs runtime work or investigation.
+- `wasm-runtime-port-completed`: Moon has consumed that request because the
+  behavior is available on Moon's `main`, or an audit proved that Moon already
+  implements it and no change is necessary.
 
 A partial port, local branch, or open Moon pull request remains
 `wasm-runtime-port-required`. After the corresponding change lands on Moon's
 `main`, replace that label on the upstream pull request with
 `wasm-runtime-port-completed`. If any guest or runtime work remains, keep the
-required label and record the gap in the Moon pull request.
+required label and record the gap in the Moon pull request. If a later async
+pull request introduces another runtime requirement, label that pull request
+independently even when the earlier request is already completed.
 
 ## Separate discovery from delivery
 
