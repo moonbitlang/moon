@@ -16,6 +16,12 @@ Also search merged and closed pull requests carrying it: GitHub allows a
 merged pull request to retain its labels, so the open queue is not a complete
 audit history.
 
+Do not self-apply either label to a coordinating async pull request opened as
+part of a Moon port. Such a pull request is an implementation dependency of
+the port, not a new upstream request to Moon. Reference the paired Moon pull
+request and state the merge order instead. Only update labels on the
+originating async pull request that placed work in the queue.
+
 On an async pull request, the labels mean:
 
 - `wasm-runtime-port-required`: async is telling Moon that this upstream change
@@ -30,7 +36,8 @@ A partial port, local branch, or open Moon pull request remains
 `wasm-runtime-port-completed`. If any guest or runtime work remains, keep the
 required label and record the gap in the Moon pull request. If a later async
 pull request introduces another runtime requirement, label that pull request
-independently even when the earlier request is already completed.
+independently when it is an upstream-originated request, even when the earlier
+request is already completed.
 
 ## Separate discovery from delivery
 
@@ -42,17 +49,39 @@ Audit an upstream update before preparing the commits that will deliver it:
    `wasm-runtime-port-required`.
 3. Run the provenance checks before changing annotations. A missing source or
    symbol is an audit signal, not a formatting failure.
-4. Compare the native C implementation together with its MoonBit wrapper to
-   Moonrun's Async API, Async Host, and Async Sys behavior.
-5. Classify each change as an exact move, an already-matching behavior change,
+4. Compare the native C implementation together with every target-specific
+   MoonBit wrapper, especially the wasm imports, to Moonrun's Async API, Async
+   Host, and Async Sys behavior. Do not assume an unchanged wasm wrapper
+   already represents the new native ABI.
+5. If the wasm wrapper still uses a replaced ABI, prepare the coordinating
+   async guest pull request during discovery. Compile that guest and audit its
+   complete import closure, including auxiliary imports initialized by shared
+   code, before finalizing the Moon implementation.
+6. Classify each change as an exact move, an already-matching behavior change,
    or a required port. Do not commit the audit bump while it has unresolved
    provenance or behavior changes.
+7. Treat the port as complete only when the upstream tests run against the
+   updated guest wrapper through the Moon change. Passing those tests with the
+   old compatibility wrapper does not exercise the new ABI.
 
 Deliver required ports one upstream pull request at a time. Restore the pinned
 submodule when necessary, implement the behavior and regression coverage in a
 focused change, and keep that change independently buildable and testable. A
 submodule bump belongs with the port that makes its affected provenance and
 behavior accurate; it is not evidence that the port is complete by itself.
+When the port also needs a coordinating async guest change:
+
+1. Open the unlabeled async pull request while developing the Moon port.
+2. Pin its reachable commit for end-to-end testing and include its complete
+   runtime requirements in the same Moon pull request that consumes the
+   originating queue item.
+3. Merge the Moon pull request first, so the runtime accepts the new guest.
+4. Merge the coordinating async pull request only after the Moon change is on
+   `main`.
+
+Do not defer a guest-visible import that compiling the coordinating guest
+could have revealed to a second Moon pull request. Such a follow-up means the
+original audit stopped before closing the end-to-end ABI boundary.
 
 ## Provenance annotations
 
