@@ -34,9 +34,11 @@ pub(super) fn invalid_fd(context: &mut ImportContext<'_, '_>) -> u64 {
     context.host.invalid_fd()
 }
 
-#[ported(
+#[compat(
     source = "src/internal/event_loop/detect_file_kind.c",
-    original = "moonbitlang_async_kind_of_fd"
+    original = "moonbitlang_async_kind_of_fd",
+    upstream_pr = 527,
+    replacement = "thread_pool/make_fstatx_job with STAT_FILE_KIND"
 )]
 pub(super) fn kind_of_fd(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     match context.host.kind_of_fd(fd) {

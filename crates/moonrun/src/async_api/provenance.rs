@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[cfg(test)]
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceRoot {
     MoonbitAsync,
@@ -38,17 +39,35 @@ pub(crate) struct PortedImport {
     pub(crate) sources: &'static [SourceLocation],
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CompatImport {
+    pub(crate) rust_module: &'static str,
+    pub(crate) rust_symbol: &'static str,
+    pub(crate) original_symbol: &'static str,
+    pub(crate) historical_source: &'static str,
+    pub(crate) upstream_pr: u32,
+    pub(crate) replacement: &'static str,
+    pub(crate) no_op: bool,
+}
+
 macro_rules! ported_imports {
-    (@collect [$($entries:tt)*] [$($out:tt)*]) => {
+    (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
         #[cfg(test)]
         pub(super) const PORTED_IMPORTS: &[$crate::async_api::provenance::PortedImport] = &[
             $($entries)*
         ];
 
+        #[cfg(test)]
+        #[allow(dead_code)]
+        pub(super) const COMPAT_IMPORTS: &[$crate::async_api::provenance::CompatImport] = &[
+            $($compat_entries)*
+        ];
+
         $($out)*
     };
     (
-        @collect [$($entries:tt)*] [$($out:tt)*]
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported(source = $source_path:literal, original = $original:literal)]
         #[cfg($($cfg:tt)*)]
         $(#[$meta:meta])*
@@ -70,7 +89,7 @@ macro_rules! ported_imports {
                         },
                     ],
                 },
-            ] [
+            ] [$($compat_entries)*] [
                 $($out)*
                 #[cfg($($cfg)*)]
                 $(#[$meta])*
@@ -80,7 +99,7 @@ macro_rules! ported_imports {
         );
     };
     (
-        @collect [$($entries:tt)*] [$($out:tt)*]
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported(source = $source_path:literal, original = $original:literal)]
         $(#[$meta:meta])*
         $vis:vis fn $function:ident($($params:tt)*) $(-> $ret:ty)? $body:block
@@ -100,7 +119,7 @@ macro_rules! ported_imports {
                         },
                     ],
                 },
-            ] [
+            ] [$($compat_entries)*] [
                 $($out)*
                 $(#[$meta])*
                 $vis fn $function($($params)*) $(-> $ret)? $body
@@ -109,7 +128,7 @@ macro_rules! ported_imports {
         );
     };
     (
-        @collect [$($entries:tt)*] [$($out:tt)*]
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported(source = $source_path:literal)]
         #[cfg($($cfg:tt)*)]
         $(#[$meta:meta])*
@@ -131,7 +150,7 @@ macro_rules! ported_imports {
                         },
                     ],
                 },
-            ] [
+            ] [$($compat_entries)*] [
                 $($out)*
                 #[cfg($($cfg)*)]
                 $(#[$meta])*
@@ -141,7 +160,7 @@ macro_rules! ported_imports {
         );
     };
     (
-        @collect [$($entries:tt)*] [$($out:tt)*]
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported(source = $source_path:literal)]
         $(#[$meta:meta])*
         $vis:vis fn $function:ident($($params:tt)*) $(-> $ret:ty)? $body:block
@@ -161,7 +180,7 @@ macro_rules! ported_imports {
                         },
                     ],
                 },
-            ] [
+            ] [$($compat_entries)*] [
                 $($out)*
                 $(#[$meta])*
                 $vis fn $function($($params)*) $(-> $ret)? $body
@@ -169,11 +188,76 @@ macro_rules! ported_imports {
             $($rest)*
         );
     };
-    (@collect [$($entries:tt)*] [$($out:tt)*] $item:item $($rest:tt)*) => {
-        ported_imports!(@collect [$($entries)*] [$($out)* $item] $($rest)*);
+    (
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        #[compat(
+            source = $source:literal,
+            original = $original:literal,
+            upstream_pr = $upstream_pr:literal,
+            replacement = $replacement:literal,
+            no_op = true
+        )]
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
+        $($rest:tt)*
+    ) => {
+        ported_imports!(
+            @collect [$($entries)*] [
+                $($compat_entries)*
+                $crate::async_api::provenance::CompatImport {
+                    rust_module: module_path!(),
+                    rust_symbol: stringify!($name),
+                    original_symbol: $original,
+                    historical_source: $source,
+                    upstream_pr: $upstream_pr,
+                    replacement: $replacement,
+                    no_op: true,
+                },
+            ] [
+                $($out)*
+                $(#[$meta])*
+                $vis fn $name($($args)*) $(-> $ret)? $body
+            ]
+            $($rest)*
+        );
+    };
+    (
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        #[compat(
+            source = $source:literal,
+            original = $original:literal,
+            upstream_pr = $upstream_pr:literal,
+            replacement = $replacement:literal
+        )]
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
+        $($rest:tt)*
+    ) => {
+        ported_imports!(
+            @collect [$($entries)*] [
+                $($compat_entries)*
+                $crate::async_api::provenance::CompatImport {
+                    rust_module: module_path!(),
+                    rust_symbol: stringify!($name),
+                    original_symbol: $original,
+                    historical_source: $source,
+                    upstream_pr: $upstream_pr,
+                    replacement: $replacement,
+                    no_op: false,
+                },
+            ] [
+                $($out)*
+                $(#[$meta])*
+                $vis fn $name($($args)*) $(-> $ret)? $body
+            ]
+            $($rest)*
+        );
+    };
+    (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*] $item:item $($rest:tt)*) => {
+        ported_imports!(@collect [$($entries)*] [$($compat_entries)*] [$($out)* $item] $($rest)*);
     };
     ($($items:tt)*) => {
-        ported_imports!(@collect [] [] $($items)*);
+        ported_imports!(@collect [] [] [] $($items)*);
     };
 }
 

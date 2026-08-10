@@ -37,6 +37,7 @@ const NATIVE_ASYNC_PREFIX: &str = "moonbitlang_async_";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AsyncImportKind {
     Ported,
+    Compat,
     Helper,
     Fake,
 }
@@ -61,6 +62,9 @@ struct AsyncImport {
 
 #[cfg(test)]
 macro_rules! import_kind {
+    (compat) => {
+        AsyncImportKind::Compat
+    };
     (ported) => {
         AsyncImportKind::Ported
     };
@@ -121,6 +125,15 @@ macro_rules! decode_wasm_args {
         })();
         decoded_args
     }};
+}
+
+macro_rules! wasm_arg_count {
+    () => {
+        0_i32
+    };
+    ($head:ident $(, $tail:ident)*) => {
+        1_i32 + wasm_arg_count!($($tail),*)
+    };
 }
 
 macro_rules! finish_wasm_import {
@@ -217,6 +230,14 @@ macro_rules! register_async_import {
             args: v8::FunctionCallbackArguments,
             mut ret: v8::ReturnValue,
         ) {
+            if args.length() != wasm_arg_count!($($arg),*) {
+                throw_import_error(
+                    scope,
+                    $wasm_symbol,
+                    crate::async_host::AsyncHostError::Inval,
+                );
+                return;
+            }
             let _ = &args;
             let host_context = callback_context(&args);
             let decoded_args: crate::async_host::AsyncHostResult<_> =
@@ -265,6 +286,9 @@ fn register_func_impl<'s>(
 // Kind legend:
 // - ported: imports that have Rust ports corresponding to moonbitlang/async
 //   implementations. Tests require separate provenance entries for these imports.
+// - compat: retained adapters whose original upstream implementation or import
+//   was removed or replaced. A pinned wasm wrapper may still use one while a
+//   cross-repository migration is in progress.
 // - helper: auxiliary glue around ported ABI.
 // - fake: link-only import for runtime-dispatched wasm; the generated callback is unreachable.
 declare_async_imports! {
@@ -420,7 +444,7 @@ declare_async_imports! {
     #[cfg(unix)]
     fake signal::set_console_control_handler(add: i32) -> i32 => "signal/set_console_control_handler";
 
-    ported fd_util::kind_of_fd(fd: u64) -> i32 => "fd_util/kind_of_fd";
+    compat fd_util::kind_of_fd(fd: u64) -> i32 => "fd_util/kind_of_fd";
 
     #[cfg(unix)]
     ported fd_util::pipe(
@@ -918,7 +942,7 @@ declare_async_imports! {
 
     // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
     // MoonBit String pointer plus UTF-16 code-unit length.
-    ported thread_pool::make_open_job(
+    compat thread_pool::make_open_job_legacy(
         path_ptr: i32,
         path_len: i32,
         access: i32,
@@ -928,13 +952,42 @@ declare_async_imports! {
         mode: i32,
     ) -> u64 => "thread_pool/make_open_job";
 
+    ported thread_pool::make_open_stat_job(
+        path_ptr: i32,
+        path_len: i32,
+        access: i32,
+        create_mode: i32,
+        append: i32,
+        sync: i32,
+        mode: i32,
+        stat_request: i32,
+        stat_result_len: i32,
+    ) -> u64 => "thread_pool/make_open_stat_job";
+
+    ported thread_pool::make_fstatx_job(
+        fd: u64,
+        stat_request: i32,
+        stat_result_len: i32,
+    ) -> u64 => "thread_pool/make_fstatx_job";
+
+    ported thread_pool::make_statx_job(
+        path_ptr: i32,
+        path_len: i32,
+        stat_request: i32,
+        stat_result_len: i32,
+        parent: u64,
+        follow_symlink: i32,
+    ) -> u64 => "thread_pool/make_statx_job";
+
+    helper thread_pool::get_stat_result(job: u64, dst: i32, dst_len: i32) -> void => "thread_pool/get_stat_result";
+
     ported thread_pool::open_job_get_fd(job: u64) -> u64 => "thread_pool/open_job_get_fd";
 
-    ported thread_pool::open_job_get_kind(job: u64) -> i32 => "thread_pool/open_job_get_kind";
+    compat thread_pool::open_job_get_kind(job: u64) -> i32 => "thread_pool/open_job_get_kind";
 
-    ported thread_pool::open_job_get_dev_id(job: u64) -> u64 => "thread_pool/open_job_get_dev_id";
+    compat thread_pool::open_job_get_dev_id(job: u64) -> u64 => "thread_pool/open_job_get_dev_id";
 
-    ported thread_pool::open_job_get_file_id(job: u64) -> u64 => "thread_pool/open_job_get_file_id";
+    compat thread_pool::open_job_get_file_id(job: u64) -> u64 => "thread_pool/open_job_get_file_id";
 
     ported thread_pool::make_read_job(fd: u64, len: i32, position: i64) -> u64 => "thread_pool/make_read_job";
 
@@ -942,20 +995,20 @@ declare_async_imports! {
 
     helper thread_pool::get_read_result(job: u64, dst: i32, offset: i32, len: i32) -> void => "thread_pool/get_read_result";
 
-    ported thread_pool::make_file_kind_by_path_job(
+    compat thread_pool::make_file_kind_by_path_job(
         parent: u64,
         path_ptr: i32,
         path_len: i32,
         follow_symlink: i32,
     ) -> u64 => "thread_pool/make_file_kind_by_path_job";
 
-    ported thread_pool::make_file_size_job(fd: u64) -> u64 => "thread_pool/make_file_size_job";
+    compat thread_pool::make_file_size_job(fd: u64) -> u64 => "thread_pool/make_file_size_job";
 
-    ported thread_pool::get_file_size_result(job: u64) -> i64 => "thread_pool/get_file_size_result";
+    compat thread_pool::get_file_size_result(job: u64) -> i64 => "thread_pool/get_file_size_result";
 
-    ported thread_pool::make_file_time_job(fd: u64) -> u64 => "thread_pool/make_file_time_job";
+    compat thread_pool::make_file_time_job(fd: u64) -> u64 => "thread_pool/make_file_time_job";
 
-    ported thread_pool::make_file_time_by_path_job(
+    compat thread_pool::make_file_time_by_path_job(
         path_ptr: i32,
         path_len: i32,
         follow_symlink: i32,
@@ -1065,7 +1118,9 @@ declare_async_imports! {
         is_orphan: i32,
     ) -> u64 => "thread_pool/make_spawn_job/windows";
 
-    ported thread_pool::get_spawn_job_result_handle(job: u64) -> u64 => "thread_pool/get_spawn_job_result_handle";
+    ported thread_pool::spawn_job_get_result_handle(job: u64) -> u64 => "thread_pool/spawn_job_get_result_handle";
+
+    helper thread_pool::get_spawn_job_result_handle_legacy(job: u64, copy_output: i32) -> u64 => "thread_pool/get_spawn_job_result_handle";
 
     ported thread_pool::make_wait_for_process_job(handle: u64, pid: i32) -> u64 => "thread_pool/make_wait_for_process_job";
 
@@ -1081,7 +1136,7 @@ declare_async_imports! {
 
     helper process::allocate_env_block(size: i32) -> u64 => "process/allocate_env_block";
 
-    helper process::free_env(env: u64) -> void => "process/free_env";
+    compat process::free_env(env: u64) -> void => "process/free_env";
 
     helper process::write_env_block(dst: u64, src: u64) -> void => "process/write_env_block";
 
@@ -1101,7 +1156,7 @@ declare_async_imports! {
     fake process::make_argv_array_unix(len: i32) -> u64 => "process/make_argv_array/unix";
 
     #[cfg(unix)]
-    helper process::free_argv(argv: u64) -> void => "process/free_argv";
+    compat process::free_argv(argv: u64) -> void => "process/free_argv";
 
     #[cfg(windows)]
     fake process::free_argv(argv: u64) -> void => "process/free_argv";
@@ -1163,6 +1218,15 @@ fn async_api_ported_imports() -> Vec<PortedImport> {
     imports.extend_from_slice(socket::PORTED_IMPORTS);
     imports.extend_from_slice(tls::PORTED_IMPORTS);
     imports.extend_from_slice(process::PORTED_IMPORTS);
+    imports
+}
+
+#[cfg(test)]
+fn async_api_compat_imports() -> Vec<super::provenance::CompatImport> {
+    let mut imports = Vec::new();
+    imports.extend_from_slice(thread_pool::COMPAT_IMPORTS);
+    imports.extend_from_slice(fd_util::COMPAT_IMPORTS);
+    imports.extend_from_slice(process::COMPAT_IMPORTS);
     imports
 }
 
@@ -1289,6 +1353,140 @@ mod tests {
     }
 
     #[test]
+    fn generic_stat_imports_coexist_with_native_compatibility_adapters() {
+        let generic_imports: &[(&str, &[WasmType])] = &[
+            (
+                "thread_pool/make_open_stat_job",
+                &[
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                ],
+            ),
+            (
+                "thread_pool/make_fstatx_job",
+                &[WasmType::I64, WasmType::I32, WasmType::I32],
+            ),
+            (
+                "thread_pool/make_statx_job",
+                &[
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I64,
+                    WasmType::I32,
+                ],
+            ),
+        ];
+        for &(wasm_symbol, parameter_types) in generic_imports {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == wasm_symbol)
+                .expect("generic stat import must be registered");
+            assert_eq!(
+                import.kind,
+                AsyncImportKind::Ported,
+                "generic stat import {wasm_symbol} must track the current upstream operation"
+            );
+            assert_eq!(
+                import.params, parameter_types,
+                "generic stat maker {wasm_symbol} must have an exact pointer-free Wasm ABI"
+            );
+            assert_eq!(import.result, Some(WasmType::I64));
+        }
+        let legacy_open = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/make_open_job")
+            .expect("legacy open import must remain registered");
+        assert_eq!(legacy_open.params, &[WasmType::I32; 7]);
+        assert_eq!(legacy_open.result, Some(WasmType::I64));
+
+        let copy_result = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/get_stat_result")
+            .expect("generic stat copy-out import must be registered");
+        assert_eq!(copy_result.kind, AsyncImportKind::Helper);
+        assert_eq!(
+            copy_result.params,
+            &[WasmType::I64, WasmType::I32, WasmType::I32]
+        );
+        assert_eq!(copy_result.result, None);
+        for wasm_symbol in [
+            "thread_pool/make_open_job",
+            "fd_util/kind_of_fd",
+            "thread_pool/open_job_get_kind",
+            "thread_pool/open_job_get_dev_id",
+            "thread_pool/open_job_get_file_id",
+            "thread_pool/make_file_kind_by_path_job",
+            "thread_pool/make_file_size_job",
+            "thread_pool/get_file_size_result",
+            "thread_pool/make_file_time_job",
+            "thread_pool/make_file_time_by_path_job",
+        ] {
+            assert_eq!(
+                ASYNC_IMPORTS
+                    .iter()
+                    .find(|import| import.wasm_symbol == wasm_symbol)
+                    .map(|import| import.kind),
+                Some(AsyncImportKind::Compat),
+                "removed native stat ABI {wasm_symbol} must remain available through a compatibility adapter"
+            );
+        }
+    }
+
+    #[test]
+    fn aggregate_wasm_arguments_are_fully_declared() {
+        let spawn_result = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/spawn_job_get_result_handle")
+            .expect("canonical spawn result import must be registered");
+        assert_eq!(spawn_result.params, &[WasmType::I64]);
+        assert_eq!(spawn_result.result, Some(WasmType::I64));
+
+        let legacy_spawn_result = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/get_spawn_job_result_handle")
+            .expect("legacy aggregate spawn result import must remain registered");
+        assert_eq!(legacy_spawn_result.kind, AsyncImportKind::Helper);
+        assert_eq!(
+            legacy_spawn_result.params,
+            &[WasmType::I64, WasmType::I32],
+            "SpawnJob lowers to its handle and copy-output closure fields"
+        );
+        assert_eq!(legacy_spawn_result.result, Some(WasmType::I64));
+    }
+
+    #[test]
+    fn removed_process_cleanup_imports_are_no_op_compatibility_adapters() {
+        let compat_imports = async_api_compat_imports();
+        for wasm_symbol in ["process/free_env", "process/free_argv"] {
+            let registered = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == wasm_symbol)
+                .expect("cleanup import must remain linkable");
+            if registered.kind == AsyncImportKind::Fake {
+                continue;
+            }
+            let provenance = compat_imports
+                .iter()
+                .find(|compat| {
+                    module_leaf(compat.rust_module) == Some(registered.callback_module)
+                        && compat.rust_symbol == registered.callback_symbol
+                })
+                .expect("cleanup compatibility import must record provenance");
+            assert!(provenance.no_op);
+            assert_eq!(provenance.upstream_pr, 511);
+        }
+    }
+
+    #[test]
     fn wasm_import_names_are_namespaced() {
         for import in ASYNC_IMPORTS {
             let Some((_namespace, _)) = import.wasm_symbol.split_once('/') else {
@@ -1358,6 +1556,55 @@ mod tests {
                 "fake import {} has active ported provenance",
                 import.wasm_symbol
             );
+        }
+    }
+
+    #[test]
+    fn compatibility_imports_record_the_upstream_replacement() {
+        let compat_imports = async_api_compat_imports();
+        let compat_symbols = crate::async_sys::compat_symbols();
+
+        for import in ASYNC_IMPORTS
+            .iter()
+            .filter(|import| import.kind == AsyncImportKind::Compat)
+        {
+            assert!(
+                compat_imports.iter().any(|compat| {
+                    module_leaf(compat.rust_module) == Some(import.callback_module)
+                        && compat.rust_symbol == import.callback_symbol
+                }),
+                "compatibility import {} has no compatibility provenance",
+                import.wasm_symbol
+            );
+        }
+
+        for compat in compat_imports {
+            assert_ne!(compat.upstream_pr, 0);
+            assert!(!compat.replacement.is_empty());
+            if !compat.no_op {
+                assert!(
+                    compat_symbols.iter().any(|symbol| {
+                        symbol.native_symbol == compat.original_symbol
+                            && symbol.historical_source == compat.historical_source
+                            && symbol.upstream_pr == compat.upstream_pr
+                            && !symbol.replacement.is_empty()
+                    }),
+                    "compatibility adapter {}::{} has no matching Async Sys implementation",
+                    compat.rust_module,
+                    compat.rust_symbol
+                );
+            }
+
+            let historical_source = repo_root()
+                .join("third_party/moonbitlang_async")
+                .join(compat.historical_source);
+            if let Ok(contents) = fs::read_to_string(historical_source) {
+                assert!(
+                    !contents.contains(compat.original_symbol),
+                    "compatibility symbol {} still exists upstream and should be ported",
+                    compat.original_symbol
+                );
+            }
         }
     }
 
