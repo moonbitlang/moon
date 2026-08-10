@@ -118,7 +118,7 @@ pub(super) fn make_sleep_job(
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_make_open_job",
     upstream_pr = 527,
-    replacement = "thread_pool/make_open_job (stat_request/stat_result ABI)"
+    replacement = "thread_pool/make_open_stat_job"
 )]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_open_job_legacy(
@@ -143,16 +143,15 @@ pub(super) fn make_open_job_legacy(
     ))
 }
 
-// The native ABI gives each stat maker its eventual output buffer. Moonrun
-// decodes that argument to keep the same ABI, but never retains the Guest
-// Memory pointer in a Job. The worker produces a Rust-owned PackedStat and the
-// wasm completion callback copies it out through get_stat_result.
+// Unlike the native ABI, the wasm maker does not receive the eventual output
+// buffer. The worker produces a Rust-owned PackedStat and the wasm completion
+// callback copies it into current Guest Memory through get_stat_result.
 #[ported(
     source = "src/internal/event_loop/fs.c",
     original = "moonbitlang_async_make_open_job"
 )]
 #[allow(clippy::too_many_arguments)]
-pub(super) fn make_open_job(
+pub(super) fn make_open_stat_job(
     context: &mut ImportContext<'_, '_>,
     path_ptr: i32,
     path_len: i32,
@@ -162,7 +161,6 @@ pub(super) fn make_open_job(
     sync: i32,
     mode: i32,
     stat_request: i32,
-    _stat_result: i32,
     stat_result_len: i32,
 ) -> AsyncHostResult<u64> {
     let filename = read_guest_os_string(context, path_ptr, path_len)?;
@@ -186,7 +184,6 @@ pub(super) fn make_fstatx_job(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
     stat_request: i32,
-    _stat_result: i32,
     stat_result_len: i32,
 ) -> AsyncHostResult<u64> {
     let file = context.host.acquire_resource(fd)?;
@@ -207,7 +204,6 @@ pub(super) fn make_statx_job(
     path_ptr: i32,
     path_len: i32,
     stat_request: i32,
-    _stat_result: i32,
     stat_result_len: i32,
     parent: u64,
     follow_symlink: i32,
@@ -648,12 +644,30 @@ pub(super) fn make_spawn_job_windows(
     ))
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn get_spawn_job_result_handle(
+#[ported(
+    source = "src/internal/event_loop/thread_pool.c",
+    original = "moonbitlang_async_get_spawn_job_result_handle"
+)]
+pub(super) fn spawn_job_get_result_handle(
     context: &mut ImportContext<'_, '_>,
     job: u64,
 ) -> AsyncHostResult<u64> {
     context.host.get_spawn_job_result_handle(job)
+}
+
+// The current wasm wrapper passes SpawnJob by value. Its nested Job is a
+// two-field valtype, so MoonBit lowers both the JobHandle and its optional
+// copy-output closure into this import. Spawn jobs never install that closure;
+// validate the representation invariant while this guest ABI remains in use.
+pub(super) fn get_spawn_job_result_handle_legacy(
+    context: &mut ImportContext<'_, '_>,
+    job: u64,
+    copy_output: i32,
+) -> AsyncHostResult<u64> {
+    if copy_output != 0 {
+        return Err(AsyncHostError::Inval);
+    }
+    spawn_job_get_result_handle(context, job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]

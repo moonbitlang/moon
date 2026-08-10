@@ -65,9 +65,6 @@ macro_rules! import_kind {
     (compat) => {
         AsyncImportKind::Compat
     };
-    (compat_open) => {
-        AsyncImportKind::Ported
-    };
     (ported) => {
         AsyncImportKind::Ported
     };
@@ -128,6 +125,15 @@ macro_rules! decode_wasm_args {
         })();
         decoded_args
     }};
+}
+
+macro_rules! wasm_arg_count {
+    () => {
+        0_i32
+    };
+    ($head:ident $(, $tail:ident)*) => {
+        1_i32 + wasm_arg_count!($($tail),*)
+    };
 }
 
 macro_rules! finish_wasm_import {
@@ -191,90 +197,6 @@ macro_rules! declare_async_imports {
 
 macro_rules! register_async_import {
     (
-        compat_open,
-        $obj:ident,
-        $scope:ident,
-        $context_ptr:ident,
-        $wasm_symbol:literal,
-        u64,
-        thread_pool::make_open_job,
-        ($($arg:ident : $arg_ty:ident),* $(,)?)
-    ) => {{
-        fn callback(
-            scope: &mut v8::HandleScope,
-            args: v8::FunctionCallbackArguments,
-            mut ret: v8::ReturnValue,
-        ) {
-            let host_context = callback_context(&args);
-            if args.length() == 7 {
-                let decoded_args = decode_wasm_args!(
-                    scope,
-                    args,
-                    path_ptr: i32,
-                    path_len: i32,
-                    access: i32,
-                    create_mode: i32,
-                    append: i32,
-                    sync: i32,
-                    mode: i32,
-                );
-                match decoded_args {
-                    Ok((path_ptr, path_len, access, create_mode, append, sync, mode)) => {
-                        let result = {
-                            let mut context = ImportContext::new(scope, host_context);
-                            thread_pool::make_open_job_legacy(
-                                &mut context,
-                                path_ptr,
-                                path_len,
-                                access,
-                                create_mode,
-                                append,
-                                sync,
-                                mode,
-                            )
-                        };
-                        finish_wasm_import!(
-                            scope,
-                            ret,
-                            $wasm_symbol,
-                            u64,
-                            result
-                        );
-                    }
-                    Err(error) => {
-                        throw_import_error(scope, $wasm_symbol, error)
-                    }
-                }
-                return;
-            }
-
-            let decoded_args = decode_wasm_args!(scope, args, $($arg : $arg_ty),*);
-            match decoded_args {
-                Ok(($($arg,)*)) => {
-                    let result = {
-                        let mut context = ImportContext::new(scope, host_context);
-                        thread_pool::make_open_job(&mut context, $($arg),*)
-                    };
-                    finish_wasm_import!(
-                        scope,
-                        ret,
-                        $wasm_symbol,
-                        u64,
-                        result
-                    );
-                }
-                Err(error) => throw_import_error(scope, $wasm_symbol, error),
-            }
-        }
-        register_func_impl(
-            $obj,
-            $scope,
-            $wasm_symbol,
-            callback,
-            $context_ptr,
-        );
-    }};
-    (
         fake,
         $obj:ident,
         $scope:ident,
@@ -308,6 +230,14 @@ macro_rules! register_async_import {
             args: v8::FunctionCallbackArguments,
             mut ret: v8::ReturnValue,
         ) {
+            if args.length() != wasm_arg_count!($($arg),*) {
+                throw_import_error(
+                    scope,
+                    $wasm_symbol,
+                    crate::async_host::AsyncHostError::Inval,
+                );
+                return;
+            }
             let _ = &args;
             let host_context = callback_context(&args);
             let decoded_args: crate::async_host::AsyncHostResult<_> =
@@ -1012,7 +942,17 @@ declare_async_imports! {
 
     // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
     // MoonBit String pointer plus UTF-16 code-unit length.
-    compat_open thread_pool::make_open_job(
+    compat thread_pool::make_open_job_legacy(
+        path_ptr: i32,
+        path_len: i32,
+        access: i32,
+        create_mode: i32,
+        append: i32,
+        sync: i32,
+        mode: i32,
+    ) -> u64 => "thread_pool/make_open_job";
+
+    ported thread_pool::make_open_stat_job(
         path_ptr: i32,
         path_len: i32,
         access: i32,
@@ -1021,14 +961,12 @@ declare_async_imports! {
         sync: i32,
         mode: i32,
         stat_request: i32,
-        stat_result: i32,
         stat_result_len: i32,
-    ) -> u64 => "thread_pool/make_open_job";
+    ) -> u64 => "thread_pool/make_open_stat_job";
 
     ported thread_pool::make_fstatx_job(
         fd: u64,
         stat_request: i32,
-        stat_result: i32,
         stat_result_len: i32,
     ) -> u64 => "thread_pool/make_fstatx_job";
 
@@ -1036,7 +974,6 @@ declare_async_imports! {
         path_ptr: i32,
         path_len: i32,
         stat_request: i32,
-        stat_result: i32,
         stat_result_len: i32,
         parent: u64,
         follow_symlink: i32,
@@ -1181,7 +1118,9 @@ declare_async_imports! {
         is_orphan: i32,
     ) -> u64 => "thread_pool/make_spawn_job/windows";
 
-    ported thread_pool::get_spawn_job_result_handle(job: u64) -> u64 => "thread_pool/get_spawn_job_result_handle";
+    ported thread_pool::spawn_job_get_result_handle(job: u64) -> u64 => "thread_pool/spawn_job_get_result_handle";
+
+    helper thread_pool::get_spawn_job_result_handle_legacy(job: u64, copy_output: i32) -> u64 => "thread_pool/get_spawn_job_result_handle";
 
     ported thread_pool::make_wait_for_process_job(handle: u64, pid: i32) -> u64 => "thread_pool/make_wait_for_process_job";
 
@@ -1415,28 +1354,72 @@ mod tests {
 
     #[test]
     fn generic_stat_imports_coexist_with_native_compatibility_adapters() {
+        let generic_imports: &[(&str, &[WasmType])] = &[
+            (
+                "thread_pool/make_open_stat_job",
+                &[
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                ],
+            ),
+            (
+                "thread_pool/make_fstatx_job",
+                &[WasmType::I64, WasmType::I32, WasmType::I32],
+            ),
+            (
+                "thread_pool/make_statx_job",
+                &[
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I32,
+                    WasmType::I64,
+                    WasmType::I32,
+                ],
+            ),
+        ];
+        for &(wasm_symbol, parameter_types) in generic_imports {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == wasm_symbol)
+                .expect("generic stat import must be registered");
+            assert_eq!(
+                import.kind,
+                AsyncImportKind::Ported,
+                "generic stat import {wasm_symbol} must track the current upstream operation"
+            );
+            assert_eq!(
+                import.params, parameter_types,
+                "generic stat maker {wasm_symbol} must have an exact pointer-free Wasm ABI"
+            );
+            assert_eq!(import.result, Some(WasmType::I64));
+        }
+        let legacy_open = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/make_open_job")
+            .expect("legacy open import must remain registered");
+        assert_eq!(legacy_open.params, &[WasmType::I32; 7]);
+        assert_eq!(legacy_open.result, Some(WasmType::I64));
+
+        let copy_result = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/get_stat_result")
+            .expect("generic stat copy-out import must be registered");
+        assert_eq!(copy_result.kind, AsyncImportKind::Helper);
+        assert_eq!(
+            copy_result.params,
+            &[WasmType::I64, WasmType::I32, WasmType::I32]
+        );
+        assert_eq!(copy_result.result, None);
         for wasm_symbol in [
             "thread_pool/make_open_job",
-            "thread_pool/make_fstatx_job",
-            "thread_pool/make_statx_job",
-        ] {
-            assert_eq!(
-                ASYNC_IMPORTS
-                    .iter()
-                    .find(|import| import.wasm_symbol == wasm_symbol)
-                    .map(|import| import.kind),
-                Some(AsyncImportKind::Ported),
-                "generic stat import {wasm_symbol} must track the current upstream ABI"
-            );
-        }
-        assert_eq!(
-            ASYNC_IMPORTS
-                .iter()
-                .find(|import| import.wasm_symbol == "thread_pool/get_stat_result")
-                .map(|import| import.kind),
-            Some(AsyncImportKind::Helper)
-        );
-        for wasm_symbol in [
             "fd_util/kind_of_fd",
             "thread_pool/open_job_get_kind",
             "thread_pool/open_job_get_dev_id",
@@ -1456,6 +1439,28 @@ mod tests {
                 "removed native stat ABI {wasm_symbol} must remain available through a compatibility adapter"
             );
         }
+    }
+
+    #[test]
+    fn aggregate_wasm_arguments_are_fully_declared() {
+        let spawn_result = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/spawn_job_get_result_handle")
+            .expect("canonical spawn result import must be registered");
+        assert_eq!(spawn_result.params, &[WasmType::I64]);
+        assert_eq!(spawn_result.result, Some(WasmType::I64));
+
+        let legacy_spawn_result = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/get_spawn_job_result_handle")
+            .expect("legacy aggregate spawn result import must remain registered");
+        assert_eq!(legacy_spawn_result.kind, AsyncImportKind::Helper);
+        assert_eq!(
+            legacy_spawn_result.params,
+            &[WasmType::I64, WasmType::I32],
+            "SpawnJob lowers to its handle and copy-output closure fields"
+        );
+        assert_eq!(legacy_spawn_result.result, Some(WasmType::I64));
     }
 
     #[test]

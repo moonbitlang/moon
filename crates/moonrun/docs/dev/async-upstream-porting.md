@@ -70,6 +70,24 @@ currently pinned wasm wrapper still calls it during a staged migration.
 The annotations must continue to expose unported upstream work. A passing
 substring check is not proof that two symbols are equivalent.
 
+## Wasm ABI discipline
+
+Treat every wasm import as an exact typed interface. The current V8 adapter
+uses JavaScript callbacks internally, but imports must also link correctly in a
+runtime such as Wasmtime that validates the complete function type.
+
+- Do not multiplex multiple arities under one import name.
+- Do not rely on missing arguments, ignored extra arguments, or JavaScript
+  value coercion.
+- Declare every field produced by MoonBit aggregate lowering. If a field is
+  constrained by the operation, validate the constraint instead of silently
+  discarding the field.
+- When an operation needs a new signature, add a distinct import and retain the
+  old import as `#[compat]` while older wasm guests remain supported.
+- Record and test the exact parameter and result types of the old and new
+  imports. Compatibility must be decided at link time, before a mismatched call
+  can produce host side effects.
+
 ## Verification
 
 Add regression coverage for behavior that upstream tests restrict to native

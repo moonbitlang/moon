@@ -3,10 +3,16 @@
 Moonrun ports the generic filesystem metadata ABI introduced by
 `moonbitlang/async` PR 527 through one `StatRequest`/`StatValues`/`PackedStat`
 module. Jobs retain the request and produce a host-owned packed result; they
-never retain the guest destination supplied to `make_open_job`,
-`make_fstatx_job`, or `make_statx_job`. The guest copies a completed result
-through `thread_pool/get_stat_result`, following the same completion ownership
-rule as read jobs.
+do not receive a guest destination through `make_open_stat_job`,
+`make_fstatx_job`, or `make_statx_job`. The guest supplies current Guest Memory
+only when copying a completed result through `thread_pool/get_stat_result`,
+following the same completion ownership rule as read jobs.
+
+The pre-527 seven-argument `thread_pool/make_open_job` import keeps its original
+name and signature. Generic open metadata uses the distinct
+`thread_pool/make_open_stat_job` import. Do not multiplex both signatures under
+one import name: a new guest must fail linking against an old runtime before an
+open operation can produce filesystem side effects.
 
 Open jobs use one completion shape: an `OpenJobResource` plus the host-owned
 `PackedStat`. The pre-527 open adapter requests the fixed identity mask and
