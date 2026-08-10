@@ -163,6 +163,12 @@ fn get_fallback_binary(name: &str) -> PathBuf {
     ensure_exe_extension(PathBuf::from(name))
 }
 
+/// Lazily resolved programs used by Moon commands.
+///
+/// Entries are intentionally independent and demand-driven. Never add an
+/// aggregate API that enumerates this cache: touching every `LazyLock` would
+/// resolve the complete executable inventory and could make display,
+/// diagnostics, or tests fail because an unused program is unavailable.
 pub struct CachedBinaries {
     pub moonbuild: LazyLock<PathBuf>,
     pub moonc: LazyLock<PathBuf>,
@@ -182,23 +188,6 @@ pub struct CachedBinaries {
 }
 
 impl CachedBinaries {
-    pub fn all_moon_bins(&self) -> Vec<(&str, PathBuf)> {
-        vec![
-            ("moon", self.moonbuild.clone()),
-            ("moonc", self.moonc.clone()),
-            ("mooncake", self.mooncake.clone()),
-            ("moondoc", self.moondoc.clone()),
-            ("moonfmt", self.moonfmt.clone()),
-            ("mooninfo", self.mooninfo.clone()),
-            ("moonlex", self.moonlex.clone()),
-            ("moonrun", self.moonrun.clone()),
-            ("moonyacc", self.moonyacc.clone()),
-            ("moon_cove_report", self.moon_cove_report.clone()),
-            ("node", self.node_or_default()),
-            ("git", self.git_or_default()),
-        ]
-    }
-
     pub fn node_or_default(&self) -> PathBuf {
         self.node
             .clone()
