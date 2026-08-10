@@ -824,6 +824,18 @@ fn realpath_native_path(path: OsString) -> AsyncHostResult<Box<[u8]>> {
         .to_bytes_with_nul()
         .to_vec()
         .into_boxed_slice();
+    #[cfg(target_os = "macos")]
+    unsafe {
+        unsafe extern "C" {
+            fn malloc_zone_from_ptr(ptr: *const std::ffi::c_void) -> *mut std::ffi::c_void;
+            fn malloc_zone_free(zone: *mut std::ffi::c_void, ptr: *mut std::ffi::c_void);
+        }
+
+        // realpath may allocate from a non-default malloc zone on macOS.
+        let zone = malloc_zone_from_ptr(resolved.cast());
+        malloc_zone_free(zone, resolved.cast());
+    }
+    #[cfg(not(target_os = "macos"))]
     unsafe {
         libc::free(resolved.cast());
     }
