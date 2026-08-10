@@ -325,11 +325,11 @@ impl<'a> LoweringContext<'a> {
             }
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),
-            BuildAction::RunMoonLexPrebuild { package, index } => {
-                self.lower_moon_lex_prebuild(package, index)
+            BuildAction::RunMoonLexPrebuild { input, output, .. } => {
+                self.lower_moon_lex_prebuild(input, output)
             }
-            BuildAction::RunMoonYaccPrebuild { package, index } => {
-                self.lower_moon_yacc_prebuild(package, index)
+            BuildAction::RunMoonYaccPrebuild { input, output, .. } => {
+                self.lower_moon_yacc_prebuild(input, output)
             }
         };
 

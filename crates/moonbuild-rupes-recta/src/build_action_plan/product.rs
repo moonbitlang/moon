@@ -75,14 +75,6 @@ pub enum BuildProduct {
         target: BuildTarget,
     },
     DocsDir,
-    MoonLexGeneratedSource {
-        package: PackageId,
-        index: u32,
-    },
-    MoonYaccGeneratedSource {
-        package: PackageId,
-        index: u32,
-    },
     /// Prebuild commands already resolve output paths while planning.
     PrebuildOutputPath {
         path: PathBuf,

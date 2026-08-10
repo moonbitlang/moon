@@ -104,10 +104,12 @@ pub enum BuildAction<'a> {
     },
     RunMoonLexPrebuild {
         package: PackageId,
-        index: u32,
+        input: &'a Path,
+        output: &'a Path,
     },
     RunMoonYaccPrebuild {
         package: PackageId,
-        index: u32,
+        input: &'a Path,
+        output: &'a Path,
     },
 }

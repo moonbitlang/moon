@@ -39,7 +39,7 @@ use moonutil::{
     toolchain::{self, BINARIES},
 };
 use regex::Regex;
-use relative_path::PathExt;
+use relative_path::{PathExt, RelativePath};
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
@@ -192,35 +192,53 @@ impl<'a> BuildPlanConstructor<'a> {
         })
     }
 
-    /// Add all package-level prebuild rules and edges to this node.
+    /// Plan all package-level file generation needed by this backend plan.
     ///
     /// According to the semantics, only local packages require package-level
     /// prebuild to run. Remote packages should already contain their outputs.
-    fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
+    fn plan_package_prebuild(&mut self, pkg_id: PackageId) -> Result<(), BuildPlanConstructError> {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
         if self.input_directive.package_prebuild != PackagePrebuildPolicy::Run
             || !self.input.local_modules().contains(&pkg.module)
         {
-            return;
+            return Ok(());
         }
 
-        if !is_moon_script_ignored(IgnoredMoonScript::Prebuild)
-            && let Some(prebuild) = &pkg.raw.pre_build
-        {
-            for i in 0..prebuild.len() {
-                let prebuild_node = self.need_node(BuildPlanNode::RunPrebuild(pkg_id, i as u32));
-                self.add_edge(node, prebuild_node);
+        let custom_rules = pkg.raw.pre_build.as_deref().unwrap_or_default();
+
+        if !is_moon_script_ignored(IgnoredMoonScript::Prebuild) {
+            let custom_actions = custom_rules
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| {
+                    !self
+                        .res
+                        .package_prebuild
+                        .contains_node(BuildPlanNode::RunPrebuild(pkg_id, *index as u32))
+                })
+                .map(|(index, command)| {
+                    self.resolve_custom_prebuild(pkg_id, command)
+                        .map(|info| (index as u32, info))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            for (index, info) in custom_actions {
+                self.res.package_prebuild.insert_custom(pkg_id, index, info);
             }
         }
-        for i in 0..pkg.mbt_lex_files.len() {
-            let prebuild_node = self.need_node(BuildPlanNode::RunMoonLexPrebuild(pkg_id, i as u32));
-            self.add_edge(node, prebuild_node);
+
+        for (index, input) in pkg.mbt_lex_files.iter().cloned().enumerate() {
+            let output = input.with_extension("mbt");
+            self.res
+                .package_prebuild
+                .insert_moonlex(pkg_id, index as u32, input, output);
         }
-        for i in 0..pkg.mbt_yacc_files.len() {
-            let prebuild_node =
-                self.need_node(BuildPlanNode::RunMoonYaccPrebuild(pkg_id, i as u32));
-            self.add_edge(node, prebuild_node);
+        for (index, input) in pkg.mbt_yacc_files.iter().cloned().enumerate() {
+            let output = input.with_extension("mbt");
+            self.res
+                .package_prebuild
+                .insert_moonyacc(pkg_id, index as u32, input, output);
         }
+        Ok(())
     }
 
     fn check_backend_compatibility_for_dep(
@@ -446,7 +464,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.need_proof_of_dep(node, dep);
         }
 
-        self.need_all_package_prebuild(node, target.package);
+        self.plan_package_prebuild(target.package)?;
         self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
         self.resolved_node(node);
@@ -481,7 +499,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.require_check_mi_of_dep(node, dep);
         }
 
-        self.need_all_package_prebuild(node, target.package);
+        self.plan_package_prebuild(target.package)?;
 
         self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
@@ -532,7 +550,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.need_virtual_if_necessary(pkg, node, target);
 
-        self.need_all_package_prebuild(node, target.package);
+        self.plan_package_prebuild(target.package)?;
 
         self.populate_target_info(target);
         self.resolved_node(node);
@@ -548,6 +566,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         self.need_node(node);
 
+        self.plan_package_prebuild(target.package)?;
         self.populate_target_info(target);
         self.resolved_node(node);
         Ok(())
@@ -578,44 +597,19 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             pkg.source_files.as_slice()
         };
+        let prebuild_output_iter = self
+            .res
+            .package_prebuild
+            .output_paths(package)
+            .filter(|path| {
+                let path = path.to_string_lossy();
+                path.ends_with(".mbt") || path.ends_with(DOT_MBT_DOT_MD)
+            })
+            .map(|path| Cow::Borrowed(path.as_path()));
+
         let source_iter = source_files_for_classification
             .iter()
             .map(|x| Cow::Borrowed(x.as_path()));
-
-        // Iterator over all prebuild output files that are .mbt or .mbt.md
-        // Or else they will not be picked up by the build system.
-        //
-        // This might emit duplicated files if the prebuilt file already exist
-        // in the source directory. Should not affect the build system.
-        // MAINTAINERS: These paths are relative.
-        //
-        // They need further normalizing to be the absolute paths required by
-        // the build system. This is done below in the file inclusion process,
-        // and assuming that all files are relative to package root path. if we
-        // have to add more types of files in the future, especially if they are
-        // *not* relative to package root, this should be changed to feed the
-        // absolute path, or let the iteration item contain extra metadata about
-        // what their roots are.
-        let prebuild_output_iter = pkg.raw.pre_build.iter().flat_map(|pb| {
-            pb.iter().flat_map(|r#gen| {
-                r#gen
-                    .output()
-                    .iter()
-                    .filter(|x| x.ends_with(".mbt") || x.ends_with(DOT_MBT_DOT_MD))
-                    .map(|x| Cow::Owned(pkg.root_path.join(x)))
-            })
-        });
-
-        // MAINTAINERS: These predefined prebuild operations that have a fixed
-        // meaning. If these are not needed in the future, they can be removed.
-        let mbtlex_iter = pkg
-            .mbt_lex_files
-            .iter()
-            .map(|x| Cow::Owned(x.with_extension("mbt")));
-        let mbtyacc_iter = pkg
-            .mbt_yacc_files
-            .iter()
-            .map(|x| Cow::Owned(x.with_extension("mbt")));
 
         let mut no_test_files = IndexSet::new();
         let mut whitebox_files = IndexSet::new();
@@ -628,10 +622,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let _classify_span = tracing::debug_span!("classifying_package_files").entered();
         for (file, file_kind) in cond_comp::classify_files(
             &pkg.raw,
-            source_iter
-                .chain(prebuild_output_iter)
-                .chain(mbtlex_iter)
-                .chain(mbtyacc_iter),
+            source_iter.chain(prebuild_output_iter),
             self.build_env.opt_level,
             self.build_env.target_backend(),
         ) {
@@ -1582,49 +1573,13 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_run_prebuild(
-        &mut self,
-        node: BuildPlanNode,
-        _package: PackageId,
-        _index: u32,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Theoretically there might be file-level dependencies between prebuild
-        // commands, but we don't track it here, since it **will** be handled by
-        // n2 which tracks file-level dependencies anyway.
-        //
-        // In this lowering process, we only handle the transformation of the
-        // commands and files.
-        //
-        // For details, also see `/docs/dev/reference/prebuild.md`
-
-        self.need_node(node);
-        self.populate_prebuild(_package, _index)?;
-        self.resolved_node(node);
-
-        Ok(())
-    }
-
-    fn populate_prebuild(
-        &mut self,
+    fn resolve_custom_prebuild(
+        &self,
         package: PackageId,
-        index: u32,
-    ) -> Result<(), BuildPlanConstructError> {
-        if self
-            .res
-            .prebuild_info
-            .get(&package)
-            .and_then(|v| v.get(index as usize).and_then(|x| x.as_ref()))
-            .is_some()
-        {
-            // Already populated
-            return Ok(());
-        }
-
+        prebuild_cmd: &MoonPkgGenerate,
+    ) -> Result<PrebuildInfo, BuildPlanConstructError> {
         let pkg = self.input.pkg_dirs.get_package(package);
         let module = &self.input.module_dirs[pkg.module];
-        let prebuild_cmd =
-            &pkg.raw.pre_build.as_ref().expect("Prebuild must exist")[index as usize];
 
         // Warn about suspicious outputs
         for output in prebuild_cmd.output().iter() {
@@ -1658,18 +1613,31 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        // Normalize input and output paths. This is the relatively easy part.
-        // FIXME: these paths are used again when determining input files in
-        // `Self::populate_target_info`, should we cache them somewhere?
+        // Resolve declared paths once; the same outputs drive package-file
+        // interpretation and lowering.
         let input_paths = prebuild_cmd
             .input()
             .iter()
-            .map(|x| pkg.root_path.join(x))
+            .map(|path| {
+                let input_path = Path::new(path);
+                if input_path.is_absolute() {
+                    input_path.to_path_buf()
+                } else {
+                    RelativePath::new(path).normalize().to_path(&pkg.root_path)
+                }
+            })
             .collect::<Vec<_>>();
         let output_paths = prebuild_cmd
             .output()
             .iter()
-            .map(|x| pkg.root_path.join(x))
+            .map(|path| {
+                let output_path = Path::new(path);
+                if output_path.is_absolute() {
+                    output_path.to_path_buf()
+                } else {
+                    RelativePath::new(path).normalize().to_path(&pkg.root_path)
+                }
+            })
             .collect::<Vec<_>>();
         let command_cwd = module.as_path();
         let command_input_paths = prebuild_command_paths(command_cwd, &input_paths);
@@ -1698,41 +1666,12 @@ impl<'a> BuildPlanConstructor<'a> {
             &command_output_paths,
         );
 
-        let info = PrebuildInfo {
+        Ok(PrebuildInfo {
             resolved_inputs: input_paths,
             resolved_outputs: output_paths,
             cwd: command_cwd.to_path_buf(),
             command,
-        };
-
-        let v = self.res.prebuild_info.entry(package).or_default();
-        // Extend the vector if necessary
-        while v.len() <= index as usize {
-            v.push(None);
-        }
-        v[index as usize] = Some(info);
-        Ok(())
-    }
-
-    pub(super) fn build_lex_prebuild(
-        &mut self,
-        node: BuildPlanNode,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Not much things to do here, moonlex is straightforward
-        // the hassle is telling the build system we have the files to compile
-        self.need_node(node);
-        self.resolved_node(node);
-        Ok(())
-    }
-
-    pub(super) fn build_yacc_prebuild(
-        &mut self,
-        node: BuildPlanNode,
-    ) -> Result<(), BuildPlanConstructError> {
-        // similar to lex prebuild
-        self.need_node(node);
-        self.resolved_node(node);
-        Ok(())
+        })
     }
 }
 

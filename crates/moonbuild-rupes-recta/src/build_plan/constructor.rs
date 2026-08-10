@@ -32,7 +32,10 @@ use crate::{
 use moonutil::user_log::UserLog;
 use tracing::{Level, instrument};
 
-use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError, artifact::ArtifactKey};
+use super::{
+    BuildEnvironment, BuildPlan, BuildPlanConstructError, artifact::ArtifactKey,
+    package_prebuild::is_package_prebuild_node,
+};
 
 /// The struct responsible for holding the states and dependencies used during
 /// the construction of a build plan.
@@ -155,6 +158,10 @@ impl<'a> BuildPlanConstructor<'a> {
     #[cfg_attr(debug_assertions, track_caller)]
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn need_node(&mut self, node: BuildPlanNode) -> BuildPlanNode {
+        assert!(
+            !is_package_prebuild_node(node),
+            "package prebuild actions must be planned through PackagePrebuildPlan"
+        );
         #[cfg(debug_assertions)]
         {
             // Record the call-site that scheduled this node for later diagnostics.
@@ -353,24 +360,11 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::BuildDocs(_) => (),
-            BuildPlanNode::RunPrebuild(pkg, idx) => {
-                assert!(
-                    self.res.prebuild_info.contains_key(&pkg),
-                    "Prebuild info for package {:?} should be present when resolving node {:?}",
-                    pkg,
-                    node
-                );
-                let v = &self.res.prebuild_info[&pkg];
-                assert!(
-                    (idx as usize) < v.len() && v[idx as usize].is_some(),
-                    "Prebuild info for package {:?} index {} should be present when resolving node {:?}",
-                    pkg,
-                    idx,
-                    node
-                );
+            BuildPlanNode::RunPrebuild(_, _)
+            | BuildPlanNode::RunMoonLexPrebuild(_, _)
+            | BuildPlanNode::RunMoonYaccPrebuild(_, _) => {
+                unreachable!("package prebuild actions are not backend graph nodes")
             }
-            BuildPlanNode::RunMoonLexPrebuild(_pkg, _idx) => (),
-            BuildPlanNode::RunMoonYaccPrebuild(_pkg, _idx) => (),
             BuildPlanNode::BuildVirtual(_build_target) => (),
         }
     }
@@ -472,12 +466,10 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
             BuildPlanNode::BuildDocs(module_id) => self.build_build_docs(node, module_id),
-            BuildPlanNode::RunPrebuild(package_id, index) => {
-                self.build_run_prebuild(node, package_id, index)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(_package_id, _index) => self.build_lex_prebuild(node),
-            BuildPlanNode::RunMoonYaccPrebuild(_package_id, _index) => {
-                self.build_yacc_prebuild(node)
+            BuildPlanNode::RunPrebuild(_, _)
+            | BuildPlanNode::RunMoonLexPrebuild(_, _)
+            | BuildPlanNode::RunMoonYaccPrebuild(_, _) => {
+                unreachable!("package prebuild actions are planned separately")
             }
             BuildPlanNode::BuildVirtual(target) => self.build_parse_mbti(node, target),
         }

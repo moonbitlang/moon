@@ -77,10 +77,13 @@ use crate::{
 mod artifact;
 mod builders;
 mod constructor;
+mod package_prebuild;
 
 pub use artifact::ArtifactKey;
 use artifact::ArtifactPlan;
 use constructor::BuildPlanConstructor;
+pub use package_prebuild::PrebuildInfo;
+pub(crate) use package_prebuild::{PackagePrebuildAction, PackagePrebuildPlan};
 
 /// A build plan of derivations, artifact requirements, and file dependencies.
 ///
@@ -129,8 +132,8 @@ pub struct BuildPlan {
     /// The information needed to build the native runtime library.
     runtime_info: Option<BuildRuntimeInfo>,
 
-    /// The map of package to its prebuild information, if any.
-    prebuild_info: HashMap<PackageId, Vec<Option<PrebuildInfo>>>,
+    /// Backend-independent package file-generation actions.
+    package_prebuild: PackagePrebuildPlan,
 
     /// The map of build target to its bundle information
     bundle_info: HashMap<ModuleId, BuildBundleInfo>,
@@ -221,12 +224,8 @@ impl BuildPlan {
         self.runtime_info.as_ref()
     }
 
-    /// Get prebuild information for the given package.
-    pub fn get_prebuild_info(&self, package: PackageId, idx: u32) -> Option<&PrebuildInfo> {
-        self.prebuild_info
-            .get(&package)
-            .and_then(|v| v.get(idx as usize))
-            .and_then(|x| x.as_ref())
+    pub(crate) fn package_prebuild_plan(&self) -> &PackagePrebuildPlan {
+        &self.package_prebuild
     }
 
     /// Get bundle information for the given module.
@@ -235,11 +234,11 @@ impl BuildPlan {
     }
 
     pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.graph.nodes()
+        self.graph.nodes().chain(self.package_prebuild.nodes())
     }
 
     pub fn node_count(&self) -> usize {
-        self.graph.node_count()
+        self.graph.node_count() + self.package_prebuild.action_count()
     }
 
     pub fn input_nodes(&self) -> &[BuildPlanNode] {
@@ -250,6 +249,7 @@ impl BuildPlan {
 #[cfg(test)]
 impl BuildPlan {
     pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
+        assert!(!package_prebuild::is_package_prebuild_node(node));
         self.graph.add_node(node);
     }
 
@@ -290,7 +290,29 @@ impl BuildPlan {
         package: PackageId,
         info: Vec<Option<PrebuildInfo>>,
     ) {
-        self.prebuild_info.insert(package, info);
+        self.package_prebuild.test_insert_custom_info(package, info);
+    }
+
+    pub(crate) fn test_insert_moonlex_prebuild(
+        &mut self,
+        package: PackageId,
+        index: u32,
+        input: PathBuf,
+        output: PathBuf,
+    ) {
+        self.package_prebuild
+            .insert_moonlex(package, index, input, output);
+    }
+
+    pub(crate) fn test_insert_moonyacc_prebuild(
+        &mut self,
+        package: PackageId,
+        index: u32,
+        input: PathBuf,
+        output: PathBuf,
+    ) {
+        self.package_prebuild
+            .insert_moonyacc(package, index, input, output);
     }
 
     pub(crate) fn test_insert_link_core_info(&mut self, target: BuildTarget, info: LinkCoreInfo) {
@@ -549,15 +571,6 @@ mod runtime_archive_fingerprint_tests {
             runtime_archive_fingerprint(&[second], &[])
         );
     }
-}
-
-/// Resolved information about a prebuild command.
-#[derive(Debug)]
-pub struct PrebuildInfo {
-    pub(crate) resolved_inputs: Vec<PathBuf>,
-    pub(crate) resolved_outputs: Vec<PathBuf>,
-    pub(crate) cwd: PathBuf,
-    pub(crate) command: String,
 }
 
 /// Metadata about bundling the build output of different targets together.

@@ -255,13 +255,10 @@ MoonBit allows some files in the source directory to be generated at compile tim
 These are called **prebuild tasks**,
 and executed in a form similar to Makefiles.
 Each task may have a list of input and outputs file, and a command line to execute.
-It is represented by the `RunPrebuild` build plan node.
-
-For simplicity reasons, the dependency between prebuild tasks and other tasks
-is currently tracked by the build graph executor (n2), and not in the build plan.
-This is currently the only exception in the build plan graph.
-
-Prebuild tasks are expected to execute before any other build commands.
+Custom tasks, moonlex, and moonyacc actions are stored in a package prebuild
+subplan rather than the backend dependency graph. They are lowered into the
+same n2 graph, where matching physical input and output paths establish their
+dependencies. See [Prebuild](prebuild.md) for the detailed lifecycle.
 
 ## Building tests
 

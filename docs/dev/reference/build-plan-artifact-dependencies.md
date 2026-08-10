@@ -107,9 +107,14 @@ artifacts and can never substitute for one another.
 
 Every package MI and Core IR dependency remains an Artifact Requirement through
 action planning; there is no compatibility projection to an action edge. Proof,
-generated-test-info, prebuild, C-stub, runtime, and other not-yet-migrated
-dependencies continue to use `FileDependencyKind`. `BuildPlan` combines both
-representations when callers ask for action topology.
+generated-test-info, C-stub, runtime, and other not-yet-migrated dependencies
+continue to use `FileDependencyKind`.
+
+Package-level prebuild has a different boundary. Each `BuildPlan` owns a
+separate `PackagePrebuildPlan` containing complete custom prebuild, moonlex,
+and moonyacc actions. `BuildActionPlan` combines it with the backend graph for
+lowering without introducing logical edges between the two; matching physical
+paths establish the dependencies in n2.
 
 ## Build Action Plan
 

@@ -18,6 +18,8 @@
 
 //! Lowering implementation for auxiliary build steps.
 
+use std::path::Path;
+
 use moonutil::{
     compiler_flags::{
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
@@ -33,7 +35,7 @@ use crate::{
     build_action_plan::BuildProduct,
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{ArtifactKey, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
-    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
+    model::{BuildTarget, OperatingSystem, TargetKind},
 };
 
 use super::{BuildCommand, LoweringError, compiler, context::ActionProducts, moonc_command};
@@ -394,51 +396,41 @@ impl<'a> super::LoweringContext<'a> {
         .with_cwd(info.cwd.clone())
     }
 
-    pub(super) fn lower_moon_lex_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
-        let pkg = self.packages.get_package(pkg);
-        let mbtlex_path = pkg
-            .mbt_lex_files
-            .get(idx as usize)
-            .expect("mbt_lex file index out of bounds")
-            .clone();
-        let output = mbtlex_path.with_extension("mbt");
+    pub(super) fn lower_moon_lex_prebuild(&self, input: &Path, output: &Path) -> BuildCommand {
+        let input = input.to_path_buf();
+        let output = output.to_path_buf();
 
         let commandline = vec![
             BINARIES.moonrun.display().to_string(),
             BINARIES.moonlex.display().to_string(),
             "--".into(),
-            mbtlex_path.display().to_string(),
+            input.display().to_string(),
             "-o".into(),
             output.display().to_string(),
         ];
 
         BuildCommand {
             commandline: commandline.into(),
-            extra_inputs: vec![mbtlex_path, BINARIES.moonlex.clone()],
+            extra_inputs: vec![input, BINARIES.moonlex.clone()],
         }
     }
 
-    pub(super) fn lower_moon_yacc_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
-        let pkg = self.packages.get_package(pkg);
-        let mby_path = pkg
-            .mbt_yacc_files
-            .get(idx as usize)
-            .expect("mbt_yacc file index out of bounds")
-            .clone();
-        let output = mby_path.with_extension("mbt");
+    pub(super) fn lower_moon_yacc_prebuild(&self, input: &Path, output: &Path) -> BuildCommand {
+        let input = input.to_path_buf();
+        let output = output.to_path_buf();
 
         let commandline = vec![
             BINARIES.moonrun.display().to_string(),
             BINARIES.moonyacc.display().to_string(),
             "--".into(),
-            mby_path.display().to_string(),
+            input.display().to_string(),
             "-o".into(),
             output.display().to_string(),
         ];
 
         BuildCommand {
             commandline: commandline.into(),
-            extra_inputs: vec![mby_path, BINARIES.moonyacc.clone()],
+            extra_inputs: vec![input, BINARIES.moonyacc.clone()],
         }
     }
 }

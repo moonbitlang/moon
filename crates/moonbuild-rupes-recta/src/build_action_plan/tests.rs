@@ -297,7 +297,6 @@ fn run_prebuild_exposes_resolved_output_paths() {
     let node = BuildPlanNode::RunPrebuild(package, 0);
     let output = PathBuf::from("generated/out.mbt");
     let mut plan = BuildPlan::default();
-    plan.test_add_node(node);
     plan.test_insert_prebuild_info(
         package,
         vec![Some(PrebuildInfo {

@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use moonutil::resolution::ResolvedEnv;
 
 use crate::{
-    build_plan::{ArtifactKey, BuildPlan, FileDependencyKind},
+    build_plan::{ArtifactKey, BuildPlan, FileDependencyKind, PackagePrebuildAction},
     discover::DiscoverResult,
     model::{BuildPlanNode, BuildTarget, PackageId},
 };
@@ -90,7 +90,7 @@ impl<'a> BuildActionPlan<'a> {
             | BuildAction::GenerateMbti { target } => Some(target.package),
             BuildAction::BuildCStub { package, .. }
             | BuildAction::ArchiveOrLinkCStubs { package, .. }
-            | BuildAction::BuildVirtual { package }
+            | BuildAction::BuildVirtual { package, .. }
             | BuildAction::RunPrebuild { package, .. }
             | BuildAction::RunMoonLexPrebuild { package, .. }
             | BuildAction::RunMoonYaccPrebuild { package, .. } => Some(package),
@@ -241,19 +241,41 @@ impl<'a> BuildActionPlan<'a> {
                     .expect("Runtime info should be present for BuildRuntimeLib nodes"),
             },
             BuildPlanNode::BuildDocs(module) => BuildAction::BuildDocs { module },
-            BuildPlanNode::RunPrebuild(package, index) => BuildAction::RunPrebuild {
-                package,
-                index,
-                info: self
-                    .plan
-                    .get_prebuild_info(package, index)
-                    .expect("Prebuild info should be populated before lowering run prebuild"),
-            },
-            BuildPlanNode::RunMoonLexPrebuild(package, index) => {
-                BuildAction::RunMoonLexPrebuild { package, index }
+            BuildPlanNode::RunPrebuild(package, index) => {
+                let Some(PackagePrebuildAction::Custom { info, .. }) =
+                    self.plan.package_prebuild_plan().action(node)
+                else {
+                    unreachable!("complete package prebuild actions contain their prebuild info");
+                };
+                BuildAction::RunPrebuild {
+                    package,
+                    index,
+                    info,
+                }
             }
-            BuildPlanNode::RunMoonYaccPrebuild(package, index) => {
-                BuildAction::RunMoonYaccPrebuild { package, index }
+            BuildPlanNode::RunMoonLexPrebuild(package, _) => {
+                let Some(PackagePrebuildAction::MoonLex { input, output, .. }) =
+                    self.plan.package_prebuild_plan().action(node)
+                else {
+                    unreachable!("moonlex actions contain their input and output paths")
+                };
+                BuildAction::RunMoonLexPrebuild {
+                    package,
+                    input,
+                    output,
+                }
+            }
+            BuildPlanNode::RunMoonYaccPrebuild(package, _) => {
+                let Some(PackagePrebuildAction::MoonYacc { input, output, .. }) =
+                    self.plan.package_prebuild_plan().action(node)
+                else {
+                    unreachable!("moonyacc actions contain their input and output paths")
+                };
+                BuildAction::RunMoonYaccPrebuild {
+                    package,
+                    input,
+                    output,
+                }
             }
         }
     }
@@ -307,7 +329,25 @@ impl<'a> BuildActionPlan<'a> {
         modules: &ResolvedEnv,
         packages: &DiscoverResult,
     ) -> String {
-        self.node(id).human_desc(modules, packages)
+        // A custom prebuild may generate an `.mbl` or `.mby` that package
+        // discovery never observed. Describe generator actions from their
+        // resolved input paths rather than indexing the discovered file lists.
+        let generator_desc = |tool: &str, package, input: &std::path::Path| {
+            let input_name = input.file_name().map_or_else(
+                || input.display().to_string(),
+                |name| name.to_string_lossy().into(),
+            );
+            format!("run {tool} {} {input_name}", packages.fqn(package))
+        };
+        match self.action(id) {
+            BuildAction::RunMoonLexPrebuild { package, input, .. } => {
+                generator_desc("moonlex", package, input)
+            }
+            BuildAction::RunMoonYaccPrebuild { package, input, .. } => {
+                generator_desc("moonyacc", package, input)
+            }
+            _ => self.node(id).human_desc(modules, packages),
+        }
     }
 
     pub fn package_for_error(&self, id: BuildActionId) -> Option<BuildTarget> {
@@ -373,6 +413,15 @@ impl<'a> BuildActionPlan<'a> {
     }
 
     fn output_products_for_node(&self, node: BuildPlanNode) -> Vec<BuildProduct> {
+        if let Some(action) = self.plan.package_prebuild_plan().action(node) {
+            return action
+                .output_paths()
+                .iter()
+                .cloned()
+                .map(|path| BuildProduct::PrebuildOutputPath { path })
+                .collect();
+        }
+
         match node {
             BuildPlanNode::Check(target) => vec![BuildProduct::Artifact(ArtifactKey::CheckMi {
                 package: target.package,
@@ -426,25 +475,18 @@ impl<'a> BuildActionPlan<'a> {
                 vec![BuildProduct::GeneratedMbti { target }]
             }
             BuildPlanNode::BuildDocs(_) => vec![BuildProduct::DocsDir],
-            BuildPlanNode::RunPrebuild(package, index) => self
-                .plan
-                .get_prebuild_info(package, index)
-                .expect("Prebuild info should be populated before lowering run prebuild")
-                .resolved_outputs
-                .iter()
-                .cloned()
-                .map(|path| BuildProduct::PrebuildOutputPath { path })
-                .collect(),
+            BuildPlanNode::RunPrebuild(..) => unreachable!(
+                "complete package prebuild actions return their output paths before this match"
+            ),
             BuildPlanNode::BuildVirtual(package) => {
                 vec![BuildProduct::Artifact(ArtifactKey::VirtualContractMi {
                     package,
                 })]
             }
-            BuildPlanNode::RunMoonLexPrebuild(package, index) => {
-                vec![BuildProduct::MoonLexGeneratedSource { package, index }]
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package, index) => {
-                vec![BuildProduct::MoonYaccGeneratedSource { package, index }]
+            BuildPlanNode::RunMoonLexPrebuild(..) | BuildPlanNode::RunMoonYaccPrebuild(..) => {
+                unreachable!(
+                    "complete package prebuild actions return their output paths before this match"
+                )
             }
         }
     }
