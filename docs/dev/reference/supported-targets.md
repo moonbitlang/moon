@@ -77,6 +77,10 @@ separate feature and unchanged.
 Notes:
 
 * `--target all` expands to `wasm`,  `wasm-gc`,  `js`,  `native` (not `llvm`).
+* A non-watch, explicit multi-backend project invocation synchronizes and
+  resolves dependencies once. Non-dry-run execution then holds one
+  target-directory lock while it plans and executes each backend separately.
+  Single-file and watch-mode lifecycles are unchanged.
 * `llvm` is still a valid value in `supported_targets`.
 * `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
 

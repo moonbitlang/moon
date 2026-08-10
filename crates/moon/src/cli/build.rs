@@ -99,13 +99,41 @@ pub(crate) fn run_build(
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
 
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_build_internal(cli, &cmd, &dirs, Some(t), output)
-            .context(format!("failed to run build for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+    // Watch reruns must synchronize and resolve fresh project state each time.
+    if cmd.watch {
+        let mut ret_value = 0;
+        for t in targets {
+            let x = run_build_internal(cli, &cmd, &dirs, Some(t), output)
+                .context(format!("failed to run build for target {t:?}"))?;
+            ret_value = ret_value.max(x);
+        }
+        return Ok(ret_value);
     }
-    Ok(ret_value)
+
+    let resolve_output = sync_and_resolve_build_project(cli, &cmd, &dirs, output.user_log())?;
+    let run_targets = || -> anyhow::Result<i32> {
+        let mut ret_value = 0;
+        for t in targets.iter().copied() {
+            let x = run_build_rr_from_resolved(
+                cli,
+                &cmd,
+                &dirs,
+                false,
+                Some(t),
+                resolve_output.clone(),
+                output,
+            )
+            .context(format!("failed to run build for target {t:?}"))?;
+            ret_value = ret_value.max(if x.ok { 0 } else { 1 });
+        }
+        Ok(ret_value)
+    };
+
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+    }
+    run_targets()
 }
 
 #[instrument(skip_all)]
@@ -126,6 +154,21 @@ fn run_build_internal(
     }
 }
 
+fn sync_and_resolve_build_project(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
+    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    );
+    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+}
+
 /// Run the build routine in RR backend
 ///
 /// - `watch`: True if in watch mode, will output ignore paths for prebuild outputs
@@ -139,6 +182,35 @@ fn run_build_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
+    let resolve_output = sync_and_resolve_build_project(cli, cmd, dirs, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+    }
+    run_build_rr_from_resolved(
+        cli,
+        cmd,
+        dirs,
+        watch,
+        selected_target_backend,
+        resolve_output,
+        output,
+    )
+}
+
+/// Plans and executes a build from resolved project data.
+///
+/// The caller must hold the target-directory lock for a non-dry-run build.
+#[allow(clippy::too_many_arguments)]
+fn run_build_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    dirs: &PackageDirs,
+    watch: bool,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    output: &CommandOutput,
+) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -146,22 +218,6 @@ fn run_build_rr(
         mooncake_bin_dir,
         ..
     } = dirs;
-    std::fs::create_dir_all(target_dir).with_context(|| {
-        format!(
-            "Failed to create target directory: '{}'",
-            target_dir.display()
-        )
-    })?;
-
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
-        cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
-    );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
     } else {
@@ -196,7 +252,6 @@ fn run_build_rr(
         })?;
         true
     } else {
-        let _lock = FileLock::lock(target_dir)?;
         let cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
         let mut ok = true;
         for (build_meta, build_graph) in planned_runs {
