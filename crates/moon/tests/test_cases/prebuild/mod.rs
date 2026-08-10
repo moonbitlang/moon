@@ -422,12 +422,8 @@ fn test_pre_build_ignore_prebuild_env() {
         "Prebuilt file should not exist before execution"
     );
 
-    let stderr = get_err_stderr_with_envs(&dir, ["check"], [("MOON_IGNORE_PREBUILD", "1")]);
+    let _ = get_err_stderr_with_envs(&dir, ["check"], [("MOON_IGNORE_PREBUILD", "1")]);
 
-    assert!(
-        stderr.contains("a.mbt"),
-        "expected missing generated source in stderr, got:\n{stderr}"
-    );
     assert!(
         !dir.join("src/lib/a.mbt").exists(),
         "`MOON_IGNORE_PREBUILD` should not generate prebuild outputs"

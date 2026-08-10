@@ -970,16 +970,6 @@ impl ArtifactPathResolver {
                 )]
             }
             BuildProduct::DocsDir => vec![self.target_layout.doc_dir()],
-            BuildProduct::MoonLexGeneratedSource { package, index } => {
-                let pkg_info = packages.get_package(*package);
-                let mbtlex_file = &pkg_info.mbt_lex_files[*index as usize];
-                vec![mbtlex_file.with_extension("mbt")]
-            }
-            BuildProduct::MoonYaccGeneratedSource { package, index } => {
-                let pkg_info = packages.get_package(*package);
-                let mbtyacc_file = &pkg_info.mbt_yacc_files[*index as usize];
-                vec![mbtyacc_file.with_extension("mbt")]
-            }
             BuildProduct::PrebuildOutputPath { path } => vec![path.clone()],
         }
     }
@@ -1100,23 +1090,17 @@ impl ArtifactPathResolver {
                 BuildProduct::Artifact(ArtifactKey::VirtualContractMi { package }),
                 BuildAction::BuildVirtual {
                     package: action_package,
+                    ..
                 },
             ) => *package == action_package,
+            (BuildProduct::PrebuildOutputPath { path }, BuildAction::RunPrebuild { info, .. }) => {
+                info.resolved_outputs.contains(path)
+            }
             (
-                BuildProduct::MoonLexGeneratedSource { package, index },
-                BuildAction::RunMoonLexPrebuild {
-                    package: action_package,
-                    index: action_index,
-                },
-            ) => *package == action_package && *index == action_index,
-            (
-                BuildProduct::MoonYaccGeneratedSource { package, index },
-                BuildAction::RunMoonYaccPrebuild {
-                    package: action_package,
-                    index: action_index,
-                },
-            ) => *package == action_package && *index == action_index,
-            (BuildProduct::PrebuildOutputPath { .. }, BuildAction::RunPrebuild { .. }) => true,
+                BuildProduct::PrebuildOutputPath { path },
+                BuildAction::RunMoonLexPrebuild { output, .. }
+                | BuildAction::RunMoonYaccPrebuild { output, .. },
+            ) => path == output,
             _ => false,
         };
         assert!(
@@ -1509,7 +1493,7 @@ mod tests {
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("native/stub.c")],
             c_stub_header_files: vec![PathBuf::from("native/stub.h")],
-            virtual_mbti: None,
+            virtual_mbti_files: Vec::new(),
             is_stdlib: false,
         };
 
@@ -1753,7 +1737,10 @@ mod tests {
 
         let virtual_contract = resolver.paths_for_product(
             &BuildProduct::Artifact(ArtifactKey::VirtualContractMi { package }),
-            BuildAction::BuildVirtual { package },
+            BuildAction::BuildVirtual {
+                package,
+                input: Path::new("pkg.mbti"),
+            },
             &packages,
             &modules,
             options,

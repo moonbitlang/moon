@@ -313,7 +313,9 @@ impl<'a> LoweringContext<'a> {
             BuildAction::GenerateMbti { target } => {
                 self.lower_generate_mbti(&action_products, target)
             }
-            BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package)?,
+            BuildAction::BuildVirtual { package, input } => {
+                self.lower_parse_mbti(package, input)?
+            }
             BuildAction::Bundle { module, targets } => {
                 self.lower_bundle(&action_products, module, targets)?
             }
@@ -325,11 +327,11 @@ impl<'a> LoweringContext<'a> {
             }
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),
-            BuildAction::RunMoonLexPrebuild { package, index } => {
-                self.lower_moon_lex_prebuild(package, index)
+            BuildAction::RunMoonLexPrebuild { input, output, .. } => {
+                self.lower_moon_lex_prebuild(input, output)
             }
-            BuildAction::RunMoonYaccPrebuild { package, index } => {
-                self.lower_moon_yacc_prebuild(package, index)
+            BuildAction::RunMoonYaccPrebuild { input, output, .. } => {
+                self.lower_moon_yacc_prebuild(input, output)
             }
         };
 

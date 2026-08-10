@@ -4,21 +4,36 @@ Virtual packages publish an overridable API surface. The build system handles th
 
 ## Discovery and metadata
 
-During the scan phase, Moon records virtual metadata alongside the rest of the package description:
+During Package Declaration and Package File Set discovery, Moon records
+virtual metadata and existing contract files without selecting an invocation's
+final contract input:
 
 - Each `moon.pkg.json` is parsed.
-- If a package declares `virtual_pkg`, the referenced `.mbti` file is checked and its location stored so later stages can compile the interface. The `.mbti` file is either: `pkg.mbti` (new) or `<package_short_name>.mbti` (old).
+- If a package declares `virtual_pkg`, discovery records each existing
+  `pkg.mbti` (new) and `<package_short_name>.mbti` (old) candidate. It does not
+  choose between them or treat an absent declared prebuild output as an
+  existing file.
 - Packages with `implement = "<virtual>"` are tagged as implementations of that virtual package.
 - Any package that lists `overrides` gets a consumer-local mapping `<virtual> → <implementation>`.
 
-Doing this during the scan phase ensures every build mode sees a consistent view of virtual contracts, their implementations, and any consumer-specific overrides.
-See [`scan::scan_one_package()`](crates/moonutil/src/scan.rs:311).
+When `BuildVirtual` is requested, Build Plan construction first plans package
+prebuild for that package. File Interpretation then selects `pkg.mbti`, falling
+back to `<package_short_name>.mbti`, from either the Package File Set or the
+outputs of actual actions in the current `PackagePrebuildPlan`. If neither is
+available, Build Plan construction reports the missing contract. The selected
+path is stored with the `BuildVirtual` action, and n2 connects a prebuild
+provider through the matching concrete path when applicable.
+
+This separation keeps Package File Set discovery independent of
+invocation-specific prebuild policy. In particular, bin-dep compatibility
+builds consume an existing contract and never select an absent declaration-only
+output.
 
 ## Build pipeline
 
 The build stage adds three behaviours on top of what regular packages already do:
 
-1. **Compile the interface first.** The scanner chooses the `.mbti` file referenced in `virtual_pkg.interface`. Moon compiles that file and pulls in the lifecycle-appropriate `.mi` files of its imports: check interfaces for check/prove planning, and build interfaces for build/run/test/bench/bundle planning. This produces the contract other packages must satisfy; compiling the contract never requires an import's `.core`.
+1. **Compile the interface first.** Build Plan construction chooses the available `.mbti` input after package prebuild planning. Moon compiles that file and pulls in the lifecycle-appropriate `.mi` files of its imports: check interfaces for check/prove planning, and build interfaces for build/run/test/bench/bundle planning. This produces the contract other packages must satisfy; compiling the contract never requires an import's `.core`.
    See [`gen_build::gen_build_interface_item()`](crates/moonbuild/src/gen/gen_build.rs:98) and [`gen_build::gen_build_interface_command()`](crates/moonbuild/src/gen/gen_build.rs:369).
 
 2. **Validate the default body (if any).** When `virtual_pkg.has_default` is true, Moon compiles the bundled body right after the interface and checks that the resulting `.core` stays compatible with the interface before exposing it.
@@ -74,13 +89,14 @@ The following flow shows a virtual package `foo/virtual_math`, its bundled defau
 
 ```mermaid
 flowchart LR
-    scan["scan(): remember mbti, implementations, overrides"]
+    scan["discover declarations and existing files"]
+    select["plan prebuild and select mbti input"]
     iface["build interface<br/>→ virtual_math.mi"]
     default["build default body<br/>interface-checked core"]
     impl["build override<br/>interface-checked core"]
     link["link-core (foo/app)<br/>virtual_math.core → sse_math.core"]
 
-    scan --> iface
+    scan --> select --> iface
     iface --> default
     iface --> impl
     default --> link

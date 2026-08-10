@@ -1,0 +1,12 @@
+{
+  "virtual": {
+    "has-default": true
+  },
+  "pre-build": [
+    {
+      "input": "contract.txt",
+      "output": "pkg.mbti",
+      "command": ":embed --text -i $input -o $output --name ignored"
+    }
+  ]
+}

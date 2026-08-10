@@ -552,7 +552,7 @@ mod tests {
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("main/native/stub.c")],
             c_stub_header_files: vec![PathBuf::from("main/native/stub.h")],
-            virtual_mbti: None,
+            virtual_mbti_files: Vec::new(),
             is_stdlib: false,
         };
 
@@ -611,8 +611,18 @@ mod tests {
     fn lowered_generator_actions_track_host_and_payload_executables() {
         let (resolve_output, target) = single_package_resolve_output();
         let mut plan = BuildPlan::default();
-        plan.test_add_node(BuildPlanNode::RunMoonLexPrebuild(target.package, 0));
-        plan.test_add_node(BuildPlanNode::RunMoonYaccPrebuild(target.package, 0));
+        plan.test_insert_moonlex_prebuild(
+            target.package,
+            0,
+            PathBuf::from("main/lexer.mbl"),
+            PathBuf::from("main/lexer.mbt"),
+        );
+        plan.test_insert_moonyacc_prebuild(
+            target.package,
+            0,
+            PathBuf::from("main/parser.mby"),
+            PathBuf::from("main/parser.mbt"),
+        );
 
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(

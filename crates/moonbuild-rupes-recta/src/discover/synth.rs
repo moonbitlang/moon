@@ -167,7 +167,7 @@ pub fn build_synth_single_file_package(
         mbtp_files: Vec::new(),
         c_stub_files: Vec::new(),
         c_stub_header_files: Vec::new(),
-        virtual_mbti: None,
+        virtual_mbti_files: Vec::new(),
         is_stdlib: false,
     };
 

@@ -35,13 +35,14 @@ pub fn write_dry_run<'a>(
     target_dir: &Path,
 ) -> std::io::Result<()> {
     let graph = &input.graph;
-    let default_files = artifacts
+    let default_files = graph
+        .get_start_nodes()
         .into_iter()
-        .flat_map(|art| {
+        .chain(artifacts.into_iter().flat_map(|art| {
             art.artifacts
                 .iter()
                 .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
-        })
+        }))
         .collect::<Vec<_>>();
 
     moonbuild::dry_run::write_build_commands(

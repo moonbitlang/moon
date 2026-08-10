@@ -268,18 +268,6 @@ impl From<&BuildProduct> for LogicalProduct {
                 (b"generated-mbti".as_slice(), Some(target.kind), None, None)
             }
             BuildProduct::DocsDir => (b"docs-dir".as_slice(), None, None, None),
-            BuildProduct::MoonLexGeneratedSource { index, .. } => (
-                b"moonlex-generated-source".as_slice(),
-                None,
-                Some(*index),
-                None,
-            ),
-            BuildProduct::MoonYaccGeneratedSource { index, .. } => (
-                b"moonyacc-generated-source".as_slice(),
-                None,
-                Some(*index),
-                None,
-            ),
             BuildProduct::PrebuildOutputPath { path } => (
                 b"prebuild-output-path".as_slice(),
                 None,

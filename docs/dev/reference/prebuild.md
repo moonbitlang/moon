@@ -36,11 +36,25 @@ Notes:
 
 - `input`/`output` paths are package-relative in config and expand to prebuild-cwd-relative paths inside the command.
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
-- During ordinary input-module builds, all declared outputs are tracked as
-  build outputs. Bin-dep compatibility builds do not create package-level
-  prebuild nodes; they consume existing `.mbt` and `.mbt.md` outputs as package
-  sources.
-- Only `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit source set.
+- During ordinary input-module builds that plan package prebuild, each planned
+  action's declared outputs are tracked as build outputs. Bin-dep compatibility
+  builds do not create package-level prebuild nodes; they consume existing
+  `.mbt` and `.mbt.md` outputs as package sources.
+- Outputs of actions in the current `PackagePrebuildPlan` go through the same
+  File Interpretation as paths in the Package File Set. `.mbt` becomes a
+  conditionally classified MoonBit source, `.mbt.md` becomes a blackbox input,
+  `.mbtp` becomes a check/prove proof input, and `.mbl`/`.mby` schedules
+  moonlex/moonyacc whose generated `.mbt` is then classified as a source.
+  A declaration alone does not make an absent output a plan input when package
+  prebuild policy does not apply, as in bin-dep compatibility builds.
+- `MOON_IGNORE_PREBUILD` disables applicable custom actions and does not add
+  their declared outputs to File Interpretation. Generated files already
+  present in the Package File Set remain ordinary compiler inputs.
+- A virtual package's expected `pkg.mbti` or legacy contract path may be a
+  planned prebuild output. Build planning selects the preferred available
+  contract after package prebuild actions are known. Other output extensions
+  remain ordinary tracked files and can be consumed by later prebuild actions
+  through matching paths.
 
 ## Path Resolution
 
@@ -106,14 +120,23 @@ Behavior:
 
 ## Ordering and Inclusion
 
-- During ordinary input-module builds, each `pre-build` entry becomes its own
-  prebuild node in the build graph. Bin-dep compatibility builds create none.
-- There is no explicit build-graph edge between two prebuild tasks solely because one is
-  written earlier in `pre-build`.
-- If one prebuild task consumes another task's declared output, the dependency is currently
-  expected to be handled by the underlying file-level tracking in `n2`.
-- Only declared outputs ending in `.mbt` or `.mbt.md` are included as MoonBit sources for
-  compilation, and only when they live in the package directory itself.
+- During ordinary input-module builds, each backend-specific Build Plan owns a
+  separate `PackagePrebuildPlan` containing the requested custom, moonlex, and
+  moonyacc actions. Bin-dep compatibility builds create none.
+- `BuildActionPlan` presents the package prebuild actions alongside the backend
+  graph for lowering, but does not add logical edges between the two subplans.
+- There is no explicit edge between two prebuild tasks solely because one is
+  written earlier in `pre-build`. If one task consumes another task's declared
+  output, n2 connects them because the same concrete path is an output of one
+  action and an input of the other.
+- Backend compiler actions likewise list generated MoonBit paths as ordinary
+  file inputs, so the same n2 path matching provides their producers.
+- All planned package prebuild actions remain part of normal execution.
+  Declared outputs that no backend action consumes are leaf outputs of the n2
+  graph, so they are still requested and the invocation waits for them.
+- Generated `.mbt`/`.mbt.md`, `.mbtp`, `.mbl`/`.mby`, and the selected virtual
+  `.mbti` path retain the meanings described above. Producer/consumer ordering
+  comes from equality of their complete paths in n2.
 
 ## Environment Capture
 

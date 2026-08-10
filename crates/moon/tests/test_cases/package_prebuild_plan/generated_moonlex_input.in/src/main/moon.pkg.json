@@ -1,0 +1,9 @@
+{
+  "pre-build": [
+    {
+      "input": "lexer.txt",
+      "output": "generated.mbl",
+      "command": ":embed --text -i $input -o $output --name ignored"
+    }
+  ]
+}
