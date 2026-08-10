@@ -49,7 +49,7 @@ use crate::{
             MiDependency, PackageSource, WasmConfig,
         },
     },
-    build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
+    build_plan::{ArtifactKey, BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
     model::{BackendConfig, BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
@@ -331,10 +331,10 @@ impl<'a> LoweringContext<'a> {
             .optional_single_output_path_matching(|product| {
                 matches!(
                     product,
-                    BuildProduct::PackageInterface {
-                        target: product_target,
-                        ..
-                    } if *product_target == target
+                    BuildProduct::Artifact(ArtifactKey::CheckMi {
+                        package,
+                        target_kind,
+                    }) if *package == target.package && *target_kind == target.kind
                 )
             })
             .unwrap_or_else(|| {
@@ -569,20 +569,20 @@ impl<'a> LoweringContext<'a> {
         let core_output = products.single_output_path_matching(|product| {
             matches!(
                 product,
-                BuildProduct::PackageCoreIr {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                BuildProduct::Artifact(ArtifactKey::CoreIr {
+                    package,
+                    target_kind,
+                }) if *package == target.package && *target_kind == target.kind
             )
         });
         let mi_output = products
             .optional_single_output_path_matching(|product| {
                 matches!(
                     product,
-                    BuildProduct::PackageInterface {
-                        target: product_target,
-                        ..
-                    } if *product_target == target
+                    BuildProduct::Artifact(ArtifactKey::BuildMi {
+                        package,
+                        target_kind,
+                    }) if *package == target.package && *target_kind == target.kind
                 )
             })
             .unwrap_or_else(|| {
@@ -700,10 +700,10 @@ impl<'a> LoweringContext<'a> {
             let core_path = products.single_dependency_path_matching(|product| {
                 matches!(
                     product,
-                    BuildProduct::PackageCoreIr {
-                        target: product_target,
-                        ..
-                    } if product_target == target
+                    BuildProduct::Artifact(ArtifactKey::CoreIr {
+                        package,
+                        target_kind,
+                    }) if *package == target.package && *target_kind == target.kind
                 )
             });
             core_input_files.push(core_path);

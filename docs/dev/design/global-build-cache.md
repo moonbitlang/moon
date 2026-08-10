@@ -158,6 +158,11 @@ producer identities. A producer edge contributes the producer digest, logical
 product kind, and concrete paths. Opaque numeric action IDs are only lookup
 keys within one lowering and never enter a persistent identity.
 
+For migrated package compilation outputs, the logical product kind is the
+exact `ArtifactKey` variant. Check MI, Build MI, Core IR, and virtual-contract
+MI therefore remain distinct through canonical action identity even when two
+variants currently resolve to the same physical suffix or path layout.
+
 The identity does not rewrite paths or interpret command text. Structured argv,
 the selected transport command, response-file contents, environment values,
 and every path are hashed exactly as lowering produced them. Moving a source,

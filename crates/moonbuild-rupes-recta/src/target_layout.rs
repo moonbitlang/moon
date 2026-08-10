@@ -39,6 +39,7 @@ use moonutil::{
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildProduct},
+    build_plan::ArtifactKey,
     discover::{DiscoverResult, DiscoveredLocalProject},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
@@ -815,12 +816,33 @@ impl ArtifactPathResolver {
     ) -> Vec<PathBuf> {
         Self::assert_product_matches_action(product, action_context);
         match product {
-            BuildProduct::PackageInterface { target } => {
-                self.package_interface_paths(action_context, *target, packages, options)
-            }
-            BuildProduct::PackageCoreIr { target } => {
-                vec![self.core_of_build_target(packages, target, options.target_backend())]
-            }
+            BuildProduct::Artifact(artifact) => match artifact {
+                ArtifactKey::CheckMi {
+                    package,
+                    target_kind,
+                }
+                | ArtifactKey::BuildMi {
+                    package,
+                    target_kind,
+                } => self.package_interface_paths(
+                    action_context,
+                    package.build_target(*target_kind),
+                    packages,
+                    options,
+                ),
+                ArtifactKey::CoreIr {
+                    package,
+                    target_kind,
+                } => vec![self.core_of_build_target(
+                    packages,
+                    &package.build_target(*target_kind),
+                    options.target_backend(),
+                )],
+                ArtifactKey::VirtualContractMi { package } => {
+                    let target = package.build_target(TargetKind::Source);
+                    vec![self.mi_of_build_target(packages, &target, options.target_backend())]
+                }
+            },
             BuildProduct::ProofInterface { target } => match action_context {
                 BuildAction::EmitProof { .. } => {
                     vec![self.target_layout.emit_proof_mi_path(packages, target)]
@@ -948,10 +970,6 @@ impl ArtifactPathResolver {
                 )]
             }
             BuildProduct::DocsDir => vec![self.target_layout.doc_dir()],
-            BuildProduct::VirtualPackageInterface { package } => {
-                let target = package.build_target(TargetKind::Source);
-                vec![self.mi_of_build_target(packages, &target, options.target_backend())]
-            }
             BuildProduct::MoonLexGeneratedSource { package, index } => {
                 let pkg_info = packages.get_package(*package);
                 let mbtlex_file = &pkg_info.mbt_lex_files[*index as usize];
@@ -969,23 +987,31 @@ impl ArtifactPathResolver {
     fn assert_product_matches_action(product: &BuildProduct, action_context: BuildAction<'_>) {
         let matches = match (product, action_context) {
             (
-                BuildProduct::PackageInterface { target },
+                BuildProduct::Artifact(ArtifactKey::CheckMi {
+                    package,
+                    target_kind,
+                }),
                 BuildAction::Check {
                     target: action_target,
                     ..
-                }
-                | BuildAction::BuildCore {
-                    target: action_target,
-                    ..
                 },
-            ) => *target == action_target,
+            ) => *package == action_target.package && *target_kind == action_target.kind,
             (
-                BuildProduct::PackageCoreIr { target },
+                BuildProduct::Artifact(
+                    ArtifactKey::BuildMi {
+                        package,
+                        target_kind,
+                    }
+                    | ArtifactKey::CoreIr {
+                        package,
+                        target_kind,
+                    },
+                ),
                 BuildAction::BuildCore {
                     target: action_target,
                     ..
                 },
-            ) => *target == action_target,
+            ) => *package == action_target.package && *target_kind == action_target.kind,
             (
                 BuildProduct::ProofInterface { target } | BuildProduct::ProofWhyml { target },
                 BuildAction::EmitProof {
@@ -1071,7 +1097,7 @@ impl ArtifactPathResolver {
             ) => *target == action_target,
             (BuildProduct::DocsDir, BuildAction::BuildDocs { .. }) => true,
             (
-                BuildProduct::VirtualPackageInterface { package },
+                BuildProduct::Artifact(ArtifactKey::VirtualContractMi { package }),
                 BuildAction::BuildVirtual {
                     package: action_package,
                 },
@@ -1596,7 +1622,10 @@ mod tests {
 
         assert_eq!(
             resolver.paths_for_product(
-                &BuildProduct::PackageInterface { target },
+                &BuildProduct::Artifact(ArtifactKey::CheckMi {
+                    package,
+                    target_kind: target.kind,
+                }),
                 action_plan.action(action_id),
                 &packages,
                 &modules,
@@ -1620,7 +1649,10 @@ mod tests {
 
         assert_eq!(
             resolver.paths_for_product(
-                &BuildProduct::PackageInterface { target },
+                &BuildProduct::Artifact(ArtifactKey::BuildMi {
+                    package,
+                    target_kind: target.kind,
+                }),
                 BuildAction::BuildCore {
                     target,
                     info: &info,
@@ -1648,7 +1680,10 @@ mod tests {
 
         assert_eq!(
             resolver.paths_for_product(
-                &BuildProduct::PackageInterface { target },
+                &BuildProduct::Artifact(ArtifactKey::CheckMi {
+                    package,
+                    target_kind: target.kind,
+                }),
                 BuildAction::Check {
                     target,
                     info: &info,
@@ -1717,7 +1752,7 @@ mod tests {
         let options = artifact_options(ExecutableArtifact::WasmGC { use_wat: false });
 
         let virtual_contract = resolver.paths_for_product(
-            &BuildProduct::VirtualPackageInterface { package },
+            &BuildProduct::Artifact(ArtifactKey::VirtualContractMi { package }),
             BuildAction::BuildVirtual { package },
             &packages,
             &modules,
@@ -1763,7 +1798,10 @@ mod tests {
         let info = build_target_info();
 
         let _ = resolver.paths_for_product(
-            &BuildProduct::PackageCoreIr { target },
+            &BuildProduct::Artifact(ArtifactKey::CoreIr {
+                package,
+                target_kind: target.kind,
+            }),
             BuildAction::Check {
                 target,
                 info: &info,

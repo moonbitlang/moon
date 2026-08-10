@@ -16,7 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use indexmap::IndexSet;
 
 use crate::model::{BuildPlanNode, PackageId, TargetKind};
 
@@ -26,7 +28,7 @@ use crate::model::{BuildPlanNode, PackageId, TargetKind};
 /// Check, build, and virtual-contract interfaces are distinct because they are
 /// not interchangeable inputs even though all three currently use `.mi` files.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(super) enum ArtifactKey {
+pub enum ArtifactKey {
     CheckMi {
         package: PackageId,
         target_kind: TargetKind,
@@ -44,29 +46,22 @@ pub(super) enum ArtifactKey {
     },
 }
 
-#[derive(Debug, Default)]
-struct Derivation {
-    requirements: HashSet<ArtifactKey>,
-    outputs: HashSet<ArtifactKey>,
-}
-
-/// A normalized form of `artifact -> (requirements, provider)`.
+/// Package artifact providers and the artifact requirements of each derivation.
 ///
-/// Derivations are keyed by the existing high-level [`BuildPlanNode`]. This
-/// lets multiple outputs share one requirement set without introducing a new
-/// positional or arena ID.
+/// The existing high-level [`BuildPlanNode`] identifies a derivation. Multiple
+/// artifacts may name the same provider without introducing a positional or
+/// arena ID.
 #[derive(Debug, Default)]
 pub(super) struct ArtifactPlan {
     providers: HashMap<ArtifactKey, BuildPlanNode>,
-    derivations: HashMap<BuildPlanNode, Derivation>,
+    requirements_by_consumer: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
 }
 
 impl ArtifactPlan {
     pub(super) fn require(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
-        self.derivations
+        self.requirements_by_consumer
             .entry(consumer)
             .or_default()
-            .requirements
             .insert(artifact);
     }
 
@@ -79,37 +74,58 @@ impl ArtifactPlan {
         } else {
             self.providers.insert(artifact, provider);
         }
-
-        self.derivations
-            .entry(provider)
-            .or_default()
-            .outputs
-            .insert(artifact);
     }
 
+    #[cfg(test)]
     pub(super) fn provider(&self, artifact: ArtifactKey) -> Option<BuildPlanNode> {
         self.providers.get(&artifact).copied()
     }
 
     pub(super) fn requirements(&self) -> impl Iterator<Item = (BuildPlanNode, ArtifactKey)> + '_ {
-        self.derivations.iter().flat_map(|(&consumer, derivation)| {
-            derivation
-                .requirements
-                .iter()
-                .copied()
-                .map(move |artifact| (consumer, artifact))
-        })
+        self.requirements_by_consumer
+            .iter()
+            .flat_map(|(&consumer, requirements)| {
+                requirements
+                    .iter()
+                    .copied()
+                    .map(move |artifact| (consumer, artifact))
+            })
+    }
+
+    pub(super) fn validate(&self) {
+        for (_, artifact) in self.requirements() {
+            assert!(
+                self.providers.contains_key(&artifact),
+                "required artifact {artifact:?} has no provider in the build plan"
+            );
+        }
+    }
+
+    pub(super) fn dependencies(
+        &self,
+        consumer: BuildPlanNode,
+    ) -> impl Iterator<Item = (BuildPlanNode, ArtifactKey)> + '_ {
+        self.requirements_by_consumer
+            .get(&consumer)
+            .into_iter()
+            .flat_map(|requirements| requirements.iter().copied())
+            .map(|artifact| {
+                let provider = self.providers[&artifact];
+                (provider, artifact)
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use slotmap::SlotMap;
 
     use super::*;
 
     #[test]
-    fn multiple_artifacts_share_one_derivation() {
+    fn multiple_artifacts_can_share_one_provider() {
         let mut packages = SlotMap::<PackageId, ()>::with_key();
         let package = packages.insert(());
         let target = package.build_target(TargetKind::Source);
@@ -129,8 +145,7 @@ mod tests {
 
         assert_eq!(plan.provider(build_mi), Some(provider));
         assert_eq!(plan.provider(core_ir), Some(provider));
-        assert_eq!(plan.derivations.len(), 1);
-        assert_eq!(plan.derivations[&provider].outputs.len(), 2);
+        assert_eq!(plan.providers.len(), 2);
     }
 
     #[test]

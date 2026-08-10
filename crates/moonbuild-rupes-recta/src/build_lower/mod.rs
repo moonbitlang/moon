@@ -365,8 +365,8 @@ mod tests {
 
     use crate::{
         build_plan::{
-            BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo, FileDependencyKind,
-            LinkCoreInfo, MakeExecutableInfo, PlanArtifactNeed,
+            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo,
+            FileDependencyKind, LinkCoreInfo, MakeExecutableInfo,
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
@@ -853,11 +853,12 @@ mod tests {
             runtime_object_node,
             FileDependencyKind::AllFiles,
         );
-        plan.test_add_edge(
-            link_core_node,
-            build_core_node,
-            FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr),
-        );
+        let core_ir = ArtifactKey::CoreIr {
+            package: target.package,
+            target_kind: target.kind,
+        };
+        plan.test_require_artifact(link_core_node, core_ir);
+        plan.test_provide_artifact(build_core_node, core_ir);
         plan.test_add_edge(exe_node, link_core_node, FileDependencyKind::AllFiles);
         plan.test_add_edge(exe_node, runtime_node, FileDependencyKind::AllFiles);
         plan.test_add_edge(exe_node, c_stubs_node, FileDependencyKind::AllFiles);

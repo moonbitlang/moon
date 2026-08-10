@@ -36,6 +36,7 @@ use blake3::Hasher;
 use moonbuild_rupes_recta::{
     build_action_plan::BuildProduct,
     build_lower::{LoweredAction, LoweredCommandExecution, LoweredExternalInput},
+    build_plan::ArtifactKey,
     model::TargetKind,
 };
 
@@ -212,14 +213,17 @@ struct LogicalProduct {
 impl From<&BuildProduct> for LogicalProduct {
     fn from(product: &BuildProduct) -> Self {
         let (kind, target_kind, index, path) = match product {
-            BuildProduct::PackageInterface { target } => (
-                b"package-interface".as_slice(),
-                Some(target.kind),
-                None,
-                None,
-            ),
-            BuildProduct::PackageCoreIr { target } => {
-                (b"package-core-ir".as_slice(), Some(target.kind), None, None)
+            BuildProduct::Artifact(ArtifactKey::CheckMi { target_kind, .. }) => {
+                (b"check-mi".as_slice(), Some(*target_kind), None, None)
+            }
+            BuildProduct::Artifact(ArtifactKey::BuildMi { target_kind, .. }) => {
+                (b"build-mi".as_slice(), Some(*target_kind), None, None)
+            }
+            BuildProduct::Artifact(ArtifactKey::CoreIr { target_kind, .. }) => {
+                (b"core-ir".as_slice(), Some(*target_kind), None, None)
+            }
+            BuildProduct::Artifact(ArtifactKey::VirtualContractMi { .. }) => {
+                (b"virtual-contract-mi".as_slice(), None, None, None)
             }
             BuildProduct::ProofInterface { target } => {
                 (b"proof-interface".as_slice(), Some(target.kind), None, None)
@@ -264,9 +268,6 @@ impl From<&BuildProduct> for LogicalProduct {
                 (b"generated-mbti".as_slice(), Some(target.kind), None, None)
             }
             BuildProduct::DocsDir => (b"docs-dir".as_slice(), None, None, None),
-            BuildProduct::VirtualPackageInterface { .. } => {
-                (b"virtual-package-interface".as_slice(), None, None, None)
-            }
             BuildProduct::MoonLexGeneratedSource { index, .. } => (
                 b"moonlex-generated-source".as_slice(),
                 None,
