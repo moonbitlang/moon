@@ -25,7 +25,7 @@ use std::{
 
 use crate::{
     ResolveOutput,
-    build_plan::{FileDependencyKind, InputDirective, PlanArtifactNeed},
+    build_plan::{FileDependencyKind, InputDirective},
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
 };
@@ -69,50 +69,6 @@ pub(super) struct PackageFileSet {
     pub(super) blackbox_files: Vec<PathBuf>,
     pub(super) mbt_md_files: Vec<PathBuf>,
     pub(super) mbtp_files: Vec<PathBuf>,
-}
-
-fn merge_edge_kind(dst: &mut FileDependencyKind, src: FileDependencyKind) {
-    if matches!(src, FileDependencyKind::AllFiles) {
-        *dst = FileDependencyKind::AllFiles;
-        return;
-    }
-
-    match dst {
-        FileDependencyKind::AllFiles => {}
-        FileDependencyKind::Artifacts(dst_need) => {
-            let FileDependencyKind::Artifacts(need) = src else {
-                panic!(
-                    "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                    dst, src
-                );
-            };
-            *dst_need = dst_need.union(need);
-        }
-        FileDependencyKind::ProofArtifacts {
-            mi: dst_mi,
-            mlw: dst_mlw,
-            report: dst_report,
-        } => {
-            let FileDependencyKind::ProofArtifacts { mi, mlw, report } = src else {
-                panic!(
-                    "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                    dst, src
-                );
-            };
-            *dst_mi |= mi;
-            *dst_mlw |= mlw;
-            *dst_report |= report;
-        }
-        FileDependencyKind::GenerateTestInfo { meta: dst_meta } => {
-            let FileDependencyKind::GenerateTestInfo { meta } = src else {
-                panic!(
-                    "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                    dst, src
-                );
-            };
-            *dst_meta |= meta;
-        }
-    }
 }
 
 impl<'a> BuildPlanConstructor<'a> {
@@ -184,36 +140,10 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        self.materialize_artifact_requirements();
+        self.res.artifacts.validate();
         self.warn_moon_cc_overrides();
 
         Ok(())
-    }
-
-    /// Derive action edges from package artifact requirements after every
-    /// provider has been planned and has registered its outputs.
-    fn materialize_artifact_requirements(&mut self) {
-        let requirements = self.res.artifacts.requirements().collect::<Vec<_>>();
-        for (consumer, artifact) in requirements {
-            let provider = self.res.artifacts.provider(artifact).unwrap_or_else(|| {
-                panic!("required artifact {artifact:?} has no provider in the build plan")
-            });
-            let edge = match artifact {
-                ArtifactKey::CheckMi { .. } | ArtifactKey::BuildMi { .. } => {
-                    FileDependencyKind::Artifacts(PlanArtifactNeed::Interface)
-                }
-                ArtifactKey::CoreIr { .. } => {
-                    FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr)
-                }
-                ArtifactKey::VirtualContractMi { .. } => FileDependencyKind::AllFiles,
-            };
-
-            if let Some(existing) = self.res.graph.edge_weight_mut(consumer, provider) {
-                merge_edge_kind(existing, edge);
-            } else {
-                self.add_edge_spec(consumer, provider, edge);
-            }
-        }
     }
 
     /// Tell the build graph that we need to calculate the graph portion of a
@@ -461,16 +391,6 @@ impl<'a> BuildPlanConstructor<'a> {
     ) {
         // verify edge kind
         match (edge, end) {
-            (FileDependencyKind::Artifacts(need), BuildPlanNode::Check(..)) => {
-                assert!(
-                    need.is_subset_of(PlanArtifactNeed::Interface),
-                    "Check only produces an interface artifact"
-                );
-            }
-            (FileDependencyKind::Artifacts(_), BuildPlanNode::BuildCore(..)) => {}
-            (FileDependencyKind::Artifacts(_), _) => {
-                panic!("logical artifact edges can only point to Check or BuildCore nodes")
-            }
             (
                 FileDependencyKind::ProofArtifacts { .. },
                 BuildPlanNode::EmitProof(..) | BuildPlanNode::Prove(..),
@@ -577,26 +497,5 @@ impl<'a> BuildPlanConstructor<'a> {
             self.warn_if_main_package_uses_blackbox_inputs(pkg, &info.regular_files);
         }
         self.res.build_target_infos.insert(target, info);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::merge_edge_kind;
-    use crate::build_plan::{FileDependencyKind, PlanArtifactNeed};
-
-    #[test]
-    fn merging_logical_artifact_edges_unions_needs() {
-        let mut edge = FileDependencyKind::Artifacts(PlanArtifactNeed::Interface);
-
-        merge_edge_kind(
-            &mut edge,
-            FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr),
-        );
-
-        assert_eq!(
-            edge,
-            FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr)
-        );
     }
 }

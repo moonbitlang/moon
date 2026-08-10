@@ -5,14 +5,15 @@ plan consumed by lowering, and backend graph construction:
 
 ```text
 BuildPlan       = planning IR: derivations, artifact requirements, provider selection
-BuildActionPlan = action-level build plan: action ids, hydrated action data, logical products
+BuildActionPlan = action-level build plan: action ids, hydrated action data, artifacts and legacy outputs
 LoweredAction   = concrete action: realized products, paths, and process command
 n2::Build       = executor representation produced by the n2 adapter
 ```
 
-The important invariant is that `build_lower` consumes `BuildActionPlan` only. It
-does not import or match on planning internals such as `BuildPlanNode`,
-`FileDependencyKind`, or `PlanArtifactNeed`.
+The important invariant is that `build_lower` consumes `BuildActionPlan` only.
+It does not import or match on planning internals such as `BuildPlanNode` or
+`FileDependencyKind`. `ArtifactKey` is the Build Artifact identity carried
+across this seam for migrated outputs, not a planning-internal selector.
 
 ## Backend configuration
 
@@ -44,8 +45,8 @@ by the Native Toolchain and realization they were built for first.
 ## Planning IR
 
 `BuildPlan` owns graph traversal, exact package artifact requirements, provider
-registration, and the derived action graph. The migrated package compilation
-artifacts are:
+registration, and action topology. The migrated package compilation artifacts
+are:
 
 ```rust
 pub enum ArtifactKey {
@@ -66,9 +67,9 @@ use the `.mi` extension.
 
 Builders record Artifact Requirements. The artifact rule schedules the unique
 provider, and the provider registers its outputs when its derivation is fully
-planned. After all providers have been planned, BuildPlan validates each
-requirement and derives the compatible action edges consumed by
-`BuildActionPlan`:
+planned. After all providers have been planned, `BuildPlan` validates every
+requirement. `BuildActionPlan` then resolves requirements directly to their
+provider actions and logical products:
 
 ```rust
 self.require_artifact(
@@ -104,13 +105,11 @@ match run_mode {
 There is no Check-to-Build coalescing. The two derivations provide different
 artifacts and can never substitute for one another.
 
-Every package MI and Core IR dependency is recorded as an Artifact Requirement.
-The compatibility projection is the only build-planning code that constructs
-`FileDependencyKind::Artifacts` edges. Proof, generated-test-info, prebuild,
-C-stub, runtime, and other not-yet-migrated dependencies continue to use other
-`FileDependencyKind` variants. The derived MI/Core edges use the same
-representation after provider resolution so the action-plan and lowering
-interfaces remain unchanged during this migration.
+Every package MI and Core IR dependency remains an Artifact Requirement through
+action planning; there is no compatibility projection to an action edge. Proof,
+generated-test-info, prebuild, C-stub, runtime, and other not-yet-migrated
+dependencies continue to use `FileDependencyKind`. `BuildPlan` combines both
+representations when callers ask for action topology.
 
 ## Build Action Plan
 
@@ -133,12 +132,12 @@ pub enum BuildAction<'a> {
 backends, `MakeExecutable` remains a final-artifact alias over `LinkCore` and is
 a no-op in backend lowering.
 
-Logical outputs are exposed as producer-free `BuildProduct` values:
+Action outputs are exposed through `BuildProduct`. It is an action-level
+envelope, not a second Build Artifact identity:
 
 ```rust
 pub enum BuildProduct {
-    PackageInterface { target: BuildTarget },
-    PackageCoreIr { target: BuildTarget },
+    Artifact(ArtifactKey),
     GeneratedTestDriver { target: BuildTarget },
     CStubObject { package: PackageId, index: u32 },
     Executable { target: BuildTarget },
@@ -149,6 +148,13 @@ pub enum BuildProduct {
     // other logical outputs
 }
 ```
+
+Package compilation outputs use `BuildProduct::Artifact` and retain the exact
+`CheckMi`, `BuildMi`, `CoreIr`, or `VirtualContractMi` key selected during
+planning. In particular, Check MI and Build MI are never collapsed into a
+generic interface product and then recovered from their provider action. The
+remaining variants are outputs whose dependencies have not yet migrated from
+action-coupled file selectors.
 
 `PrebuildOutputPath` is the explicit exception: prebuild outputs are resolved
 when the prebuild command is planned, so the product carries the already
@@ -163,23 +169,23 @@ pub fn output_products(&self, id: BuildActionId) -> Vec<BuildProduct> {
 }
 ```
 
-Dependency edge selectors become `(dependency action, product)` pairs. The
-dependency action is edge context for path resolution; it is not stored inside
-the product:
+Artifact Requirements and remaining file selectors become `(dependency action,
+product)` pairs. The dependency action is context for path resolution; it is
+not part of Build Artifact identity:
 
 ```rust
 pub fn dependency_products(&self, id: BuildActionId) -> Vec<(BuildActionId, BuildProduct)> {
-    self.plan
-        .dependency_edges(self.node(id))
-        .flat_map(|(node, kind)| {
-            let dependency_action = self.id_for_node(node);
-            self.products_for_edge(node, kind)
-                .into_iter()
-                .map(move |product| (dependency_action, product))
-        })
-        .collect()
+    let node = self.node(id);
+    let file_dependencies = self.plan.file_dependencies(node).flat_map(/* ... */);
+    let artifact_dependencies = self.plan.artifact_dependencies(node).map(/* ... */);
+    file_dependencies.chain(artifact_dependencies).collect()
 }
 ```
+
+If one provider supplies multiple required artifacts, each
+`BuildProduct::Artifact` retains its separate key while action topology contains
+the provider only once. This lets Build MI and Core IR share a compiler
+invocation without collapsing their identities.
 
 For example, an archive/link C-stub action no longer scans raw build-plan
 edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
@@ -196,8 +202,10 @@ fingerprint unset and retain stable output paths.
 
 ## Action Lowering and n2 Adaptation
 
-`build_lower` matches on `BuildAction` and resolves `BuildProduct` paths
-through `ArtifactPathResolver`:
+`build_lower` matches on `BuildAction` and resolves `BuildProduct` paths through
+`ArtifactPathResolver`. Migrated products are resolved directly from their
+`ArtifactKey`; the provider action is checked as provider context rather than
+used to reconstruct artifact identity:
 
 ```rust
 let cmd = match self.plan.action(id) {
@@ -269,20 +277,20 @@ consumes the executable product and produces the `.dSYM` bundle.
 
 This keeps responsibilities separate:
 
-- `BuildPlan` owns Artifact Requirements, provider registration, and the derived action graph.
-- `BuildActionPlan` owns the normalized action/product interface between phases.
-- `ArtifactPathResolver` owns logical product to path resolution.
+- `BuildPlan` owns Artifact Requirements, provider registration, and combined action topology.
+- `BuildActionPlan` owns the normalized action/artifact interface between phases.
+- `ArtifactPathResolver` owns artifact and legacy output path resolution.
 - action lowering owns concrete products, external inputs, and commands.
 - the n2 adapter owns n2 graph construction.
 
 ## Standalone script boundary
 
 Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
-Package dependencies use the same edges as ordinary project compilation. After
-the plan is normalized once, an action-level projection retains dependency
-work as `LoweredAction` values and lowers script work into an n2 graph. Moon
-passes the dependency actions through the current n2 adapter before execution,
-producing the same two disjoint n2 graphs as before.
+Package dependencies use the same Artifact Requirements as ordinary project
+compilation. After the plan is normalized once, an action-level projection
+retains dependency work as `LoweredAction` values and lowers script work into
+an n2 graph. Moon passes the dependency actions through the current n2 adapter
+before execution, producing the same two disjoint n2 graphs as before.
 
 For `moon run` standalone inputs, registry package acquisition is separate from
 that build projection. Persistent standalone `.mbt` and `.mbtx` files, inline

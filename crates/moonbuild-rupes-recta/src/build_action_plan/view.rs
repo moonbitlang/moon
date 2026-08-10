@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use moonutil::resolution::ResolvedEnv;
 
 use crate::{
-    build_plan::{BuildPlan, FileDependencyKind, PlanArtifactNeed},
+    build_plan::{ArtifactKey, BuildPlan, FileDependencyKind},
     discover::DiscoverResult,
     model::{BuildPlanNode, BuildTarget, PackageId},
 };
@@ -259,14 +259,23 @@ impl<'a> BuildActionPlan<'a> {
     }
 
     pub fn dependency_products(&self, id: BuildActionId) -> Vec<(BuildActionId, BuildProduct)> {
-        self.plan
-            .dependency_edges(self.node(id))
-            .flat_map(|(node, kind)| {
-                let dependency_action = self.id_for_node(node);
-                self.products_for_edge(node, kind)
-                    .into_iter()
-                    .map(move |product| (dependency_action, product))
-            })
+        let node = self.node(id);
+        let file_dependencies = self.plan.file_dependencies(node).flat_map(|(node, kind)| {
+            let dependency_action = self.id_for_node(node);
+            self.products_for_edge(node, kind)
+                .into_iter()
+                .map(move |product| (dependency_action, product))
+        });
+        let artifact_dependencies =
+            self.plan
+                .artifact_dependencies(node)
+                .map(|(provider, artifact)| {
+                    (self.id_for_node(provider), BuildProduct::Artifact(artifact))
+                });
+        let mut seen = HashSet::new();
+        file_dependencies
+            .chain(artifact_dependencies)
+            .filter(move |dependency| seen.insert(dependency.clone()))
             .collect()
     }
 
@@ -339,21 +348,6 @@ impl<'a> BuildActionPlan<'a> {
     ) -> Vec<BuildProduct> {
         match kind {
             FileDependencyKind::AllFiles => self.output_products_for_node(node),
-            FileDependencyKind::Artifacts(need) => {
-                let mut products = Vec::new();
-                let (needs_interface, needs_core_ir) = match need {
-                    PlanArtifactNeed::Interface => (true, false),
-                    PlanArtifactNeed::CoreIr => (false, true),
-                    PlanArtifactNeed::InterfaceAndCoreIr => (true, true),
-                };
-                if needs_interface {
-                    self.push_package_interface(node, &mut products);
-                }
-                if needs_core_ir {
-                    self.push_package_core_ir(node, &mut products);
-                }
-                products
-            }
             FileDependencyKind::ProofArtifacts { mi, mlw, report } => {
                 let mut products = Vec::new();
                 if mi {
@@ -380,9 +374,10 @@ impl<'a> BuildActionPlan<'a> {
 
     fn output_products_for_node(&self, node: BuildPlanNode) -> Vec<BuildProduct> {
         match node {
-            BuildPlanNode::Check(target) => {
-                vec![BuildProduct::PackageInterface { target }]
-            }
+            BuildPlanNode::Check(target) => vec![BuildProduct::Artifact(ArtifactKey::CheckMi {
+                package: target.package,
+                target_kind: target.kind,
+            })],
             BuildPlanNode::EmitProof(target) => vec![
                 BuildProduct::ProofInterface { target },
                 BuildProduct::ProofWhyml { target },
@@ -395,7 +390,10 @@ impl<'a> BuildActionPlan<'a> {
             BuildPlanNode::BuildCore(target) => {
                 let mut products = Vec::new();
                 self.push_build_core_interface_if_emitted(target, &mut products);
-                products.push(BuildProduct::PackageCoreIr { target });
+                products.push(BuildProduct::Artifact(ArtifactKey::CoreIr {
+                    package: target.package,
+                    target_kind: target.kind,
+                }));
                 products
             }
             BuildPlanNode::BuildCStub(package, index) => {
@@ -438,7 +436,9 @@ impl<'a> BuildActionPlan<'a> {
                 .map(|path| BuildProduct::PrebuildOutputPath { path })
                 .collect(),
             BuildPlanNode::BuildVirtual(package) => {
-                vec![BuildProduct::VirtualPackageInterface { package }]
+                vec![BuildProduct::Artifact(ArtifactKey::VirtualContractMi {
+                    package,
+                })]
             }
             BuildPlanNode::RunMoonLexPrebuild(package, index) => {
                 vec![BuildProduct::MoonLexGeneratedSource { package, index }]
@@ -446,27 +446,6 @@ impl<'a> BuildActionPlan<'a> {
             BuildPlanNode::RunMoonYaccPrebuild(package, index) => {
                 vec![BuildProduct::MoonYaccGeneratedSource { package, index }]
             }
-        }
-    }
-
-    fn push_package_interface(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
-        match node {
-            BuildPlanNode::Check(target) => {
-                products.push(BuildProduct::PackageInterface { target });
-            }
-            BuildPlanNode::BuildCore(target) => {
-                self.push_build_core_interface_if_emitted(target, products);
-            }
-            _ => panic!("Package interface product requested from non-package node"),
-        }
-    }
-
-    fn push_package_core_ir(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
-        match node {
-            BuildPlanNode::BuildCore(target) => {
-                products.push(BuildProduct::PackageCoreIr { target });
-            }
-            _ => panic!("Core IR product requested from non-BuildCore node"),
         }
     }
 
@@ -480,7 +459,10 @@ impl<'a> BuildActionPlan<'a> {
             .get_build_target_info(&target)
             .expect("Build target info should be present for BuildCore nodes");
         if info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test() {
-            products.push(BuildProduct::PackageInterface { target });
+            products.push(BuildProduct::Artifact(ArtifactKey::BuildMi {
+                package: target.package,
+                target_kind: target.kind,
+            }));
         }
     }
 

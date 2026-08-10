@@ -20,17 +20,19 @@ use std::path::PathBuf;
 
 use moonutil::resolution::ModuleId;
 
-use crate::model::{BuildTarget, PackageId};
+use crate::{
+    build_plan::ArtifactKey,
+    model::{BuildTarget, PackageId},
+};
 
-/// A logical product selected from a build node.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// An action-level output passed to backend lowering.
+///
+/// Migrated package compilation outputs retain their exact Build Artifact
+/// identity. The remaining variants are outputs whose dependencies have not
+/// yet migrated from action-coupled file selectors.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BuildProduct {
-    PackageInterface {
-        target: BuildTarget,
-    },
-    PackageCoreIr {
-        target: BuildTarget,
-    },
+    Artifact(ArtifactKey),
     ProofInterface {
         target: BuildTarget,
     },
@@ -73,9 +75,6 @@ pub enum BuildProduct {
         target: BuildTarget,
     },
     DocsDir,
-    VirtualPackageInterface {
-        package: PackageId,
-    },
     MoonLexGeneratedSource {
         package: PackageId,
         index: u32,

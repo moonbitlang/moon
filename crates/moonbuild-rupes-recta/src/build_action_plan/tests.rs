@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use slotmap::KeyData;
 
 use crate::{
-    build_plan::{BuildPlan, BuildTargetInfo, FileDependencyKind, PlanArtifactNeed, PrebuildInfo},
+    build_plan::{ArtifactKey, BuildPlan, BuildTargetInfo, FileDependencyKind, PrebuildInfo},
     model::{BuildPlanNode, PackageId, TargetKind},
 };
 
@@ -61,7 +61,10 @@ fn check_exposes_package_interface() {
 
     assert_eq!(
         action_plan.output_products(action_id),
-        vec![BuildProduct::PackageInterface { target }]
+        vec![BuildProduct::Artifact(ArtifactKey::CheckMi {
+            package,
+            target_kind: target.kind,
+        })]
     );
 }
 
@@ -80,8 +83,14 @@ fn build_core_exposes_core_and_interface_when_it_emits_mi() {
     assert_eq!(
         action_plan.output_products(action_id),
         vec![
-            BuildProduct::PackageInterface { target },
-            BuildProduct::PackageCoreIr { target },
+            BuildProduct::Artifact(ArtifactKey::BuildMi {
+                package,
+                target_kind: target.kind,
+            }),
+            BuildProduct::Artifact(ArtifactKey::CoreIr {
+                package,
+                target_kind: target.kind,
+            }),
         ]
     );
 }
@@ -102,7 +111,10 @@ fn build_core_omits_interface_when_mi_is_disabled() {
 
     assert_eq!(
         action_plan.output_products(action_id),
-        vec![BuildProduct::PackageCoreIr { target }]
+        vec![BuildProduct::Artifact(ArtifactKey::CoreIr {
+            package,
+            target_kind: target.kind,
+        })]
     );
 }
 
@@ -132,12 +144,13 @@ fn check_interface_dependency_uses_selected_check_action() {
     let consumer = package_id(2).build_target(TargetKind::Source);
     let dependency_node = BuildPlanNode::Check(dependency);
     let consumer_node = BuildPlanNode::BuildCore(consumer);
+    let check_mi = ArtifactKey::CheckMi {
+        package: dependency.package,
+        target_kind: dependency.kind,
+    };
     let mut plan = BuildPlan::default();
-    plan.test_add_edge(
-        consumer_node,
-        dependency_node,
-        FileDependencyKind::Artifacts(PlanArtifactNeed::Interface),
-    );
+    plan.test_require_artifact(consumer_node, check_mi);
+    plan.test_provide_artifact(dependency_node, check_mi);
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
@@ -145,10 +158,7 @@ fn check_interface_dependency_uses_selected_check_action() {
 
     assert_eq!(
         action_plan.dependency_products(consumer_id),
-        vec![(
-            dependency_id,
-            BuildProduct::PackageInterface { target: dependency },
-        )]
+        vec![(dependency_id, BuildProduct::Artifact(check_mi))]
     );
 }
 
@@ -158,13 +168,19 @@ fn build_core_dependency_can_track_interface_and_core_ir() {
     let consumer = package_id(2).build_target(TargetKind::Source);
     let dependency_node = BuildPlanNode::BuildCore(dependency);
     let consumer_node = BuildPlanNode::BuildCore(consumer);
+    let build_mi = ArtifactKey::BuildMi {
+        package: dependency.package,
+        target_kind: dependency.kind,
+    };
+    let core_ir = ArtifactKey::CoreIr {
+        package: dependency.package,
+        target_kind: dependency.kind,
+    };
     let mut plan = BuildPlan::default();
-    plan.test_add_edge(
-        consumer_node,
-        dependency_node,
-        FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr),
-    );
-    plan.test_insert_build_target_info(dependency, target_info());
+    plan.test_require_artifact(consumer_node, build_mi);
+    plan.test_require_artifact(consumer_node, core_ir);
+    plan.test_provide_artifact(dependency_node, build_mi);
+    plan.test_provide_artifact(dependency_node, core_ir);
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
@@ -173,15 +189,41 @@ fn build_core_dependency_can_track_interface_and_core_ir() {
     assert_eq!(
         action_plan.dependency_products(consumer_id),
         vec![
-            (
-                dependency_id,
-                BuildProduct::PackageInterface { target: dependency },
-            ),
-            (
-                dependency_id,
-                BuildProduct::PackageCoreIr { target: dependency }
-            ),
+            (dependency_id, BuildProduct::Artifact(build_mi)),
+            (dependency_id, BuildProduct::Artifact(core_ir)),
         ]
+    );
+}
+
+#[test]
+fn artifact_dependencies_deduplicate_provider_action() {
+    let dependency = package_id(1).build_target(TargetKind::Source);
+    let consumer = package_id(2).build_target(TargetKind::Source);
+    let dependency_node = BuildPlanNode::BuildCore(dependency);
+    let consumer_node = BuildPlanNode::BuildCore(consumer);
+    let build_mi = ArtifactKey::BuildMi {
+        package: dependency.package,
+        target_kind: dependency.kind,
+    };
+    let core_ir = ArtifactKey::CoreIr {
+        package: dependency.package,
+        target_kind: dependency.kind,
+    };
+    let mut plan = BuildPlan::default();
+    plan.test_require_artifact(consumer_node, build_mi);
+    plan.test_require_artifact(consumer_node, core_ir);
+    plan.test_provide_artifact(dependency_node, build_mi);
+    plan.test_provide_artifact(dependency_node, core_ir);
+
+    let action_plan = plan.build_action_plan();
+    let consumer_id = action_plan.id_for_node(consumer_node);
+    let dependency_id = action_plan.id_for_node(dependency_node);
+
+    assert_eq!(
+        action_plan
+            .dependency_action_ids(consumer_id)
+            .collect::<Vec<_>>(),
+        vec![dependency_id]
     );
 }
 

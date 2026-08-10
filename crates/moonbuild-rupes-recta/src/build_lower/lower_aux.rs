@@ -32,7 +32,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_action_plan::BuildProduct,
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
-    build_plan::{BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
+    build_plan::{ArtifactKey, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
@@ -137,10 +137,10 @@ impl<'a> super::LoweringContext<'a> {
             inputs.push(products.single_dependency_path_matching(|product| {
                 matches!(
                     product,
-                    BuildProduct::PackageCoreIr {
-                        target: product_target,
-                        ..
-                    } if product_target == dep
+                    BuildProduct::Artifact(ArtifactKey::CoreIr {
+                        package,
+                        target_kind,
+                    }) if *package == dep.package && *target_kind == dep.kind
                 )
             }));
         }
@@ -308,10 +308,10 @@ impl<'a> super::LoweringContext<'a> {
         let input = products.single_dependency_path_matching(|product| {
             matches!(
                 product,
-                BuildProduct::PackageInterface {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                BuildProduct::Artifact(ArtifactKey::CheckMi {
+                    package,
+                    target_kind,
+                }) if *package == target.package && *target_kind == target.kind
             )
         });
         let output = products.single_output_path_matching(|product| {

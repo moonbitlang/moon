@@ -45,7 +45,7 @@
 //! [cu]: https://github.com/rust-lang/cargo/blob/master/src/cargo/core/compiler/unit.rs
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::OsStr,
     fmt::Write,
     path::{Path, PathBuf},
@@ -78,29 +78,31 @@ mod artifact;
 mod builders;
 mod constructor;
 
+pub use artifact::ArtifactKey;
 use artifact::ArtifactPlan;
 use constructor::BuildPlanConstructor;
 
-/// A directed graph representation of build dependencies and targets.
+/// A build plan of derivations, artifact requirements, and file dependencies.
 ///
-/// `BuildPlan` maintains a directed graph where nodes represent build
-/// components and edges represent dependencies between them. It also stores
-/// specifications for each build target, mapping targets to their detailed
-/// configuration and requirements.
+/// Derivations are represented by build-plan nodes. Package compilation
+/// dependencies name artifacts and their registered providers; dependencies
+/// that still select files by provider action remain in a directed graph. The
+/// plan also stores the metadata required to lower each derivation.
 #[derive(Default)]
 pub struct BuildPlan {
-    /// The build dependency graph.
+    /// The non-artifact build dependency graph.
     ///
-    /// Each node in this graph represents a step in building, and edges
-    /// represent the dependencies between build steps, pointing **from each
-    /// step to what it depends on**.
+    /// Each node in this graph represents a step in building. Edges represent
+    /// dependencies that still select files by provider action, pointing
+    /// **from each step to what it depends on**. Package compilation artifact
+    /// dependencies live in `artifacts` instead.
     graph: DiGraphMap<BuildPlanNode, FileDependencyKind>,
 
     /// Package compilation artifacts provided and required by derivations.
     ///
     /// The action graph keeps non-migrated dependency kinds. Package `.mi`,
-    /// `.core`, and virtual-contract dependencies are recorded here first and
-    /// materialized into compatible action edges after planning.
+    /// `.core`, and virtual-contract dependencies remain here through action
+    /// planning and are resolved directly by `BuildActionPlan`.
     artifacts: ArtifactPlan,
 
     /// The map of build target to its files and metadata.
@@ -137,54 +139,16 @@ pub struct BuildPlan {
     input_nodes: Vec<BuildPlanNode>,
 }
 
-/// The logical package products needed from a compatibility dependency edge.
+/// Output selector for a dependency that has not migrated to `ArtifactKey`.
 ///
-/// Build-plan builders name `ArtifactKey` values instead. The compatibility
-/// projection converts those Artifact Requirements to this selector, which
-/// `BuildActionPlan` expands for backend lowering.
+/// Package compilation dependencies use `ArtifactKey` instead. Proof and
+/// test-info edges still keep node-specific selectors here; `BuildActionPlan`
+/// translates them into logical build products before backend lowering sees
+/// them.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PlanArtifactNeed {
-    Interface,
-    CoreIr,
-    InterfaceAndCoreIr,
-}
-
-impl PlanArtifactNeed {
-    pub fn is_subset_of(self, other: Self) -> bool {
-        matches!(
-            (self, other),
-            (Self::Interface, Self::Interface)
-                | (Self::CoreIr, Self::CoreIr)
-                | (_, Self::InterfaceAndCoreIr)
-        )
-    }
-
-    pub fn union(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Interface, Self::Interface) => Self::Interface,
-            (Self::CoreIr, Self::CoreIr) => Self::CoreIr,
-            _ => Self::InterfaceAndCoreIr,
-        }
-    }
-}
-
-/// Additional information about a build plan's edge
-///
-/// `Artifacts` is the package-artifact selector shared by `Check` and
-/// `BuildCore`. Proof and test-info edges still keep node-specific selectors
-/// here; `BuildActionPlan` is responsible for translating all edge selectors into
-/// logical build products before backend lowering sees them.
-///
-/// A more generic solution might be involving creating associated types for
-/// each node kind, specifying their output file list and order, and then
-/// use a bitmap or index list to specify which files are being depended on.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FileDependencyKind {
+pub(crate) enum FileDependencyKind {
     /// Depending on all files available
     AllFiles,
-
-    /// Depending on package products selected from a compatibility action edge.
-    Artifacts(PlanArtifactNeed),
 
     /// Depending on proof artifacts of an `EmitProof`/`Prove` node.
     ProofArtifacts { mi: bool, mlw: bool, report: bool },
@@ -199,12 +163,18 @@ impl BuildPlan {
         &self,
         node: BuildPlanNode,
     ) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        let mut seen = HashSet::new();
         self.graph
             .neighbors_directed(node, petgraph::Direction::Outgoing)
+            .chain(
+                self.artifact_dependencies(node)
+                    .map(|(provider, _)| provider),
+            )
+            .filter(move |dependency| seen.insert(*dependency))
     }
 
-    /// Get the dependencies of a node together with their edge kinds.
-    pub fn dependency_edges(
+    /// Get non-artifact dependencies together with their file selectors.
+    pub(crate) fn file_dependencies(
         &self,
         node: BuildPlanNode,
     ) -> impl Iterator<Item = (BuildPlanNode, FileDependencyKind)> + '_ {
@@ -212,6 +182,13 @@ impl BuildPlan {
         self.graph
             .edges_directed(node, petgraph::Direction::Outgoing)
             .map(move |(_, dep, kind)| (dep, *kind))
+    }
+
+    pub(crate) fn artifact_dependencies(
+        &self,
+        node: BuildPlanNode,
+    ) -> impl Iterator<Item = (BuildPlanNode, ArtifactKey)> + '_ {
+        self.artifacts.dependencies(node)
     }
 
     /// Get build target information for the given target.
@@ -288,6 +265,16 @@ impl BuildPlan {
         kind: FileDependencyKind,
     ) {
         self.graph.add_edge(start, end, kind);
+    }
+
+    pub(crate) fn test_require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
+        self.graph.add_node(consumer);
+        self.artifacts.require(consumer, artifact);
+    }
+
+    pub(crate) fn test_provide_artifact(&mut self, provider: BuildPlanNode, artifact: ArtifactKey) {
+        self.graph.add_node(provider);
+        self.artifacts.provide(provider, artifact);
     }
 
     pub(crate) fn test_insert_build_target_info(
