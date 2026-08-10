@@ -59,6 +59,10 @@ pub(crate) fn log_registry_update(outcome: UpdateOutcome, user_log: &UserLog) {
             user_log.status(format!("{reason}, re-cloning"));
             user_log.status("Registry index re-cloned successfully");
         }
+        RegistryIndexUpdate::ConcurrentUpdateReused => {
+            user_log.status("Registry update already completed by another process");
+            return;
+        }
     }
     if outcome.symbols_updated {
         user_log.status("Symbols updated successfully");
@@ -118,6 +122,28 @@ mod tests {
                 "Registry index re-cloned successfully",
                 "Symbols updated successfully",
             ]
+        );
+    }
+
+    #[test]
+    fn registry_update_status_describes_concurrent_reuse() {
+        let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
+
+        log_registry_update(
+            UpdateOutcome {
+                registry_index: RegistryIndexUpdate::ConcurrentUpdateReused,
+                symbols_updated: true,
+            },
+            &user_log,
+        );
+
+        assert_eq!(
+            capture
+                .take()
+                .into_iter()
+                .map(|entry| entry.message)
+                .collect::<Vec<_>>(),
+            ["Registry update already completed by another process"]
         );
     }
 }

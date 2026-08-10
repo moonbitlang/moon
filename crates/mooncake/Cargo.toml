@@ -39,6 +39,7 @@ semver.workspace = true
 clap.workspace = true
 sha2.workspace = true
 log.workspace = true
+tracing.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true
 dialoguer.workspace = true
