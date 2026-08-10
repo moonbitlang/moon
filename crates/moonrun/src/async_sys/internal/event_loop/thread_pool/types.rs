@@ -328,10 +328,7 @@ fn owned_raw_socket(raw: RawSocket) -> OwnedSocket {
 #[derive(Debug)]
 pub(crate) struct OpenJobResult {
     pub(crate) resource: OpenJobResource,
-    pub(crate) kind: i32,
-    pub(crate) dev_id: u64,
-    pub(crate) file_id: u64,
-    pub(super) stat: Option<PackedStat>,
+    pub(super) stat: PackedStat,
 }
 
 #[derive(Debug)]
@@ -430,15 +427,6 @@ pub(crate) enum JobPayload {
         position: i64,
     },
     Open {
-        filename: OsString,
-        access: i32,
-        create_mode: i32,
-        append: bool,
-        sync: i32,
-        mode: i32,
-        result: Option<OpenJobResult>,
-    },
-    OpenStat {
         filename: OsString,
         access: i32,
         create_mode: i32,

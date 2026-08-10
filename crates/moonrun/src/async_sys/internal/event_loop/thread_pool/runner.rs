@@ -22,8 +22,8 @@ use crate::async_sys::internal::fd_util;
 use super::fs::{
     run_access_job, run_chmod_job, run_file_kind_by_path_job, run_file_size_job,
     run_file_time_by_path_job, run_file_time_job, run_flock_job, run_fsync_job, run_mkdir_job,
-    run_open_job, run_open_stat_job, run_read_job, run_readdir_job, run_realpath_job,
-    run_remove_job, run_rename_job, run_rmdir_job, run_symlink_job, run_write_job,
+    run_open_job, run_read_job, run_readdir_job, run_realpath_job, run_remove_job, run_rename_job,
+    run_rmdir_job, run_symlink_job, run_write_job,
 };
 #[cfg(unix)]
 use super::process::run_spawn_job_unix;
@@ -53,26 +53,9 @@ pub(crate) fn run_host_job(job: &mut Job) {
             append,
             sync,
             mode,
-            result,
-        } => run_open_job(
-            result,
-            std::mem::take(filename),
-            *access,
-            *create_mode,
-            *append,
-            *sync,
-            *mode,
-        ),
-        JobPayload::OpenStat {
-            filename,
-            access,
-            create_mode,
-            append,
-            sync,
-            mode,
             request,
             result,
-        } => run_open_stat_job(
+        } => run_open_job(
             result,
             std::mem::take(filename),
             *access,

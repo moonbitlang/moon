@@ -44,10 +44,11 @@ pub(crate) struct PortedImport {
 pub(crate) struct CompatImport {
     pub(crate) rust_module: &'static str,
     pub(crate) rust_symbol: &'static str,
-    pub(crate) native_symbol: &'static str,
+    pub(crate) original_symbol: &'static str,
     pub(crate) historical_source: &'static str,
     pub(crate) upstream_pr: u32,
     pub(crate) replacement: &'static str,
+    pub(crate) no_op: bool,
 }
 
 macro_rules! ported_imports {
@@ -193,6 +194,39 @@ macro_rules! ported_imports {
             source = $source:literal,
             original = $original:literal,
             upstream_pr = $upstream_pr:literal,
+            replacement = $replacement:literal,
+            no_op = true
+        )]
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
+        $($rest:tt)*
+    ) => {
+        ported_imports!(
+            @collect [$($entries)*] [
+                $($compat_entries)*
+                $crate::async_api::provenance::CompatImport {
+                    rust_module: module_path!(),
+                    rust_symbol: stringify!($name),
+                    original_symbol: $original,
+                    historical_source: $source,
+                    upstream_pr: $upstream_pr,
+                    replacement: $replacement,
+                    no_op: true,
+                },
+            ] [
+                $($out)*
+                $(#[$meta])*
+                $vis fn $name($($args)*) $(-> $ret)? $body
+            ]
+            $($rest)*
+        );
+    };
+    (
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        #[compat(
+            source = $source:literal,
+            original = $original:literal,
+            upstream_pr = $upstream_pr:literal,
             replacement = $replacement:literal
         )]
         $(#[$meta:meta])*
@@ -205,10 +239,11 @@ macro_rules! ported_imports {
                 $crate::async_api::provenance::CompatImport {
                     rust_module: module_path!(),
                     rust_symbol: stringify!($name),
-                    native_symbol: $original,
+                    original_symbol: $original,
                     historical_source: $source,
                     upstream_pr: $upstream_pr,
                     replacement: $replacement,
+                    no_op: false,
                 },
             ] [
                 $($out)*

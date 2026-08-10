@@ -108,13 +108,25 @@ pub(super) fn allocate_env_block(
     Ok(context.host.insert_process_env(vec![0; size]))
 }
 
-// Deprecated. We'll remove it later.
+#[compat(
+    source = "src/process/wasm.mbt",
+    original = "process/free_env",
+    upstream_pr = 511,
+    replacement = "spawn ownership transfer",
+    no_op = true
+)]
 pub(super) fn free_env(_context: &mut ImportContext<'_, '_>, _env: u64) -> AsyncHostResult<()> {
     Ok(())
 }
 
+#[compat(
+    source = "src/process/wasm.mbt",
+    original = "process/free_argv",
+    upstream_pr = 511,
+    replacement = "spawn ownership transfer",
+    no_op = true
+)]
 #[cfg(unix)]
-// Deprecated. We'll remove it later.
 pub(super) fn free_argv(_context: &mut ImportContext<'_, '_>, _argv: u64) -> AsyncHostResult<()> {
     Ok(())
 }

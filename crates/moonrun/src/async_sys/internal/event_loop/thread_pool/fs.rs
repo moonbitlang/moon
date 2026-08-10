@@ -45,46 +45,9 @@ fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
 }
 
 ported_fns! {
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "open_job_worker",
-        upstream_pr = 527,
-        replacement = "open_job_worker with generic stat result"
-    )]
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn run_open_job(
-        result: &mut Option<OpenJobResult>,
-        filename: OsString,
-        access: i32,
-        create_mode: i32,
-        append: bool,
-        sync: i32,
-        mode: i32,
-    ) -> AsyncHostResult<i64> {
-        let filename_for_policy = filename.clone();
-        let OpenedFile {
-            file,
-            kind,
-            dev_id,
-            file_id,
-        } = open_native_file(filename, access, create_mode, append, sync, mode)?;
-        let policy_path = std::fs::canonicalize(filename_for_policy).ok();
-        *result = Some(OpenJobResult {
-            resource: OpenJobResource::Unpublished(Resource::new_with_policy_path(
-                file,
-                policy_path,
-            )),
-            kind,
-            dev_id,
-            file_id,
-            stat: None,
-        });
-        Ok(0)
-    }
-
     #[ported(source = "src/internal/event_loop/fs.c", original = "open_job_worker")]
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn run_open_stat_job(
+    pub(super) fn run_open_job(
         result: &mut Option<OpenJobResult>,
         filename: OsString,
         access: i32,
@@ -104,10 +67,7 @@ ported_fns! {
         run_fstatx_job(&resource, request, &mut stat)?;
         *result = Some(OpenJobResult {
             resource: OpenJobResource::Unpublished(resource),
-            kind: 0,
-            dev_id: 0,
-            file_id: 0,
-            stat,
+            stat: stat.ok_or(AsyncHostError::Io)?,
         });
         Ok(0)
     }
@@ -375,34 +335,6 @@ fn open_raw_native_file(
 }
 
 #[cfg(unix)]
-#[allow(clippy::unnecessary_cast)]
-fn open_native_file(
-    filename: OsString,
-    access: i32,
-    create_mode: i32,
-    append: bool,
-    sync: i32,
-    mode: i32,
-) -> AsyncHostResult<OpenedFile> {
-    let fd = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
-    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } < 0 {
-        let error = last_native_error();
-        unsafe {
-            libc::close(fd);
-        }
-        return Err(error);
-    }
-    let stat = unsafe { stat.assume_init() };
-    Ok(OpenedFile {
-        file: fd,
-        kind: file_kind_from_stat(&stat),
-        dev_id: stat.st_dev as u64,
-        file_id: stat.st_ino as u64,
-    })
-}
-
-#[cfg(unix)]
 fn file_kind_from_stat(stat: &libc::stat) -> i32 {
     match stat.st_mode & libc::S_IFMT {
         libc::S_IFREG => 1,
@@ -497,38 +429,6 @@ fn open_raw_native_file(
     };
 
     Ok(handle)
-}
-
-#[cfg(windows)]
-fn open_native_file(
-    filename: OsString,
-    access: i32,
-    create_mode: i32,
-    append: bool,
-    sync: i32,
-    mode: i32,
-) -> AsyncHostResult<OpenedFile> {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
-    };
-
-    let handle = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
-    let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-    if unsafe { GetFileInformationByHandle(handle, info.as_mut_ptr()) } == 0 {
-        let error = last_native_error();
-        unsafe {
-            CloseHandle(handle);
-        }
-        return Err(error);
-    }
-    let info = unsafe { info.assume_init() };
-    Ok(OpenedFile {
-        file: handle,
-        kind: file_kind_from_attr(info.dwFileAttributes),
-        dev_id: u64::from(info.dwVolumeSerialNumber),
-        file_id: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
-    })
 }
 
 #[cfg(windows)]
@@ -631,13 +531,6 @@ fn handle_is_socket(handle: RawFile) -> bool {
             &mut opt_len,
         ) == 0
     }
-}
-
-struct OpenedFile {
-    file: RawFile,
-    kind: i32,
-    dev_id: u64,
-    file_id: u64,
 }
 
 #[cfg(unix)]

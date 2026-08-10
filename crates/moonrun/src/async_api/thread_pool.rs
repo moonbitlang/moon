@@ -143,6 +143,10 @@ pub(super) fn make_open_job_legacy(
     ))
 }
 
+// The native ABI gives each stat maker its eventual output buffer. Moonrun
+// decodes that argument to keep the same ABI, but never retains the Guest
+// Memory pointer in a Job. The worker produces a Rust-owned PackedStat and the
+// wasm completion callback copies it out through get_stat_result.
 #[ported(
     source = "src/internal/event_loop/fs.c",
     original = "moonbitlang_async_make_open_job"

@@ -49,15 +49,20 @@ behavior accurate; it is not evidence that the port is complete by itself.
 
 ## Provenance annotations
 
-`#[ported]` records the exact upstream source path and native symbol tracked by
-an implementation. `#[compat]` records a retained ABI whose upstream symbol was
-removed or replaced, including the upstream PR and its replacement.
+`#[ported]` records the exact upstream source path and symbol tracked by an
+implementation. `#[compat]` records a retained ABI whose upstream implementation
+or import was removed or replaced, including the upstream PR and its
+replacement. It describes the provenance of the adapter, not whether the
+currently pinned wasm wrapper still calls it during a staged migration.
 
 - If a symbol only moved to another file, update `source` after confirming that
   its signature and behavior did not change.
 - If a symbol was removed, replaced, or generalized, do not point `original`
   at a surviving successor merely to satisfy the provenance test. Preserve it
   as `#[compat]` when older wasm guests still need the ABI.
+- If a removed import intentionally does no work because ownership has already
+  transferred, record it as a no-op `#[compat]` adapter instead of a generic
+  helper.
 - For a replacement, audit the new ABI, ownership, errors, platform behavior,
   and observable MoonBit API semantics. Add the new `#[ported]` implementation
   separately from the compatibility adapter.

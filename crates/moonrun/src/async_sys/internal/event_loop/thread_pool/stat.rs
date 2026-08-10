@@ -50,6 +50,13 @@ pub(crate) struct StatRequest {
 }
 
 impl StatRequest {
+    pub(super) const fn open_identity() -> Self {
+        Self {
+            mask: STAT_OPEN_IDENTITY,
+            encoded_len: 32,
+        }
+    }
+
     pub(super) fn new(mask: u32, capacity: i32) -> AsyncHostResult<Self> {
         if mask & !STAT_SUPPORTED_PROPERTY_MASK != 0 || capacity < STAT_HEADER_LEN as i32 {
             return Err(AsyncHostError::Inval);
@@ -114,6 +121,7 @@ pub(super) struct StatValues {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PackedStat {
+    request: StatRequest,
     bytes: Box<[u8]>,
 }
 
@@ -188,12 +196,30 @@ impl PackedStat {
         bytes[0..4].copy_from_slice(&(request.encoded_len() as u32).to_le_bytes());
         bytes[4..8].copy_from_slice(&returned_mask.to_le_bytes());
         Self {
+            request,
             bytes: bytes.into_boxed_slice(),
         }
     }
 
     pub(super) fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    pub(super) fn scalar(&self, property: u32) -> Option<u64> {
+        if property.count_ones() != 1 || self.request.mask() & property == 0 {
+            return None;
+        }
+        // Read the fixed slot, not the returned-property mask: legacy open
+        // getters exposed an unavailable identity value as zero.
+        let property_index = property.trailing_zeros();
+        let preceding_words = (0..property_index)
+            .filter(|bit| self.request.mask() & (1 << bit) != 0)
+            .map(|bit| if bit < 4 { 1 } else { 2 })
+            .sum::<usize>();
+        self.bytes
+            .get(STAT_HEADER_LEN + preceding_words * 8..STAT_HEADER_LEN + (preceding_words + 1) * 8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u64::from_le_bytes)
     }
 }
 
@@ -966,9 +992,11 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::async_sys::internal::event_loop::thread_pool::{
-        JobPayload, Resource, get_stat_result, make_fstatx_job, make_open_stat_job, run_host_job,
+        JobPayload, Resource, get_stat_result, make_fstatx_job,
     };
+    use crate::async_sys::internal::event_loop::thread_pool::{make_open_stat_job, run_host_job};
 
     #[test]
     fn request_layout_is_stable_for_every_supported_mask() {
@@ -1025,6 +1053,9 @@ mod tests {
         assert_eq!(&packed.as_bytes()[24..32], &(-2_i64).to_le_bytes());
         assert_eq!(&packed.as_bytes()[32..40], &123_i64.to_le_bytes());
         assert_eq!(&packed.as_bytes()[40..56], &[0; 16]);
+        assert_eq!(packed.scalar(STAT_FILE_KIND), Some(2));
+        assert_eq!(packed.scalar(STAT_FILE_SIZE), Some(0));
+        assert_eq!(packed.scalar(STAT_DEVICE_ID), None);
     }
 
     #[cfg(unix)]

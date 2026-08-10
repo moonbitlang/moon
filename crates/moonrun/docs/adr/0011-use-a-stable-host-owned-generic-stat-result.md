@@ -8,6 +8,11 @@ never retain the guest destination supplied to `make_open_job`,
 through `thread_pool/get_stat_result`, following the same completion ownership
 rule as read jobs.
 
+Open jobs use one completion shape: an `OpenJobResource` plus the host-owned
+`PackedStat`. The pre-527 open adapter requests the fixed identity mask and
+serves its legacy getters from that packed result; it does not maintain a
+second set of kind, device, and file-id fields.
+
 The packed format is stable for a given request: an eight-byte little-endian
 header contains the result length and returned-property mask, followed by fixed
 slots in property-bit order. Unsupported properties keep their slots zeroed

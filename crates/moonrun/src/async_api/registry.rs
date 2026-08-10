@@ -356,6 +356,9 @@ fn register_func_impl<'s>(
 // Kind legend:
 // - ported: imports that have Rust ports corresponding to moonbitlang/async
 //   implementations. Tests require separate provenance entries for these imports.
+// - compat: retained adapters whose original upstream implementation or import
+//   was removed or replaced. A pinned wasm wrapper may still use one while a
+//   cross-repository migration is in progress.
 // - helper: auxiliary glue around ported ABI.
 // - fake: link-only import for runtime-dispatched wasm; the generated callback is unreachable.
 declare_async_imports! {
@@ -1194,7 +1197,7 @@ declare_async_imports! {
 
     helper process::allocate_env_block(size: i32) -> u64 => "process/allocate_env_block";
 
-    helper process::free_env(env: u64) -> void => "process/free_env";
+    compat process::free_env(env: u64) -> void => "process/free_env";
 
     helper process::write_env_block(dst: u64, src: u64) -> void => "process/write_env_block";
 
@@ -1214,7 +1217,7 @@ declare_async_imports! {
     fake process::make_argv_array_unix(len: i32) -> u64 => "process/make_argv_array/unix";
 
     #[cfg(unix)]
-    helper process::free_argv(argv: u64) -> void => "process/free_argv";
+    compat process::free_argv(argv: u64) -> void => "process/free_argv";
 
     #[cfg(windows)]
     fake process::free_argv(argv: u64) -> void => "process/free_argv";
@@ -1284,6 +1287,7 @@ fn async_api_compat_imports() -> Vec<super::provenance::CompatImport> {
     let mut imports = Vec::new();
     imports.extend_from_slice(thread_pool::COMPAT_IMPORTS);
     imports.extend_from_slice(fd_util::COMPAT_IMPORTS);
+    imports.extend_from_slice(process::COMPAT_IMPORTS);
     imports
 }
 
@@ -1410,7 +1414,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_stat_imports_replace_but_do_not_remove_the_legacy_abi() {
+    fn generic_stat_imports_coexist_with_native_compatibility_adapters() {
         for wasm_symbol in [
             "thread_pool/make_open_job",
             "thread_pool/make_fstatx_job",
@@ -1449,8 +1453,31 @@ mod tests {
                     .find(|import| import.wasm_symbol == wasm_symbol)
                     .map(|import| import.kind),
                 Some(AsyncImportKind::Compat),
-                "legacy stat import {wasm_symbol} must remain a compatibility ABI"
+                "removed native stat ABI {wasm_symbol} must remain available through a compatibility adapter"
             );
+        }
+    }
+
+    #[test]
+    fn removed_process_cleanup_imports_are_no_op_compatibility_adapters() {
+        let compat_imports = async_api_compat_imports();
+        for wasm_symbol in ["process/free_env", "process/free_argv"] {
+            let registered = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == wasm_symbol)
+                .expect("cleanup import must remain linkable");
+            if registered.kind == AsyncImportKind::Fake {
+                continue;
+            }
+            let provenance = compat_imports
+                .iter()
+                .find(|compat| {
+                    module_leaf(compat.rust_module) == Some(registered.callback_module)
+                        && compat.rust_symbol == registered.callback_symbol
+                })
+                .expect("cleanup compatibility import must record provenance");
+            assert!(provenance.no_op);
+            assert_eq!(provenance.upstream_pr, 511);
         }
     }
 
@@ -1549,26 +1576,28 @@ mod tests {
         for compat in compat_imports {
             assert_ne!(compat.upstream_pr, 0);
             assert!(!compat.replacement.is_empty());
-            assert!(
-                compat_symbols.iter().any(|symbol| {
-                    symbol.native_symbol == compat.native_symbol
-                        && symbol.historical_source == compat.historical_source
-                        && symbol.upstream_pr == compat.upstream_pr
-                        && !symbol.replacement.is_empty()
-                }),
-                "compatibility adapter {}::{} has no matching Async Sys implementation",
-                compat.rust_module,
-                compat.rust_symbol
-            );
+            if !compat.no_op {
+                assert!(
+                    compat_symbols.iter().any(|symbol| {
+                        symbol.native_symbol == compat.original_symbol
+                            && symbol.historical_source == compat.historical_source
+                            && symbol.upstream_pr == compat.upstream_pr
+                            && !symbol.replacement.is_empty()
+                    }),
+                    "compatibility adapter {}::{} has no matching Async Sys implementation",
+                    compat.rust_module,
+                    compat.rust_symbol
+                );
+            }
 
             let historical_source = repo_root()
                 .join("third_party/moonbitlang_async")
                 .join(compat.historical_source);
             if let Ok(contents) = fs::read_to_string(historical_source) {
                 assert!(
-                    !contents.contains(compat.native_symbol),
+                    !contents.contains(compat.original_symbol),
                     "compatibility symbol {} still exists upstream and should be ported",
-                    compat.native_symbol
+                    compat.original_symbol
                 );
             }
         }

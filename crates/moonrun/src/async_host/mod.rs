@@ -2157,7 +2157,7 @@ impl AsyncHost {
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         let result = thread_pool::open_job_result(job)?;
-        Ok(thread_pool::open_job_get_kind(result))
+        thread_pool::open_job_get_kind(result)
     }
 
     pub(crate) fn open_job_get_dev_id(&self, handle: u64) -> AsyncHostResult<u64> {
@@ -2165,7 +2165,7 @@ impl AsyncHost {
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         let result = thread_pool::open_job_result(job)?;
-        Ok(thread_pool::open_job_get_dev_id(result))
+        thread_pool::open_job_get_dev_id(result)
     }
 
     pub(crate) fn open_job_get_file_id(&self, handle: u64) -> AsyncHostResult<u64> {
@@ -2173,7 +2173,7 @@ impl AsyncHost {
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         let result = thread_pool::open_job_result(job)?;
-        Ok(thread_pool::open_job_get_file_id(result))
+        thread_pool::open_job_get_file_id(result)
     }
 
     pub(crate) fn get_file_size_result(&self, handle: u64) -> AsyncHostResult<i64> {
@@ -3263,19 +3263,6 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         match job.payload() {
             JobPayload::Open {
-                filename,
-                access,
-                create_mode,
-                append,
-                ..
-            } => policy.open_path(
-                RuntimePathBase::CurrentDirectory,
-                filename,
-                *access,
-                *create_mode,
-                *append,
-            ),
-            JobPayload::OpenStat {
                 filename,
                 access,
                 create_mode,
@@ -5072,6 +5059,9 @@ mod tests {
 
         host.run_job(job).unwrap();
         assert_eq!(resource_count(&host), 0);
+        assert_eq!(host.open_job_get_kind(job).unwrap(), 1);
+        host.open_job_get_dev_id(job).unwrap();
+        host.open_job_get_file_id(job).unwrap();
 
         let opened = host.open_job_get_fd(job).unwrap();
         assert_eq!(host.open_job_get_fd(job).unwrap(), opened);

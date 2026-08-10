@@ -25,7 +25,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
 
-use super::stat::{PackedStat, StatRequest};
+use super::stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
 use super::types::{
     HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, RealpathJobResult, ResourceRef,
     SpawnOptions, platform,
@@ -134,6 +134,7 @@ ported_fns! {
             append,
             sync,
             mode,
+            request: StatRequest::open_identity(),
             result: None,
         })
     }
@@ -157,7 +158,7 @@ ported_fns! {
             Ok(request) => request,
             Err(error) => return make_failed_job(error.errno()),
         };
-        Job::new(JobPayload::OpenStat {
+        Job::new(JobPayload::Open {
             filename,
             access,
             create_mode,
@@ -248,8 +249,12 @@ ported_fns! {
         upstream_pr = 527,
         replacement = "get_stat_result with STAT_FILE_KIND"
     )]
-    pub(crate) fn open_job_get_kind(result: &OpenJobResult) -> i32 {
-        result.kind
+    pub(crate) fn open_job_get_kind(result: &OpenJobResult) -> AsyncHostResult<i32> {
+        result
+            .stat
+            .scalar(STAT_FILE_KIND)
+            .map(|value| value as i32)
+            .ok_or(AsyncHostError::Inval)
     }
 
     #[compat(
@@ -258,8 +263,11 @@ ported_fns! {
         upstream_pr = 527,
         replacement = "get_stat_result with STAT_DEVICE_ID"
     )]
-    pub(crate) fn open_job_get_dev_id(result: &OpenJobResult) -> u64 {
-        result.dev_id
+    pub(crate) fn open_job_get_dev_id(result: &OpenJobResult) -> AsyncHostResult<u64> {
+        result
+            .stat
+            .scalar(STAT_DEVICE_ID)
+            .ok_or(AsyncHostError::Inval)
     }
 
     #[compat(
@@ -268,8 +276,11 @@ ported_fns! {
         upstream_pr = 527,
         replacement = "get_stat_result with STAT_FILE_ID"
     )]
-    pub(crate) fn open_job_get_file_id(result: &OpenJobResult) -> u64 {
-        result.file_id
+    pub(crate) fn open_job_get_file_id(result: &OpenJobResult) -> AsyncHostResult<u64> {
+        result
+            .stat
+            .scalar(STAT_FILE_ID)
+            .ok_or(AsyncHostError::Inval)
     }
 
     #[compat(
@@ -627,12 +638,8 @@ pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
         JobPayload::Open {
             result: Some(result),
             ..
-        }
-        | JobPayload::OpenStat {
-            result: Some(result),
-            ..
         } => Ok(result),
-        JobPayload::Open { .. } | JobPayload::OpenStat { .. } => Err(AsyncHostError::Inval),
+        JobPayload::Open { .. } => Err(AsyncHostError::Inval),
         _ => Err(AsyncHostError::Badf),
     }
 }
@@ -642,22 +649,16 @@ pub(crate) fn open_job_result_mut(job: &mut Job) -> AsyncHostResult<&mut OpenJob
         JobPayload::Open {
             result: Some(result),
             ..
-        }
-        | JobPayload::OpenStat {
-            result: Some(result),
-            ..
         } => Ok(result),
-        JobPayload::Open { .. } | JobPayload::OpenStat { .. } => Err(AsyncHostError::Inval),
+        JobPayload::Open { .. } => Err(AsyncHostError::Inval),
         _ => Err(AsyncHostError::Badf),
     }
 }
 
 pub(crate) fn stat_job_result(job: &Job) -> AsyncHostResult<&PackedStat> {
     match job.payload() {
-        JobPayload::OpenStat {
-            result: Some(OpenJobResult {
-                stat: Some(result), ..
-            }),
+        JobPayload::Open {
+            result: Some(OpenJobResult { stat: result, .. }),
             ..
         }
         | JobPayload::Fstatx {
@@ -668,7 +669,7 @@ pub(crate) fn stat_job_result(job: &Job) -> AsyncHostResult<&PackedStat> {
             result: Some(result),
             ..
         } => Ok(result),
-        JobPayload::OpenStat { .. } | JobPayload::Fstatx { .. } | JobPayload::Statx { .. } => {
+        JobPayload::Open { .. } | JobPayload::Fstatx { .. } | JobPayload::Statx { .. } => {
             Err(AsyncHostError::Inval)
         }
         _ => Err(AsyncHostError::Badf),
@@ -761,6 +762,7 @@ mod tests {
                 append,
                 sync,
                 mode,
+                request,
                 result: None,
             } => {
                 assert_eq!(filename, &OsString::from("/tmp/example"));
@@ -769,6 +771,7 @@ mod tests {
                 assert!(*append);
                 assert_eq!(*sync, 1);
                 assert_eq!(*mode, 0o644);
+                assert_eq!(request.mask(), super::super::stat::STAT_OPEN_IDENTITY);
             }
             other => panic!("unexpected payload: {other:?}"),
         }
