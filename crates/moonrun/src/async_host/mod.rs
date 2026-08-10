@@ -3275,6 +3275,40 @@ impl AsyncHost {
                 *create_mode,
                 *append,
             ),
+            JobPayload::OpenStat {
+                filename,
+                access,
+                create_mode,
+                append,
+                request,
+                ..
+            } => {
+                policy.open_path(
+                    RuntimePathBase::CurrentDirectory,
+                    filename,
+                    *access,
+                    *create_mode,
+                    *append,
+                )?;
+                if request.mask() & !thread_pool::STAT_OPEN_IDENTITY != 0 {
+                    policy.stat_path(RuntimePathBase::CurrentDirectory, filename)?;
+                }
+                Ok(())
+            }
+            JobPayload::Fstatx { file, .. } => {
+                Self::check_file_metadata_policy(policy, file.as_deref())
+            }
+            JobPayload::Statx {
+                parent,
+                path,
+                follow_symlink,
+                ..
+            } => Self::check_path_metadata_policy(
+                policy,
+                Self::resource_path_base(parent.as_deref()),
+                path,
+                *follow_symlink,
+            ),
             JobPayload::FileKindByPath {
                 parent,
                 path,
@@ -3618,6 +3652,19 @@ impl AsyncHost {
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         thread_pool::get_file_time_result(job, memory, dst)
+    }
+
+    pub(crate) fn get_stat_result(
+        &self,
+        memory: &mut (impl GuestMemory + ?Sized),
+        handle: u64,
+        dst: i32,
+        dst_len: i32,
+    ) -> AsyncHostResult<()> {
+        let key = self.handles.borrow().job(handle)?;
+        let jobs = self.jobs.borrow();
+        let job = jobs.visible_job(key)?;
+        thread_pool::get_stat_result(job, memory, dst, dst_len)
     }
 
     pub(crate) fn get_realpath_result(&self, handle: u64) -> AsyncHostResult<u64> {
@@ -5409,6 +5456,55 @@ mod tests {
         host.free_job(size_job).unwrap();
         host.close_fd(fd).unwrap();
         host.free_job(open_job).unwrap();
+    }
+
+    #[test]
+    fn open_stat_identity_uses_open_policy_but_extra_metadata_requires_read_policy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let writable = tmp.path().join("writable");
+        std::fs::create_dir(&writable).unwrap();
+        let file = writable.join("data.txt");
+        std::fs::write(&file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"writable\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let identity_job = host
+            .insert_job(thread_pool::make_open_stat_job(
+                file.as_os_str().to_os_string(),
+                1,
+                0,
+                false,
+                0,
+                0,
+                thread_pool::STAT_OPEN_IDENTITY,
+                32,
+            ))
+            .unwrap();
+        let metadata_job = host
+            .insert_job(thread_pool::make_open_stat_job(
+                file.as_os_str().to_os_string(),
+                1,
+                0,
+                false,
+                0,
+                0,
+                thread_pool::STAT_OPEN_IDENTITY | 0x0002,
+                40,
+            ))
+            .unwrap();
+
+        host.run_job(identity_job).unwrap();
+        host.run_job(metadata_job).unwrap();
+
+        assert_eq!(host.job_get_err(identity_job).unwrap(), 0);
+        assert_eq!(
+            host.job_get_err(metadata_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        let fd = host.open_job_get_fd(identity_job).unwrap();
+        host.close_fd(fd).unwrap();
+        host.free_job(metadata_job).unwrap();
+        host.free_job(identity_job).unwrap();
     }
 
     #[test]

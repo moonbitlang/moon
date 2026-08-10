@@ -31,6 +31,7 @@ pub(crate) mod signal;
 pub(crate) mod socket;
 
 #[cfg(test)]
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct PortedSymbol {
     pub(crate) rust_module: &'static str,
@@ -39,17 +40,34 @@ pub(crate) struct PortedSymbol {
     pub(crate) source: &'static str,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct CompatSymbol {
+    pub(crate) rust_module: &'static str,
+    pub(crate) rust_symbol: &'static str,
+    pub(crate) native_symbol: &'static str,
+    pub(crate) historical_source: &'static str,
+    pub(crate) upstream_pr: u32,
+    pub(crate) replacement: &'static str,
+}
+
 macro_rules! ported_fns {
-    (@collect [$($entries:tt)*] [$($out:tt)*]) => {
+    (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
         #[cfg(test)]
         pub(crate) const PORTED_SYMBOLS: &[crate::async_sys::PortedSymbol] = &[
             $($entries)*
         ];
 
+        #[cfg(test)]
+        #[allow(dead_code)]
+        pub(crate) const COMPAT_SYMBOLS: &[crate::async_sys::CompatSymbol] = &[
+            $($compat_entries)*
+        ];
+
         $($out)*
     };
     (
-        @collect [$($entries:tt)*] [$($out:tt)*]
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported(source = $source:literal, original = $original:literal)]
         #[cfg($($cfg:tt)*)]
         $(#[$meta:meta])*
@@ -66,7 +84,7 @@ macro_rules! ported_fns {
                     native_symbol: $original,
                     source: $source,
                 },
-            ] [
+            ] [$($compat_entries)*] [
                 $($out)*
                 #[cfg($($cfg)*)]
                 $(#[$meta])*
@@ -76,7 +94,7 @@ macro_rules! ported_fns {
         );
     };
     (
-        @collect [$($entries:tt)*] [$($out:tt)*]
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported(source = $source:literal, original = $original:literal)]
         $(#[$meta:meta])*
         $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
@@ -91,6 +109,37 @@ macro_rules! ported_fns {
                     native_symbol: $original,
                     source: $source,
                 },
+            ] [$($compat_entries)*] [
+                $($out)*
+                $(#[$meta])*
+                $vis fn $name($($args)*) $(-> $ret)? $body
+            ]
+            $($rest)*
+        );
+    };
+    (
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        #[compat(
+            source = $source:literal,
+            original = $original:literal,
+            upstream_pr = $upstream_pr:literal,
+            replacement = $replacement:literal
+        )]
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
+        $($rest:tt)*
+    ) => {
+        ported_fns!(
+            @collect [$($entries)*] [
+                $($compat_entries)*
+                crate::async_sys::CompatSymbol {
+                    rust_module: module_path!(),
+                    rust_symbol: stringify!($name),
+                    native_symbol: $original,
+                    historical_source: $source,
+                    upstream_pr: $upstream_pr,
+                    replacement: $replacement,
+                },
             ] [
                 $($out)*
                 $(#[$meta])*
@@ -99,11 +148,11 @@ macro_rules! ported_fns {
             $($rest)*
         );
     };
-    (@collect [$($entries:tt)*] [$($out:tt)*] $item:item $($rest:tt)*) => {
-        ported_fns!(@collect [$($entries)*] [$($out)* $item] $($rest)*);
+    (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*] $item:item $($rest:tt)*) => {
+        ported_fns!(@collect [$($entries)*] [$($compat_entries)*] [$($out)* $item] $($rest)*);
     };
     ($($items:tt)*) => {
-        ported_fns!(@collect [] [] $($items)*);
+        ported_fns!(@collect [] [] [] $($items)*);
     };
 }
 
@@ -124,5 +173,13 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend_from_slice(process::PORTED_SYMBOLS);
     symbols.extend_from_slice(signal::PORTED_SYMBOLS);
     symbols.extend_from_slice(socket::PORTED_SYMBOLS);
+    symbols
+}
+
+#[cfg(test)]
+pub(crate) fn compat_symbols() -> Vec<CompatSymbol> {
+    let mut symbols = Vec::new();
+    symbols.extend_from_slice(internal::fd_util::stub::COMPAT_SYMBOLS);
+    symbols.extend(internal::event_loop::thread_pool::compat_symbols());
     symbols
 }

@@ -29,6 +29,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 
+use super::stat::{StatRequest, run_fstatx_job};
 use super::{FileTimeResult, OpenJobResource, OpenJobResult, RealpathJobResult, Resource};
 
 type RawFile = fd_util::stub::RawFd;
@@ -44,9 +45,11 @@ fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
 }
 
 ported_fns! {
-    #[ported(
+    #[compat(
         source = "src/internal/event_loop/thread_pool.c",
-        original = "open_job_worker"
+        original = "open_job_worker",
+        upstream_pr = 527,
+        replacement = "open_job_worker with generic stat result"
     )]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_open_job(
@@ -74,6 +77,37 @@ ported_fns! {
             kind,
             dev_id,
             file_id,
+            stat: None,
+        });
+        Ok(0)
+    }
+
+    #[ported(source = "src/internal/event_loop/fs.c", original = "open_job_worker")]
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn run_open_stat_job(
+        result: &mut Option<OpenJobResult>,
+        filename: OsString,
+        access: i32,
+        create_mode: i32,
+        append: bool,
+        sync: i32,
+        mode: i32,
+        request: StatRequest,
+    ) -> AsyncHostResult<i64> {
+        let filename_for_policy = filename.clone();
+        let file = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
+        let resource = Resource::new_with_policy_path(
+            file,
+            std::fs::canonicalize(filename_for_policy).ok(),
+        );
+        let mut stat = None;
+        run_fstatx_job(&resource, request, &mut stat)?;
+        *result = Some(OpenJobResult {
+            resource: OpenJobResource::Unpublished(resource),
+            kind: 0,
+            dev_id: 0,
+            file_id: 0,
+            stat,
         });
         Ok(0)
     }
@@ -108,9 +142,11 @@ ported_fns! {
         Ok(n as i64)
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/event_loop/thread_pool.c",
-        original = "file_kind_by_path_job_worker"
+        original = "file_kind_by_path_job_worker",
+        upstream_pr = 527,
+        replacement = "statx_job_worker with STAT_FILE_KIND"
     )]
     pub(super) fn run_file_kind_by_path_job(
         parent: Option<&Resource>,
@@ -120,9 +156,11 @@ ported_fns! {
         file_kind_by_path(parent, path, follow_symlink).map(i64::from)
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/event_loop/thread_pool.c",
-        original = "file_size_job_worker"
+        original = "file_size_job_worker",
+        upstream_pr = 527,
+        replacement = "fstatx_job_worker with STAT_FILE_SIZE"
     )]
     pub(super) fn run_file_size_job(
         file: &Resource,
@@ -132,9 +170,11 @@ ported_fns! {
         Ok(0)
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/event_loop/thread_pool.c",
-        original = "file_time_job_worker"
+        original = "file_time_job_worker",
+        upstream_pr = 527,
+        replacement = "fstatx_job_worker with timestamp properties"
     )]
     pub(super) fn run_file_time_job(
         file: &Resource,
@@ -144,9 +184,11 @@ ported_fns! {
         Ok(0)
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/event_loop/thread_pool.c",
-        original = "file_time_by_path_job_worker"
+        original = "file_time_by_path_job_worker",
+        upstream_pr = 527,
+        replacement = "statx_job_worker with timestamp properties"
     )]
     pub(super) fn run_file_time_by_path_job(
         path: OsString,
@@ -161,7 +203,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "access_job_worker"
     )]
     pub(super) fn run_access_job(path: OsString, access: i32) -> AsyncHostResult<i64> {
@@ -170,7 +212,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "chmod_job_worker"
     )]
     pub(super) fn run_chmod_job(path: OsString, mode: i32) -> AsyncHostResult<i64> {
@@ -179,7 +221,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "fsync_job_worker"
     )]
     pub(super) fn run_fsync_job(
@@ -191,7 +233,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "flock_job_worker"
     )]
     pub(super) fn run_flock_job(
@@ -203,7 +245,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "remove_job_worker"
     )]
     pub(super) fn run_remove_job(path: OsString) -> AsyncHostResult<i64> {
@@ -212,7 +254,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "rename_job_worker"
     )]
     pub(super) fn run_rename_job(
@@ -225,7 +267,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "symlink_job_worker"
     )]
     pub(super) fn run_symlink_job(
@@ -238,7 +280,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "mkdir_job_worker"
     )]
     pub(super) fn run_mkdir_job(path: OsString, mode: i32) -> AsyncHostResult<i64> {
@@ -247,7 +289,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "rmdir_job_worker"
     )]
     pub(super) fn run_rmdir_job(path: OsString) -> AsyncHostResult<i64> {
@@ -256,7 +298,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "readdir_job_worker"
     )]
     pub(super) fn run_readdir_job(
@@ -272,7 +314,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        source = "src/internal/event_loop/fs.c",
         original = "realpath_job_worker"
     )]
     pub(super) fn run_realpath_job(
@@ -285,15 +327,14 @@ ported_fns! {
 }
 
 #[cfg(unix)]
-#[allow(clippy::unnecessary_cast)]
-fn open_native_file(
+fn open_raw_native_file(
     filename: OsString,
     access: i32,
     create_mode: i32,
     append: bool,
     sync: i32,
     mode: i32,
-) -> AsyncHostResult<OpenedFile> {
+) -> AsyncHostResult<RawFile> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStringExt;
 
@@ -330,6 +371,20 @@ fn open_native_file(
         return Err(last_native_error());
     }
 
+    Ok(fd)
+}
+
+#[cfg(unix)]
+#[allow(clippy::unnecessary_cast)]
+fn open_native_file(
+    filename: OsString,
+    access: i32,
+    create_mode: i32,
+    append: bool,
+    sync: i32,
+    mode: i32,
+) -> AsyncHostResult<OpenedFile> {
+    let fd = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } < 0 {
         let error = last_native_error();
@@ -362,24 +417,23 @@ fn file_kind_from_stat(stat: &libc::stat) -> i32 {
 }
 
 #[cfg(windows)]
-fn open_native_file(
+fn open_raw_native_file(
     filename: OsString,
     access: i32,
     create_mode: i32,
     append: bool,
     sync: i32,
     _mode: i32,
-) -> AsyncHostResult<OpenedFile> {
+) -> AsyncHostResult<RawFile> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_PIPE_BUSY, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+        ERROR_PIPE_BUSY, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, CREATE_ALWAYS, CREATE_NEW, CreateFileW, FILE_APPEND_DATA,
-        FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED,
-        FILE_FLAG_WRITE_THROUGH, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, GetFileInformationByHandle, OPEN_ALWAYS, OPEN_EXISTING,
-        TRUNCATE_EXISTING,
+        CREATE_ALWAYS, CREATE_NEW, CreateFileW, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_FLAG_WRITE_THROUGH,
+        FILE_LIST_DIRECTORY, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS,
+        OPEN_EXISTING, TRUNCATE_EXISTING,
     };
     use windows_sys::Win32::System::Pipes::{NMPWAIT_WAIT_FOREVER, WaitNamedPipeW};
 
@@ -442,6 +496,24 @@ fn open_native_file(
         }
     };
 
+    Ok(handle)
+}
+
+#[cfg(windows)]
+fn open_native_file(
+    filename: OsString,
+    access: i32,
+    create_mode: i32,
+    append: bool,
+    sync: i32,
+    mode: i32,
+) -> AsyncHostResult<OpenedFile> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let handle = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
     let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
     if unsafe { GetFileInformationByHandle(handle, info.as_mut_ptr()) } == 0 {
         let error = last_native_error();

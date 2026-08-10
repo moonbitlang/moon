@@ -127,9 +127,11 @@ ported_fns! {
         Ok(fds)
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/event_loop/detect_file_kind.c",
-        original = "moonbitlang_async_kind_of_fd"
+        original = "moonbitlang_async_kind_of_fd",
+        upstream_pr = 527,
+        replacement = "fstatx with STAT_FILE_KIND"
     )]
     pub(crate) fn kind_of_fd(fd: RawFd) -> AsyncHostResult<i32> {
         #[cfg(unix)]

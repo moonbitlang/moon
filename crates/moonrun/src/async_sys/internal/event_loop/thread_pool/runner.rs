@@ -22,8 +22,8 @@ use crate::async_sys::internal::fd_util;
 use super::fs::{
     run_access_job, run_chmod_job, run_file_kind_by_path_job, run_file_size_job,
     run_file_time_by_path_job, run_file_time_job, run_flock_job, run_fsync_job, run_mkdir_job,
-    run_open_job, run_read_job, run_readdir_job, run_realpath_job, run_remove_job, run_rename_job,
-    run_rmdir_job, run_symlink_job, run_write_job,
+    run_open_job, run_open_stat_job, run_read_job, run_readdir_job, run_realpath_job,
+    run_remove_job, run_rename_job, run_rmdir_job, run_symlink_job, run_write_job,
 };
 #[cfg(unix)]
 use super::process::run_spawn_job_unix;
@@ -34,6 +34,7 @@ use super::process::run_wait_for_process_job;
 use super::signal::run_sigwait_job;
 use super::sleep::run_sleep_job;
 use super::socket::{run_bind_job, run_getaddrinfo_job};
+use super::stat::{run_fstatx_job, run_statx_job};
 use super::types::{Job, JobPayload};
 
 pub(crate) fn run_host_job(job: &mut Job) {
@@ -62,6 +63,49 @@ pub(crate) fn run_host_job(job: &mut Job) {
             *sync,
             *mode,
         ),
+        JobPayload::OpenStat {
+            filename,
+            access,
+            create_mode,
+            append,
+            sync,
+            mode,
+            request,
+            result,
+        } => run_open_stat_job(
+            result,
+            std::mem::take(filename),
+            *access,
+            *create_mode,
+            *append,
+            *sync,
+            *mode,
+            *request,
+        ),
+        JobPayload::Fstatx {
+            file,
+            request,
+            result,
+        } => match file.take() {
+            Some(file) => run_fstatx_job(&file, *request, result),
+            None => Err(AsyncHostError::Badf),
+        },
+        JobPayload::Statx {
+            parent,
+            path,
+            request,
+            follow_symlink,
+            result,
+        } => {
+            let parent = parent.take();
+            run_statx_job(
+                parent.as_deref(),
+                std::mem::take(path),
+                *request,
+                *follow_symlink,
+                result,
+            )
+        }
         JobPayload::Read {
             file,
             len,
@@ -251,4 +295,17 @@ pub(crate) fn get_file_time_result(
     record[32..40].copy_from_slice(&fd_util::stub::get_ctime_sec(file_time).to_le_bytes());
     record[40..44].copy_from_slice(&fd_util::stub::get_ctime_nsec(file_time).to_le_bytes());
     memory.write_exact(dst, &record)
+}
+
+pub(crate) fn get_stat_result(
+    job: &Job,
+    memory: &mut (impl GuestMemory + ?Sized),
+    dst: i32,
+    dst_len: i32,
+) -> AsyncHostResult<()> {
+    if job.err() != 0 {
+        return Ok(());
+    }
+    let result = super::jobs::stat_job_result(job)?;
+    memory.write_with_capacity(dst, dst_len, result.as_bytes())
 }

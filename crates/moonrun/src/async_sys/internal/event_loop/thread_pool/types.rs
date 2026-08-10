@@ -25,6 +25,8 @@ use crate::async_host::{AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
 
+use super::stat::{PackedStat, StatRequest};
+
 #[cfg(unix)]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(all(test, windows))]
@@ -329,6 +331,7 @@ pub(crate) struct OpenJobResult {
     pub(crate) kind: i32,
     pub(crate) dev_id: u64,
     pub(crate) file_id: u64,
+    pub(super) stat: Option<PackedStat>,
 }
 
 #[derive(Debug)]
@@ -434,6 +437,28 @@ pub(crate) enum JobPayload {
         sync: i32,
         mode: i32,
         result: Option<OpenJobResult>,
+    },
+    OpenStat {
+        filename: OsString,
+        access: i32,
+        create_mode: i32,
+        append: bool,
+        sync: i32,
+        mode: i32,
+        request: StatRequest,
+        result: Option<OpenJobResult>,
+    },
+    Fstatx {
+        file: Option<ResourceRef>,
+        request: StatRequest,
+        result: Option<PackedStat>,
+    },
+    Statx {
+        parent: Option<ResourceRef>,
+        path: OsString,
+        request: StatRequest,
+        follow_symlink: bool,
+        result: Option<PackedStat>,
     },
     FileKindByPath {
         parent: Option<ResourceRef>,
