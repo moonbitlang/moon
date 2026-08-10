@@ -31,7 +31,10 @@ use moonutil::{
     build_options::RunMode,
     compiler_flags::{self, CC, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
-    constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
+    constants::{
+        MOD_DIR, MOONCAKE_BIN, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
+        package_source_file_kind,
+    },
     manifest::{MoonMod, MoonModRule},
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
     resolution::ModuleId,
@@ -204,6 +207,8 @@ impl<'a> BuildPlanConstructor<'a> {
             return Ok(());
         }
 
+        let discovered_moonlex_inputs = pkg.mbt_lex_files.clone();
+        let discovered_moonyacc_inputs = pkg.mbt_yacc_files.clone();
         let custom_rules = pkg.raw.pre_build.as_deref().unwrap_or_default();
 
         if !is_moon_script_ignored(IgnoredMoonScript::Prebuild) {
@@ -226,13 +231,49 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        for (index, input) in pkg.mbt_lex_files.iter().cloned().enumerate() {
+        // A custom prebuild may itself generate moonlex/moonyacc input. Treat
+        // those paths exactly like files observed during package discovery;
+        // n2 will connect the two actions through the matching concrete path.
+        let custom_outputs = self
+            .res
+            .package_prebuild
+            .custom_output_paths(pkg_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut moonlex_inputs = discovered_moonlex_inputs
+            .into_iter()
+            .collect::<IndexSet<_>>();
+        let mut moonyacc_inputs = discovered_moonyacc_inputs
+            .into_iter()
+            .collect::<IndexSet<_>>();
+        for output in custom_outputs {
+            let Some(kind) = output
+                .file_name()
+                .and_then(OsStr::to_str)
+                .and_then(package_source_file_kind)
+            else {
+                continue;
+            };
+            match kind {
+                PackageSourceFileKind::Mbl => {
+                    moonlex_inputs.insert(output);
+                }
+                PackageSourceFileKind::Mby => {
+                    moonyacc_inputs.insert(output);
+                }
+                PackageSourceFileKind::Mbt
+                | PackageSourceFileKind::MbtMd
+                | PackageSourceFileKind::Mbtp => {}
+            }
+        }
+
+        for (index, input) in moonlex_inputs.into_iter().enumerate() {
             let output = input.with_extension("mbt");
             self.res
                 .package_prebuild
                 .insert_moonlex(pkg_id, index as u32, input, output);
         }
-        for (index, input) in pkg.mbt_yacc_files.iter().cloned().enumerate() {
+        for (index, input) in moonyacc_inputs.into_iter().enumerate() {
             let output = input.with_extension("mbt");
             self.res
                 .package_prebuild
@@ -597,19 +638,45 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             pkg.source_files.as_slice()
         };
-        let prebuild_output_iter = self
+        let mut planned_prebuild_outputs = self
             .res
             .package_prebuild
             .output_paths(package)
-            .filter(|path| {
-                let path = path.to_string_lossy();
-                path.ends_with(".mbt") || path.ends_with(DOT_MBT_DOT_MD)
-            })
-            .map(|path| Cow::Borrowed(path.as_path()));
+            .cloned()
+            .collect::<IndexSet<_>>();
+
+        let mut generated_sources = Vec::new();
+        let mut mbt_md_files = pkg.mbt_md_files.iter().cloned().collect::<IndexSet<_>>();
+        let mut mbtp_files = pkg.mbtp_files.iter().cloned().collect::<IndexSet<_>>();
+        for output in planned_prebuild_outputs.drain(..) {
+            let Some(kind) = output
+                .file_name()
+                .and_then(OsStr::to_str)
+                .and_then(package_source_file_kind)
+            else {
+                continue;
+            };
+            match kind {
+                PackageSourceFileKind::Mbt => {
+                    generated_sources.push(output);
+                }
+                PackageSourceFileKind::MbtMd => {
+                    mbt_md_files.insert(output);
+                }
+                PackageSourceFileKind::Mbtp => {
+                    mbtp_files.insert(output);
+                }
+                // Inputs for built-in generators have already been interpreted
+                // while planning PackagePrebuildPlan. Their `.mbt` outputs are
+                // present in the same output set and flow through classification.
+                PackageSourceFileKind::Mbl | PackageSourceFileKind::Mby => {}
+            }
+        }
 
         let source_iter = source_files_for_classification
             .iter()
-            .map(|x| Cow::Borrowed(x.as_path()));
+            .map(|x| Cow::Borrowed(x.as_path()))
+            .chain(generated_sources.into_iter().map(Cow::Owned));
 
         let mut no_test_files = IndexSet::new();
         let mut whitebox_files = IndexSet::new();
@@ -622,7 +689,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let _classify_span = tracing::debug_span!("classifying_package_files").entered();
         for (file, file_kind) in cond_comp::classify_files(
             &pkg.raw,
-            source_iter.chain(prebuild_output_iter),
+            source_iter,
             self.build_env.opt_level,
             self.build_env.target_backend(),
         ) {
@@ -634,22 +701,24 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         drop(_classify_span);
 
-        // Sort the input, or the different order may cause n2 to view the input
-        // file set as different than original.
-        //
-        // FIXME: we have already sorted them on discover, should we omit that?
+        // Discovery sorts authored paths, but generated outputs are appended in
+        // declaration order during File Interpretation. Sort the final Build
+        // Target Projection so compiler arguments and n2 inputs are stable.
         let _sort_span = tracing::debug_span!("sorting_package_files").entered();
+        // `.mbt.md` is always a blackbox regular input. At this point authored
+        // and generated paths have the same Build Target Projection semantics.
+        blackbox_files.extend(mbt_md_files);
         no_test_files.sort();
         whitebox_files.sort();
         blackbox_files.sort();
+        mbtp_files.sort();
         drop(_sort_span);
 
         PackageFileSet {
             no_test_files: no_test_files.into_iter().collect(),
             whitebox_files: whitebox_files.into_iter().collect(),
             blackbox_files: blackbox_files.into_iter().collect(),
-            mbt_md_files: pkg.mbt_md_files.clone(),
-            mbtp_files: pkg.mbtp_files.clone(),
+            mbtp_files: mbtp_files.into_iter().collect(),
         }
     }
 
@@ -687,22 +756,12 @@ impl<'a> BuildPlanConstructor<'a> {
                     file_set.whitebox_files.clone(),
                     Vec::new(),
                 ),
-                BlackboxTest => {
-                    // `.mbt.md` files are also part of blackbox regular files.
-                    let mut regular_files = file_set
-                        .blackbox_files
-                        .iter()
-                        .cloned()
-                        .collect::<IndexSet<_>>();
-                    regular_files.extend(file_set.mbt_md_files.iter().cloned());
-                    regular_files.sort();
-                    (
-                        regular_files.into_iter().collect(),
-                        Vec::new(),
-                        Vec::new(),
-                        file_set.no_test_files.clone(),
-                    )
-                }
+                BlackboxTest => (
+                    file_set.blackbox_files.clone(),
+                    Vec::new(),
+                    Vec::new(),
+                    file_set.no_test_files.clone(),
+                ),
             }
         };
 
@@ -768,16 +827,23 @@ impl<'a> BuildPlanConstructor<'a> {
             path.file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| {
-                    matches!(
-                        cond_comp::get_file_test_kind_full(name),
-                        cond_comp::FileTestKind::Blackbox
-                    )
+                    package_source_file_kind(name) == Some(PackageSourceFileKind::Mbt)
+                        && matches!(
+                            cond_comp::get_file_test_kind_full(name),
+                            cond_comp::FileTestKind::Blackbox
+                        )
                 })
         }) {
             blackbox_inputs.push("`_test.mbt` files");
         }
 
-        if !pkg.mbt_md_files.is_empty() {
+        if regular_files.iter().any(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    package_source_file_kind(name) == Some(PackageSourceFileKind::MbtMd)
+                })
+        }) {
             blackbox_inputs.push("`.mbt.md` files");
         }
 

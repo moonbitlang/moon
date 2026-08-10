@@ -1,0 +1,10 @@
+{
+  "is-main": true,
+  "pre-build": [
+    {
+      "input": "guide.txt",
+      "output": "generated.mbt.md",
+      "command": ":embed --text -i $input -o $output --name ignored"
+    }
+  ]
+}

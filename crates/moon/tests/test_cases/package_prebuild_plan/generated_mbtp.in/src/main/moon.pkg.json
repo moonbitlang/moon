@@ -1,0 +1,9 @@
+{
+  "pre-build": [
+    {
+      "input": "proof.txt",
+      "output": "generated.mbtp",
+      "command": ":embed --text -i $input -o $output --name ignored"
+    }
+  ]
+}

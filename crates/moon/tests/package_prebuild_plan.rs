@@ -33,6 +33,14 @@ fn moon_check(dir: &TestDir) -> snapbox::cmd::Command {
         .current_dir(dir)
 }
 
+fn moon_test(dir: &TestDir) -> snapbox::cmd::Command {
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+        .args(["test", "--target", "wasm-gc"])
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("MOON_DEP_CACHE", "off")
+        .current_dir(dir)
+}
+
 #[test]
 fn unconsumed_package_prebuild_output_remains_an_execution_root() {
     let dir = test_dir("unconsumed_output");
@@ -40,4 +48,93 @@ fn unconsumed_package_prebuild_output_remains_an_execution_root() {
     assert!(!dir.join("src/main/generated.txt").exists());
     moon_check(&dir).assert().success();
     assert!(dir.join("src/main/generated.txt").exists());
+}
+
+#[test]
+fn generated_mbtp_is_a_check_input() {
+    let dir = test_dir("generated_mbtp");
+
+    moon_check(&dir)
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/main/proof.txt -o ./src/main/generated.mbtp --name ignored'
+  cwd: .
+moonc check ./src/main/main.mbt ./src/main/generated.mbtp [..]
+[..]
+
+"#]]);
+}
+
+#[test]
+fn generated_moonlex_input_forms_a_prebuild_pipeline() {
+    let dir = test_dir("generated_moonlex_input");
+
+    moon_check(&dir)
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/main/lexer.txt -o ./src/main/generated.mbl --name ignored'
+  cwd: .
+moonrun [..]moonlex[..] -- ./src/main/generated.mbl -o ./src/main/generated.mbt
+moonc check ./src/main/generated.mbt ./src/main/main.mbt [..]
+[..]
+
+"#]]);
+}
+
+#[test]
+fn generated_mbt_md_is_a_blackbox_test_input() {
+    let dir = test_dir("generated_mbt_md");
+
+    moon_test(&dir)
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]
+[..]
+[..]
+[..]
+moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/lib/guide.txt -o ./src/lib/generated.mbt.md --name ignored'
+  cwd: .
+moon generate-test-driver [..] ./src/lib/generated.mbt.md [..]
+moonc build-package ./src/lib/generated.mbt.md [..]
+[..]
+
+"#]]);
+}
+
+#[test]
+fn generated_moonyacc_input_forms_a_prebuild_pipeline() {
+    let dir = test_dir("generated_moonyacc_input");
+
+    moon_check(&dir)
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/main/parser.txt -o ./src/main/generated.mby --name ignored'
+  cwd: .
+moonrun [..]moonyacc[..] -- ./src/main/generated.mby -o ./src/main/generated.mbt
+moonc check ./src/main/generated.mbt ./src/main/main.mbt [..]
+[..]
+
+"#]]);
+}
+
+#[test]
+fn generated_mbt_md_warns_for_main_package() {
+    let dir = test_dir("generated_main_mbt_md");
+
+    moon_test(&dir)
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+[..]Warning: Main package `username/generated_main_mbt_md/main` uses blackbox-only test inputs (`.mbt.md` files) [..]
+
+"#]]);
 }

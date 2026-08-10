@@ -40,9 +40,18 @@ Notes:
   action's declared outputs are tracked as build outputs. Bin-dep compatibility
   builds do not create package-level prebuild nodes; they consume existing
   `.mbt` and `.mbt.md` outputs as package sources.
-- Planned `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit
-  source set. Other output extensions remain ordinary tracked files and can be
-  consumed by later prebuild actions through matching paths.
+- Outputs of actions in the current `PackagePrebuildPlan` go through the same
+  File Interpretation as paths in the Package File Set. `.mbt` becomes a
+  conditionally classified MoonBit source, `.mbt.md` becomes a blackbox input,
+  `.mbtp` becomes a check/prove proof input, and `.mbl`/`.mby` schedules
+  moonlex/moonyacc whose generated `.mbt` is then classified as a source.
+  A declaration alone does not make an absent output a plan input when package
+  prebuild policy does not apply, as in bin-dep compatibility builds.
+- `MOON_IGNORE_PREBUILD` disables applicable custom actions and does not add
+  their declared outputs to File Interpretation. Generated files already
+  present in the Package File Set remain ordinary compiler inputs.
+- Other output extensions remain ordinary tracked files and can be consumed by
+  later prebuild actions through matching paths.
 
 ## Path Resolution
 
@@ -122,7 +131,9 @@ Behavior:
 - All planned package prebuild actions remain part of normal execution.
   Declared outputs that no backend action consumes are leaf outputs of the n2
   graph, so they are still requested and the invocation waits for them.
-- Producer/consumer ordering comes from equality of complete paths in n2.
+- Generated `.mbt`/`.mbt.md`, `.mbtp`, and `.mbl`/`.mby` retain the meanings
+  described above. Producer/consumer ordering comes from equality of their
+  complete paths in n2.
 
 ## Environment Capture
 

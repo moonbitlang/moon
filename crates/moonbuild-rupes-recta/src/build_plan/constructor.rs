@@ -70,7 +70,6 @@ pub(super) struct PackageFileSet {
     pub(super) no_test_files: Vec<PathBuf>,
     pub(super) whitebox_files: Vec<PathBuf>,
     pub(super) blackbox_files: Vec<PathBuf>,
-    pub(super) mbt_md_files: Vec<PathBuf>,
     pub(super) mbtp_files: Vec<PathBuf>,
 }
 

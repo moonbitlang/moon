@@ -170,6 +170,17 @@ impl PackagePrebuildPlan {
             .flat_map(PackagePrebuildAction::output_paths)
     }
 
+    pub(crate) fn custom_output_paths(&self, package: PackageId) -> impl Iterator<Item = &PathBuf> {
+        self.actions.iter().flat_map(move |action| match action {
+            PackagePrebuildAction::Custom {
+                package: action_package,
+                info,
+                ..
+            } if *action_package == package => info.resolved_outputs.as_slice(),
+            _ => &[],
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn test_insert_custom_info(
         &mut self,
