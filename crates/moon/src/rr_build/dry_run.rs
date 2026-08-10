@@ -94,11 +94,13 @@ pub fn write_standalone_dry_run<'a>(
 pub fn format_dry_run_command(cmd: &Command, source_dir: &Path) -> String {
     let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
 
-    let args = std::iter::once(cmd.get_program())
-        .chain(cmd.get_args())
-        .map(|x| x.to_string_lossy())
-        .map(|x| replacer.normalize_command_arg(&x))
-        .collect::<Vec<_>>();
+    let args =
+        std::iter::once(replacer.normalize_command_program(&cmd.get_program().to_string_lossy()))
+            .chain(
+                cmd.get_args()
+                    .map(|arg| replacer.normalize_command_arg(&arg.to_string_lossy())),
+            )
+            .collect::<Vec<_>>();
 
-    moonutil::shlex::join_unix(args.iter().map(|x| x.as_ref()))
+    moonutil::shlex::join_unix(args.iter().map(String::as_str))
 }

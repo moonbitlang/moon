@@ -13,18 +13,18 @@ fn test_target_backend_cli_wiring_smoke() {
             moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm -g -O0 -wasi
         "#]],
     );
-    check(
-        get_stdout(
-            &dir,
-            ["run", "main", "--dry-run", "--target", "js", "--nostd"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
-            node --enable-source-maps ./_build/js/debug/build/main/main.js
-        "#]],
-    );
+    moon_cmd(&dir)
+        .args(["run", "main", "--dry-run", "--target", "js", "--nostd"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
+[..]node[..] --enable-source-maps ./_build/js/debug/build/main/main.js
+
+"#]],
+        );
 }
 
 fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {

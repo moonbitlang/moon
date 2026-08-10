@@ -1731,7 +1731,7 @@ fn test_moon_run_command_string_explicit_target_overrides_wasm_default() {
 
     assert!(stdout.contains("-target wasm-gc"), "stdout: {stdout}");
     assert!(
-        stdout.contains("moonrun ./_build/wasm-gc/debug/build/single/single.wasm --"),
+        stdout.contains("'$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/single/single.wasm --"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("./_build/wasm/debug/"), "stdout: {stdout}");

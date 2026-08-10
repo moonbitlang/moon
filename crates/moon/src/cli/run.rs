@@ -854,10 +854,13 @@ fn run_executable(
         cmd.moonrun_policy.as_deref(),
     );
     run_cmd.args(&cmd.args);
-    output.user_log().info(rr_build::format_dry_run_command(
-        &run_cmd,
-        &executable.source_dir,
-    ));
+    let user_log = output.user_log();
+    if user_log.is_enabled(log::Level::Info) {
+        user_log.info(rr_build::format_dry_run_command(
+            &run_cmd,
+            &executable.source_dir,
+        ));
+    }
 
     // Release the lock before handing control to the executable.
     executable.release_lock();

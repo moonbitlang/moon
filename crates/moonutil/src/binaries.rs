@@ -36,6 +36,40 @@ fn resolve_executable_override(path: &OsStr) -> PathBuf {
     })
 }
 
+const EXECUTABLE_OVERRIDES: &[&str] = &[
+    "MOON_OVERRIDE",
+    "MOONC_OVERRIDE",
+    "MOONCAKE_OVERRIDE",
+    "MOON_IDE_OVERRIDE",
+    "MOONDOC_OVERRIDE",
+    "MOONFMT_OVERRIDE",
+    "MOONINFO_OVERRIDE",
+    "MOONRUN_OVERRIDE",
+    "MOON_CRAM_OVERRIDE",
+    "MOON_COVE_REPORT_OVERRIDE",
+    "MOON_NODE_OVERRIDE",
+];
+
+const PAYLOAD_OVERRIDES: &[&str] = &["MOONLEX_OVERRIDE", "MOONYACC_OVERRIDE"];
+
+/// Return only explicitly configured binary paths for best-effort display
+/// redaction without initializing the cached binary inventory.
+pub(crate) fn configured_binary_overrides() -> Vec<(&'static str, PathBuf)> {
+    EXECUTABLE_OVERRIDES
+        .iter()
+        .filter_map(|&env_var| {
+            std::env::var_os(env_var)
+                .filter(|path| !path.is_empty())
+                .map(|path| (env_var, resolve_executable_override(path.as_os_str())))
+        })
+        .chain(PAYLOAD_OVERRIDES.iter().filter_map(|&env_var| {
+            std::env::var_os(env_var)
+                .filter(|path| !path.is_empty())
+                .map(|path| (env_var, PathBuf::from(path)))
+        }))
+        .collect()
+}
+
 fn moon_executable(binary_name: &str, env_var: &str) -> PathBuf {
     let current_dir =
         std::env::current_dir().expect("failed to get current directory for executable resolution");

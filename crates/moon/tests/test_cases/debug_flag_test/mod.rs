@@ -186,7 +186,7 @@ fn build_explicit_empty_selection_does_not_expand_to_workspace() {
 
 fn assert_moonrun_line(output: &str, release: bool) {
     let empty: &[&str] = &[];
-    let line = line_with(output, "moonrun", empty);
+    let line = line_with(output, "$MOONRUN_OVERRIDE", empty);
     let target_prefix = if release {
         "_build/wasm-gc/release/"
     } else {
