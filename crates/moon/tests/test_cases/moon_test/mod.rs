@@ -828,7 +828,7 @@ fn test_async_wasm_upstream_fs_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/fs"),
         expect![[r#"
-        Total tests: 31, passed: 31, failed: 0.
+        Total tests: 39, passed: 39, failed: 0.
         "#]],
     );
 }
@@ -888,7 +888,7 @@ fn test_async_wasm_upstream_process_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/process"),
         expect![[r#"
-            Total tests: 4, passed: 4, failed: 0.
+            Total tests: 31, passed: 31, failed: 0.
         "#]],
     );
 }

@@ -31,6 +31,16 @@ ABI representation. Linux uses `statx` directly, macOS uses the selective
 selective handle queries. Windows timestamps are converted from FILETIME's
 1601 epoch to the Unix epoch required by the cross-platform contract.
 
+Within those ownership and codec boundaries, keep syscall selection,
+returned-property masks, and error behavior aligned with upstream
+`moonbit_generic_stat`. Host-specific deviations must stay narrow and tested:
+Moonrun resolves Windows parent-relative paths, returns every requested field
+available from macOS's non-vnode `fstat` fallback, and recognizes Winsock
+sockets before propagating `GetFileType` errors. Native-runtime correctness
+gaps found while preserving this parity are tracked in
+[`moonbitlang/async#442`](https://github.com/moonbitlang/async/issues/442)
+instead of becoming undocumented wasm-only behavior.
+
 Metadata access remains subject to the runtime filesystem policy. Handle
 queries require metadata-read authority for the acquired Resource, and path
 queries use the parent Resource as their policy base. Open jobs continue to use

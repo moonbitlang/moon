@@ -517,7 +517,7 @@ fn kind_of_raw_file(handle: RawFile) -> AsyncHostResult<i32> {
 }
 
 #[cfg(windows)]
-fn handle_is_socket(handle: RawFile) -> bool {
+pub(super) fn handle_is_socket(handle: RawFile) -> bool {
     use windows_sys::Win32::Networking::WinSock::{SO_TYPE, SOCKET, SOL_SOCKET, getsockopt};
 
     let mut opt = 0i32;
@@ -1087,6 +1087,7 @@ fn file_kind_by_path(
     if !follow_symlink {
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
     }
+    let parent = parent.map(raw_file_handle).transpose()?;
     let path = resolve_windows_path_for_parent(parent, path)?;
     let path = path_to_wide(path);
     let handle: HANDLE = unsafe {
@@ -1111,8 +1112,8 @@ fn file_kind_by_path(
 }
 
 #[cfg(windows)]
-fn resolve_windows_path_for_parent(
-    parent: Option<&Resource>,
+pub(super) fn resolve_windows_path_for_parent(
+    parent: Option<RawFile>,
     path: OsString,
 ) -> AsyncHostResult<OsString> {
     let Some(parent) = parent else {
@@ -1122,8 +1123,7 @@ fn resolve_windows_path_for_parent(
         return Ok(path);
     }
 
-    let mut parent_path =
-        std::path::PathBuf::from(final_path_from_handle(raw_file_handle(parent)?)?);
+    let mut parent_path = std::path::PathBuf::from(final_path_from_handle(parent)?);
     parent_path.push(path);
     Ok(parent_path.into_os_string())
 }

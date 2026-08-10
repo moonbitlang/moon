@@ -679,9 +679,25 @@ mod platform {
             return Err(last_native_error());
         }
         let stat = unsafe { stat.assume_init() };
+        let requested_time = |property, seconds, nanoseconds| {
+            (request.mask() & property != 0).then_some(StatTimestamp {
+                seconds,
+                nanoseconds,
+            })
+        };
         Ok(StatValues {
             kind: (request.mask() & STAT_FILE_KIND != 0).then(|| file_kind_from_mode(stat.st_mode)),
-            ..StatValues::default()
+            size: (request.mask() & STAT_FILE_SIZE != 0).then_some(stat.st_size),
+            device_id: (request.mask() & STAT_DEVICE_ID != 0).then_some(stat.st_dev as u64),
+            file_id: (request.mask() & STAT_FILE_ID != 0).then_some(stat.st_ino),
+            access_time: requested_time(STAT_ACCESS_TIME, stat.st_atime, stat.st_atime_nsec),
+            modify_time: requested_time(STAT_MODIFY_TIME, stat.st_mtime, stat.st_mtime_nsec),
+            change_time: requested_time(STAT_CHANGE_TIME, stat.st_ctime, stat.st_ctime_nsec),
+            create_time: requested_time(
+                STAT_CREATE_TIME,
+                stat.st_birthtime,
+                stat.st_birthtime_nsec,
+            ),
         })
     }
 
@@ -733,24 +749,25 @@ mod platform {
     use std::os::windows::ffi::OsStrExt;
 
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_NOT_SUPPORTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE, SetLastError,
+        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, SetLastError,
     };
-    use windows_sys::Win32::Networking::WinSock::{SO_TYPE, SOL_SOCKET, getsockopt};
     use windows_sys::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO,
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_INFO_BY_HANDLE_CLASS,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        FILE_STANDARD_INFO, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
-        FileAttributeTagInfo, FileBasicInfo, FileStandardInfo, GetFileInformationByHandle,
-        GetFileInformationByHandleEx, GetFileType, OPEN_EXISTING,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_CHAR,
+        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileAttributeTagInfo, FileBasicInfo,
+        GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileSize, GetFileType,
+        INVALID_FILE_SIZE, OPEN_EXISTING,
     };
 
+    use super::super::fs::{handle_is_socket, resolve_windows_path_for_parent};
     use super::*;
 
     #[derive(Default)]
     struct WindowsStat {
         file_type: Option<u32>,
+        is_socket: bool,
         attributes: Option<u32>,
         size: Option<i64>,
         device_id: Option<u64>,
@@ -765,7 +782,11 @@ mod platform {
         handle: HANDLE,
         request: StatRequest,
     ) -> AsyncHostResult<StatValues> {
-        query(handle, request)
+        let values = query(handle, request)?;
+        if values.returned_mask() == 0 {
+            get_file_type(handle)?;
+        }
+        Ok(values)
     }
 
     pub(super) fn query_path(
@@ -774,9 +795,7 @@ mod platform {
         follow_symlink: bool,
         request: StatRequest,
     ) -> AsyncHostResult<StatValues> {
-        if parent.is_some() {
-            return Err(AsyncHostError::Native(ERROR_NOT_SUPPORTED as i32));
-        }
+        let path = resolve_windows_path_for_parent(parent, path)?;
         let path: Vec<u16> = path.encode_wide().chain(std::iter::once(0)).collect();
         let flags = FILE_ATTRIBUTE_NORMAL
             | FILE_FLAG_BACKUP_SEMANTICS
@@ -810,18 +829,12 @@ mod platform {
         let mut stat = WindowsStat::default();
         let mut remaining = request.mask();
 
-        if request.mask() & STAT_FILE_KIND != 0 || request.mask() == 0 {
-            unsafe { SetLastError(0) };
-            let file_type = unsafe { GetFileType(handle) };
-            if file_type == FILE_TYPE_UNKNOWN && unsafe { GetLastError() } != 0 {
-                return Err(last_native_error());
-            }
+        if request.mask() & STAT_FILE_KIND != 0 {
+            let (file_type, is_socket) = get_file_type(handle)?;
             stat.file_type = Some(file_type);
-            if request.mask() & STAT_FILE_KIND != 0 {
-                remaining &= !STAT_FILE_KIND;
-            }
+            stat.is_socket = is_socket;
             if file_type != FILE_TYPE_DISK {
-                return Ok(to_values(handle, request, stat));
+                return Ok(to_values(request, stat));
             }
         }
 
@@ -830,26 +843,29 @@ mod platform {
             | STAT_MODIFY_TIME
             | STAT_CHANGE_TIME
             | STAT_CREATE_TIME;
-        if remaining != 0 && remaining & !STAT_FILE_KIND == 0 {
+        if remaining & !STAT_FILE_KIND == 0 {
             if let Some(info) = query_info::<FILE_ATTRIBUTE_TAG_INFO>(handle, FileAttributeTagInfo)
             {
                 stat.attributes = Some(info.FileAttributes);
                 remaining &= !STAT_FILE_KIND;
             }
-        } else if remaining & STAT_CHANGE_TIME != 0 || remaining & !BASIC_PROPERTIES == 0 {
-            if let Some(info) = query_info::<FILE_BASIC_INFO>(handle, FileBasicInfo) {
-                stat.attributes = Some(info.FileAttributes);
-                stat.access_time = Some(info.LastAccessTime);
-                stat.modify_time = Some(info.LastWriteTime);
-                stat.change_time = Some(info.ChangeTime);
-                stat.create_time = Some(info.CreationTime);
-                remaining &= !BASIC_PROPERTIES;
-            }
+        } else if (remaining & STAT_CHANGE_TIME != 0 || remaining & !BASIC_PROPERTIES == 0)
+            && let Some(info) = query_info::<FILE_BASIC_INFO>(handle, FileBasicInfo)
+        {
+            stat.attributes = Some(info.FileAttributes);
+            stat.access_time = Some(info.LastAccessTime);
+            stat.modify_time = Some(info.LastWriteTime);
+            stat.change_time = Some(info.ChangeTime);
+            stat.create_time = Some(info.CreationTime);
+            remaining &= !BASIC_PROPERTIES;
         }
 
         if remaining == STAT_FILE_SIZE {
-            if let Some(info) = query_info::<FILE_STANDARD_INFO>(handle, FileStandardInfo) {
-                stat.size = Some(info.EndOfFile);
+            unsafe { SetLastError(0) };
+            let mut high = 0;
+            let low = unsafe { GetFileSize(handle, &mut high) };
+            if low != INVALID_FILE_SIZE || unsafe { GetLastError() } == 0 {
+                stat.size = Some(i64::from(high) << 32 | i64::from(low));
             }
         } else if remaining != 0 {
             let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
@@ -867,23 +883,7 @@ mod platform {
             }
         }
 
-        if request.mask() & STAT_FILE_KIND != 0
-            && stat.file_type == Some(FILE_TYPE_DISK)
-            && stat.attributes.is_none()
-            && let Some(info) = query_info::<FILE_ATTRIBUTE_TAG_INFO>(handle, FileAttributeTagInfo)
-        {
-            stat.attributes = Some(info.FileAttributes);
-        }
-
-        let values = to_values(handle, request, stat);
-        if request.mask() != 0 && values.returned_mask() == 0 {
-            unsafe { SetLastError(0) };
-            if unsafe { GetFileType(handle) } == FILE_TYPE_UNKNOWN && unsafe { GetLastError() } != 0
-            {
-                return Err(last_native_error());
-            }
-        }
-        Ok(values)
+        Ok(to_values(request, stat))
     }
 
     fn query_info<T: Copy>(handle: HANDLE, class: FILE_INFO_BY_HANDLE_CLASS) -> Option<T> {
@@ -899,10 +899,10 @@ mod platform {
             .then(|| unsafe { info.assume_init() })
     }
 
-    fn to_values(handle: HANDLE, request: StatRequest, stat: WindowsStat) -> StatValues {
+    fn to_values(request: StatRequest, stat: WindowsStat) -> StatValues {
         StatValues {
             kind: (request.mask() & STAT_FILE_KIND != 0)
-                .then(|| windows_file_kind(handle, stat.file_type?, stat.attributes))
+                .then(|| windows_file_kind(stat.file_type?, stat.is_socket, stat.attributes))
                 .flatten(),
             size: (request.mask() & STAT_FILE_SIZE != 0)
                 .then_some(stat.size)
@@ -931,7 +931,7 @@ mod platform {
             .map(windows_timestamp)
     }
 
-    fn windows_file_kind(handle: HANDLE, file_type: u32, attributes: Option<u32>) -> Option<i32> {
+    fn windows_file_kind(file_type: u32, is_socket: bool, attributes: Option<u32>) -> Option<i32> {
         match file_type {
             FILE_TYPE_DISK => attributes.map(|attributes| {
                 if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
@@ -944,18 +944,7 @@ mod platform {
             }),
             FILE_TYPE_CHAR => Some(7),
             FILE_TYPE_PIPE | FILE_TYPE_UNKNOWN => {
-                let mut socket_type = 0;
-                let mut len = std::mem::size_of::<i32>() as i32;
-                if unsafe {
-                    getsockopt(
-                        handle as usize,
-                        SOL_SOCKET,
-                        SO_TYPE,
-                        std::ptr::from_mut(&mut socket_type).cast(),
-                        &mut len,
-                    )
-                } == 0
-                {
+                if is_socket {
                     Some(4)
                 } else if file_type == FILE_TYPE_PIPE {
                     Some(5)
@@ -964,6 +953,22 @@ mod platform {
                 }
             }
             _ => Some(0),
+        }
+    }
+
+    fn get_file_type(handle: HANDLE) -> AsyncHostResult<(u32, bool)> {
+        unsafe { SetLastError(0) };
+        let file_type = unsafe { GetFileType(handle) };
+        let get_file_type_error = unsafe { GetLastError() };
+        let is_socket =
+            matches!(file_type, FILE_TYPE_PIPE | FILE_TYPE_UNKNOWN) && handle_is_socket(handle);
+        if file_type == FILE_TYPE_UNKNOWN && get_file_type_error != 0 && !is_socket {
+            // A Winsock SOCKET is not a kernel HANDLE. Give getsockopt a chance
+            // before propagating GetFileType's ERROR_INVALID_HANDLE.
+            unsafe { SetLastError(get_file_type_error) };
+            Err(last_native_error())
+        } else {
+            Ok((file_type, is_socket))
         }
     }
 
@@ -1133,6 +1138,105 @@ mod tests {
 
         assert_eq!(link_values.kind, Some(3));
         assert_eq!(target_values.kind, Some(1));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_non_vnode_fallback_returns_all_fstat_metadata() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+        let mut pipe = [0; 2];
+        assert_eq!(unsafe { libc::pipe(pipe.as_mut_ptr()) }, 0);
+        let read_end = unsafe { OwnedFd::from_raw_fd(pipe[0]) };
+        let _write_end = unsafe { OwnedFd::from_raw_fd(pipe[1]) };
+        let request = StatRequest::new(STAT_SUPPORTED_PROPERTY_MASK, 104).unwrap();
+
+        let values = platform::query_handle(read_end.as_raw_fd(), request).unwrap();
+
+        assert_eq!(values.kind, Some(5));
+        assert!(values.size.is_some());
+        assert!(values.device_id.is_some());
+        assert!(values.file_id.is_some());
+        assert!(values.access_time.is_some());
+        assert!(values.modify_time.is_some());
+        assert!(values.change_time.is_some());
+        assert!(values.create_time.is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_parent_relative_query_resolves_from_directory_handle() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES,
+            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("child"), b"child").unwrap();
+        let parent_path: Vec<u16> = temp
+            .path()
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let parent = unsafe {
+            CreateFileW(
+                parent_path.as_ptr(),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_ne!(parent, INVALID_HANDLE_VALUE);
+        let request = StatRequest::new(STAT_FILE_KIND | STAT_FILE_SIZE, 24).unwrap();
+
+        let values = platform::query_path(Some(parent), OsString::from("child"), true, request);
+        unsafe {
+            CloseHandle(parent);
+        }
+        let values = values.unwrap();
+
+        assert_eq!(values.kind, Some(1));
+        assert_eq!(values.size, Some(5));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_fstatx_reports_socket_kind_before_get_file_type_error() {
+        use crate::async_sys::internal::event_loop::thread_pool::ResourceClass;
+
+        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+        let raw_socket = crate::async_sys::socket::make_tcp_socket(4).unwrap();
+        let resource = Resource::new_socket(raw_socket, ResourceClass::TcpSocket, 4);
+        let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
+        let mut result = None;
+
+        run_fstatx_job(&resource, request, &mut result).unwrap();
+
+        assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(4));
+
+        let request = StatRequest::new(STAT_FILE_SIZE, 16).unwrap();
+        let mut result = None;
+        run_fstatx_job(&resource, request, &mut result).unwrap();
+        assert_eq!(&result.unwrap().as_bytes()[4..8], &0_u32.to_le_bytes());
+
+        drop(resource);
+        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_empty_stat_request_still_validates_the_handle() {
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+
+        let request = StatRequest::new(0, 8).unwrap();
+
+        assert!(platform::query_handle(INVALID_HANDLE_VALUE, request).is_err());
     }
 
     #[test]
