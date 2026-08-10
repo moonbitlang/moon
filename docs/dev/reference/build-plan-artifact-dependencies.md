@@ -289,10 +289,11 @@ execution are two `ActionId` selections over that plan. Following artifact
 providers to a fixed point includes package-less prerequisites such as the
 runtime library and runtime objects.
 
-The dependency graph executes first using
-`standalone-dependencies.moon_db`, followed by the script graph using its mode
-database. If a provider belongs to dependency preparation, the script graph
-retains its realized path as an n2 input without duplicating the provider.
+The dependency graph executes first, followed by the script graph. Both use the
+target directory's `.moon_db`; n2 ignores records whose outputs do not belong
+to the graph it is currently loading. If a provider belongs to dependency
+preparation, the script graph retains its realized path as an n2 input without
+duplicating the provider.
 
 Ordinary project and workspace commands continue to produce and execute one
 plan and one n2 graph.

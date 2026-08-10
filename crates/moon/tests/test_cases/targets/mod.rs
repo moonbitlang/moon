@@ -37,6 +37,54 @@ fn test_many_targets_sync_dependencies_once() {
 }
 
 #[test]
+fn test_targets_share_prebuild_execution_state() {
+    let dir = TestDir::new("targets/shared_n2_db");
+
+    moon_cmd(&dir)
+        .args(["check", "--target", "wasm"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![""])
+        .stderr_eq(snapbox::str![[r#"
+Finished. moon: ran 3 tasks, now up to date
+
+"#]]);
+
+    assert!(dir.join("_build/.moon_db").is_file());
+
+    moon_cmd(&dir)
+        .args(["build", "--target", "js", "--release"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![""])
+        .stderr_eq(snapbox::str![[r#"
+Finished. moon: ran 1 task, now up to date
+
+"#]]);
+
+    moon_cmd(&dir)
+        .args(["check", "--target", "js"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![""])
+        .stderr_eq(snapbox::str![[r#"
+Finished. moon: ran 2 tasks, now up to date
+
+"#]]);
+
+    moon_cmd(&dir)
+        .args(["check", "--target", "wasm,js"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![""])
+        .stderr_eq(snapbox::str![[r#"
+Finished. moon: no work to do
+Finished. moon: no work to do
+
+"#]]);
+}
+
+#[test]
 fn test_many_targets_auto_update_001() {
     let dir = TestDir::new("targets/auto_update");
     let _ = get_stdout(

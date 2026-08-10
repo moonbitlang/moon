@@ -153,11 +153,9 @@ fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
 
     let build_dir = dir.join("_build/wasm/debug/build");
     let dependency_core = build_dir.join(".mooncakes/moonbitlang/x/stack/stack.core");
-    let dependency_db = build_dir.join("standalone-dependencies.moon_db");
-    let script_db = build_dir.join("build.moon_db");
+    let n2_db = dir.join("_build/.moon_db");
     assert!(dependency_core.is_file());
-    assert!(dependency_db.is_file());
-    assert!(script_db.is_file());
+    assert!(n2_db.is_file());
 
     let dependency_modified = fs::metadata(&dependency_core)
         .expect("dependency artifact should have metadata")

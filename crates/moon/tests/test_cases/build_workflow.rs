@@ -184,7 +184,7 @@ fn test_failed_to_fill_whole_buffer() {
     );
 
     // corrupt the DB intentionally
-    let moon_db_path = dir.join("./_build/wasm-gc/debug/check/check.moon_db");
+    let moon_db_path = dir.join("./_build/.moon_db");
     if moon_db_path.exists() {
         std::fs::remove_file(&moon_db_path).unwrap();
     }
