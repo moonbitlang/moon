@@ -85,4 +85,9 @@ pub(super) fn get_enotdir(_context: &mut ImportContext<'_, '_>) -> i32 {
     stub::get_enotdir()
 }
 
+#[ported(source = "src/os_error/stub.c")]
+pub(super) fn get_enotsup(_context: &mut ImportContext<'_, '_>) -> i32 {
+    stub::get_enotsup()
+}
+
 }

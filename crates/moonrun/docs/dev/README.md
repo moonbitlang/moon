@@ -3,8 +3,9 @@
 ## Developer workflows
 
 - [Porting `moonbitlang/async` changes](async-upstream-porting.md): audit the
-  runtime-port label queue, preserve exact provenance, deliver one upstream
-  port at a time, and update completed labels after the Moon change lands.
+  one-way upstream runtime-port request queue, preserve exact provenance,
+  deliver one upstream port at a time, and mark the originating async pull
+  request completed after the Moon change lands.
 
 ## How to Build and Test
 

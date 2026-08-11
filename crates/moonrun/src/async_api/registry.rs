@@ -414,6 +414,8 @@ declare_async_imports! {
 
     ported os_error::get_enotdir() -> i32 => "os_error/get_ENOTDIR";
 
+    ported os_error::get_enotsup() -> i32 => "os_error/get_ENOTSUP";
+
     ported os_error::errno_to_string(errno: i32) -> u64 => "os_error/errno_to_string";
 
     helper os_error::free_errno_str(ptr: u64) -> void => "os_error/free_errno_str";

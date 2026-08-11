@@ -162,6 +162,22 @@ ported_fns! {
 
     #[ported(
         source = "src/os_error/stub.c",
+        original = "moonbitlang_async_get_ENOTSUP"
+    )]
+    pub(crate) fn get_enotsup() -> i32 {
+        #[cfg(unix)]
+        {
+            libc::ENOTSUP
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Foundation::ERROR_NOT_SUPPORTED;
+            ERROR_NOT_SUPPORTED as i32
+        }
+    }
+
+    #[ported(
+        source = "src/os_error/stub.c",
         original = "moonbitlang_async_errno_to_string"
     )]
     pub(crate) fn errno_to_string(errno: i32) -> Box<[u8]> {
