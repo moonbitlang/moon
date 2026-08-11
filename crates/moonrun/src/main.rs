@@ -34,6 +34,7 @@ mod demangle_js_template;
 mod fs_api_temp;
 mod host_fs;
 mod memory_sanitizer_api;
+mod run_termination;
 mod sys_api;
 mod util;
 mod v8_builder;
@@ -362,7 +363,7 @@ fn init_env(
     wasm_file_name: &str,
     args: &[String],
     async_policy: Arc<async_policy::AsyncPolicy>,
-) -> async_api::ExitRequest {
+) -> run_termination::TerminationRequest {
     let global_proxy = scope.get_current_context().global(scope);
 
     let print_env_box = Box::<PrintEnv>::default();
@@ -392,7 +393,7 @@ fn init_env(
         time.set_func(scope, "now", now);
     }
 
-    let exit_request = {
+    let termination_request = {
         let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
         async_api::init_env(async_runtime, scope, dtors, Arc::clone(&async_policy))
     };
@@ -440,7 +441,7 @@ fn init_env(
         sys.set_func(scope, "exit", exit);
         sys.set_func(scope, "is_windows", is_windows);
     }
-    exit_request
+    termination_request
 }
 
 fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
@@ -463,7 +464,7 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
 
 enum RunOutcome {
     Completed,
-    Exited(i32),
+    Terminated(run_termination::RunTermination),
 }
 
 fn wasm_mode(
@@ -490,7 +491,7 @@ fn wasm_mode(
     let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
 
     let mut dtors = Vec::new();
-    let exit_request = init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
+    let termination_request = init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
 
     let memory_sanitizer_imports =
         global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
@@ -526,10 +527,10 @@ fn wasm_mode(
     let script = v8::Script::compile(scope, code, Some(&script_origin)).unwrap();
 
     script.run(scope);
-    let exit_code = exit_request.take();
+    let termination = termination_request.take();
     drop(dtors);
-    if let Some(code) = exit_code {
-        return Ok(RunOutcome::Exited(code));
+    if let Some(termination) = termination {
+        return Ok(RunOutcome::Terminated(termination));
     }
     memory_sanitizer.check_for_leaks()?;
     Ok(RunOutcome::Completed)
@@ -640,7 +641,13 @@ fn main() -> anyhow::Result<()> {
                 async_policy,
             )? {
                 RunOutcome::Completed => Ok(()),
-                RunOutcome::Exited(code) => std::process::exit(code),
+                RunOutcome::Terminated(run_termination::RunTermination::Exit(code)) => {
+                    std::process::exit(code)
+                }
+                RunOutcome::Terminated(run_termination::RunTermination::KilledBySignal(signal)) => {
+                    async_sys::signal::terminate_process_by_signal(signal);
+                    Ok(())
+                }
             }
         }
         _ => anyhow::bail!("Unsupported file type"),

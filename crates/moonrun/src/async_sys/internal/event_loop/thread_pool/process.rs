@@ -715,7 +715,11 @@ fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i
     if unsafe { libc::waitid(libc::P_PIDFD, pidfd as libc::id_t, &mut siginfo, flags) } < 0 {
         return Err(last_native_error());
     }
-    Ok(i64::from(unsafe { siginfo.si_status() }))
+    Ok(i64::from(
+        crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
+            siginfo.si_status()
+        }),
+    ))
 }
 
 #[cfg(unix)]
@@ -729,13 +733,9 @@ fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
         if ret != pid {
             return Err(AsyncHostError::Inval);
         }
-        return if libc::WIFEXITED(status) {
-            Ok(i64::from(libc::WEXITSTATUS(status)))
-        } else if libc::WIFSIGNALED(status) {
-            Ok(i64::from(libc::WTERMSIG(status)))
-        } else {
-            Ok(1)
-        };
+        return Ok(i64::from(
+            crate::async_sys::process::unix_wait_status_exit_code(status),
+        ));
     }
     let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
     // The host reaps after atomically revoking policy PID authority.
@@ -753,7 +753,11 @@ fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
     if unsafe { siginfo.si_pid() } != pid {
         return Err(AsyncHostError::Inval);
     }
-    Ok(i64::from(unsafe { siginfo.si_status() }))
+    Ok(i64::from(
+        crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
+            siginfo.si_status()
+        }),
+    ))
 }
 
 #[cfg(windows)]
@@ -916,6 +920,23 @@ mod tests {
         let non_child_pid = unsafe { libc::getpid() };
         let err = run_wait_for_process_job(None, non_child_pid, false).unwrap_err();
         assert_eq!(err, AsyncHostError::Native(libc::ECHILD));
+    }
+
+    #[test]
+    fn wait_for_process_fallback_returns_negative_signal() {
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed: {}", last_native_errno());
+        if pid == 0 {
+            unsafe {
+                libc::raise(libc::SIGTERM);
+                libc::_exit(1);
+            }
+        }
+
+        assert_eq!(
+            run_wait_for_process_job(None, pid, false),
+            Ok(-i64::from(libc::SIGTERM))
+        );
     }
 }
 

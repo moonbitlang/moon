@@ -296,6 +296,8 @@ declare_async_imports! {
     // Runtime platform and worker control.
     helper runtime::exit(code: i32) -> void => "runtime/exit";
 
+    ported runtime::terminate_process_by_signal(signal: i32) -> void => "runtime/terminate_process_by_signal";
+
     ported event_loop::get_platform() -> i32 => "runtime/get_platform";
 
     #[cfg(windows)]
@@ -1207,6 +1209,7 @@ declare_async_imports! {
 #[cfg(test)]
 fn async_api_ported_imports() -> Vec<PortedImport> {
     let mut imports = Vec::new();
+    imports.extend_from_slice(runtime::PORTED_IMPORTS);
     imports.extend_from_slice(event_loop::PORTED_IMPORTS);
     imports.extend_from_slice(event_bus::PORTED_IMPORTS);
     imports.extend_from_slice(thread_pool::PORTED_IMPORTS);
@@ -1300,13 +1303,22 @@ mod tests {
     }
 
     #[test]
-    fn runtime_exit_is_part_of_moonbit_async() {
-        assert!(
-            ASYNC_IMPORTS.iter().any(|import| {
-                import.kind == AsyncImportKind::Helper && import.wasm_symbol == "runtime/exit"
-            }),
-            "async wasm integration must not depend on older runtime namespaces for exit"
-        );
+    fn runtime_termination_imports_have_exact_abis() {
+        let exit = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "runtime/exit")
+            .expect("async wasm integration must provide runtime/exit");
+        assert_eq!(exit.kind, AsyncImportKind::Helper);
+        assert_eq!(exit.params, &[WasmType::I32]);
+        assert_eq!(exit.result, None);
+
+        let signal = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "runtime/terminate_process_by_signal")
+            .expect("async wasm integration must provide signal termination");
+        assert_eq!(signal.kind, AsyncImportKind::Ported);
+        assert_eq!(signal.params, &[WasmType::I32]);
+        assert_eq!(signal.result, None);
     }
 
     #[test]

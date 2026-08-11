@@ -118,7 +118,10 @@ ported_fns! {
                 if unsafe { info.si_pid() } == 0 {
                     return Err(AsyncHostError::Native(libc::EAGAIN));
                 }
-                return Ok(unsafe { info.si_status() });
+                return Ok(unix_siginfo_exit_code(
+                    info.si_code,
+                    unsafe { info.si_status() },
+                ));
             }
 
             let mut status = 0;
@@ -129,7 +132,7 @@ ported_fns! {
             if ret == 0 {
                 return Err(AsyncHostError::Native(libc::EAGAIN));
             }
-            Ok(libc::WEXITSTATUS(status))
+            Ok(unix_wait_status_exit_code(status))
         }
     }
 
@@ -208,6 +211,24 @@ ported_fns! {
 }
 
 #[cfg(unix)]
+pub(crate) fn unix_siginfo_exit_code(code: i32, status: i32) -> i32 {
+    if code == libc::CLD_EXITED {
+        status
+    } else {
+        -status
+    }
+}
+
+#[cfg(unix)]
+pub(crate) fn unix_wait_status_exit_code(status: i32) -> i32 {
+    if libc::WIFEXITED(status) {
+        libc::WEXITSTATUS(status)
+    } else {
+        -libc::WTERMSIG(status)
+    }
+}
+
+#[cfg(unix)]
 pub(crate) fn reap_process(pid: i32) -> AsyncHostResult<()> {
     let mut status = 0;
     let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
@@ -245,6 +266,26 @@ fn last_native_error() -> AsyncHostError {
 #[cfg(unix)]
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(last_native_errno())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unix_wait_status_distinguishes_exit_from_signal() {
+        assert_eq!(unix_wait_status_exit_code(7 << 8), 7);
+        assert_eq!(unix_wait_status_exit_code(libc::SIGTERM), -libc::SIGTERM);
+    }
+
+    #[test]
+    fn unix_siginfo_distinguishes_exit_from_signal() {
+        assert_eq!(unix_siginfo_exit_code(libc::CLD_EXITED, 7), 7);
+        assert_eq!(
+            unix_siginfo_exit_code(libc::CLD_KILLED, libc::SIGTERM),
+            -libc::SIGTERM
+        );
+    }
 }
 
 #[cfg(target_os = "linux")]
