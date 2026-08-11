@@ -265,8 +265,8 @@ infer inputs by parsing those flags.
 
 Current dry-run still renders the n2 graph and uses retained structured argv to
 recover commands hidden by response-file transport. A future dry-run can
-consume `LoweredAction` and root actions directly; the artifact model does not
-require n2 start nodes for presentation semantics.
+consume `LoweredAction` and requested artifacts directly; the artifact model
+does not require n2 start nodes for presentation semantics.
 
 ## Standalone script boundary
 
@@ -284,25 +284,23 @@ retains its realized path as an n2 input without duplicating the provider.
 Ordinary project and workspace commands continue to produce and execute one
 plan and one n2 graph.
 
-## Compatibility above lowering
+## Results above lowering
 
-`LoweringResult` returns root action artifacts as `(BuildActionId, paths)` pairs
-in input-action order. The compile layer re-keys those paths to
-`BuildPlanNode` for the existing public `CompileOutput` shape. Backend lowering
-therefore remains independent of planning node identities except through the
-action view.
+Caller intent is still accepted as `BuildPlanNode` values at the compile entry
+point. During plan construction those action-shaped requests are normalized to
+requested `ArtifactKey` values. `LoweringResult`, `CompileOutput`, and
+`BuildMeta` preserve those keys alongside their realized physical paths, so
+upper layers no longer recover result meaning from provider nodes or output
+positions.
 
-For non-native backends, `MakeExecutable` remains a planning-only root alias:
-it resolves its `Executable` artifact to the same physical path written by
-`LinkCore`, but lowers to no action. Consequently, the retained root-path list
-rather than a `LoweredAction` records that alias. Replacing this compatibility
-shape requires typed lowered roots; it is intentionally separate from the
-artifact-dependency migration.
+For non-native backends, `LinkCore` directly provides `Executable`; there is no
+planning-only `MakeExecutable` alias and every planned action lowers exactly
+once. Native and LLVM plans retain the distinct `LinkedCore` intermediate and a
+real `MakeExecutable` provider.
 
-For a native macOS debug target, the existing `MakeExecutable` root reports the
-executable first and its dependent `.dSYM` bundle second. Requesting both paths
-causes n2 to run `GenerateDsym` without changing the caller-visible executable
-position.
+For native macOS debug targets, `Executable` and `DsymBundle` are separate
+requested results with separate providers. Requesting the dSYM path causes n2
+to run `GenerateDsym` without relying on a companion-path convention.
 
 ## Checks
 
