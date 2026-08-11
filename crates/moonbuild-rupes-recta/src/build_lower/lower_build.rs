@@ -700,13 +700,7 @@ impl<'a> LoweringContext<'a> {
             core_input_files.push(core_path);
         }
 
-        let out_file = artifacts.single_output_path_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::LinkedCore { package, target_kind }
-                    if *package == target.package && *target_kind == target.kind
-            )
-        });
+        let out_file = artifacts.single_output_path();
 
         let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
         let package_sources = info
@@ -1109,7 +1103,7 @@ impl<'a> LoweringContext<'a> {
 
         match &self.opt.backend {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                unreachable!("non-native make-executable actions are no-ops during lowering")
+                unreachable!("non-native plans do not contain MakeExecutable actions")
             }
             BackendConfig::Native(backend) => match backend.executable_realization() {
                 CExecutableRealization::WriteTccRunResponseFile => {

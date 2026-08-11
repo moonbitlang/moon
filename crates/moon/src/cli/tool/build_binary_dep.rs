@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use moonbuild_rupes_recta::{
     ResolveConfig,
-    build_plan::{InputDirective, PackagePrebuildPolicy},
+    build_plan::{ArtifactKey, InputDirective, PackagePrebuildPolicy},
     discover::DiscoveredPackage,
     intent::UserIntent,
     model::PackageId,
@@ -252,12 +252,12 @@ fn install_build_rr(
     install_dir: &Path,
     bin_name: Option<&str>,
 ) -> anyhow::Result<()> {
-    // Assume one artifact node and one artifact file
-    let (_node, arts) = meta.artifacts.get_index(0).unwrap();
-    let artifact = arts
+    let artifact = meta
         .artifacts
-        .first()
-        .context("RR build should yield exactly one artifact file")?;
+        .iter()
+        .find(|(artifact, _)| matches!(artifact, ArtifactKey::Executable { .. }))
+        .and_then(|(_, paths)| paths.first())
+        .context("RR binary build should yield an executable artifact")?;
 
     // Determine filename
     // Matching legacy, it uses the following fallbacks:

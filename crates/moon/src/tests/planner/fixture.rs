@@ -20,7 +20,7 @@ use clap::Parser;
 use moonbuild_debug::graph::debug_dump_build_graph;
 use std::path::PathBuf;
 
-use moonbuild_rupes_recta::{ResolveOutput, model::BuildPlanNode};
+use moonbuild_rupes_recta::{ResolveOutput, build_plan::ArtifactKey, model::PackageId};
 use moonutil::{
     cli_support::UniversalFlags,
     cond_expr::OptLevel,
@@ -366,8 +366,8 @@ impl PlanningFixture {
             .build_meta
             .artifacts
             .values()
-            .flat_map(|art| {
-                art.artifacts
+            .flat_map(|paths| {
+                paths
                     .iter()
                     .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
             })
@@ -438,21 +438,33 @@ pub(super) fn planned_graph_inputs(graph: &str) -> std::collections::BTreeSet<St
 }
 
 fn root_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
-    package_names(meta, |node| {
-        node.extract_target().map(|target| target.package)
+    package_names(meta, |artifact| match artifact {
+        ArtifactKey::CheckMi { package, .. }
+        | ArtifactKey::BuildMi { package, .. }
+        | ArtifactKey::CoreIr { package, .. }
+        | ArtifactKey::ProofMi { package, .. }
+        | ArtifactKey::ProofWhyml { package, .. }
+        | ArtifactKey::ProofReport { package, .. }
+        | ArtifactKey::LinkedCore { package, .. }
+        | ArtifactKey::Executable { package, .. }
+        | ArtifactKey::DsymBundle { package, .. }
+        | ArtifactKey::GeneratedTestDriver { package, .. }
+        | ArtifactKey::GeneratedTestMetadata { package, .. }
+        | ArtifactKey::GeneratedMbti { package, .. } => Some(*package),
+        _ => None,
     })
 }
 
 fn check_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
-    package_names(meta, |node| match node {
-        BuildPlanNode::Check(target) => Some(target.package),
+    package_names(meta, |artifact| match artifact {
+        ArtifactKey::CheckMi { package, .. } => Some(*package),
         _ => None,
     })
 }
 
 fn package_names(
     meta: &crate::rr_build::BuildMeta,
-    package_of: impl Fn(&BuildPlanNode) -> Option<moonbuild_rupes_recta::model::PackageId>,
+    package_of: impl Fn(&ArtifactKey) -> Option<PackageId>,
 ) -> Vec<String> {
     meta.artifacts
         .keys()

@@ -67,7 +67,7 @@ pub enum BuildAction<'a> {
     },
     MakeExecutable {
         target: BuildTarget,
-        info: Option<&'a MakeExecutableInfo>,
+        info: &'a MakeExecutableInfo,
     },
     GenerateDsym {
         target: BuildTarget,

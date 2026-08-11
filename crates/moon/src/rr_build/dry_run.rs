@@ -18,9 +18,11 @@
 
 //! Handles dry-run printing of build commands.
 
-use std::{io::Write, path::Path, process::Command};
-
-use moonbuild_rupes_recta::model::Artifacts;
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use crate::rr_build::{BuildInput, StandaloneBuildInput};
 
@@ -30,7 +32,7 @@ use crate::rr_build::{BuildInput, StandaloneBuildInput};
 pub fn write_dry_run<'a>(
     output: &mut dyn Write,
     input: &BuildInput,
-    artifacts: impl IntoIterator<Item = &'a Artifacts>,
+    artifacts: impl IntoIterator<Item = &'a Vec<PathBuf>>,
     source_dir: &Path,
     target_dir: &Path,
 ) -> std::io::Result<()> {
@@ -38,8 +40,8 @@ pub fn write_dry_run<'a>(
     let default_files = graph
         .get_start_nodes()
         .into_iter()
-        .chain(artifacts.into_iter().flat_map(|art| {
-            art.artifacts
+        .chain(artifacts.into_iter().flat_map(|artifacts| {
+            artifacts
                 .iter()
                 .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
         }))
@@ -79,7 +81,7 @@ pub fn write_dry_run_all(
 pub fn write_standalone_dry_run<'a>(
     output: &mut dyn Write,
     input: &StandaloneBuildInput,
-    artifacts: impl IntoIterator<Item = &'a Artifacts>,
+    artifacts: impl IntoIterator<Item = &'a Vec<PathBuf>>,
     source_dir: &Path,
     target_dir: &Path,
 ) -> std::io::Result<()> {

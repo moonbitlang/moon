@@ -32,6 +32,7 @@ use tracing::instrument;
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildActionId, BuildActionPlan},
+    build_plan::ArtifactKey,
     model::{BackendConfig, OperatingSystem, PackageId},
     pkg_name::OptionalPackageFQNWithSource,
     target_layout::{
@@ -223,8 +224,8 @@ pub struct LoweringResult {
     /// vectors before they are rendered into n2 command strings.
     pub command_args_by_output: CommandArgMap,
 
-    /// Artifacts corresponding to the root input actions, in input action order.
-    pub artifacts: Vec<(BuildActionId, Vec<PathBuf>)>,
+    /// Requested logical artifacts and their realized physical paths.
+    pub artifacts: Vec<(ArtifactKey, Vec<PathBuf>)>,
 }
 
 /// Lowers a normalized action plan into an n2 [Build Graph](n2::graph::Graph).
@@ -247,7 +248,7 @@ pub fn lower_build_plan(
         plan,
         opt,
         plan.action_ids(),
-        plan.input_action_ids(),
+        plan.requested_artifacts(),
     )?;
 
     info!("Action plan lowering completed successfully");
@@ -282,7 +283,7 @@ pub(crate) fn lower_standalone_build_plan(
         plan,
         opt,
         script_actions,
-        plan.input_action_ids(),
+        plan.requested_artifacts(),
     )?;
     Ok((dependencies, script))
 }
@@ -296,9 +297,9 @@ fn lower_actions_to_values(
     let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
     actions
         .into_iter()
-        .filter_map(|id| {
+        .map(|id| {
             debug!("Lowering retained action: {:?}", id);
-            ctx.lower_action(id).transpose()
+            ctx.lower_action(id)
         })
         .collect()
 }
@@ -322,23 +323,25 @@ fn lower_actions(
     plan: &BuildActionPlan<'_>,
     opt: &BuildOptions,
     actions: impl IntoIterator<Item = BuildActionId>,
-    artifact_actions: &[BuildActionId],
+    requested_artifacts: &[(ArtifactKey, BuildActionId)],
 ) -> Result<LoweringResult, LoweringError> {
     let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
     let mut n2 = N2GraphBuilder::new();
 
     for id in actions {
         debug!("Lowering action: {:?}", id);
-        if let Some(action) = ctx.lower_action(id)? {
-            n2.add_action(action)?;
-        }
+        n2.add_action(ctx.lower_action(id)?)?;
     }
 
-    let mut out_artifacts = Vec::with_capacity(artifact_actions.len());
-    for &action in artifact_actions {
-        let artifacts = ctx.output_paths_for_action(action);
-        out_artifacts.push((action, artifacts));
-    }
+    let out_artifacts = requested_artifacts
+        .iter()
+        .map(|(artifact, provider)| {
+            (
+                artifact.clone(),
+                ctx.paths_for_artifact(artifact, *provider),
+            )
+        })
+        .collect();
 
     Ok(LoweringResult {
         build_graph: n2.graph,
@@ -762,10 +765,7 @@ mod tests {
                 .action_ids()
                 .find(|id| action_plan.build_plan_node(*id) == node)
                 .expect("action should be planned");
-            let action = context
-                .lower_action(id)
-                .expect("lowering should succeed")
-                .expect("compiler action should not be a no-op");
+            let action = context.lower_action(id).expect("lowering should succeed");
             assert!(!action.is_cache_eligible(), "{node:?} should be ineligible");
         }
     }
@@ -1057,10 +1057,7 @@ mod tests {
                 .action_ids()
                 .find(|id| action_plan.build_plan_node(*id) == node)
                 .expect("action should be planned");
-            let action = context
-                .lower_action(id)
-                .expect("lowering should succeed")
-                .expect("native action should not be a no-op");
+            let action = context.lower_action(id).expect("lowering should succeed");
             assert!(
                 !action.is_cache_eligible(),
                 "{node:?} with opaque flags should be ineligible"
@@ -1229,7 +1226,7 @@ mod tests {
         let dsymutil = PathBuf::from("/toolchain/bin/dsymutil");
 
         let mut plan = BuildPlan::default();
-        plan.test_add_input_node(executable_node);
+        plan.test_add_node(executable_node);
         plan.test_add_node(dsym_node);
         connect_artifact(
             &mut plan,
@@ -1247,6 +1244,14 @@ mod tests {
                 target_kind: target.kind,
             },
         );
+        plan.test_request_artifact(ArtifactKey::Executable {
+            package: target.package,
+            target_kind: target.kind,
+        });
+        plan.test_request_artifact(ArtifactKey::DsymBundle {
+            package: target.package,
+            target_kind: target.kind,
+        });
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
@@ -1350,8 +1355,25 @@ mod tests {
                 HashSet::from([dsymutil.as_path(), executable.as_path()])
             );
 
-            assert_eq!(lowered.artifacts.len(), 1);
-            assert_eq!(lowered.artifacts[0].1, vec![executable, dsym_bundle]);
+            assert_eq!(
+                lowered.artifacts,
+                vec![
+                    (
+                        ArtifactKey::Executable {
+                            package: target.package,
+                            target_kind: target.kind,
+                        },
+                        vec![executable]
+                    ),
+                    (
+                        ArtifactKey::DsymBundle {
+                            package: target.package,
+                            target_kind: target.kind,
+                        },
+                        vec![dsym_bundle]
+                    ),
+                ]
+            );
         }
     }
 }

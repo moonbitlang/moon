@@ -219,56 +219,30 @@ impl<'a> LoweringContext<'a> {
             .expect("toolchain include files should be initialized"))
     }
 
-    /// Some actions are no-op in n2 build graph. Early bailing.
-    fn is_action_noop(&self, action: BuildAction<'_>) -> bool {
-        (!self.opt.target_backend().is_native())
-            && matches!(action, BuildAction::MakeExecutable { .. })
-    }
-
     pub(super) fn get_package(&self, target: BuildTarget) -> &DiscoveredPackage {
         self.packages.get_package(target.package)
     }
 
-    pub(super) fn output_paths_for_action(&self, action: BuildActionId) -> Vec<PathBuf> {
-        let mut paths = self
-            .plan
-            .output_artifacts(action)
-            .into_iter()
-            .flat_map(|artifact| {
-                self.artifact_paths.paths_for_artifact(
-                    &artifact,
-                    self.plan.action(action),
-                    self.packages,
-                    self.modules,
-                    self.opt.artifact_path_options(),
-                )
-            })
-            .collect::<Vec<_>>();
-        if let BuildAction::MakeExecutable { target, .. } = self.plan.action(action)
-            && self.plan.generates_dsym_for_target(&target)
-        {
-            paths.push(
-                self.artifact_paths
-                    .target_layout()
-                    .dsym_bundle_of_build_target(
-                        self.packages,
-                        &target,
-                        self.opt.artifact_path_options().executable,
-                    ),
-            );
-        }
-        paths
+    pub(super) fn paths_for_artifact(
+        &self,
+        artifact: &ArtifactKey,
+        provider: BuildActionId,
+    ) -> Vec<PathBuf> {
+        self.artifact_paths.paths_for_artifact(
+            artifact,
+            self.plan.action(provider),
+            self.packages,
+            self.modules,
+            self.opt.artifact_path_options(),
+        )
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_action(
         &mut self,
         id: BuildActionId,
-    ) -> Result<Option<LoweredAction>, LoweringError> {
+    ) -> Result<LoweredAction, LoweringError> {
         let action = self.plan.action(id);
-        if self.is_action_noop(action) {
-            return Ok(None);
-        }
         let action_artifacts = ActionArtifacts::new(self, id);
 
         // Lower the action to its command and tool-specific execution transport.
@@ -298,12 +272,8 @@ impl<'a> LoweringContext<'a> {
                 info,
                 make_executable_info,
             } => self.lower_link_core(&action_artifacts, target, info, make_executable_info)?,
-            BuildAction::MakeExecutable {
-                target,
-                info: Some(info),
-            } => self.lower_make_exe(&action_artifacts, target, info),
-            BuildAction::MakeExecutable { info: None, .. } => {
-                panic!("native MakeExecutable actions should have executable info")
+            BuildAction::MakeExecutable { target, info } => {
+                self.lower_make_exe(&action_artifacts, target, info)
             }
             BuildAction::GenerateDsym { target, dsymutil } => {
                 self.lower_generate_dsym(&action_artifacts, target, dsymutil)
@@ -438,9 +408,7 @@ impl<'a> LoweringContext<'a> {
                     .is_none_or(<[_]>::is_empty)
                     && package_link_flags.is_none_or(<[_]>::is_empty)
             }
-            BuildAction::MakeExecutable {
-                info: Some(info), ..
-            } => match &self.opt.backend {
+            BuildAction::MakeExecutable { info, .. } => match &self.opt.backend {
                 BackendConfig::Native(backend) => match backend.executable_realization() {
                     CExecutableRealization::CompileAndLinkGeneratedC => {
                         info.c_flags.is_empty() && info.link_flags.is_empty()
@@ -450,12 +418,9 @@ impl<'a> LoweringContext<'a> {
                 },
                 BackendConfig::Llvm => info.c_flags.is_empty() && info.link_flags.is_empty(),
                 BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                    unreachable!("non-native make-executable actions are no-ops")
+                    unreachable!("non-native plans do not contain MakeExecutable actions")
                 }
             },
-            BuildAction::MakeExecutable { info: None, .. } => {
-                unreachable!("native MakeExecutable actions should have executable info")
-            }
             BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateMbti { .. }
@@ -471,7 +436,7 @@ impl<'a> LoweringContext<'a> {
             | BuildAction::BuildDocs { .. }
             | BuildAction::RunPrebuild { .. } => false,
         };
-        Ok(Some(LoweredAction {
+        Ok(LoweredAction {
             id,
             dependencies: action_artifacts.dependencies,
             external_inputs,
@@ -482,6 +447,6 @@ impl<'a> LoweringContext<'a> {
             description: self.plan.human_desc(id, self.modules, self.packages),
             can_dirty_on_output: self.plan.can_dirty_on_output(id),
             error_package,
-        }))
+        })
     }
 }

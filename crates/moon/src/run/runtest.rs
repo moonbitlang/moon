@@ -78,7 +78,7 @@ use moonbuild::{
     runtest::{TestDriverEvent, TestStatistics},
     section_capture::SectionCapture,
 };
-use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
+use moonbuild_rupes_recta::{build_plan::ArtifactKey, model::BuildTarget};
 use moonutil::{
     constants::{
         MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
@@ -650,11 +650,22 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     let mut pending = HashMap::with_capacity(build_meta.artifacts.len());
     let mut results = vec![];
 
-    for (node, artifacts) in &build_meta.artifacts {
-        let target = node
-            .extract_target()
-            .expect("All artifacts of tests should contain a build target");
-        trace!(?target, node = ?node, "processing test artifact");
+    for (artifact, paths) in &build_meta.artifacts {
+        let (target, is_executable) = match artifact {
+            ArtifactKey::Executable {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), true),
+            ArtifactKey::GeneratedTestMetadata {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), false),
+            _ => continue,
+        };
+        let path = paths
+            .first()
+            .expect("test result artifacts should resolve to one path");
+        trace!(?target, ?artifact, "processing test artifact");
 
         let working = pending.entry(target).or_insert_with(|| {
             let mut res = TestExecutableToRunBuilder::create_empty();
@@ -662,12 +673,11 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
             res
         });
 
-        // FIXME: artifact index relies on implementation of append_artifact_of
-        match node {
-            BuildPlanNode::MakeExecutable(_) => working.executable(&artifacts.artifacts[0]),
-            BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[1]),
-            _ => panic!("Unexpected artifact for test: {:?}", artifacts.node),
-        };
+        if is_executable {
+            working.executable(path);
+        } else {
+            working.meta(path);
+        }
 
         if let Ok(tgt) = working.build() {
             pending.remove(&target);

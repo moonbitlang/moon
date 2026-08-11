@@ -23,7 +23,7 @@ use std::{io::Read, path::Path, path::PathBuf};
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{
     ResolveOutput,
-    build_plan::InputDirective,
+    build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
     model::{BackendConfig, PackageId},
 };
@@ -601,14 +601,14 @@ fn get_run_cmd(
 
 /// Extract the single executable artifact emitted for a `UserIntent::Run` plan.
 fn get_run_executable(build_meta: &rr_build::BuildMeta) -> &Path {
-    let (_, artifact) = build_meta
+    let (_, paths) = build_meta
         .artifacts
+        .iter()
+        .find(|(artifact, _)| matches!(artifact, ArtifactKey::Executable { .. }))
+        .expect("run planning should request an executable artifact");
+    paths
         .first()
-        .expect("Expected exactly one build node emitted by `calc_user_intent`");
-    artifact
-        .artifacts
-        .first()
-        .expect("Expected exactly one executable as the output of the build node")
+        .expect("the executable artifact should resolve to one path")
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]

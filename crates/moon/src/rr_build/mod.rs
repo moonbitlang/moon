@@ -40,12 +40,12 @@ use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
     build_lower::{LoweringEnvironment, WarningCondition},
-    build_plan::InputDirective,
+    build_plan::{ArtifactKey, InputDirective},
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        Artifacts, BackendConfig, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget,
-        PackageId, TargetKind, TccRunConfig,
+        BackendConfig, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId,
+        TargetKind, TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
@@ -220,7 +220,7 @@ pub struct BuildMeta {
     pub resolve_output: ResolveOutput,
 
     /// The list of artifacts that will be produced
-    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
+    pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,
 
     /// The backend and backend-specific configuration used by this build.
     pub backend: BackendConfig,
@@ -1711,8 +1711,28 @@ fn process_captured_diagnostics(
             }
         }
         OutputStyle::Raw => {
+            // Action scheduling is intentionally independent of presentation
+            // order. Group adjacent raw diagnostics by source path, matching
+            // the deterministic file grouping used by JSON and fancy output,
+            // while leaving non-diagnostic command output in place.
+            let mut diagnostic_run = Vec::new();
             for (content, _) in captured {
-                println!("{content}");
+                if raw_diagnostic_path(&content).is_some() {
+                    diagnostic_run.push(content);
+                } else {
+                    diagnostic_run.sort_by(|left, right| {
+                        raw_diagnostic_path(left).cmp(&raw_diagnostic_path(right))
+                    });
+                    for diagnostic in diagnostic_run.drain(..) {
+                        println!("{diagnostic}");
+                    }
+                    println!("{content}");
+                }
+            }
+            diagnostic_run
+                .sort_by(|left, right| raw_diagnostic_path(left).cmp(&raw_diagnostic_path(right)));
+            for diagnostic in diagnostic_run {
+                println!("{diagnostic}");
             }
         }
     }
@@ -1722,6 +1742,16 @@ fn process_captured_diagnostics(
         hidden_errors: hidden_errors_total,
         hidden_warnings: hidden_warnings_total,
     }
+}
+
+fn raw_diagnostic_path(content: &str) -> Option<&str> {
+    let (path_and_loc, _) = content.split_once(" [E")?;
+    let (path_and_start, _) = path_and_loc.rsplit_once('-')?;
+    let (path_and_line, start_col) = path_and_start.rsplit_once(':')?;
+    let (path, start_line) = path_and_line.rsplit_once(':')?;
+    start_line.parse::<usize>().ok()?;
+    start_col.parse::<usize>().ok()?;
+    Some(path)
 }
 
 fn diagnostic_is_error(diag: &MooncDiagnostic) -> bool {
@@ -1777,6 +1807,15 @@ mod tests {
             "./lib/hello.mbt",
             "warning"
         )));
+    }
+
+    #[test]
+    fn raw_diagnostic_path_handles_platform_path_prefixes() {
+        assert_eq!(
+            raw_diagnostic_path(r"C:\workspace\main.mbt:12:7-12:8 [E0002] Warning: unused value"),
+            Some(r"C:\workspace\main.mbt")
+        );
+        assert_eq!(raw_diagnostic_path("ordinary command output"), None);
     }
 
     #[test]

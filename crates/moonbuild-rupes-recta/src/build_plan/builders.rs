@@ -1040,18 +1040,15 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Performs the construction of two actions in consecutive: Make Executable
-    /// and Link Core.
+    /// Plan the backend-specific actions that produce an executable artifact.
     ///
-    /// The two actions are always created together (Link Core is always a
-    /// direct dependency of Make Executable, and there's no other actions that
-    /// depends on Link Core), and both actions require traversing through the
-    /// list of dependencies, so it's better to create both nodes at once,
-    /// instead of in separate functions.
+    /// Wasm and JavaScript link directly to the executable artifact. Native
+    /// backends retain a separate LinkCore intermediate followed by the system
+    /// linker action.
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_make_exec_link_core(
+    pub(super) fn build_executable(
         &mut self,
-        make_exec_node: BuildPlanNode,
+        executable_node: BuildPlanNode,
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
         /*
@@ -1068,7 +1065,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 virtual packages at all when collecting the targets.
         */
 
-        debug!("Building MakeExecutable for target: {:?}", target);
+        debug!("Building executable for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
         // ====== Link Core =====
@@ -1076,7 +1073,13 @@ impl<'a> BuildPlanConstructor<'a> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let (link_core_deps, c_stub_deps, abort_overridden) = self.dfs_link_core_sources(target)?;
 
-        let link_core_node = self.need_node(BuildPlanNode::LinkCore(target));
+        let is_native = self.build_env.target_backend().is_native();
+        let link_core_node = if is_native {
+            self.need_node(BuildPlanNode::LinkCore(target))
+        } else {
+            debug_assert_eq!(executable_node, BuildPlanNode::LinkCore(target));
+            executable_node
+        };
 
         // Add edges to all dependencies
         // Note that we have already replaced unnecessary dependencies
@@ -1101,11 +1104,15 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.resolved_node(link_core_node);
 
-        // ===== Make Executable =====
+        if !is_native {
+            return Ok(());
+        }
+
+        // ===== Native Make Executable =====
 
         // Add edge from make exec to link core
         self.require_artifact(
-            make_exec_node,
+            executable_node,
             ArtifactKey::LinkedCore {
                 package: target.package,
                 target_kind: target.kind,
@@ -1115,16 +1122,11 @@ impl<'a> BuildPlanConstructor<'a> {
         // Add dependencies of make exec
         for target in &c_stub_deps {
             self.require_artifact(
-                make_exec_node,
+                executable_node,
                 ArtifactKey::CStubLibrary { package: *target },
             );
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
-
-        if !self.build_env.target_backend().is_native() {
-            self.resolved_node(make_exec_node);
-            return Ok(());
-        }
 
         // Fill auxiliary flags for CC flags
         let pkg = self.input.pkg_dirs.get_package(target.package);
@@ -1193,7 +1195,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 false
             }
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                unreachable!("non-native MakeExecutable actions return before toolchain planning")
+                unreachable!("non-native executable planning returns before toolchain planning")
             }
         };
         if generate_dsym && self.res.dsymutil.is_none() {
@@ -1212,7 +1214,7 @@ impl<'a> BuildPlanConstructor<'a> {
         };
         self.res.make_executable_info.insert(target, v);
 
-        self.require_artifact(make_exec_node, ArtifactKey::RuntimeLibrary);
+        self.require_artifact(executable_node, ArtifactKey::RuntimeLibrary);
 
         if generate_dsym {
             let dsym_node = self.need_node(BuildPlanNode::GenerateDsym(target));
@@ -1226,7 +1228,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.resolved_node(dsym_node);
         }
 
-        self.resolved_node(make_exec_node);
+        self.resolved_node(executable_node);
 
         Ok(())
     }

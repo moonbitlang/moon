@@ -25,7 +25,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
-use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonutil::{
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
@@ -271,13 +271,13 @@ fn collect_executable_dirs(
 ) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     for (build_meta, _) in planned_runs {
-        for (node, artifacts) in &build_meta.artifacts {
-            if !matches!(node, BuildPlanNode::MakeExecutable(_)) {
+        for (artifact, paths) in &build_meta.artifacts {
+            if !matches!(artifact, ArtifactKey::Executable { .. }) {
                 continue;
             }
-            for artifact in &artifacts.artifacts {
-                let artifact = absolutize_artifact(source_dir, artifact);
-                if let Some(parent) = artifact.parent()
+            for path in paths {
+                let path = absolutize_artifact(source_dir, path);
+                if let Some(parent) = path.parent()
                     && !dirs.iter().any(|dir| dir == parent)
                 {
                     dirs.push(parent.to_path_buf());
