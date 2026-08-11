@@ -27,6 +27,23 @@ to the change. Do not read or reproduce the entire developer-document corpus.
 6. Route `crates/moonrun` runtime-internal work through its own `CONTEXT.md` and
    developer index rather than treating it as MoonBuild implementation.
 
+## Deepen before layering
+
+Before adding a MoonBuild planning or lowering type, projection, or seam:
+
+- Identify the closest existing module and prefer deepening, moving, or
+  extending it over adding a parallel representation.
+- Apply the deletion test to the proposed module. If deleting it would
+  concentrate its rules in an existing owner instead of scattering them among
+  callers, do not introduce it.
+- State the unique invariant owned by a new representation and why a real seam
+  needs it. Overlapping fields or a single fixed adapter do not justify one.
+- Design the merged end state before splitting the work. Intermediate commits
+  may carry compatibility code, but the PR should replace or materially shrink
+  the old model rather than merge two peer models into the default branch.
+- Separate semantic changes from optional terminology cleanup. A rename is not
+  an architectural benefit.
+
 ## Keep each fact in one home
 
 - Put domain vocabulary in `CONTEXT.md`.
