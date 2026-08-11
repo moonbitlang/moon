@@ -728,15 +728,10 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::ArchiveOrLinkCStubs(target) => {
                 self.build_archive_or_link_c_stubs(node, target)
             }
-            BuildPlanNode::LinkCore(target) if !self.build_env.target_backend().is_native() => {
-                self.build_executable(node, target)
-            }
-            BuildPlanNode::LinkCore(_) => unreachable!(
-                "native LinkCore actions are resolved with their MakeExecutable action"
-            ),
-            BuildPlanNode::MakeExecutable(target) => self.build_executable(node, target),
+            BuildPlanNode::LinkCore(target) => self.build_link_core(node, target),
+            BuildPlanNode::MakeExecutable(target) => self.build_native_executable(node, target),
             BuildPlanNode::GenerateDsym(_) => {
-                panic!("GenerateDsym nodes are resolved with their MakeExecutable node")
+                unreachable!("GenerateDsym nodes are resolved with their MakeExecutable node")
             }
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),

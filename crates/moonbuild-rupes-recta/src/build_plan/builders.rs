@@ -1040,15 +1040,11 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Plan the backend-specific actions that produce an executable artifact.
-    ///
-    /// Wasm and JavaScript link directly to the executable artifact. Native
-    /// backends retain a separate LinkCore intermediate followed by the system
-    /// linker action.
+    /// Plan a `LinkCore` action and its transitive Core IR inputs.
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_executable(
+    pub(super) fn build_link_core(
         &mut self,
-        executable_node: BuildPlanNode,
+        node: BuildPlanNode,
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
         /*
@@ -1065,27 +1061,16 @@ impl<'a> BuildPlanConstructor<'a> {
                 virtual packages at all when collecting the targets.
         */
 
-        debug!("Building executable for target: {:?}", target);
+        debug!("Linking Core IR for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
-        // ====== Link Core =====
-
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let (link_core_deps, c_stub_deps, abort_overridden) = self.dfs_link_core_sources(target)?;
+        let (link_core_deps, _, abort_overridden) = self.dfs_link_core_sources(target)?;
 
-        let is_native = self.build_env.target_backend().is_native();
-        let link_core_node = if is_native {
-            self.need_node(BuildPlanNode::LinkCore(target))
-        } else {
-            debug_assert_eq!(executable_node, BuildPlanNode::LinkCore(target));
-            executable_node
-        };
-
-        // Add edges to all dependencies
-        // Note that we have already replaced unnecessary dependencies
+        // The traversal has already replaced unnecessary dependencies.
         for target in &link_core_deps {
             self.require_artifact(
-                link_core_node,
+                node,
                 ArtifactKey::CoreIr {
                     package: target.package,
                     target_kind: target.kind,
@@ -1096,23 +1081,30 @@ impl<'a> BuildPlanConstructor<'a> {
         // Use DFS-built order directly (dependencies first, then dependents).
         let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
         let link_core_info = LinkCoreInfo {
-            linked_order: targets.clone(),
+            linked_order: targets,
             abort_overridden,
             // std: self.build_env.std, // Can move std/nostd to per-package info
         };
         self.res.link_core_info.insert(target, link_core_info);
+        self.resolved_node(node);
 
-        self.resolved_node(link_core_node);
+        Ok(())
+    }
 
-        if !is_native {
-            return Ok(());
-        }
+    /// Plan the native toolchain action that turns linked Core output into an executable.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_native_executable(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        debug_assert!(self.build_env.target_backend().is_native());
 
-        // ===== Native Make Executable =====
+        let (link_core_deps, c_stub_deps, _) = self.dfs_link_core_sources(target)?;
+        let targets = link_core_deps.into_iter().collect::<Vec<_>>();
 
-        // Add edge from make exec to link core
         self.require_artifact(
-            executable_node,
+            node,
             ArtifactKey::LinkedCore {
                 package: target.package,
                 target_kind: target.kind,
@@ -1121,10 +1113,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
-            self.require_artifact(
-                executable_node,
-                ArtifactKey::CStubLibrary { package: *target },
-            );
+            self.require_artifact(node, ArtifactKey::CStubLibrary { package: *target });
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
@@ -1214,7 +1203,7 @@ impl<'a> BuildPlanConstructor<'a> {
         };
         self.res.make_executable_info.insert(target, v);
 
-        self.require_artifact(executable_node, ArtifactKey::RuntimeLibrary);
+        self.require_artifact(node, ArtifactKey::RuntimeLibrary);
 
         if generate_dsym {
             let dsym_node = self.need_node(BuildPlanNode::GenerateDsym(target));
@@ -1228,13 +1217,13 @@ impl<'a> BuildPlanConstructor<'a> {
             self.resolved_node(dsym_node);
         }
 
-        self.resolved_node(executable_node);
+        self.resolved_node(node);
 
         Ok(())
     }
 
     fn dfs_link_core_sources(
-        &mut self,
+        &self,
         target: BuildTarget,
     ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>, bool), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
