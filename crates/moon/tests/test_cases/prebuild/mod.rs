@@ -144,6 +144,38 @@ fn test_pre_build_dry_run_uses_cwd_relative_placeholders() {
             .any(|line| line.contains(" -i ./src/lib/a.txt -o ./src/lib/a.mbt")),
         "dry-run should show cwd-relative placeholders, got:\n{stdout}"
     );
+    assert!(
+        prebuild_lines
+            .iter()
+            .all(|line| line.contains(" --shell 'moon tool embed ")),
+        "dry-run should normalize the nested moon executable, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_pre_build_dry_run_renders_symbolic_binary_overrides() {
+    let dir = TestDir::new("pre_build.in");
+    let moonc = toolchain_root_for_tests()
+        .join("bin")
+        .join(if cfg!(windows) { "moonc.exe" } else { "moonc" });
+    let assert = moon_cmd(&dir)
+        .env("MOONC_OVERRIDE", moonc)
+        .args(["check", "--dry-run", "--sort-input"])
+        .assert()
+        .success();
+    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
+    let compiler_lines = stdout
+        .lines()
+        .filter(|line| line.contains(" check "))
+        .collect::<Vec<_>>();
+
+    assert!(
+        !compiler_lines.is_empty()
+            && compiler_lines
+                .iter()
+                .all(|line| line.starts_with("'$MOONC_OVERRIDE' ")),
+        "dry-run should render MOONC_OVERRIDE as a symbolic literal, got:\n{stdout}"
+    );
 }
 
 #[test]
