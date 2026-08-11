@@ -51,6 +51,84 @@ fn unconsumed_package_prebuild_output_remains_an_execution_root() {
 }
 
 #[test]
+fn builtin_embed_handles_moon_path_with_spaces() {
+    let dir = test_dir("unconsumed_output");
+    let moon_bin_dir = dir.join("moon bin");
+    std::fs::create_dir(&moon_bin_dir).expect("failed to create moon bin directory");
+    let moon = moon_bin_dir.join(format!("moon{}", std::env::consts::EXE_SUFFIX));
+    std::fs::copy(snapbox::cargo_bin!("moon"), &moon).expect("failed to copy moon executable");
+
+    assert!(!dir.join("src/main/generated.txt").exists());
+    snapbox::cmd::Command::new(&moon)
+        .args(["check", "--target", "wasm-gc"])
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("MOON_DEP_CACHE", "off")
+        .current_dir(&dir)
+        .assert()
+        .success();
+    assert!(dir.join("src/main/generated.txt").exists());
+}
+
+#[test]
+fn builtin_embed_rejects_shell_syntax() {
+    let dir = test_dir("unconsumed_output");
+    let manifest = dir.join("src/main/moon.pkg.json");
+    let original = std::fs::read_to_string(&manifest).expect("failed to read package manifest");
+    let modified = original.replace(
+        ":embed --text -i $input -o $output --name ignored",
+        r#":embed --text -i $input -o $output --name \"$(touch shell-substitution; printf ignored)\" && touch shell-list"#,
+    );
+    assert_ne!(modified, original, "failed to modify prebuild command");
+    std::fs::write(manifest, modified).expect("failed to write package manifest");
+
+    moon_check(&dir)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+error: unexpected argument '&&' found
+Usage: moon[EXE] tool embed [OPTIONS] --input <INPUT> --output <OUTPUT>
+For more information, try '--help'.
+Failed with 0 warnings, 0 errors.
+Error: failed to run check for target WasmGC
+
+Caused by:
+    failed when checking project
+
+"#]]);
+    assert!(!dir.join("src/main/generated.txt").exists());
+    assert!(!dir.join("shell-substitution").exists());
+    assert!(!dir.join("shell-list").exists());
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn builtin_embed_rejects_malformed_quoting() {
+    let dir = test_dir("unconsumed_output");
+    let manifest = dir.join("src/main/moon.pkg.json");
+    let original = std::fs::read_to_string(&manifest).expect("failed to read package manifest");
+    let modified = original.replace(
+        ":embed --text -i $input -o $output --name ignored",
+        r#":embed --text -i $input -o $output --name ignored \"unterminated"#,
+    );
+    assert_ne!(modified, original, "failed to modify prebuild command");
+    std::fs::write(manifest, modified).expect("failed to write package manifest");
+
+    moon_check(&dir)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to run check for target WasmGC
+
+Caused by:
+    0: Failed to calculate build plan
+    1: Failed to lower the build plan
+    2: failed to parse built-in :embed prebuild arguments: unterminated quote or escape
+
+"#]]);
+    assert!(!dir.join("src/main/generated.txt").exists());
+}
+
+#[test]
 fn generated_mbtp_is_a_check_input() {
     let dir = test_dir("generated_mbtp");
 
@@ -59,7 +137,7 @@ fn generated_mbtp_is_a_check_input() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/main/proof.txt -o ./src/main/generated.mbtp --name ignored'
+moon tool embed --text -i ./src/main/proof.txt -o ./src/main/generated.mbtp --name ignored
   cwd: .
 moonc check ./src/main/main.mbt ./src/main/generated.mbtp [..]
 [..]
@@ -76,7 +154,7 @@ fn generated_mbti_supplies_a_virtual_package_contract() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/virtual/contract.txt -o ./src/virtual/pkg.mbti --name ignored'
+moon tool embed --text -i ./src/virtual/contract.txt -o ./src/virtual/pkg.mbti --name ignored
   cwd: .
 moonc build-interface ./src/virtual/pkg.mbti [..]
 
@@ -92,7 +170,7 @@ fn generated_moonlex_input_forms_a_prebuild_pipeline() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/main/lexer.txt -o ./src/main/generated.mbl --name ignored'
+moon tool embed --text -i ./src/main/lexer.txt -o ./src/main/generated.mbl --name ignored
   cwd: .
 moonrun [..]moonlex[..] -- ./src/main/generated.mbl -o ./src/main/generated.mbt
 moonc check ./src/main/generated.mbt ./src/main/main.mbt [..]
@@ -114,7 +192,7 @@ fn generated_mbt_md_is_a_blackbox_test_input() {
 [..]
 [..]
 [..]
-moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/lib/guide.txt -o ./src/lib/generated.mbt.md --name ignored'
+moon tool embed --text -i ./src/lib/guide.txt -o ./src/lib/generated.mbt.md --name ignored
   cwd: .
 moon generate-test-driver [..] ./src/lib/generated.mbt.md [..]
 moonc build-package ./src/lib/generated.mbt.md [..]
@@ -132,7 +210,7 @@ fn generated_moonyacc_input_forms_a_prebuild_pipeline() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moon tool exec --shell '[..]moon[EXE] tool embed --text -i ./src/main/parser.txt -o ./src/main/generated.mby --name ignored'
+moon tool embed --text -i ./src/main/parser.txt -o ./src/main/generated.mby --name ignored
   cwd: .
 moonrun [..]moonyacc[..] -- ./src/main/generated.mby -o ./src/main/generated.mbt
 moonc check ./src/main/generated.mbt ./src/main/main.mbt [..]

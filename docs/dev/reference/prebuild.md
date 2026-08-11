@@ -116,6 +116,8 @@ the remaining arguments and substituted placeholders.
 Behavior:
 
 - `:embed` is a syntactic alias; after substitution, it represents the same arguments a direct embed invocation would receive.
+- Moon lowers `:embed` directly to structured `moon tool embed` arguments; it does not execute the built-in invocation through a shell.
+- The argument tail supports platform-native quoting and escaping, but not shell expansion, redirection, pipelines, or command lists. Use a custom prebuild command when platform-specific shell behavior is required.
 - The generated outputs are consumed as package sources in the same build.
 
 ## Ordering and Inclusion
@@ -153,6 +155,7 @@ holds after substitution and tool semantics:
 
 - Any declared `input` path does not exist.
 - Any declared `output` cannot be created or written by the invoked tool.
+- A built-in `:embed` argument tail contains malformed native quoting or escaping.
 - The invoked tool fails to produce all declared outputs.
 
 ## Compatibility and Caveats
@@ -160,8 +163,9 @@ holds after substitution and tool semantics:
 - `:embed` detection is prefix-based and requires the literal prefix `:embed `.
 - Substitution does not add quoting. Quote `$input`, `$output`, or directories inside `command` if paths may contain spaces.
 - Using arrays for `output` expands to a space-separated list; ensure your tool’s CLI accepts the intended arity.
-- On Unix-like platforms, the final prebuild command string is executed through `sh -c`.
-- On Windows, the final prebuild command string is passed directly to `CreateProcessA`.
+- On Unix-like platforms, custom prebuild command strings are executed through `sh -c`.
+- On Windows, custom prebuild command strings are passed directly to `CreateProcessW`.
+- The `:embed` shorthand is a standalone structured built-in invocation on every platform and does not use either custom-command path. Shell syntax in its argument tail is never evaluated.
 - On Unix-like platforms, if the first word of the command looks like a relative path,
   it is currently resolved against the module root directory.
 - Windows (PowerShell):  

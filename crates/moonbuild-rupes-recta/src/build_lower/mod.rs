@@ -192,6 +192,9 @@ pub enum LoweringError {
     #[error("moonc response files cannot represent argument {index}: {reason}")]
     MooncResponseFile { index: usize, reason: &'static str },
 
+    #[error("failed to parse built-in :embed prebuild arguments: unterminated quote or escape")]
+    MalformedEmbedArguments,
+
     #[error("failed to inspect MoonBit toolchain include directory {path}")]
     ToolchainInclude {
         path: PathBuf,
