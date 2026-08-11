@@ -50,17 +50,39 @@ pub use split_unix as split_native;
 #[cfg(target_os = "windows")]
 pub use split_windows as split_native;
 
+/// Split an argument tail according to native quoting rules, reporting
+/// malformed quoting or escaping when the platform grammar supports it.
+#[cfg(not(target_os = "windows"))]
+pub fn split_native_args(args: &str) -> Option<Vec<String>> {
+    shlex::split(args)
+}
+
+/// Split an argument tail according to native quoting rules, reporting
+/// malformed quoting or escaping when the platform grammar supports it.
+#[cfg(target_os = "windows")]
+pub fn split_native_args(args: &str) -> Option<Vec<String>> {
+    Some(split_windows_args(args))
+}
+
 /// Split the given command line according to Windows rules.
 ///
 /// Reference:
 /// https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments?view=msvc-170
 pub fn split_windows(args: &str) -> Vec<String> {
-    let (argv0, mut rest) = parse_windows_argv0(args);
+    let (argv0, rest) = parse_windows_argv0(args);
     let mut result = vec![argv0];
+    result.extend(split_windows_args(rest));
+    result
+}
 
-    while let Some((arg, new_rest)) = next_windows_arg(rest) {
+/// Split an argument tail according to Windows rules, without applying the
+/// special parsing rules for `argv[0]`.
+pub fn split_windows_args(mut args: &str) -> Vec<String> {
+    let mut result = Vec::new();
+
+    while let Some((arg, new_rest)) = next_windows_arg(args) {
         result.push(arg);
-        rest = new_rest;
+        args = new_rest;
     }
 
     result

@@ -377,23 +377,39 @@ impl<'a> super::LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_run_prebuild(&self, info: &PrebuildInfo) -> BuildCommand {
+    pub(super) fn lower_run_prebuild(
+        &self,
+        info: &PrebuildInfo,
+    ) -> Result<BuildCommand, LoweringError> {
         // Note: we are tracking dependencies between prebuild commands via n2.
         // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
 
-        let commandline = vec![
-            BINARIES.moonbuild.display().to_string(),
-            "tool".to_string(),
-            "exec".to_string(),
-            "--shell".to_string(),
-            info.command.clone(),
-        ];
+        let commandline = if let Some(embed_args) = info.command.strip_prefix(":embed ") {
+            let mut commandline = vec![
+                BINARIES.moonbuild.display().to_string(),
+                "tool".to_string(),
+                "embed".to_string(),
+            ];
+            commandline.extend(
+                moonutil::shlex::split_native_args(embed_args)
+                    .ok_or(LoweringError::MalformedEmbedArguments)?,
+            );
+            commandline
+        } else {
+            vec![
+                BINARIES.moonbuild.display().to_string(),
+                "tool".to_string(),
+                "exec".to_string(),
+                "--shell".to_string(),
+                info.command.clone(),
+            ]
+        };
 
-        BuildCommand {
+        Ok(BuildCommand {
             commandline: commandline.into(),
             extra_inputs: info.resolved_inputs.clone(),
         }
-        .with_cwd(info.cwd.clone())
+        .with_cwd(info.cwd.clone()))
     }
 
     pub(super) fn lower_moon_lex_prebuild(&self, input: &Path, output: &Path) -> BuildCommand {

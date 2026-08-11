@@ -39,7 +39,7 @@ use moonutil::{
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
     resolution::ModuleId,
     scripts::{IgnoredMoonScript, is_moon_script_ignored},
-    toolchain::{self, BINARIES},
+    toolchain,
 };
 use regex::Regex;
 use relative_path::{PathExt, RelativePath};
@@ -1753,8 +1753,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         };
 
-        // Handle command expansion and tokenization
-        let command = handle_build_command_new(
+        let command = resolve_prebuild_command(
             &command,
             module,
             self.mooncake_bin_dir,
@@ -1817,8 +1816,10 @@ static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(||
         .expect("Failed to build automata")
 });
 
-/// Handle the prebuild command replacement, outputs a single string that should
-/// be `sh -c`'ed.
+/// Substitute prebuild command placeholders and resolve a relative shell argv0.
+///
+/// The `:embed ` discriminator remains intact so lowering can emit that built-in
+/// invocation as structured argv instead of treating it as a shell program.
 ///
 /// # Note about binary dependency artifacts
 ///
@@ -1840,7 +1841,7 @@ static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(||
 /// Windows puts another issue on top of this: binary dependencies are
 /// Powershell scripts appended with `.ps1` extension. Therefore, we need to
 /// resolve `argv[0]` and append a `.ps1` if such file exists.
-fn handle_build_command_new(
+fn resolve_prebuild_command(
     command: &str,
     mod_source: &Path,
     mooncake_bin_dir: &Path,
@@ -1850,23 +1851,14 @@ fn handle_build_command_new(
 ) -> String {
     use std::fmt::Write;
 
-    let mut reconstructed = String::new();
-
-    let moon_bin_path = BINARIES.moonbuild.to_string_lossy();
-
-    let command = if let Some(command) = command.strip_prefix(":embed ") {
-        reconstructed.push_str(&format!("{} tool embed ", moon_bin_path));
-        command
-    } else {
-        command
-    };
+    let mut resolved = String::new();
 
     // Perform replacements
     let mut last_end = 0usize;
     for magic in PREBUILD_AUTOMATA.find_iter(command) {
         // Commit previous segment
         if magic.start() > last_end {
-            reconstructed.push_str(&command[last_end..magic.start()]);
+            resolved.push_str(&command[last_end..magic.start()]);
         }
 
         // Insert replacement
@@ -1874,31 +1866,31 @@ fn handle_build_command_new(
         match magic.pattern().as_usize() {
             // $mooncake_bin => <project target dir>/__moonbin__
             0 => {
-                write!(reconstructed, "{}", mooncake_bin_dir.display()).expect("write can't fail");
+                write!(resolved, "{}", mooncake_bin_dir.display()).expect("write can't fail");
             }
             // $mod_dir => <mod_source>
             1 => {
-                write!(reconstructed, "{}", mod_source.display()).expect("write can't fail");
+                write!(resolved, "{}", mod_source.display()).expect("write can't fail");
             }
             // $pkg_dir => <pkg_source>
             2 => {
-                write!(reconstructed, "{}", pkg_source.display()).expect("write can't fail");
+                write!(resolved, "{}", pkg_source.display()).expect("write can't fail");
             }
             // $input => (existing)<input_1>, <input_2>, ...
             3 => {
                 for (i, f) in input_files.iter().enumerate() {
                     if i != 0 {
-                        write!(reconstructed, " ").expect("write can't fail");
+                        write!(resolved, " ").expect("write can't fail");
                     }
-                    write!(reconstructed, "{f}").expect("write can't fail");
+                    write!(resolved, "{f}").expect("write can't fail");
                 }
             }
             4 => {
                 for (i, f) in output_files.iter().enumerate() {
                     if i != 0 {
-                        write!(reconstructed, " ").expect("write can't fail");
+                        write!(resolved, " ").expect("write can't fail");
                     }
-                    write!(reconstructed, "{f}").expect("write can't fail");
+                    write!(resolved, "{f}").expect("write can't fail");
                 }
             }
             _ => unreachable!("Unexpected pattern id from CHECK_AUTOMATA"),
@@ -1907,11 +1899,11 @@ fn handle_build_command_new(
     }
 
     if last_end < command.len() {
-        reconstructed.push_str(&command[last_end..]);
+        resolved.push_str(&command[last_end..]);
     }
 
     // Resolve argv[0]
-    let argv0 = moonutil::shlex::get_argv0_native(&reconstructed);
+    let argv0 = moonutil::shlex::get_argv0_native(&resolved);
     // Check if argv[0] looks like a relative path.
     let looks_like_path = argv0.contains(std::path::is_separator);
     let is_relative = looks_like_path && !Path::new(&argv0).is_absolute();
@@ -1921,11 +1913,11 @@ fn handle_build_command_new(
     // command.
     #[cfg(not(windows))]
     if is_relative {
-        reconstructed = format!(
+        resolved = format!(
             "{}{}{}",
             mod_source.display(),
             std::path::MAIN_SEPARATOR,
-            reconstructed
+            resolved
         );
     }
     // For windows, we also need to check if the resolved path with `.ps1` exists.
@@ -1937,14 +1929,14 @@ fn handle_build_command_new(
         {
             use moonutil::shlex::split_argv0_windows;
 
-            let (_argv0, rest) = split_argv0_windows(&reconstructed);
+            let (_argv0, rest) = split_argv0_windows(&resolved);
             // This is safe because '"' is not a valid path character on Windows,
             // and the original argv[0] must be a path-like string.
-            reconstructed = format!("powershell \"{}\" {}", new_argv0.display(), rest);
+            resolved = format!("powershell \"{}\" {}", new_argv0.display(), rest);
         }
     }
 
-    reconstructed
+    resolved
 }
 
 fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
@@ -2072,8 +2064,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_build_command_uses_relative_input_and_output_placeholders() {
-        let command = handle_build_command_new(
+    fn resolve_prebuild_command_uses_relative_input_and_output_placeholders() {
+        let command = resolve_prebuild_command(
             "generate --inputs $input --outputs $output",
             Path::new("module"),
             Path::new("module/_build/__moonbin__"),

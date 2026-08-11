@@ -326,7 +326,7 @@ impl<'a> LoweringContext<'a> {
                 self.lower_build_runtime_lib(&action_products, info)
             }
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
-            BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),
+            BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info)?,
             BuildAction::RunMoonLexPrebuild { input, output, .. } => {
                 self.lower_moon_lex_prebuild(input, output)
             }

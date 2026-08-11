@@ -17,24 +17,21 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::parse_windows_argv0;
-use super::{join_windows, split_windows};
+#[cfg(not(target_os = "windows"))]
+use super::split_native_args;
+use super::{join_windows, split_windows, split_windows_args};
 
 fn assert_parse_tail(tail: &str, expected: &[&str]) {
-    let input = format!("program.exe {}", tail);
-    let got = split_windows(&input);
-    assert_eq!(
-        got.first().unwrap(),
-        "program.exe",
-        "argv[0] mismatch for input: {}",
-        tail
-    );
+    let got = split_windows_args(tail);
     let expected_vec: Vec<String> = expected.iter().map(|s| s.to_string()).collect();
-    assert_eq!(
-        &got[1..],
-        expected_vec.as_slice(),
-        "argv[1..] mismatch for input: {}",
-        tail
-    );
+    assert_eq!(got, expected_vec, "argument mismatch for input: {}", tail);
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn native_argument_tail_rejects_unterminated_quote() {
+    assert_eq!(split_native_args(r#"a "unterminated"#), None);
+    assert_eq!(split_native_args("a \\"), None);
 }
 
 // MS official doc examples
