@@ -51,6 +51,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
     build_options::RunMode,
@@ -60,7 +61,6 @@ use moonutil::{
     target::TargetBackend,
     user_log::UserLog,
 };
-use petgraph::prelude::DiGraphMap;
 use sha2::{Digest, Sha256};
 use tracing::instrument;
 
@@ -81,31 +81,22 @@ mod package_prebuild;
 
 pub use artifact::ArtifactKey;
 use artifact::ArtifactPlan;
+pub(crate) use artifact::package_file_key;
 use constructor::BuildPlanConstructor;
 pub use package_prebuild::PrebuildInfo;
 pub(crate) use package_prebuild::{PackagePrebuildAction, PackagePrebuildPlan};
 
-/// A build plan of derivations, artifact requirements, and file dependencies.
+/// A build plan of actions and the artifacts that connect them.
 ///
-/// Derivations are represented by build-plan nodes. Package compilation
-/// dependencies name artifacts and their registered providers; dependencies
-/// that still select files by provider action remain in a directed graph. The
-/// plan also stores the metadata required to lower each derivation.
+/// Build-plan nodes identify actions. Every dependency names a logical artifact
+/// and is resolved through that artifact's unique provider. The plan also
+/// stores the metadata required to lower each action.
 #[derive(Default)]
 pub struct BuildPlan {
-    /// The non-artifact build dependency graph.
-    ///
-    /// Each node in this graph represents a step in building. Edges represent
-    /// dependencies that still select files by provider action, pointing
-    /// **from each step to what it depends on**. Package compilation artifact
-    /// dependencies live in `artifacts` instead.
-    graph: DiGraphMap<BuildPlanNode, FileDependencyKind>,
+    /// Planned backend actions, in stable insertion order.
+    actions: IndexSet<BuildPlanNode>,
 
-    /// Package compilation artifacts provided and required by derivations.
-    ///
-    /// The action graph keeps non-migrated dependency kinds. Package `.mi`,
-    /// `.core`, and virtual-contract dependencies remain here through action
-    /// planning and are resolved directly by `BuildActionPlan`.
+    /// Logical artifacts provided and required by planned actions.
     artifacts: ArtifactPlan,
 
     /// The map of build target to its files and metadata.
@@ -145,24 +136,6 @@ pub struct BuildPlan {
     input_nodes: Vec<BuildPlanNode>,
 }
 
-/// Output selector for a dependency that has not migrated to `ArtifactKey`.
-///
-/// Package compilation dependencies use `ArtifactKey` instead. Proof and
-/// test-info edges still keep node-specific selectors here; `BuildActionPlan`
-/// translates them into logical build products before backend lowering sees
-/// them.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FileDependencyKind {
-    /// Depending on all files available
-    AllFiles,
-
-    /// Depending on proof artifacts of an `EmitProof`/`Prove` node.
-    ProofArtifacts { mi: bool, mlw: bool, report: bool },
-
-    /// Depending on specific files of a `GenerateTestInfo` node.
-    GenerateTestInfo { meta: bool },
-}
-
 impl BuildPlan {
     /// Get the list of nodes that **the given node depends on**.
     pub fn dependency_nodes(
@@ -170,24 +143,9 @@ impl BuildPlan {
         node: BuildPlanNode,
     ) -> impl Iterator<Item = BuildPlanNode> + '_ {
         let mut seen = HashSet::new();
-        self.graph
-            .neighbors_directed(node, petgraph::Direction::Outgoing)
-            .chain(
-                self.artifact_dependencies(node)
-                    .map(|(provider, _)| provider),
-            )
+        self.artifact_dependencies(node)
+            .map(|(provider, _)| provider)
             .filter(move |dependency| seen.insert(*dependency))
-    }
-
-    /// Get non-artifact dependencies together with their file selectors.
-    pub(crate) fn file_dependencies(
-        &self,
-        node: BuildPlanNode,
-    ) -> impl Iterator<Item = (BuildPlanNode, FileDependencyKind)> + '_ {
-        // Use edges_directed to access edge weights without re-querying the graph.
-        self.graph
-            .edges_directed(node, petgraph::Direction::Outgoing)
-            .map(move |(_, dep, kind)| (dep, *kind))
     }
 
     pub(crate) fn artifact_dependencies(
@@ -195,6 +153,13 @@ impl BuildPlan {
         node: BuildPlanNode,
     ) -> impl Iterator<Item = (BuildPlanNode, ArtifactKey)> + '_ {
         self.artifacts.dependencies(node)
+    }
+
+    pub(crate) fn provided_artifacts(
+        &self,
+        node: BuildPlanNode,
+    ) -> impl Iterator<Item = ArtifactKey> + '_ {
+        self.artifacts.provided_by(node).cloned()
     }
 
     /// Get build target information for the given target.
@@ -243,11 +208,14 @@ impl BuildPlan {
     }
 
     pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.graph.nodes().chain(self.package_prebuild.nodes())
+        self.actions
+            .iter()
+            .copied()
+            .chain(self.package_prebuild.nodes())
     }
 
     pub fn node_count(&self) -> usize {
-        self.graph.node_count() + self.package_prebuild.action_count()
+        self.actions.len() + self.package_prebuild.action_count()
     }
 
     pub fn input_nodes(&self) -> &[BuildPlanNode] {
@@ -259,7 +227,7 @@ impl BuildPlan {
 impl BuildPlan {
     pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
         assert!(!package_prebuild::is_package_prebuild_node(node));
-        self.graph.add_node(node);
+        self.actions.insert(node);
     }
 
     pub(crate) fn test_add_input_node(&mut self, node: BuildPlanNode) {
@@ -267,22 +235,15 @@ impl BuildPlan {
         self.input_nodes.push(node);
     }
 
-    pub(crate) fn test_add_edge(
-        &mut self,
-        start: BuildPlanNode,
-        end: BuildPlanNode,
-        kind: FileDependencyKind,
-    ) {
-        self.graph.add_edge(start, end, kind);
-    }
-
     pub(crate) fn test_require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
-        self.graph.add_node(consumer);
+        self.actions.insert(consumer);
         self.artifacts.require(consumer, artifact);
     }
 
     pub(crate) fn test_provide_artifact(&mut self, provider: BuildPlanNode, artifact: ArtifactKey) {
-        self.graph.add_node(provider);
+        if !package_prebuild::is_package_prebuild_node(provider) {
+            self.actions.insert(provider);
+        }
         self.artifacts.provide(provider, artifact);
     }
 

@@ -65,7 +65,7 @@ impl PackagePrebuildAction {
         }
     }
 
-    fn package(&self) -> PackageId {
+    pub(crate) fn package(&self) -> PackageId {
         match self {
             Self::Custom { package, .. }
             | Self::MoonLex { package, .. }
@@ -81,14 +81,24 @@ impl PackagePrebuildAction {
             }
         }
     }
+
+    pub(crate) fn input_paths(&self) -> &[PathBuf] {
+        match self {
+            Self::Custom { info, .. } => &info.resolved_inputs,
+            Self::MoonLex { input, .. } | Self::MoonYacc { input, .. } => {
+                std::slice::from_ref(input)
+            }
+        }
+    }
 }
 
-/// The backend-independent package prebuild provider within one Build Plan.
+/// Backend-independent package prebuild actions within one Build Plan.
 ///
-/// Actions are kept outside the backend dependency graph, but each one is
-/// complete: its command and physical inputs/outputs travel together. The
-/// existing `(package, index)` node is only a compatibility address used by
-/// Build Action Projection; n2 connects actions by the stored paths.
+/// Actions are stored separately from backend actions, but use the same
+/// artifact provider/requirement registry. Each action is complete: its command
+/// and physical inputs/outputs travel together. The existing `(package,
+/// index)` node is only a compatibility address used by Build Action
+/// Projection.
 #[derive(Default)]
 pub(crate) struct PackagePrebuildPlan {
     actions: Vec<PackagePrebuildAction>,
@@ -109,6 +119,15 @@ impl PackagePrebuildPlan {
 
     pub(crate) fn action(&self, node: BuildPlanNode) -> Option<&PackagePrebuildAction> {
         self.actions.iter().find(|action| action.node() == node)
+    }
+
+    pub(crate) fn actions_for_package(
+        &self,
+        package: PackageId,
+    ) -> impl Iterator<Item = &PackagePrebuildAction> {
+        self.actions
+            .iter()
+            .filter(move |action| action.package() == package)
     }
 
     pub(crate) fn insert_custom(&mut self, package: PackageId, index: u32, info: PrebuildInfo) {
@@ -234,7 +253,7 @@ mod tests {
         let backend_node = BuildPlanNode::Check(package.build_target(TargetKind::Source));
         let prebuild_node = BuildPlanNode::RunPrebuild(package, 0);
         let mut plan = BuildPlan::default();
-        plan.graph.add_node(backend_node);
+        plan.actions.insert(backend_node);
         plan.package_prebuild.insert_custom(
             package,
             0,
@@ -246,8 +265,8 @@ mod tests {
             },
         );
 
-        assert!(plan.graph.contains_node(backend_node));
-        assert!(!plan.graph.contains_node(prebuild_node));
+        assert!(plan.actions.contains(&backend_node));
+        assert!(!plan.actions.contains(&prebuild_node));
         assert_eq!(plan.package_prebuild_plan().action_count(), 1);
         assert_eq!(
             plan.all_nodes().collect::<Vec<_>>(),

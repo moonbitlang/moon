@@ -125,20 +125,21 @@ Behavior:
 - During ordinary input-module builds, each backend-specific Build Plan owns a
   separate `PackagePrebuildPlan` containing the requested custom, moonlex, and
   moonyacc actions. Bin-dep compatibility builds create none.
-- `BuildActionPlan` presents the package prebuild actions alongside the backend
-  graph for lowering, but does not add logical edges between the two subplans.
+- `PackagePrebuildPlan` is an action-storage seam, not a separate dependency
+  model. Each declared output is registered as a `PrebuildOutput` artifact in
+  the Build Plan's common artifact registry.
 - There is no explicit edge between two prebuild tasks solely because one is
   written earlier in `pre-build`. If one task consumes another task's declared
-  output, n2 connects them because the same concrete path is an output of one
-  action and an input of the other.
-- Backend compiler actions likewise list generated MoonBit paths as ordinary
-  file inputs, so the same n2 path matching provides their producers.
+  output, it records an Artifact Requirement on that `PrebuildOutput`.
+- Backend actions likewise require the generated `.mbt`, `.mbt.md`, `.mbtp`,
+  or selected virtual `.mbti` artifacts included by Build Target Projection.
 - All planned package prebuild actions remain part of normal execution.
   Declared outputs that no backend action consumes are leaf outputs of the n2
   graph, so they are still requested and the invocation waits for them.
 - Generated `.mbt`/`.mbt.md`, `.mbtp`, `.mbl`/`.mby`, and the selected virtual
-  `.mbti` path retain the meanings described above. Producer/consumer ordering
-  comes from equality of their complete paths in n2.
+  `.mbti` path retain the meanings described above. Lowering preserves their
+  explicit producer artifacts, and the n2 adapter realizes those artifacts as
+  matching file edges.
 
 ## Environment Capture
 

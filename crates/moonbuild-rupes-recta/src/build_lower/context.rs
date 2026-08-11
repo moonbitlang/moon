@@ -28,12 +28,13 @@ use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
 use super::{
-    BuildOptions, CExecutableRealization, CStubLibraryRealization, LoweredAction,
-    LoweredExternalInput, LoweredProduct, LoweringError,
+    BuildOptions, CExecutableRealization, CStubLibraryRealization, LoweredAction, LoweredArtifact,
+    LoweredExternalInput, LoweringError,
 };
 use crate::{
     ResolveOutput,
-    build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
+    build_action_plan::{BuildAction, BuildActionId, BuildActionPlan},
+    build_plan::ArtifactKey,
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BackendConfig, BuildTarget},
     pkg_solve::DepRelationship,
@@ -41,7 +42,7 @@ use crate::{
 };
 
 pub(crate) struct LoweringContext<'a> {
-    // Physical paths for logical build products.
+    // Physical paths for logical build artifacts.
     pub(crate) artifact_paths: ArtifactPathResolver,
 
     // External state
@@ -57,24 +58,24 @@ pub(crate) struct LoweringContext<'a> {
     toolchain_include_files: Option<Vec<PathBuf>>,
 }
 
-pub(super) struct ActionProducts {
-    outputs: Vec<LoweredProduct>,
-    dependencies: Vec<LoweredProduct>,
+pub(super) struct ActionArtifacts {
+    outputs: Vec<LoweredArtifact>,
+    dependencies: Vec<LoweredArtifact>,
 }
 
-impl ActionProducts {
+impl ActionArtifacts {
     fn new(ctx: &LoweringContext<'_>, action: BuildActionId) -> Self {
         let outputs = ctx
             .plan
-            .output_products(action)
+            .output_artifacts(action)
             .into_iter()
-            .map(|product| Self::realize(ctx, action, product))
+            .map(|artifact| Self::realize(ctx, action, artifact))
             .collect();
         let dependencies = ctx
             .plan
-            .dependency_products(action)
+            .dependency_artifacts(action)
             .into_iter()
-            .map(|(dependency_action, product)| Self::realize(ctx, dependency_action, product))
+            .map(|(dependency_action, artifact)| Self::realize(ctx, dependency_action, artifact))
             .collect();
         Self {
             outputs,
@@ -84,33 +85,33 @@ impl ActionProducts {
 
     fn realize(
         ctx: &LoweringContext<'_>,
-        product_action: BuildActionId,
-        product: BuildProduct,
-    ) -> LoweredProduct {
-        let paths = ctx.artifact_paths.paths_for_product(
-            &product,
-            ctx.plan.action(product_action),
+        provider_action: BuildActionId,
+        artifact: ArtifactKey,
+    ) -> LoweredArtifact {
+        let paths = ctx.artifact_paths.paths_for_artifact(
+            &artifact,
+            ctx.plan.action(provider_action),
             ctx.packages,
             ctx.modules,
             ctx.opt.artifact_path_options(),
         );
-        LoweredProduct {
-            producer: product_action,
-            product,
+        LoweredArtifact {
+            producer: provider_action,
+            artifact,
             paths,
         }
     }
 
     pub(super) fn single_output_path(&self) -> PathBuf {
         match self.outputs.as_slice() {
-            [product] => Self::optional_single_realized_path(product)
-                .unwrap_or_else(|| unreachable!("expected exactly one path for product")),
-            [] => unreachable!("expected exactly one output product"),
+            [artifact] => Self::optional_single_realized_path(artifact)
+                .unwrap_or_else(|| unreachable!("expected exactly one path for artifact")),
+            [] => unreachable!("expected exactly one output artifact"),
             _ => unreachable!(
-                "expected one output product, got {:?}",
+                "expected one output artifact, got {:?}",
                 self.outputs
                     .iter()
-                    .map(|realized| &realized.product)
+                    .map(|realized| &realized.artifact)
                     .collect::<Vec<_>>()
             ),
         }
@@ -118,60 +119,60 @@ impl ActionProducts {
 
     pub(super) fn single_output_path_matching(
         &self,
-        matches: impl Fn(&BuildProduct) -> bool,
+        matches: impl Fn(&ArtifactKey) -> bool,
     ) -> PathBuf {
         self.optional_single_output_path_matching(matches)
-            .unwrap_or_else(|| unreachable!("expected one matching output product"))
+            .unwrap_or_else(|| unreachable!("expected one matching output artifact"))
     }
 
     pub(super) fn optional_single_output_path_matching(
         &self,
-        matches: impl Fn(&BuildProduct) -> bool,
+        matches: impl Fn(&ArtifactKey) -> bool,
     ) -> Option<PathBuf> {
         Self::single_matching_path(&self.outputs, matches)
     }
 
     pub(super) fn single_dependency_path_matching(
         &self,
-        matches: impl Fn(&BuildProduct) -> bool,
+        matches: impl Fn(&ArtifactKey) -> bool,
     ) -> PathBuf {
         Self::single_matching_path(&self.dependencies, matches)
-            .unwrap_or_else(|| unreachable!("expected one matching dependency product"))
+            .unwrap_or_else(|| unreachable!("expected one matching dependency artifact"))
     }
 
     pub(super) fn dependency_paths_matching(
         &self,
-        matches: impl Fn(&BuildProduct) -> bool,
+        matches: impl Fn(&ArtifactKey) -> bool,
     ) -> Vec<PathBuf> {
         self.dependencies
             .iter()
-            .filter(|realized| matches(&realized.product))
+            .filter(|realized| matches(&realized.artifact))
             .flat_map(|realized| realized.paths.iter().cloned())
             .collect()
     }
 
     fn single_matching_path(
-        realized: &[LoweredProduct],
-        matches: impl Fn(&BuildProduct) -> bool,
+        realized: &[LoweredArtifact],
+        matches: impl Fn(&ArtifactKey) -> bool,
     ) -> Option<PathBuf> {
         let matched = realized
             .iter()
-            .filter(|realized| matches(&realized.product))
+            .filter(|realized| matches(&realized.artifact))
             .collect::<Vec<_>>();
         match matched.as_slice() {
-            [product] => Self::optional_single_realized_path(product),
+            [artifact] => Self::optional_single_realized_path(artifact),
             [] => None,
-            _ => unreachable!("expected at most one matching product"),
+            _ => unreachable!("expected at most one matching artifact"),
         }
     }
 
-    fn optional_single_realized_path(product: &LoweredProduct) -> Option<PathBuf> {
-        match product.paths.as_slice() {
+    fn optional_single_realized_path(artifact: &LoweredArtifact) -> Option<PathBuf> {
+        match artifact.paths.as_slice() {
             [path] => Some(path.clone()),
             [] => None,
             _ => unreachable!(
-                "expected one path for product, got {:?}: {:?}",
-                product.paths, product.product
+                "expected one path for artifact, got {:?}: {:?}",
+                artifact.paths, artifact.artifact
             ),
         }
     }
@@ -231,11 +232,11 @@ impl<'a> LoweringContext<'a> {
     pub(super) fn output_paths_for_action(&self, action: BuildActionId) -> Vec<PathBuf> {
         let mut paths = self
             .plan
-            .output_products(action)
+            .output_artifacts(action)
             .into_iter()
-            .flat_map(|product| {
-                self.artifact_paths.paths_for_product(
-                    &product,
+            .flat_map(|artifact| {
+                self.artifact_paths.paths_for_artifact(
+                    &artifact,
                     self.plan.action(action),
                     self.packages,
                     self.modules,
@@ -268,62 +269,62 @@ impl<'a> LoweringContext<'a> {
         if self.is_action_noop(action) {
             return Ok(None);
         }
-        let action_products = ActionProducts::new(self, id);
+        let action_artifacts = ActionArtifacts::new(self, id);
 
         // Lower the action to its command and tool-specific execution transport.
         let cmd = match action {
             BuildAction::Check { target, info } => {
-                self.lower_check(&action_products, target, info)?
+                self.lower_check(&action_artifacts, target, info)?
             }
             BuildAction::EmitProof { target, info } => {
-                self.lower_emit_proof(&action_products, target, info)?
+                self.lower_emit_proof(&action_artifacts, target, info)?
             }
             BuildAction::Prove { target, info } => {
-                self.lower_prove(&action_products, target, info)?
+                self.lower_prove(&action_artifacts, target, info)?
             }
             BuildAction::BuildCore { target, info } => {
-                self.lower_build_mbt(&action_products, target, info)?
+                self.lower_build_mbt(&action_artifacts, target, info)?
             }
             BuildAction::BuildCStub {
                 package,
                 index,
                 info,
-            } => self.lower_build_c_stub(&action_products, package, index, info),
+            } => self.lower_build_c_stub(&action_artifacts, package, index, info),
             BuildAction::ArchiveOrLinkCStubs { package, info } => {
-                self.lower_archive_or_link_c_stubs(&action_products, package, info)
+                self.lower_archive_or_link_c_stubs(&action_artifacts, package, info)
             }
             BuildAction::LinkCore {
                 target,
                 info,
                 make_executable_info,
-            } => self.lower_link_core(&action_products, target, info, make_executable_info)?,
+            } => self.lower_link_core(&action_artifacts, target, info, make_executable_info)?,
             BuildAction::MakeExecutable {
                 target,
                 info: Some(info),
-            } => self.lower_make_exe(&action_products, target, info),
+            } => self.lower_make_exe(&action_artifacts, target, info),
             BuildAction::MakeExecutable { info: None, .. } => {
                 panic!("native MakeExecutable actions should have executable info")
             }
             BuildAction::GenerateDsym { target, dsymutil } => {
-                self.lower_generate_dsym(&action_products, target, dsymutil)
+                self.lower_generate_dsym(&action_artifacts, target, dsymutil)
             }
             BuildAction::GenerateTestInfo { target, info } => {
-                self.lower_gen_test_driver(&action_products, target, info)
+                self.lower_gen_test_driver(&action_artifacts, target, info)
             }
             BuildAction::GenerateMbti { target } => {
-                self.lower_generate_mbti(&action_products, target)
+                self.lower_generate_mbti(&action_artifacts, target)
             }
             BuildAction::BuildVirtual { package, input } => {
                 self.lower_parse_mbti(package, input)?
             }
             BuildAction::Bundle { module, targets } => {
-                self.lower_bundle(&action_products, module, targets)?
+                self.lower_bundle(&action_artifacts, module, targets)?
             }
             BuildAction::BuildRuntimeObject { index, info } => {
-                self.lower_compile_runtime_object(&action_products, index, info)
+                self.lower_compile_runtime_object(&action_artifacts, index, info)
             }
             BuildAction::BuildRuntimeLib { info } => {
-                self.lower_build_runtime_lib(&action_products, info)
+                self.lower_build_runtime_lib(&action_artifacts, info)
             }
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info)?,
@@ -335,7 +336,7 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
-        let (command, mut external_inputs) = cmd.into_lowered_parts(&action_products.dependencies);
+        let (command, mut external_inputs) = cmd.into_lowered_parts(&action_artifacts.dependencies);
         if matches!(
             action,
             BuildAction::Check { .. }
@@ -472,9 +473,9 @@ impl<'a> LoweringContext<'a> {
         };
         Ok(Some(LoweredAction {
             id,
-            dependencies: action_products.dependencies,
+            dependencies: action_artifacts.dependencies,
             external_inputs,
-            outputs: action_products.outputs,
+            outputs: action_artifacts.outputs,
             command,
             cache_eligible,
             fileloc: self.plan.fileloc(id, self.modules, self.packages),

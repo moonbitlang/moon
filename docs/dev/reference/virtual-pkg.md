@@ -42,13 +42,13 @@ The build stage adds three behaviours on top of what regular packages already do
 3. **Validate concrete implementations.** Packages that implement the virtual are compiled with the same compatibility checks and they reuse the virtual package’s `.mi` instead of emitting another one.
    See [`gen_build::gen_build_build_item()`](crates/moonbuild/src/gen/gen_build.rs:195).
 
-As long as interface compilation happens first and every body passes those checks, the dependency graph can treat virtual packages like ordinary ones: their `.mi` products feed downstream builds, and consumers will never see an out-of-date interface.
+As long as interface compilation happens first and every body passes those checks, the dependency graph can treat virtual packages like ordinary ones: their `.mi` artifacts feed downstream builds, and consumers will never see an out-of-date interface.
 
 Proof builds preserve the same ordering while keeping the two interfaces
 distinct. `BuildVirtual` writes the contract `.mi` under the backend-specific
 prove directory. `EmitProof` checks the default body against that contract and
 writes its proof-aware `.mi` alongside the package's `.mlw` under
-`_build/verif`. These are separate logical products and must not resolve to the
+`_build/verif`. These are separate Build Artifacts and must not resolve to the
 same output path.
 
 ## Overrides at link time

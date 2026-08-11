@@ -538,7 +538,7 @@ mod tests {
             .dependencies
             .iter()
             .flat_map(|action| action.outputs())
-            .flat_map(|product| product.paths())
+            .flat_map(|artifact| artifact.paths())
             .map(|path| path.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert!(

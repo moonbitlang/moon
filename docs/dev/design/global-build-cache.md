@@ -153,12 +153,12 @@ The canonical lowering-boundary identity uses BLAKE3 and treats structured
 argv as the primary command semantics. It also includes the selected executor
 transport command, the effective explicit-or-inherited working directory,
 response-file path and contents, the effective inherited-plus-action
-environment, external input path and contents, output products, and recursive
+environment, external input path and contents, output artifacts, and recursive
 producer identities. A producer edge contributes the producer digest, logical
-product kind, and concrete paths. Opaque numeric action IDs are only lookup
+artifact kind, and concrete paths. Opaque numeric action IDs are only lookup
 keys within one lowering and never enter a persistent identity.
 
-For migrated package compilation outputs, the logical product kind is the
+For migrated package compilation outputs, the logical artifact kind is the
 exact `ArtifactKey` variant. Check MI, Build MI, Core IR, and virtual-contract
 MI therefore remain distinct through canonical action identity even when two
 variants currently resolve to the same physical suffix or path layout.

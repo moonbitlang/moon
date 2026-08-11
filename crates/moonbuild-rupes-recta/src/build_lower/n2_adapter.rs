@@ -53,7 +53,7 @@ impl N2GraphBuilder {
 
         let mut input_paths = dependencies
             .into_iter()
-            .flat_map(|product| product.paths)
+            .flat_map(|artifact| artifact.paths)
             .chain(
                 external_inputs
                     .iter()
@@ -64,7 +64,7 @@ impl N2GraphBuilder {
 
         let output_paths = outputs
             .into_iter()
-            .flat_map(|product| product.paths)
+            .flat_map(|artifact| artifact.paths)
             .collect::<Vec<_>>();
         for output_path in &output_paths {
             self.command_args_by_output
@@ -117,11 +117,12 @@ mod tests {
     use n2::graph::BuildId;
 
     use crate::{
-        build_action_plan::{BuildActionId, BuildProduct},
+        build_action_plan::BuildActionId,
         build_lower::{
-            LoweredAction, LoweredCommand, LoweredExternalInput, LoweredProduct,
+            LoweredAction, LoweredArtifact, LoweredCommand, LoweredExternalInput,
             LoweredResponseFile, lowered_action::BuildCommand,
         },
+        build_plan::ArtifactKey,
         pkg_name::PackageFQN,
     };
 
@@ -136,11 +137,9 @@ mod tests {
             "build-package".to_string(),
         ];
         let response_file_command = "toolchain/bin/moonc -rsp-file build/main.core.rsp".to_string();
-        let dependencies = vec![LoweredProduct {
+        let dependencies = vec![LoweredArtifact {
             producer: action,
-            product: BuildProduct::PrebuildOutputPath {
-                path: executable.clone(),
-            },
+            artifact: ArtifactKey::RuntimeLibrary,
             paths: vec![executable],
         }];
         let (command, mut external_inputs) = BuildCommand {
@@ -161,11 +160,9 @@ mod tests {
             id: action,
             dependencies,
             external_inputs,
-            outputs: vec![LoweredProduct {
+            outputs: vec![LoweredArtifact {
                 producer: action,
-                product: BuildProduct::PrebuildOutputPath {
-                    path: PathBuf::from("build/main.core"),
-                },
+                artifact: ArtifactKey::RuntimeLibrary,
                 paths: vec![PathBuf::from("build/main.core")],
             }],
             command,

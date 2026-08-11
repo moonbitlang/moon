@@ -41,7 +41,6 @@ use petgraph::Direction;
 use tracing::{Level, instrument};
 
 use crate::{
-    build_action_plan::BuildProduct,
     build_lower::{
         CExecutableRealization, CStubLibraryRealization, WarningCondition,
         compiler::{
@@ -59,7 +58,7 @@ use crate::{
 
 use super::{
     BuildCommand, LoweringError, compiler,
-    context::{ActionProducts, LoweringContext},
+    context::{ActionArtifacts, LoweringContext},
     moonc_command,
 };
 
@@ -317,24 +316,24 @@ impl<'a> LoweringContext<'a> {
         loadpaths.into_iter().collect()
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_check(
         &self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
-        let mi_output = products
-            .optional_single_output_path_matching(|product| {
+        let mi_output = artifacts
+            .optional_single_output_path_matching(|artifact| {
                 matches!(
-                    product,
-                    BuildProduct::Artifact(ArtifactKey::CheckMi {
+                    artifact,
+                    ArtifactKey::CheckMi {
                         package,
                         target_kind,
-                    }) if *package == target.package && *target_kind == target.kind
+                    } if *package == target.package && *target_kind == target.kind
                 )
             })
             .unwrap_or_else(|| {
@@ -347,7 +346,7 @@ impl<'a> LoweringContext<'a> {
                         )
                         .into_path()
                 } else {
-                    unreachable!("regular Check actions should have one package interface product")
+                    unreachable!("regular Check actions should have one package interface artifact")
                 }
             });
         let mi_inputs = self.mi_inputs_of(target);
@@ -409,10 +408,10 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_emit_proof(
         &self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
@@ -423,13 +422,11 @@ impl<'a> LoweringContext<'a> {
         let files_vec = self.compiler_source_files(info);
 
         let backend = self.opt.target_backend();
-        let whyml_output = products.single_output_path_matching(|product| {
+        let whyml_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::ProofWhyml {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                artifact,
+                ArtifactKey::ProofWhyml { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
         let dep_proofs = self.dep_proofs_of(target);
@@ -472,10 +469,10 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_prove(
         &self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
@@ -490,22 +487,18 @@ impl<'a> LoweringContext<'a> {
             .why3_config
             .clone()
             .unwrap_or_else(|| self.artifact_paths.target_layout().why3_config_path());
-        let whyml_output = products.single_output_path_matching(|product| {
+        let whyml_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::ProofWhyml {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                artifact,
+                ArtifactKey::ProofWhyml { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
-        let proof_report_output = products.single_output_path_matching(|product| {
+        let proof_report_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::ProofReport {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                artifact,
+                ArtifactKey::ProofReport { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
         let dep_proofs = self.dep_proofs_of(target);
@@ -556,33 +549,33 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_build_mbt(
         &self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
-        let core_output = products.single_output_path_matching(|product| {
+        let core_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::Artifact(ArtifactKey::CoreIr {
+                artifact,
+                ArtifactKey::CoreIr {
                     package,
                     target_kind,
-                }) if *package == target.package && *target_kind == target.kind
+                } if *package == target.package && *target_kind == target.kind
             )
         });
-        let mi_output = products
-            .optional_single_output_path_matching(|product| {
+        let mi_output = artifacts
+            .optional_single_output_path_matching(|artifact| {
                 matches!(
-                    product,
-                    BuildProduct::Artifact(ArtifactKey::BuildMi {
+                    artifact,
+                    ArtifactKey::BuildMi {
                         package,
                         target_kind,
-                    }) if *package == target.package && *target_kind == target.kind
+                    } if *package == target.package && *target_kind == target.kind
                 )
             })
             .unwrap_or_else(|| {
@@ -599,13 +592,11 @@ impl<'a> LoweringContext<'a> {
         match target.kind {
             TargetKind::Source | TargetKind::SubPackage => {}
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
-                let test_driver = products.single_dependency_path_matching(|product| {
+                let test_driver = artifacts.single_dependency_path_matching(|artifact| {
                     matches!(
-                        product,
-                        BuildProduct::GeneratedTestDriver {
-                            target: product_target,
-                            ..
-                        } if *product_target == target
+                        artifact,
+                        ArtifactKey::GeneratedTestDriver { package, target_kind }
+                            if *package == target.package && *target_kind == target.kind
                     )
                 });
                 files.push(test_driver);
@@ -665,10 +656,10 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_link_core(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &LinkCoreInfo,
         make_executable_info: Option<&MakeExecutableInfo>,
@@ -697,25 +688,23 @@ impl<'a> LoweringContext<'a> {
         }
         // Linked core targets
         for target in &info.linked_order {
-            let core_path = products.single_dependency_path_matching(|product| {
+            let core_path = artifacts.single_dependency_path_matching(|artifact| {
                 matches!(
-                    product,
-                    BuildProduct::Artifact(ArtifactKey::CoreIr {
+                    artifact,
+                    ArtifactKey::CoreIr {
                         package,
                         target_kind,
-                    }) if *package == target.package && *target_kind == target.kind
+                    } if *package == target.package && *target_kind == target.kind
                 )
             });
             core_input_files.push(core_path);
         }
 
-        let out_file = products.single_output_path_matching(|product| {
+        let out_file = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::LinkedCore {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                artifact,
+                ArtifactKey::LinkedCore { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
 
@@ -884,10 +873,10 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_build_c_stub(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: PackageId,
         index: u32,
         info: &BuildCStubsInfo,
@@ -899,14 +888,10 @@ impl<'a> LoweringContext<'a> {
         let package = self.packages.get_package(target);
 
         let input_file = &package.c_stub_files[index as usize];
-        let output_file = products.single_output_path_matching(|product| {
+        let output_file = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::CStubObject {
-                    package: product_package,
-                    index: product_index,
-                    ..
-                } if *product_package == target && *product_index == index
+                artifact,
+                ArtifactKey::CStubObject { package, .. } if *package == target
             )
         });
 
@@ -962,10 +947,10 @@ impl<'a> LoweringContext<'a> {
         .with_msvc_env(&info.effective_native_toolchain)
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_archive_or_link_c_stubs(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: PackageId,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
@@ -973,29 +958,33 @@ impl<'a> LoweringContext<'a> {
             unreachable!("C stubs are only lowered for C or LLVM backends")
         }
 
-        let object_files = products.dependency_paths_matching(|product| {
-            matches!(product, BuildProduct::CStubObject { .. })
+        let object_files = artifacts.dependency_paths_matching(|artifact| {
+            matches!(artifact, ArtifactKey::CStubObject { .. })
         });
 
         // There's two ways to handle this:
         // - When not using `tcc -run`, this creates an archive of the C stubs.
         // - When using `tcc -run`, this links the C stubs to an ELF .so, so tcc
         //   can load it at runtime.
-        let output = products.single_output_path_matching(|product| {
-            matches!(
-                product,
-                BuildProduct::CStubLibrary {
-                    package: product_package,
-                    ..
-                } if *product_package == target
-            )
-        });
-
         match self.opt.backend.c_stub_library_realization() {
             CStubLibraryRealization::SharedLibraryForTccRun => {
-                self.lower_link_c_stubs(products, info, &object_files, output)
+                let output = artifacts.single_output_path_matching(|artifact| {
+                    matches!(
+                        artifact,
+                        ArtifactKey::CStubLibrary { package }
+                            if *package == target
+                    )
+                });
+                self.lower_link_c_stubs(artifacts, info, &object_files, output)
             }
             CStubLibraryRealization::StaticArchive => {
+                let output = artifacts.single_output_path_matching(|artifact| {
+                    matches!(
+                        artifact,
+                        ArtifactKey::CStubLibrary { package }
+                            if *package == target
+                    )
+                });
                 self.lower_archive_c_stubs(info, &object_files, output)
             }
         }
@@ -1032,7 +1021,7 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_link_c_stubs(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         info: &BuildCStubsInfo,
         object_files: &[PathBuf],
         dylib_out: PathBuf,
@@ -1045,8 +1034,9 @@ impl<'a> LoweringContext<'a> {
 
         // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
-        let runtime_dylib = products
-            .single_dependency_path_matching(|product| matches!(product, BuildProduct::RuntimeLib));
+        let runtime_dylib = artifacts.single_dependency_path_matching(|artifact| {
+            matches!(artifact, ArtifactKey::RuntimeLibrary)
+        });
         let runtime_parent = runtime_dylib
             .parent()
             .expect("runtime dylib should have a parent directory");
@@ -1087,30 +1077,31 @@ impl<'a> LoweringContext<'a> {
         .with_msvc_env(&info.effective_native_toolchain)
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_make_exe(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
         debug_assert!({
-            let planned_c_stub_count = products
-                .dependency_paths_matching(|product| {
-                    matches!(product, BuildProduct::CStubLibrary { .. })
+            let expected_c_stub = |artifact: &ArtifactKey, expected_package: Option<PackageId>| {
+                let package = match artifact {
+                    ArtifactKey::CStubLibrary { package } => Some(package),
+                    _ => None,
+                };
+                package.is_some_and(|package| {
+                    expected_package.is_none_or(|expected| *package == expected)
                 })
+            };
+            let planned_c_stub_count = artifacts
+                .dependency_paths_matching(|artifact| expected_c_stub(artifact, None))
                 .len();
             planned_c_stub_count == info.link_c_stubs.len()
                 && info.link_c_stubs.iter().all(|package| {
-                    !products
-                        .dependency_paths_matching(|product| {
-                            matches!(
-                                product,
-                                BuildProduct::CStubLibrary {
-                                    package: actual,
-                                    ..
-                                } if actual == package
-                            )
+                    !artifacts
+                        .dependency_paths_matching(|artifact| {
+                            expected_c_stub(artifact, Some(*package))
                         })
                         .is_empty()
                 })
@@ -1126,31 +1117,30 @@ impl<'a> LoweringContext<'a> {
                         .tcc_run()
                         .expect("tcc-run realization should carry tcc-run config");
                     let internal_tcc = tcc_run.internal_tcc().clone();
-                    self.build_tcc_run_driver_command(products, info, internal_tcc)
+                    self.build_tcc_run_driver_command(artifacts, info, internal_tcc)
                 }
                 CExecutableRealization::LinkDirectObject => {
-                    self.lower_link_new_native_exe(products, target, info)
+                    self.lower_link_new_native_exe(artifacts, target, info)
                 }
                 CExecutableRealization::CompileAndLinkGeneratedC => {
-                    self.lower_build_exe_regular(products, target, info)
+                    self.lower_build_exe_regular(artifacts, target, info)
                 }
             },
-            BackendConfig::Llvm => self.lower_build_exe_regular(products, target, info),
+            BackendConfig::Llvm => self.lower_build_exe_regular(artifacts, target, info),
         }
     }
 
     pub(super) fn lower_generate_dsym(
         &self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         dsymutil: &Path,
     ) -> BuildCommand {
-        let executable = products.single_dependency_path_matching(|product| {
+        let executable = artifacts.single_dependency_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::Executable {
-                    target: product_target,
-                } if *product_target == target
+                artifact,
+                ArtifactKey::Executable { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
         BuildCommand {
@@ -1165,7 +1155,7 @@ impl<'a> LoweringContext<'a> {
 
     fn native_executable_dependency_paths(
         &self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         info: &MakeExecutableInfo,
         include_linked_core: bool,
     ) -> Vec<PathBuf> {
@@ -1175,29 +1165,25 @@ impl<'a> LoweringContext<'a> {
         // linked core and C stub archives that may introduce runtime symbols.
         // TCC-run uses a shared runtime and keeps the legacy runtime-first order.
         if include_linked_core {
-            sources.extend(products.dependency_paths_matching(|product| {
-                matches!(product, BuildProduct::LinkedCore { .. })
+            sources.extend(artifacts.dependency_paths_matching(|artifact| {
+                matches!(artifact, ArtifactKey::LinkedCore { .. })
             }));
         } else {
-            sources.extend(
-                products.dependency_paths_matching(|product| {
-                    matches!(product, BuildProduct::RuntimeLib)
-                }),
-            );
+            sources.extend(artifacts.dependency_paths_matching(|artifact| {
+                matches!(artifact, ArtifactKey::RuntimeLibrary)
+            }));
         }
 
         for package in &info.link_c_stubs {
-            sources.extend(products.dependency_paths_matching(|product| {
-                matches!(product, BuildProduct::CStubLibrary { package: actual, .. } if actual == package)
+            sources.extend(artifacts.dependency_paths_matching(|artifact| {
+                matches!(artifact, ArtifactKey::CStubLibrary { package: actual } if actual == package)
             }));
         }
 
         if include_linked_core {
-            sources.extend(
-                products.dependency_paths_matching(|product| {
-                    matches!(product, BuildProduct::RuntimeLib)
-                }),
-            );
+            sources.extend(artifacts.dependency_paths_matching(|artifact| {
+                matches!(artifact, ArtifactKey::RuntimeLibrary)
+            }));
         }
 
         sources
@@ -1205,7 +1191,7 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_build_exe_regular(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
@@ -1215,7 +1201,7 @@ impl<'a> LoweringContext<'a> {
         // - compile the program (if needed)
         // - link with runtime library & artifacts of other C stubs
 
-        let sources = self.native_executable_dependency_paths(products, info, true);
+        let sources = self.native_executable_dependency_paths(artifacts, info, true);
 
         let opt_level = match self.opt.opt_level {
             OptLevel::Release => CCOptLevel::Speed,
@@ -1232,7 +1218,7 @@ impl<'a> LoweringContext<'a> {
             .build()
             .expect("Failed to build CC configuration for executable");
 
-        let dest = products.single_output_path().display().to_string();
+        let dest = artifacts.single_output_path().display().to_string();
 
         // This directory is used for MSVC to place intermediate files.
         // Each package should use their own to minimize conflicts.
@@ -1263,14 +1249,14 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_link_new_native_exe(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        let sources = self.native_executable_dependency_paths(products, info, true);
+        let sources = self.native_executable_dependency_paths(artifacts, info, true);
         let cc = info.effective_native_toolchain.cc().clone();
 
-        let dest = products.single_output_path().display().to_string();
+        let dest = artifacts.single_output_path().display().to_string();
 
         let pkg_dir = self
             .artifact_paths
@@ -1323,11 +1309,11 @@ impl<'a> LoweringContext<'a> {
     /// putting that into a response file.
     fn build_tcc_run_driver_command(
         &self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         info: &MakeExecutableInfo,
         cc: CC,
     ) -> BuildCommand {
-        let sources = self.native_executable_dependency_paths(products, info, false);
+        let sources = self.native_executable_dependency_paths(artifacts, info, false);
 
         let cfg = CCConfigBuilder::default()
             .no_sys_header(true) // -DMOONBIT_NATIVE_NO_SYS_HEADER for TCC
@@ -1355,8 +1341,8 @@ impl<'a> LoweringContext<'a> {
 
         // The C file from moonc link-core
         cmdline.push("-run".to_string());
-        let c_file = products.single_dependency_path_matching(|product| {
-            matches!(product, BuildProduct::LinkedCore { .. })
+        let c_file = artifacts.single_dependency_path_matching(|artifact| {
+            matches!(artifact, ArtifactKey::LinkedCore { .. })
         });
         cmdline.push(c_file.display().to_string());
 
@@ -1375,7 +1361,7 @@ impl<'a> LoweringContext<'a> {
             "tool".to_string(),
             "write-tcc-rsp-file".to_string(),
         ];
-        let rsp_path = products.single_output_path();
+        let rsp_path = artifacts.single_output_path();
 
         rsp_cmdline.push(rsp_path.display().to_string());
         rsp_cmdline.extend(cmdline.into_iter().skip(1)); // skip original `tcc` command

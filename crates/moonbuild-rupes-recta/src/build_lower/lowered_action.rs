@@ -23,11 +23,14 @@ use std::path::{Path, PathBuf};
 use moonutil::compiler_flags::Toolchain;
 
 use crate::{
-    build_action_plan::{BuildActionId, BuildProduct},
+    build_action_plan::BuildActionId, build_plan::ArtifactKey,
     pkg_name::OptionalPackageFQNWithSource,
 };
 
-/// A concrete input that is not produced by another lowered action.
+/// A concrete file observation attached outside the logical artifact set.
+///
+/// During the artifact migration, a path may also occur in a dependency
+/// artifact. The artifact dependency remains the authoritative producer edge.
 #[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum LoweredExternalInput {
     /// One regular file observed by the action.
@@ -51,21 +54,21 @@ impl LoweredExternalInput {
     }
 }
 
-/// One logical product after its concrete artifact paths have been selected.
+/// One logical artifact after its concrete paths have been selected.
 #[derive(Debug)]
-pub struct LoweredProduct {
+pub struct LoweredArtifact {
     pub(crate) producer: BuildActionId,
-    pub(crate) product: BuildProduct,
+    pub(crate) artifact: ArtifactKey,
     pub(crate) paths: Vec<PathBuf>,
 }
 
-impl LoweredProduct {
+impl LoweredArtifact {
     pub fn producer(&self) -> BuildActionId {
         self.producer
     }
 
-    pub fn product(&self) -> &BuildProduct {
-        &self.product
+    pub fn artifact(&self) -> &ArtifactKey {
+        &self.artifact
     }
 
     pub fn paths(&self) -> &[PathBuf] {
@@ -158,18 +161,18 @@ impl LoweredCommand {
     }
 }
 
-/// One concrete action after product paths and command construction have been
+/// One concrete action after artifact paths and command construction have been
 /// resolved, but before its paths are registered with n2.
 ///
-/// Dependency products retain their producer action and logical product so a
+/// Dependency artifacts retain their producer action and logical identity so a
 /// preparation policy can identify the dependency without reconstructing it
 /// from n2 file edges.
 #[derive(Debug)]
 pub struct LoweredAction {
     pub(crate) id: BuildActionId,
-    pub(crate) dependencies: Vec<LoweredProduct>,
+    pub(crate) dependencies: Vec<LoweredArtifact>,
     pub(crate) external_inputs: Vec<LoweredExternalInput>,
-    pub(crate) outputs: Vec<LoweredProduct>,
+    pub(crate) outputs: Vec<LoweredArtifact>,
     pub(crate) command: LoweredCommand,
     pub(crate) cache_eligible: bool,
     pub(crate) fileloc: String,
@@ -183,7 +186,7 @@ impl LoweredAction {
         self.id
     }
 
-    pub fn dependencies(&self) -> &[LoweredProduct] {
+    pub fn dependencies(&self) -> &[LoweredArtifact] {
         &self.dependencies
     }
 
@@ -191,7 +194,7 @@ impl LoweredAction {
         &self.external_inputs
     }
 
-    pub fn outputs(&self) -> &[LoweredProduct] {
+    pub fn outputs(&self) -> &[LoweredArtifact] {
         &self.outputs
     }
 
@@ -213,9 +216,9 @@ impl LoweredAction {
 }
 
 /// Command data produced by action-specific lowering before the common action
-/// metadata and products are attached.
+/// metadata and artifacts are attached.
 pub(super) struct BuildCommand {
-    /// Input files in addition to products of dependency actions.
+    /// Input files in addition to artifacts produced by dependency actions.
     pub(super) extra_inputs: Vec<PathBuf>,
     pub(super) commandline: LoweredCommand,
 }
@@ -226,10 +229,10 @@ impl BuildCommand {
     /// Structured commands carry a concrete executable as `argv[0]`. Keep that
     /// tool file alongside the action's other external inputs so n2 can
     /// invalidate the action when the executable changes in place. If a
-    /// dependency product already provides that path, omit the external copy.
+    /// dependency artifact already provides that path, omit the external copy.
     pub(super) fn into_lowered_parts(
         self,
-        dependencies: &[LoweredProduct],
+        dependencies: &[LoweredArtifact],
     ) -> (LoweredCommand, Vec<LoweredExternalInput>) {
         let Self {
             mut extra_inputs,
@@ -238,7 +241,7 @@ impl BuildCommand {
         if let Some(executable) = commandline.executable() {
             let is_dependency = dependencies
                 .iter()
-                .flat_map(|product| &product.paths)
+                .flat_map(|artifact| &artifact.paths)
                 .any(|path| path == executable);
             if is_dependency {
                 extra_inputs.retain(|path| path != executable);
