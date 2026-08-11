@@ -50,7 +50,7 @@ mod n2_adapter;
 mod utils;
 
 pub use lowered_action::{
-    LoweredAction, LoweredCommand, LoweredCommandExecution, LoweredExternalInput, LoweredProduct,
+    LoweredAction, LoweredArtifact, LoweredCommand, LoweredCommandExecution, LoweredExternalInput,
     LoweredResponseFile,
 };
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
@@ -259,7 +259,7 @@ pub fn lower_build_plan(
 ///
 /// The dependency actions contain every prerequisite outside the synthesized
 /// script package, including package-less shared actions reached by those
-/// prerequisites. The script graph keeps the same action/product edges; when a
+/// prerequisites. The script graph keeps the same artifact dependencies; when a
 /// dependency producer is omitted, its output path remains a concrete n2 input.
 #[instrument(skip_all)]
 pub(crate) fn lower_standalone_build_plan(
@@ -369,7 +369,7 @@ mod tests {
     use crate::{
         build_plan::{
             ArtifactKey, BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo,
-            FileDependencyKind, LinkCoreInfo, MakeExecutableInfo,
+            LinkCoreInfo, MakeExecutableInfo,
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
@@ -531,6 +531,16 @@ mod tests {
         single_package_resolve_output_with_module(moon_mod("username/hello"))
     }
 
+    fn connect_artifact(
+        plan: &mut BuildPlan,
+        consumer: BuildPlanNode,
+        provider: BuildPlanNode,
+        artifact: ArtifactKey,
+    ) {
+        plan.test_require_artifact(consumer, artifact.clone());
+        plan.test_provide_artifact(provider, artifact);
+    }
+
     fn single_package_resolve_output_with_module(
         module_info: MoonMod,
     ) -> (ResolveOutput, BuildTarget) {
@@ -626,6 +636,20 @@ mod tests {
             PathBuf::from("main/parser.mby"),
             PathBuf::from("main/parser.mbt"),
         );
+        plan.test_provide_artifact(
+            BuildPlanNode::RunMoonLexPrebuild(target.package, 0),
+            ArtifactKey::PrebuildOutput {
+                package: target.package,
+                path: PathBuf::from("lexer.mbt"),
+            },
+        );
+        plan.test_provide_artifact(
+            BuildPlanNode::RunMoonYaccPrebuild(target.package, 0),
+            ArtifactKey::PrebuildOutput {
+                package: target.package,
+                path: PathBuf::from("parser.mbt"),
+            },
+        );
 
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
@@ -684,6 +708,20 @@ mod tests {
         plan.test_add_node(check_node);
         plan.test_add_node(link_core_node);
         plan.test_insert_build_target_info(target, build_target_info());
+        plan.test_provide_artifact(
+            check_node,
+            ArtifactKey::CheckMi {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        plan.test_provide_artifact(
+            link_core_node,
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
         plan.test_insert_link_core_info(
             target,
             LinkCoreInfo {
@@ -745,9 +783,26 @@ mod tests {
         plan.test_add_node(script_node);
         plan.test_add_node(dependency_node);
         plan.test_add_node(runtime_node);
-        plan.test_add_edge(script_node, dependency_node, FileDependencyKind::AllFiles);
-        plan.test_add_edge(script_node, runtime_node, FileDependencyKind::AllFiles);
-        plan.test_add_edge(dependency_node, runtime_node, FileDependencyKind::AllFiles);
+        connect_artifact(
+            &mut plan,
+            script_node,
+            dependency_node,
+            ArtifactKey::CStubLibrary {
+                package: dependency_package,
+            },
+        );
+        connect_artifact(
+            &mut plan,
+            script_node,
+            runtime_node,
+            ArtifactKey::RuntimeLibrary,
+        );
+        connect_artifact(
+            &mut plan,
+            dependency_node,
+            runtime_node,
+            ArtifactKey::RuntimeLibrary,
+        );
         plan.test_insert_c_stubs_info(
             dependency_package,
             BuildCStubsInfo {
@@ -793,7 +848,12 @@ mod tests {
         let mut plan = BuildPlan::default();
         plan.test_add_node(script_node);
         plan.test_add_node(runtime_node);
-        plan.test_add_edge(script_node, runtime_node, FileDependencyKind::AllFiles);
+        connect_artifact(
+            &mut plan,
+            script_node,
+            runtime_node,
+            ArtifactKey::RuntimeLibrary,
+        );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: msvc_toolchain(),
             source_files: vec![PathBuf::from("runtime.c")],
@@ -825,7 +885,15 @@ mod tests {
         let mut plan = BuildPlan::default();
         plan.test_add_node(script_node);
         plan.test_add_node(dependency_node);
-        plan.test_add_edge(dependency_node, script_node, FileDependencyKind::AllFiles);
+        connect_artifact(
+            &mut plan,
+            dependency_node,
+            script_node,
+            ArtifactKey::Executable {
+                package: script_package,
+                target_kind: TargetKind::Source,
+            },
+        );
         plan.test_insert_c_stubs_info(
             dependency_package,
             BuildCStubsInfo {
@@ -860,21 +928,58 @@ mod tests {
         plan.test_add_node(build_core_node);
         plan.test_add_node(link_core_node);
         plan.test_add_node(exe_node);
-        plan.test_add_edge(c_stubs_node, c_stub_node, FileDependencyKind::AllFiles);
-        plan.test_add_edge(
+        connect_artifact(
+            &mut plan,
+            c_stubs_node,
+            c_stub_node,
+            ArtifactKey::CStubObject {
+                package: target.package,
+                source: PathBuf::from("native/stub.c"),
+            },
+        );
+        connect_artifact(
+            &mut plan,
             runtime_node,
             runtime_object_node,
-            FileDependencyKind::AllFiles,
+            ArtifactKey::RuntimeObject {
+                source: PathBuf::from("runtime.c"),
+            },
         );
         let core_ir = ArtifactKey::CoreIr {
             package: target.package,
             target_kind: target.kind,
         };
-        plan.test_require_artifact(link_core_node, core_ir);
-        plan.test_provide_artifact(build_core_node, core_ir);
-        plan.test_add_edge(exe_node, link_core_node, FileDependencyKind::AllFiles);
-        plan.test_add_edge(exe_node, runtime_node, FileDependencyKind::AllFiles);
-        plan.test_add_edge(exe_node, c_stubs_node, FileDependencyKind::AllFiles);
+        connect_artifact(&mut plan, link_core_node, build_core_node, core_ir);
+        connect_artifact(
+            &mut plan,
+            exe_node,
+            link_core_node,
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        connect_artifact(
+            &mut plan,
+            exe_node,
+            runtime_node,
+            ArtifactKey::RuntimeLibrary,
+        );
+        connect_artifact(
+            &mut plan,
+            exe_node,
+            c_stubs_node,
+            ArtifactKey::CStubLibrary {
+                package: target.package,
+            },
+        );
+        plan.test_provide_artifact(
+            exe_node,
+            ArtifactKey::Executable {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
         plan.test_insert_build_target_info(target, build_target_info());
         plan.test_insert_link_core_info(
             target,
@@ -1126,7 +1231,22 @@ mod tests {
         let mut plan = BuildPlan::default();
         plan.test_add_input_node(executable_node);
         plan.test_add_node(dsym_node);
-        plan.test_add_edge(dsym_node, executable_node, FileDependencyKind::AllFiles);
+        connect_artifact(
+            &mut plan,
+            dsym_node,
+            executable_node,
+            ArtifactKey::Executable {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        plan.test_provide_artifact(
+            dsym_node,
+            ArtifactKey::DsymBundle {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {

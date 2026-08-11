@@ -21,7 +21,7 @@
 //! [`TargetLayout`] owns paths under the selected target directory. It does not
 //! know about installed toolchain artifacts. [`ArtifactPathResolver`] composes a
 //! target layout with optional stdlib/toolchain artifacts for callers that need
-//! to resolve logical build products to physical paths.
+//! to resolve logical build artifacts to physical paths.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -38,8 +38,8 @@ use moonutil::{
 
 use crate::{
     ResolveOutput,
-    build_action_plan::{BuildAction, BuildProduct},
-    build_plan::ArtifactKey,
+    build_action_plan::BuildAction,
+    build_plan::{ArtifactKey, package_file_key},
     discover::{DiscoverResult, DiscoveredLocalProject},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
@@ -446,33 +446,30 @@ impl TargetLayout {
         result
     }
 
-    pub fn runtime_output_path(
+    pub fn runtime_archive_path(
         &self,
-        executable: ExecutableArtifact,
+        backend: TargetBackend,
         os: OperatingSystem,
         static_archive_fingerprint: Option<&str>,
     ) -> PathBuf {
-        let backend = executable.target_backend();
         let mut result = self.runtime_output_dir(backend);
-        match executable {
-            ExecutableArtifact::Wasm { .. }
-            | ExecutableArtifact::WasmGC { .. }
-            | ExecutableArtifact::Js => {
-                panic!("Runtime output path is not applicable for non-native backends")
+        let filename = match static_archive_fingerprint {
+            Some(fingerprint) => {
+                format!("libruntime-{fingerprint}{}", static_library_ext(os))
             }
-            ExecutableArtifact::TccRunResponseFile => {
-                result.push(format!("libruntime{}", dynamic_library_ext(os)))
-            }
-            ExecutableArtifact::NativeExecutable | ExecutableArtifact::LlvmExecutable => {
-                let filename = match static_archive_fingerprint {
-                    Some(fingerprint) => {
-                        format!("libruntime-{fingerprint}{}", static_library_ext(os))
-                    }
-                    None => format!("libruntime{}", static_library_ext(os)),
-                };
-                result.push(filename)
-            }
-        }
+            None => format!("libruntime{}", static_library_ext(os)),
+        };
+        result.push(filename);
+        result
+    }
+
+    pub fn runtime_shared_library_path(
+        &self,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let mut result = self.runtime_output_dir(backend);
+        result.push(format!("libruntime{}", dynamic_library_ext(os)));
         result
     }
 
@@ -806,82 +803,75 @@ impl ArtifactPathResolver {
         None
     }
 
-    pub(crate) fn paths_for_product(
+    pub(crate) fn paths_for_artifact(
         &self,
-        product: &BuildProduct,
+        artifact: &ArtifactKey,
         action_context: BuildAction<'_>,
         packages: &DiscoverResult,
         modules: &ResolvedEnv,
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
-        Self::assert_product_matches_action(product, action_context);
-        match product {
-            BuildProduct::Artifact(artifact) => match artifact {
-                ArtifactKey::CheckMi {
-                    package,
-                    target_kind,
-                }
-                | ArtifactKey::BuildMi {
-                    package,
-                    target_kind,
-                } => self.package_interface_paths(
-                    action_context,
-                    package.build_target(*target_kind),
+        match artifact {
+            ArtifactKey::CheckMi {
+                package,
+                target_kind,
+            }
+            | ArtifactKey::BuildMi {
+                package,
+                target_kind,
+            } => self.package_interface_paths(
+                action_context,
+                package.build_target(*target_kind),
+                packages,
+                options,
+            ),
+            ArtifactKey::CoreIr {
+                package,
+                target_kind,
+            } => vec![self.core_of_build_target(
+                packages,
+                &package.build_target(*target_kind),
+                options.target_backend(),
+            )],
+            ArtifactKey::VirtualContractMi { package } => {
+                let target = package.build_target(TargetKind::Source);
+                vec![self.mi_of_build_target(packages, &target, options.target_backend())]
+            }
+            ArtifactKey::ProofMi {
+                package,
+                target_kind,
+            } => vec![
+                self.target_layout
+                    .emit_proof_mi_path(packages, &package.build_target(*target_kind)),
+            ],
+            ArtifactKey::ProofWhyml {
+                package,
+                target_kind,
+            } => vec![
+                self.target_layout
+                    .emit_proof_whyml_path(packages, &package.build_target(*target_kind)),
+            ],
+            ArtifactKey::ProofReport {
+                package,
+                target_kind,
+            } => vec![
+                self.target_layout
+                    .prove_report_path(packages, &package.build_target(*target_kind)),
+            ],
+            ArtifactKey::CStubObject { package, source } => vec![
+                self.target_layout.c_stub_object_path(
                     packages,
-                    options,
-                ),
-                ArtifactKey::CoreIr {
-                    package,
-                    target_kind,
-                } => vec![self.core_of_build_target(
-                    packages,
-                    &package.build_target(*target_kind),
+                    *package,
+                    source
+                        .file_stem()
+                        .expect("C stub declaration should have a file name"),
                     options.target_backend(),
-                )],
-                ArtifactKey::VirtualContractMi { package } => {
-                    let target = package.build_target(TargetKind::Source);
-                    vec![self.mi_of_build_target(packages, &target, options.target_backend())]
-                }
-            },
-            BuildProduct::ProofInterface { target } => match action_context {
-                BuildAction::EmitProof { .. } => {
-                    vec![self.target_layout.emit_proof_mi_path(packages, target)]
-                }
-                BuildAction::Prove { .. } => {
-                    vec![self.target_layout.prove_mi_path(packages, target)]
-                }
-                _ => panic!("proof interface action context should be a proof action"),
-            },
-            BuildProduct::ProofWhyml { target } => match action_context {
-                BuildAction::EmitProof { .. } => {
-                    vec![self.target_layout.emit_proof_whyml_path(packages, target)]
-                }
-                BuildAction::Prove { .. } => {
-                    vec![self.target_layout.prove_whyml_path(packages, target)]
-                }
-                _ => panic!("proof whyml action context should be a proof action"),
-            },
-            BuildProduct::ProofReport { target } => {
-                vec![self.target_layout.prove_report_path(packages, target)]
-            }
-            BuildProduct::CStubObject { package, index } => {
-                let pkg = packages.get_package(*package);
-                let file_name = &pkg.c_stub_files[*index as usize];
-                vec![
-                    self.target_layout.c_stub_object_path(
-                        packages,
-                        *package,
-                        file_name
-                            .file_stem()
-                            .expect("c stub file should have a file name"),
-                        options.target_backend(),
-                        options.os,
-                    ),
-                ]
-            }
-            BuildProduct::CStubLibrary { package } => {
+                    options.os,
+                ),
+            ],
+            ArtifactKey::CStubLibrary { package } => {
                 let BuildAction::ArchiveOrLinkCStubs { info, .. } = action_context else {
-                    unreachable!("C stub library products require C stub archive actions")
+                    unreachable!("C stub library artifacts require C stub library actions")
                 };
                 if options.executable.uses_tcc_run() {
                     vec![self.target_layout.c_stub_link_dylib_path(
@@ -900,213 +890,123 @@ impl ArtifactPathResolver {
                     )]
                 }
             }
-            BuildProduct::LinkedCore { target } => {
+            ArtifactKey::LinkedCore {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
                 vec![self.target_layout.linked_core_of_build_target(
                     packages,
-                    target,
+                    &target,
                     options.linked_core,
                 )]
             }
-            BuildProduct::Executable { target } => {
+            ArtifactKey::Executable {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
                 vec![self.target_layout.executable_of_build_target(
                     packages,
-                    target,
+                    &target,
                     options.executable,
                 )]
             }
-            BuildProduct::DsymBundle { target } => {
+            ArtifactKey::DsymBundle {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
                 vec![self.target_layout.dsym_bundle_of_build_target(
                     packages,
-                    target,
+                    &target,
                     options.executable,
                 )]
             }
-            BuildProduct::GeneratedTestDriver { target } => {
+            ArtifactKey::GeneratedTestDriver {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
                 vec![self.target_layout.generated_test_driver(
                     packages,
-                    target,
+                    &target,
                     options.target_backend(),
                 )]
             }
-            BuildProduct::GeneratedTestMetadata { target } => {
+            ArtifactKey::GeneratedTestMetadata {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
                 vec![self.target_layout.generated_test_driver_metadata(
                     packages,
-                    target,
+                    &target,
                     options.target_backend(),
                 )]
             }
-            BuildProduct::BundleResult { module } => {
+            ArtifactKey::BundleResult { module } => {
                 let module_name = modules.module_source(*module);
                 vec![
                     self.target_layout
                         .bundle_result_path(options.target_backend(), module_name.name()),
                 ]
             }
-            BuildProduct::RuntimeObject { index } => {
-                let BuildAction::BuildRuntimeObject { info, .. } = action_context else {
-                    unreachable!("runtime object products require runtime object actions")
+            ArtifactKey::RuntimeObject { .. } => {
+                let BuildAction::BuildRuntimeObject { index, info } = action_context else {
+                    unreachable!("runtime object artifacts require runtime object actions")
                 };
                 vec![self.target_layout.runtime_object_path(
-                    &info.source_files[*index as usize],
+                    &info.source_files[index as usize],
                     options.target_backend(),
                     options.os,
                 )]
             }
-            BuildProduct::RuntimeLib => {
+            ArtifactKey::RuntimeLibrary => {
                 let BuildAction::BuildRuntimeLib { info } = action_context else {
-                    unreachable!("runtime library products require runtime library actions")
+                    unreachable!("runtime library artifacts require runtime library actions")
                 };
-                vec![self.target_layout.runtime_output_path(
-                    options.executable,
-                    options.os,
-                    info.static_archive_fingerprint.as_deref(),
-                )]
+                if options.executable.uses_tcc_run() {
+                    vec![
+                        self.target_layout
+                            .runtime_shared_library_path(options.target_backend(), options.os),
+                    ]
+                } else {
+                    vec![self.target_layout.runtime_archive_path(
+                        options.target_backend(),
+                        options.os,
+                        info.static_archive_fingerprint.as_deref(),
+                    )]
+                }
             }
-            BuildProduct::GeneratedMbti { target } => {
+            ArtifactKey::GeneratedMbti {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
                 vec![self.target_layout.generated_mbti_path(
                     packages,
-                    target,
+                    &target,
                     options.target_backend(),
                 )]
             }
-            BuildProduct::DocsDir => vec![self.target_layout.doc_dir()],
-            BuildProduct::PrebuildOutputPath { path } => vec![path.clone()],
-        }
-    }
-
-    fn assert_product_matches_action(product: &BuildProduct, action_context: BuildAction<'_>) {
-        let matches = match (product, action_context) {
-            (
-                BuildProduct::Artifact(ArtifactKey::CheckMi {
-                    package,
-                    target_kind,
-                }),
-                BuildAction::Check {
-                    target: action_target,
-                    ..
-                },
-            ) => *package == action_target.package && *target_kind == action_target.kind,
-            (
-                BuildProduct::Artifact(
-                    ArtifactKey::BuildMi {
-                        package,
-                        target_kind,
-                    }
-                    | ArtifactKey::CoreIr {
-                        package,
-                        target_kind,
-                    },
-                ),
-                BuildAction::BuildCore {
-                    target: action_target,
-                    ..
-                },
-            ) => *package == action_target.package && *target_kind == action_target.kind,
-            (
-                BuildProduct::ProofInterface { target } | BuildProduct::ProofWhyml { target },
-                BuildAction::EmitProof {
-                    target: action_target,
-                    ..
+            ArtifactKey::DocsDir { .. } => vec![self.target_layout.doc_dir()],
+            ArtifactKey::PrebuildOutput { package, path } => match action_context {
+                BuildAction::RunPrebuild { info, .. } => {
+                    let pkg = packages.get_package(*package);
+                    vec![
+                        info.resolved_outputs
+                            .iter()
+                            .find(|output| package_file_key(&pkg.root_path, output) == *path)
+                            .expect("prebuild artifact should name one command output")
+                            .clone(),
+                    ]
                 }
-                | BuildAction::Prove {
-                    target: action_target,
-                    ..
-                },
-            ) => *target == action_target,
-            (
-                BuildProduct::ProofReport { target },
-                BuildAction::Prove {
-                    target: action_target,
-                    ..
-                },
-            ) => *target == action_target,
-            (
-                BuildProduct::CStubObject { package, index },
-                BuildAction::BuildCStub {
-                    package: action_package,
-                    index: action_index,
-                    ..
-                },
-            ) => *package == action_package && *index == action_index,
-            (
-                BuildProduct::CStubLibrary { package },
-                BuildAction::ArchiveOrLinkCStubs {
-                    package: action_package,
-                    ..
-                },
-            ) => *package == action_package,
-            (
-                BuildProduct::LinkedCore { target },
-                BuildAction::LinkCore {
-                    target: action_target,
-                    ..
-                },
-            ) => *target == action_target,
-            (
-                BuildProduct::Executable { target },
-                BuildAction::MakeExecutable {
-                    target: action_target,
-                    ..
-                },
-            ) => *target == action_target,
-            (
-                BuildProduct::DsymBundle { target },
-                BuildAction::GenerateDsym {
-                    target: action_target,
-                    ..
-                },
-            ) => *target == action_target,
-            (
-                BuildProduct::GeneratedTestDriver { target }
-                | BuildProduct::GeneratedTestMetadata { target },
-                BuildAction::GenerateTestInfo {
-                    target: action_target,
-                    ..
-                },
-            ) => *target == action_target,
-            (
-                BuildProduct::BundleResult { module },
-                BuildAction::Bundle {
-                    module: action_module,
-                    ..
-                },
-            ) => *module == action_module,
-            (
-                BuildProduct::RuntimeObject { index },
-                BuildAction::BuildRuntimeObject {
-                    index: action_index,
-                    ..
-                },
-            ) => *index == action_index,
-            (BuildProduct::RuntimeLib, BuildAction::BuildRuntimeLib { .. }) => true,
-            (
-                BuildProduct::GeneratedMbti { target },
-                BuildAction::GenerateMbti {
-                    target: action_target,
-                },
-            ) => *target == action_target,
-            (BuildProduct::DocsDir, BuildAction::BuildDocs { .. }) => true,
-            (
-                BuildProduct::Artifact(ArtifactKey::VirtualContractMi { package }),
-                BuildAction::BuildVirtual {
-                    package: action_package,
-                    ..
-                },
-            ) => *package == action_package,
-            (BuildProduct::PrebuildOutputPath { path }, BuildAction::RunPrebuild { info, .. }) => {
-                info.resolved_outputs.contains(path)
-            }
-            (
-                BuildProduct::PrebuildOutputPath { path },
                 BuildAction::RunMoonLexPrebuild { output, .. }
-                | BuildAction::RunMoonYaccPrebuild { output, .. },
-            ) => path == output,
-            _ => false,
-        };
-        assert!(
-            matches,
-            "build product should be resolved with matching action context: {product:?}, {action_context:?}"
-        );
+                | BuildAction::RunMoonYaccPrebuild { output, .. } => vec![output.to_path_buf()],
+                _ => unreachable!("prebuild artifacts require prebuild actions"),
+            },
+        }
     }
 
     fn package_interface_paths(
@@ -1311,8 +1211,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        build_action_plan::{BuildAction, BuildProduct},
-        build_plan::{BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
+        build_action_plan::BuildAction,
+        build_plan::{
+            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo,
+            PrebuildInfo,
+        },
         discover::DiscoveredPackage,
         model::BuildPlanNode,
         pkg_name::{PackageFQN, PackagePath},
@@ -1585,7 +1488,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_resolver_resolves_check_package_interface_product() {
+    fn artifact_resolver_resolves_check_package_interface() {
         let (packages, modules, package) = package_fixture("ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
@@ -1605,11 +1508,11 @@ mod tests {
             .expect("test plan should have an action");
 
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::Artifact(ArtifactKey::CheckMi {
+            resolver.paths_for_artifact(
+                &ArtifactKey::CheckMi {
                     package,
                     target_kind: target.kind,
-                }),
+                },
                 action_plan.action(action_id),
                 &packages,
                 &modules,
@@ -1620,7 +1523,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_resolver_resolves_build_core_package_interface_product() {
+    fn artifact_resolver_resolves_build_core_package_interface() {
         let (packages, modules, package) = package_fixture("ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
@@ -1632,11 +1535,11 @@ mod tests {
         let info = build_target_info();
 
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::Artifact(ArtifactKey::BuildMi {
+            resolver.paths_for_artifact(
+                &ArtifactKey::BuildMi {
                     package,
                     target_kind: target.kind,
-                }),
+                },
                 BuildAction::BuildCore {
                     target,
                     info: &info,
@@ -1650,7 +1553,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_resolver_resolves_impl_check_package_interface_product() {
+    fn artifact_resolver_resolves_impl_check_package_interface() {
         let (packages, modules, package) = package_fixture("ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
@@ -1663,11 +1566,11 @@ mod tests {
         info.check_mi_against = Some(target);
 
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::Artifact(ArtifactKey::CheckMi {
+            resolver.paths_for_artifact(
+                &ArtifactKey::CheckMi {
                     package,
                     target_kind: target.kind,
-                }),
+                },
                 BuildAction::Check {
                     target,
                     info: &info,
@@ -1681,15 +1584,18 @@ mod tests {
     }
 
     #[test]
-    fn artifact_resolver_resolves_proof_products_with_matching_context() {
+    fn artifact_resolver_resolves_proof_artifacts_with_matching_context() {
         let (packages, modules, package) = package_fixture("ffi");
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
 
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::ProofWhyml { target },
+            resolver.paths_for_artifact(
+                &ArtifactKey::ProofWhyml {
+                    package,
+                    target_kind: target.kind,
+                },
                 BuildAction::EmitProof {
                     target,
                     info: &info,
@@ -1705,8 +1611,11 @@ mod tests {
             ],
         );
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::ProofReport { target },
+            resolver.paths_for_artifact(
+                &ArtifactKey::ProofReport {
+                    package,
+                    target_kind: target.kind,
+                },
                 BuildAction::Prove {
                     target,
                     info: &info,
@@ -1735,8 +1644,8 @@ mod tests {
         let info = build_target_info();
         let options = artifact_options(ExecutableArtifact::WasmGC { use_wat: false });
 
-        let virtual_contract = resolver.paths_for_product(
-            &BuildProduct::Artifact(ArtifactKey::VirtualContractMi { package }),
+        let virtual_contract = resolver.paths_for_artifact(
+            &ArtifactKey::VirtualContractMi { package },
             BuildAction::BuildVirtual {
                 package,
                 input: Path::new("pkg.mbti"),
@@ -1745,8 +1654,11 @@ mod tests {
             &modules,
             options,
         );
-        let proof_interface = resolver.paths_for_product(
-            &BuildProduct::ProofInterface { target },
+        let proof_interface = resolver.paths_for_artifact(
+            &ArtifactKey::ProofMi {
+                package,
+                target_kind: target.kind,
+            },
             BuildAction::EmitProof {
                 target,
                 info: &info,
@@ -1777,29 +1689,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "build product should be resolved with matching action context")]
-    fn artifact_resolver_rejects_mismatched_product_action_context() {
-        let (packages, modules, package) = package_fixture("ffi");
-        let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
-        let target = package.build_target(TargetKind::Source);
-        let info = build_target_info();
-
-        let _ = resolver.paths_for_product(
-            &BuildProduct::Artifact(ArtifactKey::CoreIr {
-                package,
-                target_kind: target.kind,
-            }),
-            BuildAction::Check {
-                target,
-                info: &info,
-            },
-            &packages,
-            &modules,
-            artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
-        );
-    }
-
-    #[test]
     fn artifact_resolver_resolves_c_stub_library_artifacts() {
         let (packages, modules, package) = package_fixture("ffi");
         let resolver = ArtifactPathResolver::new(
@@ -1810,8 +1699,8 @@ mod tests {
         );
         let mut info = c_stubs_info();
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::CStubLibrary { package },
+            resolver.paths_for_artifact(
+                &ArtifactKey::CStubLibrary { package },
                 BuildAction::ArchiveOrLinkCStubs {
                     package,
                     info: &info,
@@ -1826,8 +1715,8 @@ mod tests {
         );
         info.static_archive_fingerprint = None;
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::CStubLibrary { package },
+            resolver.paths_for_artifact(
+                &ArtifactKey::CStubLibrary { package },
                 BuildAction::ArchiveOrLinkCStubs {
                     package,
                     info: &info,
@@ -1839,8 +1728,8 @@ mod tests {
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
         );
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::CStubLibrary { package },
+            resolver.paths_for_artifact(
+                &ArtifactKey::CStubLibrary { package },
                 BuildAction::ArchiveOrLinkCStubs {
                     package,
                     info: &info,
@@ -1854,7 +1743,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_resolver_handles_non_package_products() {
+    fn artifact_resolver_handles_non_package_artifacts() {
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
         let (packages, modules, package) = package_fixture("ffi");
         let module = modules.input_module_ids()[0];
@@ -1871,8 +1760,8 @@ mod tests {
         };
 
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::RuntimeLib,
+            resolver.paths_for_artifact(
+                &ArtifactKey::RuntimeLibrary,
                 BuildAction::BuildRuntimeLib {
                     info: &runtime_info(),
                 },
@@ -1888,8 +1777,8 @@ mod tests {
         let mut exact_runtime_info = runtime_info();
         exact_runtime_info.static_archive_fingerprint = None;
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::RuntimeLib,
+            resolver.paths_for_artifact(
+                &ArtifactKey::RuntimeLibrary,
                 BuildAction::BuildRuntimeLib {
                     info: &exact_runtime_info,
                 },
@@ -1901,8 +1790,8 @@ mod tests {
         );
 
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::RuntimeLib,
+            resolver.paths_for_artifact(
+                &ArtifactKey::RuntimeLibrary,
                 BuildAction::BuildRuntimeLib {
                     info: &runtime_info(),
                 },
@@ -1913,8 +1802,8 @@ mod tests {
             vec![PathBuf::from("_build/native/debug/build/libruntime.so")],
         );
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::DocsDir,
+            resolver.paths_for_artifact(
+                &ArtifactKey::DocsDir { module },
                 BuildAction::BuildDocs { module },
                 &packages,
                 &modules,
@@ -1923,8 +1812,9 @@ mod tests {
             vec![PathBuf::from("_build/doc")],
         );
         assert_eq!(
-            resolver.paths_for_product(
-                &BuildProduct::PrebuildOutputPath {
+            resolver.paths_for_artifact(
+                &ArtifactKey::PrebuildOutput {
+                    package,
                     path: prebuild_output.clone(),
                 },
                 BuildAction::RunPrebuild {

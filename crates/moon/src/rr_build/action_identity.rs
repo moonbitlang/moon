@@ -34,7 +34,6 @@ use std::{
 use anyhow::{Context, bail};
 use blake3::Hasher;
 use moonbuild_rupes_recta::{
-    build_action_plan::BuildProduct,
     build_lower::{LoweredAction, LoweredCommandExecution, LoweredExternalInput},
     build_plan::ArtifactKey,
     model::TargetKind,
@@ -141,7 +140,7 @@ pub fn compute_action_identities(
                             })?;
                     Ok(CanonicalProduct {
                         producer: Some(producer),
-                        logical: LogicalProduct::from(product.product()),
+                        logical: LogicalProduct::from(product.artifact()),
                         paths: product.paths().to_vec(),
                     })
                 })
@@ -152,7 +151,7 @@ pub fn compute_action_identities(
                 .iter()
                 .map(|product| CanonicalProduct {
                     producer: None,
-                    logical: LogicalProduct::from(product.product()),
+                    logical: LogicalProduct::from(product.artifact()),
                     paths: product.paths().to_vec(),
                 })
                 .collect();
@@ -206,79 +205,72 @@ struct CanonicalProduct {
 struct LogicalProduct {
     kind: &'static [u8],
     target_kind: Option<TargetKind>,
-    index: Option<u32>,
     path: Option<PathBuf>,
 }
 
-impl From<&BuildProduct> for LogicalProduct {
-    fn from(product: &BuildProduct) -> Self {
-        let (kind, target_kind, index, path) = match product {
-            BuildProduct::Artifact(ArtifactKey::CheckMi { target_kind, .. }) => {
-                (b"check-mi".as_slice(), Some(*target_kind), None, None)
+impl From<&ArtifactKey> for LogicalProduct {
+    fn from(artifact: &ArtifactKey) -> Self {
+        let (kind, target_kind, path) = match artifact {
+            ArtifactKey::CheckMi { target_kind, .. } => {
+                (b"check-mi".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::Artifact(ArtifactKey::BuildMi { target_kind, .. }) => {
-                (b"build-mi".as_slice(), Some(*target_kind), None, None)
+            ArtifactKey::BuildMi { target_kind, .. } => {
+                (b"build-mi".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::Artifact(ArtifactKey::CoreIr { target_kind, .. }) => {
-                (b"core-ir".as_slice(), Some(*target_kind), None, None)
+            ArtifactKey::CoreIr { target_kind, .. } => {
+                (b"core-ir".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::Artifact(ArtifactKey::VirtualContractMi { .. }) => {
-                (b"virtual-contract-mi".as_slice(), None, None, None)
+            ArtifactKey::VirtualContractMi { .. } => {
+                (b"virtual-contract-mi".as_slice(), None, None)
             }
-            BuildProduct::ProofInterface { target } => {
-                (b"proof-interface".as_slice(), Some(target.kind), None, None)
+            ArtifactKey::ProofMi { target_kind, .. } => {
+                (b"proof-interface".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::ProofWhyml { target } => {
-                (b"proof-whyml".as_slice(), Some(target.kind), None, None)
+            ArtifactKey::ProofWhyml { target_kind, .. } => {
+                (b"proof-whyml".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::ProofReport { target } => {
-                (b"proof-report".as_slice(), Some(target.kind), None, None)
+            ArtifactKey::ProofReport { target_kind, .. } => {
+                (b"proof-report".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::CStubObject { index, .. } => {
-                (b"c-stub-object".as_slice(), None, Some(*index), None)
+            ArtifactKey::CStubObject { source, .. } => {
+                (b"c-stub-object".as_slice(), None, Some(source.clone()))
             }
-            BuildProduct::CStubLibrary { .. } => (b"c-stub-library".as_slice(), None, None, None),
-            BuildProduct::LinkedCore { target } => {
-                (b"linked-core".as_slice(), Some(target.kind), None, None)
+            ArtifactKey::CStubLibrary { .. } => (b"c-stub-library".as_slice(), None, None),
+            ArtifactKey::LinkedCore { target_kind, .. } => {
+                (b"linked-core".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::Executable { target } => {
-                (b"executable".as_slice(), Some(target.kind), None, None)
+            ArtifactKey::Executable { target_kind, .. } => {
+                (b"executable".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::DsymBundle { target } => {
-                (b"dsym-bundle".as_slice(), Some(target.kind), None, None)
+            ArtifactKey::DsymBundle { target_kind, .. } => {
+                (b"dsym-bundle".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::GeneratedTestDriver { target } => (
+            ArtifactKey::GeneratedTestDriver { target_kind, .. } => (
                 b"generated-test-driver".as_slice(),
-                Some(target.kind),
-                None,
+                Some(*target_kind),
                 None,
             ),
-            BuildProduct::GeneratedTestMetadata { target } => (
+            ArtifactKey::GeneratedTestMetadata { target_kind, .. } => (
                 b"generated-test-metadata".as_slice(),
-                Some(target.kind),
-                None,
+                Some(*target_kind),
                 None,
             ),
-            BuildProduct::BundleResult { .. } => (b"bundle-result".as_slice(), None, None, None),
-            BuildProduct::RuntimeObject { index } => {
-                (b"runtime-object".as_slice(), None, Some(*index), None)
+            ArtifactKey::BundleResult { .. } => (b"bundle-result".as_slice(), None, None),
+            ArtifactKey::RuntimeObject { source } => {
+                (b"runtime-object".as_slice(), None, Some(source.clone()))
             }
-            BuildProduct::RuntimeLib => (b"runtime-lib".as_slice(), None, None, None),
-            BuildProduct::GeneratedMbti { target } => {
-                (b"generated-mbti".as_slice(), Some(target.kind), None, None)
+            ArtifactKey::RuntimeLibrary => (b"runtime-library".as_slice(), None, None),
+            ArtifactKey::GeneratedMbti { target_kind, .. } => {
+                (b"generated-mbti".as_slice(), Some(*target_kind), None)
             }
-            BuildProduct::DocsDir => (b"docs-dir".as_slice(), None, None, None),
-            BuildProduct::PrebuildOutputPath { path } => (
-                b"prebuild-output-path".as_slice(),
-                None,
-                None,
-                Some(path.clone()),
-            ),
+            ArtifactKey::DocsDir { .. } => (b"docs-dir".as_slice(), None, None),
+            ArtifactKey::PrebuildOutput { path, .. } => {
+                (b"prebuild-output-path".as_slice(), None, Some(path.clone()))
+            }
         };
         Self {
             kind,
             target_kind,
-            index,
             path,
         }
     }
@@ -494,12 +486,11 @@ impl ActionIdentityBuilder<'_> {
     }
 
     fn hash_product(&self, fingerprint: &mut FingerprintHasher, product: &CanonicalProduct) {
+        // Keep the established field labels stable: they are part of the
+        // persistent ActionID format even though the model now says artifact.
         fingerprint.field(b"logical-product", product.logical.kind);
         if let Some(kind) = product.logical.target_kind {
             fingerprint.field(b"target-kind", target_kind_name(kind));
-        }
-        if let Some(index) = product.logical.index {
-            fingerprint.field(b"product-index", &index.to_le_bytes());
         }
         if let Some(path) = &product.logical.path {
             fingerprint.field(b"logical-product-path", path_bytes(path));
@@ -717,7 +708,6 @@ mod tests {
             logical: LogicalProduct {
                 kind: b"package-interface",
                 target_kind: Some(TargetKind::Source),
-                index: None,
                 path: None,
             },
             paths: vec![path.into()],

@@ -19,12 +19,10 @@
 //! Action-level build plan consumed by backend lowering.
 
 mod action;
-mod product;
 mod view;
 
 #[cfg(test)]
 mod tests;
 
 pub use action::{BuildAction, BuildActionId};
-pub use product::BuildProduct;
 pub use view::BuildActionPlan;

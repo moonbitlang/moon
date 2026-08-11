@@ -46,7 +46,7 @@ use relative_path::{PathExt, RelativePath};
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{BuildBundleInfo, FileDependencyKind, PackagePrebuildPolicy, PrebuildInfo},
+    build_plan::{BuildBundleInfo, PackagePrebuildPolicy, PrebuildInfo},
     cond_comp,
     discover::DiscoveredPackage,
     model::{
@@ -59,7 +59,7 @@ use crate::{
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
     MakeExecutableInfo,
-    artifact::ArtifactKey,
+    artifact::{ArtifactKey, package_file_key, runtime_source_key},
     c_stub_archive_fingerprint,
     constructor::{BuildPlanConstructor, PackageFileSet},
     runtime_archive_fingerprint,
@@ -233,7 +233,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // A custom prebuild may itself generate moonlex/moonyacc input. Treat
         // those paths exactly like files observed during package discovery;
-        // n2 will connect the two actions through the matching concrete path.
+        // the matching prebuild artifacts connect their producer actions.
         let custom_outputs = self
             .res
             .package_prebuild
@@ -279,7 +279,53 @@ impl<'a> BuildPlanConstructor<'a> {
                 .package_prebuild
                 .insert_moonyacc(pkg_id, index as u32, input, output);
         }
+        self.register_package_prebuild_artifacts(pkg_id);
         Ok(())
+    }
+
+    fn register_package_prebuild_artifacts(&mut self, package: PackageId) {
+        let pkg = self.input.pkg_dirs.get_package(package);
+        let actions = self
+            .res
+            .package_prebuild
+            .actions_for_package(package)
+            .map(|action| {
+                (
+                    action.node(),
+                    action.input_paths().to_vec(),
+                    action.output_paths().to_vec(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let providers = actions
+            .iter()
+            .flat_map(|(node, _, outputs)| {
+                outputs.iter().map(|output| {
+                    (
+                        output.clone(),
+                        *node,
+                        ArtifactKey::PrebuildOutput {
+                            package,
+                            path: package_file_key(&pkg.root_path, output),
+                        },
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for (_, provider, artifact) in &providers {
+            self.res.artifacts.provide(*provider, artifact.clone());
+        }
+        for (consumer, inputs, _) in actions {
+            for input in inputs {
+                if let Some((_, _, artifact)) =
+                    providers.iter().find(|(output, _, _)| *output == input)
+                {
+                    self.res.artifacts.require(consumer, artifact.clone());
+                }
+            }
+        }
     }
 
     fn check_backend_compatibility_for_dep(
@@ -431,9 +477,8 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Specify a need on the proof artifacts of a dependency.
     ///
     /// Dependency proofs stay modular: dependents only require the dependency's
-    /// proof surface (`.mi` + `.mlw`). If the dependency is one of the selected
-    /// prove targets for this invocation, reuse its `Prove` node; otherwise
-    /// schedule an internal `EmitProof` node.
+    /// proof surface (`.mi` + `.mlw`). Provider selection decides whether an
+    /// explicit `Prove` or an internal `EmitProof` action supplies that surface.
     fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
         // As with normal `.mi` dependencies, stdlib packages are resolved via
         // the injected stdlib path rather than by planning local nodes.
@@ -441,18 +486,18 @@ impl<'a> BuildPlanConstructor<'a> {
             return;
         }
 
-        let dep_node = if self.res.input_nodes.contains(&BuildPlanNode::Prove(dep)) {
-            self.need_node(BuildPlanNode::Prove(dep))
-        } else {
-            self.need_node(BuildPlanNode::EmitProof(dep))
-        };
-        self.add_edge_spec(
+        self.require_artifact(
             node,
-            dep_node,
-            FileDependencyKind::ProofArtifacts {
-                mi: true,
-                mlw: true,
-                report: false,
+            ArtifactKey::ProofMi {
+                package: dep.package,
+                target_kind: dep.kind,
+            },
+        );
+        self.require_artifact(
+            node,
+            ArtifactKey::ProofWhyml {
+                package: dep.package,
+                target_kind: dep.kind,
             },
         );
     }
@@ -580,12 +625,12 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // If the given target is a test, we will also need to generate the test driver.
         if target.kind.is_test() {
-            let gen_test_info = BuildPlanNode::GenerateTestInfo(target);
-            self.need_node(gen_test_info);
-            self.add_edge_spec(
+            self.require_artifact(
                 node,
-                gen_test_info,
-                FileDependencyKind::GenerateTestInfo { meta: false },
+                ArtifactKey::GeneratedTestDriver {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
             );
         }
 
@@ -912,15 +957,19 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         // Resolve the C stub files
         let pkg = self.input.pkg_dirs.get_package(target);
-        for i in 0..pkg.c_stub_files.len() {
-            let build_node = self.need_node(BuildPlanNode::BuildCStub(target, i as u32));
-            self.add_edge(node, build_node);
+        for source in &pkg.c_stub_files {
+            self.require_artifact(
+                node,
+                ArtifactKey::CStubObject {
+                    package: target,
+                    source: package_file_key(&pkg.root_path, source),
+                },
+            );
         }
 
         // If we're tcc run, also depend on the runtime library
         if self.build_env.tcc_run().is_some() {
-            let make_exec_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
-            self.add_edge(node, make_exec_node);
+            self.require_artifact(node, ArtifactKey::RuntimeLibrary);
         }
 
         // Populate C stub info
@@ -1055,12 +1104,20 @@ impl<'a> BuildPlanConstructor<'a> {
         // ===== Make Executable =====
 
         // Add edge from make exec to link core
-        self.add_edge(make_exec_node, link_core_node);
+        self.require_artifact(
+            make_exec_node,
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
-            let dep_node = self.need_node(BuildPlanNode::ArchiveOrLinkCStubs(*target));
-            self.add_edge(make_exec_node, dep_node);
+            self.require_artifact(
+                make_exec_node,
+                ArtifactKey::CStubLibrary { package: *target },
+            );
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
@@ -1155,12 +1212,17 @@ impl<'a> BuildPlanConstructor<'a> {
         };
         self.res.make_executable_info.insert(target, v);
 
-        let rt_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
-        self.add_edge(make_exec_node, rt_node);
+        self.require_artifact(make_exec_node, ArtifactKey::RuntimeLibrary);
 
         if generate_dsym {
             let dsym_node = self.need_node(BuildPlanNode::GenerateDsym(target));
-            self.add_edge(dsym_node, make_exec_node);
+            self.require_artifact(
+                dsym_node,
+                ArtifactKey::Executable {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
+            );
             self.resolved_node(dsym_node);
         }
 
@@ -1427,6 +1489,7 @@ impl<'a> BuildPlanConstructor<'a> {
         self.res
             .bundle_info
             .insert(module_id, BuildBundleInfo { bundle_targets });
+        self.resolved_node(node);
 
         Ok(())
     }
@@ -1559,8 +1622,18 @@ impl<'a> BuildPlanConstructor<'a> {
                 .source_files
                 .len();
             for index in 0..source_count {
-                let object_node = self.need_node(BuildPlanNode::BuildRuntimeObject(index as u32));
-                self.add_edge(node, object_node);
+                let source = &self
+                    .res
+                    .runtime_info
+                    .as_ref()
+                    .expect("runtime info was just populated")
+                    .source_files[index];
+                self.require_artifact(
+                    node,
+                    ArtifactKey::RuntimeObject {
+                        source: runtime_source_key(source),
+                    },
+                );
             }
         }
 
@@ -1667,6 +1740,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 },
             );
         }
+        self.resolved_node(node);
         Ok(())
     }
 

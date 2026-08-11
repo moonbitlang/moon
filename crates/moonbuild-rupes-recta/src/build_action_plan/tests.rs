@@ -21,11 +21,11 @@ use std::path::PathBuf;
 use slotmap::KeyData;
 
 use crate::{
-    build_plan::{ArtifactKey, BuildPlan, BuildTargetInfo, FileDependencyKind, PrebuildInfo},
+    build_plan::{ArtifactKey, BuildPlan, BuildTargetInfo, PrebuildInfo},
     model::{BuildPlanNode, PackageId, TargetKind},
 };
 
-use super::{BuildAction, BuildProduct};
+use super::BuildAction;
 
 fn package_id(raw: u64) -> PackageId {
     PackageId::from(KeyData::from_ffi(raw))
@@ -55,16 +55,23 @@ fn check_exposes_package_interface() {
     let mut plan = BuildPlan::default();
     plan.test_add_node(node);
     plan.test_insert_build_target_info(target, target_info());
+    plan.test_provide_artifact(
+        node,
+        ArtifactKey::CheckMi {
+            package,
+            target_kind: target.kind,
+        },
+    );
 
     let action_plan = plan.build_action_plan();
     let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_products(action_id),
-        vec![BuildProduct::Artifact(ArtifactKey::CheckMi {
+        action_plan.output_artifacts(action_id),
+        vec![ArtifactKey::CheckMi {
             package,
             target_kind: target.kind,
-        })]
+        }]
     );
 }
 
@@ -76,21 +83,35 @@ fn build_core_exposes_core_and_interface_when_it_emits_mi() {
     let mut plan = BuildPlan::default();
     plan.test_add_node(node);
     plan.test_insert_build_target_info(target, target_info());
+    plan.test_provide_artifact(
+        node,
+        ArtifactKey::BuildMi {
+            package,
+            target_kind: target.kind,
+        },
+    );
+    plan.test_provide_artifact(
+        node,
+        ArtifactKey::CoreIr {
+            package,
+            target_kind: target.kind,
+        },
+    );
 
     let action_plan = plan.build_action_plan();
     let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_products(action_id),
+        action_plan.output_artifacts(action_id),
         vec![
-            BuildProduct::Artifact(ArtifactKey::BuildMi {
+            ArtifactKey::BuildMi {
                 package,
                 target_kind: target.kind,
-            }),
-            BuildProduct::Artifact(ArtifactKey::CoreIr {
+            },
+            ArtifactKey::CoreIr {
                 package,
                 target_kind: target.kind,
-            }),
+            },
         ]
     );
 }
@@ -105,16 +126,23 @@ fn build_core_omits_interface_when_mi_is_disabled() {
     let mut info = target_info();
     info.specified_no_mi = true;
     plan.test_insert_build_target_info(target, info);
+    plan.test_provide_artifact(
+        node,
+        ArtifactKey::CoreIr {
+            package,
+            target_kind: target.kind,
+        },
+    );
 
     let action_plan = plan.build_action_plan();
     let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_products(action_id),
-        vec![BuildProduct::Artifact(ArtifactKey::CoreIr {
+        action_plan.output_artifacts(action_id),
+        vec![ArtifactKey::CoreIr {
             package,
             target_kind: target.kind,
-        })]
+        }]
     );
 }
 
@@ -124,6 +152,13 @@ fn make_executable_action_allows_non_native_alias_without_info() {
     let node = BuildPlanNode::MakeExecutable(target);
     let mut plan = BuildPlan::default();
     plan.test_add_node(node);
+    plan.test_provide_artifact(
+        node,
+        ArtifactKey::Executable {
+            package: target.package,
+            target_kind: target.kind,
+        },
+    );
 
     let action_plan = plan.build_action_plan();
     let action_id = action_plan.id_for_node(node);
@@ -133,8 +168,11 @@ fn make_executable_action_allows_non_native_alias_without_info() {
         BuildAction::MakeExecutable { target: actual, info: None } if actual == target
     ));
     assert_eq!(
-        action_plan.output_products(action_id),
-        vec![BuildProduct::Executable { target }]
+        action_plan.output_artifacts(action_id),
+        vec![ArtifactKey::Executable {
+            package: target.package,
+            target_kind: target.kind,
+        }]
     );
 }
 
@@ -149,16 +187,16 @@ fn check_interface_dependency_uses_selected_check_action() {
         target_kind: dependency.kind,
     };
     let mut plan = BuildPlan::default();
-    plan.test_require_artifact(consumer_node, check_mi);
-    plan.test_provide_artifact(dependency_node, check_mi);
+    plan.test_require_artifact(consumer_node, check_mi.clone());
+    plan.test_provide_artifact(dependency_node, check_mi.clone());
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
     let dependency_id = action_plan.id_for_node(dependency_node);
 
     assert_eq!(
-        action_plan.dependency_products(consumer_id),
-        vec![(dependency_id, BuildProduct::Artifact(check_mi))]
+        action_plan.dependency_artifacts(consumer_id),
+        vec![(dependency_id, check_mi)]
     );
 }
 
@@ -177,21 +215,18 @@ fn build_core_dependency_can_track_interface_and_core_ir() {
         target_kind: dependency.kind,
     };
     let mut plan = BuildPlan::default();
-    plan.test_require_artifact(consumer_node, build_mi);
-    plan.test_require_artifact(consumer_node, core_ir);
-    plan.test_provide_artifact(dependency_node, build_mi);
-    plan.test_provide_artifact(dependency_node, core_ir);
+    plan.test_require_artifact(consumer_node, build_mi.clone());
+    plan.test_require_artifact(consumer_node, core_ir.clone());
+    plan.test_provide_artifact(dependency_node, build_mi.clone());
+    plan.test_provide_artifact(dependency_node, core_ir.clone());
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
     let dependency_id = action_plan.id_for_node(dependency_node);
 
     assert_eq!(
-        action_plan.dependency_products(consumer_id),
-        vec![
-            (dependency_id, BuildProduct::Artifact(build_mi)),
-            (dependency_id, BuildProduct::Artifact(core_ir)),
-        ]
+        action_plan.dependency_artifacts(consumer_id),
+        vec![(dependency_id, build_mi), (dependency_id, core_ir),]
     );
 }
 
@@ -210,8 +245,8 @@ fn artifact_dependencies_deduplicate_provider_action() {
         target_kind: dependency.kind,
     };
     let mut plan = BuildPlan::default();
-    plan.test_require_artifact(consumer_node, build_mi);
-    plan.test_require_artifact(consumer_node, core_ir);
+    plan.test_require_artifact(consumer_node, build_mi.clone());
+    plan.test_require_artifact(consumer_node, core_ir.clone());
     plan.test_provide_artifact(dependency_node, build_mi);
     plan.test_provide_artifact(dependency_node, core_ir);
 
@@ -234,24 +269,20 @@ fn generate_test_info_dependency_can_select_driver_only() {
     let test_info_node = BuildPlanNode::GenerateTestInfo(test_target);
     let consumer_node = BuildPlanNode::BuildCore(consumer);
     let mut plan = BuildPlan::default();
-    plan.test_add_edge(
-        consumer_node,
-        test_info_node,
-        FileDependencyKind::GenerateTestInfo { meta: false },
-    );
+    let driver = ArtifactKey::GeneratedTestDriver {
+        package: test_target.package,
+        target_kind: test_target.kind,
+    };
+    plan.test_require_artifact(consumer_node, driver.clone());
+    plan.test_provide_artifact(test_info_node, driver.clone());
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
     let dependency_action = action_plan.id_for_node(test_info_node);
 
     assert_eq!(
-        action_plan.dependency_products(consumer_id),
-        vec![(
-            dependency_action,
-            BuildProduct::GeneratedTestDriver {
-                target: test_target,
-            },
-        )]
+        action_plan.dependency_artifacts(consumer_id),
+        vec![(dependency_action, driver,)]
     );
 }
 
@@ -262,32 +293,26 @@ fn generate_test_info_dependency_can_select_driver_and_metadata() {
     let test_info_node = BuildPlanNode::GenerateTestInfo(test_target);
     let consumer_node = BuildPlanNode::BuildCore(consumer);
     let mut plan = BuildPlan::default();
-    plan.test_add_edge(
-        consumer_node,
-        test_info_node,
-        FileDependencyKind::GenerateTestInfo { meta: true },
-    );
+    let driver = ArtifactKey::GeneratedTestDriver {
+        package: test_target.package,
+        target_kind: test_target.kind,
+    };
+    let metadata = ArtifactKey::GeneratedTestMetadata {
+        package: test_target.package,
+        target_kind: test_target.kind,
+    };
+    plan.test_require_artifact(consumer_node, driver.clone());
+    plan.test_require_artifact(consumer_node, metadata.clone());
+    plan.test_provide_artifact(test_info_node, driver.clone());
+    plan.test_provide_artifact(test_info_node, metadata.clone());
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
     let dependency_action = action_plan.id_for_node(test_info_node);
 
     assert_eq!(
-        action_plan.dependency_products(consumer_id),
-        vec![
-            (
-                dependency_action,
-                BuildProduct::GeneratedTestDriver {
-                    target: test_target,
-                },
-            ),
-            (
-                dependency_action,
-                BuildProduct::GeneratedTestMetadata {
-                    target: test_target,
-                },
-            ),
-        ]
+        action_plan.dependency_artifacts(consumer_id),
+        vec![(dependency_action, driver,), (dependency_action, metadata,),]
     );
 }
 
@@ -306,13 +331,23 @@ fn run_prebuild_exposes_resolved_output_paths() {
             command: "generate".to_string(),
         })],
     );
+    plan.test_provide_artifact(
+        node,
+        ArtifactKey::PrebuildOutput {
+            package,
+            path: output.clone(),
+        },
+    );
 
     let action_plan = plan.build_action_plan();
     let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_products(action_id),
-        vec![BuildProduct::PrebuildOutputPath { path: output }]
+        action_plan.output_artifacts(action_id),
+        vec![ArtifactKey::PrebuildOutput {
+            package,
+            path: output,
+        }]
     );
 }
 
@@ -322,15 +357,20 @@ fn c_stub_archive_dependency_exposes_object_inputs() {
     let archive_node = BuildPlanNode::ArchiveOrLinkCStubs(package);
     let object_node = BuildPlanNode::BuildCStub(package, 0);
     let mut plan = BuildPlan::default();
-    plan.test_add_edge(archive_node, object_node, FileDependencyKind::AllFiles);
+    let object = ArtifactKey::CStubObject {
+        package,
+        source: PathBuf::from("stub.c"),
+    };
+    plan.test_require_artifact(archive_node, object.clone());
+    plan.test_provide_artifact(object_node, object.clone());
 
     let action_plan = plan.build_action_plan();
     let archive_id = action_plan.id_for_node(archive_node);
     let object_id = action_plan.id_for_node(object_node);
 
     assert_eq!(
-        action_plan.dependency_products(archive_id),
-        vec![(object_id, BuildProduct::CStubObject { package, index: 0 })]
+        action_plan.dependency_artifacts(archive_id),
+        vec![(object_id, object)]
     );
 }
 
@@ -339,14 +379,18 @@ fn runtime_archive_dependency_exposes_object_inputs() {
     let archive_node = BuildPlanNode::BuildRuntimeLib;
     let object_node = BuildPlanNode::BuildRuntimeObject(0);
     let mut plan = BuildPlan::default();
-    plan.test_add_edge(archive_node, object_node, FileDependencyKind::AllFiles);
+    let object = ArtifactKey::RuntimeObject {
+        source: PathBuf::from("runtime/runtime.c"),
+    };
+    plan.test_require_artifact(archive_node, object.clone());
+    plan.test_provide_artifact(object_node, object.clone());
 
     let action_plan = plan.build_action_plan();
     let archive_id = action_plan.id_for_node(archive_node);
     let object_id = action_plan.id_for_node(object_node);
 
     assert_eq!(
-        action_plan.dependency_products(archive_id),
-        vec![(object_id, BuildProduct::RuntimeObject { index: 0 })]
+        action_plan.dependency_artifacts(archive_id),
+        vec![(object_id, object)]
     );
 }

@@ -32,39 +32,34 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
-    build_action_plan::BuildProduct,
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{ArtifactKey, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
     model::{BuildTarget, OperatingSystem, TargetKind},
 };
 
-use super::{BuildCommand, LoweringError, compiler, context::ActionProducts, moonc_command};
+use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts, moonc_command};
 
 impl<'a> super::LoweringContext<'a> {
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_gen_test_driver(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let output_driver = products.single_output_path_matching(|product| {
+        let output_driver = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::GeneratedTestDriver {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                artifact,
+                ArtifactKey::GeneratedTestDriver { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
-        let output_metadata = products.single_output_path_matching(|product| {
+        let output_metadata = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::GeneratedTestMetadata {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                artifact,
+                ArtifactKey::GeneratedTestMetadata { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
         let driver_kind = match target.kind {
@@ -117,32 +112,32 @@ impl<'a> super::LoweringContext<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts))]
     pub(super) fn lower_bundle(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         module_id: ModuleId,
         targets: &[BuildTarget],
     ) -> Result<BuildCommand, LoweringError> {
-        let output = products.single_output_path_matching(|product| {
+        let output = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::BundleResult {
-                    module: product_module,
+                artifact,
+                ArtifactKey::BundleResult {
+                    module: artifact_module,
                     ..
-                } if *product_module == module_id
+                } if *artifact_module == module_id
             )
         });
 
         let mut inputs = vec![];
         for dep in targets {
-            inputs.push(products.single_dependency_path_matching(|product| {
+            inputs.push(artifacts.single_dependency_path_matching(|artifact| {
                 matches!(
-                    product,
-                    BuildProduct::Artifact(ArtifactKey::CoreIr {
+                    artifact,
+                    ArtifactKey::CoreIr {
                         package,
                         target_kind,
-                    }) if *package == dep.package && *target_kind == dep.kind
+                    } if *package == dep.package && *target_kind == dep.kind
                 )
             }));
         }
@@ -156,15 +151,15 @@ impl<'a> super::LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts))]
     pub(super) fn lower_compile_runtime_object(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         index: u32,
         info: &BuildRuntimeInfo,
     ) -> BuildCommand {
-        let artifact_path = products.single_output_path_matching(|product| {
-            matches!(product, BuildProduct::RuntimeObject { .. })
+        let artifact_path = artifacts.single_output_path_matching(|artifact| {
+            matches!(artifact, ArtifactKey::RuntimeObject { .. })
         });
         let source = &info.source_files[index as usize];
 
@@ -222,14 +217,15 @@ impl<'a> super::LoweringContext<'a> {
         .with_env(command_env)
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_build_runtime_lib(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         info: &BuildRuntimeInfo,
     ) -> BuildCommand {
-        let artifact_path = products
-            .single_output_path_matching(|product| matches!(product, BuildProduct::RuntimeLib));
+        let artifact_path = artifacts.single_output_path_matching(|artifact| {
+            matches!(artifact, ArtifactKey::RuntimeLibrary)
+        });
 
         if self.opt.backend.uses_shared_runtime() {
             let resolved_cc = info.effective_native_toolchain.cc().clone();
@@ -274,8 +270,8 @@ impl<'a> super::LoweringContext<'a> {
             .with_msvc_env(&info.effective_native_toolchain);
         }
 
-        let mut object_files = products.dependency_paths_matching(|product| {
-            matches!(product, BuildProduct::RuntimeObject { .. })
+        let mut object_files = artifacts.dependency_paths_matching(|artifact| {
+            matches!(artifact, ArtifactKey::RuntimeObject { .. })
         });
         object_files.extend(info.simdutf_objects.iter().cloned());
         let config = ArchiverConfigBuilder::default()
@@ -301,28 +297,26 @@ impl<'a> super::LoweringContext<'a> {
         .with_msvc_env(&info.effective_native_toolchain)
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, products))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts))]
     pub(super) fn lower_generate_mbti(
         &mut self,
-        products: &ActionProducts,
+        artifacts: &ActionArtifacts,
         target: BuildTarget,
     ) -> BuildCommand {
-        let input = products.single_dependency_path_matching(|product| {
+        let input = artifacts.single_dependency_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::Artifact(ArtifactKey::CheckMi {
+                artifact,
+                ArtifactKey::CheckMi {
                     package,
                     target_kind,
-                }) if *package == target.package && *target_kind == target.kind
+                } if *package == target.package && *target_kind == target.kind
             )
         });
-        let output = products.single_output_path_matching(|product| {
+        let output = artifacts.single_output_path_matching(|artifact| {
             matches!(
-                product,
-                BuildProduct::GeneratedMbti {
-                    target: product_target,
-                    ..
-                } if *product_target == target
+                artifact,
+                ArtifactKey::GeneratedMbti { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
             )
         });
 

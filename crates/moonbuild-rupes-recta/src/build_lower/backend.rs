@@ -20,7 +20,7 @@
 //!
 //! Build planning deals in logical actions and artifacts. Lowering selects one
 //! backend branch for command shape and runtime/linking behavior. Concrete
-//! product paths are resolved by `target_layout`.
+//! artifact paths are resolved by `target_layout`.
 
 use crate::model::{BackendConfig, NativeBackendMode};
 
@@ -61,7 +61,7 @@ impl BackendConfig {
             }
             Self::Llvm => false,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
-                unreachable!("runtime products are only realized for C or LLVM backends")
+                unreachable!("runtime artifacts are only realized for C or LLVM backends")
             }
         }
     }
