@@ -16,23 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::context::ImportContext;
-use super::provenance::ported_imports;
-use crate::run_termination::RunTermination;
+///|
+fn signal_by_index(index : Int) -> Int =
+  "moonbitlang/async" "signal/get_signal_by_index"
 
-pub(super) fn exit(context: &mut ImportContext<'_, '_>, code: i32) {
-    context.request_termination(RunTermination::Exit(code))
-}
+///|
+fn terminate_process_by_signal(signal : Int) =
+  "moonbitlang/async" "runtime/terminate_process_by_signal"
 
-ported_imports! {
-#[ported(
-    source = "src/internal/event_loop/signal.c",
-    original = "moonbitlang_async_terminate_process_by_signal"
-)]
-pub(super) fn terminate_process_by_signal(
-    context: &mut ImportContext<'_, '_>,
-    signal: i32,
-) {
-    context.request_termination(RunTermination::KilledBySignal(signal))
-}
+///|
+fn main {
+  terminate_process_by_signal(signal_by_index(0))
+  println("unreachable")
 }

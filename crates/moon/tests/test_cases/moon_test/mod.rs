@@ -888,7 +888,7 @@ fn test_async_wasm_upstream_process_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/process"),
         expect![[r#"
-            Total tests: 31, passed: 31, failed: 0.
+            Total tests: 32, passed: 32, failed: 0.
         "#]],
     );
 }

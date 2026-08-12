@@ -48,46 +48,30 @@ mod time;
 mod tls;
 
 use std::any::Any;
-use std::cell::Cell;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::async_host::AsyncHost;
 use crate::async_policy::AsyncPolicy;
+use crate::run_termination::TerminationRequest;
 
 pub(crate) use registry::MOONBIT_ASYNC_MODULE;
-
-// V8 invokes async imports synchronously on one isolate thread, so the import
-// adapter and run loop can share a per-runtime exit request without a lock.
-#[derive(Clone, Default)]
-pub(crate) struct ExitRequest(Rc<Cell<Option<i32>>>);
-
-impl ExitRequest {
-    fn request(&self, code: i32) {
-        self.0.set(Some(code));
-    }
-
-    pub(crate) fn take(&self) -> Option<i32> {
-        self.0.take()
-    }
-}
 
 pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     dtors: &mut Vec<Box<dyn Any>>,
     policy: Arc<AsyncPolicy>,
-) -> ExitRequest {
-    let exit_request = ExitRequest::default();
+) -> TerminationRequest {
+    let termination_request = TerminationRequest::default();
     let context = Box::new(context::AsyncContext::new(
         scope,
         obj,
         AsyncHost::new(policy),
-        exit_request.clone(),
+        termination_request.clone(),
     ));
     let context_ptr = &*context as *const context::AsyncContext;
     dtors.push(context);
 
     registry::register_imports(obj, scope, context_ptr);
-    exit_request
+    termination_request
 }

@@ -92,6 +92,10 @@ The observable behavior of `moonbitlang/async` native execution that moonrun sho
 For normal MoonBit async paths, moonrun should stay strictly native-shaped and avoid adding observable intermediate states. Extra validation exists at the async boundary to reject stale or unexpected calls from an Untrusted Guest before they can violate moonrun's Rust or OS ownership invariants.
 _Avoid_: Conceptual parity, best-effort compatibility
 
+**Run Termination**:
+A per-Wasm-run outcome requested by guest code, either an exit code or termination by signal. A runtime adapter records Run Termination and interrupts guest execution without terminating its embedding process; only the outer CLI adapter applies the outcome after guest and host state have been torn down.
+_Avoid_: Host exit, import-side exit, process-global termination state
+
 **Async API**:
 The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm ABI values, reacquires guest memory, sets return values, and reports traps.
 _Avoid_: Runtime state, native-stub implementation
