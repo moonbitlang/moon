@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use clap::Parser;
-use moonrun::{RunOptions, Runtime, RuntimeConfig, apply_cli_outcome, get_moonrun_version};
+use moonrun::{RunOptions, RunOutcome, Runtime, RuntimeConfig};
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Parser)]
@@ -74,6 +74,15 @@ Process spawning is disabled by default. Setting process.spawn to true grants ch
     policy: Option<PathBuf>,
 }
 
+fn get_moonrun_version() -> String {
+    format!(
+        "{} ({} {})",
+        env!("CARGO_PKG_VERSION"),
+        env!("VERGEN_GIT_SHA"),
+        std::env!("VERGEN_BUILD_DATE")
+    )
+}
+
 fn main() -> anyhow::Result<()> {
     let matches = Commandline::parse();
     let runtime_config = match matches.stack_size {
@@ -91,6 +100,33 @@ fn main() -> anyhow::Result<()> {
         options = options.with_policy_file(policy);
     }
 
-    let outcome = Runtime::new(runtime_config).run_file(matches.path, options)?;
-    apply_cli_outcome(outcome)
+    match Runtime::new(runtime_config).run_file(matches.path, options)? {
+        RunOutcome::Completed => Ok(()),
+        RunOutcome::Exited(code) => std::process::exit(code),
+        RunOutcome::KilledBySignal(signal) => {
+            terminate_process_by_signal(signal);
+            Ok(())
+        }
+    }
+}
+
+#[cfg(unix)]
+fn terminate_process_by_signal(signal: i32) {
+    let mut signal_set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+    unsafe {
+        libc::sigemptyset(&mut signal_set);
+        libc::sigaddset(&mut signal_set, signal);
+        libc::pthread_sigmask(libc::SIG_UNBLOCK, &signal_set, std::ptr::null_mut());
+        libc::fflush(std::ptr::null_mut());
+        libc::raise(signal);
+    }
+}
+
+#[cfg(windows)]
+fn terminate_process_by_signal(signal: i32) {
+    const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
+    let _ = signal;
+    unsafe {
+        windows_sys::Win32::System::Threading::ExitProcess(STATUS_CONTROL_C_EXIT);
+    }
 }

@@ -28,7 +28,7 @@ mod tests {
     const DEMANGLE_FN_NAME: &str = "__moonbit_demangle_mangled_function_name";
 
     fn run_demangle_in_v8(input: &str) -> String {
-        crate::initialize_v8(&crate::RuntimeConfig::default()).unwrap();
+        crate::v8_backend::initialize(&crate::RuntimeConfig::default()).unwrap();
         let isolate = &mut v8::Isolate::new(Default::default());
         let scope = &mut v8::HandleScope::new(isolate);
         let context = v8::Context::new(scope, Default::default());
