@@ -64,9 +64,12 @@ We will use these terms in the document:
   but not the actual command line to execute. Nodes require logical artifacts;
   the plan records the action that provides each artifact.
 
-- The **build graph** is a concrete, [Ninja][]-like graph that contains
-  the final command lines and input/output file paths to execute.
-  The node within it is called a **build node**.
+- The **execution plan** is the executor-neutral concrete graph. It contains
+  commands, semantic artifact inputs, external file observations, and declared
+  physical outputs addressed by process-local action and output IDs.
+
+- The **n2 graph** is the [Ninja][]-like executor projection of an execution
+  plan. Its node is called a **build node**.
 
 [ninja]: https://ninja-build.org/
 
@@ -462,33 +465,31 @@ This process of adding dependencies has the following properties:
 The concrete rules of adding dependencies is available in [its module](/crates/moonbuild-rupes-recta/src/build_plan/mod.rs).
 You may also consult the [How a package is built](./build.md) page for a closer view of the rules.
 
-## Lowering to the build graph
+## Lowering to the execution plan
 
-The build plan is only a logical description of the build. It must be lowered to
-a concrete **build graph** that contains executable commands.
-
-The build-graph data structure comes from the [n2][] crate, a Rust
-reimplementation of [Ninja][]. Each node in this graph carries:
+The build plan is only a logical description of the build. It is lowered into
+a concrete, executor-neutral **execution plan**. Each execution action carries:
 
 - a command line to execute,
-- a list of input file paths, and
-- a list of output file paths.
+- semantic artifact inputs and external file observations,
+- declared physical outputs, and
+- execution metadata such as cwd, environment, diagnostics, and cache policy.
 
 During lowering:
 
-- The build plan is first viewed as a `BuildActionPlan`, where each surviving
-  build-plan node has a stable action id and hydrated action metadata.
-- Each action’s command line is chosen based on its own metadata
+- Each build-plan node’s command line is chosen based on its own metadata
   (package, backend, build target kind, action) and its dependencies.
-- Build Artifacts are resolved to input/output files and attached to a
-  `LoweredAction` together with the command and execution metadata.
+- Build Artifacts are resolved to physical outputs and registered in the
+  execution plan's artifact-provider map.
 - Additional inputs (such as source files) may be attached to represent files
-  that are not produced by other build-graph nodes.
-- The n2 adapter consumes each `LoweredAction` by value and constructs the
-  concrete build node. Ordinary builds perform this incrementally and do not
-  retain a second complete graph.
+  that are not produced by another execution action.
+- Each execution action and declared output receives a process-local
+  `ActionId` or `OutputId`.
+- The n2 adapter projects a selected set of execution actions into concrete
+  n2 build nodes.
 
-Each action maps to exactly one `LoweredAction` and concrete build-graph node.
+Each semantic action currently maps to exactly one execution action and n2
+build node.
 Backend differences are represented while planning the provider action rather
 than by dropping no-op actions during lowering. Lowering a single action to
 multiple concrete nodes is not supported (hence the `index` field in the node
@@ -501,7 +502,7 @@ is defined in [its module](/crates/moonbuild-rupes-recta/src/target_layout.rs).
 
 ## Execution of the build graph
 
-Once lowered, the build graph is handed to [n2][],
+For current builds, the execution plan is adapted to an n2 graph and handed to [n2][],
 which executes it in the usual Ninja-style way:
 incrementally (skipping up-to-date nodes)
 and with maximal parallelism subject to dependencies and its job limits.
