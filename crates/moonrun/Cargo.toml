@@ -41,6 +41,7 @@ openssl-probe.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
+signal-hook.workspace = true
 
 [target."cfg(windows)".dependencies.windows-sys]
 version = "0.59.0"

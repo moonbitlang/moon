@@ -52,6 +52,7 @@ use std::sync::Arc;
 
 use crate::async_host::AsyncHost;
 use crate::async_policy::AsyncPolicy;
+use crate::instance_signal::SignalReceiver;
 use crate::run_termination::TerminationRequest;
 
 pub(crate) use registry::MOONBIT_ASYNC_MODULE;
@@ -62,11 +63,12 @@ pub(crate) fn init_env<'s>(
     dtors: &mut Vec<Box<dyn Any>>,
     policy: Arc<AsyncPolicy>,
     termination_request: TerminationRequest,
+    signal_receiver: SignalReceiver,
 ) {
     let context = Box::new(context::AsyncContext::new(
         scope,
         obj,
-        AsyncHost::new(policy),
+        AsyncHost::new_with_signals(policy, signal_receiver),
         termination_request,
     ));
     let context_ptr = &*context as *const context::AsyncContext;

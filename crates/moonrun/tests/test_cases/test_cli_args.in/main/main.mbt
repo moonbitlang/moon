@@ -31,6 +31,9 @@ fn main {
   if args.length() > 1 && args[1] == "exit-7" {
     exit_with_code(7)
   }
+  if args.length() > 1 && args[1] == "spin" {
+    while true {}
+  }
   @debug.to_string(args) |> println
 }
 

@@ -50,6 +50,7 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+use crate::instance_signal::{SignalReceiver, signal_channel};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -718,6 +719,15 @@ struct ThreadPoolCompletions {
     target: Option<ThreadPoolCompletionTarget>,
 }
 
+enum RuntimeWorker {
+    Thread(HostWorkerHandle),
+    // The wasm guest retains its native-shaped sigwait Job, but an embedded
+    // instance receives process signals from its outer adapter. Keeping that
+    // suspended Job here avoids dedicating a host Worker to sigwait.
+    #[cfg(unix)]
+    ExternalSignal(Option<HostWorkerJob>),
+}
+
 #[cfg(unix)]
 struct ThreadPoolSignalMaskGuard {
     old: Option<libc::sigset_t>,
@@ -1214,7 +1224,8 @@ pub(crate) struct AsyncHost {
     handles: RefCell<HandleTable>,
     tls_connections: RefCell<SecondaryMap<HandleKey, tls::TlsHandle>>,
     tls_error: RefCell<Option<String>>,
-    workers: RefCell<SecondaryMap<HandleKey, HostWorkerHandle>>,
+    signals: SignalReceiver,
+    workers: RefCell<SecondaryMap<HandleKey, RuntimeWorker>>,
 }
 
 impl Default for AsyncHost {
@@ -1225,6 +1236,10 @@ impl Default for AsyncHost {
 
 impl AsyncHost {
     pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
+        Self::new_with_signals(policy, signal_channel().1)
+    }
+
+    pub(crate) fn new_with_signals(policy: Arc<AsyncPolicy>, signals: SignalReceiver) -> Self {
         let process_policy_state = policy
             .has_process_policy()
             .then(|| Arc::new(ProcessPolicyState::default()));
@@ -1248,6 +1263,7 @@ impl AsyncHost {
             handles: RefCell::new(HandleTable::default()),
             tls_connections: RefCell::new(SecondaryMap::new()),
             tls_error: RefCell::new(None),
+            signals,
             workers: RefCell::new(SecondaryMap::new()),
         }
     }
@@ -1543,6 +1559,7 @@ impl AsyncHost {
         #[cfg(unix)]
         {
             if let Some(source) = completion_source {
+                self.signals.detach_target();
                 let _ = self.handles.borrow_mut().remove_resource(source);
             }
             if let Some(old_signal_mask) = old_signal_mask {
@@ -1557,7 +1574,7 @@ impl AsyncHost {
                 .as_ref()
                 .is_some_and(|target| target.poll == poll_key)
             {
-                let _ = crate::async_sys::signal::set_console_control_handler(false, None);
+                self.signals.detach_target();
                 completions.target = None;
             }
         }
@@ -1735,6 +1752,15 @@ impl AsyncHost {
                 completions.old_signal_mask = Some(signal_mask_guard.commit());
                 source
             };
+            self.signals
+                .attach_target(
+                    self.thread_pool_completions
+                        .borrow()
+                        .notifier
+                        .clone()
+                        .ok_or(AsyncHostError::Badf)?,
+                )
+                .map_err(|_| AsyncHostError::Inval)?;
             Ok(source)
         }
         #[cfg(windows)]
@@ -1748,8 +1774,11 @@ impl AsyncHost {
             }
             completions.target = Some(ThreadPoolCompletionTarget {
                 poll: poll_key,
-                port: completion_port,
+                port: completion_port.clone(),
             });
+            self.signals
+                .attach_target(completion_port)
+                .map_err(|_| AsyncHostError::Inval)?;
             raw_fd_to_guest(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE)
         }
     }
@@ -1761,24 +1790,35 @@ impl AsyncHost {
             .iter()
             .map(|(key, _)| key)
             .collect::<Vec<_>>();
-        let workers = worker_keys
+        let mut workers = worker_keys
             .into_iter()
             .filter_map(|key| {
                 self.handles.borrow_mut().remove_worker_key(key);
                 self.workers.borrow_mut().remove(key)
             })
             .collect::<Vec<_>>();
-        for worker in &workers {
+        for worker in &mut workers {
             let _ = self.cancel_host_worker(worker);
         }
         for worker in workers {
-            if let Some(replaced_job) = thread_pool::free_worker(worker) {
-                self.restore_unrun_worker_job(replaced_job);
+            match worker {
+                RuntimeWorker::Thread(worker) => {
+                    if let Some(replaced_job) = thread_pool::free_worker(worker) {
+                        self.restore_unrun_worker_job(replaced_job);
+                    }
+                }
+                #[cfg(unix)]
+                RuntimeWorker::ExternalSignal(job) => {
+                    if let Some(job) = job {
+                        self.restore_unrun_worker_job(job);
+                    }
+                }
             }
         }
         self.restore_completed_worker_jobs();
         #[cfg(unix)]
         {
+            self.signals.detach_target();
             let (completion_source, old_signal_mask) = {
                 let mut completions = self.thread_pool_completions.borrow_mut();
                 let completion_source = completions.source.take();
@@ -1807,7 +1847,8 @@ impl AsyncHost {
         }
         #[cfg(windows)]
         {
-            let _ = crate::async_sys::signal::set_console_control_handler(false, None);
+            self.signals.deactivate();
+            self.signals.detach_target();
             self.thread_pool_completions.borrow_mut().target = None;
         }
     }
@@ -2302,6 +2343,7 @@ impl AsyncHost {
                 }
             };
             if completion_source_closed {
+                self.signals.detach_target();
                 for poll in polls.polls.values_mut() {
                     poll.completion_notifier = None;
                 }
@@ -3489,6 +3531,22 @@ impl AsyncHost {
         let completion_id = WorkerCompletionId::from_abi(completion_id);
         let job_key = self.handles.borrow().job(job_handle)?;
         #[cfg(unix)]
+        if matches!(
+            self.jobs.borrow().visible_job(job_key)?.payload(),
+            JobPayload::Sigwait
+        ) {
+            let init_job = self.take_worker_job(completion_id, job_key)?;
+            if self.signals.activate().is_err() {
+                self.restore_unrun_worker_job(init_job);
+                return Err(AsyncHostError::Inval);
+            }
+            let key = self.handles.borrow_mut().insert(HandleKind::Worker);
+            self.workers
+                .borrow_mut()
+                .insert(key, RuntimeWorker::ExternalSignal(Some(init_job)));
+            return Ok(handle_from_key(key));
+        }
+        #[cfg(unix)]
         let worker = {
             let completion_notifier = self
                 .thread_pool_completions
@@ -3497,9 +3555,9 @@ impl AsyncHost {
                 .clone()
                 .ok_or(AsyncHostError::Badf)?;
             let init_job = self.take_worker_job(completion_id, job_key)?;
-            self.spawn_worker_thread(init_job, move |completion_id| {
+            RuntimeWorker::Thread(self.spawn_worker_thread(init_job, move |completion_id| {
                 let _ = completion_notifier.notify(completion_id.as_i32());
-            })
+            }))
         };
         #[cfg(windows)]
         let worker = {
@@ -3510,12 +3568,12 @@ impl AsyncHost {
                 .clone()
                 .ok_or(AsyncHostError::Badf)?;
             let init_job = self.take_worker_job(completion_id, job_key)?;
-            self.spawn_worker_thread(init_job, move |completion_id| {
+            RuntimeWorker::Thread(self.spawn_worker_thread(init_job, move |completion_id| {
                 let _ = poll::post_thread_pool_completion(
                     &completion_target.port,
                     completion_id.as_i32(),
                 );
-            })
+            }))
         };
         let key = self.handles.borrow_mut().insert(HandleKind::Worker);
         self.workers.borrow_mut().insert(key, worker);
@@ -3533,13 +3591,31 @@ impl AsyncHost {
             let handles = self.handles.borrow();
             (handles.worker(worker_handle)?, handles.job(job_handle)?)
         };
+        let job = self.take_worker_job(completion_id, job_key)?;
         let replaced_job = {
-            let workers = self.workers.borrow();
-            let Some(worker) = workers.get(worker_key) else {
+            let mut workers = self.workers.borrow_mut();
+            let Some(worker) = workers.get_mut(worker_key) else {
+                self.restore_unrun_worker_job(job);
                 return Err(AsyncHostError::Badf);
             };
-            let job = self.take_worker_job(completion_id, job_key)?;
-            thread_pool::wake_worker(worker, job)
+            match worker {
+                RuntimeWorker::Thread(worker) => thread_pool::wake_worker(worker, job),
+                #[cfg(unix)]
+                RuntimeWorker::ExternalSignal(signal_job) => {
+                    if signal_job.is_some() {
+                        Some(job)
+                    } else {
+                        let completion_notifier = self.thread_pool_notifier()?;
+                        *worker = RuntimeWorker::Thread(self.spawn_worker_thread(
+                            job,
+                            move |completion_id| {
+                                let _ = completion_notifier.notify(completion_id.as_i32());
+                            },
+                        ));
+                        None
+                    }
+                }
+            }
         };
         if let Some(replaced_job) = replaced_job {
             self.restore_unrun_worker_job(replaced_job);
@@ -3550,9 +3626,13 @@ impl AsyncHost {
     pub(crate) fn worker_enter_idle(&self, worker_handle: u64) -> AsyncHostResult<()> {
         let worker_key = self.handles.borrow().worker(worker_handle)?;
         let replaced_job = {
-            let workers = self.workers.borrow();
-            let worker = workers.get(worker_key).ok_or(AsyncHostError::Badf)?;
-            thread_pool::worker_enter_idle(worker)
+            let mut workers = self.workers.borrow_mut();
+            let worker = workers.get_mut(worker_key).ok_or(AsyncHostError::Badf)?;
+            match worker {
+                RuntimeWorker::Thread(worker) => thread_pool::worker_enter_idle(worker),
+                #[cfg(unix)]
+                RuntimeWorker::ExternalSignal(_) => None,
+            }
         };
         if let Some(replaced_job) = replaced_job {
             self.restore_unrun_worker_job(replaced_job);
@@ -3562,15 +3642,25 @@ impl AsyncHost {
 
     pub(crate) fn free_worker(&self, worker_handle: u64) -> AsyncHostResult<()> {
         let worker_key = self.handles.borrow().worker(worker_handle)?;
-        let worker = self
+        let mut worker = self
             .workers
             .borrow_mut()
             .remove(worker_key)
             .ok_or(AsyncHostError::Badf)?;
         self.handles.borrow_mut().remove_worker(worker_handle)?;
-        let _ = self.cancel_host_worker(&worker);
-        if let Some(replaced_job) = thread_pool::free_worker(worker) {
-            self.restore_unrun_worker_job(replaced_job);
+        let _ = self.cancel_host_worker(&mut worker);
+        match worker {
+            RuntimeWorker::Thread(worker) => {
+                if let Some(replaced_job) = thread_pool::free_worker(worker) {
+                    self.restore_unrun_worker_job(replaced_job);
+                }
+            }
+            #[cfg(unix)]
+            RuntimeWorker::ExternalSignal(job) => {
+                if let Some(job) = job {
+                    self.restore_unrun_worker_job(job);
+                }
+            }
         }
         self.restore_completed_worker_jobs();
         Ok(())
@@ -3578,23 +3668,39 @@ impl AsyncHost {
 
     pub(crate) fn cancel_worker(&self, worker_handle: u64) -> AsyncHostResult<i32> {
         let worker_key = self.handles.borrow().worker(worker_handle)?;
-        let workers = self.workers.borrow();
-        let worker = workers.get(worker_key).ok_or(AsyncHostError::Badf)?;
+        let mut workers = self.workers.borrow_mut();
+        let worker = workers.get_mut(worker_key).ok_or(AsyncHostError::Badf)?;
         self.cancel_host_worker(worker)
     }
 
-    fn cancel_host_worker(&self, worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
-        #[cfg(windows)]
-        {
-            match thread_pool::worker_cancellation_target(worker) {
-                thread_pool::WorkerCancellationTarget::Resource(cancel) => {
-                    thread_pool::cancel_job_resource(&cancel)?;
-                    return Ok(1);
+    fn cancel_host_worker(&self, worker: &mut RuntimeWorker) -> AsyncHostResult<i32> {
+        match worker {
+            RuntimeWorker::Thread(worker) => {
+                #[cfg(windows)]
+                {
+                    match thread_pool::worker_cancellation_target(worker) {
+                        thread_pool::WorkerCancellationTarget::Resource(cancel) => {
+                            thread_pool::cancel_job_resource(&cancel)?;
+                            return Ok(1);
+                        }
+                        thread_pool::WorkerCancellationTarget::Thread => {}
+                    }
                 }
-                thread_pool::WorkerCancellationTarget::Thread => {}
+                thread_pool::cancel_worker(worker)
+            }
+            #[cfg(unix)]
+            RuntimeWorker::ExternalSignal(job) => {
+                self.signals.deactivate();
+                let Some(job) = job.take() else {
+                    return Ok(1);
+                };
+                let completion_id = job.completion_id;
+                self.restore_job(job.job_key, job.job)?;
+                self.thread_pool_notifier()?
+                    .notify(completion_id.as_i32())?;
+                Ok(1)
             }
         }
-        thread_pool::cancel_worker(worker)
     }
 
     #[cfg(unix)]
@@ -3613,6 +3719,26 @@ impl AsyncHost {
             .as_ref()
             .map(|target| target.port.clone())
             .ok_or(AsyncHostError::Badf)
+    }
+
+    pub(crate) fn set_cancellation_signals(
+        &self,
+        all_signals: &[i32],
+        signals: &[i32],
+    ) -> AsyncHostResult<()> {
+        self.signals
+            .configure(all_signals, signals)
+            .map_err(|_| AsyncHostError::Inval)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn set_signal_delivery_active(&self, active: bool) -> AsyncHostResult<i32> {
+        if active {
+            self.signals.activate().map_err(|_| AsyncHostError::Inval)?;
+        } else {
+            self.signals.deactivate();
+        }
+        Ok(1)
     }
 
     pub(crate) fn get_read_result(
@@ -5708,6 +5834,48 @@ mod tests {
         host.destroy_thread_pool();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn external_signal_waiter_uses_instance_completion_source_without_a_worker_thread() {
+        let (sender, receiver) = crate::signal_channel();
+        let host = AsyncHost::new_with_signals(Arc::new(AsyncPolicy::allow_all()), receiver);
+        let poll = host.poll_create().unwrap();
+        let completion_source = host.init_thread_pool(poll).unwrap();
+        host.set_cancellation_signals(&[libc::SIGINT], &[libc::SIGINT])
+            .unwrap();
+        let job = host
+            .insert_job(thread_pool::make_sigwait_job(vec![libc::SIGINT]))
+            .unwrap();
+        let worker = host.spawn_worker(42, job).unwrap();
+        let worker_key = host.handles.borrow().worker(worker).unwrap();
+        assert!(matches!(
+            host.workers.borrow().get(worker_key),
+            Some(RuntimeWorker::ExternalSignal(Some(_)))
+        ));
+
+        sender.send(libc::SIGINT).unwrap();
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let mut memory = [0; 4];
+        host.fetch_completion(memory.as_mut_slice(), completion_source, 0, 1)
+            .unwrap();
+        assert_eq!(
+            i32::from_le_bytes(memory),
+            ((libc::SIGINT as u32) | (1_u32 << 31)) as i32
+        );
+
+        assert_eq!(host.cancel_worker(worker).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        host.fetch_completion(memory.as_mut_slice(), completion_source, 0, 1)
+            .unwrap();
+        assert_eq!(i32::from_le_bytes(memory), 42);
+        assert_eq!(host.job_get_ret(job).unwrap(), 0);
+
+        host.worker_enter_idle(worker).unwrap();
+        host.free_worker(worker).unwrap();
+        host.free_job(job).unwrap();
+        host.destroy_thread_pool();
+    }
+
     #[test]
     fn free_running_worker_job_detaches_its_result() {
         let host = AsyncHost::default();
@@ -5734,7 +5902,9 @@ mod tests {
             )
         };
         let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        host.workers.borrow_mut().insert(worker_key, worker);
+        host.workers
+            .borrow_mut()
+            .insert(worker_key, RuntimeWorker::Thread(worker));
         let worker = handle_from_key(worker_key);
 
         assert_eq!(
@@ -5787,7 +5957,9 @@ mod tests {
             )
         };
         let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        host.workers.borrow_mut().insert(worker_key, worker);
+        host.workers
+            .borrow_mut()
+            .insert(worker_key, RuntimeWorker::Thread(worker));
         let worker = handle_from_key(worker_key);
 
         assert_eq!(

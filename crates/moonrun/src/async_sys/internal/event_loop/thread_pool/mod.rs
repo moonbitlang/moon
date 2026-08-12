@@ -20,8 +20,6 @@ mod fs;
 mod jobs;
 mod process;
 mod runner;
-#[cfg(unix)]
-mod signal;
 mod sleep;
 mod socket;
 mod stat;
@@ -82,8 +80,6 @@ fn job_executor_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     let mut symbols = Vec::new();
     symbols.extend_from_slice(fs::PORTED_SYMBOLS);
     symbols.extend_from_slice(process::PORTED_SYMBOLS);
-    #[cfg(unix)]
-    symbols.extend_from_slice(signal::PORTED_SYMBOLS);
     symbols.extend_from_slice(sleep::PORTED_SYMBOLS);
     symbols.extend_from_slice(socket::PORTED_SYMBOLS);
     symbols

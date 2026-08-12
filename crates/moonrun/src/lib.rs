@@ -31,6 +31,7 @@ mod demangle_js_template;
 mod fs_api_temp;
 mod host_fs;
 mod host_imports;
+mod instance_signal;
 mod memory_sanitizer_api;
 mod run_termination;
 mod runtime;
@@ -40,4 +41,5 @@ mod v8_backend;
 mod v8_builder;
 mod wasi_api;
 
+pub use instance_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use runtime::{RunOptions, RunOutcome, Runtime, RuntimeConfig};

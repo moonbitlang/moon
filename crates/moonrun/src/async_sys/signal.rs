@@ -16,9 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(unix)]
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(windows)]
-use crate::async_sys::internal::event_loop::poll::{self, CompletionPort};
 use crate::async_sys::ported_fns;
 use crate::run_termination::RunTermination;
 
@@ -27,40 +26,18 @@ ported_fns! {
         source = "src/internal/event_loop/signal.c",
         original = "moonbitlang_async_set_global_cancellation_signals"
     )]
-    #[cfg(unix)]
     pub(crate) fn set_global_cancellation_signals(
         all_signals: &[i32],
         signals: &[i32],
-    ) -> AsyncHostResult<()> {
-        let mut set = current_signal_mask()?;
-        for signal in all_signals.iter().copied().filter(|signal| *signal >= 0) {
-            check_signal_call(unsafe { libc::sigdelset(&mut set, signal) })?;
-        }
-        for signal in signals.iter().copied().filter(|signal| *signal >= 0) {
-            check_signal_call(unsafe { libc::sigaddset(&mut set, signal) })?;
-        }
-        check_pthread_call(unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, &set, std::ptr::null_mut()) })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/signal.c",
-        original = "moonbitlang_async_set_global_cancellation_signals"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn set_global_cancellation_signals(
-        _all_signals: &[i32],
-        signals: &[i32],
-    ) -> AsyncHostResult<()> {
-        let mut mask = 0;
-        for signal in signals
+    ) -> Vec<i32> {
+        // Native execution updates the process thread's signal mask here. A
+        // Wasm instance instead returns the selected set to its controller so
+        // the embedding process keeps ownership of OS signal disposition.
+        signals
             .iter()
             .copied()
-            .filter(|signal| (0..i32::BITS as i32).contains(signal))
-        {
-            mask |= 1_i32 << signal;
-        }
-        INTERESTED_CONSOLE_CTRL_EVENT.store(mask, std::sync::atomic::Ordering::Relaxed);
-        Ok(())
+            .filter(|signal| *signal >= 0 && all_signals.contains(signal))
+            .collect()
     }
 
     #[ported(
@@ -68,27 +45,10 @@ ported_fns! {
         original = "moonbitlang_async_set_console_control_handler"
     )]
     #[cfg(windows)]
-    pub(crate) fn set_console_control_handler(
-        add: bool,
-        completion_target: Option<CompletionPort>,
-    ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
-
-        if add {
-            let completion_target = completion_target.ok_or(AsyncHostError::Badf)?;
-            *CONSOLE_COMPLETION_TARGET.lock().unwrap() = Some(completion_target);
-        }
-        if unsafe { SetConsoleCtrlHandler(Some(console_control_handler), i32::from(add)) } == 0 {
-            let error = last_native_error();
-            if add {
-                *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
-            }
-            return Err(error);
-        }
-        if !add {
-            *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
-        }
-        Ok(1)
+    pub(crate) fn set_console_control_handler(add: bool) -> bool {
+        // The CLI or another embedding adapter owns SetConsoleCtrlHandler.
+        // The instance retains only the native add/remove lifecycle.
+        add
     }
 
     #[ported(
@@ -96,8 +56,7 @@ ported_fns! {
         original = "moonbitlang_async_terminate_process_by_signal"
     )]
     pub(crate) fn terminate_process_by_signal(signal: i32) -> RunTermination {
-        // Process termination belongs to the outer adapter; the local engine
-        // only records the instance outcome represented by this native call.
+        // The outer adapter applies this outcome only after instance cleanup.
         RunTermination::KilledBySignal(signal)
     }
 }
@@ -185,41 +144,10 @@ fn signal_break() -> i32 {
     windows_sys::Win32::System::Console::CTRL_BREAK_EVENT as i32
 }
 
-#[cfg(windows)]
-static INTERESTED_CONSOLE_CTRL_EVENT: std::sync::atomic::AtomicI32 =
-    std::sync::atomic::AtomicI32::new(0);
-
-#[cfg(windows)]
-static CONSOLE_COMPLETION_TARGET: std::sync::Mutex<Option<CompletionPort>> =
-    std::sync::Mutex::new(None);
-
-#[cfg(windows)]
-unsafe extern "system" fn console_control_handler(ctrl_type: u32) -> i32 {
-    let interested = INTERESTED_CONSOLE_CTRL_EVENT.load(std::sync::atomic::Ordering::Relaxed);
-    if ctrl_type < i32::BITS && (interested & (1_i32 << ctrl_type)) != 0 {
-        let target = CONSOLE_COMPLETION_TARGET.lock().unwrap().clone();
-        if let Some(completion_port) = target {
-            let _ =
-                poll::post_thread_pool_completion(&completion_port, (ctrl_type | (1 << 31)) as i32);
-            return 1;
-        }
-    }
-    0
-}
-
 #[cfg(unix)]
 fn empty_signal_set() -> AsyncHostResult<libc::sigset_t> {
     let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
     check_signal_call(unsafe { libc::sigemptyset(&mut set) })?;
-    Ok(set)
-}
-
-#[cfg(unix)]
-fn current_signal_mask() -> AsyncHostResult<libc::sigset_t> {
-    let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-    check_pthread_call(unsafe {
-        libc::pthread_sigmask(libc::SIG_SETMASK, std::ptr::null(), &mut set)
-    })?;
     Ok(set)
 }
 
@@ -239,11 +167,6 @@ fn check_pthread_call(result: i32) -> AsyncHostResult<()> {
     } else {
         Err(AsyncHostError::Native(result))
     }
-}
-
-#[cfg(windows)]
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(unsafe { windows_sys::Win32::Foundation::GetLastError() as i32 })
 }
 
 #[cfg(unix)]

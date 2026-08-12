@@ -21,8 +21,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostResult, CBufferLease};
-#[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
 
 use super::stat::{PackedStat, StatRequest};
@@ -550,10 +548,7 @@ pub(crate) enum JobPayload {
         cancel: Option<ResourceRef>,
     },
     #[cfg(unix)]
-    Sigwait {
-        signals: Vec<i32>,
-        notifier: Arc<ThreadPoolCompletionNotifier>,
-    },
+    Sigwait,
 }
 
 pub(crate) trait ResourceTable {

@@ -30,8 +30,6 @@ use super::process::run_spawn_job_unix;
 #[cfg(windows)]
 use super::process::run_spawn_job_windows;
 use super::process::run_wait_for_process_job;
-#[cfg(unix)]
-use super::signal::run_sigwait_job;
 use super::sleep::run_sleep_job;
 use super::socket::{run_bind_job, run_getaddrinfo_job};
 use super::stat::{run_fstatx_job, run_statx_job};
@@ -219,7 +217,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
             cancel.take(),
         ),
         #[cfg(unix)]
-        JobPayload::Sigwait { signals, notifier } => run_sigwait_job(signals, notifier),
+        JobPayload::Sigwait => Err(AsyncHostError::Inval),
     };
 
     match result {

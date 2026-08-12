@@ -20,7 +20,8 @@
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 use crate::{
-    async_api, async_policy, backtrace_api, fs_api_temp, run_termination, sys_api, util, wasi_api,
+    async_api, async_policy, backtrace_api, fs_api_temp, instance_signal, run_termination, sys_api,
+    util, wasi_api,
 };
 use rand::Rng;
 use rand::SeedableRng;
@@ -349,9 +350,10 @@ pub(crate) fn install(
     wasm_file_name: &str,
     args: &[String],
     async_policy: Arc<async_policy::AsyncPolicy>,
-) -> run_termination::TerminationRequest {
+    termination_request: run_termination::TerminationRequest,
+    signal_receiver: instance_signal::SignalReceiver,
+) {
     let global_proxy = scope.get_current_context().global(scope);
-    let termination_request = run_termination::TerminationRequest::default();
 
     let print_env_box = Box::<PrintEnv>::default();
     let identifier = scope.string("print");
@@ -388,6 +390,7 @@ pub(crate) fn install(
             dtors,
             Arc::clone(&async_policy),
             termination_request.clone(),
+            signal_receiver,
         );
     }
 
@@ -449,5 +452,4 @@ pub(crate) fn install(
         sys.set_func(scope, "is_windows", is_windows);
         dtors.push(exit_request);
     }
-    termination_request
 }

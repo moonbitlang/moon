@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use clap::Parser;
-use moonrun::{RunOptions, RunOutcome, Runtime, RuntimeConfig};
+use moonrun::{RunOptions, RunOutcome, Runtime, RuntimeConfig, SignalSender, signal_channel};
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Parser)]
@@ -100,7 +100,13 @@ fn main() -> anyhow::Result<()> {
         options = options.with_policy_file(policy);
     }
 
-    match Runtime::new(runtime_config).run_file(matches.path, options)? {
+    let (signal_sender, signal_receiver) = signal_channel();
+    options = options.with_signal_receiver(signal_receiver);
+    let process_signals = ProcessSignalAdapter::install(signal_sender)?;
+    let outcome = Runtime::new(runtime_config).run_file(matches.path, options);
+    drop(process_signals);
+
+    match outcome? {
         RunOutcome::Completed => Ok(()),
         RunOutcome::Exited(code) => std::process::exit(code),
         RunOutcome::KilledBySignal(signal) => {
@@ -117,6 +123,7 @@ fn terminate_process_by_signal(signal: i32) {
         libc::sigemptyset(&mut signal_set);
         libc::sigaddset(&mut signal_set, signal);
         libc::pthread_sigmask(libc::SIG_UNBLOCK, &signal_set, std::ptr::null_mut());
+        libc::signal(signal, libc::SIG_DFL);
         libc::fflush(std::ptr::null_mut());
         libc::raise(signal);
     }
@@ -129,4 +136,94 @@ fn terminate_process_by_signal(signal: i32) {
     unsafe {
         windows_sys::Win32::System::Threading::ExitProcess(STATUS_CONTROL_C_EXIT);
     }
+}
+
+#[cfg(unix)]
+struct ProcessSignalAdapter {
+    handle: signal_hook::iterator::Handle,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl ProcessSignalAdapter {
+    fn install(sender: SignalSender) -> std::io::Result<Self> {
+        let mut signals = signal_hook::iterator::Signals::new([
+            signal_hook::consts::SIGINT,
+            signal_hook::consts::SIGTERM,
+            signal_hook::consts::SIGHUP,
+        ])?;
+        let handle = signals.handle();
+        let thread = std::thread::Builder::new()
+            .name("moonrun-process-signals".to_string())
+            .spawn(move || {
+                for signal in signals.forever() {
+                    if sender.send(signal).is_err() {
+                        break;
+                    }
+                }
+            })?;
+        Ok(Self {
+            handle,
+            thread: Some(thread),
+        })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProcessSignalAdapter {
+    fn drop(&mut self) {
+        self.handle.close();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+#[cfg(windows)]
+struct ProcessSignalAdapter;
+
+#[cfg(windows)]
+static PROCESS_SIGNAL_TARGET: std::sync::Mutex<Option<SignalSender>> = std::sync::Mutex::new(None);
+
+#[cfg(windows)]
+impl ProcessSignalAdapter {
+    fn install(sender: SignalSender) -> std::io::Result<Self> {
+        use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+
+        let mut target = PROCESS_SIGNAL_TARGET.lock().unwrap();
+        if target.is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "moonrun process signal adapter is already installed",
+            ));
+        }
+        *target = Some(sender);
+        if unsafe { SetConsoleCtrlHandler(Some(process_console_control_handler), 1) } == 0 {
+            *target = None;
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Self)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessSignalAdapter {
+    fn drop(&mut self) {
+        use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+
+        unsafe {
+            SetConsoleCtrlHandler(Some(process_console_control_handler), 0);
+        }
+        *PROCESS_SIGNAL_TARGET.lock().unwrap() = None;
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn process_console_control_handler(control: u32) -> i32 {
+    PROCESS_SIGNAL_TARGET
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|sender| sender.send(control as i32) == Ok(true))
+        .into()
 }

@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::instance_signal::SignalReceiver;
 use crate::{async_policy, v8_backend};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
@@ -38,12 +39,13 @@ impl RuntimeConfig {
 }
 
 /// Configuration for one MoonBit Wasm run.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct RunOptions {
     pub(crate) args: Vec<String>,
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) policy_file: Option<PathBuf>,
+    pub(crate) signal_receiver: Option<SignalReceiver>,
 }
 
 impl RunOptions {
@@ -70,6 +72,16 @@ impl RunOptions {
         self.policy_file = Some(policy_file.into());
         self
     }
+
+    /// Receives signals selected by the embedding process for this run.
+    ///
+    /// Moonrun never installs process signal handlers when used as a library.
+    /// The embedding process owns that policy and may forward a signal through
+    /// the paired [`crate::SignalSender`].
+    pub fn with_signal_receiver(mut self, signal_receiver: SignalReceiver) -> Self {
+        self.signal_receiver = Some(signal_receiver);
+        self
+    }
 }
 
 /// The observable result of one MoonBit Wasm run.
@@ -84,9 +96,10 @@ pub enum RunOutcome {
 ///
 /// Each call to [`Runtime::run_file`] creates fresh per-run host and Wasm
 /// state. The current implementation still uses process stdio, environment,
-/// working directory, and signal compatibility behavior; those remain
-/// process-scoped dependencies to extract in later changes. Concurrent run
-/// semantics are not yet part of this experimental interface.
+/// working directory; those remain process-scoped dependencies to extract in
+/// later changes. OS signal ownership stays outside this module and signals
+/// may be injected through [`crate::signal_channel`]. Concurrent run semantics
+/// are not yet part of this experimental interface.
 #[derive(Clone, Debug)]
 pub struct Runtime {
     config: RuntimeConfig,

@@ -16,8 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::cell::Cell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RunTermination {
@@ -25,21 +24,23 @@ pub(crate) enum RunTermination {
     KilledBySignal(i32),
 }
 
-// The current V8 adapter invokes imports synchronously on one isolate thread.
-// Keeping the request independent of that adapter lets another Wasm engine
+// Guest imports request termination on the isolate thread, while an embedding
+// controller may request it from another thread before interrupting the engine.
+// Keeping the request independent of either adapter lets another Wasm engine
 // surface the same per-run outcome without inheriting V8-specific state.
 #[derive(Clone, Default)]
-pub(crate) struct TerminationRequest(Rc<Cell<Option<RunTermination>>>);
+pub(crate) struct TerminationRequest(Arc<Mutex<Option<RunTermination>>>);
 
 impl TerminationRequest {
     pub(crate) fn request(&self, termination: RunTermination) {
-        if self.0.get().is_none() {
-            self.0.set(Some(termination));
+        let mut requested = self.0.lock().unwrap();
+        if requested.is_none() {
+            *requested = Some(termination);
         }
     }
 
     pub(crate) fn take(&self) -> Option<RunTermination> {
-        self.0.take()
+        self.0.lock().unwrap().take()
     }
 }
 

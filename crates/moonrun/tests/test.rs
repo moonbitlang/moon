@@ -558,6 +558,133 @@ fn test_moonrun_async_main_preserves_signal_termination() {
 }
 
 #[test]
+fn moonrun_library_routes_external_signals_to_one_instance() {
+    use std::sync::mpsc::{RecvTimeoutError, channel};
+    use std::time::Duration;
+
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_async_signal_main.in");
+    let dir = tempfile::Builder::new()
+        .prefix("moonrun_library_routes_external_signals.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+    moon_cmd()
+        .current_dir(dir.path())
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+    let wasm = dir
+        .path()
+        .join("_build/wasm/debug/build/moon/async_signal_main/main/main.wasm");
+
+    let (first_signal, first_receiver) = moonrun::signal_channel();
+    let (second_signal, second_receiver) = moonrun::signal_channel();
+    let (result_sender, result_receiver) = channel();
+    for (name, receiver) in [("first", first_receiver), ("second", second_receiver)] {
+        let wasm = wasm.clone();
+        let result_sender = result_sender.clone();
+        std::thread::spawn(move || {
+            let result = moonrun::Runtime::default().run_file(
+                wasm,
+                moonrun::RunOptions::default().with_signal_receiver(receiver),
+            );
+            result_sender.send((name, result)).unwrap();
+        });
+    }
+    drop(result_sender);
+
+    // Both instances have ample time to enter their async event loops. The
+    // unit-level host test separately verifies that this path does not create a
+    // sigwait Worker.
+    std::thread::sleep(Duration::from_millis(200));
+    #[cfg(unix)]
+    let signal = libc::SIGINT;
+    #[cfg(windows)]
+    let signal = windows_sys::Win32::System::Console::CTRL_BREAK_EVENT as i32;
+
+    assert_eq!(first_signal.send(signal), Ok(true));
+    let (name, result) = result_receiver
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap();
+    assert_eq!(name, "first");
+    assert_eq!(result.unwrap(), moonrun::RunOutcome::KilledBySignal(signal));
+    assert!(matches!(
+        result_receiver.recv_timeout(Duration::from_millis(100)),
+        Err(RecvTimeoutError::Timeout)
+    ));
+
+    assert_eq!(second_signal.send(signal), Ok(true));
+    let (name, result) = result_receiver
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap();
+    assert_eq!(name, "second");
+    assert_eq!(result.unwrap(), moonrun::RunOutcome::KilledBySignal(signal));
+}
+
+#[test]
+fn moonrun_cli_preserves_signal_termination_for_synchronous_wasm() {
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let dir = TestDir::new("test_cli_args.in");
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    let mut command = std::process::Command::new(snapbox::cmd::cargo_bin!("moonrun"));
+    command
+        .arg(dir.join("_build/wasm-gc/debug/build/main/main.wasm"))
+        .arg("spin")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
+    let mut child = command.spawn().expect("start synchronous wasm main");
+    std::thread::sleep(Duration::from_millis(200));
+
+    #[cfg(unix)]
+    assert_eq!(
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGINT) },
+        0
+    );
+    #[cfg(windows)]
+    assert_ne!(
+        unsafe {
+            windows_sys::Win32::System::Console::GenerateConsoleCtrlEvent(
+                windows_sys::Win32::System::Console::CTRL_BREAK_EVENT,
+                child.id(),
+            )
+        },
+        0
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("wait for synchronous wasm main") {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("synchronous wasm main did not terminate after signal");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    #[cfg(unix)]
+    assert_eq!(status.signal(), Some(libc::SIGINT));
+    #[cfg(windows)]
+    assert_eq!(status.code(), Some(0xC000_013A_u32 as i32));
+}
+
+#[test]
 fn test_moon_run_with_read_bytes_from_stdin() {
     let dir = TestDir::new("test_read_bytes.in");
 

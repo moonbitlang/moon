@@ -17,7 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_policy::AsyncPolicy;
+use crate::instance_signal::signal_channel;
 use crate::run_termination::RunTermination;
+use crate::run_termination::TerminationRequest;
 use crate::runtime::{RunOptions, RunOutcome, RuntimeConfig};
 use crate::v8_builder::{ObjectExt, ScopeExt};
 use crate::{demangle_js_template, host_imports, memory_sanitizer_api};
@@ -59,6 +61,12 @@ pub(crate) fn run(
     initialize(config)?;
 
     let isolate = &mut v8::Isolate::new(Default::default());
+    let termination_request = TerminationRequest::default();
+    let signal_receiver = options
+        .signal_receiver
+        .unwrap_or_else(|| signal_channel().1);
+    let _engine_signal_attachment =
+        signal_receiver.attach_engine(isolate.thread_safe_handle(), termination_request.clone());
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
@@ -75,12 +83,14 @@ pub(crate) fn run(
     let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
 
     let mut dtors = Vec::new();
-    let termination_request = host_imports::install(
+    host_imports::install(
         &mut dtors,
         scope,
         &wasm_file_name,
         &options.args,
         async_policy,
+        termination_request.clone(),
+        signal_receiver,
     );
 
     let memory_sanitizer_imports =

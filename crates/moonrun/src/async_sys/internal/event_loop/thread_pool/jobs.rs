@@ -17,12 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::{OsStr, OsString};
-#[cfg(any(unix, windows))]
+#[cfg(windows)]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
 
 use super::stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
@@ -609,11 +608,11 @@ ported_fns! {
         original = "moonbitlang_async_make_sigwait_job"
     )]
     #[cfg(unix)]
-    pub(crate) fn make_sigwait_job(
-        signals: Vec<i32>,
-        notifier: Arc<ThreadPoolCompletionNotifier>,
-    ) -> Job {
-        Job::new(JobPayload::Sigwait { signals, notifier })
+    pub(crate) fn make_sigwait_job(_signals: Vec<i32>) -> Job {
+        // Wasm instances receive signals from their embedding adapter. This
+        // marker preserves the native-shaped Job lifetime without starting a
+        // process-global sigwait operation inside the instance.
+        Job::new(JobPayload::Sigwait)
     }
 }
 
