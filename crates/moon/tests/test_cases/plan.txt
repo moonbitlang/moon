@@ -66,7 +66,7 @@ Memory and Export Configuration
 Package Dependencies and Testing
   - test_panic
   - test_validate_import
-  - test_multi_process
+  - test_check_waits_for_target_directory_lock
   - test_internal_package
   - test_nonexistent_package
   - test_blackbox_success
