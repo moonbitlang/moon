@@ -5,7 +5,7 @@
 This document records the intended direction for global dependency and build
 caches. Cache-root configuration and cleaning are implemented. Standalone
 `moon run` inputs reuse immutable registry dependency sources through the
-dependency cache. The pure canonical identity calculation for lowered actions
+dependency cache. The pure canonical identity calculation for execution actions
 is also implemented, but builds do not yet read from or write to the global
 artifact cache and identity calculation is not connected to execution.
 
@@ -70,9 +70,9 @@ projects, and workspaces retain their existing project-local dependency
 directories.
 `MOON_BUILD_CACHE` still configures and cleans its future root only.
 
-Canonical action identity is also implemented as a pure consumer of Rupes
-Recta `LoweredAction` values. It is not connected to build execution or either
-cache root yet.
+Canonical action identity is also implemented as a pure consumer of the Rupes
+Recta `ExecutionPlan`. It is not connected to build execution or either cache
+root yet.
 
 ### Cleaning
 

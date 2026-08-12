@@ -38,8 +38,7 @@ use moonutil::{
 
 use crate::{
     ResolveOutput,
-    build_action_plan::BuildAction,
-    build_plan::{ArtifactKey, package_file_key},
+    build_plan::{ArtifactKey, BuildAction, package_file_key},
     discover::{DiscoverResult, DiscoveredLocalProject},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
@@ -912,17 +911,6 @@ impl ArtifactPathResolver {
                     options.executable,
                 )]
             }
-            ArtifactKey::DsymBundle {
-                package,
-                target_kind,
-            } => {
-                let target = package.build_target(*target_kind);
-                vec![self.target_layout.dsym_bundle_of_build_target(
-                    packages,
-                    &target,
-                    options.executable,
-                )]
-            }
             ArtifactKey::GeneratedTestDriver {
                 package,
                 target_kind,
@@ -1211,13 +1199,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        build_action_plan::BuildAction,
         build_plan::{
-            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo,
+            ArtifactKey, BuildAction, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo,
             PrebuildInfo,
         },
         discover::DiscoveredPackage,
-        model::BuildPlanNode,
         pkg_name::{PackageFQN, PackagePath},
     };
 
@@ -1497,15 +1483,7 @@ mod tests {
             None,
         );
         let target = package.build_target(TargetKind::Source);
-        let node = BuildPlanNode::Check(target);
-        let mut build_plan = BuildPlan::default();
-        build_plan.test_add_node(node);
-        build_plan.test_insert_build_target_info(target, build_target_info());
-        let action_plan = build_plan.build_action_plan();
-        let action_id = action_plan
-            .action_ids()
-            .next()
-            .expect("test plan should have an action");
+        let info = build_target_info();
 
         assert_eq!(
             resolver.paths_for_artifact(
@@ -1513,7 +1491,10 @@ mod tests {
                     package,
                     target_kind: target.kind,
                 },
-                action_plan.action(action_id),
+                BuildAction::Check {
+                    target,
+                    info: &info,
+                },
                 &packages,
                 &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
@@ -1817,11 +1798,7 @@ mod tests {
                     package,
                     path: prebuild_output.clone(),
                 },
-                BuildAction::RunPrebuild {
-                    package,
-                    index: 0,
-                    info: &prebuild,
-                },
+                BuildAction::RunPrebuild { info: &prebuild },
                 &packages,
                 &modules,
                 options,

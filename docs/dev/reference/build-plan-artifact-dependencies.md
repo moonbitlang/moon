@@ -4,10 +4,10 @@ Rupes Recta uses one logical artifact dependency model in Build Plan. The
 current lowering representation realizes those artifacts as concrete paths:
 
 ```text
-BuildPlan       = requested artifacts + provider actions + artifact requirements
-BuildActionPlan = stable action IDs + hydrated action data + artifact view
-LoweredAction   = realized artifact paths + external inputs + process command
-n2::Build       = executor representation produced by the n2 adapter
+BuildPlan     = requested artifacts + provider actions + artifact requirements
+build_lower   = command construction + physical artifact realization
+ExecutionPlan = ActionId actions + OutputId outputs + artifact provider map
+n2::Build     = executor representation produced by the n2 adapter
 ```
 
 The key invariant is that an action depends on artifacts, not on another
@@ -104,11 +104,10 @@ files such as source maps or declaration files remain part of their producing
 action's physical behavior until Moon can independently request or consume
 them.
 
-`DsymBundle` is a known compatibility exception in the current implementation.
-It lets `GenerateDsym` describe its concrete n2 output through the existing
-`LoweredArtifact` representation, but it is not a caller-requested result and
-has no Build Plan consumer. The execution-plan migration will replace this
-physical-only `ArtifactKey` with a declared action output.
+A dSYM bundle is a declared physical output of the `GenerateDsym` execution
+action, not an `ArtifactKey`. It receives an `OutputId`, so n2, dry-run, and
+cache consumers can track it without exposing it as a caller-requested Build
+Artifact.
 
 ## Planning IR
 
@@ -201,61 +200,53 @@ The prebuild action retains resolved execution paths and cwd. The artifact key
 retains declaration identity. `ArtifactPathResolver` checks that the two agree
 when it realizes the action's output.
 
-## Build Action Plan
+## Execution Plan
 
-`BuildPlan::build_action_plan()` assigns plan-local `BuildActionId` values and
-hydrates `BuildAction` data from planning metadata. It does not translate
-between two dependency vocabularies.
+Lowering consumes `BuildPlan` directly. A borrowed `BuildAction` value may be
+hydrated on demand while constructing a command, but there is no stored
+`BuildActionPlan` and no second action topology between semantic planning and
+execution lowering.
 
-```rust
-pub fn output_artifacts(&self, id: BuildActionId) -> Vec<ArtifactKey> {
-    self.plan.provided_artifacts(self.node(id)).collect()
-}
+`ExecutionPlan` owns two independent arenas:
 
-pub fn dependency_artifacts(
-    &self,
-    id: BuildActionId,
-) -> Vec<(BuildActionId, ArtifactKey)> {
-    self.plan
-        .artifact_dependencies(self.node(id))
-        .map(|(provider, artifact)| (self.id_for_node(provider), artifact))
-        .collect()
-}
-```
+- `ActionId` addresses a concrete `ExecutionAction`;
+- `OutputId` addresses one declared physical output.
 
-One provider can appear once in action topology while contributing several
-separate artifacts. For example, one `BuildCore` action can provide both
-`BuildMi` and `CoreIr`; consumers retain the exact identity of each required
-artifact.
+It also retains `ArtifactKey -> (ActionId, [OutputId])`. Thus an execution
+action names semantic artifact inputs, while every adapter can recover both
+the provider action and its realized paths. One action may provide several
+Build Artifacts, and a Build Artifact may realize to zero, one, or several
+physical outputs.
 
-`BuildActionId` is only a plan-local address used during lowering and
-diagnostics. It is not artifact identity and is not intended to become a
-content or cache key.
+Physical-only declared outputs carry `artifact: None`. They still participate
+in executor roots and cache identity, but do not become user-requestable Build
+Artifacts. `ActionId` and `OutputId` are process-local arena handles, not
+persistent content identities or cache digests.
 
 ## Action lowering and n2 adaptation
 
-`build_lower` matches on `BuildAction` and resolves every `ArtifactKey` through
+`build_lower` walks semantic `BuildPlanNode` values, hydrates the metadata for
+one node on demand, and resolves every `ArtifactKey` through
 `ArtifactPathResolver`. `ActionArtifacts` realizes outputs with the current
-action as provider context and requirements with the selected dependency
-action as provider context:
+node as provider context and requirements with the selected provider node as
+context:
 
 ```rust
 let outputs = plan
-    .output_artifacts(action)
-    .into_iter()
+    .provided_artifacts(node)
     .map(|artifact| realize(action, artifact));
 
 let dependencies = plan
-    .dependency_artifacts(action)
-    .into_iter()
+    .artifact_dependencies(node)
     .map(|(provider, artifact)| realize(provider, artifact));
 ```
 
-A `LoweredArtifact` carries the provider action ID, logical `ArtifactKey`, and
-realized paths. A `LoweredAction` combines those dependency/output artifacts
-with external file inputs, the concrete process command, diagnostics, and
-executor policy. The n2 adapter alone registers files and constructs
-`n2::Build` values.
+The `ExecutionPlanBuilder` registers each realized semantic output, assigns
+`ActionId` and `OutputId` handles, and rejects duplicate artifact providers or
+duplicate physical-output providers. An `ExecutionAction` combines artifact
+inputs, external file inputs, declared outputs, the concrete process command,
+diagnostics, and executor/cache policy. The n2 adapter alone registers files
+and constructs `n2::Build` values.
 
 Every lowered command retains structured argv. Response files change only its
 execution transport. The first argument's resolved executable path is an
@@ -266,7 +257,7 @@ Some existing command builders also repeat a dependency artifact path in their
 additional file inputs. This preserves the current n2 graph contract while the
 explicit artifact dependency remains the authoritative producer edge. Removing
 those redundant file inputs is a separate graph-normalization change; dry-run
-or another `LoweredAction` consumer must not rely on the duplication to recover
+or another `ExecutionPlan` consumer must not rely on the duplication to recover
 producer ordering.
 
 Some semantic filesystem observations cannot be represented as ordinary n2
@@ -282,16 +273,17 @@ infer inputs by parsing those flags.
 
 Current dry-run still renders the n2 graph and uses retained structured argv to
 recover commands hidden by response-file transport. A future dry-run can
-consume `LoweredAction` and requested artifacts directly; the artifact model
-does not require n2 start nodes for presentation semantics.
+consume `ExecutionPlan` directly: artifact inputs preserve producer edges,
+and declared outputs preserve physical execution roots without asking n2 to
+reconstruct either meaning.
 
 ## Standalone script boundary
 
-Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
-After action hydration, a projection retains dependency work as
-`LoweredAction` values and lowers script-owned work into an n2 graph. Following
-artifact providers to a fixed point includes package-less prerequisites such
-as the runtime library and runtime objects.
+Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`
+and lowers it once into one `ExecutionPlan`. Dependency preparation and script
+execution are two `ActionId` selections over that plan. Following artifact
+providers to a fixed point includes package-less prerequisites such as the
+runtime library and runtime objects.
 
 The dependency graph executes first using
 `standalone-dependencies.moon_db`, followed by the script graph using its mode
@@ -304,7 +296,7 @@ plan and one n2 graph.
 ## Results above lowering
 
 Caller intent is accepted as `ArtifactKey` values at the compile entry point.
-Plan construction selects provider actions from those keys. `LoweringResult`,
+Plan construction selects provider actions from those keys. `ExecutionPlan`,
 `CompileOutput`, and `BuildMeta` preserve the keys alongside their realized
 physical paths, so upper layers do not recover result meaning from provider
 nodes or output positions.
@@ -324,10 +316,10 @@ is an n2 start node, so ordinary execution and current dry-run still run
 The obsolete upper-layer models should have no matches:
 
 ```sh
-rg -n '\bBuildProduct\b|\bFileDependencyKind\b' \
+rg -n '\bBuildProduct\b|\bFileDependencyKind\b|\bBuildActionPlan\b|\bLoweredAction\b' \
   crates/moonbuild-rupes-recta/src
 ```
 
-The lowering boundary should consume `BuildAction`, `ArtifactKey`, and
-`LoweredArtifact`; it should not reconstruct dependencies from
-`BuildPlanNode` or physical output selectors.
+The lowering boundary should consume `BuildPlan` and produce `ExecutionPlan`.
+Adapters should consume `ExecutionPlan`; they should not reconstruct semantic
+dependencies from physical path collisions or n2 start-node behavior.

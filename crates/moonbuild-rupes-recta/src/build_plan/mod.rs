@@ -75,11 +75,13 @@ use crate::{
     prebuild::PrebuildOutput,
 };
 
+mod action;
 mod artifact;
 mod builders;
 mod constructor;
 mod package_prebuild;
 
+pub(crate) use action::BuildAction;
 pub use artifact::ArtifactKey;
 use artifact::ArtifactPlan;
 pub(crate) use artifact::package_file_key;
@@ -259,14 +261,6 @@ impl BuildPlan {
         info: BuildTargetInfo,
     ) {
         self.build_target_infos.insert(target, info);
-    }
-
-    pub(crate) fn test_insert_prebuild_info(
-        &mut self,
-        package: PackageId,
-        info: Vec<Option<PrebuildInfo>>,
-    ) {
-        self.package_prebuild.test_insert_custom_info(package, info);
     }
 
     pub(crate) fn test_insert_moonlex_prebuild(

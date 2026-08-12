@@ -447,7 +447,6 @@ fn root_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
         | ArtifactKey::ProofReport { package, .. }
         | ArtifactKey::LinkedCore { package, .. }
         | ArtifactKey::Executable { package, .. }
-        | ArtifactKey::DsymBundle { package, .. }
         | ArtifactKey::GeneratedTestDriver { package, .. }
         | ArtifactKey::GeneratedTestMetadata { package, .. }
         | ArtifactKey::GeneratedMbti { package, .. } => Some(*package),
