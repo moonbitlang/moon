@@ -695,7 +695,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let artifacts = compile_output
         .execution_plan
         .requested_artifact_paths()
-        .map(|(artifact, paths)| (artifact.clone(), paths))
+        .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
         .collect();
     let (graph, command_args_by_output) = compile_output.execution_plan.all_to_n2_graph()?;
     let build_meta = BuildMeta {
@@ -784,7 +784,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     let artifacts = compile_output
         .execution_plan
         .requested_artifact_paths()
-        .map(|(artifact, paths)| (artifact.clone(), paths))
+        .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
         .collect();
     let build_meta = BuildMeta {
         resolve_output,

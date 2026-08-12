@@ -724,9 +724,7 @@ impl ArtifactPathResolver {
         backend: TargetBackend,
         is_implementing_virtual: bool,
     ) -> MiPathResult {
-        if let Some(prebuilt) =
-            self.prebuilt_mi_of_build_target(pkg_list, target, backend, is_implementing_virtual)
-        {
+        if let Some(prebuilt) = self.prebuilt_mi_of_build_target(pkg_list, target, backend) {
             return prebuilt;
         }
 
@@ -745,9 +743,7 @@ impl ArtifactPathResolver {
         backend: TargetBackend,
         is_implementing_virtual: bool,
     ) -> MiPathResult {
-        if let Some(prebuilt) =
-            self.prebuilt_mi_of_build_target(pkg_list, target, backend, is_implementing_virtual)
-        {
+        if let Some(prebuilt) = self.prebuilt_mi_of_build_target(pkg_list, target, backend) {
             return prebuilt;
         }
 
@@ -769,34 +765,21 @@ impl ArtifactPathResolver {
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
         backend: TargetBackend,
-        is_implementing_virtual: bool,
     ) -> Option<MiPathResult> {
-        // Special case: `abort` lives in core.
-        // Only redirect abort to prebuilt stdlib artifacts when stdlib is injected.
-        if let Some(stdlib_dir) = self.stdlib_dir()
-            && let Some(abort) = pkg_list.abort_pkg()
-            && abort == target.package
-        {
-            if target.kind == TargetKind::Source {
-                return Some(MiPathResult::StdAbort(moonutil::toolchain::abort_mi_in(
-                    stdlib_dir,
-                    backend,
-                    is_implementing_virtual,
-                )));
-            } else {
+        // Stdlib packages use their installed contract `.mi` when stdlib is
+        // injected. An implementation check still reads that contract via
+        // `-check-mi`; its `.impl.mi` is a local check output, never an
+        // installed stdlib artifact.
+        if let Some(stdlib_dir) = self.stdlib_dir() {
+            let pkg = pkg_list.get_package(target.package);
+            if pkg_list.abort_pkg() == Some(target.package) && target.kind != TargetKind::Source {
                 panic!("Cannot import `.mi` for moonbitlang/core/abort");
             }
-        }
-
-        // Stdlib packages use prebuilt .mi only when stdlib is injected.
-        if let Some(stdlib_dir) = self.stdlib_dir()
-            && pkg_list.get_package(target.package).is_stdlib
-        {
-            return Some(MiPathResult::Std(stdlib_mi_path(
-                stdlib_dir,
-                backend,
-                &pkg_list.get_package(target.package).fqn,
-            )));
+            if pkg.is_stdlib {
+                return Some(MiPathResult::Std(stdlib_mi_path(
+                    stdlib_dir, backend, &pkg.fqn,
+                )));
+            }
         }
 
         None
@@ -1007,24 +990,16 @@ impl ArtifactPathResolver {
         match action_context {
             BuildAction::Check { info, .. } if info.check_mi_against.is_some() => {
                 // Generate a `.mi` artifact in edge cases such as --no-mi and
-                // virtual implementation checks, but avoid declaring prebuilt
-                // stdlib artifacts as outputs of the check action.
+                // virtual implementation checks.
                 match self.mi_of_build_target_impl_virtual(
                     packages,
                     &target,
                     options.target_backend(),
                 ) {
-                    MiPathResult::StdAbort(_) => Vec::new(),
-                    MiPathResult::Std(p) => {
-                        // This should not happen because there is no
-                        // implementation package in stdlib other than abort.
-                        tracing::warn!(
-                            "stdlib mi should not be needed for check as an implementation package: {:?}",
-                            p
-                        );
-                        Vec::new()
-                    }
                     MiPathResult::Regular(p) => vec![p],
+                    MiPathResult::Std(_) => unreachable!(
+                        "checks of injected stdlib implementations must not be planned as providers"
+                    ),
                 }
             }
             BuildAction::Check { .. } | BuildAction::BuildCore { .. } => {
@@ -1050,7 +1025,6 @@ impl ArtifactPathOptions {
 
 pub enum MiPathResult {
     Regular(PathBuf),
-    StdAbort(PathBuf),
     Std(PathBuf),
 }
 
@@ -1058,7 +1032,6 @@ impl MiPathResult {
     pub fn into_path(self) -> PathBuf {
         match self {
             MiPathResult::Regular(p) => p,
-            MiPathResult::StdAbort(p) => p,
             MiPathResult::Std(p) => p,
         }
     }
@@ -1561,6 +1534,24 @@ mod tests {
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.impl.mi")],
+        );
+    }
+
+    #[test]
+    fn injected_stdlib_impl_check_reads_the_installed_contract() {
+        let (mut packages, _, package) = package_fixture("ffi");
+        packages.get_package_mut(package).is_stdlib = true;
+        let resolver = ArtifactPathResolver::new(
+            layout(TargetLayoutMode::Workspace),
+            Some(PathBuf::from("toolchain/core")),
+        );
+        let target = package.build_target(TargetKind::Source);
+
+        assert_eq!(
+            resolver
+                .mi_of_build_target_impl_virtual(&packages, &target, TargetBackend::WasmGC)
+                .into_path(),
+            PathBuf::from("toolchain/core/_build/wasm-gc/release/bundle/ffi/ffi.mi"),
         );
     }
 

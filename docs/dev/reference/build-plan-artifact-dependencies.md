@@ -6,7 +6,7 @@ current lowering representation realizes those artifacts as concrete paths:
 ```text
 BuildPlan     = requested artifacts + provider actions + artifact requirements
 build_lower   = command construction + physical artifact realization
-ExecutionPlan = ActionId actions + OutputId outputs + artifact provider map
+ExecutionPlan = ActionId actions + concrete input/output paths + requested artifact results
 n2::Build     = executor representation produced by the n2 adapter
 ```
 
@@ -71,7 +71,7 @@ pub enum ArtifactKey {
 `CoreIr` names the compiler IR artifact written with the `.core` extension. It
 is unrelated to the `moonbitlang/core` package.
 
-Artifact identity never contains a `BuildActionId` or `_build` root.
+Artifact identity never contains an execution `ActionId` or `_build` root.
 `CheckMi`, `BuildMi`, and `VirtualContractMi` are distinct because they are not
 interchangeable compiler inputs even though they all currently use `.mi`.
 `EmitProof` and `Prove` are alternative providers of the same `ProofMi` and
@@ -105,9 +105,8 @@ action's physical behavior until Moon can independently request or consume
 them.
 
 A dSYM bundle is a declared physical output of the `GenerateDsym` execution
-action, not an `ArtifactKey`. It receives an `OutputId`, so n2, dry-run, and
-cache consumers can track it without exposing it as a caller-requested Build
-Artifact.
+action, not an `ArtifactKey`. Its concrete path lets n2, dry-run, and cache
+consumers track it without exposing it as a caller-requested Build Artifact.
 
 ## Planning IR
 
@@ -207,21 +206,24 @@ hydrated on demand while constructing a command, but there is no stored
 `BuildActionPlan` and no second action topology between semantic planning and
 execution lowering.
 
-`ExecutionPlan` owns two independent arenas:
+`ExecutionPlan` assigns an `ActionId` to each concrete `ExecutionAction`.
+Declared outputs are instead keyed by their concrete paths, which are already
+required to be unique within the plan. Each execution action names the paths it
+consumes, and every declared output retains its producer `ActionId` and optional
+`ArtifactKey`. Adapters and identity consumers can therefore follow the
+relationship without another dependency object, output arena, or plan-wide
+artifact registry. One action may provide several Build Artifacts, and a Build
+Artifact may realize to one or several physical outputs.
 
-- `ActionId` addresses a concrete `ExecutionAction`;
-- `OutputId` addresses one declared physical output.
-
-It also retains `ArtifactKey -> (ActionId, [OutputId])`. Thus an execution
-action names semantic artifact inputs, while every adapter can recover both
-the provider action and its realized paths. One action may provide several
-Build Artifacts, and a Build Artifact may realize to zero, one, or several
-physical outputs.
+The builder's artifact registry exists only while the plan is finalized. It
+also resolves requested artifacts to output paths for command results. The final
+Execution Plan therefore does not impose one global `ArtifactKey` namespace on
+future composition of independently scoped Build Plans.
 
 Physical-only declared outputs carry `artifact: None`. They still participate
 in executor roots and cache identity, but do not become user-requestable Build
-Artifacts. `ActionId` and `OutputId` are process-local arena handles, not
-persistent content identities or cache digests.
+Artifacts. `ActionId` is a process-local arena handle, not a persistent content
+identity or cache digest. Concrete output paths likewise are not cache digests.
 
 ## Action lowering and n2 adaptation
 
@@ -242,9 +244,11 @@ let dependencies = plan
 ```
 
 The `ExecutionPlanBuilder` registers each realized semantic output, assigns
-`ActionId` and `OutputId` handles, and rejects duplicate artifact providers or
-duplicate physical-output providers. An `ExecutionAction` combines artifact
-inputs, external file inputs, declared outputs, the concrete process command,
+`ActionId` handles, and rejects duplicate artifact providers or physical-output
+paths. On finalization it converts each artifact requirement into the selected
+provider's output paths, then discards the
+temporary provider registry. An `ExecutionAction` combines those inputs,
+external file observations, declared outputs, the concrete process command,
 diagnostics, and executor/cache policy. The n2 adapter alone registers files
 and constructs `n2::Build` values.
 
@@ -273,9 +277,9 @@ infer inputs by parsing those flags.
 
 Current dry-run still renders the n2 graph and uses retained structured argv to
 recover commands hidden by response-file transport. A future dry-run can
-consume `ExecutionPlan` directly: artifact inputs preserve producer edges,
-and declared outputs preserve physical execution roots without asking n2 to
-reconstruct either meaning.
+consume `ExecutionPlan` directly: each input path resolves to its declared
+output and producer action, while requested artifacts and physical-only outputs
+retain the distinct root semantics that n2 otherwise flattens into file IDs.
 
 ## Standalone script boundary
 
