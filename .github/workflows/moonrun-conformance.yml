@@ -23,26 +23,14 @@ on:
     branches:
       - main
     paths:
-      - '.gitmodules'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
       - 'crates/moonrun/**'
-      - 'crates/moonutil/**'
-      - 'crates/moon-test-util/**'
-      - 'crates/moon/Cargo.toml'
       - 'third_party/moonbitlang_async'
       - '.github/workflows/moonrun-conformance.yml'
   pull_request:
     branches:
       - main
     paths:
-      - '.gitmodules'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
       - 'crates/moonrun/**'
-      - 'crates/moonutil/**'
-      - 'crates/moon-test-util/**'
-      - 'crates/moon/Cargo.toml'
       - 'third_party/moonbitlang_async'
       - '.github/workflows/moonrun-conformance.yml'
 
