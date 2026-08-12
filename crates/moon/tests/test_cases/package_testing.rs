@@ -81,55 +81,76 @@ fn test_validate_import() {
 }
 
 #[test]
-fn test_multi_process() {
-    use std::thread;
+fn test_check_waits_for_target_directory_lock() {
+    let dir = TestDir::new("test_file_lock");
+    let target_dir = dir.join(moonutil::constants::BUILD_DIR);
+    std::fs::create_dir_all(&target_dir).unwrap();
 
-    let dir = TestDir::new("test_multi_process");
-    let path: PathBuf = dir.as_ref().into();
+    let lock_file = std::fs::File::create(target_dir.join(moonutil::constants::MOON_LOCK)).unwrap();
+    lock_file.lock().unwrap();
 
-    let (num_threads, inner_loop) = (16, 10);
-    let mut container = vec![];
+    let stdout = tempfile::NamedTempFile::new().unwrap();
+    let stderr = tempfile::NamedTempFile::new().unwrap();
+    let mut child = moon_process_cmd(&dir)
+        .arg("check")
+        .stdout(stdout.reopen().unwrap())
+        .stderr(stderr.reopen().unwrap())
+        .spawn()
+        .expect("failed to spawn moon check");
 
-    let success = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
-
-    for _ in 0..num_threads {
-        let path = path.clone();
-        let success = success.clone();
-        let work = thread::spawn(move || {
-            for _ in 0..inner_loop {
-                let _ = std::fs::OpenOptions::new()
-                    .append(true)
-                    .open(path.join("lib/hello.mbt"))
-                    .unwrap()
-                    .write(b"\n")
-                    .unwrap();
-
-                let output = moon_process_cmd(&path)
-                    .arg("check")
-                    .output()
-                    .expect("Failed to execute command");
-
-                if output.status.success() {
-                    success.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let out = String::from_utf8(output.stderr).unwrap();
-                    assert!(out.contains("no work to do") || out.contains("now up to date"));
-                } else {
-                    println!("moon output: {:?}", String::from_utf8(output.stdout));
-                    let error_message = String::from_utf8_lossy(&output.stderr);
-                    println!("{error_message}");
-                }
-            }
-        });
-        container.push(work);
+    let started = std::time::Instant::now();
+    loop {
+        let stderr_text = std::fs::read_to_string(stderr.path()).unwrap();
+        if stderr_text.contains("Blocking waiting for file lock") {
+            break;
+        }
+        if let Some(status) = child.try_wait().expect("failed to poll moon check") {
+            drop(lock_file);
+            panic!(
+                "moon check exited before waiting for the target-directory lock: {status}\n\
+                 stdout:\n{}\nstderr:\n{stderr_text}",
+                std::fs::read_to_string(stdout.path()).unwrap()
+            );
+        }
+        if started.elapsed() > std::time::Duration::from_secs(10) {
+            drop(lock_file);
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!(
+                "timed out waiting for moon check to reach the target-directory lock\n\
+                 stdout:\n{}\nstderr:\n{stderr_text}",
+                std::fs::read_to_string(stdout.path()).unwrap()
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 
-    for i in container {
-        i.join().unwrap();
-    }
+    assert!(
+        child
+            .try_wait()
+            .expect("failed to poll moon check")
+            .is_none(),
+        "moon check did not remain blocked while the lock was held"
+    );
 
-    assert_eq!(
-        success.load(std::sync::atomic::Ordering::SeqCst),
-        num_threads * inner_loop
+    drop(lock_file);
+    if !crate::process::wait_for_child_exit(&mut child, std::time::Duration::from_secs(10)) {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!(
+            "moon check did not finish after the target-directory lock was released\n\
+             stdout:\n{}\nstderr:\n{}",
+            std::fs::read_to_string(stdout.path()).unwrap(),
+            std::fs::read_to_string(stderr.path()).unwrap()
+        );
+    }
+    let status = child.wait().expect("failed to wait for moon check");
+    assert!(
+        status.success(),
+        "moon check failed after the target-directory lock was released: {status}\n\
+         stdout:\n{}\nstderr:\n{}",
+        std::fs::read_to_string(stdout.path()).unwrap(),
+        std::fs::read_to_string(stderr.path()).unwrap()
     );
 }
 
