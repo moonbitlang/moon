@@ -451,6 +451,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         description: "Redundant `else` on an exhaustive `guard`.",
         id: 89,
     },
+    WarningEntry {
+        mnemonic: "unused_lexcase",
+        description: "`lexmatch`/`lexscan` branch that can never be selected because other branches takes precedence or its pattern matches nothing.",
+        id: 90,
+    },
 ];
 
 pub(crate) fn get_warning_entry(id: u16) -> Option<&'static WarningEntry> {
