@@ -561,6 +561,9 @@ mod tests {
                 loop {
                     match listener.accept() {
                         Ok((mut stream, _)) => {
+                            // Accepted sockets inherit the listener's non-blocking mode on
+                            // Windows, but request handling below is intentionally blocking.
+                            stream.set_nonblocking(false).unwrap();
                             let mut request = [0; 2048];
                             assert_ne!(stream.read(&mut request).unwrap(), 0);
                             if request_count.fetch_add(1, Ordering::Relaxed) == 0 {
