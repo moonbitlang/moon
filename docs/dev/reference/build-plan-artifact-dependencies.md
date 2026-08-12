@@ -1,9 +1,10 @@
 # Build plan artifact dependencies
 
-Rupes Recta uses one logical artifact model from planning through lowering:
+Rupes Recta uses one logical artifact dependency model in Build Plan. The
+current lowering representation realizes those artifacts as concrete paths:
 
 ```text
-BuildPlan       = requested actions + artifact providers + artifact requirements
+BuildPlan       = requested artifacts + provider actions + artifact requirements
 BuildActionPlan = stable action IDs + hydrated action data + artifact view
 LoweredAction   = realized artifact paths + external inputs + process command
 n2::Build       = executor representation produced by the n2 adapter
@@ -17,7 +18,7 @@ as the context needed to realize the artifact's physical path.
 ## Backend configuration
 
 After command adapters resolve the Target Backend and expand user intent to
-concrete input nodes, Moon selects one `BackendConfig` value:
+requested `ArtifactKey` values, Moon selects one `BackendConfig` value:
 
 ```rust
 pub enum BackendConfig {
@@ -96,10 +97,18 @@ package remains absolute because it has no package-relative identity. Runtime
 object keys use their stable path within the toolchain library layout, such as
 `runtime/foo.c`, rather than the installed toolchain root.
 
-Only outputs that are explicitly selected, consumed, or exposed as roots need
-artifact keys. Incidental compiler side files such as source maps or
-declaration files remain part of their producing action's physical behavior
-until Moon can independently request or suppress them.
+An output needs an artifact key only when Build Plan selects or consumes it as
+an independently meaningful result. Merely declaring a physical output to n2
+or a cache does not give it Build Artifact identity. Incidental compiler side
+files such as source maps or declaration files remain part of their producing
+action's physical behavior until Moon can independently request or consume
+them.
+
+`DsymBundle` is a known compatibility exception in the current implementation.
+It lets `GenerateDsym` describe its concrete n2 output through the existing
+`LoweredArtifact` representation, but it is not a caller-requested result and
+has no Build Plan consumer. The execution-plan migration will replace this
+physical-only `ArtifactKey` with a declared action output.
 
 ## Planning IR
 
@@ -122,8 +131,8 @@ struct ArtifactPlan {
 
 There is no weighted action-edge graph and no `FileDependencyKind`. A provider
 may expose multiple artifacts, but each artifact has at most one provider in a
-plan. At the end of planning, validation requires every Artifact Requirement
-to have a provider.
+plan. At the end of planning, validation requires every requested artifact and
+every Artifact Requirement to have a provider.
 
 Builders name only what they consume:
 
@@ -141,6 +150,14 @@ self.require_artifact(
 The central artifact rule maps each key to its provider action and schedules
 that action. Builders do not encode `Check`, `BuildCore`, or another provider
 in a dependency edge.
+
+The same rule handles invocation roots. `UserIntent` names results such as
+`CheckMi`, `CoreIr`, or `Executable`; it does not construct provider actions.
+For example, `Executable` selects `LinkCore` for Wasm/JS backends and
+`MakeExecutable` for native/LLVM backends. The complete caller-requested
+artifact set is recorded before provider expansion, so proof-surface artifacts
+select `Prove` when the invocation also requests `ProofReport`, and otherwise
+select `EmitProof`.
 
 Normal downstream `BuildCore` actions require both Build MI and Core IR, so an
 implementation change that leaves the interface stable still rebuilds the
@@ -286,21 +303,21 @@ plan and one n2 graph.
 
 ## Results above lowering
 
-Caller intent is still accepted as `BuildPlanNode` values at the compile entry
-point. During plan construction those action-shaped requests are normalized to
-requested `ArtifactKey` values. `LoweringResult`, `CompileOutput`, and
-`BuildMeta` preserve those keys alongside their realized physical paths, so
-upper layers no longer recover result meaning from provider nodes or output
-positions.
+Caller intent is accepted as `ArtifactKey` values at the compile entry point.
+Plan construction selects provider actions from those keys. `LoweringResult`,
+`CompileOutput`, and `BuildMeta` preserve the keys alongside their realized
+physical paths, so upper layers do not recover result meaning from provider
+nodes or output positions.
 
 For non-native backends, `LinkCore` directly provides `Executable`; there is no
 planning-only `MakeExecutable` alias and every planned action lowers exactly
 once. Native and LLVM plans retain the distinct `LinkedCore` intermediate and a
 real `MakeExecutable` provider.
 
-For native macOS debug targets, `Executable` and `DsymBundle` are separate
-requested results with separate providers. Requesting the dSYM path causes n2
-to run `GenerateDsym` without relying on a companion-path convention.
+For native macOS debug targets, `Executable` remains the requested Build
+Artifact. Planning also includes `GenerateDsym`; its unconsumed concrete output
+is an n2 start node, so ordinary execution and current dry-run still run
+`dsymutil` without exposing the dSYM directory as a caller result.
 
 ## Checks
 

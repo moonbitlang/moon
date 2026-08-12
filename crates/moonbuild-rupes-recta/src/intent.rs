@@ -16,24 +16,23 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! User intent, a small shim to reduce friction between user commands and
-//! build plan nodes.
+//! User intent, a small shim from command semantics to requested artifacts.
 //!
-//! A user intent may map to 0 or more build plan nodes, based on the actual
-//! package definition and status. This is for simplifying the CLI command
-//! node generation logic.
+//! A user intent may map to zero or more logical results based on the resolved
+//! package. Build planning, rather than the CLI adapter, selects the actions
+//! that provide those results for the current backend.
 
 use moonutil::{resolution::ModuleId, target::TargetBackend, user_log::UserLog};
 
 use crate::{
-    build_plan::InputDirective,
+    build_plan::{ArtifactKey, InputDirective},
     cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildTarget, PackageId, TargetKind},
     resolve::ResolveOutput,
 };
 
-/// A concise set of user actions that expand into concrete BuildPlanNode groups.
+/// A concise set of user actions that expand into requested artifact groups.
 #[derive(Clone, Copy, Debug)]
 pub enum UserIntent {
     /// Build a package (produce either .core or an executable).
@@ -46,7 +45,7 @@ pub enum UserIntent {
     Prove(PackageId),
     /// Test a package (emit test driver and build for all test targets).
     Test(PackageId),
-    /// Bench a package (same node set shape as Test; runtime behavior differs elsewhere).
+    /// Bench a package (same artifact set as Test; runtime behavior differs elsewhere).
     Bench(PackageId),
     /// Bundle all non-virtual packages in a module.
     Bundle(ModuleId),
@@ -57,13 +56,13 @@ pub enum UserIntent {
 }
 
 impl UserIntent {
-    /// Append the BuildPlanNode(s) represented by this intent to `out`.
+    /// Append the logical artifacts represented by this intent to `out`.
     ///
     /// This does not deduplicate; callers can handle that if necessary.
-    pub fn append_nodes(
+    pub fn append_artifacts(
         self,
         resolved: &ResolveOutput,
-        out: &mut Vec<BuildPlanNode>,
+        out: &mut Vec<ArtifactKey>,
         user_log: &UserLog,
         directive: &InputDirective,
         target_backend: TargetBackend,
@@ -73,13 +72,18 @@ impl UserIntent {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: compile its interface instead of building code
-                    out.push(BuildPlanNode::BuildVirtual(pkg));
+                    out.push(ArtifactKey::VirtualContractMi { package: pkg });
                 } else {
-                    let t = pkg.build_target(TargetKind::Source);
                     if is_linkable(pkg_info) {
-                        out.push(BuildPlanNode::make_executable(t));
+                        out.push(ArtifactKey::Executable {
+                            package: pkg,
+                            target_kind: TargetKind::Source,
+                        });
                     } else {
-                        out.push(BuildPlanNode::build_core(t));
+                        out.push(ArtifactKey::CoreIr {
+                            package: pkg,
+                            target_kind: TargetKind::Source,
+                        });
                     }
                 }
             }
@@ -88,8 +92,10 @@ impl UserIntent {
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: we can't do anything
                 } else {
-                    let t = pkg.build_target(TargetKind::Source);
-                    out.push(BuildPlanNode::make_executable(t));
+                    out.push(ArtifactKey::Executable {
+                        package: pkg,
+                        target_kind: TargetKind::Source,
+                    });
                 }
             }
             UserIntent::Check(pkg) => {
@@ -107,7 +113,10 @@ impl UserIntent {
                     //   check tests (virtual impls cannot be tested).
                     // - When checking tests, always check blackbox tests, and
                     //   only check whitebox if it has related files.
-                    out.push(BuildPlanNode::check(source_target));
+                    out.push(ArtifactKey::CheckMi {
+                        package: pkg,
+                        target_kind: TargetKind::Source,
+                    });
                     if !pkg_info.is_virtual_impl()
                         && resolved.local_modules().contains(&pkg_info.module)
                     {
@@ -124,7 +133,10 @@ impl UserIntent {
                                 target_backend,
                                 user_log,
                             ) {
-                                out.push(BuildPlanNode::check(whitebox_target));
+                                out.push(ArtifactKey::CheckMi {
+                                    package: pkg,
+                                    target_kind: TargetKind::WhiteboxTest,
+                                });
                             }
                         }
                         let blackbox_target = pkg.build_target(TargetKind::BlackboxTest);
@@ -135,16 +147,26 @@ impl UserIntent {
                             target_backend,
                             user_log,
                         ) {
-                            out.push(BuildPlanNode::check(blackbox_target));
+                            out.push(ArtifactKey::CheckMi {
+                                package: pkg,
+                                target_kind: TargetKind::BlackboxTest,
+                            });
                         }
                     }
                 } else {
                     // Pure virtual package: compile its interface
-                    out.push(BuildPlanNode::BuildVirtual(pkg));
+                    out.push(ArtifactKey::VirtualContractMi { package: pkg });
                 }
             }
             UserIntent::Prove(pkg) => {
-                out.push(BuildPlanNode::prove(pkg.build_target(TargetKind::Source)));
+                out.push(ArtifactKey::ProofWhyml {
+                    package: pkg,
+                    target_kind: TargetKind::Source,
+                });
+                out.push(ArtifactKey::ProofReport {
+                    package: pkg,
+                    target_kind: TargetKind::Source,
+                });
             }
             UserIntent::Test(pkg) | UserIntent::Bench(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
@@ -162,7 +184,8 @@ impl UserIntent {
                         target_backend,
                     );
 
-                    // Emit paired nodes per test target; skip Whitebox if no *_wbtest.mbt declared.
+                    // Request execution and test metadata per target; skip
+                    // Whitebox if no *_wbtest.mbt is declared.
                     for &k in TargetKind::all_tests() {
                         if k == TargetKind::WhiteboxTest
                             && !has_whitebox_decl(resolved, pkg, directive)
@@ -181,23 +204,34 @@ impl UserIntent {
                         {
                             continue;
                         }
-                        out.push(BuildPlanNode::make_executable(t));
-                        out.push(BuildPlanNode::generate_test_info(t));
+                        out.push(ArtifactKey::Executable {
+                            package: pkg,
+                            target_kind: k,
+                        });
+                        out.push(ArtifactKey::GeneratedTestDriver {
+                            package: pkg,
+                            target_kind: k,
+                        });
+                        out.push(ArtifactKey::GeneratedTestMetadata {
+                            package: pkg,
+                            target_kind: k,
+                        });
                     }
                 }
             }
             UserIntent::Bundle(m) => {
-                out.push(BuildPlanNode::Bundle(m));
+                out.push(ArtifactKey::BundleResult { module: m });
             }
             UserIntent::Doc(module_id) => {
-                out.push(BuildPlanNode::BuildDocs(module_id));
+                out.push(ArtifactKey::DocsDir { module: module_id });
             }
             UserIntent::Info(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if !(pkg_info.is_virtual_impl() || pkg_info.is_virtual()) {
-                    out.push(BuildPlanNode::GenerateMbti(
-                        pkg.build_target(TargetKind::Source),
-                    ));
+                    out.push(ArtifactKey::GeneratedMbti {
+                        package: pkg,
+                        target_kind: TargetKind::Source,
+                    });
                 }
                 // else: skip virtual packages to mirror `moon info` behavior
             }

@@ -58,11 +58,11 @@ We will use these terms in the document:
   The concrete definition and layout of modules and packages can be found in
   [Modules and Packages](./modules-packages.md).
 
-- The **build plan** is a logical representation of the commands to run.
-  It contains **build plan nodes** that represents build operations
-  (e.g. "compile package X", "check package Y"),
-  but not the actual command line to execute.
-  Nodes may depend on the output files of other nodes.
+- The **build plan** is a logical representation of requested artifacts and
+  the actions that produce them. It contains **build plan nodes** that
+  represent build operations (e.g. "compile package X", "check package Y"),
+  but not the actual command line to execute. Nodes require logical artifacts;
+  the plan records the action that provides each artifact.
 
 - The **build graph** is a concrete, [Ninja][]-like graph that contains
   the final command lines and input/output file paths to execute.
@@ -82,8 +82,8 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Resolve package-level dependencies.
 2. Generate build graph based on the intent of the user [^graph]
    - Determine the user intent ("build package X to executable", "check package Y", etc.)
-   - Determine the initial set build graph nodes (= commands to run) corresponding to the intent.
-   - Expand the build graph according to rules into containing all transitive dependencies of these nodes.
+   - Determine the logical artifacts requested by that intent.
+   - Select provider actions and expand their transitive artifact requirements.
    - Generate a concrete build graph containing the final commandlines to execute.
 3. Execute the build graph
    - Generate metadata files required by compiler actions. Full project checks
@@ -379,12 +379,12 @@ The dependency relationship between build targets is captured in
 
 ## User intent
 
-The RR pipeline uses the **user intent** as an intermediate layer
-between the CLI subcommand and the build-plan nodes.
+The RR pipeline uses the **user intent** as an intermediate layer between the
+CLI subcommand and the Build Artifact requests passed to Build Plan construction.
 
-User intents are the normalized, high-level constructs
-that allows CLI subcommands to describe the action they want to perform on packages,
-without committing to the details of which nodes to use.
+User intents are the normalized, high-level constructs that allow CLI
+subcommands to describe the results they want from packages without committing
+to the provider actions that produce those results.
 
 User intents are specified on individual packages.
 For project-wide subcommands like `moon check` and `moon build`, an intent is
@@ -392,14 +392,14 @@ emitted for each individual package.
 Filtering packages in subcommands operate by only emitting the intents of the target packages,
 instead of emitting for every (applicable) package in the project.
 
-The design of intents allows a single intent to be mapped to multiple build-plan nodes,
-and also into different node patterns based on the properties of the package.
+The design of intents allows a single intent to request multiple artifacts,
+and also different artifact sets based on the properties of the package.
 
 For example, for a `Check(package)` intent (`moon check -p package`),
 it will map into "check package source", "check package whitebox text" and "check package blackbox test".
 However, if the package does not contain whitebox test files,
-the "check whitebox" node will be omitted.
-If the package is virtual, then a list of virtual package checking nodes will be used instead.
+the whitebox Check MI artifact will be omitted.
+If the package is virtual, its virtual-contract MI artifact is requested instead.
 
 For `moon check` and `moon build` without an explicit `--target`, CLI planning
 may first split selected packages into multiple backend groups using
@@ -407,10 +407,10 @@ may first split selected packages into multiple backend groups using
 then emit intents separately for each backend group.
 
 This mapping is also on a migration path for main packages: release N keeps the
-current nodes so warnings can be surfaced, while release N+1 will omit blackbox
-check/test nodes for `is-main` packages.
+current artifacts so warnings can be surfaced, while release N+1 will omit
+blackbox check/test artifacts for `is-main` packages.
 
-The details of how an user intent is mapped to build plan nodes
+The details of how a user intent is mapped to requested artifacts
 is described in [its module](/crates/moonbuild-rupes-recta/src/intent.rs).
 
 ## Build plan node
@@ -435,8 +435,9 @@ The full list of build plan nodes are available in [its module](/crates/moonbuil
 
 ### Node dependency
 
-Build plan nodes depend on each other to form a directed acyclic graph called the **build plan**.
-The edge represents one node's dependency on the artifact produced by another node.
+Build plan nodes require artifacts to form a directed acyclic graph called the
+**build plan**. The artifact registry selects the provider node for each
+requirement.
 
 For example, if build target A depends on build target B,
 then `Check(A)` must first obtain the public interface of B,
@@ -444,18 +445,18 @@ and therefore depends on `Check(B)`.
 
 ### Generating the build plan
 
-The build plan in the pipeline is the transitive dependency closure
-of a list of initial nodes that were translated from the user intents.
+The build plan in the pipeline is the transitive dependency closure of the
+provider actions selected for artifacts translated from user intents.
 
-To generate this build plan, we start from the initial node list,
-and iteratively add the dependency of every new node generated,
-until no more nodes are added.
+To generate this build plan, we start from the requested artifact list, select
+each artifact's provider action, and iteratively add providers for every new
+artifact requirement until no more actions are added.
 
 This process of adding dependencies has the following properties:
 
 - Local. The dependency of each build plan node is only determined from
   the global config and its own metadata.
-- Monotonic. The process never deletes nodes, although it may coerce node to other types.
+- Monotonic. The process never deletes planned actions or artifact requirements.
 - Terminating. Because the dependency graph is finite, there can only be a finite number of nodes.
 
 The concrete rules of adding dependencies is available in [its module](/crates/moonbuild-rupes-recta/src/build_plan/mod.rs).
@@ -509,9 +510,12 @@ and with maximal parallelism subject to dependencies and its job limits.
 ## Artifacts handling
 
 `moon` may perform additional operations on the artifacts generated during the build.
-The list of requested artifacts is generated by the build graph lowering
-process and keyed by `ArtifactKey`. Callers therefore select results by logical
-identity rather than by provider action kind or position in an output vector.
+The requested results are keyed by `ArtifactKey` before build-plan construction;
+lowering realizes them into physical paths. Callers therefore select results by
+logical identity rather than by provider action kind or position in an output
+vector. Physical outputs required only for execution, such as a companion dSYM
+directory, are not caller-requested results; the current n2 graph still executes
+their producer when the output is an unconsumed graph root.
 
 `packages.json` is the legacy metadata file shared with IDE tooling.
 Its top-level shape remains single-module-oriented for compatibility.

@@ -55,9 +55,6 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
-    /// Caller-selected action intents, retained only while provider choices are
-    /// being resolved. The finished plan exposes requested artifacts instead.
-    pub(super) requested_nodes: HashSet<BuildPlanNode>,
     pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
@@ -97,7 +94,6 @@ impl<'a> BuildPlanConstructor<'a> {
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
-            requested_nodes: HashSet::new(),
             warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
@@ -112,7 +108,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
     pub(super) fn build(
         &mut self,
-        input: impl Iterator<Item = BuildPlanNode>,
+        input: impl Iterator<Item = ArtifactKey>,
     ) -> Result<(), BuildPlanConstructError> {
         assert!(
             self.pending.is_empty(),
@@ -120,22 +116,14 @@ impl<'a> BuildPlanConstructor<'a> {
         );
 
         let input = input.collect::<Vec<_>>();
-        self.requested_nodes.extend(input.iter().copied());
+        self.res.requested_artifacts.extend(input.iter().cloned());
 
-        // Normalize action-shaped caller intent to the action that really
-        // provides the requested result for this backend.
-        let mut root_nodes = Vec::new();
-        for node in input {
-            let root = match node {
-                BuildPlanNode::MakeExecutable(target)
-                    if !self.build_env.target_backend().is_native() =>
-                {
-                    BuildPlanNode::LinkCore(target)
-                }
-                _ => node,
-            };
-            self.need_node(root);
-            root_nodes.push(root);
+        // Record the complete caller-requested set before selecting providers.
+        // Some artifacts share a provider only for a particular request shape;
+        // for example, an explicit proof report makes `Prove` provide the proof
+        // surface that dependencies would otherwise get from `EmitProof`.
+        for artifact in &input {
+            self.need_artifact_provider(artifact);
         }
 
         while let Some(node) = self.pending.pop() {
@@ -160,25 +148,12 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        for root in root_nodes {
-            self.res
-                .requested_artifacts
-                .extend(self.res.artifacts.provided_by(root).cloned());
-            if let BuildPlanNode::MakeExecutable(target) = root
-                && self
-                    .res
-                    .actions
-                    .contains(&BuildPlanNode::GenerateDsym(target))
-            {
-                self.res
-                    .requested_artifacts
-                    .insert(ArtifactKey::DsymBundle {
-                        package: target.package,
-                        target_kind: target.kind,
-                    });
-            }
+        for artifact in &self.res.requested_artifacts {
+            assert!(
+                self.res.artifacts.provider(artifact).is_some(),
+                "requested artifact {artifact:?} has no provider in the build plan"
+            );
         }
-
         self.res.artifacts.validate();
         self.warn_moon_cc_overrides();
 
@@ -482,7 +457,13 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Record an artifact requirement and schedule the artifact rule's unique
     /// provider. The caller names only the artifact it consumes.
     pub(super) fn require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
-        let provider = match &artifact {
+        self.need_artifact_provider(&artifact);
+        self.res.artifacts.require(consumer, artifact);
+    }
+
+    /// Schedule the action that provides one requested or required artifact.
+    fn need_artifact_provider(&mut self, artifact: &ArtifactKey) {
+        let provider = match artifact {
             ArtifactKey::CheckMi {
                 package,
                 target_kind,
@@ -505,7 +486,14 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind,
             } => {
                 let target = package.build_target(*target_kind);
-                if self.requested_nodes.contains(&BuildPlanNode::Prove(target)) {
+                if self
+                    .res
+                    .requested_artifacts
+                    .contains(&ArtifactKey::ProofReport {
+                        package: *package,
+                        target_kind: *target_kind,
+                    })
+                {
                     BuildPlanNode::Prove(target)
                 } else {
                     BuildPlanNode::EmitProof(target)
@@ -576,16 +564,14 @@ impl<'a> BuildPlanConstructor<'a> {
                 let provider = self
                     .res
                     .artifacts
-                    .provider(&artifact)
+                    .provider(artifact)
                     .expect("prebuild artifact should name a planned output");
                 debug_assert!(is_package_prebuild_node(provider));
-                self.res.artifacts.require(consumer, artifact);
                 return;
             }
         };
 
         self.need_node(provider);
-        self.res.artifacts.require(consumer, artifact);
     }
 
     fn ensure_resolved(&self, node: BuildPlanNode) {

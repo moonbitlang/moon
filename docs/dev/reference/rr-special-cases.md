@@ -33,8 +33,8 @@ important ones and why they exist.
 
 - **Tests can be dropped per package.** `special_cases::should_skip_tests` lists
   packages that should not produce test targets (currently just
-  `moonbitlang/core/abort`). `compile::filter_special_case_input_nodes` uses
-  this to discard matching test build nodes before planning.
+  `moonbitlang/core/abort`). `compile::filter_special_case_requested_artifact`
+  uses this to discard matching test artifact requests before planning.
 - **Coverage rules differ per package.** `should_skip_coverage` ensures abort is
   never instrumented, while `is_self_coverage_lib` says builtin/coverage should
   use themselves when linking coverage support. These predicates are reused by

@@ -24,7 +24,7 @@ use std::{
 use indexmap::IndexSet;
 use moonutil::resolution::ModuleId;
 
-use crate::model::{BuildPlanNode, PackageId, TargetKind};
+use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind};
 
 /// Normalize a package file declaration without retaining the package's
 /// physical root. Explicit paths outside the package remain absolute because
@@ -100,6 +100,9 @@ pub enum ArtifactKey {
         package: PackageId,
         target_kind: TargetKind,
     },
+    /// FIXME(execution-plan): This temporary execution-layer compatibility
+    /// output is not exposed as a caller-requested Build Artifact. Replace it
+    /// with a declared output of `GenerateDsym` in the execution plan.
     DsymBundle {
         package: PackageId,
         target_kind: TargetKind,
@@ -134,6 +137,69 @@ pub enum ArtifactKey {
         /// package root; an explicitly absolute declaration remains absolute.
         path: PathBuf,
     },
+}
+
+impl ArtifactKey {
+    /// The package target whose compilation lifecycle owns this artifact.
+    /// Module-wide, package-wide, runtime, and prebuild artifacts have no
+    /// `BuildTarget` identity.
+    pub(crate) fn package_target(&self) -> Option<BuildTarget> {
+        match self {
+            Self::CheckMi {
+                package,
+                target_kind,
+            }
+            | Self::BuildMi {
+                package,
+                target_kind,
+            }
+            | Self::CoreIr {
+                package,
+                target_kind,
+            }
+            | Self::ProofMi {
+                package,
+                target_kind,
+            }
+            | Self::ProofWhyml {
+                package,
+                target_kind,
+            }
+            | Self::ProofReport {
+                package,
+                target_kind,
+            }
+            | Self::LinkedCore {
+                package,
+                target_kind,
+            }
+            | Self::Executable {
+                package,
+                target_kind,
+            }
+            | Self::GeneratedTestDriver {
+                package,
+                target_kind,
+            }
+            | Self::GeneratedTestMetadata {
+                package,
+                target_kind,
+            }
+            | Self::GeneratedMbti {
+                package,
+                target_kind,
+            } => Some(package.build_target(*target_kind)),
+            Self::VirtualContractMi { .. }
+            | Self::CStubObject { .. }
+            | Self::CStubLibrary { .. }
+            | Self::BundleResult { .. }
+            | Self::RuntimeObject { .. }
+            | Self::RuntimeLibrary
+            | Self::DocsDir { .. }
+            | Self::DsymBundle { .. }
+            | Self::PrebuildOutput { .. } => None,
+        }
+    }
 }
 
 /// Artifact providers and the artifact requirements of each action.

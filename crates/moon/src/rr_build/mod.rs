@@ -44,8 +44,8 @@ use moonbuild_rupes_recta::{
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        BackendConfig, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId,
-        TargetKind, TccRunConfig,
+        BackendConfig, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId, TargetKind,
+        TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
@@ -96,7 +96,7 @@ pub(crate) fn sync_and_resolve_project(
 
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
-    /// The list of user intents; will be expanded to concrete BuildPlanNode(s) later.
+    /// The list of user intents; will be expanded to requested artifacts later.
     pub intents: Vec<UserIntent>,
     /// The input directive that the user wants to apply to the packages
     pub directive: InputDirective,
@@ -105,6 +105,25 @@ pub struct CalcUserIntentOutput {
 impl CalcUserIntentOutput {
     pub fn new(intents: Vec<UserIntent>, directive: InputDirective) -> Self {
         Self { intents, directive }
+    }
+
+    fn requested_artifacts(
+        &self,
+        resolve_output: &ResolveOutput,
+        user_log: &UserLog,
+        target_backend: TargetBackend,
+    ) -> Vec<ArtifactKey> {
+        let mut artifacts = Vec::new();
+        for intent in &self.intents {
+            intent.append_artifacts(
+                resolve_output,
+                &mut artifacts,
+                user_log,
+                &self.directive,
+                target_backend,
+            );
+        }
+        artifacts
     }
 }
 
@@ -316,7 +335,7 @@ impl CompilePreConfig {
         final_target_backend: TargetBackend,
         is_core: bool,
         resolve_output: &ResolveOutput,
-        input_nodes: &[BuildPlanNode],
+        requested_artifacts: &[ArtifactKey],
         user_log: &UserLog,
     ) -> anyhow::Result<CompileConfig> {
         info!("Determining compilation configuration");
@@ -346,9 +365,11 @@ impl CompilePreConfig {
                 use_wat: self.output_wat,
             },
             TargetBackend::Js => BackendConfig::Js,
-            TargetBackend::Native => {
-                BackendConfig::Native(self.detect_mode(resolve_output, input_nodes, user_log))
-            }
+            TargetBackend::Native => BackendConfig::Native(self.detect_mode(
+                resolve_output,
+                requested_artifacts,
+                user_log,
+            )),
             TargetBackend::LLVM => BackendConfig::Llvm,
         };
         info!("Final backend configuration: {:?}", backend);
@@ -388,7 +409,7 @@ impl CompilePreConfig {
     fn detect_mode(
         &self,
         resolve_output: &ResolveOutput,
-        input_nodes: &[BuildPlanNode],
+        requested_artifacts: &[ArtifactKey],
         user_log: &UserLog,
     ) -> NativeBackendMode {
         // TODO: Native payload form is selected once per invocation. Before
@@ -396,13 +417,13 @@ impl CompilePreConfig {
         // products by their native toolchain and realization. Otherwise mixed
         // payload forms can require incompatible shared artifacts, especially
         // for the strict MSVC direct object target.
-        let native_configs = input_nodes
+        let native_configs = requested_artifacts
             .iter()
-            .filter_map(|node| {
-                let BuildPlanNode::MakeExecutable(build_target) = node else {
+            .filter_map(|artifact| {
+                let ArtifactKey::Executable { package, .. } = artifact else {
                     return None;
                 };
-                let package = resolve_output.pkg_dirs.get_package(build_target.package);
+                let package = resolve_output.pkg_dirs.get_package(*package);
                 let native = package
                     .raw
                     .link
@@ -638,23 +659,14 @@ pub(crate) fn plan_resolved_build_from_intent(
         Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
     };
 
-    // Expand user intents to concrete BuildPlanNode inputs
-    info!("Expanding user intents to build plan nodes");
-    let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
-    for i in &intent.intents {
-        i.append_nodes(
-            &resolve_output,
-            &mut input_nodes,
-            user_log,
-            &intent.directive,
-            planning_context.target_backend,
-        );
-    }
+    info!("Expanding user intents to requested artifacts");
+    let requested_artifacts =
+        intent.requested_artifacts(&resolve_output, user_log, planning_context.target_backend);
     let cx = preconfig.into_compile_config(
         planning_context.target_backend,
         planning_context.is_core,
         &resolve_output,
-        &input_nodes,
+        &requested_artifacts,
         user_log,
     )?;
     info!("Begin lowering to build graph");
@@ -662,7 +674,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         &cx,
         mooncake_bin_dir,
         &resolve_output,
-        &input_nodes,
+        &requested_artifacts,
         &intent.directive,
         prebuild_config.as_ref(),
         user_log,
@@ -732,28 +744,20 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
     };
 
-    let mut input_nodes = Vec::new();
-    for user_intent in &intent.intents {
-        user_intent.append_nodes(
-            &resolve_output,
-            &mut input_nodes,
-            user_log,
-            &intent.directive,
-            planning_context.target_backend,
-        );
-    }
+    let requested_artifacts =
+        intent.requested_artifacts(&resolve_output, user_log, planning_context.target_backend);
     let cx = preconfig.into_compile_config(
         planning_context.target_backend,
         planning_context.is_core,
         &resolve_output,
-        &input_nodes,
+        &requested_artifacts,
         user_log,
     )?;
     let compile_output = moonbuild_rupes_recta::compile_standalone(
         &cx,
         mooncake_bin_dir,
         &resolve_output,
-        &input_nodes,
+        &requested_artifacts,
         script_package,
         &intent.directive,
         prebuild_config.as_ref(),
