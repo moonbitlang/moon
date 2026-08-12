@@ -134,7 +134,7 @@ pub(crate) fn compare_graphs_with_replacements(
 }
 
 fn normalize_current_moon_binary(s: &mut String) {
-    let moon = crate::util::moon_bin();
+    let moon = snapbox::cargo_bin!("moon");
     let moon = moon.to_string_lossy();
     *s = s.replace(moon.as_ref(), "$MOON_HOME/bin/moon");
     if let Some(moon_without_exe) = moon.strip_suffix(".exe") {

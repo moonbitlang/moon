@@ -23,9 +23,7 @@ use expect_test::expect_file;
 use super::*;
 use expect_test::expect;
 use moonutil::{
-    constants::{
-        BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK_ENV,
-    },
+    constants::{BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_NO_WORKSPACE, MOON_WORK_ENV},
     manifest::MoonModJSON,
     path::CargoPathExt,
     target::TargetBackend,
@@ -129,7 +127,6 @@ mod test_moon_info;
 mod test_moonbitlang_x;
 mod test_outline;
 mod test_release;
-mod third_party;
 mod tool_commands;
 mod value_tracing;
 mod virtual_pkg;

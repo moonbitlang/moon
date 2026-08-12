@@ -1,8 +1,7 @@
 # Test suite strategy
 
-This document describes how tests in `crates/moon/tests/test_cases` should be
-split by purpose. The goal is to keep the default suite fast without weakening
-coverage.
+This document describes how tests in `crates/moon/tests` should be split by
+purpose. The goal is to keep the default suite fast without weakening coverage.
 
 This is an audit of the current test layout, not a statement that the repo is
 already perfectly organized this way.
@@ -97,6 +96,8 @@ Typical examples:
 Preferred location:
 
 - `crates/moon/tests/test_cases/**`
+- a dedicated integration target when a coherent E2E boundary is expensive or
+  needs infrastructure that the default target should not initialize
 
 Signals that a test should stay e2e:
 
@@ -375,8 +376,8 @@ categorized.
 
 ### Slow-path warnings
 
-- Warning: `third_party`, `test_moonbitlang_x`, and network-dependent coverage
-  tests should stay isolated from the default fast path.
+- Warning: `test_moonbitlang_x` should stay isolated from the default fast
+  path.
 - Warning: git-install and environment-dependent version tests should be
   treated as slow or external even if they remain under the main integration
   tree.
@@ -454,17 +455,20 @@ though individual cases may still be split out:
 - `prebuild_config_script`
 - `virtual_pkg_test`
 - `single_file_front_matter`
+- `third_party`, using an isolated loopback registry with real Git smart HTTP
+  and package downloads
+- `registry_e2e`, the separate Cargo integration target for registry update,
+  package download, dependency sync, and postadd behavior; it uses only an
+  isolated loopback registry and does not contact public Mooncakes services
 
 ### Slow or external suites
 
 These should not be mixed into the default fast path if they can be isolated:
 
-- `third_party`
 - `test_moonbitlang_x`
 - the full upstream `moonbitlang/async` wasm conformance test in
   `moonrun`'s integration test target;
   its dedicated CI workflow runs for Moonrun or upstream async changes
-- network-dependent parts of `moon_coverage`
 - git-install tests in `crates/moon/tests/test_cases/mod.rs`
 - environment-dependent parts of `moon_version`
 

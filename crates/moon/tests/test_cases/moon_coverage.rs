@@ -131,7 +131,9 @@ fn test_moon_coverage_analyze_dry_run() {
 
 #[test]
 fn test_moon_coverage_analyze_third_party() {
+    let registry = crate::support::registry_fixtures::third_party_registry();
     let dir = TestDir::new("third_party");
+    get_stdout_with_envs(&dir, ["update"], registry.envs());
     let dump_file = dir.join("coverage_third_party_dry_run.jsonl");
     let _stdout = get_stdout_with_envs(
         &dir,
@@ -143,7 +145,15 @@ fn test_moon_coverage_analyze_third_party() {
             "--test-flag=--nostd",
             "--test-flag=--sort-input",
         ],
-        [(ENV_VAR, dump_file.to_str().unwrap())],
+        std::iter::once((
+            std::ffi::OsString::from(ENV_VAR),
+            dump_file.as_os_str().to_owned(),
+        ))
+        .chain(
+            registry
+                .envs()
+                .map(|(name, value)| (std::ffi::OsString::from(name), value)),
+        ),
     );
 
     compare_graphs(

@@ -603,6 +603,8 @@ pub struct Credentials {
 pub struct RegistryConfig {
     pub registry: String,
     pub index: String,
+    #[serde(default)]
+    pub symbols: Option<String>,
 }
 
 impl RegistryConfig {
@@ -611,11 +613,13 @@ impl RegistryConfig {
             RegistryConfig {
                 index: format!("{v}/git/index"),
                 registry: v,
+                symbols: None,
             }
         } else {
             RegistryConfig {
                 registry: "https://mooncakes.io".into(),
                 index: "https://mooncakes.io/git/index".into(),
+                symbols: None,
             }
         }
     }

@@ -316,15 +316,15 @@ See details in [Modules and packages][mod-pkg].
 
 Current registry configuration behavior today is:
 
-- `RegistryConfig` currently affects how `moon update` populates the local
+- `RegistryConfig.index` controls how `moon update` populates the local
   registry index.
+- `RegistryConfig.registry` is the base URL for package archive downloads. The
+  official Mooncakes base is mapped to its download service; custom bases
+  serve archives below `/user`.
+- The optional `RegistryConfig.symbols` URL overrides the default Mooncakes
+  symbols archive used by `moon update`.
 - MVS itself resolves against the local on-disk index and does not consume
   `RegistryConfig` directly.
-- Package artifact downloads and symbols download are still tied to the default
-  Mooncakes endpoints.
-
-Future custom/private registry work may configure these pieces together,
-rather than reintroducing unused registry parameters into resolve entry points.
 
 [semver]: https://semver.org/
 [mvs]: https://go.dev/ref/mod#minimal-version-selection

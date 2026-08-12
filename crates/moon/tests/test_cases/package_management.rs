@@ -19,97 +19,6 @@
 use super::*;
 
 #[test]
-fn mooncakes_io_smoke_test() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    let dir = TestDir::new("hello");
-    let _ = get_stdout(&dir, ["update"]);
-    let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
-    check(
-        std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
-        expect![[r#"
-            {
-              "name": "hello",
-              "deps": {
-                "lijunchen/hello2": "0.1.0"
-              }
-            }"#]],
-    );
-    let _ = get_stdout(&dir, ["remove", "lijunchen/hello2"]);
-    check(
-        std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
-        expect![[r#"
-            {
-              "name": "hello",
-              "deps": {}
-            }"#]],
-    );
-    let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
-    std::fs::write(
-        dir.join("main/main.mbt"),
-        r#"fn main {
-  println(@lib.hello2())
-}
-"#,
-    )
-    .unwrap();
-
-    let mooncakes_dir = dir.as_ref().join(".mooncakes");
-
-    assert!(
-        mooncakes_dir
-            .join("lijunchen")
-            .join("hello")
-            .join(MOON_MOD_JSON)
-            .exists()
-    );
-
-    std::fs::remove_dir_all(&mooncakes_dir).unwrap();
-    let assert = moon_cmd(&dir).arg("install").assert().success();
-    let output = assert.get_output();
-    assert!(output.stdout.is_empty());
-    let mut lines = std::str::from_utf8(&output.stderr)
-        .unwrap()
-        .lines()
-        .filter(|line| line.starts_with("Using cached "))
-        .collect::<Vec<_>>();
-    lines.sort();
-    check(
-        lines.join("\n"),
-        expect![[r#"
-            Using cached lijunchen/hello2@0.1.0
-            Using cached lijunchen/hello@0.1.0"#]],
-    );
-
-    std::fs::write(
-        dir.join("main/moon.pkg.json"),
-        r#"{
-          "is-main": true,
-          "import": [
-            "lijunchen/hello2/lib"
-          ]
-        }
-    "#,
-    )
-    .unwrap();
-
-    std::fs::remove_dir_all(&mooncakes_dir).unwrap();
-    let assert = moon_cmd(&dir).args(["run", "main"]).assert().success();
-    check(
-        std::str::from_utf8(&assert.get_output().stdout).unwrap(),
-        expect![[r#"
-            Hello, world!Hello, world2!
-        "#]],
-    );
-    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
-    assert!(
-        !stderr.contains("Using cached ") && !stderr.contains("Downloading "),
-        "moon run should keep dependency sync quiet by default, got:\n{stderr}"
-    );
-}
-
-#[test]
 #[ignore = "where to download mooncake?"]
 fn mooncake_cli_smoke_test() {
     let dir = TestDir::new("hello.in");
@@ -120,53 +29,6 @@ fn mooncake_cli_smoke_test() {
         .unwrap();
     let s = std::str::from_utf8(&out.stderr).unwrap().to_string();
     assert!(s.contains("failed to open credentials file"));
-}
-
-#[test]
-fn test_moon_update_reclones_for_different_registry_url() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path();
-    let moon_home = dir;
-    moon_cmd(&dir)
-        .env("MOON_HOME", moon_home)
-        .args(["update"])
-        .assert()
-        .success()
-        .stdout_eq("")
-        .stderr_eq("Registry index cloned successfully\nSymbols updated successfully\n");
-
-    let _ = std::process::Command::new("git")
-        .args([
-            "-C",
-            dir.join("registry").join("index").to_str().unwrap(),
-            "remote",
-            "set-url",
-            "origin",
-            "whatever",
-        ])
-        .output()
-        .unwrap();
-
-    moon_cmd(&dir)
-        .env("MOON_HOME", moon_home)
-        .args(["update"])
-        .assert()
-        .success()
-        .stdout_eq("")
-        .stderr_eq(
-            "Registry index remote does not match the configured URL, re-cloning\nRegistry index re-cloned successfully\nSymbols updated successfully\n",
-        );
-
-    moon_cmd(&dir)
-        .env("MOON_HOME", moon_home)
-        .args(["update", "--quiet"])
-        .assert()
-        .success()
-        .stdout_eq("")
-        .stderr_eq("");
 }
 
 #[test]
@@ -320,28 +182,6 @@ fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
         "Please upgrade this installation with the package manager or installer that owns the toolchain."
     ));
     Ok(())
-}
-
-#[test]
-fn test_postadd_script() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    let dir = TestDir::new("test_postadd_script.in");
-    let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
-    assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
-
-    let _ = get_stdout(&dir, ["remove", "lijunchen/test_postadd"]);
-
-    let out = moon_process_cmd(&dir)
-        .env("MOON_IGNORE_POSTADD", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .args(["add", "lijunchen/test_postadd"])
-        .output()
-        .unwrap();
-    let out = String::from_utf8(out.stderr).unwrap();
-    assert!(!out.contains(".mooncakes/lijunchen/test_postadd"));
 }
 
 #[test]

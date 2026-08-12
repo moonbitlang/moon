@@ -107,19 +107,22 @@ Package Source Directory
   - test_specify_source_dir_with_deps_002
 
 Package Management
-  - mooncakes_io_smoke_test
   - mooncake_cli_smoke_test (ignored = "where to download mooncake?")
   - test_moon_check_filter_package
   - test_moon_check_package_with_patch
   - test_moon_install_bin
-  - test_postadd_script
   - test_moonbitlang_x
-  - test_third_party
   - test_upgrade
   - bench2_test
   - cakenew_test
   - capture_abort_test
   - circle_pkg_test
+
+Registry E2E (tests/registry_e2e.rs)
+  - add_remove_install_and_run
+  - postadd_script_can_be_disabled
+  - update_reclones_for_different_registry_url
+  - test_third_party
 
 Pre-Build Configuration
   - test_pre_build

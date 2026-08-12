@@ -1631,9 +1631,12 @@ dependencies = [
  "home",
  "ignore",
  "regex",
+ "serde_json",
+ "sha2",
  "snapbox",
  "tempfile",
  "which 6.0.2",
+ "zip",
 ]
 
 [[package]]

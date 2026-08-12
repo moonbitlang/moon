@@ -690,8 +690,9 @@ pub fn update(
         user_log,
         |previous_etag| {
             let registry_index = update_registry_index(target_dir, registry_config, user_log)?;
+            let symbols_url = registry_config.symbols.as_deref().unwrap_or(SYMBOLS_URL);
             let (symbols_updated, symbols_etag) =
-                match update_symbols_from_url(registry_dir, SYMBOLS_URL, previous_etag) {
+                match update_symbols_from_url(registry_dir, symbols_url, previous_etag) {
                     Ok(etag) => (true, etag),
                     Err(e) => {
                         user_log.warn(format!("failed to update symbols: {e:#}"));
@@ -778,6 +779,7 @@ mod tests {
             RegistryConfig {
                 registry: index.clone(),
                 index,
+                symbols: None,
             },
         )
     }
@@ -850,6 +852,7 @@ mod tests {
             RegistryConfig {
                 registry: index.clone(),
                 index,
+                symbols: None,
             },
         )
     }

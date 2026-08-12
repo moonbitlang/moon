@@ -16,7 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub mod cmdtest;
-pub mod registry;
-pub mod stack_trace;
-pub mod test_dir;
+#[path = "support/build_graph.rs"]
+mod build_graph;
+#[path = "registry_e2e/package_management.rs"]
+mod package_management;
+#[path = "support/registry_fixtures.rs"]
+mod registry_fixtures;
+#[path = "registry_e2e/support.rs"]
+mod support;
+#[path = "registry_e2e/third_party.rs"]
+mod third_party;

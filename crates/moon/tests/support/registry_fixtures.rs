@@ -16,7 +16,28 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub mod cmdtest;
-pub mod registry;
-pub mod stack_trace;
-pub mod test_dir;
+use moon_test_util::registry::TestRegistry;
+
+pub(crate) fn third_party_registry() -> TestRegistry {
+    TestRegistry::new(
+        "thirdparty/hello",
+        "0.1.0",
+        &[
+            (
+                "moon.mod",
+                br#"name = "thirdparty/hello"
+
+version = "0.1.0"
+"#,
+            ),
+            ("lib/moon.pkg", b""),
+            (
+                "lib/hello.mbt",
+                br#"pub fn hello() -> String {
+  "Hello, world!"
+}
+"#,
+            ),
+        ],
+    )
+}
