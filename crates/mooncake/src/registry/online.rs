@@ -181,6 +181,19 @@ fn open_verified_archive(path: &Path, expected_checksum: &str) -> std::io::Resul
     Ok(Some(archive))
 }
 
+fn open_cached_archive(path: &Path, expected_checksum: &str) -> anyhow::Result<Option<File>> {
+    match open_verified_archive(path, expected_checksum) {
+        Ok(archive) => Ok(archive),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "Unable to read cached registry archive `{}`",
+                path.display()
+            )
+        }),
+    }
+}
+
 fn copy_archive_and_verify_checksum(
     source: &mut impl Read,
     destination: &mut impl Write,
@@ -275,31 +288,26 @@ impl OnlineRegistry {
             anyhow::bail!("Module {}@{} not found", name, version);
         }
         let cache_file = self.archive_cache_file_of(name, version);
+        if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
+            user_log.status(format!("Using cached {name}@{version}"));
+            return Ok(archive);
+        }
+
         let cache_dir = cache_file
             .parent()
             .expect("registry cache file has a parent");
         std::fs::create_dir_all(cache_dir)?;
-        let _cache_lock = FileLock::lock_with_user_log(cache_dir, user_log).with_context(|| {
-            format!(
-                "Unable to lock registry archive cache directory `{}`",
-                cache_dir.display()
-            )
-        })?;
-        match open_verified_archive(&cache_file, expected_checksum) {
-            Ok(Some(archive)) => {
-                user_log.status(format!("Using cached {name}@{version}"));
-                return Ok(archive);
-            }
-            Ok(None) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "Unable to read cached registry archive `{}`",
-                        cache_file.display()
-                    )
-                });
-            }
+        let cache_lock_file = cache_file.with_extension("zip.lock");
+        let _cache_lock = FileLock::lock_file_with_user_log(&cache_lock_file, user_log)
+            .with_context(|| {
+                format!(
+                    "Unable to lock registry archive cache file `{}`",
+                    cache_lock_file.display()
+                )
+            })?;
+        if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
+            user_log.status(format!("Using cached {name}@{version}"));
+            return Ok(archive);
         }
         user_log.status(format!("Downloading {name}@{version}"));
         let filepath = form_urlencoded::Serializer::new(String::new())
@@ -543,6 +551,58 @@ mod tests {
     }
 
     #[test]
+    fn verified_cached_archive_does_not_wait_for_download_lock() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (registry, name, version) = test_registry(&sandbox);
+        let archive = test_archive();
+        let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
+        let archive_path = registry.archive_cache_file_of(&name, &version);
+        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        std::fs::write(&archive_path, archive).unwrap();
+
+        let open_lock = |path: &Path| {
+            let lock = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(path)
+                .unwrap();
+            lock.lock().unwrap();
+            lock
+        };
+        let module_lock = open_lock(
+            &archive_path
+                .parent()
+                .unwrap()
+                .join(moonutil::constants::MOON_LOCK),
+        );
+        let version_lock = open_lock(&archive_path.with_extension("zip.lock"));
+
+        let destination = sandbox.path().join("source");
+        let (result_sender, result_receiver) = std::sync::mpsc::channel();
+        let client = std::thread::spawn(move || {
+            result_sender
+                .send(registry.acquire_source_to(
+                    &name,
+                    &version,
+                    &checksum,
+                    &destination,
+                    &quiet_user_log(),
+                ))
+                .unwrap();
+        });
+
+        let result = result_receiver.recv_timeout(Duration::from_secs(5));
+        drop(version_lock);
+        drop(module_lock);
+        client.join().unwrap();
+        result
+            .expect("verified cache hits should not wait for the download lock")
+            .unwrap();
+    }
+
+    #[test]
     fn concurrent_archive_acquisitions_are_coalesced() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let (registry, name, version) = test_registry(&sandbox);
@@ -635,6 +695,12 @@ mod tests {
             result.unwrap();
         }
         assert_eq!(request_count.load(Ordering::Relaxed), 1);
+        assert!(
+            registry
+                .archive_cache_file_of(&name, &version)
+                .with_extension("zip.lock")
+                .is_file()
+        );
     }
 
     #[test]

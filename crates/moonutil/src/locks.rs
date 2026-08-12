@@ -16,18 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use fs4::fs_std::FileExt;
-
 use crate::{constants::MOON_LOCK, user_log::UserLog};
 
 pub struct FileLock {
     _file: std::fs::File,
-}
-
-impl Drop for FileLock {
-    fn drop(&mut self) {
-        fs4::fs_std::FileExt::unlock(&self._file).unwrap();
-    }
 }
 
 impl FileLock {
@@ -45,21 +37,40 @@ impl FileLock {
     }
 
     pub fn lock_with_user_log(path: &std::path::Path, user_log: &UserLog) -> std::io::Result<Self> {
-        let file = std::fs::File::create(path.join(MOON_LOCK))?;
-        match file.try_lock_exclusive() {
+        Self::lock_file_with_user_log(&path.join(MOON_LOCK), user_log)
+    }
+
+    /// Lock a stable file path.
+    ///
+    /// Callers must not remove the lock file after unlocking it. A waiter may
+    /// still hold the old file open while a new caller creates and locks a
+    /// different file at the same path, splitting one lock domain into two.
+    pub fn lock_file_with_user_log(
+        path: &std::path::Path,
+        user_log: &UserLog,
+    ) -> std::io::Result<Self> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        match file.try_lock() {
             Ok(_) => Ok(FileLock { _file: file }),
-            Err(_) => {
+            Err(std::fs::TryLockError::WouldBlock) => {
                 #[cfg(test)]
                 let _ = user_log;
                 #[cfg(not(test))]
                 user_log.status(format!(
                     "Blocking waiting for file lock {} ...",
-                    path.join(MOON_LOCK).display()
+                    path.display()
                 ));
-                file.lock_exclusive()
-                    .map_err(|e| std::io::Error::new(e.kind(), "failed to lock target dir"))?;
+                file.lock().map_err(|error| {
+                    std::io::Error::new(error.kind(), "failed to acquire file lock")
+                })?;
                 Ok(FileLock { _file: file })
             }
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
         }
     }
 }
