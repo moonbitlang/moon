@@ -746,10 +746,12 @@ impl<'a> LoweringContext<'a> {
         // Ensure n2 sees stdlib core bundle changes as inputs
         let mut extra_inputs = Vec::new();
         if let Some(stdlib) = &self.opt.stdlib_path {
-            extra_inputs.push(moonutil::toolchain::abort_core_in(
-                stdlib,
-                self.opt.target_backend(),
-            ));
+            if !info.abort_overridden {
+                extra_inputs.push(moonutil::toolchain::abort_core_in(
+                    stdlib,
+                    self.opt.target_backend(),
+                ));
+            }
             extra_inputs.push(moonutil::toolchain::core_core_in(
                 stdlib,
                 self.opt.target_backend(),

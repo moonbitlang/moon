@@ -19,8 +19,8 @@
 //! Canonical identities for concrete Rupes Recta actions.
 //!
 //! The identity boundary consumes [`ExecutionPlan`] directly. It does not
-//! inspect n2's rendered graph, and process-local action/output handles are
-//! discarded before hashing.
+//! inspect n2's rendered graph, and process-local action handles are discarded
+//! before hashing.
 
 use std::{
     borrow::Cow,
@@ -118,51 +118,68 @@ pub fn compute_action_identities(
         .into_iter()
         .map(|id| {
             let action = plan.action(id);
-            let dependencies = action
-                .artifact_inputs()
-                .iter()
-                .map(|artifact| {
-                    let producer_id = plan.artifact_producer(artifact);
+            let mut dependency_outputs = HashMap::new();
+            for path in action.inputs() {
+                let output = plan.declared_output(path).with_context(|| {
+                    format!(
+                        "execution action {id:?} depends on undeclared output {}",
+                        path.display()
+                    )
+                })?;
+                let artifact = output.artifact().with_context(|| {
+                    format!("execution action {id:?} depends on a physical-only output")
+                })?;
+                let (producer, paths) = dependency_outputs
+                    .entry(artifact)
+                    .or_insert_with(|| (output.producer(), Vec::new()));
+                if *producer != output.producer() {
+                    bail!("execution artifact {artifact:?} has multiple producers");
+                }
+                paths.push(output.path().to_owned());
+            }
+            let dependencies = dependency_outputs
+                .into_iter()
+                .map(|(artifact, (producer_id, paths))| {
                     let producer = index_by_id.get(&producer_id).copied().with_context(|| {
                         format!("execution action {id:?} is missing producer {producer_id:?}")
                     })?;
                     Ok(CanonicalProduct {
                         producer: Some(producer),
                         logical: Some(LogicalProduct::from(artifact)),
-                        paths: plan
-                            .artifact_paths(artifact)
-                            .into_iter()
-                            .map(ToOwned::to_owned)
-                            .collect(),
+                        paths,
                     })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let external_inputs = action.external_inputs().to_vec();
-            let mut outputs = action
-                .artifact_outputs()
-                .iter()
-                .map(|artifact| CanonicalProduct {
-                    producer: None,
-                    logical: Some(LogicalProduct::from(artifact)),
-                    paths: plan
-                        .artifact_paths(artifact)
-                        .into_iter()
-                        .map(ToOwned::to_owned)
-                        .collect(),
-                })
-                .collect::<Vec<_>>();
-            outputs.extend(
-                action
-                    .outputs()
-                    .iter()
-                    .map(|output| plan.output(*output))
-                    .filter(|output| output.artifact().is_none())
-                    .map(|output| CanonicalProduct {
+            let mut artifact_outputs = HashMap::<&ArtifactKey, Vec<PathBuf>>::new();
+            let mut outputs = Vec::new();
+            for path in action.outputs() {
+                let output = plan.declared_output(path).with_context(|| {
+                    format!(
+                        "execution action {id:?} names undeclared output {}",
+                        path.display()
+                    )
+                })?;
+                if let Some(artifact) = output.artifact() {
+                    artifact_outputs
+                        .entry(artifact)
+                        .or_default()
+                        .push(output.path().to_owned());
+                } else {
+                    outputs.push(CanonicalProduct {
                         producer: None,
                         logical: None,
                         paths: vec![output.path().to_owned()],
-                    }),
-            );
+                    });
+                }
+            }
+            outputs.extend(artifact_outputs.into_iter().map(|(artifact, paths)| {
+                CanonicalProduct {
+                    producer: None,
+                    logical: Some(LogicalProduct::from(artifact)),
+                    paths,
+                }
+            }));
             let execution = match action.command().execution() {
                 LoweredCommandExecution::Inline(command) => CanonicalExecution::Inline {
                     command: command.clone(),

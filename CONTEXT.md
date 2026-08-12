@@ -93,23 +93,19 @@ The build-plan derivation registered as producing a Build Artifact. Every requir
 _Avoid_: Choosing a provider separately at each requirement call site
 
 **Execution Plan**:
-The executor-neutral graph produced by lowering one backend-specific Build Plan. It owns concrete execution actions, declared physical outputs, and the mapping from each Build Artifact to its provider action and output IDs.
+The executor-neutral graph produced by lowering one backend-specific Build Plan. It owns concrete execution actions, input paths, declared physical outputs, and the realized outputs of requested Build Artifacts.
 _Avoid_: n2 graph, Build Plan, list of lowered commands
 
 **Execution Action**:
-One concrete command plus all execution behavior MoonBuild knows can affect it: artifact requirements, external file observations, declared outputs, working directory, environment, response-file transport, diagnostics, and cache policy.
+One concrete command plus all execution behavior MoonBuild knows can affect it: input paths, external file observations, declared outputs, working directory, environment, response-file transport, diagnostics, and cache policy.
 _Avoid_: Build plan node, process ID, cache digest
 
 **Action ID**:
 A process-local arena handle for one Execution Action within its owning Execution Plan. It is not persistent identity and is not a cache key.
 _Avoid_: Build Artifact identity, action digest
 
-**Output ID**:
-A process-local arena handle for one Declared Action Output within its owning Execution Plan. It allows physical-only outputs to participate in execution without inventing a Build Artifact.
-_Avoid_: ArtifactKey, physical path as identity
-
 **Declared Action Output**:
-A concrete file or directory that an execution action declares for dependency ordering, incremental execution, or caching. It may realize a Build Artifact, but it does not gain semantic identity merely because an executor tracks it.
+A concrete file or directory, identified by its path, that an execution action declares for dependency ordering, incremental execution, or caching. It may realize a Build Artifact, but it does not gain semantic identity merely because an executor tracks it.
 _Avoid_: Build Artifact, incidental output
 
 **Incidental Output**:

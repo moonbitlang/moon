@@ -637,7 +637,7 @@ mod tests {
     fn adapt_execution_plan(plan: crate::execution_plan::ExecutionPlan) -> AdaptedPlan {
         let artifacts = plan
             .requested_artifact_paths()
-            .map(|(artifact, paths)| (artifact.clone(), paths))
+            .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
             .collect();
         let (build_graph, command_args_by_output) = plan
             .all_to_n2_graph()

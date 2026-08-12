@@ -509,8 +509,9 @@ impl<'a> BuildPlanConstructor<'a> {
         target: BuildTarget,
     ) {
         // If the given target is a virtual package with default implementation,
-        // we need to build its interface first.
-        if pkg.is_virtual() {
+        // we need to build its interface first. Injected stdlib contracts are
+        // already supplied by `-std-path` and remain external to this plan.
+        if pkg.is_virtual() && !(self.build_env.std && pkg.is_stdlib) {
             self.require_artifact(
                 node,
                 ArtifactKey::VirtualContractMi {
@@ -520,8 +521,11 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         // If the given target implements a virtual package, we need to build
-        // the virtual package's interface first.
-        if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package) {
+        // the virtual package's interface first, unless that contract comes
+        // from the injected stdlib.
+        if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package)
+            && !(self.build_env.std && self.input.pkg_dirs.is_stdlib_package(*vpkg_id))
+        {
             self.require_artifact(node, ArtifactKey::VirtualContractMi { package: *vpkg_id });
         }
     }
@@ -1445,6 +1449,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 continue;
             }
             if !pkg.has_implementation() {
+                // TODO(bundle-virtual): Request the contract as a bundle root
+                // when the stdlib gains a pure virtual package, then cover the
+                // installed sidecar with a bundle integration fixture.
                 trace!(
                     ?module_id,
                     ?target,

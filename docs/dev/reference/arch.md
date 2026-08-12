@@ -65,8 +65,9 @@ We will use these terms in the document:
   the plan records the action that provides each artifact.
 
 - The **execution plan** is the executor-neutral concrete graph. It contains
-  commands, semantic artifact inputs, external file observations, and declared
-  physical outputs addressed by process-local action and output IDs.
+  commands, input paths, external file observations, and declared physical
+  outputs. Execution actions have process-local IDs; physical outputs are
+  identified by their concrete paths.
 
 - The **n2 graph** is the [Ninja][]-like executor projection of an execution
   plan. Its node is called a **build node**.
@@ -471,7 +472,7 @@ The build plan is only a logical description of the build. It is lowered into
 a concrete, executor-neutral **execution plan**. Each execution action carries:
 
 - a command line to execute,
-- semantic artifact inputs and external file observations,
+- input paths and external file observations,
 - declared physical outputs, and
 - execution metadata such as cwd, environment, diagnostics, and cache policy.
 
@@ -479,12 +480,12 @@ During lowering:
 
 - Each build-plan node’s command line is chosen based on its own metadata
   (package, backend, build target kind, action) and its dependencies.
-- Build Artifacts are resolved to physical outputs and registered in the
-  execution plan's artifact-provider map.
+- Build Artifact requirements are resolved to their provider actions and
+  physical output paths before the execution plan is finalized.
 - Additional inputs (such as source files) may be attached to represent files
   that are not produced by another execution action.
-- Each execution action and declared output receives a process-local
-  `ActionId` or `OutputId`.
+- Each execution action receives a process-local `ActionId`; each declared
+  output is registered by its concrete path.
 - The n2 adapter projects a selected set of execution actions into concrete
   n2 build nodes.
 

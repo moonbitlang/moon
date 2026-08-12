@@ -170,21 +170,6 @@ pub fn core_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
     core_bundle_in(core_root, backend).join("core.core")
 }
 
-pub fn abort_mi_in(
-    core_root: &Path,
-    backend: TargetBackend,
-    is_implementing_virtual: bool,
-) -> PathBuf {
-    let mi_file = if is_implementing_virtual {
-        "abort.impl.mi"
-    } else {
-        "abort.mi"
-    };
-    core_bundle_in(core_root, backend)
-        .join("abort")
-        .join(mi_file)
-}
-
 pub fn core_package_mi_in(
     core_root: &Path,
     backend: TargetBackend,

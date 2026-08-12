@@ -29,6 +29,16 @@ invocation-specific prebuild policy. In particular, bin-dep compatibility
 builds consume an existing contract and never select an absent declaration-only
 output.
 
+When Moon injects a prebuilt standard library, its virtual contracts are
+external compiler inputs rather than artifacts produced by the current Build
+Plan. For example, an implementation of `moonbitlang/core/abort` is checked
+against the `abort.mi` under the injected `-std-path`; planning does not create
+a local `BuildVirtual(abort)` action. Building the standard library itself does
+not inject those artifacts and therefore uses the ordinary local virtual-package
+pipeline. An implementation check may produce a local `.impl.mi`, but that file
+is not part of the installed `-std-path`: the installed contract remains the
+single package interface.
+
 ## Build pipeline
 
 The build stage adds three behaviours on top of what regular packages already do:

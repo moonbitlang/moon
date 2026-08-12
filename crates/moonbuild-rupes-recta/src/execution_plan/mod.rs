@@ -23,8 +23,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use indexmap::IndexMap;
-
 use crate::{build_plan::ArtifactKey, pkg_name::OptionalPackageFQNWithSource};
 
 mod n2_adapter;
@@ -37,10 +35,6 @@ pub use n2_adapter::{CommandArgMap, N2AdapterError};
 /// cache. It is meaningful only within its owning [`ExecutionPlan`].
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ActionId(pub(crate) usize);
-
-/// Process-local identity of one declared physical output.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct OutputId(pub(crate) usize);
 
 /// A concrete file observation that is not produced by an action in this plan.
 #[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -154,7 +148,8 @@ impl LoweredCommand {
 /// One physical file or directory declared to execution adapters.
 ///
 /// A declared output may realize a semantic Build Artifact, but execution-only
-/// outputs such as a dSYM bundle deliberately have no `ArtifactKey`.
+/// outputs such as a dSYM bundle deliberately have no `ArtifactKey`. The path
+/// is its execution identity; it does not replace this semantic annotation.
 #[derive(Debug)]
 pub struct DeclaredOutput {
     producer: ActionId,
@@ -179,10 +174,9 @@ impl DeclaredOutput {
 /// One concrete action after command construction and path realization.
 #[derive(Debug)]
 pub struct ExecutionAction {
-    artifact_inputs: Vec<ArtifactKey>,
+    inputs: Vec<PathBuf>,
     external_inputs: Vec<ExternalInput>,
-    artifact_outputs: Vec<ArtifactKey>,
-    outputs: Vec<OutputId>,
+    outputs: Vec<PathBuf>,
     command: LoweredCommand,
     cache_eligible: bool,
     fileloc: String,
@@ -192,19 +186,15 @@ pub struct ExecutionAction {
 }
 
 impl ExecutionAction {
-    pub fn artifact_inputs(&self) -> &[ArtifactKey] {
-        &self.artifact_inputs
+    pub fn inputs(&self) -> &[PathBuf] {
+        &self.inputs
     }
 
     pub fn external_inputs(&self) -> &[ExternalInput] {
         &self.external_inputs
     }
 
-    pub fn artifact_outputs(&self) -> &[ArtifactKey] {
-        &self.artifact_outputs
-    }
-
-    pub fn outputs(&self) -> &[OutputId] {
+    pub fn outputs(&self) -> &[PathBuf] {
         &self.outputs
     }
 
@@ -234,23 +224,19 @@ impl ExecutionAction {
     }
 }
 
-#[derive(Debug)]
-struct ArtifactRealization {
-    producer: ActionId,
-    outputs: Vec<OutputId>,
-}
-
 /// The executor-neutral graph shared by n2, dry-run, and cache consumers.
 ///
-/// Actions depend on semantic artifacts, while declared physical outputs have
-/// independent `OutputId` values. This lets execution adapters track physical
-/// outputs without promoting every file or directory into `ArtifactKey`.
+/// Build Artifact requirements are realized as concrete input paths. Declared
+/// outputs retain their producer and optional artifact annotation without
+/// promoting every file or directory into `ArtifactKey`. Consumers that need
+/// planning semantics can resolve an input path through
+/// [`ExecutionPlan::declared_output`] instead of inferring meaning from its
+/// filename.
 #[derive(Debug, Default)]
 pub struct ExecutionPlan {
     actions: Vec<ExecutionAction>,
-    outputs: Vec<DeclaredOutput>,
-    artifacts: HashMap<ArtifactKey, ArtifactRealization>,
-    requested_artifacts: IndexMap<ArtifactKey, Vec<OutputId>>,
+    outputs: HashMap<PathBuf, DeclaredOutput>,
+    requested_artifacts: Vec<(ArtifactKey, Vec<PathBuf>)>,
 }
 
 impl ExecutionPlan {
@@ -262,45 +248,11 @@ impl ExecutionPlan {
         &self.actions[id.0]
     }
 
-    pub fn output(&self, id: OutputId) -> &DeclaredOutput {
-        &self.outputs[id.0]
+    pub fn declared_output(&self, path: &Path) -> Option<&DeclaredOutput> {
+        self.outputs.get(path)
     }
 
-    pub fn artifact_producer(&self, artifact: &ArtifactKey) -> ActionId {
-        self.artifacts
-            .get(artifact)
-            .unwrap_or_else(|| panic!("execution artifact {artifact:?} has no provider"))
-            .producer
-    }
-
-    pub fn artifact_outputs(&self, artifact: &ArtifactKey) -> &[OutputId] {
-        &self
-            .artifacts
-            .get(artifact)
-            .unwrap_or_else(|| panic!("execution artifact {artifact:?} has no realization"))
-            .outputs
-    }
-
-    pub fn artifact_paths(&self, artifact: &ArtifactKey) -> Vec<&Path> {
-        self.artifact_outputs(artifact)
-            .iter()
-            .map(|output| self.output(*output).path())
-            .collect()
-    }
-
-    pub fn requested_artifact_paths(&self) -> impl Iterator<Item = (&ArtifactKey, Vec<PathBuf>)> {
-        self.requested_artifacts.iter().map(|(artifact, outputs)| {
-            (
-                artifact,
-                outputs
-                    .iter()
-                    .map(|output| self.output(*output).path.clone())
-                    .collect(),
-            )
-        })
-    }
-
-    pub fn requested_artifacts(&self) -> impl Iterator<Item = (&ArtifactKey, &[OutputId])> {
+    pub fn requested_artifact_paths(&self) -> impl Iterator<Item = (&ArtifactKey, &[PathBuf])> {
         self.requested_artifacts
             .iter()
             .map(|(artifact, outputs)| (artifact, outputs.as_slice()))
@@ -340,53 +292,57 @@ impl ExecutionActionDraft {
 
 #[derive(Default)]
 pub(crate) struct ExecutionPlanBuilder {
-    plan: ExecutionPlan,
-    output_by_path: HashMap<PathBuf, OutputId>,
+    actions: Vec<PendingAction>,
+    outputs: HashMap<PathBuf, DeclaredOutput>,
+    artifacts: HashMap<ArtifactKey, Vec<PathBuf>>,
+}
+
+struct PendingAction {
+    action: ExecutionAction,
+    requirements: Vec<ArtifactKey>,
 }
 
 impl ExecutionPlanBuilder {
     pub(crate) fn add_action(&mut self, draft: ExecutionActionDraft) -> ActionId {
-        let action = ActionId(self.plan.actions.len());
-        let mut output_ids = Vec::new();
-        let mut artifact_outputs = Vec::new();
+        let action = ActionId(self.actions.len());
+        let mut output_paths = Vec::new();
 
         for (artifact, paths) in draft.semantic_outputs {
+            assert!(
+                !paths.is_empty(),
+                "execution artifact has no physical outputs: {artifact:?}"
+            );
             let outputs = paths
                 .into_iter()
                 .map(|path| self.add_output(action, path, Some(artifact.clone())))
                 .collect::<Vec<_>>();
-            let previous = self.plan.artifacts.insert(
-                artifact.clone(),
-                ArtifactRealization {
-                    producer: action,
-                    outputs: outputs.clone(),
-                },
-            );
+            let previous = self.artifacts.insert(artifact.clone(), outputs.clone());
             assert!(
                 previous.is_none(),
                 "execution artifact has multiple providers: {artifact:?}"
             );
-            artifact_outputs.push(artifact);
-            output_ids.extend(outputs);
+            output_paths.extend(outputs);
         }
-        output_ids.extend(
+        output_paths.extend(
             draft
                 .declared_outputs
                 .into_iter()
                 .map(|path| self.add_output(action, path, None)),
         );
 
-        self.plan.actions.push(ExecutionAction {
-            artifact_inputs: draft.artifact_inputs,
-            external_inputs: draft.external_inputs,
-            artifact_outputs,
-            outputs: output_ids,
-            command: draft.command,
-            cache_eligible: draft.cache_eligible,
-            fileloc: draft.fileloc,
-            description: draft.description,
-            can_dirty_on_output: draft.can_dirty_on_output,
-            error_package: draft.error_package,
+        self.actions.push(PendingAction {
+            action: ExecutionAction {
+                inputs: Vec::new(),
+                external_inputs: draft.external_inputs,
+                outputs: output_paths,
+                command: draft.command,
+                cache_eligible: draft.cache_eligible,
+                fileloc: draft.fileloc,
+                description: draft.description,
+                can_dirty_on_output: draft.can_dirty_on_output,
+                error_package: draft.error_package,
+            },
+            requirements: draft.artifact_inputs,
         });
         action
     }
@@ -396,50 +352,65 @@ impl ExecutionPlanBuilder {
         producer: ActionId,
         path: PathBuf,
         artifact: Option<ArtifactKey>,
-    ) -> OutputId {
+    ) -> PathBuf {
+        let previous = self.outputs.insert(
+            path.clone(),
+            DeclaredOutput {
+                producer,
+                path: path.clone(),
+                artifact,
+            },
+        );
         assert!(
-            !self.output_by_path.contains_key(&path),
+            previous.is_none(),
             "declared execution output has multiple producers: {}",
             path.display()
         );
-        let output = OutputId(self.plan.outputs.len());
-        self.plan.outputs.push(DeclaredOutput {
-            producer,
-            path: path.clone(),
-            artifact,
-        });
-        self.output_by_path.insert(path, output);
-        output
+        path
     }
 
     pub(crate) fn finish(
-        mut self,
+        self,
         requested_artifacts: impl IntoIterator<Item = ArtifactKey>,
     ) -> ExecutionPlan {
-        for action in &self.plan.actions {
-            for artifact in &action.artifact_inputs {
-                assert!(
-                    self.plan.artifacts.contains_key(artifact),
-                    "execution action requires artifact without a provider: {artifact:?}"
-                );
-            }
-        }
+        let actions = self
+            .actions
+            .into_iter()
+            .map(|pending| ExecutionAction {
+                inputs: pending
+                    .requirements
+                    .into_iter()
+                    .flat_map(|artifact| {
+                        let outputs = self.artifacts.get(&artifact).unwrap_or_else(|| {
+                        panic!(
+                            "execution action requires artifact without a provider: {artifact:?}"
+                        )
+                    });
+                        outputs.iter().cloned()
+                    })
+                    .collect(),
+                ..pending.action
+            })
+            .collect();
 
         let mut seen = HashSet::new();
+        let mut requested = Vec::new();
         for artifact in requested_artifacts {
             if !seen.insert(artifact.clone()) {
                 continue;
             }
             let outputs = self
-                .plan
                 .artifacts
                 .get(&artifact)
                 .unwrap_or_else(|| panic!("requested artifact has no realization: {artifact:?}"))
-                .outputs
                 .clone();
-            self.plan.requested_artifacts.insert(artifact, outputs);
+            requested.push((artifact, outputs));
         }
-        self.plan
+        ExecutionPlan {
+            actions,
+            outputs: self.outputs,
+            requested_artifacts: requested,
+        }
     }
 }
 
@@ -496,16 +467,16 @@ mod tests {
     fn artifact_edges_and_physical_only_outputs_have_distinct_identity() {
         let (plan, producer, consumer) = producer_and_consumer_plan();
 
-        assert_eq!(
-            plan.artifact_producer(&ArtifactKey::RuntimeLibrary),
-            producer
-        );
-        assert_eq!(
-            plan.artifact_paths(&ArtifactKey::RuntimeLibrary),
-            vec![Path::new("build/libmoonbitrun.a")]
-        );
+        let input = plan
+            .declared_output(&plan.action(consumer).inputs()[0])
+            .expect("action input should resolve to a declared output");
+        assert_eq!(input.artifact(), Some(&ArtifactKey::RuntimeLibrary));
+        assert_eq!(input.producer(), producer);
+        assert_eq!(input.path(), Path::new("build/libmoonbitrun.a"));
 
-        let debug_output = plan.output(plan.action(consumer).outputs()[0]);
+        let debug_output = plan
+            .declared_output(&plan.action(consumer).outputs()[0])
+            .expect("action output should be declared");
         assert_eq!(debug_output.producer(), consumer);
         assert_eq!(debug_output.path(), Path::new("build/app.dSYM"));
         assert_eq!(debug_output.artifact(), None);
@@ -538,5 +509,16 @@ mod tests {
             graph.files.by_id[input].input.is_none(),
             "the omitted producer is expected to run in an earlier execution phase"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "execution artifact has no physical outputs")]
+    fn semantic_artifact_requires_a_physical_output() {
+        ExecutionPlanBuilder::default().add_action(draft(
+            Vec::new(),
+            vec![(ArtifactKey::RuntimeLibrary, Vec::new())],
+            Vec::new(),
+            "archive-runtime",
+        ));
     }
 }

@@ -510,7 +510,6 @@ mod tests {
             .dependency_actions
             .iter()
             .flat_map(|action| output.execution_plan.action(*action).outputs())
-            .map(|output_id| output.execution_plan.output(*output_id).path())
             .map(|path| path.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert!(

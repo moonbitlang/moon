@@ -53,10 +53,9 @@ pub(super) fn to_n2_graph(
     for id in actions {
         let action = plan.action(id);
         let mut input_paths = action
-            .artifact_inputs
+            .inputs
             .iter()
-            .flat_map(|artifact| plan.artifact_paths(artifact))
-            .map(PathBuf::from)
+            .cloned()
             .chain(
                 action
                     .external_inputs
@@ -66,11 +65,7 @@ pub(super) fn to_n2_graph(
             .collect::<Vec<_>>();
         input_paths.sort();
 
-        let output_paths = action
-            .outputs
-            .iter()
-            .map(|output| plan.output(*output).path().to_owned())
-            .collect::<Vec<_>>();
+        let output_paths = action.outputs.to_vec();
         for output_path in &output_paths {
             command_args_by_output.insert(output_path.clone(), action.command.args.clone());
         }
