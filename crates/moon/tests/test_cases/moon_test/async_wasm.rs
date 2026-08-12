@@ -23,17 +23,15 @@ use crate::{
 
 const MOONBIT_ASYNC_CHECK_FD_LEAK: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
 
-fn repo_root() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+#[test]
+#[ignore = "run in CI when Moonrun or upstream async changes"]
+fn test_async_wasm_upstream() {
+    let async_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|path| path.parent())
         .unwrap()
-        .to_path_buf()
-}
-
-fn run_upstream_async_wasm_tests() {
+        .join("third_party/moonbitlang_async");
     let moonrun = moonrun_bin();
-    let async_dir = repo_root().join("third_party/moonbitlang_async");
     let build_dir = async_dir.join("_build");
     std::fs::create_dir_all(&build_dir).expect("failed to create async test build dir");
     let target_dir = tempfile::Builder::new()
@@ -62,10 +60,4 @@ fn run_upstream_async_wasm_tests() {
         .args(["test", "--target", "wasm"])
         .assert()
         .success();
-}
-
-#[test]
-#[ignore = "run in CI when Moonrun or upstream async changes"]
-fn test_async_wasm_upstream() {
-    run_upstream_async_wasm_tests();
 }
