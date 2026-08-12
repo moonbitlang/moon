@@ -40,12 +40,12 @@ use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
     build_lower::{LoweringEnvironment, WarningCondition},
-    build_plan::InputDirective,
+    build_plan::{ArtifactKey, InputDirective},
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        Artifacts, BackendConfig, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget,
-        PackageId, TargetKind, TccRunConfig,
+        BackendConfig, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId,
+        TargetKind, TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
@@ -220,7 +220,7 @@ pub struct BuildMeta {
     pub resolve_output: ResolveOutput,
 
     /// The list of artifacts that will be produced
-    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
+    pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,
 
     /// The backend and backend-specific configuration used by this build.
     pub backend: BackendConfig,

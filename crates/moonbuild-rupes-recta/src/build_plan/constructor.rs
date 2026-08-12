@@ -55,6 +55,9 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
+    /// Caller-selected action intents, retained only while provider choices are
+    /// being resolved. The finished plan exposes requested artifacts instead.
+    pub(super) requested_nodes: HashSet<BuildPlanNode>,
     pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
@@ -94,6 +97,7 @@ impl<'a> BuildPlanConstructor<'a> {
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
+            requested_nodes: HashSet::new(),
             warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
@@ -115,10 +119,23 @@ impl<'a> BuildPlanConstructor<'a> {
             "Pending nodes should be empty before starting the build"
         );
 
-        // Add the input nodes to the pending list
-        for i in input {
-            self.need_node(i);
-            self.res.input_nodes.push(i);
+        let input = input.collect::<Vec<_>>();
+        self.requested_nodes.extend(input.iter().copied());
+
+        // Normalize action-shaped caller intent to the action that really
+        // provides the requested result for this backend.
+        let mut root_nodes = Vec::new();
+        for node in input {
+            let root = match node {
+                BuildPlanNode::MakeExecutable(target)
+                    if !self.build_env.target_backend().is_native() =>
+                {
+                    BuildPlanNode::LinkCore(target)
+                }
+                _ => node,
+            };
+            self.need_node(root);
+            root_nodes.push(root);
         }
 
         while let Some(node) = self.pending.pop() {
@@ -140,6 +157,25 @@ impl<'a> BuildPlanConstructor<'a> {
             #[cfg(not(debug_assertions))]
             {
                 self.build_action_dependencies(node)?;
+            }
+        }
+
+        for root in root_nodes {
+            self.res
+                .requested_artifacts
+                .extend(self.res.artifacts.provided_by(root).cloned());
+            if let BuildPlanNode::MakeExecutable(target) = root
+                && self
+                    .res
+                    .actions
+                    .contains(&BuildPlanNode::GenerateDsym(target))
+            {
+                self.res
+                    .requested_artifacts
+                    .insert(ArtifactKey::DsymBundle {
+                        package: target.package,
+                        target_kind: target.kind,
+                    });
             }
         }
 
@@ -302,13 +338,18 @@ impl<'a> BuildPlanConstructor<'a> {
                     .provide(node, ArtifactKey::CStubLibrary { package });
             }
             BuildPlanNode::LinkCore(target) => {
-                self.res.artifacts.provide(
-                    node,
+                let artifact = if self.build_env.target_backend().is_native() {
                     ArtifactKey::LinkedCore {
                         package: target.package,
                         target_kind: target.kind,
-                    },
-                );
+                    }
+                } else {
+                    ArtifactKey::Executable {
+                        package: target.package,
+                        target_kind: target.kind,
+                    }
+                };
+                self.res.artifacts.provide(node, artifact);
             }
             BuildPlanNode::MakeExecutable(target) => {
                 self.res.artifacts.provide(
@@ -464,7 +505,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind,
             } => {
                 let target = package.build_target(*target_kind);
-                if self.res.input_nodes.contains(&BuildPlanNode::Prove(target)) {
+                if self.requested_nodes.contains(&BuildPlanNode::Prove(target)) {
                     BuildPlanNode::Prove(target)
                 } else {
                     BuildPlanNode::EmitProof(target)
@@ -491,7 +532,14 @@ impl<'a> BuildPlanConstructor<'a> {
             ArtifactKey::Executable {
                 package,
                 target_kind,
-            } => BuildPlanNode::MakeExecutable(package.build_target(*target_kind)),
+            } => {
+                let target = package.build_target(*target_kind);
+                if self.build_env.target_backend().is_native() {
+                    BuildPlanNode::MakeExecutable(target)
+                } else {
+                    BuildPlanNode::LinkCore(target)
+                }
+            }
             ArtifactKey::DsymBundle {
                 package,
                 target_kind,
@@ -576,17 +624,12 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::MakeExecutable(build_target)
             | BuildPlanNode::GenerateDsym(build_target) => {
-                // Non-native MakeExecutable nodes are final-artifact aliases over
-                // LinkCore output. Only native backends need extra lowering info
-                // for the C toolchain/runtime/stub linking step.
-                if self.build_env.target_backend().is_native() {
-                    assert!(
-                        self.res.make_executable_info.contains_key(&build_target),
-                        "Make executable info for {:?} should be present when resolving node {:?}",
-                        build_target,
-                        node
-                    );
-                }
+                assert!(
+                    self.res.make_executable_info.contains_key(&build_target),
+                    "Make executable info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
                 if matches!(node, BuildPlanNode::GenerateDsym(_)) {
                     assert!(
                         self.res.dsymutil.is_some(),
@@ -685,16 +728,10 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::ArchiveOrLinkCStubs(target) => {
                 self.build_archive_or_link_c_stubs(node, target)
             }
-            BuildPlanNode::LinkCore(_) => {
-                panic!(
-                    "Link core should not appear in the wild without \
-                    accompanied by MakeExecutable. Anytime it is met in the \
-                    pending list, it should be already resolved."
-                )
-            }
-            BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
+            BuildPlanNode::LinkCore(target) => self.build_link_core(node, target),
+            BuildPlanNode::MakeExecutable(target) => self.build_native_executable(node, target),
             BuildPlanNode::GenerateDsym(_) => {
-                panic!("GenerateDsym nodes are resolved with their MakeExecutable node")
+                unreachable!("GenerateDsym nodes are resolved with their MakeExecutable node")
             }
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),

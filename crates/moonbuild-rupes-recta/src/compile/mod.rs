@@ -24,8 +24,8 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
-    build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BackendConfig, BuildPlanNode, OperatingSystem},
+    build_plan::{self, ArtifactKey, BuildEnvironment, InputDirective},
+    model::{BackendConfig, BuildPlanNode, OperatingSystem},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -79,8 +79,8 @@ pub struct CompileOutput {
     /// Structured argv for lowered commands keyed by their generated output paths.
     pub command_args_by_output: build_lower::CommandArgMap,
 
-    /// The final artifacts corresponding to the input nodes
-    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
+    /// Requested logical artifacts and their realized physical paths.
+    pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,
 
     /// The build plan, but only if we decided to export it.
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
@@ -182,14 +182,7 @@ pub fn compile_standalone(
             &lower_env,
             script_package,
         )?;
-        let script_artifacts = script
-            .artifacts
-            .into_iter()
-            .map(|(action, artifacts)| {
-                let node = action_plan.build_plan_node(action);
-                (node, Artifacts { node, artifacts })
-            })
-            .collect();
+        let script_artifacts = script.artifacts.into_iter().collect();
         (
             dependencies,
             CompileOutput {
@@ -242,14 +235,7 @@ fn lower_plan(
     let (build_graph, command_args_by_output, artifacts) = {
         let action_plan = plan.build_action_plan();
         let res = build_lower::lower_build_plan(resolve_output, &action_plan, &lower_env)?;
-        let artifacts = res
-            .artifacts
-            .into_iter()
-            .map(|(action, artifacts)| {
-                let node = action_plan.build_plan_node(action);
-                (node, Artifacts { node, artifacts })
-            })
-            .collect();
+        let artifacts = res.artifacts.into_iter().collect();
         (res.build_graph, res.command_args_by_output, artifacts)
     };
 
@@ -318,7 +304,7 @@ mod tests {
     use crate::{
         ResolveOutput,
         build_lower::{LoweringEnvironment, WarningCondition},
-        build_plan::InputDirective,
+        build_plan::{ArtifactKey, InputDirective},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
         model::{BackendConfig, BuildPlanNode, TargetKind},
         pkg_name::{PackageFQN, PackagePath},
@@ -528,7 +514,19 @@ mod tests {
             .build_plan
             .as_deref()
             .expect("standalone should retain one logical plan for debug export");
-        assert_eq!(plan.node_count(), 4);
+        assert_eq!(plan.node_count(), 3);
+        assert!(
+            !plan
+                .all_nodes()
+                .any(|node| node == BuildPlanNode::MakeExecutable(script_target))
+        );
+        assert_eq!(
+            plan.artifact_provider(&ArtifactKey::Executable {
+                package: script_target.package,
+                target_kind: script_target.kind,
+            }),
+            BuildPlanNode::LinkCore(script_target)
+        );
         assert!(
             plan.dependency_nodes(BuildPlanNode::BuildCore(script_target))
                 .any(|node| node == BuildPlanNode::BuildCore(dependency_target))

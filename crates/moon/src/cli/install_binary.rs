@@ -20,8 +20,9 @@ use anyhow::{Context, bail};
 use colored::Colorize;
 use moonbuild_rupes_recta::{
     ResolveConfig,
+    build_plan::ArtifactKey,
     intent::UserIntent,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildTarget, PackageId, TargetKind},
 };
 use mooncake::{
     pkg::{legacy_postadd, sync::SyncOutputOptions},
@@ -637,7 +638,11 @@ fn build_selected_package(
         kind: TargetKind::Source,
     };
     Ok(Some(
-        build_meta.artifacts[&BuildPlanNode::MakeExecutable(target)].artifacts[0].clone(),
+        build_meta.artifacts[&ArtifactKey::Executable {
+            package: target.package,
+            target_kind: target.kind,
+        }][0]
+            .clone(),
     ))
 }
 

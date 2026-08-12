@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
-
 use moonutil::{
     compiler_flags::CC,
     resolution::{ModuleId, ResolvedEnv},
@@ -310,12 +308,10 @@ pub enum BuildPlanNode {
 
     /// The final runnable artifact for a target.
     ///
-    /// For wasm and js, `LinkCore` already emits the final `.wasm`, `.wat`, or
-    /// `.js` artifact, so this node is retained as the final artifact node but
-    /// lowers to no command.
-    ///
-    /// For native targets, the output from `LinkCore` is a C file or object
-    /// file that needs further compilation and linking to become an executable.
+    /// This action exists only for native and LLVM targets, where the output
+    /// from `LinkCore` is a C file or object file that needs further compilation
+    /// and linking. Wasm and JavaScript `LinkCore` actions provide the final
+    /// executable artifact directly.
     ///
     /// In TCC mode, since linking is done at the same time as running, this
     /// step writes a response file containing the linking flags for TCC to use.
@@ -622,13 +618,6 @@ impl BuildPlanNode {
             }
         }
     }
-}
-
-/// Represents a list of artifact(s) corresponding to a single build node.
-#[derive(Clone, Debug)]
-pub struct Artifacts {
-    pub node: BuildPlanNode,
-    pub artifacts: Vec<PathBuf>,
 }
 
 /// Supported operating systems for artifact generation

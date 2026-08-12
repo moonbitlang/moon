@@ -29,9 +29,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::expect::write_diff;
 use moonbuild_rupes_recta::{
-    ResolveOutput,
-    model::{BuildPlanNode, PackageId},
-    pkg_name::PackageFQN,
+    ResolveOutput, build_plan::ArtifactKey, model::PackageId, pkg_name::PackageFQN,
 };
 use moonutil::{constants::MBTI_GENERATED, target::TargetBackend};
 use sha2::Digest;
@@ -220,19 +218,23 @@ fn collect_package_output_groups<'a>(
         .collect::<IndexMap<_, _>>();
 
     for (backend, meta) in it {
-        for (&node, artifact) in &meta.artifacts {
-            let BuildPlanNode::GenerateMbti(target) = node else {
+        for (artifact, paths) in &meta.artifacts {
+            let ArtifactKey::GeneratedMbti {
+                package,
+                target_kind: _,
+            } = artifact
+            else {
                 continue;
             };
-            let Some(group) = transposed.get_mut(&target.package) else {
+            let Some(group) = transposed.get_mut(package) else {
                 continue;
             };
 
             assert!(
-                artifact.artifacts.len() == 1,
+                paths.len() == 1,
                 "mbti generation should only produce one artifact"
             );
-            let mbti_path = artifact.artifacts.first().unwrap();
+            let mbti_path = paths.first().unwrap();
             group.insert(*backend, mbti_path);
         }
     }

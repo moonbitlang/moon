@@ -132,8 +132,8 @@ pub struct BuildPlan {
     /// The map of build target to its bundle information
     bundle_info: HashMap<ModuleId, BuildBundleInfo>,
 
-    /// The nodes that were used as input to the build plan.
-    input_nodes: Vec<BuildPlanNode>,
+    /// Logical results requested by the caller, in request order.
+    requested_artifacts: IndexSet<ArtifactKey>,
 }
 
 impl BuildPlan {
@@ -160,6 +160,16 @@ impl BuildPlan {
         node: BuildPlanNode,
     ) -> impl Iterator<Item = ArtifactKey> + '_ {
         self.artifacts.provided_by(node).cloned()
+    }
+
+    pub(crate) fn artifact_provider(&self, artifact: &ArtifactKey) -> BuildPlanNode {
+        self.artifacts
+            .provider(artifact)
+            .expect("requested artifact should have a provider")
+    }
+
+    pub fn requested_artifacts(&self) -> impl Iterator<Item = &ArtifactKey> {
+        self.requested_artifacts.iter()
     }
 
     /// Get build target information for the given target.
@@ -217,10 +227,6 @@ impl BuildPlan {
     pub fn node_count(&self) -> usize {
         self.actions.len() + self.package_prebuild.action_count()
     }
-
-    pub fn input_nodes(&self) -> &[BuildPlanNode] {
-        &self.input_nodes
-    }
 }
 
 #[cfg(test)]
@@ -230,9 +236,8 @@ impl BuildPlan {
         self.actions.insert(node);
     }
 
-    pub(crate) fn test_add_input_node(&mut self, node: BuildPlanNode) {
-        self.test_add_node(node);
-        self.input_nodes.push(node);
+    pub(crate) fn test_request_artifact(&mut self, artifact: ArtifactKey) {
+        self.requested_artifacts.insert(artifact);
     }
 
     pub(crate) fn test_require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {

@@ -33,7 +33,7 @@ pub struct BuildActionPlan<'a> {
     plan: &'a BuildPlan,
     action_nodes: Vec<BuildPlanNode>,
     action_ids_by_node: HashMap<BuildPlanNode, BuildActionId>,
-    input_actions: Vec<BuildActionId>,
+    requested_artifacts: Vec<(ArtifactKey, BuildActionId)>,
 }
 
 impl BuildPlan {
@@ -45,20 +45,21 @@ impl BuildPlan {
             .enumerate()
             .map(|(idx, node)| (node, BuildActionId(idx)))
             .collect::<HashMap<_, _>>();
-        let input_actions = self
-            .input_nodes()
-            .iter()
-            .map(|node| {
-                *action_ids_by_node
-                    .get(node)
-                    .expect("input node should be present in build action plan")
+        let requested_artifacts = self
+            .requested_artifacts()
+            .map(|artifact| {
+                let provider = self.artifact_provider(artifact);
+                let action = *action_ids_by_node
+                    .get(&provider)
+                    .expect("artifact provider should be present in build action plan");
+                (artifact.clone(), action)
             })
             .collect();
         BuildActionPlan {
             plan: self,
             action_nodes,
             action_ids_by_node,
-            input_actions,
+            requested_artifacts,
         }
     }
 }
@@ -68,8 +69,16 @@ impl<'a> BuildActionPlan<'a> {
         (0..self.action_nodes.len()).map(BuildActionId)
     }
 
-    pub fn input_action_ids(&self) -> &[BuildActionId] {
-        &self.input_actions
+    pub fn requested_artifacts(&self) -> &[(ArtifactKey, BuildActionId)] {
+        &self.requested_artifacts
+    }
+
+    pub fn root_action_ids(&self) -> impl Iterator<Item = BuildActionId> + '_ {
+        let mut seen = HashSet::new();
+        self.requested_artifacts
+            .iter()
+            .map(|(_, action)| *action)
+            .filter(move |action| seen.insert(*action))
     }
 
     /// Separate reusable package preparation from work owned by the
@@ -78,30 +87,30 @@ impl<'a> BuildActionPlan<'a> {
         &self,
         script_package: PackageId,
     ) -> (Vec<BuildActionId>, Vec<BuildActionId>) {
-        let action_package = |action| match action {
-            BuildAction::Check { target, .. }
-            | BuildAction::EmitProof { target, .. }
-            | BuildAction::Prove { target, .. }
-            | BuildAction::BuildCore { target, .. }
-            | BuildAction::LinkCore { target, .. }
-            | BuildAction::MakeExecutable { target, .. }
-            | BuildAction::GenerateDsym { target, .. }
-            | BuildAction::GenerateTestInfo { target, .. }
-            | BuildAction::GenerateMbti { target } => Some(target.package),
-            BuildAction::BuildCStub { package, .. }
-            | BuildAction::ArchiveOrLinkCStubs { package, .. }
-            | BuildAction::BuildVirtual { package, .. }
-            | BuildAction::RunPrebuild { package, .. }
-            | BuildAction::RunMoonLexPrebuild { package, .. }
-            | BuildAction::RunMoonYaccPrebuild { package, .. } => Some(package),
-            BuildAction::Bundle { .. }
-            | BuildAction::BuildRuntimeObject { .. }
-            | BuildAction::BuildRuntimeLib { .. }
-            | BuildAction::BuildDocs { .. } => None,
+        let action_package = |node| match node {
+            BuildPlanNode::Check(target)
+            | BuildPlanNode::EmitProof(target)
+            | BuildPlanNode::Prove(target)
+            | BuildPlanNode::BuildCore(target)
+            | BuildPlanNode::LinkCore(target)
+            | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::GenerateDsym(target)
+            | BuildPlanNode::GenerateTestInfo(target)
+            | BuildPlanNode::GenerateMbti(target) => Some(target.package),
+            BuildPlanNode::BuildCStub(package, _)
+            | BuildPlanNode::ArchiveOrLinkCStubs(package)
+            | BuildPlanNode::BuildVirtual(package)
+            | BuildPlanNode::RunPrebuild(package, _)
+            | BuildPlanNode::RunMoonLexPrebuild(package, _)
+            | BuildPlanNode::RunMoonYaccPrebuild(package, _) => Some(package),
+            BuildPlanNode::Bundle(_)
+            | BuildPlanNode::BuildRuntimeObject(_)
+            | BuildPlanNode::BuildRuntimeLib
+            | BuildPlanNode::BuildDocs(_) => None,
         };
         let script_owned_actions = self
             .action_ids()
-            .filter(|&action| action_package(self.action(action)) == Some(script_package))
+            .filter(|&action| action_package(self.node(action)) == Some(script_package))
             .collect::<HashSet<_>>();
         assert!(
             !script_owned_actions.is_empty(),
@@ -111,7 +120,7 @@ impl<'a> BuildActionPlan<'a> {
         let mut dependency_actions = self
             .action_ids()
             .filter(|&action| {
-                action_package(self.action(action)).is_some_and(|package| package != script_package)
+                action_package(self.node(action)).is_some_and(|package| package != script_package)
             })
             .collect::<HashSet<_>>();
         let mut pending = dependency_actions.iter().copied().collect::<Vec<_>>();
@@ -128,9 +137,8 @@ impl<'a> BuildActionPlan<'a> {
             }
         }
         assert!(
-            self.input_action_ids()
-                .iter()
-                .all(|action| !dependency_actions.contains(action)),
+            self.root_action_ids()
+                .all(|action| !dependency_actions.contains(&action)),
             "standalone root action should remain in the script execution phase"
         );
 
@@ -201,7 +209,10 @@ impl<'a> BuildActionPlan<'a> {
             },
             BuildPlanNode::MakeExecutable(target) => BuildAction::MakeExecutable {
                 target,
-                info: self.plan.get_make_executable_info(&target),
+                info: self
+                    .plan
+                    .get_make_executable_info(&target)
+                    .expect("MakeExecutable nodes should contain native linking info"),
             },
             BuildPlanNode::GenerateDsym(target) => BuildAction::GenerateDsym {
                 target,
@@ -354,11 +365,6 @@ impl<'a> BuildActionPlan<'a> {
             self.node(id),
             BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
         )
-    }
-
-    pub(crate) fn generates_dsym_for_target(&self, target: &BuildTarget) -> bool {
-        self.action_ids_by_node
-            .contains_key(&BuildPlanNode::GenerateDsym(*target))
     }
 
     pub fn build_plan_node(&self, id: BuildActionId) -> BuildPlanNode {

@@ -36,9 +36,8 @@ use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
 use colored::Colorize;
-use moonbuild_rupes_recta::build_plan::InputDirective;
+use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
@@ -1083,11 +1082,21 @@ pub(crate) fn run_test_or_bench_from_resolved(
     Ok(exit_code)
 }
 
-/// The nodes wanted to run a test for a build target
-fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
+/// The results needed to rerun a test target after snapshot promotion.
+fn artifacts_from_target(x: BuildTarget) -> [ArtifactKey; 3] {
     [
-        BuildPlanNode::make_executable(x),
-        BuildPlanNode::generate_test_info(x),
+        ArtifactKey::Executable {
+            package: x.package,
+            target_kind: x.kind,
+        },
+        ArtifactKey::GeneratedTestDriver {
+            package: x.package,
+            target_kind: x.kind,
+        },
+        ArtifactKey::GeneratedTestMetadata {
+            package: x.package,
+            target_kind: x.kind,
+        },
     ]
 }
 
@@ -1691,14 +1700,12 @@ fn rr_test_from_plan(
                 .0
                 .keys()
                 .cloned() // All targets to rerun
-                .flat_map(node_from_target) // converted to nodes
-                .flat_map(|node| {
-                    // their artifacts
+                .flat_map(artifacts_from_target)
+                .flat_map(|artifact| {
                     build_meta
                         .artifacts
-                        .get(&node)
-                        .expect("test node from the last test run should have artifact")
-                        .artifacts
+                        .get(&artifact)
+                        .expect("test result from the last test run should be present")
                         .as_slice()
                 });
 

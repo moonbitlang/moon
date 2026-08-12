@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use slotmap::KeyData;
 
 use crate::{
-    build_plan::{ArtifactKey, BuildPlan, BuildTargetInfo, PrebuildInfo},
+    build_plan::{ArtifactKey, BuildPlan, BuildTargetInfo, LinkCoreInfo, PrebuildInfo},
     model::{BuildPlanNode, PackageId, TargetKind},
 };
 
@@ -147,11 +147,18 @@ fn build_core_omits_interface_when_mi_is_disabled() {
 }
 
 #[test]
-fn make_executable_action_allows_non_native_alias_without_info() {
+fn link_core_can_provide_a_non_native_executable() {
     let target = package_id(1).build_target(TargetKind::Source);
-    let node = BuildPlanNode::MakeExecutable(target);
+    let node = BuildPlanNode::LinkCore(target);
     let mut plan = BuildPlan::default();
     plan.test_add_node(node);
+    plan.test_insert_link_core_info(
+        target,
+        LinkCoreInfo {
+            linked_order: Vec::new(),
+            abort_overridden: false,
+        },
+    );
     plan.test_provide_artifact(
         node,
         ArtifactKey::Executable {
@@ -165,7 +172,7 @@ fn make_executable_action_allows_non_native_alias_without_info() {
 
     assert!(matches!(
         action_plan.action(action_id),
-        BuildAction::MakeExecutable { target: actual, info: None } if actual == target
+        BuildAction::LinkCore { target: actual, .. } if actual == target
     ));
     assert_eq!(
         action_plan.output_artifacts(action_id),

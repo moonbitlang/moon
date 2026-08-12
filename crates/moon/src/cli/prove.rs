@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode};
+use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
     command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, locks::FileLock,
@@ -593,42 +593,42 @@ impl ProofReportSummary {
 }
 
 fn planned_proof_reports(build_meta: &rr_build::BuildMeta) -> Vec<PlannedProofReport> {
-    let mut reports = build_meta
-        .artifacts
-        .values()
-        .filter_map(|artifacts| match artifacts.node {
-            BuildPlanNode::Prove(target) => {
-                let path = artifacts
-                    .artifacts
-                    .iter()
-                    .find(|path| {
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .is_some_and(|name| name.ends_with(".proof.json"))
-                    })?
-                    .clone();
-                let whyml_path = artifacts
-                    .artifacts
-                    .iter()
-                    .find(|path| {
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .is_some_and(|name| name.ends_with(".mlw"))
-                    })?
-                    .clone();
-                let package = build_meta
-                    .resolve_output
-                    .pkg_dirs
-                    .get_package(target.package)
-                    .fqn
-                    .to_string();
-                Some(PlannedProofReport {
-                    package,
-                    whyml_path,
-                    path,
-                })
-            }
-            _ => None,
+    let mut paths_by_target =
+        std::collections::HashMap::<BuildTarget, (Option<PathBuf>, Option<PathBuf>)>::new();
+    for (artifact, paths) in &build_meta.artifacts {
+        let (target, is_report) = match artifact {
+            ArtifactKey::ProofReport {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), true),
+            ArtifactKey::ProofWhyml {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), false),
+            _ => continue,
+        };
+        let path = paths
+            .first()
+            .expect("proof result artifacts should resolve to one path")
+            .clone();
+        let entry = paths_by_target.entry(target).or_default();
+        if is_report {
+            entry.0 = Some(path);
+        } else {
+            entry.1 = Some(path);
+        }
+    }
+    let mut reports = paths_by_target
+        .into_iter()
+        .map(|(target, (path, whyml_path))| PlannedProofReport {
+            package: build_meta
+                .resolve_output
+                .pkg_dirs
+                .get_package(target.package)
+                .fqn
+                .to_string(),
+            path: path.expect("prove planning should request a proof report"),
+            whyml_path: whyml_path.expect("prove planning should request WhyML output"),
         })
         .collect::<Vec<_>>();
     reports.sort_by(|a, b| a.package.cmp(&b.package));

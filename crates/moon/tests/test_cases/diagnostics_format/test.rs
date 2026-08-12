@@ -66,10 +66,10 @@ fn test_moon_test_raw_output() {
             $ROOT/lib/hello.mbt:4:7-4:8 [E0002] Warning (unused_value): Unused variable 'a'
             $ROOT/lib/hello.mbt:11:7-11:9 [E0002] Warning (unused_value): Unused variable '中文'
             $ROOT/lib/hello.mbt:12:7-12:12 [E0002] Warning (unused_value): Unused variable '🤣😭🤣😭🤣'
+            $ROOT/main/main.mbt:2:7-2:8 [E0002] Warning (unused_value): Unused variable 'a'
             $ROOT/lib/hello.mbt:4:7-4:8 [E0002] Warning (unused_value): Unused variable 'a'
             $ROOT/lib/hello.mbt:11:7-11:9 [E0002] Warning (unused_value): Unused variable '中文'
             $ROOT/lib/hello.mbt:12:7-12:12 [E0002] Warning (unused_value): Unused variable '🤣😭🤣😭🤣'
-            $ROOT/main/main.mbt:2:7-2:8 [E0002] Warning (unused_value): Unused variable 'a'
             $ROOT/main/main.mbt:2:7-2:8 [E0002] Warning (unused_value): Unused variable 'a'
         "#]],
     );
