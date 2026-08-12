@@ -25,7 +25,7 @@ use moonutil::command_output::CommandOutput;
 use moonutil::constants::MOON_MOD_JSON;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
-use moonutil::{build_options::RunMode, locks::FileLock, user_log::UserLog};
+use moonutil::{build_options::RunMode, locks::lock_directory, user_log::UserLog};
 use tracing::instrument;
 
 use super::UniversalFlags;
@@ -174,7 +174,7 @@ pub(crate) fn run_doc_rr(
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(target_dir)?;
+    let lock = lock_directory(target_dir, user_log)?;
     // Generate the all_pkgs.json for indirect dependency resolution
     // before executing the build
     rr_build::generate_all_pkgs_json(&build_meta)?;
@@ -191,7 +191,7 @@ pub(crate) fn run_doc_rr(
     }
 
     // Release lock before serving (no writes beyond this point)
-    drop(_lock);
+    drop(lock);
     // Serve
     if cmd.serve {
         let static_dir = target_dir.join("doc");

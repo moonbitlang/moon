@@ -92,10 +92,12 @@ and compatibility decision rather than an incidental `PathBuf::join` edit.
 `moonutil::MoonHomeLayout` owns paths relative to one Moon home root.
 `moonutil::MOON_HOME` is the process-wide layout selected from the environment.
 
-`MoonHomeLayout` owns every fixed path rooted directly in `MOON_HOME`,
-including registry entries, archives, executable artifacts, locks, and update
-state. Configurable cache implementations own their versioned contents below
-the selected cache root. Behavioral owners remain separate:
+`MoonHomeLayout` owns every fixed data path rooted directly in `MOON_HOME`,
+including registry entries, archives, executable artifacts, and update state.
+`moonutil::locks` owns the adjacent `<filename>.lock` and directory-local
+`.moon-lock` conventions. Configurable cache implementations own their
+versioned contents below the selected cache root. Behavioral owners remain
+separate:
 
 - `RegistryClient` owns registry synchronization, validation, downloads, and
   cache publication.

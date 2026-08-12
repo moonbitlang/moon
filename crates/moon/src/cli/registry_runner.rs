@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use mooncake::registry::{Registry, RegistryClient, path as registry_path};
-use moonutil::{locks::FileLock, resolution::ModuleName, user_log::UserLog};
+use moonutil::{locks::lock_directory, resolution::ModuleName, user_log::UserLog};
 use semver::Version;
 
 use crate::rr_build;
@@ -245,7 +245,7 @@ pub(super) fn ensure_cached_file(
             parent.display()
         )
     })?;
-    let _lock = FileLock::lock(parent)
+    let _lock = lock_directory(parent, user_log)
         .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
 
     if cache_path.exists() {

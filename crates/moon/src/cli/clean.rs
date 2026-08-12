@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::{cli_support::UniversalFlags, locks::FileLock, user_log::UserLog};
+use moonutil::{cli_support::UniversalFlags, locks::lock_directory, user_log::UserLog};
 
 /// Remove local build outputs or configured global caches.
 #[derive(Debug, clap::Parser)]
@@ -56,7 +56,7 @@ pub(crate) fn run_clean(
         .select(user_log)?
         .package_dirs()?;
 
-    let _lock = FileLock::lock(&src_tgt.target_dir)?;
+    let _lock = lock_directory(&src_tgt.target_dir, user_log)?;
 
     if src_tgt.target_dir.is_dir() {
         std::fs::remove_dir_all(&src_tgt.target_dir)

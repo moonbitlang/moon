@@ -40,7 +40,7 @@ use moonutil::cli_support::AutoSyncFlags;
 use moonutil::cli_support::UniversalFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
-use moonutil::locks::FileLock;
+use moonutil::locks::lock_directory;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
@@ -438,14 +438,12 @@ fn run_check_impl(
             .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log()).with_context(
-            || {
-                format!(
-                    "failed to acquire build lock in target directory `{}`",
-                    dirs.target_dir.display()
-                )
-            },
-        )?;
+        _lock = lock_directory(&dirs.target_dir, output.user_log()).with_context(|| {
+            format!(
+                "failed to acquire build lock in target directory `{}`",
+                dirs.target_dir.display()
+            )
+        })?;
     }
     let result = run_check_normal_rr_from_resolved(
         cli,
@@ -589,7 +587,7 @@ fn run_check_for_single_file_rr(
         return Ok(0);
     }
 
-    let _lock = FileLock::lock_with_user_log(target_dir, user_log).with_context(|| {
+    let _lock = lock_directory(target_dir, user_log).with_context(|| {
         format!(
             "failed to acquire build lock in target directory `{}`",
             target_dir.display()
@@ -710,7 +708,7 @@ fn run_check_normal_internal_rr(
         .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, user_log).with_context(|| {
+        _lock = lock_directory(&dirs.target_dir, user_log).with_context(|| {
             format!(
                 "failed to acquire build lock in target directory `{}`",
                 dirs.target_dir.display()

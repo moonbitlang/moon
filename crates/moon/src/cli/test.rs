@@ -43,7 +43,7 @@ use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::locks::FileLock;
+use moonutil::locks::lock_directory;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
 use moonutil::user_log::UserLog;
@@ -401,7 +401,7 @@ fn run_test_impl(
         sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     let ret_value = run_test_or_bench_from_resolved(
         cli,
@@ -593,7 +593,7 @@ fn run_test_in_single_file_rr(
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(target_dir, output.user_log())?;
+        _lock = lock_directory(target_dir, output.user_log())?;
     }
     rr_test_from_plan(
         cli,
@@ -993,7 +993,7 @@ fn run_test_rr(
     let resolve_output = sync_and_resolve_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     run_test_or_bench_from_resolved(
         cli,

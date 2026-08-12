@@ -29,7 +29,7 @@ use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonutil::{
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
-    locks::FileLock,
+    locks::lock_directory,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
 };
@@ -189,7 +189,7 @@ fn run_cram_test(
         return Ok(ProcessAction::Exit(0));
     }
 
-    let _lock = FileLock::lock(target_dir)?;
+    let lock = lock_directory(target_dir, user_log)?;
     let cfg = BuildConfig::from_flags(&build_cmd.build_flags, &cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
@@ -199,7 +199,7 @@ fn run_cram_test(
             return Ok(ProcessAction::Exit(result.return_code_for_success()));
         }
     }
-    drop(_lock);
+    drop(lock);
 
     let mut command = Command::new(moon_cram);
     command.args(parsed.cram_args);

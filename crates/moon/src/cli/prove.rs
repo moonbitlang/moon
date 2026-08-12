@@ -22,7 +22,7 @@ use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, locks::FileLock,
+    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, locks::lock_directory,
     project::PackageDirs, resolution::ModuleId, target::TargetBackend,
     test_metadata::DiagnosticLevel, user_log::UserLog,
 };
@@ -208,7 +208,7 @@ pub(crate) fn run_prove(
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(target_dir)?;
+    let _lock = lock_directory(target_dir, user_log)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
     let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;

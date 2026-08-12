@@ -28,7 +28,7 @@ use arcstr::ArcStr;
 use moonutil::{
     child_process::{ChildOutputMode, ManagedChildRunner},
     constants::MOONBITLANG_CORE,
-    locks::FileLock,
+    locks::lock_directory,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
     toolchain,
     user_log::UserLog,
@@ -237,7 +237,7 @@ fn sync(
     // Ensure the directory exists.
     std::fs::create_dir_all(dep_dir.path())?;
     // Lock with a file within the directory
-    let _lock = FileLock::lock_with_user_log(dep_dir.path(), user_log).with_context(|| {
+    let lock = lock_directory(dep_dir.path(), user_log).with_context(|| {
         format!(
             "Unable to lock folder `{}` for downloading dependencies",
             dep_dir.path().display()
@@ -298,7 +298,7 @@ fn sync(
         }
     }
 
-    drop(_lock);
+    drop(lock);
 
     Ok(())
 }

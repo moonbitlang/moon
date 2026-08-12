@@ -33,7 +33,7 @@ use moonutil::{
     child_process::{ChildOutputMode, ManagedChildRunner},
     cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
-    locks::FileLock,
+    locks::lock_directory,
     project::{PackageDirs, SourceTargetDirs, WorkspaceEnv},
     resolution::{ModuleName, ModuleSourceKind},
     target::TargetBackend,
@@ -612,7 +612,7 @@ fn build_selected_package(
         prepared.resolve_output.clone(),
     )?;
 
-    let _lock = FileLock::lock(&prepared.target_dir)?;
+    let _lock = lock_directory(&prepared.target_dir, user_log)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
 
     let result = rr_build::execute_build(

@@ -23,7 +23,7 @@ use moonutil::{
     cli_support::AutoSyncFlags,
     cli_support::UniversalFlags,
     command_output::CommandOutput,
-    locks::FileLock,
+    locks::lock_directory,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
     user_log::UserLog,
@@ -75,7 +75,7 @@ pub(crate) fn run_bundle(
     let resolve_output = sync_and_resolve_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     run_bundle_rr_from_resolved(&cli, &cmd, &dirs, &targets, resolve_output, output).with_context(
         || match targets.as_slice() {
@@ -109,7 +109,7 @@ pub(crate) fn run_bundle_internal_rr(
     let resolve_output = sync_and_resolve_bundle_project(cli, cmd, dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     run_bundle_rr_from_resolved(
         cli,

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
-use moonutil::{command_output::CommandOutput, locks::FileLock, project::PackageDirs};
+use moonutil::{command_output::CommandOutput, locks::lock_directory, project::PackageDirs};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
@@ -115,7 +115,7 @@ fn run_fmt_rr(
         Ok(0)
     } else {
         std::fs::create_dir_all(&target_dir)?;
-        let _lock = FileLock::lock_with_user_log(&target_dir, user_log)?;
+        let _lock = lock_directory(&target_dir, user_log)?;
         let res =
             rr_build::execute_build(&BuildConfig::default(), build_input, &target_dir, user_log)?;
         res.print_info(cli.quiet, "formatting")?;
