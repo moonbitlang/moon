@@ -68,40 +68,10 @@ fn test_supported_backends_in_pkg_json() {
 #[test]
 fn test_native_stub_in_pkg_json() {
     let dir = TestDir::new("native_stub.in");
-
-    let native_1 = dir.join("native_1.in");
-    let native_2 = dir.join("native_2.in");
     let native_3 = dir.join("native_3.in");
 
-    check(
-        get_stdout(&native_1, ["test", "--target", "native", "--sort-input"]),
-        expect![[r#"
-            Hello world from native_1/lib/stub.c!!!
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-    check(
-        get_stdout(&native_1, ["run", "main", "--target", "native"]),
-        expect![[r#"
-            Hello world from native_1/lib/stub.c!!!
-        "#]],
-    );
-
-    check(
-        get_stdout(&native_2, ["test", "--target", "native", "--sort-input"]),
-        expect![[r#"
-            Hello world from native_1/lib/stub.c!!!
-            Hello world from native_2/libb/stub.c!!!
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-    check(
-        get_stdout(&native_2, ["run", "main", "--target", "native"]),
-        expect![[r#"
-            Hello world from native_2/libb/stub.c!!!
-        "#]],
-    );
-
+    // The deepest fixture links stubs from all three modules, including the
+    // two-file stub in native_1. Running each prefix repeats the same shapes.
     check(
         get_stdout(&native_3, ["test", "--target", "native", "--sort-input"]),
         expect![[r#"
@@ -111,6 +81,8 @@ fn test_native_stub_in_pkg_json() {
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
+    // Keep a run assertion because normal executables and test executables
+    // enter native linking through distinct build targets.
     check(
         get_stdout(&native_3, ["run", "main", "--target", "native"]),
         expect![[r#"

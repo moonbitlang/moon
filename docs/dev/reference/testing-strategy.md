@@ -455,6 +455,10 @@ though individual cases may still be split out:
 - `inline_test`
 - `value_tracing`
 - `native_abort_trace`
+- `package_metadata::test_native_stub_in_pkg_json`
+  - one native test on the deepest fixture covers C stubs across three modules
+    and a multi-file stub
+  - one native run remains for the distinct normal-executable linking path
 - `wbtest_coverage`
 - `prebuild`
 - `prebuild_config_script`
