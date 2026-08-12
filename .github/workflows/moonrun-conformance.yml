@@ -35,8 +35,6 @@ on:
       - 'third_party/moonbitlang_async'
       - 'crates/moon/tests/test_cases/moon_test/async_wasm.rs'
       - '.github/workflows/moonrun-conformance.yml'
-  schedule:
-    - cron: '0 20 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
