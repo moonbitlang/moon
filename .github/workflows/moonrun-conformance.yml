@@ -23,17 +23,27 @@ on:
     branches:
       - main
     paths:
+      - '.gitmodules'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'crates/moonrun/**'
+      - 'crates/moonutil/**'
+      - 'crates/moon-test-util/**'
+      - 'crates/moon/Cargo.toml'
       - 'third_party/moonbitlang_async'
-      - 'crates/moon/tests/test_cases/moon_test/async_wasm.rs'
       - '.github/workflows/moonrun-conformance.yml'
   pull_request:
     branches:
       - main
     paths:
+      - '.gitmodules'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'crates/moonrun/**'
+      - 'crates/moonutil/**'
+      - 'crates/moon-test-util/**'
+      - 'crates/moon/Cargo.toml'
       - 'third_party/moonbitlang_async'
-      - 'crates/moon/tests/test_cases/moon_test/async_wasm.rs'
       - '.github/workflows/moonrun-conformance.yml'
 
 concurrency:
@@ -94,4 +104,4 @@ jobs:
         run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
 
       - name: Test Moonrun against upstream async
-        run: cargo test -p moon --test mod test_cases::moon_test::async_wasm::test_async_wasm_upstream -- --ignored --exact
+        run: cargo test -p moonrun --test test test_moonrun_against_upstream_async -- --ignored --exact

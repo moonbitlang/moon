@@ -41,6 +41,46 @@ fn moon_bin() -> &'static PathBuf {
     })
 }
 
+#[test]
+#[ignore = "run in CI when Moonrun or upstream async changes"]
+fn test_moonrun_against_upstream_async() {
+    let async_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .unwrap()
+        .join("third_party/moonbitlang_async");
+    let build_dir = async_dir.join("_build");
+    std::fs::create_dir_all(&build_dir).expect("failed to create async test build dir");
+    let target_dir = tempfile::Builder::new()
+        .prefix("moon-test-target-")
+        .tempdir_in(&build_dir)
+        .expect("failed to create async test target dir");
+    let moon = moon_bin();
+    let path = std::env::join_paths(
+        std::iter::once(
+            moon.parent()
+                .expect("test moon binary should have a parent directory")
+                .to_path_buf(),
+        )
+        .chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .expect("failed to put the test moon binary on PATH");
+
+    moon_cmd()
+        .current_dir(&async_dir)
+        .env("MOON_OVERRIDE", moon)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("PATH", path)
+        .arg("--target-dir")
+        .arg(target_dir.path())
+        .args(["test", "--target", "wasm"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 430, passed: 430, failed: 0.\n");
+}
+
 struct TestDir(moon_test_util::test_dir::TestDir);
 
 impl TestDir {

@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod async_wasm;
 mod patch;
 #[cfg(unix)]
 mod use_cc_for_native_release;
