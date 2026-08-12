@@ -420,6 +420,11 @@ graph or text snapshots, ideally below the CLI layer:
 - dry-run parts of `test_driver_dependencies`
 - dry-run parts of `prebuild_link_config_self`
 - parts of `specify_source_dir_001`
+- `native_backend::cc_flags`
+  - the environment-override case keeps one build graph for bare compiler
+    discovery and targeted assertions for explicit compiler/archiver paths
+  - `run` uses the same build planning path and does not need another complete
+    native graph for either override form
 
 ### Mostly assertion-only integration tests
 

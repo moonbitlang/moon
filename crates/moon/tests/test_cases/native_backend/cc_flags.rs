@@ -2,7 +2,7 @@
 use std::process::Command;
 
 #[cfg(not(windows))]
-use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs};
+use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs, get_stdout_with_envs};
 #[cfg(windows)]
 use crate::{TestDir, get_stdout_with_envs};
 #[cfg(unix)]
@@ -122,27 +122,6 @@ fn test_native_backend_cc_flags_with_env_override() {
         &bare_override_env,
         expect_file!["cc_flags/build_native_env_graph.jsonl.snap"],
     );
-    assert_native_backend_graph(
-        &dir,
-        "test_native_env_graph.jsonl",
-        &["test", "--target", "native", "--dry-run", "--sort-input"],
-        &bare_override_env,
-        expect_file!["cc_flags/test_native_env_graph.jsonl.snap"],
-    );
-    assert_native_backend_graph(
-        &dir,
-        "run_native_env_graph.jsonl",
-        &[
-            "run",
-            "main",
-            "--target",
-            "native",
-            "--dry-run",
-            "--sort-input",
-        ],
-        &bare_override_env,
-        expect_file!["cc_flags/run_native_env_graph.jsonl.snap"],
-    );
     let compiler = fake_toolchain
         .join("A/x86_64-unknown-fake_os-fake_libc-gcc")
         .display()
@@ -156,33 +135,18 @@ fn test_native_backend_cc_flags_with_env_override() {
         ("MOON_CC", compiler.as_str()),
         ("MOON_AR", archiver.as_str()),
     ];
-    assert_native_backend_graph(
+    let graph = get_stdout_with_envs(
         &dir,
-        "build_native_env_paths_graph.jsonl",
-        &["build", "--target", "native", "--dry-run", "--sort-input"],
-        &path_override_env,
-        expect_file!["cc_flags/build_native_env_paths_graph.jsonl.snap"],
+        ["build", "--target", "native", "--dry-run", "--sort-input"],
+        path_override_env,
     );
-    assert_native_backend_graph(
-        &dir,
-        "test_native_env_paths_graph.jsonl",
-        &["test", "--target", "native", "--dry-run", "--sort-input"],
-        &path_override_env,
-        expect_file!["cc_flags/test_native_env_paths_graph.jsonl.snap"],
+    assert!(
+        graph.contains(&compiler),
+        "compiler override missing:\n{graph}"
     );
-    assert_native_backend_graph(
-        &dir,
-        "run_native_env_paths_graph.jsonl",
-        &[
-            "run",
-            "main",
-            "--target",
-            "native",
-            "--dry-run",
-            "--sort-input",
-        ],
-        &path_override_env,
-        expect_file!["cc_flags/run_native_env_paths_graph.jsonl.snap"],
+    assert!(
+        graph.contains(&archiver),
+        "archiver override missing:\n{graph}"
     );
 }
 
@@ -265,27 +229,6 @@ fn test_native_backend_new_native_with_env_override() {
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         envs,
         expect_file!["cc_flags/build_native_new_native_env_graph.jsonl.snap"],
-    );
-    assert_native_backend_graph(
-        &dir,
-        "test_native_new_native_env_graph.jsonl",
-        &["test", "--target", "native", "--dry-run", "--sort-input"],
-        envs,
-        expect_file!["cc_flags/test_native_new_native_env_graph.jsonl.snap"],
-    );
-    assert_native_backend_graph(
-        &dir,
-        "run_native_new_native_env_graph.jsonl",
-        &[
-            "run",
-            "main",
-            "--target",
-            "native",
-            "--dry-run",
-            "--sort-input",
-        ],
-        envs,
-        expect_file!["cc_flags/run_native_new_native_env_graph.jsonl.snap"],
     );
 }
 
