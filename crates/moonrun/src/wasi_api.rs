@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::v8_builder::ScopeExt;
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
@@ -173,6 +174,7 @@ struct WasiContext {
     preopen_dir_real_path: PathBuf,
     descriptors: Mutex<DescriptorTable>,
     memory: OnceLock<v8::Global<v8::WasmMemoryObject>>,
+    termination_request: TerminationRequest,
 }
 
 struct DirectoryEntry {
@@ -1648,7 +1650,11 @@ fn proc_exit(
     mut _ret: v8::ReturnValue,
 ) {
     let code = args.get(0).uint32_value(scope).unwrap_or(1);
-    std::process::exit(i32::try_from(code).unwrap_or(1));
+    let code = i32::try_from(code).unwrap_or(1);
+    callback_context(&args)
+        .termination_request
+        .request(RunTermination::Exit(code));
+    scope.terminate_execution();
 }
 
 fn fd_write(
@@ -1821,6 +1827,7 @@ pub(crate) fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
+    termination_request: TerminationRequest,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     let preopen_dir_host_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -1833,6 +1840,7 @@ pub(crate) fn init_env<'s>(
         preopen_dir_real_path,
         descriptors: Mutex::new(DescriptorTable::new()),
         memory: OnceLock::new(),
+        termination_request,
     });
     let context_ptr = &*context as *const WasiContext as *mut std::ffi::c_void;
 
@@ -1871,6 +1879,7 @@ mod tests {
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
             descriptors: Mutex::new(DescriptorTable::new()),
             memory: OnceLock::new(),
+            termination_request: TerminationRequest::default(),
         }
     }
 
