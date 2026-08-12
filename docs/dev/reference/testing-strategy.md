@@ -461,6 +461,9 @@ These should not be mixed into the default fast path if they can be isolated:
 
 - `third_party`
 - `test_moonbitlang_x`
+- the full upstream `moonbitlang/async` wasm conformance test in
+  `moonrun`'s integration test target;
+  its dedicated CI workflow runs for Moonrun or upstream async changes
 - network-dependent parts of `moon_coverage`
 - git-install tests in `crates/moon/tests/test_cases/mod.rs`
 - environment-dependent parts of `moon_version`
