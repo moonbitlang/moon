@@ -16,12 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
-
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
 use crate::async_sys::internal::event_loop::thread_pool::{self, ResourceClass, ResourceRef};
 
 use super::context::ImportContext;
+use super::os_string::read_guest as read_guest_os_string;
 use super::provenance::ported_imports;
 
 ported_imports! {
@@ -559,7 +558,13 @@ pub(super) fn make_getaddrinfo_job(
     }
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[compat(
+    source = "src/internal/event_loop/thread_pool.wasm.mbt",
+    original = "thread_pool/make_spawn_job/unix",
+    upstream_pr = 546,
+    replacement = "thread_pool/spawn_job/unix + thread_pool/spawn_job/set_cwd",
+    api_only = true
+)]
 #[cfg(unix)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_spawn_job_unix(
@@ -576,8 +581,11 @@ pub(super) fn make_spawn_job_unix(
     cwd_len: i32,
     has_cwd: i32,
 ) -> AsyncHostResult<u64> {
-    let _ = inherited_env_entry_count;
-    let (args, env) = context.host.take_process_spawn_buffers(args, env)?;
+    let (args, env) = context.host.take_legacy_process_spawn_inputs(
+        args,
+        env,
+        inherited_env_entry_count,
+    )?;
     let path = read_guest_os_string(context, path, path_len)?;
     let cwd = if has_cwd == 0 {
         None
@@ -590,19 +598,67 @@ pub(super) fn make_spawn_job_unix(
     let options = thread_pool::SpawnOptions {
         child_signal_mask: context.host.thread_pool_child_signal_mask()?,
     };
-    context.host.insert_job(thread_pool::make_spawn_job_unix(
-        path,
-        args,
-        env,
-        stdin,
-        stdout,
-        stderr,
-        cwd,
-        options,
-    ))
+    context
+        .host
+        .insert_job(thread_pool::make_spawn_job_unix(
+            path, args, env, stdin, stdout, stderr, cwd, options,
+        ))
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(
+    source = "src/internal/event_loop/thread_pool.c",
+    original = "moonbitlang_async_make_spawn_job"
+)]
+#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spawn_job_unix(
+    context: &mut ImportContext<'_, '_>,
+    path: i32,
+    path_len: i32,
+    args: u64,
+    env: u64,
+    stdin: u64,
+    stdout: u64,
+    stderr: u64,
+) -> AsyncHostResult<u64> {
+    let (args, env) = context
+        .host
+        .take_process_spawn_inputs(args, env)?;
+    let path = read_guest_os_string(context, path, path_len)?;
+    let stdin = optional_resource(context, stdin)?;
+    let stdout = optional_resource(context, stdout)?;
+    let stderr = optional_resource(context, stderr)?;
+    let options = thread_pool::SpawnOptions {
+        child_signal_mask: context.host.thread_pool_child_signal_mask()?,
+    };
+    context
+        .host
+        .insert_job(thread_pool::make_spawn_job_unix(
+            path, args, env, stdin, stdout, stderr, None, options,
+        ))
+}
+
+#[ported(
+    source = "src/internal/event_loop/thread_pool.c",
+    original = "moonbitlang_async_spawn_job_set_cwd"
+)]
+pub(super) fn spawn_job_set_cwd(
+    context: &mut ImportContext<'_, '_>,
+    job: u64,
+    cwd: i32,
+    cwd_len: i32,
+) -> AsyncHostResult<()> {
+    let cwd = read_guest_os_string(context, cwd, cwd_len)?;
+    context.host.spawn_job_set_cwd(job, cwd)
+}
+
+#[compat(
+    source = "src/internal/event_loop/thread_pool.wasm.mbt",
+    original = "thread_pool/make_spawn_job/windows",
+    upstream_pr = 546,
+    replacement = "thread_pool/spawn_job/windows + spawn-job setters",
+    api_only = true
+)]
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_spawn_job_windows(
@@ -633,15 +689,67 @@ pub(super) fn make_spawn_job_windows(
         no_console_window: no_console_window != 0,
         is_orphan: is_orphan != 0,
     };
-    context.host.insert_job(thread_pool::make_spawn_job_windows(
-        command_line,
-        env,
-        stdin,
-        stdout,
-        stderr,
-        cwd,
-        options,
-    ))
+    context
+        .host
+        .insert_job(thread_pool::make_spawn_job_windows(
+            command_line,
+            env,
+            stdin,
+            stdout,
+            stderr,
+            cwd,
+            options,
+        ))
+}
+
+#[ported(
+    source = "src/internal/event_loop/thread_pool.c",
+    original = "moonbitlang_async_make_spawn_job"
+)]
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spawn_job_windows(
+    context: &mut ImportContext<'_, '_>,
+    command_line: i32,
+    command_line_len: i32,
+    env: u64,
+    stdin: u64,
+    stdout: u64,
+    stderr: u64,
+    is_orphan: i32,
+) -> AsyncHostResult<u64> {
+    let env = context.host.take_process_env_builder(env)?;
+    let command_line = read_guest_os_string(context, command_line, command_line_len)?;
+    let stdin = optional_resource(context, stdin)?;
+    let stdout = optional_resource(context, stdout)?;
+    let stderr = optional_resource(context, stderr)?;
+    let options = thread_pool::SpawnOptions {
+        no_console_window: false,
+        is_orphan: is_orphan != 0,
+    };
+    context
+        .host
+        .insert_job(thread_pool::make_spawn_job_windows(
+            command_line,
+            env,
+            stdin,
+            stdout,
+            stderr,
+            None,
+            options,
+        ))
+}
+
+#[ported(
+    source = "src/internal/event_loop/thread_pool.c",
+    original = "moonbitlang_async_spawn_job_set_no_console_window"
+)]
+#[cfg(windows)]
+pub(super) fn spawn_job_set_no_console_window(
+    context: &mut ImportContext<'_, '_>,
+    job: u64,
+) -> AsyncHostResult<()> {
+    context.host.spawn_job_set_no_console_window(job)
 }
 
 #[ported(
@@ -655,7 +763,7 @@ pub(super) fn spawn_job_get_result_handle(
     context.host.get_spawn_job_result_handle(job)
 }
 
-// The current wasm wrapper passes SpawnJob by value. Its nested Job is a
+// The legacy wasm wrapper passes SpawnJob by value. Its nested Job is a
 // two-field valtype, so MoonBit lowers both the JobHandle and its optional
 // copy-output closure into this import. Spawn jobs never install that closure;
 // validate the representation invariant while this guest ABI remains in use.
@@ -797,31 +905,6 @@ pub(super) fn open_job_get_dev_id(context: &mut ImportContext<'_, '_>, job: u64)
 )]
 pub(super) fn open_job_get_file_id(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_file_id(job)
-}
-
-fn read_guest_os_string(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32) -> AsyncHostResult<OsString> {
-    // Async OsString imports pass MoonBit String data, so `len` is UTF-16 code
-    // units. Do not treat this as UTF-8 bytes or a native C string.
-    context.with_memory_mut(|memory| {
-        let units = read_u16(memory, ptr, len)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStringExt;
-
-            let path = char::decode_utf16(units)
-                .map(Result::unwrap)
-                .collect::<String>();
-            Ok(OsString::from_vec(path.into_bytes()))
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::ffi::OsStringExt;
-
-            Ok(OsString::from_wide(&units))
-        }
-    })
 }
 
 }

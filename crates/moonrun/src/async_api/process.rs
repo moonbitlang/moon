@@ -16,56 +16,33 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use crate::async_host::{
-    AsyncHostError, AsyncHostResult, GuestMemory, INVALID_HOST_HANDLE, read_u16,
-};
+#[cfg(windows)]
+use crate::async_host::read_u16;
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, INVALID_HOST_HANDLE};
 use crate::async_sys::process;
 
 use super::context::ImportContext;
+use super::os_string::read_guest as read_guest_os_string;
 use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(unix)]
 pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> u64 {
-    let env = if context.host.policy().has_env_policy() {
-        context
-            .host
-            .policy()
-            .env_vars()
-            .into_iter()
-            .map(|(key, value)| Some(OsString::from(format!("{key}={value}"))))
-            .collect()
-    } else {
-        current_unix_env()
-    };
+    let env = inherited_unix_env(context).into_iter().map(Some).collect();
     context.host.insert_process_env(env)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(windows)]
 pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
-    let env = if context.host.policy().has_env_policy() {
-        let mut block = Vec::new();
-        for (key, value) in context.host.policy().env_vars() {
-            block.extend(format!("{key}={value}").encode_utf16());
-            block.push(0);
-        }
-        if block.is_empty() {
-            block.push(0);
-        }
-        block.push(0);
-        block
-    } else {
-        current_windows_env()?
-    };
+    let env = windows_env_block(inherited_windows_env(context)?);
     Ok(context.host.insert_process_env(env))
 }
 
@@ -162,8 +139,9 @@ pub(super) fn env_block_add_entry(
     value: i32,
     value_len: i32,
 ) -> AsyncHostResult<()> {
-    let entry = unix_env_entry(context, key, key_len, value, value_len)?;
-    context.host.process_env_add_entry(env, index, entry)
+    let key = read_guest_os_string(context, key, key_len)?;
+    let value = read_guest_os_string(context, value, value_len)?;
+    context.host.process_env_add_entry(env, index, key, value)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_env_block_add_entry")]
@@ -182,6 +160,72 @@ pub(super) fn env_block_add_entry(
     context
         .host
         .process_env_add_entry(env, offset, &key, &value)
+}
+
+#[ported(source = "src/process/wasm.mbt", original = "process/make_env")]
+#[cfg(unix)]
+pub(super) fn make_env(
+    context: &mut ImportContext<'_, '_>,
+    inherit_env: i32,
+) -> AsyncHostResult<u64> {
+    let inherited = if inherit_env == 0 {
+        Vec::new()
+    } else {
+        inherited_unix_env(context)
+    };
+    Ok(context.host.insert_process_env_builder(inherited))
+}
+
+#[ported(source = "src/process/wasm.mbt", original = "process/make_env")]
+#[cfg(windows)]
+pub(super) fn make_env(
+    context: &mut ImportContext<'_, '_>,
+    inherit_env: i32,
+) -> AsyncHostResult<u64> {
+    let inherited = if inherit_env == 0 {
+        Vec::new()
+    } else {
+        inherited_windows_env(context)?
+    };
+    Ok(context.host.insert_process_env_builder(inherited))
+}
+
+#[ported(
+    source = "src/process/unix.c",
+    original = "moonbitlang_async_env_block_add_entry"
+)]
+#[cfg(unix)]
+pub(super) fn env_add_entry(
+    context: &mut ImportContext<'_, '_>,
+    env: u64,
+    key: i32,
+    key_len: i32,
+    value: i32,
+    value_len: i32,
+) -> AsyncHostResult<()> {
+    let key = read_guest_os_string(context, key, key_len)?;
+    let value = read_guest_os_string(context, value, value_len)?;
+    context.host.process_env_builder_add_entry(env, key, value)
+}
+
+#[ported(
+    source = "src/process/windows.c",
+    original = "moonbitlang_async_env_block_add_entry"
+)]
+#[cfg(windows)]
+pub(super) fn env_add_entry(
+    context: &mut ImportContext<'_, '_>,
+    env: u64,
+    key: i32,
+    key_len: i32,
+    value: i32,
+    value_len: i32,
+) -> AsyncHostResult<()> {
+    let key = read_guest_os_string(context, key, key_len)?;
+    let value = read_guest_os_string(context, value, value_len)?;
+    context
+        .host
+        .process_env_builder_add_entry(env, key, value)
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_make_argv_array")]
@@ -391,7 +435,22 @@ pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostRe
 }
 
 #[cfg(unix)]
-fn current_unix_env() -> Vec<Option<OsString>> {
+fn inherited_unix_env(context: &ImportContext<'_, '_>) -> Vec<OsString> {
+    if context.host.policy().has_env_policy() {
+        context
+            .host
+            .policy()
+            .env_vars()
+            .into_iter()
+            .map(|(key, value)| OsString::from(format!("{key}={value}")))
+            .collect()
+    } else {
+        current_unix_env()
+    }
+}
+
+#[cfg(unix)]
+fn current_unix_env() -> Vec<OsString> {
     use std::ffi::CStr;
     use std::os::unix::ffi::OsStringExt;
 
@@ -406,16 +465,32 @@ fn current_unix_env() -> Vec<Option<OsString>> {
         if entry.is_null() {
             break;
         }
-        entries.push(Some(OsString::from_vec(
+        entries.push(OsString::from_vec(
             unsafe { CStr::from_ptr(entry) }.to_bytes().to_vec(),
-        )));
+        ));
         cursor = unsafe { cursor.add(1) };
     }
     entries
 }
 
 #[cfg(windows)]
-fn current_windows_env() -> AsyncHostResult<Vec<u16>> {
+fn inherited_windows_env(context: &ImportContext<'_, '_>) -> AsyncHostResult<Vec<OsString>> {
+    if context.host.policy().has_env_policy() {
+        Ok(context
+            .host
+            .policy()
+            .env_vars()
+            .into_iter()
+            .map(|(key, value)| OsString::from(format!("{key}={value}")))
+            .collect())
+    } else {
+        current_windows_env()
+    }
+}
+
+#[cfg(windows)]
+fn current_windows_env() -> AsyncHostResult<Vec<OsString>> {
+    use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::System::Environment::{
         FreeEnvironmentStringsW, GetEnvironmentStringsW,
@@ -438,8 +513,7 @@ fn current_windows_env() -> AsyncHostResult<Vec<u16>> {
         }
         if unsafe { *cursor } != b'=' as u16 {
             let entry = unsafe { std::slice::from_raw_parts(cursor, len) };
-            entries.extend_from_slice(entry);
-            entries.push(0);
+            entries.push(OsString::from_wide(entry));
         }
         cursor = unsafe { cursor.add(len + 1) };
     }
@@ -447,47 +521,23 @@ fn current_windows_env() -> AsyncHostResult<Vec<u16>> {
         FreeEnvironmentStringsW(block);
     }
 
-    if entries.is_empty() {
-        entries.push(0);
-    }
-    entries.push(0);
     Ok(entries)
 }
 
-#[cfg(unix)]
-fn unix_env_entry(
-    context: &mut ImportContext<'_, '_>,
-    key: i32,
-    key_len: i32,
-    value: i32,
-    value_len: i32,
-) -> AsyncHostResult<OsString> {
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+#[cfg(windows)]
+fn windows_env_block(entries: Vec<OsString>) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
 
-    let key = read_guest_os_string(context, key, key_len)?;
-    let value = read_guest_os_string(context, value, value_len)?;
-    let mut entry = key.as_os_str().as_bytes().to_vec();
-    entry.push(b'=');
-    entry.extend_from_slice(value.as_os_str().as_bytes());
-    Ok(OsString::from_vec(entry))
-}
-
-#[cfg(unix)]
-fn read_guest_os_string(
-    context: &mut ImportContext<'_, '_>,
-    ptr: i32,
-    len: i32,
-) -> AsyncHostResult<OsString> {
-    context.with_memory_mut(|memory| {
-        let units = read_u16(memory, ptr, len)?;
-
-        use std::os::unix::ffi::OsStringExt;
-
-        let value = char::decode_utf16(units)
-            .map(Result::unwrap)
-            .collect::<String>();
-        Ok(OsString::from_vec(value.into_bytes()))
-    })
+    let mut block = Vec::new();
+    for entry in entries {
+        block.extend(entry.encode_wide());
+        block.push(0);
+    }
+    if block.is_empty() {
+        block.push(0);
+    }
+    block.push(0);
+    block
 }
 
 #[cfg(windows)]

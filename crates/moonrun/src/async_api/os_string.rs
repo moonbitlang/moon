@@ -16,9 +16,42 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
+use std::ffi::OsString;
+
+use crate::async_host::{AsyncHostError, AsyncHostResult, read_u16, write_u16};
 
 use super::context::ImportContext;
+
+// Async OsString imports pass MoonBit String data and a UTF-16 code-unit
+// length. Unix needs valid Unicode before encoding it as native UTF-8, while
+// Windows OsString preserves the original UTF-16 code units.
+pub(super) fn read_guest(
+    context: &mut ImportContext<'_, '_>,
+    ptr: i32,
+    len: i32,
+) -> AsyncHostResult<OsString> {
+    context.with_memory_mut(|memory| {
+        let units = read_u16(memory, ptr, len)?;
+        guest_os_string_from_utf16(&units)
+    })
+}
+
+#[cfg(unix)]
+fn guest_os_string_from_utf16(units: &[u16]) -> AsyncHostResult<OsString> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let value = char::decode_utf16(units.iter().copied())
+        .collect::<Result<String, _>>()
+        .map_err(|_| AsyncHostError::Inval)?;
+    Ok(OsString::from_vec(value.into_bytes()))
+}
+
+#[cfg(windows)]
+fn guest_os_string_from_utf16(units: &[u16]) -> AsyncHostResult<OsString> {
+    use std::os::windows::ffi::OsStringExt;
+
+    Ok(OsString::from_wide(units))
+}
 
 pub(super) fn decode_len(
     context: &mut ImportContext<'_, '_>,
@@ -111,6 +144,15 @@ fn decode_native_string_bytes(bytes: &[u8]) -> AsyncHostResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_guest_os_string_rejects_unpaired_surrogate() {
+        assert_eq!(
+            guest_os_string_from_utf16(&[0xd800]),
+            Err(AsyncHostError::Inval)
+        );
+    }
 
     #[cfg(unix)]
     #[test]

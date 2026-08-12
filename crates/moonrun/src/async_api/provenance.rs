@@ -49,6 +49,7 @@ pub(crate) struct CompatImport {
     pub(crate) upstream_pr: u32,
     pub(crate) replacement: &'static str,
     pub(crate) no_op: bool,
+    pub(crate) api_only: bool,
 }
 
 macro_rules! ported_imports {
@@ -212,6 +213,41 @@ macro_rules! ported_imports {
                     upstream_pr: $upstream_pr,
                     replacement: $replacement,
                     no_op: true,
+                    api_only: false,
+                },
+            ] [
+                $($out)*
+                $(#[$meta])*
+                $vis fn $name($($args)*) $(-> $ret)? $body
+            ]
+            $($rest)*
+        );
+    };
+    (
+        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        #[compat(
+            source = $source:literal,
+            original = $original:literal,
+            upstream_pr = $upstream_pr:literal,
+            replacement = $replacement:literal,
+            api_only = true
+        )]
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
+        $($rest:tt)*
+    ) => {
+        ported_imports!(
+            @collect [$($entries)*] [
+                $($compat_entries)*
+                $crate::async_api::provenance::CompatImport {
+                    rust_module: module_path!(),
+                    rust_symbol: stringify!($name),
+                    original_symbol: $original,
+                    historical_source: $source,
+                    upstream_pr: $upstream_pr,
+                    replacement: $replacement,
+                    no_op: false,
+                    api_only: true,
                 },
             ] [
                 $($out)*
@@ -244,6 +280,7 @@ macro_rules! ported_imports {
                     upstream_pr: $upstream_pr,
                     replacement: $replacement,
                     no_op: false,
+                    api_only: false,
                 },
             ] [
                 $($out)*

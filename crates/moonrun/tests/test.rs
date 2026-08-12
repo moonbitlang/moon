@@ -78,7 +78,7 @@ fn test_moonrun_against_upstream_async() {
         .args(["test", "--target", "wasm"])
         .assert()
         .success()
-        .stdout_eq("Total tests: 430, passed: 430, failed: 0.\n");
+        .stdout_eq("Total tests: 433, passed: 433, failed: 0.\n");
 }
 
 struct TestDir(moon_test_util::test_dir::TestDir);

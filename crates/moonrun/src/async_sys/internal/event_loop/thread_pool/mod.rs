@@ -34,6 +34,9 @@ pub(crate) use jobs::make_sigwait_job;
 pub(crate) use jobs::make_spawn_job_unix;
 #[cfg(windows)]
 pub(crate) use jobs::make_spawn_job_windows;
+pub(crate) use jobs::spawn_job_set_cwd;
+#[cfg(windows)]
+pub(crate) use jobs::spawn_job_set_no_console_window;
 #[cfg(windows)]
 pub(crate) use jobs::{cancel_job_resource, job_cancel_resource};
 pub(crate) use jobs::{
