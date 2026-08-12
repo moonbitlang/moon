@@ -92,6 +92,14 @@ _Avoid_: Action dependency, producer edge
 The build-plan derivation registered as producing a Build Artifact. Every required artifact has exactly one provider within a Build Plan.
 _Avoid_: Choosing a provider separately at each requirement call site
 
+**Declared Action Output**:
+A concrete file or directory that an execution action declares for dependency ordering, incremental execution, or caching. It may realize a Build Artifact, but it does not gain semantic identity merely because an executor tracks it.
+_Avoid_: Build Artifact, incidental output
+
+**Incidental Output**:
+A file or directory emitted as part of a tool's behavior but not declared independently to the execution layer. It cannot be requested, depended on, or cached independently by MoonBuild.
+_Avoid_: Build Artifact, declared action output
+
 ## Native Build
 
 **Target Backend**:

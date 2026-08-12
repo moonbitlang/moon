@@ -361,34 +361,6 @@ pub enum BuildPlanNode {
 }
 
 impl BuildPlanNode {
-    pub fn check(target: BuildTarget) -> Self {
-        Self::Check(target)
-    }
-
-    pub fn prove(target: BuildTarget) -> Self {
-        Self::Prove(target)
-    }
-
-    pub fn emit_proof(target: BuildTarget) -> Self {
-        Self::EmitProof(target)
-    }
-
-    pub fn build_core(target: BuildTarget) -> Self {
-        Self::BuildCore(target)
-    }
-
-    pub fn link_core(target: BuildTarget) -> Self {
-        Self::LinkCore(target)
-    }
-
-    pub fn make_executable(target: BuildTarget) -> Self {
-        Self::MakeExecutable(target)
-    }
-
-    pub fn generate_test_info(target: BuildTarget) -> Self {
-        Self::GenerateTestInfo(target)
-    }
-
     /// Extract the target from a BuildPlanNode, if it has one
     pub fn extract_target(&self) -> Option<BuildTarget> {
         match *self {

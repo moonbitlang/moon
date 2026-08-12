@@ -41,6 +41,10 @@ Before adding a MoonBuild planning or lowering type, projection, or seam:
 - Design the merged end state before splitting the work. Intermediate commits
   may carry compatibility code, but the PR should replace or materially shrink
   the old model rather than merge two peer models into the default branch.
+- Mark every intentionally retained compatibility representation, known seam
+  violation, or deferred deletion in source with a searchable `FIXME` or
+  `TODO` that states the removal condition. Ordinary comments, design
+  documents, and PR descriptions do not replace the source marker.
 - Separate semantic changes from optional terminology cleanup. A rename is not
   an architectural benefit.
 

@@ -28,8 +28,9 @@
 //! check, build or test).
 //!
 //! In contrast, this module generates the actual build plan from a list of
-//! input action nodes. Irrelevant packages are not included in this graph,
-//! nor does irrelevant actions.
+//! requested artifacts. It selects their provider actions and expands
+//! transitive artifact requirements; irrelevant packages and actions are not
+//! included.
 //!
 //! The result of this module is analogous to Rust Cargo's [Compile unit graph][cu].
 //! The reason why this is two graphs here in MoonBuild and only one graph in
@@ -599,7 +600,7 @@ pub enum PackagePrebuildPolicy {
     ConsumeExistingOutputs,
 }
 
-/// Directives provided along the input actions.
+/// Command-specific directives provided alongside requested artifacts.
 #[derive(Debug)]
 pub struct InputDirective {
     /// Set `no_mi=true` for the given package.
@@ -693,13 +694,13 @@ pub enum BuildPlanConstructError {
     },
 }
 
-/// Construct an abstract build graph from the given packages and input actions.
+/// Construct a Build Plan that produces the requested artifacts.
 #[instrument(skip_all)]
 pub fn build_plan(
     resolved: &ResolveOutput,
     mooncake_bin_dir: &Path,
     build_env: &BuildEnvironment,
-    input: impl Iterator<Item = BuildPlanNode>,
+    input: impl Iterator<Item = ArtifactKey>,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
     user_log: &UserLog,

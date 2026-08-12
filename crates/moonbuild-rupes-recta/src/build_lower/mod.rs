@@ -1248,10 +1248,6 @@ mod tests {
             package: target.package,
             target_kind: target.kind,
         });
-        plan.test_request_artifact(ArtifactKey::DsymBundle {
-            package: target.package,
-            target_kind: target.kind,
-        });
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
@@ -1341,6 +1337,13 @@ mod tests {
                 .files
                 .lookup(&dsym_bundle.to_string_lossy())
                 .expect("dSYM bundle should be registered");
+            assert!(
+                lowered
+                    .build_graph
+                    .get_start_nodes()
+                    .contains(&dsym_file_id),
+                "an unconsumed dSYM output should remain an execution root"
+            );
             let dsym_build_id = lowered.build_graph.files.by_id[dsym_file_id]
                 .input
                 .expect("dSYM bundle should have a producer");
@@ -1357,22 +1360,13 @@ mod tests {
 
             assert_eq!(
                 lowered.artifacts,
-                vec![
-                    (
-                        ArtifactKey::Executable {
-                            package: target.package,
-                            target_kind: target.kind,
-                        },
-                        vec![executable]
-                    ),
-                    (
-                        ArtifactKey::DsymBundle {
-                            package: target.package,
-                            target_kind: target.kind,
-                        },
-                        vec![dsym_bundle]
-                    ),
-                ]
+                vec![(
+                    ArtifactKey::Executable {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                    vec![executable]
+                )]
             );
         }
     }

@@ -25,7 +25,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
     build_plan::{self, ArtifactKey, BuildEnvironment, InputDirective},
-    model::{BackendConfig, BuildPlanNode, OperatingSystem},
+    model::{BackendConfig, OperatingSystem},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -108,20 +108,20 @@ pub fn compile(
     cx: &CompileConfig,
     mooncake_bin_dir: &Path,
     resolve_output: &ResolveOutput,
-    input_nodes: &[BuildPlanNode],
+    requested_artifacts: &[ArtifactKey],
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
     user_log: &UserLog,
 ) -> Result<CompileOutput, CompileGraphError> {
     info!(
-        "Building compilation plan for {} build nodes",
-        input_nodes.len()
+        "Building compilation plan for {} requested artifacts",
+        requested_artifacts.len()
     );
 
-    let input_nodes = input_nodes
+    let requested_artifacts = requested_artifacts
         .iter()
+        .filter(|artifact| filter_special_case_requested_artifact(artifact, resolve_output))
         .cloned()
-        .filter(|x| filter_special_case_input_nodes(*x, resolve_output))
         .collect::<Vec<_>>();
 
     let build_env = build_environment(cx);
@@ -129,7 +129,7 @@ pub fn compile(
         resolve_output,
         mooncake_bin_dir,
         &build_env,
-        input_nodes.into_iter(),
+        requested_artifacts.into_iter(),
         input_directive,
         prebuild_config,
         user_log,
@@ -147,24 +147,24 @@ pub fn compile_standalone(
     cx: &CompileConfig,
     mooncake_bin_dir: &Path,
     resolve_output: &ResolveOutput,
-    input_nodes: &[BuildPlanNode],
+    requested_artifacts: &[ArtifactKey],
     script_package: crate::model::PackageId,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
     user_log: &UserLog,
 ) -> Result<StandaloneCompileOutput, CompileGraphError> {
     info!("Building one logical plan for standalone dependency and script work");
-    let input_nodes = input_nodes
+    let requested_artifacts = requested_artifacts
         .iter()
-        .copied()
-        .filter(|node| filter_special_case_input_nodes(*node, resolve_output))
+        .filter(|artifact| filter_special_case_requested_artifact(artifact, resolve_output))
+        .cloned()
         .collect::<Vec<_>>();
     let build_env = build_environment(cx);
     let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
         &build_env,
-        input_nodes.into_iter(),
+        requested_artifacts.into_iter(),
         input_directive,
         prebuild_config,
         user_log,
@@ -271,13 +271,16 @@ fn lowering_options(cx: &CompileConfig) -> build_lower::BuildOptions {
     }
 }
 
-/// A filter to remove build plan nodes that are invalid. Returns `true` if the
-/// node should be retained.
+/// A filter to remove requested test artifacts that are invalid. Returns
+/// `true` if the artifact should be retained.
 ///
 /// See [`crate::special_cases`] for more information.
 #[instrument(level = Level::DEBUG, skip_all)]
-fn filter_special_case_input_nodes(node: BuildPlanNode, resolve_output: &ResolveOutput) -> bool {
-    match node.extract_target() {
+fn filter_special_case_requested_artifact(
+    artifact: &ArtifactKey,
+    resolve_output: &ResolveOutput,
+) -> bool {
+    match artifact.package_target() {
         Some(tgt) if tgt.kind.is_test() => {
             let pkg_name = &resolve_output.pkg_dirs.get_package(tgt.package).fqn;
             !should_skip_tests(pkg_name)
@@ -480,14 +483,17 @@ mod tests {
             info_no_alias: false,
         };
 
-        let input_nodes = [BuildPlanNode::MakeExecutable(script_target)];
+        let requested_artifacts = [ArtifactKey::Executable {
+            package: script_target.package,
+            target_kind: script_target.kind,
+        }];
         let input_directive = InputDirective::default();
         let user_log = UserLog::new(log::LevelFilter::Error);
         let ordinary = compile(
             &config,
             Path::new("."),
             &resolved,
-            &input_nodes,
+            &requested_artifacts,
             &input_directive,
             None,
             &user_log,
@@ -499,7 +505,7 @@ mod tests {
             &config,
             Path::new("."),
             &resolved,
-            &input_nodes,
+            &requested_artifacts,
             script,
             &input_directive,
             None,
@@ -652,7 +658,16 @@ mod tests {
             &config,
             Path::new("."),
             &resolved,
-            &[BuildPlanNode::Prove(target)],
+            &[
+                ArtifactKey::ProofWhyml {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
+                ArtifactKey::ProofReport {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
+            ],
             &InputDirective::default(),
             None,
             &UserLog::new(log::LevelFilter::Error),
