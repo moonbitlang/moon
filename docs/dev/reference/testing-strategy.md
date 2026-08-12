@@ -455,6 +455,10 @@ though individual cases may still be split out:
 - `inline_test`
 - `value_tracing`
 - `native_abort_trace`
+- `native_backend::test_filter`
+  - one filtered execution covers native test selection
+  - one update execution covers both inline and external snapshot writes from
+    the native test process
 - `package_metadata::test_native_stub_in_pkg_json`
   - one native test on the deepest fixture covers C stubs across three modules
     and a multi-file stub
