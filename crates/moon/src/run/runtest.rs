@@ -1116,9 +1116,64 @@ fn print_test_result_normal(
 mod tests {
     use std::{
         convert::Infallible,
+        path::PathBuf,
         sync::{Mutex, mpsc},
         time::Duration,
     };
+
+    use indexmap::IndexMap;
+    use moonbuild::{expect::PackageSrcResolver, runtest::TestDriverEvent};
+    use moonutil::test_metadata::{MbtTestInfo, MooncGenTestInfo};
+
+    struct TestPackageResolver;
+
+    impl PackageSrcResolver for TestPackageResolver {
+        fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf {
+            PathBuf::from(pkg_path)
+        }
+    }
+
+    #[test]
+    fn test_driver_result_preserves_the_update_location() {
+        let metadata = MooncGenTestInfo {
+            no_args_tests: IndexMap::from([(
+                "inspect.mbt".to_owned(),
+                vec![MbtTestInfo {
+                    index: 3,
+                    func: "test_3".to_owned(),
+                    name: Some("inspect".to_owned()),
+                    line_number: Some(7),
+                    attrs: vec![],
+                }],
+            )]),
+            with_args_tests: IndexMap::new(),
+            with_bench_args_tests: IndexMap::new(),
+            async_tests: IndexMap::new(),
+            async_tests_with_args: IndexMap::new(),
+        };
+        let event = TestDriverEvent::Result {
+            file: "inspect.mbt".to_owned(),
+            index: 3,
+            message: "@EXPECT_FAILED {}".to_owned(),
+        };
+
+        let results = super::parse_test_results(
+            metadata,
+            Some(serde_json_lenient::to_string(&event).unwrap()),
+            "example/pkg",
+            &TestPackageResolver,
+        )
+        .unwrap();
+
+        let result = &results.map["inspect.mbt"][&3];
+        assert!(matches!(
+            result.kind,
+            super::TestResultKind::ExpectTestFailed
+        ));
+        assert_eq!(result.raw.package, "example/pkg");
+        assert_eq!(result.raw.filename, "inspect.mbt");
+        assert_eq!(result.raw.index, "3");
+    }
 
     fn assert_started_before_release(parallelism: usize, expected_started: usize) {
         let invocations = [(), ()];

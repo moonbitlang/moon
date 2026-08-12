@@ -129,6 +129,7 @@ mod test_moon_info;
 mod test_moonbitlang_x;
 mod test_outline;
 mod test_release;
+mod test_update;
 mod third_party;
 mod tool_commands;
 mod value_tracing;

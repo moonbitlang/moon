@@ -270,3 +270,34 @@ impl<'a> CompactTestFormatter<'a> {
         write!(w, " {}", "ok".blue())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TestArgs;
+
+    #[test]
+    fn native_test_args_encode_files_and_half_open_ranges() {
+        let args = TestArgs {
+            package: "example/pkg".into(),
+            file_and_index: vec![
+                ("math.mbt".into(), vec![0..2, 4..5]),
+                ("io.mbt".into(), vec![2..3, 7..9]),
+            ],
+        };
+
+        assert_eq!(
+            args.to_cli_args_for_native(),
+            "math.mbt:0-2/math.mbt:4-5/io.mbt:2-3/io.mbt:7-9"
+        );
+    }
+
+    #[test]
+    fn native_test_args_encode_an_empty_selection() {
+        let args = TestArgs {
+            package: "example/pkg".into(),
+            file_and_index: vec![],
+        };
+
+        assert_eq!(args.to_cli_args_for_native(), "");
+    }
+}

@@ -1114,3 +1114,128 @@ test {
         println!("{i}: {c}");
     }
 }
+
+#[cfg(test)]
+mod promotion_tests {
+    use super::*;
+
+    struct TestPackageResolver(PathBuf);
+
+    impl PackageSrcResolver for TestPackageResolver {
+        fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf {
+            self.0.join(pkg_path)
+        }
+    }
+
+    fn statistics(package: &str, filename: &str, message: String) -> TestStatistics {
+        TestStatistics {
+            package: package.to_owned(),
+            filename: filename.to_owned(),
+            index: "0".to_owned(),
+            test_name: "inspect".to_owned(),
+            message,
+        }
+    }
+
+    fn expect_failure(package: &str, filename: &str, actual: &str) -> TestStatistics {
+        let location = |start_column, end_column| {
+            serde_json::json!({
+                "filename": format!("{package}/{filename}"),
+                "start_line": 2,
+                "start_column": start_column,
+                "end_line": 2,
+                "end_column": end_column,
+            })
+        };
+        statistics(
+            package,
+            filename,
+            format!(
+                "{EXPECT_FAILED}{}",
+                serde_json::json!({
+                    "loc": location(3, 15),
+                    "args_loc": [location(11, 14), null, null, null],
+                    "expect": "",
+                    "actual": actual,
+                })
+            ),
+        )
+    }
+
+    fn snapshot_failure(
+        package: &str,
+        filename: &str,
+        snapshot: &str,
+        actual: &str,
+    ) -> TestStatistics {
+        statistics(
+            package,
+            filename,
+            format!(
+                "{SNAPSHOT_TESTING}{}",
+                serde_json::json!({
+                    "loc": {
+                        "filename": format!("{package}/{filename}"),
+                        "start_line": 2,
+                        "start_column": 3,
+                        "end_line": 2,
+                        "end_column": 15,
+                    },
+                    "args_loc": [],
+                    "expect": snapshot,
+                    "actual": actual,
+                })
+            ),
+        )
+    }
+
+    #[test]
+    fn apply_expect_updates_each_reported_source_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let package = temp.path().join("example/pkg");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(package.join("first.mbt"), "test {\n  inspect(523)\n}\n").unwrap();
+        std::fs::write(package.join("second.mbt"), "test {\n  inspect(523)\n}\n").unwrap();
+
+        let results = [
+            expect_failure("example/pkg", "first.mbt", "first"),
+            expect_failure("example/pkg", "second.mbt", "second"),
+        ];
+        apply_expect(&TestPackageResolver(temp.path().to_owned()), &results).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(package.join("first.mbt")).unwrap(),
+            "test {\n  inspect(523, content=(#|first\n  ))\n}\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(package.join("second.mbt")).unwrap(),
+            "test {\n  inspect(523, content=(#|second\n  ))\n}\n"
+        );
+    }
+
+    #[test]
+    fn apply_snapshot_creates_and_replaces_reported_snapshot_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let package = temp.path().join("example/pkg");
+        let snapshots = package.join("__snapshot__");
+        std::fs::create_dir_all(&snapshots).unwrap();
+        std::fs::write(package.join("first.mbt"), "test {\n  inspect(1)\n}\n").unwrap();
+        std::fs::write(package.join("second.mbt"), "test {\n  inspect(2)\n}\n").unwrap();
+        std::fs::write(snapshots.join("second.snap"), "old\n").unwrap();
+
+        let results = [
+            snapshot_failure("example/pkg", "first.mbt", "first.snap", "first\n"),
+            snapshot_failure("example/pkg", "second.mbt", "second.snap", "second\n"),
+        ];
+        apply_snapshot(&TestPackageResolver(temp.path().to_owned()), &results).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(snapshots.join("first.snap")).unwrap(),
+            "first\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(snapshots.join("second.snap")).unwrap(),
+            "second\n"
+        );
+    }
+}

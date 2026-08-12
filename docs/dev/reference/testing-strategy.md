@@ -449,6 +449,13 @@ though individual cases may still be split out:
 - `inline_test`
 - `value_tracing`
 - `native_abort_trace`
+- `native_backend::test_filter`
+  - one selected update execution checks the native filter, failure-event,
+    promotion, rebuild, and rerun wiring together
+  - filter encoding, event location recovery, promotion selection, and actual
+    inline/snapshot file writes are covered below the CLI layer
+- `test_update`
+  - one minimal update-limit case keeps the loop guard as real multi-pass e2e
 - `wbtest_coverage`
 - `prebuild`
 - `prebuild_config_script`
@@ -512,6 +519,11 @@ Currently mixes:
 - dry-run graph filtering
 - auto-update rewriting
 - real execution
+
+The update-limit cases have moved to the focused `test_update` suite. Native
+filter/update composition has one smoke test under `native_backend`; its
+individual filter, event, promotion-plan, and file-rewrite responsibilities are
+unit-tested next to their implementations.
 
 Suggested split:
 

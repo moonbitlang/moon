@@ -18,15 +18,78 @@
 
 //! Handles test promotion
 
+use std::sync::Arc;
+
 use anyhow::Context;
 use moonbuild::expect::PackageSrcResolver;
 use moonbuild::expect::{apply_expect, apply_snapshot};
+use moonbuild::runtest::TestStatistics;
 use tracing::info;
 
 use crate::run::PackageFilter;
 use moonutil::build_options::TestIndexRange;
 
-use super::{ReplaceableTestResults, TestCaseResult, TestResultKind};
+use super::{ReplaceableTestResults, TestResultKind};
+
+struct PromotionPlan {
+    rerun_filter: PackageFilter,
+    snapshot_results: Vec<Arc<TestStatistics>>,
+    expect_results: Vec<Arc<TestStatistics>>,
+}
+
+impl PromotionPlan {
+    fn len(&self) -> usize {
+        self.snapshot_results.len() + self.expect_results.len()
+    }
+
+    fn rerun_filter(&self) -> &PackageFilter {
+        &self.rerun_filter
+    }
+
+    fn apply(self, pkg_src: &impl PackageSrcResolver) -> anyhow::Result<PackageFilter> {
+        apply_snapshot(
+            pkg_src,
+            self.snapshot_results.iter().map(|result| result.as_ref()),
+        )
+        .context("Failed to promote snapshots")?;
+        apply_expect(
+            pkg_src,
+            self.expect_results.iter().map(|result| result.as_ref()),
+        )
+        .context("Failed to promote expects")?;
+        Ok(self.rerun_filter)
+    }
+}
+
+fn collect_promotions(results: &ReplaceableTestResults) -> anyhow::Result<PromotionPlan> {
+    let mut rerun_filter = PackageFilter::default();
+    let mut snapshot_results = vec![];
+    let mut expect_results = vec![];
+
+    for (target, target_result) in &results.map {
+        for (file, results_by_index) in &target_result.map {
+            for (index, result) in results_by_index {
+                let destination = match result.kind {
+                    TestResultKind::SnapshotTestFailed => &mut snapshot_results,
+                    TestResultKind::ExpectTestFailed => &mut expect_results,
+                    _ => continue,
+                };
+                rerun_filter.add_one(
+                    *target,
+                    Some(file),
+                    Some(TestIndexRange::from_single(*index)?),
+                );
+                destination.push(Arc::clone(&result.raw));
+            }
+        }
+    }
+
+    Ok(PromotionPlan {
+        rerun_filter,
+        snapshot_results,
+        expect_results,
+    })
+}
 
 /// Perform promotion on all test snapshots and expect tests met. Returns
 /// the total number of tests promoted, along with a filter indicating which
@@ -35,68 +98,82 @@ pub(crate) fn perform_promotion(
     pkg_src: &impl PackageSrcResolver,
     results: &ReplaceableTestResults,
 ) -> anyhow::Result<(usize, PackageFilter)> {
-    let mut res = PackageFilter::default();
+    let plan = collect_promotions(results)?;
+    let count = plan.len();
+    let pending_targets = plan.rerun_filter().0.len();
+    let rerun_filter = plan.apply(pkg_src)?;
+    info!(count, pending_targets, "promoted test results");
+    Ok((count, rerun_filter))
+}
 
-    let mut to_update_snapshot = vec![];
-    let mut to_update_expect = vec![];
-    let mut count = 0;
-    for (target, target_result) in &results.map {
-        for (file, v) in &target_result.map {
-            for (idx, result) in v {
-                match result.kind {
-                    TestResultKind::SnapshotTestFailed => {
-                        info!(?target, file, idx, "Need to update snapshot");
-                        res.add_one(
-                            *target,
-                            Some(file),
-                            Some(TestIndexRange::from_single(*idx)?),
-                        );
-                        to_update_snapshot.push(result);
-                        count += 1;
-                    }
-                    TestResultKind::ExpectTestFailed => {
-                        info!(?target, file, idx, "Need to update expect");
-                        res.add_one(
-                            *target,
-                            Some(file),
-                            Some(TestIndexRange::from_single(*idx)?),
-                        );
-                        to_update_expect.push(result);
-                        count += 1;
-                    }
-                    _ => {}
-                }
-            }
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use moonbuild::runtest::TestStatistics;
+    use moonbuild_rupes_recta::model::{BuildTarget, PackageId, TargetKind};
+    use moonutil::test_metadata::MbtTestInfo;
+
+    use super::collect_promotions;
+    use crate::run::runtest::{
+        ReplaceableTestResults, TargetTestResult, TestCaseResult, TestResultKind,
+    };
+
+    fn result(kind: TestResultKind, message: &str) -> TestCaseResult {
+        TestCaseResult {
+            kind,
+            raw: Arc::new(TestStatistics {
+                package: "example/pkg".into(),
+                filename: "lib.mbt".into(),
+                index: "0".into(),
+                test_name: "test".into(),
+                message: message.into(),
+            }),
+            meta: MbtTestInfo {
+                index: 0,
+                func: "test_0".into(),
+                name: Some("test".into()),
+                line_number: Some(1),
+                attrs: vec![],
+            },
         }
     }
 
-    // This is to be changed -- the original test promotion is too messy to work with.
-    // We iterate through all results, filter those which are actually failed
-    // snapshot tests, and then feed them to the `apply_snapshot` function.
-    //
-    // We are expecting these updates to work on batches, but the legacy call
-    // site only supports single-file updates (i.e. only passed std::iter::once
-    // to the functions).
-    //
-    // We will be very sad if it doesn't work.
-    promote_all_snapshots(pkg_src, to_update_snapshot).context("Failed to promote snapshots")?;
-    promote_all_expects(pkg_src, to_update_expect).context("Failed to promote expects")?;
+    #[test]
+    fn promotion_plan_tracks_only_updates_and_their_rerun_locations() {
+        let target = BuildTarget {
+            package: PackageId::default(),
+            kind: TargetKind::InlineTest,
+        };
+        let mut target_results = TargetTestResult::default();
+        target_results.add(
+            "inline.mbt",
+            2,
+            result(TestResultKind::ExpectTestFailed, "expect update"),
+        );
+        target_results.add(
+            "snapshot.mbt",
+            4,
+            result(TestResultKind::SnapshotTestFailed, "snapshot update"),
+        );
+        target_results.add(
+            "ordinary.mbt",
+            6,
+            result(TestResultKind::Failed, "ordinary failure"),
+        );
+        let mut results = ReplaceableTestResults::default();
+        results.map.insert(target, target_results);
 
-    Ok((count, res))
-}
+        let plan = collect_promotions(&results).unwrap();
 
-/// Perform promotion on all test snapshots met.
-fn promote_all_snapshots<'a>(
-    pkg_src: &impl PackageSrcResolver,
-    results: impl IntoIterator<Item = &'a TestCaseResult>,
-) -> anyhow::Result<()> {
-    apply_snapshot(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))
-}
-
-/// Perform promotion on all expect tests met. Should fil
-fn promote_all_expects<'a>(
-    pkg_src: &impl PackageSrcResolver,
-    results: impl IntoIterator<Item = &'a TestCaseResult>,
-) -> anyhow::Result<()> {
-    apply_expect(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))
+        assert_eq!(plan.len(), 2);
+        assert_eq!(plan.expect_results[0].message, "expect update");
+        assert_eq!(plan.snapshot_results[0].message, "snapshot update");
+        let rerun_filter = plan.rerun_filter();
+        let files = rerun_filter.0[&target].as_ref().unwrap();
+        assert!(files.0["inline.mbt"].as_ref().unwrap().contains(2));
+        assert!(!files.0["inline.mbt"].as_ref().unwrap().contains(3));
+        assert!(files.0["snapshot.mbt"].as_ref().unwrap().contains(4));
+        assert!(!files.0.contains_key("ordinary.mbt"));
+    }
 }

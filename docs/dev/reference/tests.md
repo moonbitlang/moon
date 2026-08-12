@@ -40,13 +40,14 @@ snapshot tests. The CLI enforces a single target backend in this mode (updating
 multiple backends at once would diverge binary outputs) and disallows patch
 files.
 
-1. After the initial run, `perform_promotion` scans the aggregated
-   `ReplaceableTestResults`. For every `ExpectTestFailed` or `SnapshotTestFailed`
-   case it:
+1. After the initial run, `collect_promotions` scans the aggregated
+   `ReplaceableTestResults` and returns a `PromotionPlan`. For every
+   `ExpectTestFailed` or `SnapshotTestFailed` case the plan:
 
    - Records the owning `BuildTarget`, file path, and index in a `PackageFilter`.
-   - Batches the failure payloads and forwards them to `apply_expect` /
-     `apply_snapshot`, which actually rewrite the `.expect`/snapshot files on disk.
+   - Separately batches expect and snapshot failure payloads. Applying the plan
+     forwards those batches to `apply_expect` / `apply_snapshot`, which actually
+     rewrite source and snapshot files on disk.
 
 2. If the filter is empty, promotion stops immediately. Otherwise the runner:
 
