@@ -335,15 +335,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     },
                 );
             }
-            BuildPlanNode::GenerateDsym(target) => {
-                self.res.artifacts.provide(
-                    node,
-                    ArtifactKey::DsymBundle {
-                        package: target.package,
-                        target_kind: target.kind,
-                    },
-                );
-            }
+            BuildPlanNode::GenerateDsym(_) => {}
             BuildPlanNode::GenerateTestInfo(target) => {
                 self.res.artifacts.provide(
                     node,
@@ -528,10 +520,6 @@ impl<'a> BuildPlanConstructor<'a> {
                     BuildPlanNode::LinkCore(target)
                 }
             }
-            ArtifactKey::DsymBundle {
-                package,
-                target_kind,
-            } => BuildPlanNode::GenerateDsym(package.build_target(*target_kind)),
             ArtifactKey::GeneratedTestDriver {
                 package,
                 target_kind,

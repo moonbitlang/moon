@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
 use std::path::{Path, PathBuf};
@@ -25,6 +24,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
     build_plan::{self, ArtifactKey, BuildEnvironment, InputDirective},
+    execution_plan::{ActionId, ExecutionPlan},
     model::{BackendConfig, OperatingSystem},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
@@ -73,14 +73,8 @@ pub struct CompileConfig {
 
 /// The output information of the compilation.
 pub struct CompileOutput {
-    /// The n2 compile graph to be executed
-    pub build_graph: n2::graph::Graph,
-
-    /// Structured argv for lowered commands keyed by their generated output paths.
-    pub command_args_by_output: build_lower::CommandArgMap,
-
-    /// Requested logical artifacts and their realized physical paths.
-    pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,
+    /// Executor-neutral concrete actions and declared outputs.
+    pub execution_plan: ExecutionPlan,
 
     /// The build plan, but only if we decided to export it.
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
@@ -89,10 +83,11 @@ pub struct CompileOutput {
 /// Dependency preparation and script execution projected from one logical
 /// standalone build plan.
 pub struct StandaloneCompileOutput {
-    /// Lowered dependency-package actions retained for preparation.
-    pub dependencies: Vec<build_lower::LoweredAction>,
-    /// Work belonging to the synthesized script package.
-    pub script: CompileOutput,
+    /// One concrete plan shared by dependency preparation and script execution.
+    pub execution_plan: ExecutionPlan,
+    pub dependency_actions: Vec<ActionId>,
+    pub script_actions: Vec<ActionId>,
+    pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -174,36 +169,18 @@ pub fn compile_standalone(
     debug!("Standalone build plan contains {} nodes", plan.node_count());
 
     let lower_env = lowering_options(cx);
-    let (dependencies, script) = {
-        let action_plan = plan.build_action_plan();
-        let (dependencies, script) = build_lower::lower_standalone_build_plan(
-            resolve_output,
-            &action_plan,
-            &lower_env,
-            script_package,
-        )?;
-        let script_artifacts = script.artifacts.into_iter().collect();
-        (
-            dependencies,
-            CompileOutput {
-                build_graph: script.build_graph,
-                command_args_by_output: script.command_args_by_output,
-                artifacts: script_artifacts,
-                build_plan: None,
-            },
-        )
-    };
+    let lowered = build_lower::lower_standalone_build_plan(
+        resolve_output,
+        &plan,
+        &lower_env,
+        script_package,
+    )?;
 
     Ok(StandaloneCompileOutput {
-        dependencies,
-        script: CompileOutput {
-            build_plan: if cx.debug_export_build_plan {
-                Some(Box::new(plan))
-            } else {
-                None
-            },
-            ..script
-        },
+        execution_plan: lowered.plan,
+        dependency_actions: lowered.dependency_actions,
+        script_actions: lowered.script_actions,
+        build_plan: cx.debug_export_build_plan.then(|| Box::new(plan)),
     })
 }
 
@@ -232,20 +209,12 @@ fn lower_plan(
     plan: build_plan::BuildPlan,
 ) -> Result<CompileOutput, CompileGraphError> {
     let lower_env = lowering_options(cx);
-    let (build_graph, command_args_by_output, artifacts) = {
-        let action_plan = plan.build_action_plan();
-        let res = build_lower::lower_build_plan(resolve_output, &action_plan, &lower_env)?;
-        let artifacts = res.artifacts.into_iter().collect();
-        (res.build_graph, res.command_args_by_output, artifacts)
-    };
+    let execution_plan = build_lower::lower_build_plan(resolve_output, &plan, &lower_env)?;
 
-    info!("Build graph lowering completed successfully");
-    debug!("Final build graph created with n2");
+    info!("Execution plan lowering completed successfully");
 
     Ok(CompileOutput {
-        build_graph,
-        command_args_by_output,
-        artifacts,
+        execution_plan,
         build_plan: if cx.debug_export_build_plan {
             Some(Box::new(plan))
         } else {
@@ -499,7 +468,7 @@ mod tests {
             &user_log,
         )
         .expect("ordinary compile should lower one graph");
-        assert_eq!(ordinary.build_graph.builds.iter().count(), 3);
+        assert_eq!(ordinary.execution_plan.action_ids().count(), 3);
 
         let output = compile_standalone(
             &config,
@@ -513,10 +482,9 @@ mod tests {
         )
         .expect("standalone plan should lower");
 
-        assert_eq!(output.dependencies.len(), 1);
-        assert_eq!(output.script.build_graph.builds.iter().count(), 2);
+        assert_eq!(output.dependency_actions.len(), 1);
+        assert_eq!(output.script_actions.len(), 2);
         let plan = output
-            .script
             .build_plan
             .as_deref()
             .expect("standalone should retain one logical plan for debug export");
@@ -539,10 +507,10 @@ mod tests {
         );
 
         let dependency_outputs = output
-            .dependencies
+            .dependency_actions
             .iter()
-            .flat_map(|action| action.outputs())
-            .flat_map(|artifact| artifact.paths())
+            .flat_map(|action| output.execution_plan.action(*action).outputs())
+            .map(|output_id| output.execution_plan.output(*output_id).path())
             .map(|path| path.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert!(
@@ -561,13 +529,15 @@ mod tests {
                 .any(|path| path.ends_with("script.core"))
         );
 
-        let script_inputs = output
-            .script
-            .build_graph
+        let (script_graph, _) = output
+            .execution_plan
+            .to_n2_graph(output.script_actions.iter().copied())
+            .expect("script actions should adapt to n2");
+        let script_inputs = script_graph
             .builds
             .iter()
             .flat_map(|build| build.ins.ids.iter())
-            .map(|id| output.script.build_graph.files.by_id[*id].name.clone())
+            .map(|id| script_graph.files.by_id[*id].name.clone())
             .collect::<Vec<_>>();
         assert!(
             script_inputs
@@ -579,13 +549,11 @@ mod tests {
                 .iter()
                 .any(|path| path.ends_with("dependency.core"))
         );
-        let script_outputs = output
-            .script
-            .build_graph
+        let script_outputs = script_graph
             .builds
             .iter()
             .flat_map(|build| build.outs.ids.iter())
-            .map(|id| output.script.build_graph.files.by_id[*id].name.clone())
+            .map(|id| script_graph.files.by_id[*id].name.clone())
             .collect::<Vec<_>>();
         assert!(
             !script_outputs
@@ -675,7 +643,11 @@ mod tests {
         .expect("the default directive should select the toolchain proof prelude");
 
         let proof_prelude = moonutil::toolchain::prelude_proof().display().to_string();
-        assert!(output.command_args_by_output.values().any(|args| {
+        let (_, command_args_by_output) = output
+            .execution_plan
+            .all_to_n2_graph()
+            .expect("execution plan should adapt to n2");
+        assert!(command_args_by_output.values().any(|args| {
             args.windows(2)
                 .any(|pair| pair[0] == "-why3-loadpath" && pair[1] == proof_prelude)
         }));

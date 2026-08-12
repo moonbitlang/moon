@@ -199,30 +199,6 @@ impl PackagePrebuildPlan {
             _ => &[],
         })
     }
-
-    #[cfg(test)]
-    pub(crate) fn test_insert_custom_info(
-        &mut self,
-        package: PackageId,
-        infos: Vec<Option<PrebuildInfo>>,
-    ) {
-        for (index, info) in infos.into_iter().enumerate() {
-            if let Some(info) = info {
-                let node = BuildPlanNode::RunPrebuild(package, index as u32);
-                let action = PackagePrebuildAction::Custom {
-                    package,
-                    index: index as u32,
-                    info,
-                };
-                if let Some(existing) = self.actions.iter_mut().find(|action| action.node() == node)
-                {
-                    *existing = action;
-                } else {
-                    self.actions.push(action);
-                }
-            }
-        }
-    }
 }
 
 pub(crate) fn is_package_prebuild_node(node: BuildPlanNode) -> bool {

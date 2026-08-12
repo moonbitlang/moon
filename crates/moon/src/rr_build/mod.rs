@@ -692,9 +692,15 @@ pub(crate) fn plan_resolved_build_from_intent(
         )?;
     }
 
+    let artifacts = compile_output
+        .execution_plan
+        .requested_artifact_paths()
+        .map(|(artifact, paths)| (artifact.clone(), paths))
+        .collect();
+    let (graph, command_args_by_output) = compile_output.execution_plan.all_to_n2_graph()?;
     let build_meta = BuildMeta {
         resolve_output,
-        artifacts: compile_output.artifacts,
+        artifacts,
         backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
@@ -705,8 +711,8 @@ pub(crate) fn plan_resolved_build_from_intent(
         .target_layout()
         .n2_db_path(cx.backend.target_backend());
     let input = BuildInput {
-        graph: compile_output.build_graph,
-        command_args_by_output: compile_output.command_args_by_output,
+        graph,
+        command_args_by_output,
         db_path,
     };
 
@@ -765,7 +771,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     )?;
 
     if unstable_features.rr_export_build_plan
-        && let Some(plan) = compile_output.script.build_plan.as_deref()
+        && let Some(plan) = compile_output.build_plan.as_deref()
     {
         moonbuild_rupes_recta::util::print_build_plan_dot(
             plan,
@@ -775,33 +781,40 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         )?;
     }
 
+    let artifacts = compile_output
+        .execution_plan
+        .requested_artifact_paths()
+        .map(|(artifact, paths)| (artifact.clone(), paths))
+        .collect();
     let build_meta = BuildMeta {
         resolve_output,
-        artifacts: compile_output.script.artifacts,
+        artifacts,
         backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };
     let backend = cx.backend.target_backend();
     let layout = cx.artifact_paths.target_layout();
-    let dependency_input = if compile_output.dependencies.is_empty() {
+    let dependency_input = if compile_output.dependency_actions.is_empty() {
         None
     } else {
-        let (graph, command_args_by_output) =
-            moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph(
-                compile_output.dependencies,
-            )?;
+        let (graph, command_args_by_output) = compile_output
+            .execution_plan
+            .to_n2_graph(compile_output.dependency_actions.iter().copied())?;
         Some(BuildInput {
             graph,
             command_args_by_output,
             db_path: layout.standalone_dependency_n2_db_path(backend),
         })
     };
+    let (script_graph, script_command_args) = compile_output
+        .execution_plan
+        .to_n2_graph(compile_output.script_actions.iter().copied())?;
     let input = StandaloneBuildInput {
         dependencies: dependency_input,
         script: BuildInput {
-            graph: compile_output.script.build_graph,
-            command_args_by_output: compile_output.script.command_args_by_output,
+            graph: script_graph,
+            command_args_by_output: script_command_args,
             db_path: layout.n2_db_path(backend),
         },
     };
@@ -1032,7 +1045,7 @@ pub struct BuildInput {
     graph: n2::graph::Graph,
 
     /// Structured command argv keyed by generated output path.
-    command_args_by_output: moonbuild_rupes_recta::build_lower::CommandArgMap,
+    command_args_by_output: moonbuild_rupes_recta::execution_plan::CommandArgMap,
 
     /// The build cache database path for n2
     ///
@@ -1058,7 +1071,7 @@ impl BuildInput {
 
     pub(crate) fn command_args_for_test(
         &self,
-    ) -> &moonbuild_rupes_recta::build_lower::CommandArgMap {
+    ) -> &moonbuild_rupes_recta::execution_plan::CommandArgMap {
         &self.command_args_by_output
     }
 }

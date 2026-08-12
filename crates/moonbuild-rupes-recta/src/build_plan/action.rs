@@ -20,21 +20,18 @@ use std::path::Path;
 
 use moonutil::resolution::ModuleId;
 
-use crate::{
-    build_plan::{
-        BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
-        PrebuildInfo,
-    },
-    model::{BuildTarget, PackageId},
+use super::{
+    BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
+    PrebuildInfo,
 };
+use crate::model::{BuildTarget, PackageId};
 
-/// Opaque identifier for an action in a [`BuildActionPlan`](super::BuildActionPlan).
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct BuildActionId(pub(crate) usize);
-
-/// A build action with all planning metadata needed by backend lowering.
+/// A semantic Build Plan action hydrated with the metadata needed by lowering.
+///
+/// This borrowed value is constructed on demand; it is not a second stored
+/// action graph.
 #[derive(Clone, Copy, Debug)]
-pub enum BuildAction<'a> {
+pub(crate) enum BuildAction<'a> {
     Check {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
@@ -99,8 +96,6 @@ pub enum BuildAction<'a> {
         module: ModuleId,
     },
     RunPrebuild {
-        package: PackageId,
-        index: u32,
         info: &'a PrebuildInfo,
     },
     RunMoonLexPrebuild {

@@ -16,51 +16,50 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Lowers the normalized action plan into concrete actions, then adapts them
-//! to `n2`'s build graph.
+//! Lowers the normalized action plan into an executor-neutral Execution Plan.
 
-use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    str::FromStr,
+    sync::OnceLock,
+};
 
 use log::{debug, info};
 use moonutil::{
     build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel,
     target::TargetBackend,
 };
-use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    build_action_plan::{BuildActionId, BuildActionPlan},
-    build_plan::ArtifactKey,
-    model::{BackendConfig, OperatingSystem, PackageId},
-    pkg_name::OptionalPackageFQNWithSource,
+    build_plan::BuildPlan,
+    execution_plan::{ActionId, ExecutionPlan, ExecutionPlanBuilder},
+    model::{BackendConfig, BuildPlanNode, OperatingSystem, PackageId},
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
     },
 };
 
 mod backend;
+mod command;
 mod compiler;
 mod context;
 mod lower_aux;
 mod lower_build;
-mod lowered_action;
 mod moonc_command;
-mod n2_adapter;
 mod utils;
 
-pub use lowered_action::{
-    LoweredAction, LoweredArtifact, LoweredCommand, LoweredCommandExecution, LoweredExternalInput,
-    LoweredResponseFile,
+pub use crate::execution_plan::{
+    ExternalInput, LoweredCommand, LoweredCommandExecution, LoweredResponseFile,
 };
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization};
 
+use command::BuildCommand;
 use context::LoweringContext;
-use lowered_action::BuildCommand;
-use n2_adapter::N2GraphBuilder;
 
 /// Lazily resolved host/toolchain facts used during lowering.
 ///
@@ -201,41 +200,16 @@ pub enum LoweringError {
         path: PathBuf,
         source: walkdir::Error,
     },
-
-    #[error(
-        "An error was reported by n2 (the build graph executor), \
-        when lowering for package {package}, action {action:?}"
-    )]
-    N2 {
-        package: OptionalPackageFQNWithSource,
-        action: BuildActionId,
-        source: anyhow::Error,
-    },
 }
 
-/// Structured command argv keyed by each generated output path.
-pub type CommandArgMap = BTreeMap<PathBuf, Vec<String>>;
-
-pub struct LoweringResult {
-    /// The lowered n2 build graph.
-    pub build_graph: N2Graph,
-
-    /// Structured argv for lowered commands that are represented as argument
-    /// vectors before they are rendered into n2 command strings.
-    pub command_args_by_output: CommandArgMap,
-
-    /// Requested logical artifacts and their realized physical paths.
-    pub artifacts: Vec<(ArtifactKey, Vec<PathBuf>)>,
-}
-
-/// Lowers a normalized action plan into an n2 [Build Graph](n2::graph::Graph).
+/// Lower a normalized action plan into an executor-neutral Execution Plan.
 #[instrument(skip_all)]
 pub fn lower_build_plan(
     resolve_output: &ResolveOutput,
-    plan: &BuildActionPlan<'_>,
+    plan: &BuildPlan,
     opt: &BuildOptions,
-) -> Result<LoweringResult, LoweringError> {
-    info!("Starting action plan lowering to n2 graph");
+) -> Result<ExecutionPlan, LoweringError> {
+    info!("Starting action plan lowering to execution plan");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
         opt.target_backend(),
@@ -243,111 +217,142 @@ pub fn lower_build_plan(
         opt.debug_symbols
     );
 
-    let result = lower_actions(
-        resolve_output,
-        plan,
-        opt,
-        plan.action_ids(),
-        plan.requested_artifacts(),
-    )?;
+    let (result, _) = lower_actions(resolve_output, plan, opt)?;
 
     info!("Action plan lowering completed successfully");
     Ok(result)
 }
 
-/// Project one standalone action plan into retained dependency actions and a
-/// script n2 graph.
-///
-/// The dependency actions contain every prerequisite outside the synthesized
-/// script package, including package-less shared actions reached by those
-/// prerequisites. The script graph keeps the same artifact dependencies; when a
-/// dependency producer is omitted, its output path remains a concrete n2 input.
+pub(crate) struct StandaloneExecutionPlan {
+    pub(crate) plan: ExecutionPlan,
+    pub(crate) dependency_actions: Vec<ActionId>,
+    pub(crate) script_actions: Vec<ActionId>,
+}
+
+/// Lower one standalone Build Plan and retain its two execution projections.
 #[instrument(skip_all)]
 pub(crate) fn lower_standalone_build_plan(
     resolve_output: &ResolveOutput,
-    plan: &BuildActionPlan<'_>,
+    plan: &BuildPlan,
     opt: &BuildOptions,
     script_package: PackageId,
-) -> Result<(Vec<LoweredAction>, LoweringResult), LoweringError> {
-    info!("Projecting standalone dependency actions and script n2 graph");
-    let (dependency_actions, script_actions) = plan.partition_standalone_actions(script_package);
+) -> Result<StandaloneExecutionPlan, LoweringError> {
+    info!("Projecting standalone dependency and script execution actions");
+    let (dependency_nodes, script_nodes) = partition_standalone_actions(plan, script_package);
     debug!(
         "Standalone execution projection contains {} dependency actions and {} script actions",
-        dependency_actions.len(),
-        script_actions.len()
+        dependency_nodes.len(),
+        script_nodes.len()
     );
 
-    let dependencies = lower_actions_to_values(resolve_output, plan, opt, dependency_actions)?;
-    let script = lower_actions(
-        resolve_output,
+    let (plan, action_ids) = lower_actions(resolve_output, plan, opt)?;
+    Ok(StandaloneExecutionPlan {
         plan,
-        opt,
-        script_actions,
-        plan.requested_artifacts(),
-    )?;
-    Ok((dependencies, script))
-}
-
-fn lower_actions_to_values(
-    resolve_output: &ResolveOutput,
-    plan: &BuildActionPlan<'_>,
-    opt: &BuildOptions,
-    actions: impl IntoIterator<Item = BuildActionId>,
-) -> Result<Vec<LoweredAction>, LoweringError> {
-    let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
-    actions
-        .into_iter()
-        .map(|id| {
-            debug!("Lowering retained action: {:?}", id);
-            ctx.lower_action(id)
-        })
-        .collect()
-}
-
-/// Convert exactly the selected lowered actions into an n2 graph.
-///
-/// Callers must select a producer-closed action set or materialize every
-/// omitted producer output before executing the returned graph.
-pub fn lowered_actions_to_n2_graph(
-    actions: impl IntoIterator<Item = LoweredAction>,
-) -> Result<(N2Graph, CommandArgMap), LoweringError> {
-    let mut n2 = N2GraphBuilder::new();
-    for action in actions {
-        n2.add_action(action)?;
-    }
-    Ok((n2.graph, n2.command_args_by_output))
+        dependency_actions: dependency_nodes
+            .into_iter()
+            .map(|node| action_ids[&node])
+            .collect(),
+        script_actions: script_nodes
+            .into_iter()
+            .map(|node| action_ids[&node])
+            .collect(),
+    })
 }
 
 fn lower_actions(
     resolve_output: &ResolveOutput,
-    plan: &BuildActionPlan<'_>,
+    plan: &BuildPlan,
     opt: &BuildOptions,
-    actions: impl IntoIterator<Item = BuildActionId>,
-    requested_artifacts: &[(ArtifactKey, BuildActionId)],
-) -> Result<LoweringResult, LoweringError> {
+) -> Result<(ExecutionPlan, HashMap<BuildPlanNode, ActionId>), LoweringError> {
     let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
-    let mut n2 = N2GraphBuilder::new();
+    let mut execution = ExecutionPlanBuilder::default();
+    let mut action_ids = HashMap::new();
 
-    for id in actions {
-        debug!("Lowering action: {:?}", id);
-        n2.add_action(ctx.lower_action(id)?)?;
+    for node in plan.all_nodes() {
+        debug!("Lowering action: {:?}", node);
+        let action = execution.add_action(ctx.lower_action(node)?);
+        action_ids.insert(node, action);
     }
 
-    let out_artifacts = requested_artifacts
-        .iter()
-        .map(|(artifact, provider)| {
-            (
-                artifact.clone(),
-                ctx.paths_for_artifact(artifact, *provider),
-            )
-        })
-        .collect();
+    Ok((
+        execution.finish(plan.requested_artifacts().cloned()),
+        action_ids,
+    ))
+}
 
-    Ok(LoweringResult {
-        build_graph: n2.graph,
-        command_args_by_output: n2.command_args_by_output,
-        artifacts: out_artifacts,
-    })
+/// Separate reusable package preparation from work owned by the synthesized
+/// script package while preserving the semantic plan's dependency closure.
+fn partition_standalone_actions(
+    plan: &BuildPlan,
+    script_package: PackageId,
+) -> (Vec<BuildPlanNode>, Vec<BuildPlanNode>) {
+    let action_package = |node| match node {
+        BuildPlanNode::Check(target)
+        | BuildPlanNode::EmitProof(target)
+        | BuildPlanNode::Prove(target)
+        | BuildPlanNode::BuildCore(target)
+        | BuildPlanNode::LinkCore(target)
+        | BuildPlanNode::MakeExecutable(target)
+        | BuildPlanNode::GenerateDsym(target)
+        | BuildPlanNode::GenerateTestInfo(target)
+        | BuildPlanNode::GenerateMbti(target) => Some(target.package),
+        BuildPlanNode::BuildCStub(package, _)
+        | BuildPlanNode::ArchiveOrLinkCStubs(package)
+        | BuildPlanNode::BuildVirtual(package)
+        | BuildPlanNode::RunPrebuild(package, _)
+        | BuildPlanNode::RunMoonLexPrebuild(package, _)
+        | BuildPlanNode::RunMoonYaccPrebuild(package, _) => Some(package),
+        BuildPlanNode::Bundle(_)
+        | BuildPlanNode::BuildRuntimeObject(_)
+        | BuildPlanNode::BuildRuntimeLib
+        | BuildPlanNode::BuildDocs(_) => None,
+    };
+    let nodes = plan.all_nodes().collect::<Vec<_>>();
+    let script_owned_actions = nodes
+        .iter()
+        .copied()
+        .filter(|&node| action_package(node) == Some(script_package))
+        .collect::<HashSet<_>>();
+    assert!(
+        !script_owned_actions.is_empty(),
+        "standalone action plan should contain work for the synthesized script package"
+    );
+
+    let mut dependency_actions = nodes
+        .iter()
+        .copied()
+        .filter(|&node| action_package(node).is_some_and(|package| package != script_package))
+        .collect::<HashSet<_>>();
+    let mut pending = dependency_actions.iter().copied().collect::<Vec<_>>();
+    while let Some(action) = pending.pop() {
+        for dependency in plan.dependency_nodes(action) {
+            assert!(
+                !script_owned_actions.contains(&dependency),
+                "standalone dependency preparation action {action:?} depends on \
+                 script action {dependency:?}"
+            );
+            if dependency_actions.insert(dependency) {
+                pending.push(dependency);
+            }
+        }
+    }
+    assert!(
+        plan.requested_artifacts()
+            .map(|artifact| plan.artifact_provider(artifact))
+            .all(|action| !dependency_actions.contains(&action)),
+        "standalone root action should remain in the script execution phase"
+    );
+
+    let dependencies = nodes
+        .iter()
+        .copied()
+        .filter(|action| dependency_actions.contains(action))
+        .collect();
+    let script = nodes
+        .into_iter()
+        .filter(|action| !dependency_actions.contains(action))
+        .collect();
+    (dependencies, script)
 }
 
 #[cfg(test)]
@@ -596,7 +601,7 @@ mod tests {
     }
 
     fn n2_input_paths_for_command(
-        lowered: &LoweringResult,
+        lowered: &AdaptedPlan,
         matches: impl Fn(&[String]) -> bool,
     ) -> Vec<PathBuf> {
         let output = lowered
@@ -621,6 +626,27 @@ mod tests {
             .iter()
             .map(|id| PathBuf::from(&lowered.build_graph.files.by_id[*id].name))
             .collect()
+    }
+
+    struct AdaptedPlan {
+        build_graph: n2::graph::Graph,
+        command_args_by_output: crate::execution_plan::CommandArgMap,
+        artifacts: Vec<(ArtifactKey, Vec<PathBuf>)>,
+    }
+
+    fn adapt_execution_plan(plan: crate::execution_plan::ExecutionPlan) -> AdaptedPlan {
+        let artifacts = plan
+            .requested_artifact_paths()
+            .map(|(artifact, paths)| (artifact.clone(), paths))
+            .collect();
+        let (build_graph, command_args_by_output) = plan
+            .all_to_n2_graph()
+            .expect("execution plan should adapt to n2");
+        AdaptedPlan {
+            build_graph,
+            command_args_by_output,
+            artifacts,
+        }
     }
 
     #[test]
@@ -678,9 +704,9 @@ mod tests {
             lowering_environment: LoweringEnvironment::default(),
         };
 
-        let action_plan = plan.build_action_plan();
-        let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
-            .expect("lowering should succeed");
+        let lowered = adapt_execution_plan(
+            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed"),
+        );
 
         for (payload, source) in [
             (BINARIES.moonlex.as_path(), Path::new("main/lexer.mbl")),
@@ -757,15 +783,9 @@ mod tests {
             lowering_environment: LoweringEnvironment::default(),
         };
 
-        let action_plan = plan.build_action_plan();
-        let mut context =
-            LoweringContext::new(artifact_paths, &resolve_output, &action_plan, &options);
+        let mut context = LoweringContext::new(artifact_paths, &resolve_output, &plan, &options);
         for node in [check_node, link_core_node] {
-            let id = action_plan
-                .action_ids()
-                .find(|id| action_plan.build_plan_node(*id) == node)
-                .expect("action should be planned");
-            let action = context.lower_action(id).expect("lowering should succeed");
+            let action = context.lower_action(node).expect("lowering should succeed");
             assert!(!action.is_cache_eligible(), "{node:?} should be ineligible");
         }
     }
@@ -819,17 +839,9 @@ mod tests {
             static_archive_fingerprint: Some("runtime-test".to_string()),
         });
 
-        let action_plan = plan.build_action_plan();
-        let (dependency_actions, script_actions) =
-            action_plan.partition_standalone_actions(script_package);
-        let dependency_nodes = dependency_actions
-            .into_iter()
-            .map(|action| action_plan.build_plan_node(action))
-            .collect::<HashSet<_>>();
-        let script_nodes = script_actions
-            .into_iter()
-            .map(|action| action_plan.build_plan_node(action))
-            .collect::<HashSet<_>>();
+        let (dependency_nodes, script_nodes) = partition_standalone_actions(&plan, script_package);
+        let dependency_nodes = dependency_nodes.into_iter().collect::<HashSet<_>>();
+        let script_nodes = script_nodes.into_iter().collect::<HashSet<_>>();
 
         assert_eq!(
             dependency_nodes,
@@ -861,13 +873,9 @@ mod tests {
             static_archive_fingerprint: Some("runtime-test".to_string()),
         });
 
-        let action_plan = plan.build_action_plan();
-        let (dependency_actions, script_actions) =
-            action_plan.partition_standalone_actions(script_package);
-        let script_nodes = script_actions
-            .into_iter()
-            .map(|action| action_plan.build_plan_node(action))
-            .collect::<HashSet<_>>();
+        let (dependency_actions, script_nodes) =
+            partition_standalone_actions(&plan, script_package);
+        let script_nodes = script_nodes.into_iter().collect::<HashSet<_>>();
 
         assert!(dependency_actions.is_empty());
         assert_eq!(script_nodes, HashSet::from([script_node, runtime_node]));
@@ -904,8 +912,7 @@ mod tests {
             },
         );
 
-        let action_plan = plan.build_action_plan();
-        action_plan.partition_standalone_actions(script_package);
+        partition_standalone_actions(&plan, script_package);
     }
 
     #[test]
@@ -1045,27 +1052,19 @@ mod tests {
             lowering_environment,
         };
 
-        let action_plan = plan.build_action_plan();
-        let mut context = LoweringContext::new(
-            artifact_paths.clone(),
-            &resolve_output,
-            &action_plan,
-            &options,
-        );
+        let mut context =
+            LoweringContext::new(artifact_paths.clone(), &resolve_output, &plan, &options);
         for node in [c_stub_node, exe_node] {
-            let id = action_plan
-                .action_ids()
-                .find(|id| action_plan.build_plan_node(*id) == node)
-                .expect("action should be planned");
-            let action = context.lower_action(id).expect("lowering should succeed");
+            let action = context.lower_action(node).expect("lowering should succeed");
             assert!(
                 !action.is_cache_eligible(),
                 "{node:?} with opaque flags should be ineligible"
             );
         }
 
-        let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
-            .expect("lowering should succeed");
+        let lowered = adapt_execution_plan(
+            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed"),
+        );
         let exe_path = artifact_paths.target_layout().executable_of_build_target(
             &resolve_output.pkg_dirs,
             &target,
@@ -1237,13 +1236,6 @@ mod tests {
                 target_kind: target.kind,
             },
         );
-        plan.test_provide_artifact(
-            dsym_node,
-            ArtifactKey::DsymBundle {
-                package: target.package,
-                target_kind: target.kind,
-            },
-        );
         plan.test_request_artifact(ArtifactKey::Executable {
             package: target.package,
             target_kind: target.kind,
@@ -1301,9 +1293,10 @@ mod tests {
                 lowering_environment,
             };
 
-            let action_plan = plan.build_action_plan();
-            let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
-                .expect("lowering should succeed");
+            let lowered = adapt_execution_plan(
+                lower_build_plan(&resolve_output, &plan, &options)
+                    .expect("lowering should succeed"),
+            );
             let executable = artifact_paths.target_layout().executable_of_build_target(
                 &resolve_output.pkg_dirs,
                 &target,

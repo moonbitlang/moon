@@ -18,9 +18,9 @@
 
 //! Canonical identities for concrete Rupes Recta actions.
 //!
-//! The identity boundary consumes [`LoweredAction`] directly. It does not
-//! inspect n2's rendered graph, and the opaque `BuildActionId` values used to
-//! connect actions within one lowering are discarded before hashing.
+//! The identity boundary consumes [`ExecutionPlan`] directly. It does not
+//! inspect n2's rendered graph, and process-local action/output handles are
+//! discarded before hashing.
 
 use std::{
     borrow::Cow,
@@ -34,8 +34,8 @@ use std::{
 use anyhow::{Context, bail};
 use blake3::Hasher;
 use moonbuild_rupes_recta::{
-    build_lower::{LoweredAction, LoweredCommandExecution, LoweredExternalInput},
     build_plan::ArtifactKey,
+    execution_plan::{ExecutionPlan, ExternalInput, LoweredCommandExecution},
     model::TargetKind,
 };
 
@@ -81,7 +81,7 @@ impl std::fmt::Debug for ActionDigest {
     }
 }
 
-/// The identity and reuse eligibility of one lowered action.
+/// The identity and reuse eligibility of one execution action.
 ///
 /// Cache-ineligible actions still receive a structural identity, but their
 /// unmodeled external input contents are deliberately not read. Their
@@ -102,59 +102,67 @@ impl ActionIdentity {
     }
 }
 
-/// Compute identities in the same order as `actions`.
-///
-/// Every producer referenced by these actions must occur in the same slice.
-/// This makes the recursive dependency closure explicit while keeping
-/// `BuildActionId` local to this lowering.
+/// Compute identities in Execution Plan action order.
 pub fn compute_action_identities(
-    actions: &[LoweredAction],
+    plan: &ExecutionPlan,
     context: &ActionIdentityContext,
 ) -> anyhow::Result<Vec<ActionIdentity>> {
-    let index_by_id = actions
+    let action_ids = plan.action_ids().collect::<Vec<_>>();
+    let index_by_id = action_ids
         .iter()
         .enumerate()
-        .map(|(index, action)| (action.id(), index))
+        .map(|(index, action)| (*action, index))
         .collect::<HashMap<_, _>>();
-    if index_by_id.len() != actions.len() {
-        bail!("lowered action set contains duplicate action IDs");
-    }
 
-    let actions = actions
-        .iter()
-        .map(|action| {
+    let actions = action_ids
+        .into_iter()
+        .map(|id| {
+            let action = plan.action(id);
             let dependencies = action
-                .dependencies()
+                .artifact_inputs()
                 .iter()
-                .map(|product| {
-                    let producer =
-                        index_by_id
-                            .get(&product.producer())
-                            .copied()
-                            .with_context(|| {
-                                format!(
-                                    "lowered action {:?} is missing producer {:?}",
-                                    action.id(),
-                                    product.producer()
-                                )
-                            })?;
+                .map(|artifact| {
+                    let producer_id = plan.artifact_producer(artifact);
+                    let producer = index_by_id.get(&producer_id).copied().with_context(|| {
+                        format!("execution action {id:?} is missing producer {producer_id:?}")
+                    })?;
                     Ok(CanonicalProduct {
                         producer: Some(producer),
-                        logical: LogicalProduct::from(product.artifact()),
-                        paths: product.paths().to_vec(),
+                        logical: Some(LogicalProduct::from(artifact)),
+                        paths: plan
+                            .artifact_paths(artifact)
+                            .into_iter()
+                            .map(ToOwned::to_owned)
+                            .collect(),
                     })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let external_inputs = action.external_inputs().to_vec();
-            let outputs = action
-                .outputs()
+            let mut outputs = action
+                .artifact_outputs()
                 .iter()
-                .map(|product| CanonicalProduct {
+                .map(|artifact| CanonicalProduct {
                     producer: None,
-                    logical: LogicalProduct::from(product.artifact()),
-                    paths: product.paths().to_vec(),
+                    logical: Some(LogicalProduct::from(artifact)),
+                    paths: plan
+                        .artifact_paths(artifact)
+                        .into_iter()
+                        .map(ToOwned::to_owned)
+                        .collect(),
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            outputs.extend(
+                action
+                    .outputs()
+                    .iter()
+                    .map(|output| plan.output(*output))
+                    .filter(|output| output.artifact().is_none())
+                    .map(|output| CanonicalProduct {
+                        producer: None,
+                        logical: None,
+                        paths: vec![output.path().to_owned()],
+                    }),
+            );
             let execution = match action.command().execution() {
                 LoweredCommandExecution::Inline(command) => CanonicalExecution::Inline {
                     command: command.clone(),
@@ -188,7 +196,7 @@ pub fn compute_action_identities(
 #[derive(Clone)]
 struct CanonicalAction {
     dependencies: Vec<CanonicalProduct>,
-    external_inputs: Vec<LoweredExternalInput>,
+    external_inputs: Vec<ExternalInput>,
     outputs: Vec<CanonicalProduct>,
     command: CanonicalCommand,
     cache_eligible: bool,
@@ -197,7 +205,7 @@ struct CanonicalAction {
 #[derive(Clone)]
 struct CanonicalProduct {
     producer: Option<usize>,
-    logical: LogicalProduct,
+    logical: Option<LogicalProduct>,
     paths: Vec<PathBuf>,
 }
 
@@ -241,9 +249,6 @@ impl From<&ArtifactKey> for LogicalProduct {
             }
             ArtifactKey::Executable { target_kind, .. } => {
                 (b"executable".as_slice(), Some(*target_kind), None)
-            }
-            ArtifactKey::DsymBundle { target_kind, .. } => {
-                (b"dsym-bundle".as_slice(), Some(*target_kind), None)
             }
             ArtifactKey::GeneratedTestDriver { target_kind, .. } => (
                 b"generated-test-driver".as_slice(),
@@ -322,7 +327,7 @@ struct ActionIdentityBuilder<'a> {
     context: &'a ActionIdentityContext,
     identities: Vec<Option<ActionIdentity>>,
     visiting: HashSet<usize>,
-    external_digests: HashMap<LoweredExternalInput, ActionDigest>,
+    external_digests: HashMap<ExternalInput, ActionDigest>,
     file_digests: HashMap<PathBuf, ActionDigest>,
 }
 
@@ -343,10 +348,10 @@ impl ActionIdentityBuilder<'_> {
             return Ok(identity);
         }
         if index >= self.actions.len() {
-            bail!("lowered action references missing producer index {index}");
+            bail!("execution action references missing producer index {index}");
         }
         if !self.visiting.insert(index) {
-            bail!("lowered action graph contains a cycle");
+            bail!("execution action graph contains a cycle");
         }
 
         let mut fingerprint = FingerprintHasher::new(b"moon-lowered-action-v1");
@@ -388,8 +393,8 @@ impl ActionIdentityBuilder<'_> {
             input_fingerprint.field(
                 b"kind",
                 match input {
-                    LoweredExternalInput::File(_) => b"file",
-                    LoweredExternalInput::StandardLibraryInterfaces(_) => b"stdlib-interfaces",
+                    ExternalInput::File(_) => b"file",
+                    ExternalInput::StandardLibraryInterfaces(_) => b"stdlib-interfaces",
                 },
             );
             input_fingerprint.field(b"path", path_bytes(input.path()));
@@ -488,12 +493,16 @@ impl ActionIdentityBuilder<'_> {
     fn hash_product(&self, fingerprint: &mut FingerprintHasher, product: &CanonicalProduct) {
         // Keep the established field labels stable: they are part of the
         // persistent ActionID format even though the model now says artifact.
-        fingerprint.field(b"logical-product", product.logical.kind);
-        if let Some(kind) = product.logical.target_kind {
-            fingerprint.field(b"target-kind", target_kind_name(kind));
-        }
-        if let Some(path) = &product.logical.path {
-            fingerprint.field(b"logical-product-path", path_bytes(path));
+        if let Some(logical) = &product.logical {
+            fingerprint.field(b"logical-product", logical.kind);
+            if let Some(kind) = logical.target_kind {
+                fingerprint.field(b"target-kind", target_kind_name(kind));
+            }
+            if let Some(path) = &logical.path {
+                fingerprint.field(b"logical-product-path", path_bytes(path));
+            }
+        } else {
+            fingerprint.field(b"logical-product", b"declared-output");
         }
 
         let mut paths = product
@@ -509,7 +518,7 @@ impl ActionIdentityBuilder<'_> {
         }
     }
 
-    fn external_digest(&mut self, input: &LoweredExternalInput) -> anyhow::Result<ActionDigest> {
+    fn external_digest(&mut self, input: &ExternalInput) -> anyhow::Result<ActionDigest> {
         if let Some(digest) = self.external_digests.get(input) {
             return Ok(*digest);
         }
@@ -517,14 +526,14 @@ impl ActionIdentityBuilder<'_> {
         let metadata = std::fs::metadata(path)
             .with_context(|| format!("failed to inspect action input {}", path.display()))?;
         let digest = match input {
-            LoweredExternalInput::File(_) if metadata.is_file() => self.digest_file(path)?,
-            LoweredExternalInput::File(_) => {
+            ExternalInput::File(_) if metadata.is_file() => self.digest_file(path)?,
+            ExternalInput::File(_) => {
                 bail!("action input is not a regular file: {}", path.display())
             }
-            LoweredExternalInput::StandardLibraryInterfaces(_) if metadata.is_dir() => {
+            ExternalInput::StandardLibraryInterfaces(_) if metadata.is_dir() => {
                 self.digest_stdlib_interfaces(path)?
             }
-            LoweredExternalInput::StandardLibraryInterfaces(_) => bail!(
+            ExternalInput::StandardLibraryInterfaces(_) => bail!(
                 "standard-library interface input is not a directory: {}",
                 path.display()
             ),
@@ -705,18 +714,18 @@ mod tests {
     fn product(producer: Option<usize>, path: impl Into<PathBuf>) -> CanonicalProduct {
         CanonicalProduct {
             producer,
-            logical: LogicalProduct {
+            logical: Some(LogicalProduct {
                 kind: b"package-interface",
                 target_kind: Some(TargetKind::Source),
                 path: None,
-            },
+            }),
             paths: vec![path.into()],
         }
     }
 
     fn action(
         dependencies: Vec<CanonicalProduct>,
-        external_inputs: Vec<LoweredExternalInput>,
+        external_inputs: Vec<ExternalInput>,
         output: impl Into<PathBuf>,
     ) -> CanonicalAction {
         let output = output.into();
@@ -756,7 +765,7 @@ mod tests {
         let make_action = |private_work_root: &Path| {
             let mut action = action(
                 Vec::new(),
-                vec![LoweredExternalInput::File(source_root.join("lib.mbt"))],
+                vec![ExternalInput::File(source_root.join("lib.mbt"))],
                 private_work_root.join("lib.mi"),
             );
             action.command.args = vec![
@@ -806,16 +815,8 @@ mod tests {
         fs::write(&second_source, "pub fn answer() -> Int { 42 }").unwrap();
 
         let output = root.path().join("_build/lib.mi");
-        let first = action(
-            Vec::new(),
-            vec![LoweredExternalInput::File(first_source)],
-            &output,
-        );
-        let second = action(
-            Vec::new(),
-            vec![LoweredExternalInput::File(second_source)],
-            output,
-        );
+        let first = action(Vec::new(), vec![ExternalInput::File(first_source)], &output);
+        let second = action(Vec::new(), vec![ExternalInput::File(second_source)], output);
 
         assert_ne!(
             compute_canonical_actions(&[first], &context(root.path())).unwrap(),
@@ -873,7 +874,7 @@ mod tests {
         fs::write(root.path().join("dep.mbt"), "let value = 1").unwrap();
         let producer = action(
             Vec::new(),
-            vec![LoweredExternalInput::File(root.path().join("dep.mbt"))],
+            vec![ExternalInput::File(root.path().join("dep.mbt"))],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -886,7 +887,7 @@ mod tests {
 
         let producer = action(
             Vec::new(),
-            vec![LoweredExternalInput::File(root.path().join("dep.mbt"))],
+            vec![ExternalInput::File(root.path().join("dep.mbt"))],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -903,7 +904,7 @@ mod tests {
         fs::write(root.path().join("dep.mbt"), "let value = 2").unwrap();
         let producer = action(
             Vec::new(),
-            vec![LoweredExternalInput::File(root.path().join("dep.mbt"))],
+            vec![ExternalInput::File(root.path().join("dep.mbt"))],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -971,12 +972,12 @@ mod tests {
 
         let first_producer = action(
             Vec::new(),
-            vec![LoweredExternalInput::File(first_input.clone())],
+            vec![ExternalInput::File(first_input.clone())],
             root.path().join("_build/first.mi"),
         );
         let second_producer = action(
             Vec::new(),
-            vec![LoweredExternalInput::File(second_input.clone())],
+            vec![ExternalInput::File(second_input.clone())],
             root.path().join("_build/second.mi"),
         );
         let mut consumer = action(
@@ -985,8 +986,8 @@ mod tests {
                 product(Some(1), root.path().join("_build/second.mi")),
             ],
             vec![
-                LoweredExternalInput::File(first_input.clone()),
-                LoweredExternalInput::File(second_input.clone()),
+                ExternalInput::File(first_input.clone()),
+                ExternalInput::File(second_input.clone()),
             ],
             root.path().join("_build/main.mi"),
         );
@@ -1015,12 +1016,12 @@ mod tests {
             &[
                 action(
                     Vec::new(),
-                    vec![LoweredExternalInput::File(first_input)],
+                    vec![ExternalInput::File(first_input)],
                     root.path().join("_build/first.mi"),
                 ),
                 action(
                     Vec::new(),
-                    vec![LoweredExternalInput::File(second_input)],
+                    vec![ExternalInput::File(second_input)],
                     root.path().join("_build/second.mi"),
                 ),
                 consumer,
@@ -1054,9 +1055,7 @@ mod tests {
         fs::write(stdlib.join("README.md"), "one").unwrap();
         let action = action(
             Vec::new(),
-            vec![LoweredExternalInput::StandardLibraryInterfaces(
-                stdlib.clone(),
-            )],
+            vec![ExternalInput::StandardLibraryInterfaces(stdlib.clone())],
             root.path().join("_build/lib.mi"),
         );
         let original =
@@ -1104,7 +1103,7 @@ mod tests {
         fs::create_dir(&unmodeled_directory).unwrap();
         let mut producer = action(
             Vec::new(),
-            vec![LoweredExternalInput::File(unmodeled_directory)],
+            vec![ExternalInput::File(unmodeled_directory)],
             root.path().join("_build/generated.mbt"),
         );
         producer.cache_eligible = false;

@@ -100,13 +100,6 @@ pub enum ArtifactKey {
         package: PackageId,
         target_kind: TargetKind,
     },
-    /// FIXME(execution-plan): This temporary execution-layer compatibility
-    /// output is not exposed as a caller-requested Build Artifact. Replace it
-    /// with a declared output of `GenerateDsym` in the execution plan.
-    DsymBundle {
-        package: PackageId,
-        target_kind: TargetKind,
-    },
     GeneratedTestDriver {
         package: PackageId,
         target_kind: TargetKind,
@@ -196,7 +189,6 @@ impl ArtifactKey {
             | Self::RuntimeObject { .. }
             | Self::RuntimeLibrary
             | Self::DocsDir { .. }
-            | Self::DsymBundle { .. }
             | Self::PrebuildOutput { .. } => None,
         }
     }

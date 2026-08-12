@@ -63,14 +63,13 @@
        is different from the compile unit ("package").
     4. Resolve the *package* dependency graph ([`crate::pkg_solve`]).
     5. Get the list of top-level build actions from user input.
-    6. From this list of build actions, resolve the whole abstract build graph
-       that represents the list of actions to be executed
+    6. From this list of requested artifacts, resolve the semantic build graph
        ([`crate::build_plan`]).
-    7. Convert the abstract build graph into the action-level build plan consumed
-       by backend lowering ([`crate::build_action_plan`]).
-    8. Lower the action-level build plan to a concrete graph acceptable by [`n2`]
-       (which is an in-process `ninja` equivalent) ([`crate::build_lower`]).
-    9. Execute the build graph using `n2`.
+    7. Lower the semantic graph into a concrete, executor-neutral action and
+       output graph ([`crate::execution_plan`], via [`crate::build_lower`]).
+    8. Adapt the execution plan to [`n2`] (an in-process `ninja` equivalent),
+       or to another execution and inspection consumer.
+    9. Execute the selected action roots.
 
     Additional information about the build process, project layout, special
     cases, and random quirks of build systems can be found in the repository's
@@ -101,10 +100,10 @@
 
 #![warn(clippy::unwrap_used)] // We prefer clear panic messages
 
-pub mod build_action_plan;
 pub mod build_lower;
 pub mod build_plan;
 pub mod discover;
+pub mod execution_plan;
 pub mod model;
 pub mod pkg_name;
 pub mod pkg_solve;
