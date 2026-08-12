@@ -1,5 +1,0 @@
-members = [
-  "./app",
-  "@@ASYNC_MEMBER@@",
-]
-preferred_target = "wasm"
