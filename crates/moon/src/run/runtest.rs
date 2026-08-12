@@ -134,6 +134,62 @@ enum ParsedTestDriverEvent {
     Result(TestStatistics),
 }
 
+/// Run work items with one worker-local state per execution thread.
+fn try_map_with_parallelism<T, W, R, E>(
+    items: &[T],
+    parallelism: usize,
+    create_worker: impl Fn() -> Result<W, E> + Sync,
+    run: impl Fn(&W, &T) -> Result<R, E> + Sync,
+) -> Result<Vec<R>, E>
+where
+    T: Sync,
+    R: Send,
+    E: Send,
+{
+    let parallelism = parallelism.max(1);
+    if parallelism == 1 || items.len() <= 1 {
+        let worker = create_worker()?;
+        return items.iter().map(|item| run(&worker, item)).collect();
+    }
+
+    let parallelism = parallelism.min(items.len());
+    let work_queue = std::sync::Arc::new(std::sync::Mutex::new(items.iter()));
+    let (result_tx, result_rx) = std::sync::mpsc::channel();
+    let create_worker = &create_worker;
+    let run = &run;
+
+    std::thread::scope(|scope| {
+        for _ in 0..parallelism {
+            let work_queue = std::sync::Arc::clone(&work_queue);
+            let result_tx = result_tx.clone();
+
+            scope.spawn(move || {
+                let worker = match create_worker() {
+                    Ok(worker) => worker,
+                    Err(err) => {
+                        let _ = result_tx.send(Err(err));
+                        return;
+                    }
+                };
+
+                loop {
+                    let item = {
+                        let mut queue = work_queue.lock().unwrap();
+                        queue.next()
+                    };
+                    let Some(item) = item else { break };
+                    if result_tx.send(run(&worker, item)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+
+    drop(result_tx);
+    result_rx.into_iter().collect()
+}
+
 /// Run the tests compiled in this session. Does **not** print or update
 /// snapshots.
 ///
@@ -162,79 +218,43 @@ pub(crate) fn run_tests(
         parallelism.unwrap_or(1).max(1)
     };
 
-    let mut stats = ReplaceableTestResults::default();
-    let mut total_cases = 0usize;
-
-    if parallelism <= 1 || invocations.len() <= 1 {
-        // Sequential execution
-        let rt = default_rt().context("Failed to create runtime")?;
-        let ctx = TestRunCtx {
-            build_meta,
-            rt: &rt,
-            source_dir,
-            target_dir,
-            user_log,
-        };
-        for r in invocations {
-            debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
-            let res = run_one_test_executable(&ctx, &r)?;
-            let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
-            trace!(target = ?r.target, cases = cases_for_target, "merging test results");
-            total_cases += cases_for_target;
-            stats.merge_with_target(r.target, res);
-        }
-    } else {
-        // Parallel execution using OS threads (like n2)
-        let parallelism = parallelism.min(invocations.len()).max(1);
+    if parallelism > 1 && invocations.len() > 1 {
         debug!(
-            parallelism,
+            parallelism = parallelism.min(invocations.len()),
             invocations = invocations.len(),
             "running test invocations in parallel"
         );
+    }
 
-        let work_queue: std::sync::Arc<std::sync::Mutex<std::slice::Iter<'_, _>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(invocations.iter()));
-        let (result_tx, result_rx) = std::sync::mpsc::channel();
+    let results = try_map_with_parallelism(
+        &invocations,
+        parallelism,
+        || default_rt().context("Failed to create runtime"),
+        |rt, invocation| {
+            let ctx = TestRunCtx {
+                build_meta,
+                rt,
+                source_dir,
+                target_dir,
+                user_log,
+            };
+            debug!(
+                target = ?invocation.target,
+                executable = %invocation.executable.display(),
+                "running test invocation"
+            );
+            run_one_test_executable(&ctx, invocation).map(|result| (invocation.target, result))
+        },
+    )?;
 
-        std::thread::scope(|s| {
-            for _ in 0..parallelism {
-                let work_queue = std::sync::Arc::clone(&work_queue);
-                let result_tx = result_tx.clone();
+    let mut stats = ReplaceableTestResults::default();
+    let mut total_cases = 0usize;
 
-                s.spawn(move || {
-                    // Each thread creates its own runtime
-                    let rt = default_rt().expect("Failed to create runtime");
-                    let ctx = TestRunCtx {
-                        build_meta,
-                        rt: &rt,
-                        source_dir,
-                        target_dir,
-                        user_log,
-                    };
-
-                    loop {
-                        let r = {
-                            let mut queue = work_queue.lock().unwrap();
-                            queue.next()
-                        };
-                        let Some(r) = r else { break };
-
-                        debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
-                        let res = run_one_test_executable(&ctx, r);
-                        let _ = result_tx.send((r.target, res));
-                    }
-                });
-            }
-        });
-
-        drop(result_tx);
-        for (target, res) in result_rx {
-            let res = res?;
-            let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
-            trace!(?target, cases = cases_for_target, "merging test results");
-            total_cases += cases_for_target;
-            stats.merge_with_target(target, res);
-        }
+    for (target, result) in results {
+        let cases_for_target = result.map.values().map(IndexMap::len).sum::<usize>();
+        trace!(?target, cases = cases_for_target, "merging test results");
+        total_cases += cases_for_target;
+        stats.merge_with_target(target, result);
     }
     debug!(total_cases, "finished aggregating test cases");
     let summary = stats.summary();
@@ -1089,5 +1109,66 @@ fn print_test_result_normal(
                 formatter.write_failure_with_message(&mut std::io::stdout(), "panic is expected");
             println!();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        convert::Infallible,
+        sync::{Mutex, mpsc},
+        time::Duration,
+    };
+
+    fn assert_started_before_release(parallelism: usize, expected_started: usize) {
+        let invocations = [(), ()];
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+
+        std::thread::scope(|scope| {
+            let run = scope.spawn(|| {
+                super::try_map_with_parallelism(
+                    &invocations,
+                    parallelism,
+                    || Ok::<_, Infallible>(()),
+                    |_, _| {
+                        started_tx.send(()).unwrap();
+                        release_rx.lock().unwrap().recv().unwrap();
+                        Ok::<_, Infallible>(())
+                    },
+                )
+                .unwrap();
+            });
+
+            let expected_starts = (0..expected_started)
+                .map(|_| started_rx.recv_timeout(Duration::from_secs(1)))
+                .collect::<Vec<_>>();
+            let unexpected_start = (expected_started < invocations.len())
+                .then(|| started_rx.recv_timeout(Duration::from_millis(100)));
+
+            for _ in &invocations {
+                release_tx.send(()).unwrap();
+            }
+            run.join().unwrap();
+
+            assert!(
+                expected_starts.into_iter().all(|result| result.is_ok()),
+                "expected another invocation to start"
+            );
+            if let Some(unexpected_start) = unexpected_start {
+                assert_eq!(
+                    unexpected_start,
+                    Err(mpsc::RecvTimeoutError::Timeout),
+                    "more invocations started than the parallelism limit allows"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn test_execution_respects_parallelism() {
+        assert_started_before_release(1, 1);
+        assert_started_before_release(2, 2);
     }
 }

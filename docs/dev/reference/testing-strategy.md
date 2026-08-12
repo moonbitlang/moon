@@ -508,13 +508,14 @@ Currently mixes:
 - path/package CLI resolution
 - dry-run graph filtering
 - auto-update rewriting
-- real execution and parallelism
+- real execution
 
 Suggested split:
 
 - selector semantics as unit tests in `run::runtest::filter`
 - path/package lookup as unit tests in `filter.rs`
 - graph filtering as snapshot tests
+- test-execution parallelism as unit tests in `run::runtest`
 - retain only path wiring, update, and real execution as e2e
 
 ### `moon_test`
