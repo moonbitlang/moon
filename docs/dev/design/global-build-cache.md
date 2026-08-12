@@ -272,13 +272,17 @@ source and asks the user to run `moon clean --dep-cache` explicitly.
 Source acquisition reads the archive checksum once and uses that value for
 both archive verification and the published metadata. Verification and
 extraction consume the same open archive handle, so replacing the
-version-keyed download-cache path cannot change the source being published. A
-miss is extracted in a same-filesystem staging directory, validated, annotated
-with the checksum, and published by rename while holding the dependency-cache
-lock. Existing entries are never replaced or pruned during resolution. Package
-installation uses one dependency-source interface to ensure the resolved
-sources exist and obtain their paths; project-local `.mooncakes` and the shared
-immutable cache are internal storage choices.
+version-keyed download-cache path cannot change the source being published.
+Verified download-cache hits do not acquire a lock. A miss uses a persistent
+version-ZIP sibling lock file, rechecks the cache, and holds the download lock
+only through download, verification, and publication; extraction proceeds from
+the verified open handle after releasing that lock. A miss is extracted in a
+same-filesystem staging directory, validated, annotated with the checksum, and
+published by rename while holding the dependency-cache lock. Existing entries
+are never replaced or pruned during resolution. Package installation uses one
+dependency-source interface to ensure the resolved sources exist and obtain
+their paths; project-local `.mooncakes` and the shared immutable cache are
+internal storage choices.
 Compiler outputs remain invocation-local and continue through the standalone
 n2 dependency graph.
 

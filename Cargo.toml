@@ -105,7 +105,6 @@ text-size = "1.1.1"
 log = "0.4.20"
 thiserror = "1.0"
 test-log = "0.2"
-fs4 = { version = "0.12.0", features = ["sync"] }
 ariadne = { version = "0.5.1", features = ["auto-color"] }
 clap_complete = { version = "4.5.4" }
 schemars = "0.8"

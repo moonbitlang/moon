@@ -28,8 +28,8 @@ use std::{
 use anyhow::{Context, bail};
 use indexmap::map::IndexMap;
 use moonutil::{
-    dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
-    user_log::UserLog,
+    dependency::SourceDependencyInfo, locks::FileLock, registry::RegistryConfig,
+    resolution::ModuleName, user_log::UserLog,
 };
 use reqwest::header::USER_AGENT;
 use semver::Version;
@@ -181,6 +181,19 @@ fn open_verified_archive(path: &Path, expected_checksum: &str) -> std::io::Resul
     Ok(Some(archive))
 }
 
+fn open_cached_archive(path: &Path, expected_checksum: &str) -> anyhow::Result<Option<File>> {
+    match open_verified_archive(path, expected_checksum) {
+        Ok(archive) => Ok(archive),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "Unable to read cached registry archive `{}`",
+                path.display()
+            )
+        }),
+    }
+}
+
 fn copy_archive_and_verify_checksum(
     source: &mut impl Read,
     destination: &mut impl Write,
@@ -275,21 +288,26 @@ impl OnlineRegistry {
             anyhow::bail!("Module {}@{} not found", name, version);
         }
         let cache_file = self.archive_cache_file_of(name, version);
-        match open_verified_archive(&cache_file, expected_checksum) {
-            Ok(Some(archive)) => {
-                user_log.status(format!("Using cached {name}@{version}"));
-                return Ok(archive);
-            }
-            Ok(None) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "Unable to read cached registry archive `{}`",
-                        cache_file.display()
-                    )
-                });
-            }
+        if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
+            user_log.status(format!("Using cached {name}@{version}"));
+            return Ok(archive);
+        }
+
+        let cache_dir = cache_file
+            .parent()
+            .expect("registry cache file has a parent");
+        std::fs::create_dir_all(cache_dir)?;
+        let cache_lock_file = cache_file.with_extension("zip.lock");
+        let _cache_lock = FileLock::lock_file_with_user_log(&cache_lock_file, user_log)
+            .with_context(|| {
+                format!(
+                    "Unable to lock registry archive cache file `{}`",
+                    cache_lock_file.display()
+                )
+            })?;
+        if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
+            user_log.status(format!("Using cached {name}@{version}"));
+            return Ok(archive);
         }
         user_log.status(format!("Downloading {name}@{version}"));
         let filepath = form_urlencoded::Serializer::new(String::new())
@@ -344,12 +362,14 @@ fn test_urlencode() {
 #[cfg(test)]
 mod tests {
     use std::{
-        io::{Cursor, Write},
-        time::{SystemTime, UNIX_EPOCH},
+        io::{Cursor, Read, Write},
+        net::TcpListener,
+        sync::{
+            Arc, Barrier,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
-
-    #[cfg(unix)]
-    use std::io::Read;
 
     use super::*;
     use crate::registry::Registry;
@@ -527,6 +547,159 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(destination.join("moon.mod")).unwrap(),
             "name = \"test/module\"\nversion = \"1.2.3\"\n"
+        );
+    }
+
+    #[test]
+    fn verified_cached_archive_does_not_wait_for_download_lock() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (registry, name, version) = test_registry(&sandbox);
+        let archive = test_archive();
+        let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
+        let archive_path = registry.archive_cache_file_of(&name, &version);
+        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        std::fs::write(&archive_path, archive).unwrap();
+
+        let open_lock = |path: &Path| {
+            let lock = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(path)
+                .unwrap();
+            lock.lock().unwrap();
+            lock
+        };
+        let module_lock = open_lock(
+            &archive_path
+                .parent()
+                .unwrap()
+                .join(moonutil::constants::MOON_LOCK),
+        );
+        let version_lock = open_lock(&archive_path.with_extension("zip.lock"));
+
+        let destination = sandbox.path().join("source");
+        let (result_sender, result_receiver) = std::sync::mpsc::channel();
+        let client = std::thread::spawn(move || {
+            result_sender
+                .send(registry.acquire_source_to(
+                    &name,
+                    &version,
+                    &checksum,
+                    &destination,
+                    &quiet_user_log(),
+                ))
+                .unwrap();
+        });
+
+        let result = result_receiver.recv_timeout(Duration::from_secs(5));
+        drop(version_lock);
+        drop(module_lock);
+        client.join().unwrap();
+        result
+            .expect("verified cache hits should not wait for the download lock")
+            .unwrap();
+    }
+
+    #[test]
+    fn concurrent_archive_acquisitions_are_coalesced() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (registry, name, version) = test_registry(&sandbox);
+        let archive = test_archive();
+        let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url_base = format!("http://{}", listener.local_addr().unwrap());
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let stop_server = Arc::new(AtomicBool::new(false));
+        let server = {
+            let request_count = Arc::clone(&request_count);
+            let stop_server = Arc::clone(&stop_server);
+            std::thread::spawn(move || {
+                loop {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            // Accepted sockets inherit the listener's non-blocking mode on
+                            // Windows, but request handling below is intentionally blocking.
+                            stream.set_nonblocking(false).unwrap();
+                            let mut request = [0; 2048];
+                            assert_ne!(stream.read(&mut request).unwrap(), 0);
+                            if request_count.fetch_add(1, Ordering::Relaxed) == 0 {
+                                // Keep the first request in flight long enough for both
+                                // callers to observe the initially empty cache.
+                                std::thread::sleep(Duration::from_millis(200));
+                            }
+                            let response = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                archive.len()
+                            );
+                            stream.write_all(response.as_bytes()).unwrap();
+                            stream.write_all(&archive).unwrap();
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if stop_server.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("registry test server failed: {error}"),
+                    }
+                }
+            })
+        };
+
+        let barrier = Arc::new(Barrier::new(2));
+        let clients = (0..2)
+            .map(|client| {
+                let index = registry.index.clone();
+                let archive_cache = registry.archive_cache.clone();
+                let url_base = url_base.clone();
+                let name = name.clone();
+                let version = version.clone();
+                let checksum = checksum.clone();
+                let destination = sandbox.path().join(format!("source-{client}"));
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let registry = OnlineRegistry {
+                        index,
+                        url_base,
+                        archive_cache,
+                        cache: RefCell::new(HashMap::new()),
+                    };
+                    barrier.wait();
+                    registry.acquire_source_to(
+                        &name,
+                        &version,
+                        &checksum,
+                        &destination,
+                        &quiet_user_log(),
+                    )?;
+                    anyhow::ensure!(
+                        std::fs::read_to_string(destination.join("moon.mod"))?
+                            == "name = \"test/module\"\nversion = \"1.2.3\"\n"
+                    );
+                    Ok::<_, anyhow::Error>(())
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let client_results = clients
+            .into_iter()
+            .map(|client| client.join().unwrap())
+            .collect::<Vec<_>>();
+        stop_server.store(true, Ordering::Relaxed);
+        server.join().unwrap();
+        for result in client_results {
+            result.unwrap();
+        }
+        assert_eq!(request_count.load(Ordering::Relaxed), 1);
+        assert!(
+            registry
+                .archive_cache_file_of(&name, &version)
+                .with_extension("zip.lock")
+                .is_file()
         );
     }
 
