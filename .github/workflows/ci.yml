@@ -191,6 +191,8 @@ jobs:
         run: cargo build -p xtask
 
       - name: Run tests
+        env:
+          RUST_TEST_THREADS: 8
         run: cargo test
 
       - name: Auxiliary checks

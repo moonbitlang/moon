@@ -137,6 +137,18 @@ Preferred location:
 - Keep one or two e2e smoke tests per feature after moving the stable logic
   downward.
 
+## Harness concurrency
+
+The main CI test step sets `RUST_TEST_THREADS=8`. This controls how many Rust
+test cases the harness runs at once; it does not change `moon test`'s own
+parallelism or build `-j` semantics.
+
+Moon integration tests spend substantial time waiting for spawned toolchain
+processes and filesystem operations, so a modest oversubscription keeps the
+standard GitHub-hosted runners busier than their default one-thread-per-vCPU
+setting. Re-measure this value when the runner hardware or the suite's workload
+changes materially.
+
 ## Test by workflow phase
 
 For command behavior, the most useful split is often not "unit vs integration"
