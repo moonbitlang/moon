@@ -122,6 +122,14 @@ Implementation-wise:
 [rr_home]: /crates/moonbuild-rupes-recta/src/lib.rs
 [n2]: https://github.com/moonbitlang/n2
 
+Rupes Recta executions in one target directory share the n2 database at
+`<target-dir>/.moon_db`. Target backend, profile, run mode, and standalone build
+phase are represented by concrete output paths and build hashes rather than
+separate database files. Separately planned graphs still open and load that
+database for each execution; sharing persistent state does not compose the
+graphs or reuse one open database handle. The dependency and script graphs of a
+standalone build execute sequentially against this database.
+
 ### Directory and environment facts
 
 Directory discovery is intentionally front-loaded. Command entry points should

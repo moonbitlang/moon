@@ -706,10 +706,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         artifact_paths: cx.artifact_paths.clone(),
     };
 
-    let db_path = cx
-        .artifact_paths
-        .target_layout()
-        .n2_db_path(cx.backend.target_backend());
+    let db_path = cx.artifact_paths.target_layout().n2_db_path();
     let input = BuildInput {
         graph,
         command_args_by_output,
@@ -793,7 +790,6 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };
-    let backend = cx.backend.target_backend();
     let layout = cx.artifact_paths.target_layout();
     let dependency_input = if compile_output.dependency_actions.is_empty() {
         None
@@ -804,7 +800,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         Some(BuildInput {
             graph,
             command_args_by_output,
-            db_path: layout.standalone_dependency_n2_db_path(backend),
+            db_path: layout.n2_db_path(),
         })
     };
     let (script_graph, script_command_args) = compile_output
@@ -815,7 +811,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         script: BuildInput {
             graph: script_graph,
             command_args_by_output: script_command_args,
-            db_path: layout.n2_db_path(backend),
+            db_path: layout.n2_db_path(),
         },
     };
 
@@ -844,7 +840,7 @@ pub fn plan_fmt(
         resolved,
         BuildProfile::Debug,
     );
-    let db_path = layout.n2_db_path(TargetBackend::default());
+    let db_path = layout.n2_db_path();
     Ok(BuildInput {
         graph,
         command_args_by_output: Default::default(),
@@ -1047,9 +1043,7 @@ pub struct BuildInput {
     /// Structured command argv keyed by generated output path.
     command_args_by_output: moonbuild_rupes_recta::execution_plan::CommandArgMap,
 
-    /// The build cache database path for n2
-    ///
-    /// This path is passed here because it changes between different execution configurations.
+    /// The n2 database for the selected target directory.
     db_path: PathBuf,
 }
 
@@ -1092,6 +1086,9 @@ impl CapturedBuildExecution {
 /// Takes ownership of the build graph and executes the actual build tasks.
 /// Returns just the build result - callers should use the resolve data and
 /// artifacts from the planning phase for any metadata they need.
+///
+/// The caller must hold the target-directory lock. All ordinary executions in
+/// that directory share one n2 database, and n2 does not lock it internally.
 #[instrument(skip_all)]
 pub fn execute_build(
     cfg: &BuildConfig,

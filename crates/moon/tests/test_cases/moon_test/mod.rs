@@ -342,6 +342,7 @@ fn test_moon_test_with_local_dep() {
             .gitignore
             _build
             _build/.moon-lock
+            _build/.moon_db
             _build/wasm-gc
             _build/wasm-gc/debug
             _build/wasm-gc/debug/build
@@ -360,7 +361,6 @@ fn test_moon_test_with_local_dep() {
             _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/mooncake2.core
             _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/mooncake2.mi
             _build/wasm-gc/debug/build/all_pkgs.json
-            _build/wasm-gc/debug/build/build.moon_db
             _build/wasm-gc/debug/build/lib
             _build/wasm-gc/debug/build/lib/lib.core
             _build/wasm-gc/debug/build/lib/lib.mi
@@ -389,7 +389,6 @@ fn test_moon_test_with_local_dep() {
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/mooncake2.mi
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/mooncake2.typechecked
             _build/wasm-gc/debug/check/all_pkgs.json
-            _build/wasm-gc/debug/check/check.moon_db
             _build/wasm-gc/debug/check/lib
             _build/wasm-gc/debug/check/lib/lib.ast
             _build/wasm-gc/debug/check/lib/lib.mbti
@@ -447,7 +446,6 @@ fn test_moon_test_with_local_dep() {
             _build/wasm-gc/debug/test/main/main.internal_test.wasm
             _build/wasm-gc/debug/test/main/main.internal_test.wasm.map
             _build/wasm-gc/debug/test/main/main.mi
-            _build/wasm-gc/debug/test/test.moon_db
             lib
             lib/hello.mbt
             lib/hello_wbtest.mbt

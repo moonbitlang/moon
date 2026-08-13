@@ -640,16 +640,13 @@ impl TargetLayout {
         path
     }
 
-    pub fn n2_db_path(&self, target_backend: TargetBackend) -> PathBuf {
-        let mut path = self.run_mode_dir(target_backend);
-        path.push(format!("{}.moon_db", self.run_mode.to_dir_name()));
-        path
-    }
-
-    pub fn standalone_dependency_n2_db_path(&self, target_backend: TargetBackend) -> PathBuf {
-        let mut path = self.run_mode_dir(target_backend);
-        path.push("standalone-dependencies.moon_db");
-        path
+    /// Returns the n2 database shared by executions in this target directory.
+    ///
+    /// Backend, profile, and run-mode differences are already represented by
+    /// concrete output paths and build hashes. They are not separate n2 state
+    /// domains.
+    pub fn n2_db_path(&self) -> PathBuf {
+        self.target_base_dir.join(".moon_db")
     }
 }
 
@@ -1805,7 +1802,7 @@ mod tests {
     }
 
     #[test]
-    fn fmt_n2_db_path_uses_selected_profile() {
+    fn n2_db_path_is_scoped_to_the_target_directory() {
         let layout = TargetLayout::new(
             PathBuf::from("_build"),
             TargetLayoutMode::Workspace,
@@ -1813,29 +1810,7 @@ mod tests {
             RunMode::Format,
         );
 
-        assert_eq!(
-            layout.n2_db_path(TargetBackend::WasmGC),
-            PathBuf::from("_build/wasm-gc/debug/format/format.moon_db"),
-        );
-    }
-
-    #[test]
-    fn standalone_dependency_db_is_separate_from_script_db() {
-        let layout = TargetLayout::new(
-            PathBuf::from("_build"),
-            TargetLayoutMode::Workspace,
-            OptLevel::Debug,
-            RunMode::Run,
-        );
-
-        assert_eq!(
-            layout.standalone_dependency_n2_db_path(TargetBackend::Wasm),
-            PathBuf::from("_build/wasm/debug/build/standalone-dependencies.moon_db"),
-        );
-        assert_ne!(
-            layout.standalone_dependency_n2_db_path(TargetBackend::Wasm),
-            layout.n2_db_path(TargetBackend::Wasm),
-        );
+        assert_eq!(layout.n2_db_path(), PathBuf::from("_build/.moon_db"));
     }
 
     #[test]

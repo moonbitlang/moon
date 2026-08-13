@@ -1,0 +1,9 @@
+{
+  "pre-build": [
+    {
+      "input": "input.txt",
+      "output": "generated.txt",
+      "command": ":embed --text -i $input -o $output --name generated"
+    }
+  ]
+}

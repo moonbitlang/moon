@@ -22,17 +22,19 @@ phase ordering.
 Dependency outputs remain under `_build/.../.mooncakes`. When their producer
 actions are omitted from the script n2 graph, the same concrete output paths
 remain ordinary file inputs to script actions. Moon executes the dependency
-graph first with its own persistent n2 database, then executes the script graph.
-There is no file-existence scan between the phases: n2 currently owns dependency
-freshness and guarantees that the requested products are materialized.
+graph first, then executes the script graph. Both graphs use the target
+directory's persistent n2 database; records whose outputs do not belong to the
+current graph are ignored when n2 loads them. There is no file-existence scan
+between the phases: n2 currently owns dependency freshness and guarantees that
+the requested products are materialized.
 
 The dependency n2 projection is a temporary preparation adapter, not a permanent
 second planner. A future action-to-output implementation can replace this first
 stage and feed its concrete outputs into a narrower script plan.
 
 Standalone `.mbt` and `.mbtx` files built from persistent paths retain the
-dependency n2 database across invocations. `moon run -e` and `moon run -` use
-the same split planning path, but their synthesized temporary projects are
+target-directory n2 database across invocations. `moon run -e` and `moon run -`
+use the same split planning path, but their synthesized temporary projects are
 deleted after each invocation, so they do not currently reuse dependency work
 across invocations. Stable or global cache storage for those entry points is
 deferred.
