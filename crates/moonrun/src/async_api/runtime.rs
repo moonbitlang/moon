@@ -18,6 +18,7 @@
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
+use crate::async_sys::signal;
 use crate::run_termination::RunTermination;
 
 pub(super) fn exit(context: &mut ImportContext<'_, '_>, code: i32) {
@@ -33,6 +34,6 @@ pub(super) fn terminate_process_by_signal(
     context: &mut ImportContext<'_, '_>,
     signal: i32,
 ) {
-    context.request_termination(RunTermination::KilledBySignal(signal))
+    context.request_termination(signal::terminate_process_by_signal(signal))
 }
 }

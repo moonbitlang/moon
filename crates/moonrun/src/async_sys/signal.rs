@@ -20,11 +20,8 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(windows)]
 use crate::async_sys::internal::event_loop::poll::{self, CompletionPort};
 use crate::async_sys::ported_fns;
+use crate::run_termination::RunTermination;
 
-// `moonbitlang_async_terminate_process_by_signal` is intentionally not ported
-// here. The async import is implemented in `async_api::runtime`, where it
-// records an instance-scoped termination request instead of terminating the
-// embedding process.
 ported_fns! {
     #[ported(
         source = "src/internal/event_loop/signal.c",
@@ -92,6 +89,16 @@ ported_fns! {
             *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
         }
         Ok(1)
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/signal.c",
+        original = "moonbitlang_async_terminate_process_by_signal"
+    )]
+    pub(crate) fn terminate_process_by_signal(signal: i32) -> RunTermination {
+        // Process termination belongs to the outer adapter; the local engine
+        // only records the instance outcome represented by this native call.
+        RunTermination::KilledBySignal(signal)
     }
 }
 
