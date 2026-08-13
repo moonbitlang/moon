@@ -93,7 +93,7 @@ The build-plan derivation registered as producing a Build Artifact. Every requir
 _Avoid_: Choosing a provider separately at each requirement call site
 
 **Execution Plan**:
-The executor-neutral graph produced by lowering one backend-specific Build Plan. It owns concrete execution actions, input paths, declared physical outputs, and the realized outputs of requested Build Artifacts.
+The executor-neutral graph of concrete execution actions, input paths, and declared physical outputs. Project builds produce it by lowering one backend-specific Build Plan; lightweight commands without logical Build Artifacts may construct it directly.
 _Avoid_: n2 graph, Build Plan, list of lowered commands
 
 **Execution Action**:

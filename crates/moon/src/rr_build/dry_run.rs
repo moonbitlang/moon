@@ -24,7 +24,7 @@ use std::{
     process::Command,
 };
 
-use crate::rr_build::{BuildInput, FmtBuildInput, StandaloneBuildInput};
+use crate::rr_build::{BuildInput, StandaloneBuildInput};
 
 /// Write what would be executed in a dry-run.
 ///
@@ -79,24 +79,6 @@ pub fn write_dry_run_all(
         &graph,
         &default_files,
         &command_args_by_output,
-        source_dir,
-        target_dir,
-    )
-}
-
-/// Write formatter commands from its direct n2 graph.
-pub fn write_fmt_dry_run(
-    output: &mut dyn Write,
-    input: &FmtBuildInput,
-    source_dir: &Path,
-    target_dir: &Path,
-) -> std::io::Result<()> {
-    let default_files = input.graph.get_start_nodes();
-    moonbuild::dry_run::write_build_commands(
-        output,
-        &input.graph,
-        &default_files,
-        &Default::default(),
         source_dir,
         target_dir,
     )

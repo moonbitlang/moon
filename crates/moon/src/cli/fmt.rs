@@ -99,7 +99,7 @@ fn run_fmt_rr(
         migrate_moon_mod_json: cli.unstable_feature.rr_moon_mod,
         migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
     };
-    let graph = plan_fmt(
+    let build_input = plan_fmt(
         &resolved,
         &fmt_config,
         &target_dir,
@@ -110,13 +110,14 @@ fn run_fmt_rr(
 
     if cli.dry_run {
         output.write_result(|writer| {
-            rr_build::write_fmt_dry_run(writer, &graph, &source_dir, &target_dir)
+            rr_build::write_dry_run_all(writer, &build_input, &source_dir, &target_dir)
         })?;
         Ok(0)
     } else {
         std::fs::create_dir_all(&target_dir)?;
         let _lock = FileLock::lock_with_user_log(&target_dir, user_log)?;
-        let res = rr_build::execute_fmt(&BuildConfig::default(), graph, &target_dir, user_log)?;
+        let res =
+            rr_build::execute_build(&BuildConfig::default(), build_input, &target_dir, user_log)?;
         res.print_info(cli.quiet, "formatting")?;
         Ok(res.return_code_for_success())
     }
