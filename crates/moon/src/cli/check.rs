@@ -26,8 +26,9 @@
 //! 3. `plan_check_rr_from_resolved_all` turns those backend groups into an
 //!    ordered list of single-backend RR plans.
 //! 4. `plan_check_rr_from_resolved` still plans exactly one backend group.
-//! 5. The runtime executes planned runs in order. Project checks without a
-//!    selector publish `packages.json`; focused checks leave it untouched.
+//! 5. The command layer composes those plans into one executor graph. Project
+//!    checks without a selector publish `packages.json`; focused checks leave
+//!    it untouched.
 //!
 use anyhow::Context;
 use log::LevelFilter;
@@ -435,25 +436,6 @@ fn run_check_impl(
     let resolve_output =
         sync_and_resolve_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
             .context("Failed to calculate build plan")?;
-    let mut run_targets = || -> anyhow::Result<i32> {
-        let mut ret_value = 0;
-        for t in targets.iter().copied() {
-            let x = run_check_normal_rr_from_resolved(
-                cli,
-                cmd,
-                &dirs,
-                false,
-                Some(t),
-                resolve_output.clone(),
-                output,
-                json.as_deref_mut(),
-            )
-            .context(format!("failed to run check for target {t:?}"))?;
-            ret_value = ret_value.max(if x.ok { 0 } else { 1 });
-        }
-        Ok(ret_value)
-    };
-
     let _lock;
     if !cli.dry_run {
         _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log()).with_context(
@@ -465,7 +447,21 @@ fn run_check_impl(
             },
         )?;
     }
-    run_targets()
+    let result = run_check_normal_rr_from_resolved(
+        cli,
+        cmd,
+        &dirs,
+        false,
+        &targets,
+        resolve_output,
+        output,
+        json,
+    )
+    .with_context(|| match targets.as_slice() {
+        [target] => format!("failed to run check for target {target:?}"),
+        _ => format!("failed to run check for targets {targets:?}"),
+    })?;
+    Ok(if result.ok { 0 } else { 1 })
 }
 
 #[instrument(skip_all)]
@@ -726,7 +722,7 @@ fn run_check_normal_internal_rr(
         cmd,
         dirs,
         watch,
-        selected_target_backend,
+        selected_target_backend.as_slice(),
         resolve_output,
         output,
         json,
@@ -742,10 +738,10 @@ fn run_check_normal_rr_from_resolved(
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     watch: bool,
-    selected_target_backend: Option<TargetBackend>,
+    selected_target_backends: &[TargetBackend],
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     output: &CommandOutput,
-    mut json: Option<&mut CheckJsonAccumulator>,
+    json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
     let PackageDirs {
@@ -762,29 +758,61 @@ fn run_check_normal_rr_from_resolved(
             watched_paths: Vec::new(),
         }
     };
-    let planned_runs = plan_check_rr_from_resolved_all(
-        cli,
-        cmd,
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        selected_target_backend,
-        resolve_output,
-        user_log,
-    )
-    .context("Failed to calculate build plan")?;
+    let planned_runs = if selected_target_backends.is_empty() {
+        plan_check_rr_from_resolved_all(
+            cli,
+            cmd,
+            source_dir,
+            target_dir,
+            mooncake_bin_dir,
+            None,
+            resolve_output,
+            user_log,
+        )
+        .context("Failed to calculate build plan")?
+    } else {
+        selected_target_backends
+            .iter()
+            .copied()
+            .map(|target| {
+                plan_check_rr_from_resolved_all(
+                    cli,
+                    cmd,
+                    source_dir,
+                    target_dir,
+                    mooncake_bin_dir,
+                    Some(target),
+                    resolve_output.clone(),
+                    user_log,
+                )
+            })
+            .collect::<anyhow::Result<Vec<_>>>()
+            .context("Failed to calculate build plan")?
+            .into_iter()
+            .flatten()
+            .collect()
+    };
+
+    if planned_runs.is_empty() {
+        return Ok(WatchOutput {
+            ok: true,
+            additional_ignored_paths: prebuild_list.ignored_paths,
+            additional_watched_paths: prebuild_list.watched_paths,
+        });
+    }
 
     let ok = if cli.dry_run {
         output.write_result(|writer| {
-            for (build_meta, build_graph) in planned_runs {
-                rr_build::write_dry_run(
-                    writer,
-                    &build_graph,
-                    build_meta.artifacts.values(),
-                    source_dir,
-                    target_dir,
-                )?;
-            }
+            let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
+            let build_input =
+                rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
+            rr_build::write_dry_run(
+                writer,
+                &build_input,
+                build_metas.iter().flat_map(|meta| meta.artifacts.values()),
+                source_dir,
+                target_dir,
+            )?;
             Ok::<_, std::io::Error>(())
         })?;
         true
@@ -796,21 +824,19 @@ fn run_check_normal_rr_from_resolved(
         );
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
-        let mut ok = true;
-        for (build_meta, build_graph) in planned_runs {
+        for (build_meta, build_input) in &planned_runs {
             // Generate all_pkgs.json for indirect dependency resolution
-            rr_build::generate_all_pkgs_json(&build_meta)?;
+            rr_build::generate_all_pkgs_json(build_meta)?;
             if cmd.package_path.is_none() && cmd.path.is_empty() {
-                rr_build::generate_metadata(
-                    source_dir,
-                    target_dir,
-                    &build_meta,
-                    &build_graph,
-                    None,
-                )?;
+                rr_build::generate_metadata(source_dir, target_dir, build_meta, build_input, None)?;
             }
+        }
 
-            if let Some(json) = json.as_deref_mut() {
+        if let Some(json) = json {
+            // FIXME: Compose JSON checks after n2 exposes BuildId on its final
+            // output callback, so diagnostics can retain their backend tag.
+            let mut ok = true;
+            for (build_meta, build_graph) in planned_runs {
                 let target_backend = build_meta.target_backend();
                 let result = rr_build::execute_build_json(
                     &cfg.clone().with_suppressed_progress(true),
@@ -820,13 +846,15 @@ fn run_check_normal_rr_from_resolved(
                 let successful = result.successful();
                 json.append_build(target_backend, result, user_log);
                 ok &= successful;
-            } else {
-                let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-                result.print_info(cli.quiet, "checking")?;
-                ok &= result.successful();
             }
+            ok
+        } else {
+            let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
+            let build_input = rr_build::compose_build_inputs(build_inputs)?;
+            let result = rr_build::execute_build(&cfg, build_input, target_dir, user_log)?;
+            result.print_info(cli.quiet, "checking")?;
+            result.successful()
         }
-        ok
     };
 
     Ok(WatchOutput {

@@ -21,7 +21,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use log::debug;
 use n2::graph::{Build, Graph, RspFile};
 
-use super::{ActionId, ExecutionPlan, LoweredCommandExecution};
+use super::{ActionId, ExecutionPlan, LoweredCommandExecution, N2Projection};
 use crate::{
     build_lower::{build_ins, build_n2_fileloc, build_outs},
     pkg_name::OptionalPackageFQNWithSource,
@@ -46,9 +46,10 @@ pub enum N2AdapterError {
 pub(super) fn to_n2_graph(
     plan: &ExecutionPlan,
     actions: impl IntoIterator<Item = ActionId>,
-) -> Result<(Graph, CommandArgMap), N2AdapterError> {
+) -> Result<N2Projection, N2AdapterError> {
     let mut graph = Graph::default();
     let mut command_args_by_output = CommandArgMap::new();
+    let mut action_by_build = std::collections::HashMap::new();
 
     for id in actions {
         let action = plan.action(id);
@@ -102,15 +103,19 @@ pub(super) fn to_n2_graph(
             );
         }
 
-        graph
+        let build_id = graph
             .add_build(build)
-            .map(|_| ())
             .map_err(|source| N2AdapterError::N2 {
                 package: action.error_package.clone(),
                 action: id,
                 source,
             })?;
+        action_by_build.insert(build_id, id);
     }
 
-    Ok((graph, command_args_by_output))
+    Ok(N2Projection {
+        graph,
+        command_args_by_output,
+        action_by_build,
+    })
 }

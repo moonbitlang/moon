@@ -29,6 +29,42 @@ mod n2_adapter;
 
 pub use n2_adapter::{CommandArgMap, N2AdapterError};
 
+/// One n2 projection together with the process-local action provenance that
+/// n2 itself does not retain.
+pub struct N2Projection {
+    graph: n2::graph::Graph,
+    command_args_by_output: CommandArgMap,
+    action_by_build: HashMap<n2::graph::BuildId, ActionId>,
+}
+
+impl N2Projection {
+    pub fn graph(&self) -> &n2::graph::Graph {
+        &self.graph
+    }
+
+    pub fn action_for_build(&self, build: n2::graph::BuildId) -> Option<ActionId> {
+        self.action_by_build.get(&build).copied()
+    }
+
+    pub fn into_parts(self) -> (n2::graph::Graph, CommandArgMap) {
+        (self.graph, self.command_args_by_output)
+    }
+
+    pub fn into_parts_with_actions(
+        self,
+    ) -> (
+        n2::graph::Graph,
+        CommandArgMap,
+        HashMap<n2::graph::BuildId, ActionId>,
+    ) {
+        (
+            self.graph,
+            self.command_args_by_output,
+            self.action_by_build,
+        )
+    }
+}
+
 /// Process-local identity of one concrete execution action.
 ///
 /// This is an arena handle, not the persistent action digest used by the build
@@ -61,14 +97,14 @@ impl ExternalInput {
 }
 
 /// A response file selected while lowering a command.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LoweredResponseFile {
     pub path: PathBuf,
     pub content: String,
 }
 
 /// How the process command should be transported to an executor.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LoweredCommandExecution {
     Inline(String),
     ResponseFile {
@@ -81,7 +117,7 @@ pub enum LoweredCommandExecution {
 ///
 /// `args` retains the logical form for metadata consumers. `execution` records
 /// whether the same command is sent inline or through a response file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LoweredCommand {
     pub(crate) args: Vec<String>,
     pub(crate) execution: LoweredCommandExecution,
@@ -150,7 +186,7 @@ impl LoweredCommand {
 /// A declared output may realize a semantic Build Artifact, but execution-only
 /// outputs such as a dSYM bundle deliberately have no `ArtifactKey`. The path
 /// is its execution identity; it does not replace this semantic annotation.
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeclaredOutput {
     producer: ActionId,
     path: PathBuf,
@@ -172,7 +208,7 @@ impl DeclaredOutput {
 }
 
 /// One concrete action after command construction and path realization.
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionAction {
     inputs: Vec<PathBuf>,
     external_inputs: Vec<ExternalInput>,
@@ -232,7 +268,7 @@ impl ExecutionAction {
 /// planning semantics can resolve an input path through
 /// [`ExecutionPlan::declared_output`] instead of inferring meaning from its
 /// filename.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ExecutionPlan {
     actions: Vec<ExecutionAction>,
     outputs: HashMap<PathBuf, DeclaredOutput>,
@@ -258,16 +294,100 @@ impl ExecutionPlan {
             .map(|(artifact, outputs)| (artifact, outputs.as_slice()))
     }
 
+    /// Add an independently lowered plan and return its action IDs in this plan.
+    ///
+    /// Concrete output paths form the composition boundary. Plans may share an
+    /// action only when every part of its execution behavior and every output
+    /// annotation agree. A partial overlap or a different producer is rejected
+    /// before the executor sees an ambiguous graph.
+    pub fn merge(
+        &mut self,
+        other: &ExecutionPlan,
+    ) -> Result<Vec<ActionId>, ExecutionPlanMergeError> {
+        let mut action_ids = Vec::with_capacity(other.actions.len());
+
+        for action in &other.actions {
+            let existing_producers = action
+                .outputs
+                .iter()
+                .filter_map(|path| self.outputs.get(path).map(DeclaredOutput::producer))
+                .collect::<HashSet<_>>();
+
+            let action_id = if existing_producers.is_empty() {
+                let action_id = ActionId(self.actions.len());
+                self.actions.push(action.clone());
+                for path in &action.outputs {
+                    let output = other
+                        .outputs
+                        .get(path)
+                        .expect("execution action outputs should be declared");
+                    self.outputs.insert(
+                        path.clone(),
+                        DeclaredOutput {
+                            producer: action_id,
+                            path: path.clone(),
+                            artifact: output.artifact.clone(),
+                        },
+                    );
+                }
+                action_id
+            } else {
+                let Some(&existing) = existing_producers.iter().next() else {
+                    unreachable!()
+                };
+                let outputs_match = existing_producers.len() == 1
+                    && action.outputs.len() == self.actions[existing.0].outputs.len()
+                    && action.outputs.iter().all(|path| {
+                        self.outputs.get(path).is_some_and(|current| {
+                            current.producer == existing
+                                && other
+                                    .outputs
+                                    .get(path)
+                                    .is_some_and(|incoming| current.artifact == incoming.artifact)
+                        })
+                    });
+                if !outputs_match || self.actions[existing.0] != *action {
+                    let path = action
+                        .outputs
+                        .iter()
+                        .find(|path| self.outputs.contains_key(*path))
+                        .expect("an existing producer was found")
+                        .clone();
+                    return Err(ExecutionPlanMergeError::ConflictingOutput { path });
+                }
+                existing
+            };
+            action_ids.push(action_id);
+        }
+
+        self.requested_artifacts
+            .extend(other.requested_artifacts.iter().cloned());
+        Ok(action_ids)
+    }
+
     pub fn to_n2_graph(
         &self,
         actions: impl IntoIterator<Item = ActionId>,
     ) -> Result<(n2::graph::Graph, CommandArgMap), N2AdapterError> {
+        self.adapt_to_n2(actions).map(N2Projection::into_parts)
+    }
+
+    pub fn adapt_to_n2(
+        &self,
+        actions: impl IntoIterator<Item = ActionId>,
+    ) -> Result<N2Projection, N2AdapterError> {
         n2_adapter::to_n2_graph(self, actions)
     }
 
     pub fn all_to_n2_graph(&self) -> Result<(n2::graph::Graph, CommandArgMap), N2AdapterError> {
         self.to_n2_graph(self.action_ids())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ExecutionPlanMergeError {
+    #[error("cannot compose execution plans: output `{path}` has incompatible producers")]
+    ConflictingOutput { path: PathBuf },
 }
 
 pub(crate) struct ExecutionActionDraft {
@@ -520,5 +640,74 @@ mod tests {
             Vec::new(),
             "archive-runtime",
         ));
+    }
+
+    #[test]
+    fn merge_reuses_an_identical_physical_provider_and_remaps_consumers() {
+        let (first, producer, consumer) = producer_and_consumer_plan();
+        let (second, _, _) = producer_and_consumer_plan();
+        let mut composed = ExecutionPlan::default();
+
+        assert_eq!(
+            composed.merge(&first).expect("first plan should merge"),
+            [producer, consumer]
+        );
+        assert_eq!(
+            composed.merge(&second).expect("second plan should merge"),
+            [producer, consumer]
+        );
+        assert_eq!(composed.action_ids().count(), 2);
+        assert_eq!(
+            composed
+                .declared_output(Path::new("build/libmoonbitrun.a"))
+                .expect("the shared output should be declared")
+                .producer(),
+            producer
+        );
+    }
+
+    #[test]
+    fn merge_rejects_different_actions_for_the_same_physical_output() {
+        let (mut first, _, _) = producer_and_consumer_plan();
+        let (mut second, _, _) = producer_and_consumer_plan();
+        second.actions[0].description = "different archive command".to_string();
+
+        first
+            .merge(&second)
+            .expect_err("incompatible producers should be rejected");
+    }
+
+    #[test]
+    fn merge_remaps_plan_local_action_ids() {
+        let (first, _, _) = producer_and_consumer_plan();
+        let mut builder = ExecutionPlanBuilder::default();
+        builder.add_action(draft(
+            Vec::new(),
+            Vec::new(),
+            vec![PathBuf::from("build/other-output")],
+            "other-command",
+        ));
+        let second = builder.finish([]);
+        let mut composed = ExecutionPlan::default();
+
+        composed.merge(&first).expect("first plan should merge");
+        let remapped = composed.merge(&second).expect("second plan should merge");
+
+        assert_eq!(remapped, [ActionId(2)]);
+    }
+
+    #[test]
+    fn n2_projection_retains_build_to_action_provenance() {
+        let (plan, producer, consumer) = producer_and_consumer_plan();
+        let adapted = plan
+            .adapt_to_n2([producer, consumer])
+            .expect("execution plan should adapt to n2");
+
+        for (index, expected) in [producer, consumer].into_iter().enumerate() {
+            assert_eq!(
+                adapted.action_for_build(n2::graph::BuildId::from(index)),
+                Some(expected),
+            );
+        }
     }
 }

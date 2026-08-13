@@ -361,7 +361,7 @@ impl PlanningFixture {
     }
 
     fn dump_plan(&self, plan: PlannedGraph) -> anyhow::Result<String> {
-        let graph = plan.build_graph.graph_for_test();
+        let (graph, command_args_by_output) = plan.build_graph.n2_graph_for_test()?;
         let default_files = plan
             .build_meta
             .artifacts
@@ -373,9 +373,9 @@ impl PlanningFixture {
             })
             .collect::<Vec<_>>();
         let dump = debug_dump_build_graph(
-            graph,
+            &graph,
             &default_files,
-            plan.build_graph.command_args_for_test(),
+            &command_args_by_output,
             &self.source_dir,
         );
         let mut out = Vec::new();

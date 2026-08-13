@@ -73,28 +73,16 @@ pub(crate) fn run_bundle(
 
     let targets = lower_surface_targets(&surface_targets);
     let resolve_output = sync_and_resolve_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
-    let run_targets = || -> anyhow::Result<i32> {
-        let mut ret_value = 0;
-        for t in targets.iter().copied() {
-            let x = run_bundle_rr_from_resolved(
-                &cli,
-                &cmd,
-                &dirs,
-                Some(t),
-                resolve_output.clone(),
-                output,
-            )
-            .context(format!("failed to run bundle for target {t:?}"))?;
-            ret_value = ret_value.max(x);
-        }
-        Ok(ret_value)
-    };
-
     let _lock;
     if !cli.dry_run {
         _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
     }
-    run_targets()
+    run_bundle_rr_from_resolved(&cli, &cmd, &dirs, &targets, resolve_output, output).with_context(
+        || match targets.as_slice() {
+            [target] => format!("failed to run bundle for target {target:?}"),
+            _ => format!("failed to run bundle for targets {targets:?}"),
+        },
+    )
 }
 
 #[instrument(skip_all)]
@@ -127,7 +115,7 @@ pub(crate) fn run_bundle_internal_rr(
         cli,
         cmd,
         dirs,
-        selected_target_backend,
+        selected_target_backend.as_slice(),
         resolve_output,
         output,
     )
@@ -140,7 +128,7 @@ fn run_bundle_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
-    selected_target_backend: Option<TargetBackend>,
+    selected_target_backends: &[TargetBackend],
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -150,22 +138,43 @@ fn run_bundle_rr_from_resolved(
         target_dir,
         ..
     } = dirs;
-    let (build_meta, build_graph) = plan_bundle_rr_from_resolved(
-        cli,
-        cmd,
-        target_dir,
-        &dirs.mooncake_bin_dir,
-        selected_target_backend,
-        resolve_output,
-        user_log,
-    )?;
+    let planned_runs = if selected_target_backends.is_empty() {
+        vec![plan_bundle_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            &dirs.mooncake_bin_dir,
+            None,
+            resolve_output,
+            user_log,
+        )?]
+    } else {
+        selected_target_backends
+            .iter()
+            .copied()
+            .map(|target| {
+                plan_bundle_rr_from_resolved(
+                    cli,
+                    cmd,
+                    target_dir,
+                    &dirs.mooncake_bin_dir,
+                    Some(target),
+                    resolve_output.clone(),
+                    user_log,
+                )
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
 
     if cli.dry_run {
         output.write_result(|writer| {
+            let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
+            let build_input =
+                rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
             rr_build::write_dry_run(
                 writer,
-                &build_graph,
-                build_meta.artifacts.values(),
+                &build_input,
+                build_metas.iter().flat_map(|meta| meta.artifacts.values()),
                 source_dir,
                 target_dir,
             )
@@ -173,13 +182,17 @@ fn run_bundle_rr_from_resolved(
         Ok(0)
     } else {
         // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(&build_meta)?;
-        // Generate legacy metadata for tooling compatibility
-        rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
+        for (build_meta, build_input) in &planned_runs {
+            rr_build::generate_all_pkgs_json(build_meta)?;
+            // Generate legacy metadata for tooling compatibility
+            rr_build::generate_metadata(source_dir, target_dir, build_meta, build_input, None)?;
+        }
+        let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
+        let build_input = rr_build::compose_build_inputs(build_inputs)?;
 
         let result = rr_build::execute_build(
             &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),
-            build_graph,
+            build_input,
             target_dir,
             user_log,
         )?;

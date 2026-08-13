@@ -88,29 +88,23 @@ pub(crate) fn run_bench(
     super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
     let resolve_output =
         super::sync_and_resolve_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
-    let run_targets = || -> anyhow::Result<i32> {
-        let mut ret_value = 0;
-        for t in targets.iter().copied() {
-            let x = super::run_test_or_bench_from_resolved(
-                &cli,
-                &bench_cmd,
-                &dirs,
-                display_backend_hint,
-                Some(t),
-                resolve_output.clone(),
-                output,
-            )
-            .context(format!("failed to run bench for target {t:?}"))?;
-            ret_value = ret_value.max(x);
-        }
-        Ok(ret_value)
-    };
-
     let _lock;
     if !cli.dry_run {
         _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
     }
-    run_targets()
+    super::run_test_or_bench_from_resolved(
+        &cli,
+        &bench_cmd,
+        &dirs,
+        display_backend_hint,
+        &targets,
+        resolve_output,
+        output,
+    )
+    .with_context(|| match targets.as_slice() {
+        [target] => format!("failed to run bench for target {target:?}"),
+        _ => format!("failed to run bench for targets {targets:?}"),
+    })
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
