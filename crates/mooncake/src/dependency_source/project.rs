@@ -35,7 +35,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::{pkg::legacy_postadd, registry::Registry};
+use crate::{pkg::legacy_postadd, registry::RegistrySource};
 
 use super::DependencySource;
 
@@ -105,7 +105,7 @@ impl ProjectDependencySource {
 impl DependencySource for ProjectDependencySource {
     fn ensure(
         &self,
-        registry: &dyn Registry,
+        registry: &dyn RegistrySource,
         resolved: &ResolvedEnv,
         frozen: bool,
         user_log: &UserLog,
@@ -221,7 +221,7 @@ fn diff_dep_dir_state<'a>(
 /// from the current directory, this function will return an error.
 fn sync(
     dep_dir: &ProjectDependencySource,
-    registry: &dyn Registry,
+    registry: &dyn RegistrySource,
     pkg_list: &ResolvedEnv,
     frozen: bool,
     postadd_runner: &ManagedChildRunner,

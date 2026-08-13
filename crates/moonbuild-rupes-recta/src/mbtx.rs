@@ -21,7 +21,7 @@ use std::str::FromStr;
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use mooncake::registry::{Registry, path as registry_path};
+use mooncake::registry::{Registry, RegistryClient, path as registry_path};
 use moonutil::{constants::MOONBITLANG_CORE, dependency::SourceDependencyInfo, package::Import};
 
 #[derive(Default)]
@@ -38,7 +38,7 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
 
     let content = std::fs::read_to_string(file)
         .with_context(|| format!("failed to read .mbtx file `{}`", file.display()))?;
-    let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
+    let registry = RegistryClient::configured();
     let Some(import_source) = extract_mbtx_import_source(&content) else {
         return Ok(MbtxFrontMatterImports::default());
     };
@@ -185,7 +185,7 @@ mod tests {
         MbtxFrontMatterImports, extract_mbtx_import_source, parse_mbtx_imports,
         split_mbtx_import_path,
     };
-    use mooncake::registry::OnlineRegistry;
+    use mooncake::registry::RegistryClient;
     use moonutil::package::Import;
     use moonutil::resolution::DEFAULT_VERSION;
 
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn split_mbtx_import_path_supports_module_package() {
-        let registry = OnlineRegistry::mooncakes_io();
+        let registry = RegistryClient::configured();
         let (module, version, package) =
             split_mbtx_import_path("path/module@0.4.38/package/path", &registry)
                 .expect("module package import should parse");
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn split_mbtx_import_path_normalizes_relative_package_with_module_prefix() {
-        let registry = OnlineRegistry::mooncakes_io();
+        let registry = RegistryClient::configured();
         let (module, version, package) = split_mbtx_import_path("a/b@version/c/d/e", &registry)
             .expect("module package import should parse");
         assert_eq!(module, "a/b");
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn split_mbtx_import_path_supports_module_root() {
-        let registry = OnlineRegistry::mooncakes_io();
+        let registry = RegistryClient::configured();
         let (module, version, package) = split_mbtx_import_path("path/module@0.4.38", &registry)
             .expect("module root import should parse");
         assert_eq!(module, "path/module");
@@ -236,13 +236,13 @@ mod tests {
 
     #[test]
     fn split_mbtx_import_path_rejects_three_segment_module_with_version() {
-        let registry = OnlineRegistry::mooncakes_io();
+        let registry = RegistryClient::configured();
         assert!(split_mbtx_import_path("moonbitlang/x/fs@0.4.39/path", &registry).is_err());
     }
 
     #[test]
     fn split_mbtx_import_path_supports_core_without_version() {
-        let registry = OnlineRegistry::mooncakes_io();
+        let registry = RegistryClient::configured();
         let (module, version, package) = split_mbtx_import_path("moonbitlang/core/env", &registry)
             .expect("core import without version should parse");
         assert_eq!(module, "moonbitlang/core");

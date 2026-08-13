@@ -30,7 +30,7 @@ use moonutil::{
     user_log::UserLog,
 };
 
-use crate::registry::Registry;
+use crate::registry::RegistrySource;
 
 use self::{global::ImmutableDependencySource, project::ProjectDependencySource};
 
@@ -39,7 +39,7 @@ pub(crate) trait DependencySource {
     /// those directories indexed by module ID.
     fn ensure(
         &self,
-        registry: &dyn Registry,
+        registry: &dyn RegistrySource,
         resolved: &ResolvedEnv,
         frozen: bool,
         user_log: &UserLog,
@@ -74,7 +74,6 @@ pub(crate) fn select<'a>(
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::BTreeMap,
         path::Path,
         sync::{
             Arc,
@@ -95,14 +94,13 @@ mod tests {
         global::{ImmutableDependencySource, SOURCE_ARCHIVE_CHECKSUM_FILE},
         select,
     };
-    use crate::registry::{Registry, RegistryVersionInfo};
+    use crate::registry::RegistrySource;
 
     const FIRST_CHECKSUM: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const SECOND_CHECKSUM: &str =
         "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
     struct TestRegistry {
-        version: Version,
         checksum: String,
         checksum_after_first_read: Option<String>,
         checksum_reads: AtomicUsize,
@@ -113,7 +111,6 @@ mod tests {
     impl TestRegistry {
         fn new(postadd: bool) -> Self {
             Self {
-                version: Version::new(1, 2, 3),
                 checksum: FIRST_CHECKSUM.to_string(),
                 checksum_after_first_read: None,
                 checksum_reads: AtomicUsize::new(0),
@@ -158,19 +155,7 @@ options(
         }
     }
 
-    impl Registry for TestRegistry {
-        fn all_versions_of(
-            &self,
-            _name: &ModuleName,
-        ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
-            Ok(Arc::new(BTreeMap::from([(
-                self.version.clone(),
-                RegistryVersionInfo {
-                    deps: Default::default(),
-                },
-            )])))
-        }
-
+    impl RegistrySource for TestRegistry {
         fn acquire_source_to(
             &self,
             name: &ModuleName,

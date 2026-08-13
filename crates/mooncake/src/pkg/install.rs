@@ -119,8 +119,9 @@ pub(crate) fn install_impl(
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }
 
+    let registry = registry::default_registry();
     let resolve_config = ResolveConfig {
-        registry: registry::default_registry(),
+        registry: &registry,
         inject_std: !includes_core && !no_std,
     };
 
@@ -136,12 +137,8 @@ pub(crate) fn install_impl(
         &res,
         output_options.child_output,
     )?;
-    let dependency_paths = dependency_source.ensure(
-        resolve_config.registry.as_ref(),
-        &res,
-        dont_sync,
-        &dependency_user_log,
-    )?;
+    let dependency_paths =
+        dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
 
     let managed_child = ManagedChildRunner::new(output_options.child_output, &dependency_user_log);
     install_bin_deps(

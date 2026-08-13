@@ -50,11 +50,13 @@ fn init_empty_local_registry() -> tempfile::TempDir {
     base
 }
 
-fn write_minimal_moon_mod_json(dir: &std::path::Path) {
-    // NOTE: `moon add` only requires `moon.mod.json` to exist for project discovery.
+fn write_minimal_moon_mod(dir: &std::path::Path) {
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{"name":"test/empty","version":"0.0.1"}"#,
+        dir.join("moon.mod"),
+        r#"name = "test/empty"
+
+version = "0.0.1"
+"#,
     )
     .unwrap();
 }
@@ -63,7 +65,7 @@ fn write_minimal_moon_mod_json(dir: &std::path::Path) {
 fn test_moon_add_no_update_skips_registry_update() {
     // Setup: isolated Moon project + empty MOON_HOME.
     let project = tempfile::tempdir().unwrap();
-    write_minimal_moon_mod_json(project.path());
+    write_minimal_moon_mod(project.path());
 
     let moon_home = tempfile::tempdir().unwrap();
 
@@ -103,7 +105,7 @@ fn test_moon_add_updates_registry_index_by_default() {
 
     // Setup: isolated Moon project + fresh MOON_HOME.
     let project = tempfile::tempdir().unwrap();
-    write_minimal_moon_mod_json(project.path());
+    write_minimal_moon_mod(project.path());
 
     let moon_home = tempfile::tempdir().unwrap();
 
@@ -144,7 +146,7 @@ fn test_moon_add_updates_registry_index_by_default() {
 fn test_moon_add_no_update_suggests_update_on_failure() {
     // Setup: isolated Moon project + empty MOON_HOME.
     let project = tempfile::tempdir().unwrap();
-    write_minimal_moon_mod_json(project.path());
+    write_minimal_moon_mod(project.path());
 
     let moon_home = tempfile::tempdir().unwrap();
 

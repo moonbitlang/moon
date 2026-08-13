@@ -29,7 +29,7 @@ use moonutil::{
     user_log::UserLog,
 };
 
-use crate::registry::Registry;
+use crate::registry::RegistrySource;
 
 use super::DependencySource;
 
@@ -61,7 +61,7 @@ impl<'a> ImmutableDependencySource<'a> {
 
     fn prepare_source(
         &self,
-        registry: &dyn Registry,
+        registry: &dyn RegistrySource,
         module: &ModuleSource,
         checksum: &str,
         directory: &Path,
@@ -131,7 +131,7 @@ impl<'a> ImmutableDependencySource<'a> {
 impl DependencySource for ImmutableDependencySource<'_> {
     fn ensure(
         &self,
-        registry: &dyn Registry,
+        registry: &dyn RegistrySource,
         resolved: &ResolvedEnv,
         frozen: bool,
         user_log: &UserLog,

@@ -19,10 +19,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
-use moonutil::{
-    locks::FileLock, registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
-};
+use mooncake::registry::{Registry, RegistryClient, path as registry_path};
+use moonutil::{locks::FileLock, resolution::ModuleName, user_log::UserLog};
 use semver::Version;
 
 use crate::rr_build;
@@ -125,22 +123,23 @@ fn resolve_latest_version(
     policy: LatestVersionResolutionPolicy,
     user_log: &UserLog,
 ) -> anyhow::Result<Version> {
-    let index_dir = moonutil::registry::index();
-    let registry_config = RegistryConfig::load();
-    let had_index = index_dir.exists();
+    let registry = RegistryClient::configured();
+    let had_index = registry.has_cached_index();
 
     resolve_latest_version_with(
         module_name,
         user_log,
         had_index,
         policy,
-        || latest_version_from_local_registry(module_name),
-        || mooncake::update::update(&index_dir, &registry_config, user_log).map(|_| ()),
+        || latest_version_from_registry(&registry, module_name),
+        || registry.sync(user_log),
     )
 }
 
-fn latest_version_from_local_registry(module_name: &ModuleName) -> LatestVersionLookup {
-    let registry = OnlineRegistry::mooncakes_io();
+fn latest_version_from_registry(
+    registry: &impl Registry,
+    module_name: &ModuleName,
+) -> LatestVersionLookup {
     let versions = match registry.all_versions_of(module_name) {
         Ok(versions) => versions,
         Err(_) => return LatestVersionLookup::NotFound,
@@ -169,7 +168,7 @@ fn resolve_latest_version_with(
     }
 
     match update_registry() {
-        Ok(_) => user_log.info("Updated registry index"),
+        Ok(()) => {}
         Err(e) if policy == LatestVersionResolutionPolicy::Refresh => {
             return Err(e).context("Failed to update registry index");
         }

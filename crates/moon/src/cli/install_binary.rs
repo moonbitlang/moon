@@ -26,7 +26,7 @@ use moonbuild_rupes_recta::{
 };
 use mooncake::{
     pkg::{legacy_postadd, sync::SyncOutputOptions},
-    registry::{OnlineRegistry, Registry, path as registry_path},
+    registry::{Registry, RegistryClient, path as registry_path},
 };
 use moonutil::{
     build_options::RunMode,
@@ -35,7 +35,6 @@ use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::FileLock,
     project::{PackageDirs, SourceTargetDirs, WorkspaceEnv},
-    registry::RegistryConfig,
     resolution::{ModuleName, ModuleSourceKind},
     target::TargetBackend,
     user_log::UserLog,
@@ -242,14 +241,11 @@ pub(super) fn install_binary(
     install_all: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let index_dir = moonutil::registry::index();
-    let registry_config = RegistryConfig::load();
-    let had_index = index_dir.exists();
+    let registry = RegistryClient::configured();
+    let had_index = registry.has_cached_index();
 
-    match mooncake::update::update(&index_dir, &registry_config, user_log) {
-        Ok(outcome) => {
-            crate::cli::log_registry_update(outcome, user_log);
-        }
+    match registry.sync(user_log) {
+        Ok(()) => {}
         Err(e) => {
             if had_index {
                 user_log.warn(format!(
@@ -262,7 +258,6 @@ pub(super) fn install_binary(
         }
     }
 
-    let registry = OnlineRegistry::mooncakes_io();
     let version = if let Some(v) = &spec.version {
         v.clone()
     } else {
@@ -698,29 +693,21 @@ pub(super) fn build_registry_native_executable_to(
     verbose: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
+    let registry = RegistryClient::configured();
     ensure_registry_version_available(
         module_name,
         version,
-        user_log,
         || {
-            OnlineRegistry::mooncakes_io()
+            registry
                 .all_versions_of(module_name)
                 .is_ok_and(|versions| versions.contains_key(version))
         },
-        || {
-            mooncake::update::update(
-                &moonutil::registry::index(),
-                &RegistryConfig::load(),
-                user_log,
-            )
-            .map(|_| ())
-        },
+        || registry.sync(user_log),
     )?;
 
     let source = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     // Moonx needs the sources for its temporary build, but must not run package
     // installation hooks or let acquisition progress precede program stdout.
-    let registry = OnlineRegistry::mooncakes_io();
     let checksum = registry.source_archive_checksum(module_name, version)?;
     registry.acquire_source_to(module_name, version, &checksum, source.path(), user_log)?;
 
@@ -754,7 +741,6 @@ pub(super) fn build_registry_native_executable_to(
 fn ensure_registry_version_available(
     module_name: &ModuleName,
     version: &Version,
-    user_log: &UserLog,
     mut version_is_available: impl FnMut() -> bool,
     mut update_registry: impl FnMut() -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
@@ -763,7 +749,6 @@ fn ensure_registry_version_available(
     }
 
     update_registry().context("Failed to update registry index")?;
-    user_log.info("Updated registry index");
     if !version_is_available() {
         bail!("Module `{module_name}` version `{version}` not found in registry");
     }
@@ -944,7 +929,6 @@ mod tests {
         ensure_registry_version_available(
             &"testuser/runner".parse().unwrap(),
             &"1.2.3".parse().unwrap(),
-            &UserLog::new(log::LevelFilter::Warn),
             || true,
             || {
                 updated.set(true);
@@ -962,7 +946,6 @@ mod tests {
         ensure_registry_version_available(
             &"testuser/runner".parse().unwrap(),
             &"1.2.3".parse().unwrap(),
-            &UserLog::new(log::LevelFilter::Warn),
             || updated.get(),
             || {
                 updated.set(true);

@@ -208,8 +208,9 @@ fn resolve_workspace(
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }
 
+    let registry = registry::default_registry();
     let resolve_config = ResolveConfig {
-        registry: registry::default_registry(),
+        registry: &registry,
         inject_std: !includes_core,
     };
     resolve_with_default_env_and_resolver(&resolve_config, roots, user_log).map_err(Into::into)
