@@ -105,7 +105,8 @@ build directories are temporary and are not retained.
 Wasm and native artifacts share the coordinate-shaped registry asset cache:
 `registry/cache/assets/<module>/<version>/<package>/<binary>`. Their file
 suffixes distinguish `.wasm` and `.exe`; cached native artifacts use `.exe` on
-every platform, including Unix.
+every platform, including Unix. The physical path and lock scope are defined by
+the [Moon home layout](./moon-home-layout.md).
 The existing Mooncakes download cache may retain the verified source archive;
 `moonx` does not retain an extracted source tree or build workspace alongside
 the Cached Executable Artifact.

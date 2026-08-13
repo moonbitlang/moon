@@ -30,8 +30,8 @@ fn run_moon(dir: &Path, moon_home: &Path) -> snapbox::cmd::Command {
 }
 
 fn write_registry_index(moon_home: &Path) {
-    let index_dir = moon_home.join("registry").join("index");
-    let index = index_dir.join("user").join("example").join("dep.index");
+    let layout = moonutil::MoonHomeLayout::new(moon_home.to_path_buf());
+    let index = layout.registry_index_file(&"example/dep".into());
     std::fs::create_dir_all(index.parent().unwrap()).unwrap();
     std::fs::write(
         index,

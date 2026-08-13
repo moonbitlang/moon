@@ -44,13 +44,6 @@ impl CacheKind {
         }
     }
 
-    const fn default_directory(self) -> &'static str {
-        match self {
-            Self::DependencySources => "deps",
-            Self::BuildArtifacts => "build",
-        }
-    }
-
     const fn ownership(self) -> &'static [u8] {
         match self {
             Self::DependencySources => b"dependency-sources\n",
@@ -113,9 +106,10 @@ pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
         }
         None => Ok(CacheRoot::Path {
             kind,
-            path: crate::moon_dir::home()
-                .join("cache")
-                .join(kind.default_directory()),
+            path: match kind {
+                CacheKind::DependencySources => crate::MOON_HOME.dependency_cache_dir(),
+                CacheKind::BuildArtifacts => crate::MOON_HOME.build_cache_dir(),
+            },
         }),
     }
 }

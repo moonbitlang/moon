@@ -138,10 +138,11 @@ fn test_moon_update_reclones_for_different_registry_url() {
         .stdout_eq("")
         .stderr_eq("Registry index cloned successfully\nSymbols updated successfully\n");
 
+    let registry_index = moonutil::MoonHomeLayout::new(dir.to_path_buf()).registry_index_dir();
     let _ = std::process::Command::new("git")
         .args([
             "-C",
-            dir.join("registry").join("index").to_str().unwrap(),
+            registry_index.to_str().unwrap(),
             "remote",
             "set-url",
             "origin",
@@ -361,7 +362,8 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
         "failed to initialize local registry index:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let local_index = moon_home.path().join("registry/index");
+    let local_index =
+        moonutil::MoonHomeLayout::new(moon_home.path().to_path_buf()).registry_index_dir();
     std::fs::create_dir_all(local_index.parent().unwrap()).unwrap();
     let output = std::process::Command::new("git")
         .arg("clone")

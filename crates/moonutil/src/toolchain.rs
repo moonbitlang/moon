@@ -32,10 +32,26 @@ use std::{
 
 pub use crate::binaries::{BINARIES, CachedBinaries, moon_cram_in, mooncake_in};
 pub use crate::moon_dir::{
-    MOON_DIRS, MoonDirs, RESERVED_BIN_NAMES, abort_core_in, bin, core, core_bundle, core_bundle_in,
-    core_core, core_core_in, core_package_mi_in, home, include, is_toolchain_root, lib,
-    prelude_proof, toolchain_root, user_bin, why3_datadir, why3_libdir,
+    MOON_DIRS, MoonDirs, abort_core_in, bin, core, core_bundle, core_bundle_in, core_core,
+    core_core_in, core_package_mi_in, include, is_toolchain_root, lib, prelude_proof,
+    toolchain_root, why3_datadir, why3_libdir,
 };
+
+/// Reserved binary names that cannot be overwritten by user-installed packages.
+pub const RESERVED_BIN_NAMES: &[&str] = &[
+    "moon",
+    "moonc",
+    "mooncake",
+    "moondoc",
+    "moonfmt",
+    "mooninfo",
+    "moonrun",
+    "moon_cove_report",
+    "moon-ide",
+    "moon-lsp",
+    "moon-wasm-opt",
+    "moonbit-lsp",
+];
 
 /// Return the runtime C translation units shipped by the selected toolchain.
 ///

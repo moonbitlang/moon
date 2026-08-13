@@ -28,8 +28,8 @@ use std::{
 use anyhow::{Context, bail};
 use indexmap::map::IndexMap;
 use moonutil::{
-    dependency::SourceDependencyInfo, locks::FileLock, registry::RegistryConfig,
-    resolution::ModuleName, user_log::UserLog,
+    MOON_HOME, MoonHomeLayout, dependency::SourceDependencyInfo, locks::FileLock,
+    registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;
@@ -96,9 +96,8 @@ impl RegistryEndpoints {
 /// to synchronize the registry.
 pub struct RegistryClient {
     config: RegistryConfig,
-    index: std::path::PathBuf,
+    home: MoonHomeLayout,
     endpoints: RegistryEndpoints,
-    archive_cache: std::path::PathBuf,
     cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
 }
 
@@ -109,35 +108,26 @@ impl RegistryClient {
     }
 
     fn from_config(config: RegistryConfig) -> Self {
-        Self::with_paths(
-            config,
-            moonutil::registry::index(),
-            moonutil::registry::cache(),
-        )
+        Self::with_home(config, MOON_HOME.clone())
     }
 
-    fn with_paths(
-        config: RegistryConfig,
-        index: std::path::PathBuf,
-        archive_cache: std::path::PathBuf,
-    ) -> Self {
+    fn with_home(config: RegistryConfig, home: MoonHomeLayout) -> Self {
         Self {
             endpoints: RegistryEndpoints::from_config(&config),
             config,
-            index,
-            archive_cache,
+            home,
             cache: RefCell::new(HashMap::new()),
         }
     }
 
     /// Return whether a local registry index is available for offline fallback.
     pub fn has_cached_index(&self) -> bool {
-        self.index.exists()
+        self.home.registry_index_dir().exists()
     }
 
     /// Synchronize the Git index and symbols archive with the configured registry.
     pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
-        let outcome = crate::update::sync(&self.index, &self.config, user_log)?;
+        let outcome = crate::update::sync(&self.home, &self.config, user_log)?;
         self.cache.borrow_mut().clear();
         log_sync_outcome(outcome, user_log);
         Ok(())
@@ -160,44 +150,6 @@ impl RegistryClient {
         })
     }
 
-    fn index_file_of(&self, name: &ModuleName) -> std::path::PathBuf {
-        self.index
-            .join("user")
-            .join(name.username.as_str())
-            .join(format!("{}.index", name.unqual))
-    }
-
-    fn archive_cache_file_of(&self, name: &ModuleName, version: &Version) -> std::path::PathBuf {
-        self.archive_cache
-            .join(name.username.as_str())
-            .join(name.unqual.as_str())
-            .join(format!("{version}.zip"))
-    }
-
-    fn wasm_asset_cache_file_of(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        package_path: &str,
-    ) -> std::path::PathBuf {
-        let mut path = self
-            .archive_cache
-            .join("assets")
-            .join(name.username.as_str());
-        for segment in name.unqual.split('/') {
-            path.push(segment);
-        }
-        path.push(version.to_string());
-        for segment in package_path
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-        {
-            path.push(segment);
-        }
-        path.push(wasm_artifact_name(name, package_path));
-        path
-    }
-
     fn acquire_wasm_asset_with(
         &self,
         name: &ModuleName,
@@ -209,7 +161,12 @@ impl RegistryClient {
         validate_asset_package_path(name, package_path)?;
         let url = self.endpoints.wasm_asset(name, version, package_path);
         let checksum_url = format!("{url}.sha256");
-        let cache_path = self.wasm_asset_cache_file_of(name, version, package_path);
+        let cache_path = self.home.registry_executable_artifact_path(
+            name,
+            version,
+            package_path,
+            &wasm_artifact_name(name, package_path),
+        );
 
         ensure_cached_wasm(&cache_path, user_log, |staged| {
             let checksum_bytes = download(&checksum_url)?;
@@ -375,7 +332,7 @@ impl super::Registry for RegistryClient {
             return Ok(Arc::clone(v));
         }
 
-        let index_file = self.index_file_of(name);
+        let index_file = self.home.registry_index_file(name);
         log::debug!("Reading versions of {} from {}", name, index_file.display());
         let file = std::fs::File::open(index_file)?;
         let reader = std::io::BufReader::new(file);
@@ -529,7 +486,7 @@ impl RegistryClient {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<String> {
-        let p = self.index_file_of(name);
+        let p = self.home.registry_index_file(name);
         let file = std::fs::File::open(&p)?;
         let reader = std::io::BufReader::new(file);
 
@@ -563,11 +520,11 @@ impl RegistryClient {
         expected_checksum: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<File> {
-        let pkg_index = self.index_file_of(name);
+        let pkg_index = self.home.registry_index_file(name);
         if !pkg_index.exists() {
             anyhow::bail!("Module {}@{} not found", name, version);
         }
-        let cache_file = self.archive_cache_file_of(name, version);
+        let cache_file = self.home.registry_source_archive_path(name, version);
         if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
             user_log.status(format!("Using cached {name}@{version}"));
             return Ok(archive);
@@ -577,7 +534,7 @@ impl RegistryClient {
             .parent()
             .expect("registry cache file has a parent");
         std::fs::create_dir_all(cache_dir)?;
-        let cache_lock_file = cache_file.with_extension("zip.lock");
+        let cache_lock_file = self.home.registry_source_archive_lock_path(name, version);
         let _cache_lock = FileLock::lock_file_with_user_log(&cache_lock_file, user_log)
             .with_context(|| {
                 format!(
@@ -777,14 +734,13 @@ mod tests {
     }
 
     fn asset_test_registry(sandbox: &tempfile::TempDir) -> RegistryClient {
-        RegistryClient::with_paths(
+        RegistryClient::with_home(
             RegistryConfig {
                 registry: "https://mooncakes.io".to_owned(),
                 index: String::new(),
                 symbols: None,
             },
-            sandbox.path().join("index"),
-            sandbox.path().join("cache"),
+            MoonHomeLayout::new(sandbox.path().to_path_buf()),
         )
     }
 
@@ -863,7 +819,12 @@ mod tests {
         let registry = asset_test_registry(&sandbox);
         let name = parser_module();
         let version = Version::new(0, 3, 3);
-        let cache_path = registry.wasm_asset_cache_file_of(&name, &version, "cmd/moonfmt");
+        let cache_path = registry.home.registry_executable_artifact_path(
+            &name,
+            &version,
+            "cmd/moonfmt",
+            "moonfmt.wasm",
+        );
         std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         std::fs::write(&cache_path, b"\0asmtest").unwrap();
 
@@ -875,10 +836,9 @@ mod tests {
 
         assert_eq!(path, cache_path);
         assert!(
-            !cache_path
-                .parent()
-                .unwrap()
-                .join(moonutil::constants::MOON_LOCK)
+            !registry
+                .home
+                .registry_package_assets_lock_path(&name, &version, "cmd/moonfmt")
                 .exists()
         );
     }
@@ -886,8 +846,7 @@ mod tests {
     #[test]
     fn concurrent_wasm_asset_cache_misses_download_once() {
         let sandbox = tempfile::TempDir::new().unwrap();
-        let index = sandbox.path().join("index");
-        let cache = sandbox.path().join("cache");
+        let home = MoonHomeLayout::new(sandbox.path().to_path_buf());
         let start = Arc::new(Barrier::new(3));
         let download_count = Arc::new(AtomicUsize::new(0));
         let wasm = b"\0asmtest".to_vec();
@@ -895,14 +854,13 @@ mod tests {
 
         let threads = (0..2)
             .map(|_| {
-                let registry = RegistryClient::with_paths(
+                let registry = RegistryClient::with_home(
                     RegistryConfig {
                         registry: "https://mooncakes.io".to_owned(),
                         index: String::new(),
                         symbols: None,
                     },
-                    index.clone(),
-                    cache.clone(),
+                    home.clone(),
                 );
                 let start = Arc::clone(&start);
                 let download_count = Arc::clone(&download_count);
@@ -964,7 +922,8 @@ mod tests {
         );
         assert!(
             !registry
-                .wasm_asset_cache_file_of(&name, &version, "cmd/moonfmt")
+                .home
+                .registry_executable_artifact_path(&name, &version, "cmd/moonfmt", "moonfmt.wasm")
                 .exists()
         );
     }
@@ -1098,19 +1057,18 @@ mod tests {
     fn test_registry(sandbox: &tempfile::TempDir) -> (RegistryClient, ModuleName, Version) {
         let name: ModuleName = "test/module".into();
         let version = Version::new(1, 2, 3);
-        let index = sandbox.path().join("index");
-        let index_file = index.join("user/test/module.index");
+        let home = MoonHomeLayout::new(sandbox.path().to_path_buf());
+        let index_file = home.registry_index_file(&name);
         std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
         std::fs::write(&index_file, "registry entry exists").unwrap();
         (
-            RegistryClient::with_paths(
+            RegistryClient::with_home(
                 RegistryConfig {
                     registry: String::new(),
                     index: String::new(),
                     symbols: None,
                 },
-                index,
-                sandbox.path().join("archive-cache"),
+                home,
             ),
             name,
             version,
@@ -1134,7 +1092,7 @@ mod tests {
         let (registry, name, version) = test_registry(&sandbox);
         let archive = test_archive();
         let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
-        let archive_path = registry.archive_cache_file_of(&name, &version);
+        let archive_path = registry.home.registry_source_archive_path(&name, &version);
         std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
         std::fs::write(archive_path, archive).unwrap();
         let destination = sandbox.path().join("source");
@@ -1155,7 +1113,7 @@ mod tests {
         let (registry, name, version) = test_registry(&sandbox);
         let archive = test_archive();
         let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
-        let archive_path = registry.archive_cache_file_of(&name, &version);
+        let archive_path = registry.home.registry_source_archive_path(&name, &version);
         std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
         std::fs::write(&archive_path, archive).unwrap();
 
@@ -1176,7 +1134,11 @@ mod tests {
                 .unwrap()
                 .join(moonutil::constants::MOON_LOCK),
         );
-        let version_lock = open_lock(&archive_path.with_extension("zip.lock"));
+        let version_lock = open_lock(
+            &registry
+                .home
+                .registry_source_archive_lock_path(&name, &version),
+        );
 
         let destination = sandbox.path().join("source");
         let (result_sender, result_receiver) = std::sync::mpsc::channel();
@@ -1252,8 +1214,7 @@ mod tests {
         let barrier = Arc::new(Barrier::new(2));
         let clients = (0..2)
             .map(|client| {
-                let index = registry.index.clone();
-                let archive_cache = registry.archive_cache.clone();
+                let home = registry.home.clone();
                 let url_base = url_base.clone();
                 let name = name.clone();
                 let version = version.clone();
@@ -1261,14 +1222,13 @@ mod tests {
                 let destination = sandbox.path().join(format!("source-{client}"));
                 let barrier = Arc::clone(&barrier);
                 std::thread::spawn(move || {
-                    let registry = RegistryClient::with_paths(
+                    let registry = RegistryClient::with_home(
                         RegistryConfig {
                             registry: url_base,
                             index: String::new(),
                             symbols: None,
                         },
-                        index,
-                        archive_cache,
+                        home,
                     );
                     barrier.wait();
                     registry.acquire_source_to(
@@ -1299,8 +1259,8 @@ mod tests {
         assert_eq!(request_count.load(Ordering::Relaxed), 1);
         assert!(
             registry
-                .archive_cache_file_of(&name, &version)
-                .with_extension("zip.lock")
+                .home
+                .registry_source_archive_lock_path(&name, &version)
                 .is_file()
         );
     }
@@ -1354,7 +1314,7 @@ mod tests {
     fn acquire_source_to_reports_cached_archive_io_errors() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let (registry, name, version) = test_registry(&sandbox);
-        let archive_path = registry.archive_cache_file_of(&name, &version);
+        let archive_path = registry.home.registry_source_archive_path(&name, &version);
         std::fs::create_dir_all(&archive_path).unwrap();
         let destination = sandbox.path().join("source");
 
@@ -1388,8 +1348,9 @@ mod tests {
 
     #[test]
     fn all_versions_accepts_single_rule_object_from_index_jsonl() {
-        let index = temp_index_dir();
-        let index_file = index.join("user").join("bobzhang").join("openseek.index");
+        let home = MoonHomeLayout::new(temp_index_dir());
+        let module: ModuleName = "bobzhang/openseek".into();
+        let index_file = home.registry_index_file(&module);
         std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
         std::fs::write(
             &index_file,
@@ -1398,14 +1359,13 @@ mod tests {
         )
         .unwrap();
 
-        let registry = RegistryClient::with_paths(
+        let registry = RegistryClient::with_home(
             RegistryConfig {
                 registry: String::new(),
                 index: String::new(),
                 symbols: None,
             },
-            index.clone(),
-            index.join("archive-cache"),
+            home.clone(),
         );
         let versions = registry
             .all_versions_of(&ModuleName {
@@ -1429,6 +1389,6 @@ mod tests {
             "abc123"
         );
 
-        let _ = std::fs::remove_dir_all(index);
+        let _ = std::fs::remove_dir_all(home.root());
     }
 }

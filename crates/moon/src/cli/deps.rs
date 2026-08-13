@@ -28,7 +28,6 @@ use moonutil::{
     cli_support::AutoSyncFlags,
     project::{PackageDirs, ProjectContext},
     resolution::ModuleName,
-    toolchain,
     user_log::UserLog,
 };
 use std::path::{Path, PathBuf};
@@ -96,7 +95,7 @@ pub(crate) fn install_cli(
         return Ok(0);
     }
 
-    let install_dir = cmd.bin.unwrap_or_else(toolchain::user_bin);
+    let install_dir = cmd.bin.unwrap_or_else(|| moonutil::MOON_HOME.bin_dir());
     let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 
     // Explicit --path takes priority

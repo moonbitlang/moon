@@ -20,8 +20,9 @@ use std::{fs::File, io::BufReader, path::PathBuf};
 
 use anyhow::bail;
 use moonutil::{
+    MOON_HOME,
     constants::{is_moon_mod_exist, is_moon_pkg_exist},
-    registry::{Credentials, credentials_json, validate_username},
+    registry::{Credentials, validate_username},
     user_log::UserLog,
 };
 
@@ -29,7 +30,7 @@ use super::UniversalFlags;
 
 /// Read the existing username from the credentials file
 fn get_existing_username(user_log: &UserLog) -> Option<String> {
-    let credentials_path = credentials_json();
+    let credentials_path = MOON_HOME.credentials_path();
     if !credentials_path.exists() {
         user_log.warn(
             "Using default username. You may login with `moon login` to store your username, or provide one with `--user <username>`.",
