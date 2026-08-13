@@ -63,7 +63,61 @@ ported_fns! {
         fd: RawFd,
         read_only: bool,
         fd_handle: u64,
+    ) -> AsyncHostResult<i32> {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
+            unsafe {
+                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            }
+        }
+
+        let flags = libc::EV_ADD | libc::EV_CLEAR | libc::EV_RECEIPT;
+        let events = [
+            new_kevent(
+                fd as libc::uintptr_t,
+                libc::EVFILT_READ,
+                flags,
+                0,
+                0,
+                Some(fd_handle),
+            )?,
+            new_kevent(
+                fd as libc::uintptr_t,
+                libc::EVFILT_WRITE,
+                flags,
+                0,
+                0,
+                Some(fd_handle),
+            )?,
+        ];
+        let mut receipts = [empty_kevent(); 2];
+        let result = unsafe {
+            libc::kevent(
+                instance.raw_fd(),
+                events.as_ptr(),
+                if read_only { 1 } else { 2 },
+                receipts.as_mut_ptr(),
+                receipts.len() as i32,
+                std::ptr::null(),
+            )
+        };
+        if result < 0 {
+            return Err(last_native_error());
+        }
+        Ok(i32::from(
+            receipts[..result as usize]
+                .iter()
+                .any(|receipt| receipt.data == 0),
+        ))
+    }
+
+    pub(crate) fn poll_register_legacy(
+        instance: &PollInstance,
+        fd: RawFd,
+        read_only: bool,
+        fd_handle: u64,
     ) -> AsyncHostResult<()> {
+        // Keep the pre-#536 syscall shape for event_bus/register compatibility.
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
             unsafe {
@@ -284,4 +338,35 @@ fn new_kevent(
 
 fn empty_kevent() -> libc::kevent {
     unsafe { std::mem::zeroed() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::OpenOptions;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn nonpollable_fd_is_reported_as_unsupported() {
+        let poll = poll_create().unwrap();
+        let null = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
+
+        assert_eq!(poll_register(&poll, null.as_raw_fd(), false, 1).unwrap(), 0);
+    }
+
+    #[test]
+    fn legacy_registration_preserves_nonpollable_error() {
+        let poll = poll_create().unwrap();
+        let null = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
+
+        assert!(poll_register_legacy(&poll, null.as_raw_fd(), false, 1).is_err());
+    }
 }

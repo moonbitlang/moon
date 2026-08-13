@@ -316,11 +316,17 @@ declare_async_imports! {
 
     ported event_bus::destroy(bus: u64) -> void => "event_bus/destroy";
 
-    ported event_bus::register(
+    compat event_bus::register_legacy(
         bus: u64,
         fd: u64,
         read_only: i32,
     ) -> i32 => "event_bus/register";
+
+    ported event_bus::try_register(
+        bus: u64,
+        fd: u64,
+        read_only: i32,
+    ) -> i32 => "event_bus/try_register";
 
     #[cfg(target_os = "macos")]
     ported event_bus::register_pid(bus: u64, pid: i32) -> i32 => "event_bus/register_pid";
@@ -1299,6 +1305,7 @@ fn async_api_ported_imports() -> Vec<PortedImport> {
 #[cfg(test)]
 fn async_api_compat_imports() -> Vec<super::provenance::CompatImport> {
     let mut imports = Vec::new();
+    imports.extend_from_slice(event_bus::COMPAT_IMPORTS);
     imports.extend_from_slice(thread_pool::COMPAT_IMPORTS);
     imports.extend_from_slice(fd_util::COMPAT_IMPORTS);
     imports.extend_from_slice(process::COMPAT_IMPORTS);
@@ -1667,8 +1674,16 @@ mod tests {
                 .join("third_party/moonbitlang_async")
                 .join(compat.historical_source);
             if let Ok(contents) = fs::read_to_string(historical_source) {
+                // Wasm import names are string literals. Include their quotes
+                // so a retained prefix such as `register_pid` does not look
+                // like the removed `register` import.
+                let original_symbol = if compat.api_only {
+                    format!("\"{}\"", compat.original_symbol)
+                } else {
+                    compat.original_symbol.to_owned()
+                };
                 assert!(
-                    !contents.contains(compat.original_symbol),
+                    !contents.contains(&original_symbol),
                     "compatibility symbol {} still exists upstream and should be ported",
                     compat.original_symbol
                 );

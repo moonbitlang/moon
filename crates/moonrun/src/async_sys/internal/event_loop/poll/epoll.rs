@@ -64,7 +64,7 @@ ported_fns! {
         fd: RawFd,
         read_only: bool,
         fd_handle: u64,
-    ) -> AsyncHostResult<()> {
+    ) -> AsyncHostResult<i32> {
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
             unsafe {
@@ -78,6 +78,40 @@ ported_fns! {
         };
         let mut event = libc::epoll_event {
             events: epoll_event_mask(events)?,
+            u64: fd_handle,
+        };
+        if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
+            let errno = super::last_errno();
+            if errno == libc::EPERM {
+                Ok(0)
+            } else {
+                Err(AsyncHostError::Native(errno))
+            }
+        } else {
+            Ok(1)
+        }
+    }
+
+    pub(crate) fn poll_register_legacy(
+        instance: &PollInstance,
+        fd: RawFd,
+        read_only: bool,
+        fd_handle: u64,
+    ) -> AsyncHostResult<()> {
+        // Keep the pre-#536 syscall shape for event_bus/register compatibility.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
+            unsafe {
+                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            }
+        }
+
+        let mut events = (libc::EPOLLIN | libc::EPOLLET | libc::EPOLLRDHUP) as u32;
+        if !read_only {
+            events |= libc::EPOLLOUT as u32;
+        }
+        let mut event = libc::epoll_event {
+            events,
             u64: fd_handle,
         };
         if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
@@ -185,4 +219,38 @@ fn epoll_result_events(events: u32) -> i32 {
         result |= WRITE_EVENT;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::OpenOptions;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn nonpollable_fd_is_reported_as_unsupported() {
+        let poll = poll_create().unwrap();
+        let null = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
+
+        assert_eq!(poll_register(&poll, null.as_raw_fd(), false, 1).unwrap(), 0);
+    }
+
+    #[test]
+    fn legacy_registration_preserves_nonpollable_error() {
+        let poll = poll_create().unwrap();
+        let null = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
+
+        assert_eq!(
+            poll_register_legacy(&poll, null.as_raw_fd(), false, 1),
+            Err(AsyncHostError::Native(libc::EPERM))
+        );
+    }
 }

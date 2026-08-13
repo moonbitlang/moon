@@ -78,7 +78,7 @@ ported_fns! {
         fd: RawFd,
         read_only: bool,
         fd_handle: u64,
-    ) -> AsyncHostResult<()> {
+    ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Storage::FileSystem::SetFileCompletionNotificationModes;
         use windows_sys::Win32::System::IO::CreateIoCompletionPort;
         use windows_sys::Win32::System::WindowsProgramming::FILE_SKIP_COMPLETION_PORT_ON_SUCCESS;
@@ -93,7 +93,7 @@ ported_fns! {
         if registered.is_null() {
             Err(last_native_error())
         } else {
-            Ok(())
+            Ok(1)
         }
     }
 
@@ -175,7 +175,7 @@ pub(crate) fn poll_register_file(
     handle: RawHandle,
     read_only: bool,
     fd_handle: u64,
-) -> AsyncHostResult<()> {
+) -> AsyncHostResult<i32> {
     poll_register(instance, handle, read_only, fd_handle)
 }
 
@@ -184,7 +184,7 @@ pub(crate) fn poll_register_socket(
     socket: BorrowedSocket<'_>,
     read_only: bool,
     fd_handle: u64,
-) -> AsyncHostResult<()> {
+) -> AsyncHostResult<i32> {
     // IOCP accepts a socket value in the HANDLE parameter. Keep that Windows
     // ABI conversion inside the IOCP adapter rather than the resource model.
     poll_register(
