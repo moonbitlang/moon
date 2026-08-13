@@ -17,14 +17,16 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use mooncake::pkg::{
-    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand,
-    sync::SyncOutputOptions, tree::TreeSubcommand,
+use mooncake::{
+    pkg::{
+        add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand,
+        sync::SyncOutputOptions, tree::TreeSubcommand,
+    },
+    registry::RegistryClient,
 };
 use moonutil::{
     cli_support::AutoSyncFlags,
     project::{PackageDirs, ProjectContext},
-    registry::RegistryConfig,
     resolution::ModuleName,
     toolchain,
     user_log::UserLog,
@@ -215,15 +217,13 @@ pub(crate) fn add_cli(
     // - `--no-update` keeps the previous behavior.
     // - If an index already exists, update failures are treated as warnings so users can proceed
     //   with the existing local index.
-    let index_dir = moonutil::registry::index();
+    let registry = RegistryClient::configured();
     let mut index_updated = false;
     if !cmd.no_update && (!cmd.upgrade || !cmd.package_path.contains('@')) {
-        let had_index = index_dir.exists();
-        let registry_config = RegistryConfig::load();
-        match mooncake::update::update(&index_dir, &registry_config, user_log) {
-            Ok(outcome) => {
+        let had_index = registry.has_cached_index();
+        match registry.sync(user_log) {
+            Ok(()) => {
                 index_updated = true;
-                super::log_registry_update(outcome, user_log);
             }
             Err(e) => {
                 if had_index {
@@ -270,6 +270,7 @@ pub(crate) fn add_cli(
         )
     } else {
         mooncake::pkg::add::add_latest(
+            &registry,
             &module_dir,
             &dirs,
             &pkg_name,

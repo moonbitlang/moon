@@ -16,18 +16,18 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod client;
 #[cfg(test)]
 pub(crate) mod mock;
-pub(crate) mod online;
 pub mod path;
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
+pub use client::RegistryClient;
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
 use moonutil::resolution::ModuleName;
 use moonutil::user_log::UserLog;
-pub use online::*;
 use semver::Version;
 
 #[derive(Debug, Clone, Default)]
@@ -70,7 +70,9 @@ pub trait Registry {
             .last_key_value()
             .map(|(version, _)| version.clone())
     }
+}
 
+pub(crate) trait RegistrySource {
     /// Materialize verified published source without executing package hooks.
     fn materialize_source_to(
         &self,
@@ -118,25 +120,6 @@ where
         (**self).all_versions_of(name)
     }
 
-    fn acquire_source_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        expected_checksum: &str,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        (**self).acquire_source_to(name, version, expected_checksum, to, user_log)
-    }
-
-    fn source_archive_checksum(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<String> {
-        (**self).source_archive_checksum(name, version)
-    }
-
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
         (**self).get_latest_version(name)
     }
@@ -157,25 +140,6 @@ where
         (**self).all_versions_of(name)
     }
 
-    fn acquire_source_to(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        expected_checksum: &str,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        (**self).acquire_source_to(name, version, expected_checksum, to, user_log)
-    }
-
-    fn source_archive_checksum(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<String> {
-        (**self).source_archive_checksum(name, version)
-    }
-
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
         (**self).get_latest_version(name)
     }
@@ -185,8 +149,8 @@ where
     }
 }
 
-pub(crate) fn default_registry() -> Box<dyn Registry> {
-    Box::new(OnlineRegistry::mooncakes_io())
+pub(crate) fn default_registry() -> RegistryClient {
+    RegistryClient::configured()
 }
 
 #[allow(clippy::items_after_test_module)]

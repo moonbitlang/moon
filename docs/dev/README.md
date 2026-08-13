@@ -166,8 +166,8 @@ cargo install --path ./crates/moon --debug --offline
   - `src/pkg/{install, sync}`: `moon install`
   - `src/pkg/remove`: `moon remove`
   - `src/pkg/tree`: `moon tree`
-  - `src/registry/online.rs`: downloads packages from
-    mooncakes.io
+  - `src/registry/client.rs`: synchronizes registry metadata and downloads
+    verified packages and prebuilt wasm assets
   - `src/resolver/mvs.rs`: Go-like minimal version selection
     algorithm.
 

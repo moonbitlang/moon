@@ -32,7 +32,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOutputOptions};
-use crate::registry::{self, Registry};
+use crate::registry::Registry;
 
 /// Add a dependency
 #[derive(Debug, clap::Parser)]
@@ -56,6 +56,7 @@ pub struct AddSubcommand {
 
 #[allow(clippy::too_many_arguments)]
 pub fn add_latest(
+    registry: &impl Registry,
     module_dir: &Path,
     dirs: &PackageDirs,
     pkg_name: &ModuleName,
@@ -70,7 +71,6 @@ pub fn add_latest(
         std::process::exit(0);
     }
 
-    let registry = registry::OnlineRegistry::mooncakes_io();
     let latest_version = registry
         .get_latest_version(pkg_name)
         .ok_or_else(|| {

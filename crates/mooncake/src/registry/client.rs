@@ -31,11 +31,15 @@ use moonutil::{
     dependency::SourceDependencyInfo, locks::FileLock, registry::RegistryConfig,
     resolution::ModuleName, user_log::UserLog,
 };
-use reqwest::header::USER_AGENT;
+use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;
 use serde::Deserialize;
 
-use crate::{registry::RegistryVersionInfo, zip_util::extract_zip_to_dir};
+use crate::{
+    registry::RegistryVersionInfo,
+    update::{RegistryIndexRecloneReason, RegistryIndexUpdate, UpdateOutcome},
+    zip_util::extract_zip_to_dir,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -45,22 +49,115 @@ struct RegistryIndexEntry {
     checksum: Option<String>,
 }
 
-pub struct OnlineRegistry {
+struct RegistryEndpoints {
+    packages: String,
+    assets: String,
+}
+
+impl RegistryEndpoints {
+    fn from_config(config: &RegistryConfig) -> Self {
+        let registry = config.registry.trim_end_matches('/');
+        let packages = if registry == "https://mooncakes.io" {
+            "https://download.mooncakes.io/user".to_owned()
+        } else {
+            format!("{registry}/user")
+        };
+        Self {
+            packages,
+            assets: format!("{registry}/assets"),
+        }
+    }
+
+    fn package_archive(&self, name: &ModuleName, version: &Version) -> String {
+        let path = form_urlencoded::Serializer::new(String::new())
+            .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
+            .finish();
+        format!("{}/{}.zip", self.packages, path)
+    }
+
+    fn wasm_asset(&self, name: &ModuleName, version: &Version, package_path: &str) -> String {
+        let artifact_name = wasm_artifact_name(name, package_path);
+        if package_path.is_empty() {
+            format!("{}/{}@{version}/{artifact_name}", self.assets, name)
+        } else {
+            format!(
+                "{}/{}@{version}/{package_path}/{artifact_name}",
+                self.assets, name
+            )
+        }
+    }
+}
+
+/// Access to a configured Mooncakes registry and its local state.
+///
+/// This client owns synchronization of the Git index and symbols archive as
+/// well as verified package and prebuilt wasm downloads. Resolution code can
+/// depend on the narrower [`super::Registry`] interface when it does not need
+/// to synchronize the registry.
+pub struct RegistryClient {
+    config: RegistryConfig,
     index: std::path::PathBuf,
-    url_base: String, // TODO: add download feature to registry interface
+    endpoints: RegistryEndpoints,
     archive_cache: std::path::PathBuf,
     cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
 }
 
-impl OnlineRegistry {
-    pub fn mooncakes_io() -> Self {
-        let registry = RegistryConfig::load().registry;
-        OnlineRegistry {
-            index: moonutil::registry::index(),
-            url_base: registry_download_base(&registry),
-            archive_cache: moonutil::registry::cache(),
+impl RegistryClient {
+    /// Load registry configuration and use the standard local index and cache.
+    pub fn configured() -> Self {
+        Self::from_config(RegistryConfig::load())
+    }
+
+    fn from_config(config: RegistryConfig) -> Self {
+        Self::with_paths(
+            config,
+            moonutil::registry::index(),
+            moonutil::registry::cache(),
+        )
+    }
+
+    fn with_paths(
+        config: RegistryConfig,
+        index: std::path::PathBuf,
+        archive_cache: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            endpoints: RegistryEndpoints::from_config(&config),
+            config,
+            index,
+            archive_cache,
             cache: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// Return whether a local registry index is available for offline fallback.
+    pub fn has_cached_index(&self) -> bool {
+        self.index.exists()
+    }
+
+    /// Synchronize the Git index and symbols archive with the configured registry.
+    pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
+        let outcome = crate::update::sync(&self.index, &self.config, user_log)?;
+        self.cache.borrow_mut().clear();
+        log_sync_outcome(outcome, user_log);
+        Ok(())
+    }
+
+    /// Return a verified, locally cached prebuilt wasm asset.
+    pub fn acquire_wasm_asset(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        package_path: &str,
+        user_log: &UserLog,
+    ) -> anyhow::Result<std::path::PathBuf> {
+        let http = reqwest::blocking::Client::builder()
+            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .context("failed to create registry asset HTTP client")?;
+        self.acquire_wasm_asset_with(name, version, package_path, user_log, |url| {
+            download_registry_asset(&http, url, user_log)
+        })
     }
 
     fn index_file_of(&self, name: &ModuleName) -> std::path::PathBuf {
@@ -76,18 +173,199 @@ impl OnlineRegistry {
             .join(name.unqual.as_str())
             .join(format!("{version}.zip"))
     }
-}
 
-fn registry_download_base(registry: &str) -> String {
-    let registry = registry.trim_end_matches('/');
-    if registry == "https://mooncakes.io" {
-        "https://download.mooncakes.io/user".to_string()
-    } else {
-        format!("{registry}/user")
+    fn wasm_asset_cache_file_of(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        package_path: &str,
+    ) -> std::path::PathBuf {
+        let mut path = self
+            .archive_cache
+            .join("assets")
+            .join(name.username.as_str());
+        for segment in name.unqual.split('/') {
+            path.push(segment);
+        }
+        path.push(version.to_string());
+        for segment in package_path
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+        {
+            path.push(segment);
+        }
+        path.push(wasm_artifact_name(name, package_path));
+        path
+    }
+
+    fn acquire_wasm_asset_with(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        package_path: &str,
+        user_log: &UserLog,
+        mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
+    ) -> anyhow::Result<std::path::PathBuf> {
+        validate_asset_package_path(name, package_path)?;
+        let url = self.endpoints.wasm_asset(name, version, package_path);
+        let checksum_url = format!("{url}.sha256");
+        let cache_path = self.wasm_asset_cache_file_of(name, version, package_path);
+
+        ensure_cached_wasm(&cache_path, user_log, |staged| {
+            let checksum_bytes = download(&checksum_url)?;
+            let expected_checksum = parse_sha256_checksum(&checksum_bytes)
+                .with_context(|| format!("invalid SHA-256 checksum from {checksum_url}"))?;
+            let bytes = download(&url)?;
+            let actual_checksum = sha256_hex(&bytes);
+            if actual_checksum != expected_checksum {
+                bail!(
+                    "prebuilt wasm checksum mismatch for {url}: expected {expected_checksum}, got {actual_checksum}"
+                );
+            }
+            std::fs::write(staged, bytes)
+                .with_context(|| format!("failed to write cache file {}", staged.display()))?;
+            Ok(())
+        })
     }
 }
 
-impl super::Registry for OnlineRegistry {
+fn log_sync_outcome(outcome: UpdateOutcome, user_log: &UserLog) {
+    match outcome.registry_index {
+        RegistryIndexUpdate::Cloned => user_log.status("Registry index cloned successfully"),
+        RegistryIndexUpdate::Updated => user_log.status("Registry index updated successfully"),
+        RegistryIndexUpdate::Recloned(reason) => {
+            let reason = match reason {
+                RegistryIndexRecloneReason::PullFailed => "Failed to update registry index",
+                RegistryIndexRecloneReason::RemoteMismatch => {
+                    "Registry index remote does not match the configured URL"
+                }
+                RegistryIndexRecloneReason::NotGitRepository => {
+                    "Registry index is not a Git repository"
+                }
+                RegistryIndexRecloneReason::MissingOrigin => "Registry index has no origin remote",
+            };
+            user_log.status(format!("{reason}, re-cloning"));
+            user_log.status("Registry index re-cloned successfully");
+        }
+        RegistryIndexUpdate::ConcurrentUpdateReused => {
+            user_log.status("Registry update already completed by another process");
+            return;
+        }
+    }
+    if outcome.symbols_updated {
+        user_log.status("Symbols updated successfully");
+    }
+}
+
+fn wasm_artifact_name(name: &ModuleName, package_path: &str) -> String {
+    let stem = if package_path.is_empty() {
+        name.last_segment()
+    } else {
+        package_path
+            .rsplit('/')
+            .next()
+            .expect("non-empty package path has a last segment")
+    };
+    format!("{stem}.wasm")
+}
+
+fn validate_asset_package_path(name: &ModuleName, package_path: &str) -> anyhow::Result<()> {
+    let coordinate = if package_path.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name}/{package_path}")
+    };
+    let parsed = super::path::parse_install_style_path(&coordinate)
+        .context("invalid registry asset package path")?;
+    if parsed.module != *name || parsed.package != package_path {
+        bail!("invalid registry asset package path");
+    }
+    Ok(())
+}
+
+fn download_registry_asset(
+    http: &reqwest::blocking::Client,
+    url: &str,
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<u8>> {
+    user_log.info(format!("Downloading {url}"));
+    let response = http
+        .get(url)
+        .send()
+        .with_context(|| format!("failed to download registry asset from {url}"))?;
+    if response.status() == StatusCode::NOT_FOUND {
+        bail!("Prebuilt wasm asset does not exist");
+    }
+    let data = response
+        .error_for_status()
+        .with_context(|| format!("registry asset download returned error status for {url}"))?
+        .bytes()
+        .with_context(|| format!("failed to read registry asset response from {url}"))?;
+    Ok(data.to_vec())
+}
+
+fn ensure_cached_wasm(
+    cache_path: &Path,
+    user_log: &UserLog,
+    produce: impl FnOnce(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<std::path::PathBuf> {
+    if cache_path.exists() {
+        user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
+        return Ok(cache_path.to_path_buf());
+    }
+
+    let parent = cache_path
+        .parent()
+        .context("registry cache path has no parent")?;
+    std::fs::create_dir_all(parent).with_context(|| {
+        format!(
+            "failed to create registry cache directory {}",
+            parent.display()
+        )
+    })?;
+    let _lock = FileLock::lock(parent)
+        .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
+
+    if cache_path.exists() {
+        user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
+        return Ok(cache_path.to_path_buf());
+    }
+
+    let staged = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create cache file in {}", parent.display()))?;
+    produce(staged.path())?;
+    staged
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("failed to sync cache file {}", staged.path().display()))?;
+    staged
+        .persist(cache_path)
+        .with_context(|| format!("failed to publish cached file to {}", cache_path.display()))?;
+    if let Ok(dir) = File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(cache_path.to_path_buf())
+}
+
+fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
+    let text = std::str::from_utf8(bytes).context("SHA-256 checksum is not valid UTF-8")?;
+    let checksum = text
+        .split_whitespace()
+        .next()
+        .context("SHA-256 checksum is empty")?;
+    if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("SHA-256 checksum must be a 64-character hex digest");
+    }
+    Ok(checksum.to_ascii_lowercase())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+impl super::Registry for RegistryClient {
     fn all_versions_of(
         &self,
         name: &ModuleName,
@@ -131,7 +409,9 @@ impl super::Registry for OnlineRegistry {
 
         Ok(res)
     }
+}
 
+impl super::RegistrySource for RegistryClient {
     fn acquire_source_to(
         &self,
         name: &ModuleName,
@@ -140,7 +420,7 @@ impl super::Registry for OnlineRegistry {
         to: &Path,
         user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        OnlineRegistry::acquire_source_to(self, name, version, expected_checksum, to, user_log)
+        RegistryClient::acquire_source_to(self, name, version, expected_checksum, to, user_log)
     }
 
     fn source_archive_checksum(
@@ -148,7 +428,7 @@ impl super::Registry for OnlineRegistry {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<String> {
-        self.read_checksum_from_index_file(name, version)
+        RegistryClient::source_archive_checksum(self, name, version)
     }
 }
 
@@ -243,7 +523,7 @@ fn persist_verified_archive(
     Ok(archive)
 }
 
-impl OnlineRegistry {
+impl RegistryClient {
     fn read_checksum_from_index_file(
         &self,
         name: &ModuleName,
@@ -310,10 +590,7 @@ impl OnlineRegistry {
             return Ok(archive);
         }
         user_log.status(format!("Downloading {name}@{version}"));
-        let filepath = form_urlencoded::Serializer::new(String::new())
-            .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
-            .finish();
-        let url = format!("{}/{}.zip", self.url_base, filepath);
+        let url = self.endpoints.package_archive(name, version);
         let client = reqwest::blocking::Client::new();
         let mut response = client
             .get(url)
@@ -325,6 +602,27 @@ impl OnlineRegistry {
             .error_for_status()?;
 
         persist_verified_archive(&mut response, &cache_file, name, version, expected_checksum)
+    }
+
+    /// Return the registry index's SHA-256 checksum for a published source archive.
+    pub fn source_archive_checksum(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<String> {
+        self.read_checksum_from_index_file(name, version)
+    }
+
+    /// Materialize verified published source without executing package hooks.
+    pub fn materialize_source_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        to: &Path,
+        user_log: &UserLog,
+    ) -> anyhow::Result<()> {
+        let checksum = self.source_archive_checksum(name, version)?;
+        self.acquire_source_to(name, version, &checksum, to, user_log)
     }
 
     /// Reuse or download, verify, and extract a registry package without
@@ -371,6 +669,9 @@ mod tests {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
+    use log::LevelFilter;
+    use moonutil::user_log::UserLogEntryLevel;
+
     use super::*;
     use crate::registry::Registry;
 
@@ -379,18 +680,313 @@ mod tests {
     }
 
     #[test]
-    fn official_registry_uses_download_service() {
+    fn registry_update_status_respects_quiet_user_log() {
+        let (user_log, capture) = UserLog::captured(LevelFilter::Error);
+
+        log_sync_outcome(
+            UpdateOutcome {
+                registry_index: RegistryIndexUpdate::Cloned,
+                symbols_updated: true,
+            },
+            &user_log,
+        );
+
+        assert!(capture.take().is_empty());
+    }
+
+    #[test]
+    fn registry_update_status_describes_reclone() {
+        let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
+
+        log_sync_outcome(
+            UpdateOutcome {
+                registry_index: RegistryIndexUpdate::Recloned(
+                    RegistryIndexRecloneReason::NotGitRepository,
+                ),
+                symbols_updated: true,
+            },
+            &user_log,
+        );
+
+        let entries = capture.take();
+        assert_eq!(entries.len(), 3);
+        assert!(
+            entries
+                .iter()
+                .all(|entry| matches!(entry.level, UserLogEntryLevel::Info))
+        );
         assert_eq!(
-            registry_download_base("https://mooncakes.io/"),
-            "https://download.mooncakes.io/user"
+            entries
+                .into_iter()
+                .map(|entry| entry.message)
+                .collect::<Vec<_>>(),
+            [
+                "Registry index is not a Git repository, re-cloning",
+                "Registry index re-cloned successfully",
+                "Symbols updated successfully",
+            ]
+        );
+    }
+
+    #[test]
+    fn registry_update_status_describes_concurrent_reuse() {
+        let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
+
+        log_sync_outcome(
+            UpdateOutcome {
+                registry_index: RegistryIndexUpdate::ConcurrentUpdateReused,
+                symbols_updated: true,
+            },
+            &user_log,
+        );
+
+        assert_eq!(
+            capture
+                .take()
+                .into_iter()
+                .map(|entry| entry.message)
+                .collect::<Vec<_>>(),
+            ["Registry update already completed by another process"]
+        );
+    }
+
+    #[test]
+    fn official_registry_uses_download_service() {
+        let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
+            registry: "https://mooncakes.io/".to_owned(),
+            index: String::new(),
+            symbols: None,
+        });
+        assert_eq!(
+            endpoints.package_archive(&"test/pkg".into(), &Version::new(1, 2, 3)),
+            "https://download.mooncakes.io/user/test%2Fpkg%2F1.2.3.zip"
         );
     }
 
     #[test]
     fn configured_registry_serves_package_downloads() {
+        let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
+            registry: "https://registry.example.com/".to_owned(),
+            index: String::new(),
+            symbols: None,
+        });
         assert_eq!(
-            registry_download_base("https://registry.example.com/"),
-            "https://registry.example.com/user"
+            endpoints.package_archive(&"test/pkg".into(), &Version::new(1, 2, 3)),
+            "https://registry.example.com/user/test%2Fpkg%2F1.2.3.zip"
+        );
+    }
+
+    fn asset_test_registry(sandbox: &tempfile::TempDir) -> RegistryClient {
+        RegistryClient::with_paths(
+            RegistryConfig {
+                registry: "https://mooncakes.io".to_owned(),
+                index: String::new(),
+                symbols: None,
+            },
+            sandbox.path().join("index"),
+            sandbox.path().join("cache"),
+        )
+    }
+
+    fn parser_module() -> ModuleName {
+        "moonbitlang/parser".into()
+    }
+
+    #[test]
+    fn wasm_asset_urls_are_internal_to_registry_client() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let registry = asset_test_registry(&sandbox);
+        let version = Version::new(0, 3, 3);
+
+        assert_eq!(
+            registry
+                .endpoints
+                .wasm_asset(&parser_module(), &version, "cmd/moonfmt"),
+            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm"
+        );
+        assert_eq!(
+            registry
+                .endpoints
+                .wasm_asset(&parser_module(), &version, ""),
+            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/parser.wasm"
+        );
+    }
+
+    #[test]
+    fn parse_wasm_asset_sha256sum_output() {
+        let checksum = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
+        assert_eq!(
+            parse_sha256_checksum(format!("{checksum}  moonfmt.wasm\n").as_bytes()).unwrap(),
+            checksum.to_ascii_lowercase()
+        );
+        assert!(parse_sha256_checksum(b"not-a-checksum").is_err());
+        assert!(parse_sha256_checksum(b"").is_err());
+    }
+
+    #[test]
+    fn wasm_asset_cache_miss_downloads_checksum_and_wasm() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let registry = asset_test_registry(&sandbox);
+        let wasm = b"\0asmtest".to_vec();
+        let checksum = sha256_hex(&wasm);
+        let mut urls = Vec::new();
+        let path = registry
+            .acquire_wasm_asset_with(
+                &parser_module(),
+                &Version::new(0, 3, 3),
+                "cmd/moonfmt",
+                &quiet_user_log(),
+                |url| {
+                    urls.push(url.to_owned());
+                    if url.ends_with(".sha256") {
+                        Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
+                    } else {
+                        Ok(wasm.clone())
+                    }
+                },
+            )
+            .unwrap();
+
+        assert_eq!(std::fs::read(path).unwrap(), b"\0asmtest");
+        assert_eq!(
+            urls,
+            [
+                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm.sha256",
+                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm",
+            ]
+        );
+    }
+
+    #[test]
+    fn wasm_asset_cache_hit_does_not_download() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let registry = asset_test_registry(&sandbox);
+        let name = parser_module();
+        let version = Version::new(0, 3, 3);
+        let cache_path = registry.wasm_asset_cache_file_of(&name, &version, "cmd/moonfmt");
+        std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        std::fs::write(&cache_path, b"\0asmtest").unwrap();
+
+        let path = registry
+            .acquire_wasm_asset_with(&name, &version, "cmd/moonfmt", &quiet_user_log(), |_| {
+                bail!("cache hit should not download")
+            })
+            .unwrap();
+
+        assert_eq!(path, cache_path);
+        assert!(
+            !cache_path
+                .parent()
+                .unwrap()
+                .join(moonutil::constants::MOON_LOCK)
+                .exists()
+        );
+    }
+
+    #[test]
+    fn concurrent_wasm_asset_cache_misses_download_once() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let index = sandbox.path().join("index");
+        let cache = sandbox.path().join("cache");
+        let start = Arc::new(Barrier::new(3));
+        let download_count = Arc::new(AtomicUsize::new(0));
+        let wasm = b"\0asmtest".to_vec();
+        let checksum = sha256_hex(&wasm);
+
+        let threads = (0..2)
+            .map(|_| {
+                let registry = RegistryClient::with_paths(
+                    RegistryConfig {
+                        registry: "https://mooncakes.io".to_owned(),
+                        index: String::new(),
+                        symbols: None,
+                    },
+                    index.clone(),
+                    cache.clone(),
+                );
+                let start = Arc::clone(&start);
+                let download_count = Arc::clone(&download_count);
+                let wasm = wasm.clone();
+                let checksum = checksum.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    registry.acquire_wasm_asset_with(
+                        &parser_module(),
+                        &Version::new(0, 3, 3),
+                        "cmd/moonfmt",
+                        &quiet_user_log(),
+                        |url| {
+                            if url.ends_with(".sha256") {
+                                download_count.fetch_add(1, Ordering::SeqCst);
+                                std::thread::sleep(Duration::from_millis(50));
+                                Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
+                            } else {
+                                Ok(wasm.clone())
+                            }
+                        },
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        start.wait();
+
+        for thread in threads {
+            assert_eq!(
+                std::fs::read(thread.join().unwrap().unwrap()).unwrap(),
+                b"\0asmtest"
+            );
+        }
+        assert_eq!(download_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn wasm_asset_checksum_mismatch_is_not_cached() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let registry = asset_test_registry(&sandbox);
+        let name = parser_module();
+        let version = Version::new(0, 3, 3);
+        let expected_checksum = sha256_hex(b"expected wasm");
+
+        let error = registry
+            .acquire_wasm_asset_with(&name, &version, "cmd/moonfmt", &quiet_user_log(), |url| {
+                if url.ends_with(".sha256") {
+                    Ok(format!("{expected_checksum}\n").into_bytes())
+                } else {
+                    Ok(b"different wasm".to_vec())
+                }
+            })
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("prebuilt wasm checksum mismatch")
+        );
+        assert!(
+            !registry
+                .wasm_asset_cache_file_of(&name, &version, "cmd/moonfmt")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn wasm_asset_rejects_unvalidated_package_paths() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let registry = asset_test_registry(&sandbox);
+        let error = registry
+            .acquire_wasm_asset_with(
+                &parser_module(),
+                &Version::new(0, 3, 3),
+                "../escape",
+                &quiet_user_log(),
+                |_| bail!("invalid paths must fail before downloading"),
+            )
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("invalid registry asset package path")
         );
     }
 
@@ -405,7 +1001,7 @@ mod tests {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let unavailable_address = listener.local_addr().unwrap();
             drop(listener);
-            registry.url_base = format!("http://{unavailable_address}");
+            registry.endpoints.packages = format!("http://{unavailable_address}");
 
             registry
                 .acquire_source_to(
@@ -499,7 +1095,7 @@ mod tests {
         );
     }
 
-    fn test_registry(sandbox: &tempfile::TempDir) -> (OnlineRegistry, ModuleName, Version) {
+    fn test_registry(sandbox: &tempfile::TempDir) -> (RegistryClient, ModuleName, Version) {
         let name: ModuleName = "test/module".into();
         let version = Version::new(1, 2, 3);
         let index = sandbox.path().join("index");
@@ -507,12 +1103,15 @@ mod tests {
         std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
         std::fs::write(&index_file, "registry entry exists").unwrap();
         (
-            OnlineRegistry {
+            RegistryClient::with_paths(
+                RegistryConfig {
+                    registry: String::new(),
+                    index: String::new(),
+                    symbols: None,
+                },
                 index,
-                url_base: String::new(),
-                archive_cache: sandbox.path().join("archive-cache"),
-                cache: RefCell::new(HashMap::new()),
-            },
+                sandbox.path().join("archive-cache"),
+            ),
             name,
             version,
         )
@@ -662,12 +1261,15 @@ mod tests {
                 let destination = sandbox.path().join(format!("source-{client}"));
                 let barrier = Arc::clone(&barrier);
                 std::thread::spawn(move || {
-                    let registry = OnlineRegistry {
+                    let registry = RegistryClient::with_paths(
+                        RegistryConfig {
+                            registry: url_base,
+                            index: String::new(),
+                            symbols: None,
+                        },
                         index,
-                        url_base,
                         archive_cache,
-                        cache: RefCell::new(HashMap::new()),
-                    };
+                    );
                     barrier.wait();
                     registry.acquire_source_to(
                         &name,
@@ -796,12 +1398,15 @@ mod tests {
         )
         .unwrap();
 
-        let registry = OnlineRegistry {
-            index: index.clone(),
-            url_base: String::new(),
-            archive_cache: index.join("archive-cache"),
-            cache: RefCell::new(HashMap::new()),
-        };
+        let registry = RegistryClient::with_paths(
+            RegistryConfig {
+                registry: String::new(),
+                index: String::new(),
+                symbols: None,
+            },
+            index.clone(),
+            index.join("archive-cache"),
+        );
         let versions = registry
             .all_versions_of(&ModuleName {
                 username: "bobzhang".into(),

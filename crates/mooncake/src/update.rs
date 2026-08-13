@@ -70,7 +70,7 @@ impl std::fmt::Display for CommandOutput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegistryIndexRecloneReason {
+pub(crate) enum RegistryIndexRecloneReason {
     PullFailed,
     RemoteMismatch,
     NotGitRepository,
@@ -78,7 +78,7 @@ pub enum RegistryIndexRecloneReason {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegistryIndexUpdate {
+pub(crate) enum RegistryIndexUpdate {
     Cloned,
     Updated,
     Recloned(RegistryIndexRecloneReason),
@@ -86,7 +86,7 @@ pub enum RegistryIndexUpdate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UpdateOutcome {
+pub(crate) struct UpdateOutcome {
     pub registry_index: RegistryIndexUpdate,
     /// Whether the best-effort symbols update succeeded.
     ///
@@ -670,7 +670,7 @@ fn run_registry_update_locked(
     Ok(outcome)
 }
 
-pub fn update(
+pub(crate) fn sync(
     target_dir: &Path,
     registry_config: &RegistryConfig,
     user_log: &UserLog,
@@ -681,7 +681,8 @@ pub fn update(
     std::fs::create_dir_all(registry_dir)
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
     let observed = observe_registry_update_state(registry_dir);
-    let registry_identity = format!("{:x}", Sha256::digest(registry_config.index.as_bytes()));
+    let symbols_url = registry_config.symbols.as_deref().unwrap_or(SYMBOLS_URL);
+    let registry_identity = registry_identity(&registry_config.index, symbols_url);
 
     run_registry_update_locked(
         registry_dir,
@@ -691,7 +692,7 @@ pub fn update(
         |previous_etag| {
             let registry_index = update_registry_index(target_dir, registry_config, user_log)?;
             let (symbols_updated, symbols_etag) =
-                match update_symbols_from_url(registry_dir, SYMBOLS_URL, previous_etag) {
+                match update_symbols_from_url(registry_dir, symbols_url, previous_etag) {
                     Ok(etag) => (true, etag),
                     Err(e) => {
                         user_log.warn(format!("failed to update symbols: {e:#}"));
@@ -708,6 +709,14 @@ pub fn update(
             ))
         },
     )
+}
+
+fn registry_identity(index_url: &str, symbols_url: &str) -> String {
+    let mut identity = Sha256::new();
+    identity.update(index_url.as_bytes());
+    identity.update([0]);
+    identity.update(symbols_url.as_bytes());
+    format!("{:x}", identity.finalize())
 }
 
 fn update_registry_index(
@@ -778,6 +787,7 @@ mod tests {
             RegistryConfig {
                 registry: index.clone(),
                 index,
+                symbols: None,
             },
         )
     }
@@ -850,6 +860,7 @@ mod tests {
             RegistryConfig {
                 registry: index.clone(),
                 index,
+                symbols: None,
             },
         )
     }
@@ -859,6 +870,19 @@ mod tests {
             registry_index: RegistryIndexUpdate::Updated,
             symbols_updated: true,
         }
+    }
+
+    #[test]
+    fn registry_update_identity_covers_index_and_symbols() {
+        let identity = registry_identity("https://registry.invalid/index", "https://a/symbols");
+        assert_ne!(
+            identity,
+            registry_identity("https://other.invalid/index", "https://a/symbols")
+        );
+        assert_ne!(
+            identity,
+            registry_identity("https://registry.invalid/index", "https://b/symbols")
+        );
     }
 
     struct TestHttpResponse {

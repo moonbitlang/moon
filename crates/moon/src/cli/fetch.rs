@@ -18,11 +18,13 @@
 
 use anyhow::bail;
 use colored::Colorize;
-use mooncake::{pkg::legacy_postadd, registry::Registry};
+use mooncake::{
+    pkg::legacy_postadd,
+    registry::{Registry, RegistryClient},
+};
 use moonutil::{
     child_process::{ChildOutputMode, ManagedChildRunner},
     project::PackageDirs,
-    registry::RegistryConfig,
     resolution::ModuleName,
     user_log::UserLog,
 };
@@ -49,16 +51,14 @@ pub(crate) fn fetch_cli(
     cmd: FetchSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let index_dir = moonutil::registry::index();
+    let registry = RegistryClient::configured();
     let mut index_updated = false;
 
     if !cmd.no_update {
-        let had_index = index_dir.exists();
-        let registry_config = RegistryConfig::load();
-        match mooncake::update::update(&index_dir, &registry_config, user_log) {
-            Ok(outcome) => {
+        let had_index = registry.has_cached_index();
+        match registry.sync(user_log) {
+            Ok(()) => {
                 index_updated = true;
-                super::log_registry_update(outcome, user_log);
             }
             Err(e) => {
                 if had_index {
@@ -85,8 +85,6 @@ pub(crate) fn fetch_cli(
         username: username.into(),
         unqual: pkgname.into(),
     };
-
-    let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
 
     let version = if parts.len() == 2 {
         let version_str = parts[1];

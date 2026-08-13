@@ -232,8 +232,8 @@ fn format_resolver_errors(errors: &[ResolverError]) -> String {
         .join("\n")
 }
 
-pub(crate) struct ResolveConfig {
-    pub(crate) registry: Box<dyn Registry>,
+pub(crate) struct ResolveConfig<'a> {
+    pub(crate) registry: &'a dyn Registry,
     pub(crate) inject_std: bool,
 }
 
@@ -243,7 +243,7 @@ pub(crate) fn resolve_with_default_env(
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ResolvedEnv, ResolverErrors> {
-    let mut env = env::ResolverEnv::new(config.registry.as_ref());
+    let mut env = env::ResolverEnv::new(config.registry);
     let mut res = ResolvedEnv::from_root_modules(root);
 
     if config.inject_std {

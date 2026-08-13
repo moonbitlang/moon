@@ -88,9 +88,10 @@ update/retry path.
 
 Version resolution and wasm asset caching are separate.
 
-Once a version is resolved, `runwasm` computes the asset URL and cache path for
-that exact module version and package path. A cache hit runs the cached wasm.
-A cache miss downloads and verifies the wasm asset.
+Once a version is resolved, `runwasm` asks `RegistryClient` to acquire the
+asset for that exact module version and package path. The client owns the
+transport URL, checksum verification, cache path, and atomic cache publication.
+A cache hit runs the cached wasm; a cache miss downloads and verifies it first.
 
 An asset cache miss does not trigger registry update. At that point the version
 has already been resolved.

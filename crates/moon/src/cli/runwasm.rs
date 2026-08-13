@@ -18,14 +18,12 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, bail};
+use anyhow::bail;
+use mooncake::registry::RegistryClient;
 use moonutil::{
     cli_support::AutoSyncFlags, cli_support::UniversalFlags, command_output::CommandOutput,
-    constants::is_moon_pkg_exist, registry::RegistryConfig, target::SurfaceTarget,
-    user_log::UserLog,
+    constants::is_moon_pkg_exist, target::SurfaceTarget, user_log::UserLog,
 };
-use reqwest::StatusCode;
-use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use super::{BuildFlags, RunSubcommand, registry_runner::ResolvedExecutablePackage};
@@ -71,46 +69,6 @@ pub(crate) struct RunWasmSubcommand {
     pub args: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ResolvedRunWasmAsset {
-    url: String,
-    checksum_url: String,
-    cache_path: PathBuf,
-}
-
-struct RegistryAssetClient<'a> {
-    http: reqwest::blocking::Client,
-    user_log: &'a UserLog,
-}
-
-impl<'a> RegistryAssetClient<'a> {
-    fn new(user_log: &'a UserLog) -> anyhow::Result<Self> {
-        let http = reqwest::blocking::Client::builder()
-            .user_agent(format!("moon/{}", env!("CARGO_PKG_VERSION")))
-            .build()
-            .context("failed to create registry asset HTTP client")?;
-        Ok(Self { http, user_log })
-    }
-
-    fn download(&self, url: &str) -> anyhow::Result<Vec<u8>> {
-        self.user_log.info(format!("Downloading {url}"));
-        let response = self
-            .http
-            .get(url)
-            .send()
-            .with_context(|| format!("failed to download registry asset from {url}"))?;
-        if response.status() == StatusCode::NOT_FOUND {
-            bail!("Prebuilt wasm asset does not exist");
-        }
-        let data = response
-            .error_for_status()
-            .with_context(|| format!("registry asset download returned error status for {url}"))?
-            .bytes()
-            .with_context(|| format!("failed to read registry asset response from {url}"))?;
-        Ok(data.to_vec())
-    }
-}
-
 #[instrument(skip_all)]
 pub(crate) fn run_runwasm(
     cli: &UniversalFlags,
@@ -142,30 +100,12 @@ pub(super) fn cached_wasm_path(
     package: &ResolvedExecutablePackage,
     user_log: &UserLog,
 ) -> anyhow::Result<PathBuf> {
-    let registry_config = RegistryConfig::load();
-    let asset = resolve_wasm_asset(package, &registry_config.registry);
-    ensure_cached_wasm(&asset, user_log)
-}
-
-fn resolve_wasm_asset(package: &ResolvedExecutablePackage, registry: &str) -> ResolvedRunWasmAsset {
-    let artifact_name = package.artifact_name(".wasm");
-    let base = registry.trim_end_matches('/');
-    let module = package.module_name.to_string();
-    let url = if package.package_path.is_empty() {
-        format!("{base}/assets/{module}@{}/{artifact_name}", package.version)
-    } else {
-        format!(
-            "{base}/assets/{module}@{}/{}/{}",
-            package.version, package.package_path, artifact_name
-        )
-    };
-
-    let checksum_url = format!("{url}.sha256");
-    ResolvedRunWasmAsset {
-        url,
-        checksum_url,
-        cache_path: package.cache_path(".wasm"),
-    }
+    RegistryClient::configured().acquire_wasm_asset(
+        &package.module_name,
+        &package.version,
+        &package.package_path,
+        user_log,
+    )
 }
 
 fn should_run_as_local_package(input: &str) -> anyhow::Result<bool> {
@@ -198,63 +138,9 @@ fn runwasm_as_run_subcommand(cmd: RunWasmSubcommand) -> RunSubcommand {
     }
 }
 
-fn ensure_cached_wasm(asset: &ResolvedRunWasmAsset, user_log: &UserLog) -> anyhow::Result<PathBuf> {
-    let client = RegistryAssetClient::new(user_log)?;
-    ensure_cached_wasm_with(asset, user_log, |url| client.download(url))
-}
-
-fn ensure_cached_wasm_with(
-    asset: &ResolvedRunWasmAsset,
-    user_log: &UserLog,
-    mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
-) -> anyhow::Result<PathBuf> {
-    super::registry_runner::ensure_cached_file(&asset.cache_path, user_log, |staged| {
-        let checksum_bytes = download(&asset.checksum_url)?;
-        let expected_checksum = parse_sha256_checksum(&checksum_bytes)
-            .with_context(|| format!("invalid SHA-256 checksum from {}", asset.checksum_url))?;
-        let bytes = download(&asset.url)?;
-        let actual_checksum = sha256_hex(&bytes);
-        if actual_checksum != expected_checksum {
-            bail!(
-                "prebuilt wasm checksum mismatch for {}: expected {}, got {}",
-                asset.url,
-                expected_checksum,
-                actual_checksum
-            );
-        }
-        std::fs::write(staged, bytes)
-            .with_context(|| format!("failed to write cache file {}", staged.display()))?;
-        Ok(())
-    })
-}
-
-fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
-    let text = std::str::from_utf8(bytes).context("SHA-256 checksum is not valid UTF-8")?;
-    let checksum = text
-        .split_whitespace()
-        .next()
-        .context("SHA-256 checksum is empty")?;
-    if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        bail!("SHA-256 checksum must be a 64-character hex digest");
-    }
-    Ok(checksum.to_ascii_lowercase())
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn resolved(package_path: &str) -> ResolvedExecutablePackage {
-        ResolvedExecutablePackage {
-            module_name: "moonbitlang/parser".parse().unwrap(),
-            package_path: package_path.to_string(),
-            version: "0.3.3".parse().unwrap(),
-        }
-    }
 
     #[test]
     fn local_package_paths_are_run_locally() {
@@ -284,112 +170,5 @@ mod tests {
         assert!(!should_run_as_local_package("missing.mbt").unwrap());
         assert!(!should_run_as_local_package("missing.mbtx").unwrap());
         assert!(!should_run_as_local_package("missing.wasm").unwrap());
-    }
-
-    #[test]
-    fn build_asset_url() {
-        let resolved = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io/");
-        assert_eq!(
-            resolved.url,
-            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm"
-        );
-        assert_eq!(
-            resolved.checksum_url,
-            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm.sha256"
-        );
-    }
-
-    #[test]
-    fn build_root_asset_url() {
-        let resolved = resolve_wasm_asset(&resolved(""), "https://mooncakes.io");
-        assert_eq!(
-            resolved.url,
-            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/parser.wasm"
-        );
-    }
-
-    #[test]
-    fn parse_sha256sum_output() {
-        let checksum = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
-        assert_eq!(
-            parse_sha256_checksum(format!("{checksum}  moonfmt.wasm\n").as_bytes()).unwrap(),
-            checksum.to_ascii_lowercase()
-        );
-        assert!(parse_sha256_checksum(b"not-a-checksum").is_err());
-        assert!(parse_sha256_checksum(b"").is_err());
-    }
-
-    #[test]
-    fn cache_miss_downloads_checksum_and_writes_file() {
-        let cache_dir = tempfile::TempDir::new().unwrap();
-        let mut asset = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io");
-        asset.cache_path = cache_dir.path().join("moonfmt.wasm");
-        let wasm = b"\0asmtest".to_vec();
-        let checksum = sha256_hex(&wasm);
-        let mut urls = Vec::new();
-        let user_log = UserLog::new(log::LevelFilter::Warn);
-        let path = ensure_cached_wasm_with(&asset, &user_log, |url| {
-            urls.push(url.to_string());
-            if url.ends_with(".sha256") {
-                Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
-            } else {
-                Ok(wasm.clone())
-            }
-        })
-        .unwrap();
-        assert_eq!(std::fs::read(path).unwrap(), b"\0asmtest");
-        assert!(!cache_dir.path().join("moonfmt.wasm.sha256").exists());
-        assert_eq!(
-            urls,
-            [
-                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm.sha256",
-                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm",
-            ]
-        );
-    }
-
-    #[test]
-    fn cache_hit_uses_existing_wasm_without_downloading() {
-        let cache_dir = tempfile::TempDir::new().unwrap();
-        let mut asset = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io");
-        asset.cache_path = cache_dir.path().join("moonfmt.wasm");
-        let wasm = b"\0asmtest";
-        std::fs::write(&asset.cache_path, wasm).unwrap();
-
-        let user_log = UserLog::new(log::LevelFilter::Warn);
-        let path = ensure_cached_wasm_with(&asset, &user_log, |_| {
-            bail!("cache hit should not download")
-        })
-        .unwrap();
-
-        assert_eq!(path, asset.cache_path);
-        assert!(
-            !cache_dir
-                .path()
-                .join(moonutil::constants::MOON_LOCK)
-                .exists()
-        );
-    }
-
-    #[test]
-    fn checksum_mismatch_rejects_download() {
-        let cache_dir = tempfile::TempDir::new().unwrap();
-        let mut asset = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io");
-        asset.cache_path = cache_dir.path().join("moonfmt.wasm");
-        let expected_checksum = sha256_hex(b"expected wasm");
-
-        let user_log = UserLog::new(log::LevelFilter::Warn);
-        let err = ensure_cached_wasm_with(&asset, &user_log, |url| {
-            if url.ends_with(".sha256") {
-                Ok(format!("{expected_checksum}\n").into_bytes())
-            } else {
-                Ok(b"different wasm".to_vec())
-            }
-        })
-        .unwrap_err()
-        .to_string();
-
-        assert!(err.contains("prebuilt wasm checksum mismatch"));
-        assert!(!asset.cache_path.exists());
     }
 }

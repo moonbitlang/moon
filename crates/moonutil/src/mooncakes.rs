@@ -603,6 +603,8 @@ pub struct Credentials {
 pub struct RegistryConfig {
     pub registry: String,
     pub index: String,
+    #[serde(default)]
+    pub symbols: Option<String>,
 }
 
 impl RegistryConfig {
@@ -610,12 +612,14 @@ impl RegistryConfig {
         if let Ok(v) = std::env::var("MOONCAKES_REGISTRY") {
             RegistryConfig {
                 index: format!("{v}/git/index"),
+                symbols: Some(format!("{v}/symbols.zip")),
                 registry: v,
             }
         } else {
             RegistryConfig {
                 registry: "https://mooncakes.io".into(),
                 index: "https://mooncakes.io/git/index".into(),
+                symbols: None,
             }
         }
     }

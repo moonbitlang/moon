@@ -63,8 +63,9 @@ pub fn remove(
     let m = Arc::new(m);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
 
+    let registry = registry::default_registry();
     let resolve_cfg = ResolveConfig {
-        registry: registry::default_registry(),
+        registry: &registry,
         inject_std: false, // no need to inject
     };
     resolve_with_default_env_and_resolver(&resolve_cfg, roots, user_log)?;
