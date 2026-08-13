@@ -24,23 +24,11 @@ pub(crate) const DEMANGLE_JS_TEMPLATE: &str = include_str!(concat!(
 #[cfg(test)]
 mod tests {
     use super::DEMANGLE_JS_TEMPLATE;
-    use std::sync::Once;
 
     const DEMANGLE_FN_NAME: &str = "__moonbit_demangle_mangled_function_name";
 
-    fn init_v8_once() {
-        static INIT: Once = Once::new();
-        INIT.call_once(|| {
-            v8::V8::set_flags_from_string("--experimental-wasm-exnref");
-            v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
-            let platform = v8::new_default_platform(0, false).make_shared();
-            v8::V8::initialize_platform(platform);
-            v8::V8::initialize();
-        });
-    }
-
     fn run_demangle_in_v8(input: &str) -> String {
-        init_v8_once();
+        crate::v8_backend::initialize(&crate::RuntimeConfig::default()).unwrap();
         let isolate = &mut v8::Isolate::new(Default::default());
         let scope = &mut v8::HandleScope::new(isolate);
         let context = v8::Context::new(scope, Default::default());

@@ -25,6 +25,34 @@ To run a WebAssembly file:
 ./target/debug/moonrun path/to/your/file.wasm
 ```
 
+## Rust library
+
+Moonrun also exposes an experimental Rust library interface. It runs each Wasm
+file with fresh per-run state and returns guest termination as data instead of
+terminating the embedding process:
+
+```rust
+use moonrun::{RunOptions, RunOutcome, Runtime};
+
+let outcome = Runtime::default()
+    .run_file(
+        "path/to/file.wasm",
+        RunOptions::default().with_args(["arg"]),
+    )
+    .unwrap();
+
+match outcome {
+    RunOutcome::Completed => {}
+    RunOutcome::Exited(code) => eprintln!("guest exited with {code}"),
+    RunOutcome::KilledBySignal(signal) => eprintln!("guest requested signal {signal}"),
+}
+```
+
+The current implementation remains V8-backed and still inherits process stdio,
+environment, working directory, and signal compatibility behavior. These are
+not yet isolated embedding inputs. Concurrent runs are also not yet part of the
+interface contract.
+
 ## Memory Leak Reporting
 
 When a program uses `moonbit:ffi/memory-sanitizer`, `moonrun` reports objects

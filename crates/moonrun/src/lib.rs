@@ -16,24 +16,28 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::context::ImportContext;
-use super::provenance::ported_imports;
-use crate::async_sys::signal;
-use crate::run_termination::RunTermination;
+//! Embeddable execution support for MoonBit Wasm programs.
+//!
+//! The interface is experimental. It currently separates guest termination
+//! from host-process termination, while retaining Moonrun's existing V8 and
+//! process-scoped host integrations.
 
-pub(super) fn exit(context: &mut ImportContext<'_, '_>, code: i32) {
-    context.request_termination(RunTermination::Exit(code))
-}
+mod async_api;
+mod async_host;
+mod async_policy;
+mod async_sys;
+mod backtrace_api;
+mod demangle_js_template;
+mod fs_api_temp;
+mod host_fs;
+mod host_imports;
+mod memory_sanitizer_api;
+mod run_termination;
+mod runtime;
+mod sys_api;
+mod util;
+mod v8_backend;
+mod v8_builder;
+mod wasi_api;
 
-ported_imports! {
-#[ported(
-    source = "src/internal/event_loop/signal.c",
-    original = "moonbitlang_async_terminate_process_by_signal"
-)]
-pub(super) fn terminate_process_by_signal(
-    context: &mut ImportContext<'_, '_>,
-    signal: i32,
-) {
-    context.request_termination(signal::terminate_process_by_signal(signal))
-}
-}
+pub use runtime::{RunOptions, RunOutcome, Runtime, RuntimeConfig};

@@ -367,6 +367,30 @@ fn test_moonrun_exits_with_guest_exit_code() {
 }
 
 #[test]
+fn moonrun_library_returns_guest_exit_without_terminating_embedder() {
+    let dir = TestDir::new("test_cli_args.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    let wasm = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    let runtime = moonrun::Runtime::default();
+    let options = || moonrun::RunOptions::default().with_args(["exit-7"]);
+
+    assert_eq!(
+        runtime.run_file(&wasm, options()).unwrap(),
+        moonrun::RunOutcome::Exited(7)
+    );
+    assert_eq!(
+        runtime.run_file(&wasm, options()).unwrap(),
+        moonrun::RunOutcome::Exited(7)
+    );
+}
+
+#[test]
 fn test_moonrun_async_host_exit_returns_guest_exit_code() {
     let dir = TestDir::new("test_async_exit.in");
 

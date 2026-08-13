@@ -16,540 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::Context;
 use clap::Parser;
-use std::any::Any;
-use std::io::{self, Write};
-use std::path::Path;
-use std::sync::Arc;
-use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
-use v8::V8::set_flags_from_string;
-
-mod async_api;
-mod async_host;
-mod async_policy;
-mod async_sys;
-mod backtrace_api;
-mod demangle_js_template;
-mod fs_api_temp;
-mod host_fs;
-mod memory_sanitizer_api;
-mod run_termination;
-mod sys_api;
-mod util;
-mod v8_builder;
-mod wasi_api;
-
-use rand::Rng;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use v8_builder::{ArgsExt, ObjectExt, ScopeExt};
-
-const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
-
-#[derive(Default)]
-struct PrintEnv {
-    dangling_high_half: Cell<Option<u32>>,
-}
-
-fn now(
-    scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = v8::Array::new(scope, 1);
-
-    let now = std::time::SystemTime::now();
-    let duration = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards");
-
-    let secs = v8::Number::new(scope, duration.as_millis() as f64).into();
-    result.set_index(scope, 0, secs).unwrap();
-
-    ret.set(result.into());
-}
-
-fn instant_now(
-    scope: &mut v8::HandleScope,
-    mut args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let now = Box::new(Instant::now());
-    let ptr = Box::<Instant>::leak(now) as *mut Instant;
-    let weak_rc = std::rc::Rc::new(std::cell::Cell::new(None));
-    let weak = v8::Weak::with_finalizer(
-        unsafe { args.get_isolate() },
-        v8::External::new(scope, ptr as *mut std::ffi::c_void),
-        Box::new({
-            let weak_rc = weak_rc.clone();
-            move |isolate| unsafe {
-                drop(Box::from_raw(ptr));
-                drop(v8::Weak::from_raw(isolate, weak_rc.get()));
-            }
-        }),
-    );
-    let local = weak.to_local(scope).unwrap();
-    weak_rc.set(weak.into_raw());
-    ret.set(local.into());
-}
-
-fn instant_elapsed_as_secs_f64(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let arg = args.get(0);
-    let instant: v8::Local<v8::External> = arg.try_into().unwrap();
-    let instant = unsafe { &*(instant.value() as *mut Instant) };
-    let elapsed = instant.elapsed().as_secs_f64();
-    ret.set(v8::Number::new(scope, elapsed).into());
-}
-
-fn print_char(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let print_env = {
-        let data = args.data();
-        assert!(data.is_external());
-        let data: v8::Local<v8::Data> = data.into();
-        let ptr = v8::Local::<v8::External>::try_from(data).unwrap().value();
-        unsafe { &*(ptr as *const PrintEnv) }
-    };
-
-    let arg = args.get(0);
-    let c = arg.integer_value(scope).unwrap() as u32;
-    if (0xd800..=0xdbff).contains(&c) {
-        // high surrogate
-        let high = c - 0xd800;
-        if print_env.dangling_high_half.get().is_some() {
-            // Print previous char as invalid unicode
-            print!("{}", std::char::from_u32(0xfffd).unwrap());
-        }
-        print_env.dangling_high_half.set(Some(high));
-    } else {
-        let c = {
-            if (0xdc00..=0xdfff).contains(&c) {
-                // low surrogate
-                if let Some(high) = print_env.dangling_high_half.take() {
-                    0x10000 + (high << 10) + (c - 0xdc00)
-                } else {
-                    0xfffd
-                }
-            } else {
-                c
-            }
-        };
-        let c = std::char::from_u32(c).unwrap();
-        print!("{c}");
-    }
-    ret.set_undefined()
-}
-
-fn console_elog(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let arg = args.string_lossy(scope, 0);
-    eprintln!("{arg}");
-}
-
-fn console_log(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let arg = args.string_lossy(scope, 0);
-    println!("{arg}");
-}
-
-pub fn get_array_buffer_ptr(ab: v8::Local<v8::ArrayBuffer>) -> *mut u8 {
-    unsafe { std::mem::transmute(ab.data()) }
-}
-
-fn read_utf8_char() -> io::Result<Option<char>> {
-    let mut buffer = [0; 4];
-    let stdin = io::stdin();
-    let mut handle = stdin.lock();
-
-    let size = handle.read(&mut buffer[0..1])?;
-    if size == 0 {
-        return Ok(None);
-    }
-
-    let num_bytes = match buffer[0] {
-        0..=0x7F => 1,
-        0xC0..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF7 => 4,
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid UTF-8 first byte",
-            ));
-        }
-    };
-
-    if num_bytes > 1 {
-        handle.read_exact(&mut buffer[1..num_bytes])?;
-    }
-
-    let char = std::str::from_utf8(&buffer[..num_bytes])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
-        .chars()
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no character found"))?;
-
-    Ok(Some(char))
-}
-
-fn read_char(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = read_utf8_char();
-    match result {
-        Ok(Some(c)) => {
-            ret.set_int32(c as i32);
-        }
-        _ => ret.set_int32(-1),
-    }
-}
-
-fn read_bytes_from_stdin(
-    scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let mut buffer = Vec::new();
-    let stdin = io::stdin();
-    let mut handle = stdin.lock();
-
-    let size = handle.read_to_end(&mut buffer).unwrap();
-
-    if size == 0 {
-        let empty_array_buffer = v8::ArrayBuffer::new(scope, 0);
-        let empty_uint8_array = v8::Uint8Array::new(scope, empty_array_buffer, 0, 0).unwrap();
-        ret.set(empty_uint8_array.into());
-    } else {
-        let array_buffer = v8::ArrayBuffer::new(scope, size);
-        let uint8_array = v8::Uint8Array::new(scope, array_buffer, 0, size).unwrap();
-        unsafe {
-            std::ptr::copy(buffer.as_ptr(), get_array_buffer_ptr(array_buffer), size);
-        }
-        ret.set(uint8_array.into());
-    }
-}
-
-fn read_file_to_bytes(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let path = PathBuf::from(args.string_lossy(scope, 0));
-    let Ok(bytes) = std::fs::read(path) else {
-        ret.set_undefined();
-        return;
-    };
-    let buffer = v8::ArrayBuffer::new(scope, bytes.len());
-    let Some(ab) = v8::Uint8Array::new(scope, buffer, 0, bytes.len()) else {
-        ret.set_undefined();
-        return;
-    };
-
-    unsafe {
-        std::ptr::copy(bytes.as_ptr(), get_array_buffer_ptr(buffer), bytes.len());
-    }
-
-    ret.set(ab.into());
-}
-
-fn write_char(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let fd = args.get(0).int32_value(scope).unwrap();
-    let c = args.get(1).integer_value(scope).unwrap() as u32;
-    let c = std::char::from_u32(c).unwrap();
-    match fd {
-        1 => print!("{c}"),
-        2 => eprint!("{c}"),
-        _ => {}
-    }
-}
-
-fn flush(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let fd = args.get(0).int32_value(scope).unwrap();
-    match fd {
-        1 => std::io::stdout().flush().unwrap(),
-        2 => std::io::stderr().flush().unwrap(),
-        _ => {}
-    }
-}
-
-fn stdrng_seed_from_u64(
-    scope: &mut v8::HandleScope,
-    mut args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let seed = args.get(0).int32_value(scope).unwrap_or(0) as u64;
-    let rng = Box::new(StdRng::seed_from_u64(seed));
-    let ptr = Box::<StdRng>::leak(rng) as *mut StdRng;
-    let weak_rc = std::rc::Rc::new(std::cell::Cell::new(None));
-    let weak = v8::Weak::with_finalizer(
-        unsafe { args.get_isolate() },
-        v8::External::new(scope, ptr as *mut std::ffi::c_void),
-        Box::new({
-            let weak_rc = weak_rc.clone();
-            move |isolate| unsafe {
-                drop(Box::from_raw(ptr));
-                drop(v8::Weak::from_raw(isolate, weak_rc.get()));
-            }
-        }),
-    );
-    let local = weak.to_local(scope).unwrap();
-    weak_rc.set(weak.into_raw());
-    ret.set(local.into());
-}
-
-fn stdrng_gen_range(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let arg = args.get(0);
-    let rng: v8::Local<v8::External> = arg.try_into().unwrap();
-    let rng = unsafe { &mut *(rng.value() as *mut StdRng) };
-
-    let ubound = args.get(1).int32_value(scope).unwrap();
-    let num = rng.gen_range(0..ubound);
-    ret.set_int32(num);
-}
-
-fn exit(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let code = args.get(0).to_int32(scope).unwrap();
-    std::process::exit(code.value());
-}
-
-fn is_windows(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = if std::env::consts::OS == "windows" {
-        1
-    } else {
-        0
-    };
-    ret.set_int32(result)
-}
-
-fn init_env(
-    dtors: &mut Vec<Box<dyn Any>>,
-    scope: &mut v8::HandleScope,
-    wasm_file_name: &str,
-    args: &[String],
-    async_policy: Arc<async_policy::AsyncPolicy>,
-) -> run_termination::TerminationRequest {
-    let global_proxy = scope.get_current_context().global(scope);
-
-    let print_env_box = Box::<PrintEnv>::default();
-    let identifier = scope.string("print");
-    let print_env = &*print_env_box as *const PrintEnv;
-    let print_env = v8::External::new(scope, print_env as *mut std::ffi::c_void);
-    let value = v8::Function::builder(print_char)
-        .data(print_env.into())
-        .build(scope)
-        .unwrap();
-    global_proxy.set(scope, identifier.into(), value.into());
-    dtors.push(print_env_box);
-
-    {
-        global_proxy.set_func(scope, "console_log", console_log);
-        global_proxy.set_func(scope, "console_elog", console_elog);
-    }
-
-    {
-        let time = global_proxy.child(scope, "__moonbit_time_unstable");
-        time.set_func(scope, "instant_now", instant_now);
-        time.set_func(
-            scope,
-            "instant_elapsed_as_secs_f64",
-            instant_elapsed_as_secs_f64,
-        );
-        time.set_func(scope, "now", now);
-    }
-
-    let termination_request = {
-        let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
-        async_api::init_env(async_runtime, scope, dtors, Arc::clone(&async_policy))
-    };
-
-    {
-        let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
-        wasi_api::init_env(wasi, scope, wasm_file_name, args, dtors);
-    }
-
-    // API for the fs module
-    {
-        let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
-        sys_api::init_env(
-            obj,
-            scope,
-            wasm_file_name,
-            args,
-            Arc::clone(&async_policy),
-            dtors,
-        );
-        fs_api_temp::init_fs(obj, scope, Arc::clone(&async_policy), dtors);
-    }
-    backtrace_api::init(scope);
-
-    {
-        global_proxy.set_func(scope, "read_file_to_bytes", read_file_to_bytes);
-    }
-
-    {
-        let io = global_proxy.child(scope, "__moonbit_io_unstable");
-        io.set_func(scope, "read_bytes_from_stdin", read_bytes_from_stdin);
-        io.set_func(scope, "read_char", read_char);
-        io.set_func(scope, "write_char", write_char);
-        io.set_func(scope, "flush", flush);
-    }
-
-    {
-        let rand = global_proxy.child(scope, "__moonbit_rand_unstable");
-        rand.set_func(scope, "stdrng_seed_from_u64", stdrng_seed_from_u64);
-        rand.set_func(scope, "stdrng_gen_range", stdrng_gen_range);
-    }
-
-    {
-        let sys = global_proxy.child(scope, "__moonbit_sys_unstable");
-        sys.set_func(scope, "exit", exit);
-        sys.set_func(scope, "is_windows", is_windows);
-    }
-    termination_request
-}
-
-fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
-    let name = format!("{BUILTIN_SCRIPT_ORIGIN_PREFIX}{name}");
-    let name = scope.string(&name);
-    v8::ScriptOrigin::new(
-        scope,
-        name.into(),
-        0,
-        0,
-        false,
-        0,
-        None,
-        false,
-        false,
-        false,
-        None,
-    )
-}
-
-enum RunOutcome {
-    Completed,
-    Terminated(run_termination::RunTermination),
-}
-
-fn wasm_mode(
-    file: &Path,
-    args: &[String],
-    no_stack_trace: bool,
-    test_args: Option<String>,
-    async_policy: Arc<async_policy::AsyncPolicy>,
-) -> anyhow::Result<RunOutcome> {
-    let isolate = &mut v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-
-    let mut script =
-        format!(r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{BUILTIN_SCRIPT_ORIGIN_PREFIX}";"#);
-
-    let global_proxy = scope.get_current_context().global(scope);
-    let wasm_file_name = file.to_string_lossy().to_string();
-    let module_key = scope.string("module_name").into();
-    let module_name = scope.string(file.to_string_lossy().as_ref()).into();
-    global_proxy.set(scope, module_key, module_name);
-    script.push_str("let bytes;");
-    let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
-
-    let mut dtors = Vec::new();
-    let termination_request = init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
-
-    let memory_sanitizer_imports =
-        global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
-    memory_sanitizer_api::init_env(memory_sanitizer_imports, scope, &memory_sanitizer);
-
-    if let Some(ref test_args) = test_args {
-        let test_args = serde_json_lenient::from_str::<TestArgs>(test_args).unwrap();
-        let file_and_index = test_args.file_and_index;
-
-        let mut test_params: Vec<[String; 2]> = vec![];
-        for (file, index) in file_and_index {
-            for range in index {
-                for i in range {
-                    test_params.push([file.clone(), i.to_string()]);
-                }
-            }
-        }
-        script.push_str(&format!("const packageName = {:?};", test_args.package));
-        script.push_str(&format!("const testParams = {test_params:?};"));
-    }
-    script.push_str(&format!("const no_stack_trace = {no_stack_trace};"));
-    script.push_str(&format!("const test_mode = {};", test_args.is_some()));
-    script.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
-    script.push('\n');
-    let js_glue = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/template/js_glue.js"
-    ));
-    script.push_str(js_glue);
-
-    let code = scope.string(&script);
-    let script_origin = create_script_origin(scope, "wasm_mode_entry");
-    let script = v8::Script::compile(scope, code, Some(&script_origin)).unwrap();
-
-    script.run(scope);
-    let termination = termination_request.take();
-    drop(dtors);
-    if let Some(termination) = termination {
-        return Ok(RunOutcome::Terminated(termination));
-    }
-    memory_sanitizer.check_for_leaks()?;
-    Ok(RunOutcome::Completed)
-}
-
-#[derive(serde::Deserialize, Clone)]
-pub struct TestArgs {
-    pub package: String,
-    pub file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
-}
-
-pub fn get_moonrun_version() -> String {
-    format!(
-        "{} ({} {})",
-        env!("CARGO_PKG_VERSION"),
-        env!("VERGEN_GIT_SHA"),
-        std::env!("VERGEN_BUILD_DATE")
-    )
-}
+use moonrun::{RunOptions, RunOutcome, Runtime, RuntimeConfig};
+use std::path::PathBuf;
 
 #[derive(Debug, clap::Parser)]
 #[command(version = get_moonrun_version())]
@@ -605,51 +74,59 @@ Process spawning is disabled by default. Setting process.spawn to true grants ch
     policy: Option<PathBuf>,
 }
 
-fn initialize_v8() {
-    v8::V8::set_flags_from_string("--experimental-wasm-exnref");
-    v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
-    let platform = v8::new_default_platform(0, false).make_shared();
-    v8::V8::initialize_platform(platform);
-    v8::V8::initialize();
+fn get_moonrun_version() -> String {
+    format!(
+        "{} ({} {})",
+        env!("CARGO_PKG_VERSION"),
+        env!("VERGEN_GIT_SHA"),
+        std::env!("VERGEN_BUILD_DATE")
+    )
 }
 
 fn main() -> anyhow::Result<()> {
     let matches = Commandline::parse();
-    let async_policy = Arc::new(match matches.policy.as_ref() {
-        Some(path) => async_policy::AsyncPolicy::from_file(path).context(
-            "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
-        )?,
-        None => async_policy::AsyncPolicy::allow_all(),
-    });
-
-    if !matches.path.exists() {
-        anyhow::bail!("no such file");
+    let runtime_config = match matches.stack_size {
+        Some(stack_size) => RuntimeConfig::default().with_stack_size(stack_size),
+        None => RuntimeConfig::default(),
+    };
+    let mut options = RunOptions::default().with_args(matches.args);
+    if matches.no_stack_trace {
+        options = options.without_stack_trace();
+    }
+    if let Some(test_args) = matches.test_args {
+        options = options.with_test_args(test_args);
+    }
+    if let Some(policy) = matches.policy {
+        options = options.with_policy_file(policy);
     }
 
-    if let Some(stack_size) = matches.stack_size {
-        set_flags_from_string(&format!("--stack-size={stack_size}"));
-    }
-
-    match matches.path.extension().unwrap().to_str() {
-        Some("wasm") => {
-            initialize_v8();
-            match wasm_mode(
-                &matches.path,
-                &matches.args,
-                matches.no_stack_trace,
-                matches.test_args,
-                async_policy,
-            )? {
-                RunOutcome::Completed => Ok(()),
-                RunOutcome::Terminated(run_termination::RunTermination::Exit(code)) => {
-                    std::process::exit(code)
-                }
-                RunOutcome::Terminated(run_termination::RunTermination::KilledBySignal(signal)) => {
-                    async_sys::signal::terminate_process_by_signal(signal);
-                    Ok(())
-                }
-            }
+    match Runtime::new(runtime_config).run_file(matches.path, options)? {
+        RunOutcome::Completed => Ok(()),
+        RunOutcome::Exited(code) => std::process::exit(code),
+        RunOutcome::KilledBySignal(signal) => {
+            terminate_process_by_signal(signal);
+            Ok(())
         }
-        _ => anyhow::bail!("Unsupported file type"),
+    }
+}
+
+#[cfg(unix)]
+fn terminate_process_by_signal(signal: i32) {
+    let mut signal_set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+    unsafe {
+        libc::sigemptyset(&mut signal_set);
+        libc::sigaddset(&mut signal_set, signal);
+        libc::pthread_sigmask(libc::SIG_UNBLOCK, &signal_set, std::ptr::null_mut());
+        libc::fflush(std::ptr::null_mut());
+        libc::raise(signal);
+    }
+}
+
+#[cfg(windows)]
+fn terminate_process_by_signal(signal: i32) {
+    const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
+    let _ = signal;
+    unsafe {
+        windows_sys::Win32::System::Threading::ExitProcess(STATUS_CONTROL_C_EXIT);
     }
 }

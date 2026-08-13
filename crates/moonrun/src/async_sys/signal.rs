@@ -20,40 +20,9 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(windows)]
 use crate::async_sys::internal::event_loop::poll::{self, CompletionPort};
 use crate::async_sys::ported_fns;
+use crate::run_termination::RunTermination;
 
 ported_fns! {
-    #[ported(
-        source = "src/internal/event_loop/signal.c",
-        original = "moonbitlang_async_terminate_process_by_signal"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn terminate_process_by_signal(signal: i32) {
-        let mut signal_set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-        unsafe {
-            libc::sigemptyset(&mut signal_set);
-            libc::sigaddset(&mut signal_set, signal);
-            libc::pthread_sigmask(libc::SIG_UNBLOCK, &signal_set, std::ptr::null_mut());
-            libc::fflush(std::ptr::null_mut());
-            libc::raise(signal);
-        }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/signal.c",
-        original = "moonbitlang_async_terminate_process_by_signal"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn terminate_process_by_signal(signal: i32) {
-        const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
-        // The cross-platform ABI carries the cancellation signal, while the
-        // native Windows implementation maps every console cancellation to the
-        // single STATUS_CONTROL_C_EXIT process status.
-        let _ = signal;
-        unsafe {
-            windows_sys::Win32::System::Threading::ExitProcess(STATUS_CONTROL_C_EXIT);
-        }
-    }
-
     #[ported(
         source = "src/internal/event_loop/signal.c",
         original = "moonbitlang_async_set_global_cancellation_signals"
@@ -120,6 +89,16 @@ ported_fns! {
             *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
         }
         Ok(1)
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/signal.c",
+        original = "moonbitlang_async_terminate_process_by_signal"
+    )]
+    pub(crate) fn terminate_process_by_signal(signal: i32) -> RunTermination {
+        // Process termination belongs to the outer adapter; the local engine
+        // only records the instance outcome represented by this native call.
+        RunTermination::KilledBySignal(signal)
     }
 }
 

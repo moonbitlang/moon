@@ -61,17 +61,16 @@ pub(crate) fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     dtors: &mut Vec<Box<dyn Any>>,
     policy: Arc<AsyncPolicy>,
-) -> TerminationRequest {
-    let termination_request = TerminationRequest::default();
+    termination_request: TerminationRequest,
+) {
     let context = Box::new(context::AsyncContext::new(
         scope,
         obj,
         AsyncHost::new(policy),
-        termination_request.clone(),
+        termination_request,
     ));
     let context_ptr = &*context as *const context::AsyncContext;
     dtors.push(context);
 
     registry::register_imports(obj, scope, context_ptr);
-    termination_request
 }
