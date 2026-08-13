@@ -1495,8 +1495,8 @@ ported_fns! {
     #[cfg(unix)]
     pub(crate) fn if_nametoindex(name: &[u16]) -> AsyncHostResult<i32> {
         let name = char::decode_utf16(name.iter().copied())
-            .map(Result::unwrap)
-            .collect::<String>();
+            .collect::<Result<String, _>>()
+            .map_err(|_| AsyncHostError::Inval)?;
         let name = std::ffi::CString::new(name).map_err(|_| AsyncHostError::Inval)?;
         let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
         if index == 0 {
@@ -1811,6 +1811,11 @@ fn set_tcp_int(fd: RawSocket, option: libc::c_int, value: i32) -> AsyncHostResul
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn if_nametoindex_rejects_unpaired_surrogate() {
+        assert_eq!(if_nametoindex(&[0xd800]), Err(AsyncHostError::Inval));
+    }
 
     #[test]
     fn addr_get_ipv6_bytes_offset_uses_sin6_addr_offset() {

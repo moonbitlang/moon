@@ -99,6 +99,10 @@ currently pinned wasm wrapper still calls it during a staged migration.
 - If a removed import intentionally does no work because ownership has already
   transferred, record it as a no-op `#[compat]` adapter instead of a generic
   helper.
+- If compatibility only translates a historical Wasm ABI before calling the
+  current ported Async Sys implementation, record it as an `api_only = true`
+  `#[compat]` adapter. Do not add a duplicate Async Sys wrapper solely for
+  provenance.
 - For a replacement, audit the new ABI, ownership, errors, platform behavior,
   and observable MoonBit API semantics. Add the new `#[ported]` implementation
   separately from the compatibility adapter.

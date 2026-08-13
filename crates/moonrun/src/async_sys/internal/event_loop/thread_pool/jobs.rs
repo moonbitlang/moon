@@ -549,6 +549,41 @@ ported_fns! {
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_spawn_job_set_cwd"
+    )]
+    pub(crate) fn spawn_job_set_cwd(job: &mut Job, cwd: OsString) -> AsyncHostResult<()> {
+        match job.payload_mut() {
+            #[cfg(unix)]
+            JobPayload::SpawnUnix { cwd: job_cwd, .. } => {
+                *job_cwd = Some(cwd);
+                Ok(())
+            }
+            #[cfg(windows)]
+            JobPayload::SpawnWindows { cwd: job_cwd, .. } => {
+                *job_cwd = Some(cwd);
+                Ok(())
+            }
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_spawn_job_set_no_console_window"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn spawn_job_set_no_console_window(job: &mut Job) -> AsyncHostResult<()> {
+        match job.payload_mut() {
+            JobPayload::SpawnWindows { options, .. } => {
+                options.no_console_window = true;
+                Ok(())
+            }
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_get_spawn_job_result_handle"
     )]
     pub(crate) fn get_spawn_job_result_handle(job: &Job) -> AsyncHostResult<HostHandle> {

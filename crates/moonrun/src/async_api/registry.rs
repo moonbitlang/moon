@@ -1063,7 +1063,7 @@ declare_async_imports! {
     ported thread_pool::get_realpath_result(job: u64) -> u64 => "thread_pool/get_realpath_result";
 
     #[cfg(unix)]
-    ported thread_pool::make_spawn_job_unix(
+    compat thread_pool::make_spawn_job_unix(
         path: i32,
         path_len: i32,
         args: u64,
@@ -1092,8 +1092,30 @@ declare_async_imports! {
         has_cwd: i32,
     ) -> u64 => "thread_pool/make_spawn_job/unix";
 
+    #[cfg(unix)]
+    ported thread_pool::spawn_job_unix(
+        path: i32,
+        path_len: i32,
+        args: u64,
+        env: u64,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+    ) -> u64 => "thread_pool/spawn_job/unix";
+
     #[cfg(windows)]
-    ported thread_pool::make_spawn_job_windows(
+    fake thread_pool::spawn_job_unix(
+        path: i32,
+        path_len: i32,
+        args: u64,
+        env: u64,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+    ) -> u64 => "thread_pool/spawn_job/unix";
+
+    #[cfg(windows)]
+    compat thread_pool::make_spawn_job_windows(
         command_line: i32,
         command_line_len: i32,
         env: u64,
@@ -1121,6 +1143,44 @@ declare_async_imports! {
         no_console_window: i32,
         is_orphan: i32,
     ) -> u64 => "thread_pool/make_spawn_job/windows";
+
+    #[cfg(windows)]
+    ported thread_pool::spawn_job_windows(
+        command_line: i32,
+        command_line_len: i32,
+        env: u64,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+        is_orphan: i32,
+    ) -> u64 => "thread_pool/spawn_job/windows";
+
+    #[cfg(unix)]
+    fake thread_pool::spawn_job_windows(
+        command_line: i32,
+        command_line_len: i32,
+        env: u64,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+        is_orphan: i32,
+    ) -> u64 => "thread_pool/spawn_job/windows";
+
+    ported thread_pool::spawn_job_set_cwd(
+        job: u64,
+        cwd: i32,
+        cwd_len: i32,
+    ) -> void => "thread_pool/spawn_job/set_cwd";
+
+    #[cfg(windows)]
+    ported thread_pool::spawn_job_set_no_console_window(
+        job: u64,
+    ) -> void => "thread_pool/spawn_job/set_no_console_window";
+
+    #[cfg(unix)]
+    fake thread_pool::spawn_job_set_no_console_window(
+        job: u64,
+    ) -> void => "thread_pool/spawn_job/set_no_console_window";
 
     ported thread_pool::spawn_job_get_result_handle(job: u64) -> u64 => "thread_pool/spawn_job_get_result_handle";
 
@@ -1152,6 +1212,16 @@ declare_async_imports! {
         value: i32,
         value_len: i32,
     ) -> void => "process/env_block_add_entry";
+
+    helper process::make_env(inherit_env: i32) -> u64 => "process/make_env";
+
+    ported process::env_add_entry(
+        env: u64,
+        key: i32,
+        key_len: i32,
+        value: i32,
+        value_len: i32,
+    ) -> void => "process/env_add_entry";
 
     #[cfg(unix)]
     helper process::make_argv_array_unix(len: i32) -> u64 => "process/make_argv_array/unix";
@@ -1478,29 +1548,6 @@ mod tests {
     }
 
     #[test]
-    fn removed_process_cleanup_imports_are_no_op_compatibility_adapters() {
-        let compat_imports = async_api_compat_imports();
-        for wasm_symbol in ["process/free_env", "process/free_argv"] {
-            let registered = ASYNC_IMPORTS
-                .iter()
-                .find(|import| import.wasm_symbol == wasm_symbol)
-                .expect("cleanup import must remain linkable");
-            if registered.kind == AsyncImportKind::Fake {
-                continue;
-            }
-            let provenance = compat_imports
-                .iter()
-                .find(|compat| {
-                    module_leaf(compat.rust_module) == Some(registered.callback_module)
-                        && compat.rust_symbol == registered.callback_symbol
-                })
-                .expect("cleanup compatibility import must record provenance");
-            assert!(provenance.no_op);
-            assert_eq!(provenance.upstream_pr, 511);
-        }
-    }
-
-    #[test]
     fn wasm_import_names_are_namespaced() {
         for import in ASYNC_IMPORTS {
             let Some((_namespace, _)) = import.wasm_symbol.split_once('/') else {
@@ -1595,17 +1642,24 @@ mod tests {
         for compat in compat_imports {
             assert_ne!(compat.upstream_pr, 0);
             assert!(!compat.replacement.is_empty());
-            if !compat.no_op {
+            assert!(!(compat.no_op && compat.api_only));
+            let has_matching_sys_compat = compat_symbols.iter().any(|symbol| {
+                symbol.native_symbol == compat.original_symbol
+                    && symbol.historical_source == compat.historical_source
+                    && symbol.upstream_pr == compat.upstream_pr
+                    && !symbol.replacement.is_empty()
+            });
+            if compat.api_only {
                 assert!(
-                    compat_symbols.iter().any(|symbol| {
-                        symbol.native_symbol == compat.original_symbol
-                            && symbol.historical_source == compat.historical_source
-                            && symbol.upstream_pr == compat.upstream_pr
-                            && !symbol.replacement.is_empty()
-                    }),
+                    !has_matching_sys_compat,
+                    "API-only compatibility adapter {}::{} has a redundant Async Sys adapter",
+                    compat.rust_module, compat.rust_symbol
+                );
+            } else if !compat.no_op {
+                assert!(
+                    has_matching_sys_compat,
                     "compatibility adapter {}::{} has no matching Async Sys implementation",
-                    compat.rust_module,
-                    compat.rust_symbol
+                    compat.rust_module, compat.rust_symbol
                 );
             }
 

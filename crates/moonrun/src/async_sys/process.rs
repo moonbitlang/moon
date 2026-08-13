@@ -19,7 +19,215 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 
+use std::ffi::OsString;
+
+#[cfg(unix)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LegacyProcessEnvEntry {
+    // Entries copied from the host environment are already materialized as
+    // `key=value`. Guest-provided entries keep their boundary until the
+    // legacy buffer is converted into the current builder.
+    Materialized(OsString),
+    Added { key: OsString, value: OsString },
+}
+
+#[cfg(unix)]
+impl LegacyProcessEnvEntry {
+    fn into_materialized(self) -> Option<OsString> {
+        match self {
+            Self::Materialized(entry) => Some(entry),
+            Self::Added { key, value } => unix_process_env_entry(key, value),
+        }
+    }
+}
+
+// Keep the inherited snapshot separate until spawn: native writes user entries
+// first, then copies only inherited entries whose keys were not overridden.
+pub(crate) struct ProcessEnvBuilder {
+    extra: Vec<OsString>,
+    inherited: Vec<OsString>,
+}
+
+impl ProcessEnvBuilder {
+    pub(crate) fn new(inherited: Vec<OsString>) -> Self {
+        Self {
+            extra: Vec::new(),
+            inherited,
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn from_legacy_env(
+        mut entries: Vec<LegacyProcessEnvEntry>,
+        inherited_entry_count: usize,
+    ) -> Self {
+        let extra = entries.split_off(inherited_entry_count);
+        Self {
+            extra: extra
+                .into_iter()
+                .filter_map(LegacyProcessEnvEntry::into_materialized)
+                .collect(),
+            inherited: entries
+                .into_iter()
+                .filter_map(LegacyProcessEnvEntry::into_materialized)
+                .collect(),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn unix_process_env_entry(key: OsString, value: OsString) -> Option<OsString> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let key = key.as_os_str().as_bytes();
+    if key.contains(&0) {
+        return None;
+    }
+    let value = value.as_os_str().as_bytes();
+    let value = &value[..value
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(value.len())];
+    let mut entry = Vec::with_capacity(key.len() + value.len() + 1);
+    entry.extend_from_slice(key);
+    entry.push(b'=');
+    entry.extend_from_slice(value);
+    Some(OsString::from_vec(entry))
+}
+
 ported_fns! {
+    #[ported(
+        source = "src/process/unix.c",
+        original = "moonbitlang_async_env_block_add_entry"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn process_env_builder_add_entry(
+        builder: &mut ProcessEnvBuilder,
+        key: OsString,
+        value: OsString,
+    ) {
+        if let Some(entry) = unix_process_env_entry(key, value) {
+            builder.extra.push(entry);
+        }
+    }
+
+    #[ported(
+        source = "src/process/windows.c",
+        original = "moonbitlang_async_env_block_add_entry"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn process_env_builder_add_entry(
+        builder: &mut ProcessEnvBuilder,
+        mut key: OsString,
+        value: OsString,
+    ) {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        if key.encode_wide().any(|unit| unit == 0) {
+            return;
+        }
+        let value = value
+            .encode_wide()
+            .take_while(|unit| *unit != 0)
+            .collect::<Vec<_>>();
+        key.push("=");
+        key.push(OsString::from_wide(&value));
+        builder.extra.push(key);
+    }
+
+    #[ported(
+        source = "src/process/unix.c",
+        original = "moonbitlang_async_write_env_block"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn finish_process_env_builder(mut builder: ProcessEnvBuilder) -> Vec<OsString> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let extra_len = builder.extra.len();
+        let inherited = builder
+            .inherited
+            .into_iter()
+            .filter(|entry| {
+                let entry = entry.as_os_str().as_bytes();
+                let duplicate = if let Some(key_end) = entry.iter().position(|byte| *byte == b'=')
+                {
+                    builder.extra[..extra_len].iter().any(|extra| {
+                        extra
+                            .as_os_str()
+                            .as_bytes()
+                            .get(..=key_end)
+                            .is_some_and(|key| key == &entry[..=key_end])
+                    })
+                } else {
+                    builder.extra[..extra_len]
+                        .iter()
+                        .any(|extra| extra.as_os_str().as_bytes() == entry)
+                };
+                !duplicate
+            })
+            .collect::<Vec<_>>();
+        builder.extra.extend(inherited);
+        builder.extra
+    }
+
+    #[ported(
+        source = "src/process/windows.c",
+        original = "moonbitlang_async_write_env_block"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn finish_process_env_builder(builder: ProcessEnvBuilder) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
+
+        let extra_keys = builder
+            .extra
+            .iter()
+            .filter_map(|entry| {
+                let entry = entry.encode_wide().collect::<Vec<_>>();
+                let key_len = entry.iter().position(|unit| *unit == b'=' as u16)?;
+                Some(entry[..key_len].to_vec())
+            })
+            .collect::<Vec<_>>();
+        let inherited = builder
+            .inherited
+            .into_iter()
+            .filter(|entry| {
+                let entry = entry.encode_wide().collect::<Vec<_>>();
+                let Some(key_len) = entry.iter().position(|unit| *unit == b'=' as u16) else {
+                    return false;
+                };
+                if key_len == 0 {
+                    return false;
+                }
+                !extra_keys.iter().any(|extra_key| {
+                    key_len == extra_key.len()
+                        && unsafe {
+                            CompareStringOrdinal(
+                                extra_key.as_ptr(),
+                                extra_key.len() as i32,
+                                entry.as_ptr(),
+                                key_len as i32,
+                                1,
+                            )
+                        } == CSTR_EQUAL
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // Create the one contiguous block only when ownership moves to the
+        // spawn job. Until this point the builder contains native OsStrings.
+        let mut block = Vec::new();
+        for entry in builder.extra.into_iter().chain(inherited) {
+            block.extend(entry.encode_wide());
+            block.push(0);
+        }
+        if block.is_empty() {
+            block.push(0);
+        }
+        block.push(0);
+        block
+    }
+
     #[ported(
         source = "src/internal/event_loop/process.c",
         original = "moonbitlang_async_open_pid_handle"
@@ -270,7 +478,29 @@ fn last_native_error() -> AsyncHostError {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::ffi::OsString;
+
     use super::*;
+
+    #[test]
+    fn unix_process_env_discards_nul_keys_and_truncates_nul_values() {
+        let mut builder = ProcessEnvBuilder::new(Vec::new());
+        process_env_builder_add_entry(
+            &mut builder,
+            OsString::from("BAD\0INJECTED"),
+            OsString::from("value"),
+        );
+        process_env_builder_add_entry(
+            &mut builder,
+            OsString::from("GOOD"),
+            OsString::from("before\0INJECTED=value"),
+        );
+
+        assert_eq!(
+            finish_process_env_builder(builder),
+            vec![OsString::from("GOOD=before")]
+        );
+    }
 
     #[test]
     fn unix_wait_status_distinguishes_exit_from_signal() {
@@ -300,10 +530,31 @@ fn last_native_errno() -> i32 {
 
 #[cfg(all(test, windows))]
 mod windows_tests {
+    use std::ffi::OsString;
     use std::os::windows::io::AsRawHandle;
     use std::process::Command;
 
     use super::*;
+
+    #[test]
+    fn windows_process_env_discards_nul_keys_and_truncates_nul_values() {
+        let mut builder = ProcessEnvBuilder::new(Vec::new());
+        process_env_builder_add_entry(
+            &mut builder,
+            OsString::from("BAD\0INJECTED"),
+            OsString::from("value"),
+        );
+        process_env_builder_add_entry(
+            &mut builder,
+            OsString::from("GOOD"),
+            OsString::from("before\0INJECTED=value"),
+        );
+
+        assert_eq!(
+            finish_process_env_builder(builder),
+            "GOOD=before\0\0".encode_utf16().collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn running_process_result_is_pending() {
