@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Registry account, configuration, and cache paths.
+//! Registry account and configuration types.
 
-pub use crate::moon_dir::{cache, config_json, credentials_json, index};
 pub use crate::mooncakes::{Credentials, RegistryConfig, validate_username};

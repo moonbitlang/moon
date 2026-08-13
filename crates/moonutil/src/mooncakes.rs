@@ -625,7 +625,7 @@ impl RegistryConfig {
     }
 
     pub fn load() -> Self {
-        let config_path = crate::moon_dir::config_json();
+        let config_path = crate::MOON_HOME.config_path();
         if !config_path.exists() {
             return Self::new();
         }

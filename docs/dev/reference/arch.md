@@ -309,8 +309,9 @@ There are two types of dependencies in a module.
 There are two kinds of sources that dependencies come from:
 
 - A **registry dependency** is resolved from the local registry index under
-  `~/.moon/registry/index`, which is typically populated from `mooncakes.io`
-  by `moon update`.
+  `$MOON_HOME/registry/index`, which is typically populated from
+  `mooncakes.io` by `moon update`. See the
+  [Moon home layout](./moon-home-layout.md) for its physical structure.
   It is declared with a version range (written as a version number)
   and later resolved to a concrete version.
 - A **local dependency** is fetched from a local path.

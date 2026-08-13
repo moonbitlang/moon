@@ -19,17 +19,14 @@
 use std::{fs::File, io::BufReader};
 
 use anyhow::Context;
-use moonutil::{
-    cli_support::UniversalFlags,
-    registry::{Credentials, credentials_json},
-};
+use moonutil::{MOON_HOME, cli_support::UniversalFlags, registry::Credentials};
 
 /// Show login status and username
 #[derive(Debug, clap::Parser)]
 pub(crate) struct WhoamiSubcommand {}
 
 pub(crate) fn run_whoami(_cli: &UniversalFlags, _cmd: WhoamiSubcommand) -> anyhow::Result<i32> {
-    let credentials_path = credentials_json();
+    let credentials_path = MOON_HOME.credentials_path();
     if !credentials_path.exists() {
         println!("Not logged in");
         return Ok(0);

@@ -62,4 +62,6 @@ pub mod text;
 pub mod toolchain;
 pub mod user_log;
 pub mod version;
+
+pub use moon_dir::{MOON_HOME, MoonHomeLayout};
 pub mod workspace;

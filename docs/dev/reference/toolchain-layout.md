@@ -45,6 +45,12 @@ Project-local layout remains outside this module. For example, `.mooncakes`,
 `_build`, resolved package roots, and workspace discovery are project facts,
 not toolchain facts.
 
+Mutable per-user state is likewise outside this module. Paths rooted at
+`MOON_HOME` are owned by `moonutil::MoonHomeLayout`; see the
+[Moon home layout](./moon-home-layout.md) reference. In particular,
+`moonutil::toolchain` must not be used to locate user-installed binaries,
+registry state, caches, configuration, or credentials.
+
 RR should not decide whether a build uses the installed stdlib by calling
 `moonutil::toolchain::core()` in lowering or metadata code. The command
 orchestration layer selects `stdlib_path` first, then passes that value through

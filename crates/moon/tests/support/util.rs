@@ -174,10 +174,10 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(&path_str2, "$ROOT");
     let toolchain_root = toolchain_root_for_tests();
-    let moon_home = moonutil::toolchain::home();
+    let moon_home = moonutil::MOON_HOME.root();
     let show_toolchain_root = match (
         dunce::canonicalize(&toolchain_root),
-        dunce::canonicalize(&moon_home),
+        dunce::canonicalize(moon_home),
     ) {
         (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
         _ => toolchain_root != moon_home,
@@ -301,7 +301,10 @@ pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> Stri
     let expected_imports = core_import_specs(backend);
     let bundle = core_bundle_for_tests(backend);
     let mut bundle_prefixes = vec![format!("{}/", bundle.to_string_lossy().replace('\\', "/"))];
-    for root in [moonutil::toolchain::home(), toolchain_root_for_tests()] {
+    for root in [
+        moonutil::MOON_HOME.root().to_path_buf(),
+        toolchain_root_for_tests(),
+    ] {
         if let Ok(relative) = bundle.strip_prefix(root) {
             bundle_prefixes.push(format!(
                 "$MOON_HOME/{}/",
@@ -376,19 +379,14 @@ pub(crate) fn cache_registry_package(
     }
     let zip = archive.finish().unwrap().into_inner();
 
-    let (username, package) = name.split_once('/').unwrap();
-    let zip_path = moon_home
-        .join("registry/cache")
-        .join(username)
-        .join(package)
-        .join(format!("{version}.zip"));
+    let layout = moonutil::MoonHomeLayout::new(moon_home.to_path_buf());
+    let module_name: moonutil::resolution::ModuleName = name.into();
+    let version = version.parse().unwrap();
+    let zip_path = layout.registry_source_archive_path(&module_name, &version);
     std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
     std::fs::write(&zip_path, &zip).unwrap();
 
-    let index_path = moon_home
-        .join("registry/index/user")
-        .join(username)
-        .join(format!("{package}.index"));
+    let index_path = layout.registry_index_file(&module_name);
     std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
     std::fs::write(
         &index_path,

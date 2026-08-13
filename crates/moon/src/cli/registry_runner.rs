@@ -73,22 +73,12 @@ impl ResolvedExecutablePackage {
     }
 
     pub(super) fn cache_path(&self, suffix: &str) -> PathBuf {
-        let mut cache_path = moonutil::registry::cache()
-            .join("assets")
-            .join(self.module_name.username.as_str());
-        for segment in self.module_name.unqual.split('/') {
-            cache_path.push(segment);
-        }
-        cache_path.push(self.version.to_string());
-        for segment in self
-            .package_path
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-        {
-            cache_path.push(segment);
-        }
-        cache_path.push(self.artifact_name(suffix));
-        cache_path
+        moonutil::MOON_HOME.registry_executable_artifact_path(
+            &self.module_name,
+            &self.version,
+            &self.package_path,
+            &self.artifact_name(suffix),
+        )
     }
 }
 

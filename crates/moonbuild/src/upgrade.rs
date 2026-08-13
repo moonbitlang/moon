@@ -19,6 +19,7 @@
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use dialoguer::Confirm;
+use moonutil::MOON_HOME;
 use moonutil::toolchain;
 use moonutil::version::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
 use reqwest;
@@ -136,12 +137,12 @@ fn should_upgrade(latest_version_info: &VersionItems) -> Option<bool> {
 }
 
 fn upgrade_home() -> Result<PathBuf> {
-    let home = toolchain::home();
+    let home = MOON_HOME.root();
     let toolchain_root = toolchain::toolchain_root();
     let canonicalize =
         |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
-    if canonicalize(&home) != canonicalize(&toolchain_root) {
+    if canonicalize(home) != canonicalize(&toolchain_root) {
         bail!(
             "moon upgrade only supports toolchains installed under MOON_HOME. Active toolchain root is `{}`, but MOON_HOME is `{}`. Please upgrade this installation with the package manager or installer that owns the toolchain.",
             toolchain_root.display(),
@@ -149,7 +150,7 @@ fn upgrade_home() -> Result<PathBuf> {
         );
     }
 
-    Ok(home)
+    Ok(home.to_path_buf())
 }
 
 pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
@@ -285,7 +286,7 @@ mod windows {
         let _ = MOON_EXE_PATH.set(current_exe.clone());
         let _ = TEMP_EXE_PATH.set(temp_exe);
 
-        if current_exe.starts_with(toolchain::home()) {
+        if current_exe.starts_with(MOON_HOME.root()) {
             self_replace::self_delete().context("failed to delete current moon.exe")?;
         }
 

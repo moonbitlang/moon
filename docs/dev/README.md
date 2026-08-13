@@ -34,7 +34,7 @@ behavior.
 | `moon test`, test-driver events, test filtering, snapshots, or choosing a test level | [Test suite strategy](reference/testing-strategy.md) and [`moon test` execution flow](reference/tests.md); use the repository-local [`snapbox-testing` skill](../../.agents/skills/snapbox-testing/SKILL.md) for snapbox assertions |
 | Command stdout/stderr, logs, progress, child output, tracing lifecycle, delegation, or dry-run output | The glossary's [Command Communication](../../CONTEXT.md#command-communication), [command-results ADR](../adr/0004-separate-command-results-from-user-logs.md), [command output migration](command-output-migration.md), [CLI execution lifecycle](design/cli-execution-lifecycle.md), and [dry-run behavior](reference/dry-run.md) |
 | `moon run` process launch, stdin, signals, temporary cleanup, or Windows Job Objects | [`moon run` process lifecycle](design/moon-run-process-lifecycle.md). This is the `moon` CLI process layer, not the wasm runtime implementation. |
-| Global build cache, artifact identity, cleaning, or cross-compilation cache constraints | [Global build state and cache design](design/global-build-cache.md) and [build plan artifact dependencies](reference/build-plan-artifact-dependencies.md) |
+| Moon home paths, global build cache, artifact identity, cleaning, or cross-compilation cache constraints | [Moon home layout](reference/moon-home-layout.md), [global build state and cache design](design/global-build-cache.md), and [build plan artifact dependencies](reference/build-plan-artifact-dependencies.md) |
 | `moonx`, `moon runwasm`, executable package coordinates, binary installation, or binary discovery | [moonx dispatch ADR](../adr/0003-dispatch-moonx-by-executable-name.md), [`moonx`](reference/moonx.md), [`moon runwasm`](reference/runwasm.md), [`moon install`](reference/moon-install-binary.md), and [binary discovery](reference/binaries.md) as applicable |
 | Prebuild tasks, bundle, indirect dependencies, or toolchain packaging | [Prebuild tasks](reference/prebuild.md), [`moon bundle`](reference/bundle.md), [indirect dependencies](reference/indirect-dep.md), or [toolchain layout](reference/toolchain-layout.md) as applicable |
 | Wasm runtime imports, Handles, async host behavior, V8, or Wasmtime | Repository [async wasm host boundary ADR](../adr/0001-async-wasm-host-boundary.md), then the [`moonrun` developer documentation](../../crates/moonrun/docs/dev/README.md) |
@@ -175,8 +175,8 @@ cargo install --path ./crates/moon --debug --offline
   - `src/common.rs`: common definitions shared by other crates
   - `src/scan.rs`: scans the project directory to gather all
     structural information
-  - `src/moon_dir.rs`: gets the `.moon`, `core`, etc. directory
-    paths and handles related environment variables
+  - `src/moon_dir.rs`: owns paths and environment selection for mutable
+    `MOON_HOME` state and the installed toolchain
   - `src/features.rs`: unstable feature flags (`rr_*`)
   - `src/build.rs`: for `moon version`
 

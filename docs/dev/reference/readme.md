@@ -12,6 +12,7 @@ This is a reference documentation of the current MoonBuild behavior.
 * [How binaries are found](./binaries.md)
 * [Native C toolchain resolution](./native-c-toolchain-resolution.md)
 * [Toolchain packaging layouts and discovery](./toolchain-layout.md)
+* [Moon home layout](./moon-home-layout.md)
 * [Indirect dependency support for compiler](./indirect-dep.md)
 * [Debugging utilities](./debugging.md)
 

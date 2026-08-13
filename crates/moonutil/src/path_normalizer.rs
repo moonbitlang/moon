@@ -18,10 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{
-    binaries::configured_binary_overrides,
-    moon_dir::{home, toolchain_root},
-};
+use crate::{MOON_HOME, binaries::configured_binary_overrides, moon_dir::toolchain_root};
 
 /// Best-effort privacy and stability normalization for dry-run paths.
 pub struct PathNormalizer {
@@ -51,7 +48,7 @@ impl PathNormalizer {
         Self::from_paths(
             source_dir,
             toolchain_root(),
-            home(),
+            MOON_HOME.root().to_path_buf(),
             override_aliases,
             current_program_alias,
         )

@@ -81,7 +81,8 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     );
     let out = out.replace(&prefix, ".");
     let out = out.replace(
-        &moonutil::toolchain::home()
+        &moonutil::MOON_HOME
+            .root()
             .to_str()
             .unwrap()
             .replace('\\', "/"),
