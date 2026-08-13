@@ -265,6 +265,7 @@ impl ExecutionAction {
         self
     }
 
+    /// Declared output paths produced by other actions in this plan.
     pub fn inputs(&self) -> &[PathBuf] {
         &self.inputs
     }
@@ -507,6 +508,17 @@ impl ExecutionPlanBuilder {
         self,
         requested_artifacts: impl IntoIterator<Item = ArtifactKey>,
     ) -> ExecutionPlan {
+        for (index, action) in self.actions.iter().enumerate() {
+            for input in action.inputs() {
+                assert!(
+                    self.outputs.contains_key(input),
+                    "execution action {:?} depends on an undeclared producer output: {}",
+                    ActionId(index),
+                    input.display()
+                );
+            }
+        }
+
         let mut seen = HashSet::new();
         let mut requested = Vec::new();
         for artifact in requested_artifacts {
@@ -638,6 +650,20 @@ mod tests {
             "archive-runtime",
         );
         ExecutionPlanBuilder::default().add_action(action, outputs);
+    }
+
+    #[test]
+    #[should_panic(expected = "depends on an undeclared producer output")]
+    fn execution_inputs_require_a_producer_in_the_same_plan() {
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("src/main.mbt")],
+            Vec::new(),
+            vec![PathBuf::from("build/main.mi")],
+            "compile-main",
+        );
+        builder.add_action(action, outputs);
+        builder.finish([]);
     }
 
     #[test]

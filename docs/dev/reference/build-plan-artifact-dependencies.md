@@ -209,12 +209,15 @@ semantic planning and execution lowering.
 
 `ExecutionPlan` assigns an `ActionId` to each concrete `ExecutionAction`.
 Declared outputs are instead keyed by their concrete paths, which are already
-required to be unique within the plan. Each execution action names the paths it
-consumes, and every declared output retains its producer `ActionId` and optional
-`ArtifactKey`. Adapters and identity consumers can therefore follow the
-relationship without another dependency object, output arena, or plan-wide
-artifact registry. One action may provide several Build Artifacts, and a Build
-Artifact may realize to one or several physical outputs.
+required to be unique within the plan. An execution action's `inputs` are
+declared outputs produced by other actions in the same plan. Source files,
+manifests, tools, and other paths not produced by the plan are
+`ExternalInput` observations instead. Every declared output retains its
+producer `ActionId` and optional `ArtifactKey`, so adapters and identity
+consumers can follow the relationship without another dependency object,
+output arena, or plan-wide artifact registry. One action may provide several
+Build Artifacts, and a Build Artifact may realize to one or several physical
+outputs.
 
 The builder's artifact registry exists only while actions are inserted. It
 annotates declared outputs and resolves requested artifacts to output paths for

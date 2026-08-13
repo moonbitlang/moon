@@ -1065,22 +1065,12 @@ mod tests {
             lowering_environment,
         };
 
-        let mut context =
-            LoweringContext::new(artifact_paths.clone(), &resolve_output, &plan, &options);
-        let mut execution = ExecutionPlanBuilder::default();
         let nodes = [c_stub_node, exe_node];
-        let actions = nodes
-            .into_iter()
-            .map(|node| {
-                context
-                    .lower_action(node, &mut execution)
-                    .expect("lowering should succeed")
-            })
-            .collect::<Vec<_>>();
-        let execution = execution.finish([]);
-        for (node, action) in nodes.into_iter().zip(actions) {
+        let (execution, actions) =
+            lower_actions(&resolve_output, &plan, &options).expect("lowering should succeed");
+        for node in nodes {
             assert!(
-                !execution.action(action).is_cache_eligible(),
+                !execution.action(actions[&node]).is_cache_eligible(),
                 "{node:?} with opaque flags should be ineligible"
             );
         }

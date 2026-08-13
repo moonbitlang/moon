@@ -163,7 +163,7 @@ pub fn build_execution_plan_for_fmt(
 
 fn add_format_action<I, O>(
     execution: &mut ExecutionPlanBuilder,
-    inputs: I,
+    external_files: I,
     outputs: O,
     args: Vec<String>,
     description: String,
@@ -176,12 +176,19 @@ fn add_format_action<I, O>(
     O::Item: Into<std::path::PathBuf>,
 {
     let command = LoweredCommand::from(args);
-    let external_inputs = command
-        .executable()
-        .map(|path| vec![ExternalInput::File(path.to_path_buf())])
-        .unwrap_or_default();
+    let mut external_inputs = external_files
+        .into_iter()
+        .map(|path| ExternalInput::File(path.into()))
+        .chain(
+            command
+                .executable()
+                .map(|path| ExternalInput::File(path.to_path_buf())),
+        )
+        .collect::<Vec<_>>();
+    external_inputs.sort();
+    external_inputs.dedup();
     let action = ExecutionAction::new(
-        inputs.into_iter().map(Into::into).collect(),
+        Vec::new(),
         outputs.into_iter().map(Into::into).collect(),
         command,
         description.clone(),
@@ -710,4 +717,38 @@ fn format_moon_pkg_json_migrate(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn formatter_sources_are_external_inputs() {
+        let source = PathBuf::from("src/main.mbt");
+        let executable = PathBuf::from("bin/moonfmt");
+        let mut builder = ExecutionPlanBuilder::default();
+        add_format_action(
+            &mut builder,
+            [&source],
+            ["_build/main.mbt"],
+            vec![
+                executable.display().to_string(),
+                source.display().to_string(),
+            ],
+            "format src/main.mbt".to_string(),
+            true,
+            false,
+        );
+
+        let plan = builder.finish([]);
+        let action = plan.action(plan.action_ids().next().expect("one formatter action"));
+        assert!(action.inputs().is_empty());
+        assert_eq!(
+            action.external_inputs(),
+            &[ExternalInput::File(executable), ExternalInput::File(source),]
+        );
+    }
 }
