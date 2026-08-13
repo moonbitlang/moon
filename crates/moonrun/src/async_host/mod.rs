@@ -1583,12 +1583,14 @@ impl AsyncHost {
         Ok(())
     }
 
+    // Native's tri-state contract distinguishes a registered resource (1),
+    // an unsupported-but-valid resource (0), and an error (-1 at the ABI).
     pub(crate) fn poll_register(
         &self,
         poll_handle: u64,
         fd_handle: HostHandle,
         read_only: bool,
-    ) -> AsyncHostResult<()> {
+    ) -> AsyncHostResult<i32> {
         let handles = self.handles.borrow();
         let resource = handles.resource(fd_handle)?;
         #[cfg(unix)]
@@ -1597,7 +1599,42 @@ impl AsyncHost {
         let mut polls = self.polls.borrow_mut();
         let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
         #[cfg(unix)]
-        poll::poll_register(&poll.instance, raw_fd, read_only, fd_handle)?;
+        let registered = poll::poll_register(&poll.instance, raw_fd, read_only, fd_handle)?;
+        #[cfg(windows)]
+        let registered = if resource.resource_class().is_socket() {
+            poll::poll_register_socket(&poll.instance, resource.as_socket()?, read_only, fd_handle)?
+        } else {
+            poll::poll_register_file(
+                &poll.instance,
+                resource.as_file()?.as_raw_handle(),
+                read_only,
+                fd_handle,
+            )?
+        };
+        #[cfg(unix)]
+        if registered > 0 {
+            poll.registered_fds.insert(raw_fd);
+        }
+        Ok(registered)
+    }
+
+    pub(crate) fn poll_register_legacy(
+        &self,
+        poll_handle: u64,
+        fd_handle: HostHandle,
+        read_only: bool,
+    ) -> AsyncHostResult<()> {
+        // The old import predates tri-state registration. Preserve its
+        // platform syscall behavior as well as its 0/-1 ABI result.
+        let handles = self.handles.borrow();
+        let resource = handles.resource(fd_handle)?;
+        #[cfg(unix)]
+        let raw_fd = resource.as_file()?.as_raw_fd();
+        let poll_key = handles.poll(poll_handle)?;
+        let mut polls = self.polls.borrow_mut();
+        let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
+        #[cfg(unix)]
+        poll::poll_register_legacy(&poll.instance, raw_fd, read_only, fd_handle)?;
         #[cfg(windows)]
         if resource.resource_class().is_socket() {
             poll::poll_register_socket(
@@ -4058,7 +4095,13 @@ impl AsyncHost {
     }
 
     pub(crate) fn tls_peer_certificate(&self, handle: HostHandle) -> AsyncHostResult<HostHandle> {
-        self.tls_c_buffer(handle, |tls| tls.peer_certificate())
+        match self.with_tls_connection_mut(handle, Err(()), |tls| tls.peer_certificate())? {
+            Ok(Some(buffer)) => Ok(self.insert_c_buffer(buffer.into_boxed_slice())),
+            // The guest reserves the invalid handle for TLS errors and uses a
+            // valid zero-length buffer to represent an absent certificate.
+            Ok(None) => Ok(self.insert_c_buffer(Box::default())),
+            Err(()) => Ok(INVALID_HOST_HANDLE),
+        }
     }
 
     pub(crate) fn tls_unique_channel_binding(

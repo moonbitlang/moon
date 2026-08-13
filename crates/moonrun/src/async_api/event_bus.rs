@@ -20,7 +20,7 @@ use crate::async_host::AsyncHostResult;
 
 use super::context::ImportContext;
 #[cfg(test)]
-use super::provenance::{PortedImport, SourceLocation, SourceRoot};
+use super::provenance::{CompatImport, PortedImport, SourceLocation, SourceRoot};
 
 #[cfg(all(test, target_os = "linux"))]
 const EVENT_BUS_SOURCE: &str = "src/internal/event_loop/epoll.c";
@@ -55,7 +55,7 @@ pub(super) const PORTED_IMPORTS: &[PortedImport] = &[
     ),
     ported_from(
         EVENT_BUS_SOURCES,
-        "register",
+        "try_register",
         "moonbitlang_async_event_bus_register",
     ),
     #[cfg(target_os = "macos")]
@@ -106,6 +106,18 @@ pub(super) const PORTED_IMPORTS: &[PortedImport] = &[
 ];
 
 #[cfg(test)]
+pub(super) const COMPAT_IMPORTS: &[CompatImport] = &[CompatImport {
+    rust_module: module_path!(),
+    rust_symbol: "register_legacy",
+    original_symbol: "event_bus/register",
+    historical_source: "src/internal/event_loop/event_bus.wasm.mbt",
+    upstream_pr: 548,
+    replacement: "event_bus/try_register",
+    no_op: false,
+    api_only: true,
+}];
+
+#[cfg(test)]
 const fn ported_from(
     sources: &'static [SourceLocation],
     rust_symbol: &'static str,
@@ -127,13 +139,36 @@ pub(super) fn destroy(context: &mut ImportContext<'_, '_>, bus: u64) -> AsyncHos
     context.host.poll_destroy(bus)
 }
 
-pub(super) fn register(
+pub(super) fn try_register(
     context: &mut ImportContext<'_, '_>,
     bus: u64,
     fd: u64,
     read_only: i32,
 ) -> i32 {
-    poll_errno_result(context, context.host.poll_register(bus, fd, read_only != 0))
+    match context.host.poll_register(bus, fd, read_only != 0) {
+        Ok(result) => result,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+// Older Wasm guests interpret every nonnegative result as successful
+// registration. Keep their 0/-1 contract separate from the tri-state import.
+pub(super) fn register_legacy(
+    context: &mut ImportContext<'_, '_>,
+    bus: u64,
+    fd: u64,
+    read_only: i32,
+) -> i32 {
+    match context.host.poll_register_legacy(bus, fd, read_only != 0) {
+        Ok(()) => 0,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -196,14 +231,4 @@ pub(super) fn event_bytes_transferred(
     event: u64,
 ) -> AsyncHostResult<i32> {
     context.host.poll_event_bytes_transferred(event)
-}
-
-fn poll_errno_result(context: &ImportContext<'_, '_>, result: AsyncHostResult<()>) -> i32 {
-    match result {
-        Ok(()) => 0,
-        Err(error) => {
-            context.host.record_error(error);
-            -1
-        }
-    }
 }
