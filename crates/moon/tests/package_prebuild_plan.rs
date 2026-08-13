@@ -51,6 +51,21 @@ fn unconsumed_package_prebuild_output_remains_an_execution_root() {
 }
 
 #[test]
+fn multi_backend_check_shares_the_package_prebuild_provider() {
+    let dir = test_dir("unconsumed_output");
+
+    assert!(!dir.join("src/main/generated.txt").exists());
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+        .args(["check", "--target", "all"])
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("MOON_DEP_CACHE", "off")
+        .current_dir(&dir)
+        .assert()
+        .success();
+    assert!(dir.join("src/main/generated.txt").exists());
+}
+
+#[test]
 fn builtin_embed_handles_moon_path_with_spaces() {
     let dir = test_dir("unconsumed_output");
     let moon_bin_dir = dir.join("moon bin");

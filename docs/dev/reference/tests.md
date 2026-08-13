@@ -10,10 +10,15 @@ behavior can change.
 1. The CLI resolves packages and test targets (via Rupes Recta build planning). Each
    selected `BuildTarget` produces two artifacts: the executable (`make_executable`) and
    a JSON metadata file (`generate_test_info`).
-2. `run_tests` (in `runtest.rs`) calls `gather_tests`, which pairs those artifacts,
+2. When an invocation selects more than one Target Backend, each backend is
+   planned and lowered independently, then their Execution Plans are composed
+   into one n2 graph. The entire graph must build successfully before any test
+   executable starts. This invocation-wide barrier prevents tests for an early
+   backend from running when a later backend fails to build.
+3. `run_tests` (in `runtest.rs`) calls `gather_tests`, which pairs those artifacts,
    sorts them by executable path (to match legacy ordering), and then iterates over
    each test binary.
-3. Every executable is launched through `run_one_test_executable`. The runner:
+4. Every executable is launched through `run_one_test_executable`. The runner:
    - Parses the metadata (`MooncGenTestInfo`) to know which files and indices exist.
    - Applies the CLI filter to build a `TestArgs` payload that lists the test ranges
      to execute.
@@ -22,7 +27,7 @@ behavior can change.
    - Captures the test driver event stream between the
      `MOON_TEST_DELIMITER_{BEGIN,END}` markers. Coverage sections delimited by
      `MOON_COVERAGE_DELIMITER_*` are written to `_build/moonbit_coverage_<timestamp>_<rand>.txt`.
-4. The collected `TestCaseResult`s are merged per build target inside
+5. The collected `TestCaseResult`s are merged per build target inside
    `ReplaceableTestResults`. This structure keeps the latest result per
    `(target, file, index)` pair so later reruns can overwrite earlier data. The
    final report is rendered either as compact text (default) or JSON lines (when

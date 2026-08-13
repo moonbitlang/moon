@@ -220,6 +220,20 @@ also resolves requested artifacts to output paths for command results. The final
 Execution Plan therefore does not impose one global `ArtifactKey` namespace on
 future composition of independently scoped Build Plans.
 
+Multi-backend invocations keep one independently scoped Build Plan and
+Execution Plan per backend through lowering. The command layer then composes
+the Execution Plans before n2 adaptation. Action IDs are remapped into the
+combined plan; Build Artifact annotations remain plan-scoped metadata on their
+physical outputs and are not used as a cross-backend namespace.
+
+Concrete output paths are the composition boundary. If two plans declare the
+same physical output, composition shares the provider only when the complete
+Execution Action, its complete output set, and all output annotations agree.
+Partial overlap or different execution behavior is rejected before n2 sees the
+graph. Package prebuild actions therefore collapse naturally without a
+prebuild-specific merge rule, while backend outputs remain separate under
+their backend-specific paths.
+
 Physical-only declared outputs carry `artifact: None`. They still participate
 in executor roots and cache identity, but do not become user-requestable Build
 Artifacts. `ActionId` is a process-local arena handle, not a persistent content
@@ -295,8 +309,13 @@ to the graph it is currently loading. If a provider belongs to dependency
 preparation, the script graph retains its realized path as an n2 input without
 duplicating the provider.
 
-Ordinary project and workspace commands continue to produce and execute one
-plan and one n2 graph.
+Ordinary project and workspace commands execute one n2 graph per invocation.
+A single-backend invocation projects one Execution Plan directly; a
+multi-backend invocation first composes its independently lowered Execution
+Plans as described above. JSON-formatted `moon check` is temporarily an
+exception: until n2's final-output callback exposes the originating Build ID,
+it executes one graph per backend so each diagnostic can retain its backend
+tag.
 
 ## Results above lowering
 
