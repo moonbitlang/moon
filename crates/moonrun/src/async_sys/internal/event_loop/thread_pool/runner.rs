@@ -20,6 +20,8 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::guest_memory::GuestMemory;
 
+#[cfg(target_os = "linux")]
+use super::fs::run_inotify_add_watch_job;
 use super::fs::{
     run_access_job, run_chmod_job, run_file_kind_by_path_job, run_file_size_job,
     run_file_time_by_path_job, run_file_time_job, run_flock_job, run_fsync_job, run_mkdir_job,
@@ -162,6 +164,15 @@ pub(crate) fn run_host_job(job: &mut Job) {
                 run_readdir_job(&dir, buffer.as_mut_slice(), *len, *restart)
             }
             _ => Err(AsyncHostError::Badf),
+        },
+        #[cfg(target_os = "linux")]
+        JobPayload::InotifyAddWatch {
+            inotify,
+            path,
+            is_dir,
+        } => match inotify.take() {
+            Some(inotify) => run_inotify_add_watch_job(&inotify, std::mem::take(path), *is_dir),
+            None => Err(AsyncHostError::Badf),
         },
         JobPayload::Bind { socket, addr } => match socket.take() {
             Some(socket) => run_bind_job(&socket, addr),

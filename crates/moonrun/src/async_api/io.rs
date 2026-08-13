@@ -191,6 +191,19 @@ pub(super) fn make_accept_io_result(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_read_dir_changes_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_read_dir_changes_io_result(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    len: u32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.host.make_read_dir_changes_io_result(buffer, len)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
     original = "moonbitlang_async_get_accept_peer_addr"
 )]
 #[cfg(windows)]
@@ -303,6 +316,25 @@ pub(super) fn read_io_result(
     result: u64,
 ) -> i32 {
     match context.host.read_io_result(fd, result) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_read_dir_changes"
+)]
+#[cfg(windows)]
+pub(super) fn read_dir_changes_io_result(
+    context: &mut ImportContext<'_, '_>,
+    fd: u64,
+    result: u64,
+) -> i32 {
+    match context.host.read_dir_changes_io_result(fd, result) {
         Ok(bytes) => bytes,
         Err(error) => {
             context.host.record_error(error);

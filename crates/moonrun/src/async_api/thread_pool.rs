@@ -530,6 +530,31 @@ pub(super) fn make_readdir_job(
         ))
 }
 
+#[cfg(target_os = "linux")]
+#[ported(
+    source = "src/internal/event_loop/fs.c",
+    original = "moonbitlang_async_make_inotify_add_watch_job"
+)]
+pub(super) fn make_inotify_add_watch_job(
+    context: &mut ImportContext<'_, '_>,
+    inotify: u64,
+    path_ptr: u32,
+    path_len: u32,
+    is_dir: i32,
+) -> AsyncHostResult<u64> {
+    let inotify = context
+        .host
+        .acquire_resource_of_class(inotify, ResourceClass::File)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
+    context
+        .host
+        .insert_job(thread_pool::make_inotify_add_watch_job(
+            inotify,
+            path,
+            is_dir != 0,
+        ))
+}
+
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_bind_job(
     context: &mut ImportContext<'_, '_>,

@@ -508,6 +508,12 @@ pub(crate) enum JobPayload {
         len: u32,
         restart: bool,
     },
+    #[cfg(target_os = "linux")]
+    InotifyAddWatch {
+        inotify: Option<ResourceRef>,
+        path: OsString,
+        is_dir: bool,
+    },
     Bind {
         socket: Option<ResourceRef>,
         addr: Vec<u8>,
