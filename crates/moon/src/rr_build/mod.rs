@@ -28,7 +28,7 @@
 //!   two parts: [``]
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -41,6 +41,7 @@ use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
     build_lower::{LoweringEnvironment, WarningCondition},
     build_plan::{ArtifactKey, InputDirective},
+    execution_plan::{ActionId, ExecutionPlan},
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
@@ -72,7 +73,8 @@ use crate::build_flags::{BuildFlags, OutputStyle};
 pub mod action_identity;
 mod dry_run;
 pub use dry_run::{
-    format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
+    format_dry_run_command, write_dry_run, write_dry_run_all, write_fmt_dry_run,
+    write_standalone_dry_run,
 };
 
 /// Synchronize dependencies and return resolved project data.
@@ -697,7 +699,16 @@ pub(crate) fn plan_resolved_build_from_intent(
         .requested_artifact_paths()
         .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
         .collect();
-    let (graph, command_args_by_output) = compile_output.execution_plan.all_to_n2_graph()?;
+    let action_ids = compile_output
+        .execution_plan
+        .action_ids()
+        .collect::<Vec<_>>();
+    let action_backends = action_ids
+        .iter()
+        .copied()
+        .map(|id| (id, Some(cx.backend.target_backend())))
+        .collect();
+    let execution_plan = Arc::new(compile_output.execution_plan);
     let build_meta = BuildMeta {
         resolve_output,
         artifacts,
@@ -708,8 +719,9 @@ pub(crate) fn plan_resolved_build_from_intent(
 
     let db_path = cx.artifact_paths.target_layout().n2_db_path();
     let input = BuildInput {
-        graph,
-        command_args_by_output,
+        execution_plan,
+        action_ids,
+        action_backends,
         db_path,
     };
 
@@ -790,27 +802,31 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };
+    let backend = cx.backend.target_backend();
     let layout = cx.artifact_paths.target_layout();
-    let dependency_input = if compile_output.dependency_actions.is_empty() {
+    let dependency_actions = compile_output.dependency_actions;
+    let script_actions = compile_output.script_actions;
+    let execution_plan = Arc::new(compile_output.execution_plan);
+    let action_backends = execution_plan
+        .action_ids()
+        .map(|id| (id, Some(backend)))
+        .collect::<HashMap<_, _>>();
+    let dependency_input = if dependency_actions.is_empty() {
         None
     } else {
-        let (graph, command_args_by_output) = compile_output
-            .execution_plan
-            .to_n2_graph(compile_output.dependency_actions.iter().copied())?;
         Some(BuildInput {
-            graph,
-            command_args_by_output,
+            execution_plan: Arc::clone(&execution_plan),
+            action_ids: dependency_actions,
+            action_backends: action_backends.clone(),
             db_path: layout.n2_db_path(),
         })
     };
-    let (script_graph, script_command_args) = compile_output
-        .execution_plan
-        .to_n2_graph(compile_output.script_actions.iter().copied())?;
     let input = StandaloneBuildInput {
         dependencies: dependency_input,
         script: BuildInput {
-            graph: script_graph,
-            command_args_by_output: script_command_args,
+            execution_plan,
+            action_ids: script_actions,
+            action_backends,
             db_path: layout.n2_db_path(),
         },
     };
@@ -826,7 +842,7 @@ pub fn plan_fmt(
     selected_packages: &[PackageId],
     project_manifest: &ProjectManifest,
     user_log: &UserLog,
-) -> anyhow::Result<BuildInput> {
+) -> anyhow::Result<FmtBuildInput> {
     let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
         resolved,
         cfg,
@@ -841,11 +857,7 @@ pub fn plan_fmt(
         BuildProfile::Debug,
     );
     let db_path = layout.n2_db_path();
-    Ok(BuildInput {
-        graph,
-        command_args_by_output: Default::default(),
-        db_path,
-    })
+    Ok(FmtBuildInput { graph, db_path })
 }
 
 /// Generate `packages.json` at both its legacy and configuration-scoped paths.
@@ -914,11 +926,15 @@ fn collect_check_commands_by_output(
     build_input: &BuildInput,
 ) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
     let mut commands = BTreeMap::new();
-    for (output_path, args) in &build_input.command_args_by_output {
-        let Some(command_args) = check_command_args_without_executable(args) else {
+    for id in &build_input.action_ids {
+        let action = build_input.execution_plan.action(*id);
+        let Some(command_args) = check_command_args_without_executable(action.command().args())
+        else {
             continue;
         };
-        commands.insert(output_path.clone(), command_args);
+        for output in action.outputs() {
+            commands.insert(output.clone(), command_args.clone());
+        }
     }
     commands
 }
@@ -1037,13 +1053,25 @@ impl Default for BuildConfig {
 /// The input to a build execution.
 #[derive(Debug, Clone)]
 pub struct BuildInput {
-    /// The build graph to execute
-    graph: n2::graph::Graph,
+    /// Executor-neutral actions shared by execution and its projections.
+    execution_plan: Arc<ExecutionPlan>,
 
-    /// Structured command argv keyed by generated output path.
-    command_args_by_output: moonbuild_rupes_recta::execution_plan::CommandArgMap,
+    /// The portion of the Execution Plan owned by this execution phase.
+    action_ids: Vec<ActionId>,
+
+    /// Target Backend for each action. Shared actions have no single backend.
+    action_backends: HashMap<ActionId, Option<TargetBackend>>,
 
     /// The n2 database for the selected target directory.
+    db_path: PathBuf,
+}
+
+/// Formatting still constructs n2 actions directly.
+/// FIXME(execution-plan-fmt): Remove this boundary when formatter lowering
+/// produces an Execution Plan.
+#[derive(Debug)]
+pub struct FmtBuildInput {
+    graph: n2::graph::Graph,
     db_path: PathBuf,
 }
 
@@ -1059,15 +1087,96 @@ pub struct StandaloneBuildInput {
 
 #[cfg(test)]
 impl BuildInput {
-    pub(crate) fn graph_for_test(&self) -> &n2::graph::Graph {
-        &self.graph
+    pub(crate) fn n2_graph_for_test(
+        &self,
+    ) -> Result<
+        (
+            n2::graph::Graph,
+            moonbuild_rupes_recta::execution_plan::CommandArgMap,
+        ),
+        moonbuild_rupes_recta::execution_plan::N2AdapterError,
+    > {
+        self.execution_plan
+            .to_n2_graph(self.action_ids.iter().copied())
+    }
+}
+
+impl BuildInput {
+    fn compose(inputs: Vec<Self>) -> anyhow::Result<Self> {
+        let mut inputs = inputs.into_iter();
+        let first = inputs
+            .next()
+            .context("cannot compose an empty build invocation")?;
+        let Some(second) = inputs.next() else {
+            return Ok(first);
+        };
+        let db_path = first.db_path.clone();
+
+        let mut execution_plan = ExecutionPlan::default();
+        let mut action_ids = Vec::new();
+        let mut action_backends = HashMap::new();
+        let mut selected = HashSet::new();
+
+        for input in std::iter::once(first)
+            .chain(std::iter::once(second))
+            .chain(inputs)
+        {
+            anyhow::ensure!(
+                input.db_path == db_path,
+                "cannot compose build inputs with different target layouts"
+            );
+            let existing_actions = execution_plan.action_ids().collect::<HashSet<_>>();
+            let selected_actions = input.action_ids.iter().copied().collect::<HashSet<_>>();
+            let remapped = execution_plan.merge(&input.execution_plan)?;
+            for (old, new) in input.execution_plan.action_ids().zip(remapped) {
+                if existing_actions.contains(&new) {
+                    if action_backends.get(&new) != input.action_backends.get(&old) {
+                        action_backends.insert(new, None);
+                    }
+                } else {
+                    action_backends.insert(new, input.action_backends.get(&old).copied().flatten());
+                }
+                if selected_actions.contains(&old) && selected.insert(new) {
+                    action_ids.push(new);
+                }
+            }
+        }
+
+        Ok(Self {
+            execution_plan: Arc::new(execution_plan),
+            action_ids,
+            action_backends,
+            db_path,
+        })
     }
 
-    pub(crate) fn command_args_for_test(
-        &self,
-    ) -> &moonbuild_rupes_recta::execution_plan::CommandArgMap {
-        &self.command_args_by_output
+    fn into_n2_execution(
+        self,
+    ) -> Result<N2ExecutionInput, moonbuild_rupes_recta::execution_plan::N2AdapterError> {
+        let adapted = self
+            .execution_plan
+            .adapt_to_n2(self.action_ids.iter().copied())?;
+        let (graph, _, action_by_build) = adapted.into_parts_with_actions();
+        let backend_by_build = action_by_build
+            .into_iter()
+            .map(|(build, action)| (build, self.action_backends.get(&action).copied().flatten()))
+            .collect();
+        Ok(N2ExecutionInput {
+            graph,
+            db_path: self.db_path,
+            backend_by_build,
+        })
     }
+}
+
+struct N2ExecutionInput {
+    graph: n2::graph::Graph,
+    db_path: PathBuf,
+    backend_by_build: HashMap<n2::graph::BuildId, Option<TargetBackend>>,
+}
+
+pub(crate) fn compose_build_inputs(inputs: Vec<BuildInput>) -> anyhow::Result<BuildInput> {
+    BuildInput::compose(inputs)
 }
 
 struct CapturedBuildExecution {
@@ -1097,6 +1206,30 @@ pub fn execute_build(
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
+    Ok(finish_captured_build(cfg, &execution, None, user_log))
+}
+
+/// Execute formatter work that has not yet migrated to Execution Plan.
+pub fn execute_fmt(
+    cfg: &BuildConfig,
+    input: FmtBuildInput,
+    target_dir: &Path,
+    user_log: &UserLog,
+) -> anyhow::Result<N2RunStats> {
+    let start_nodes = input.graph.get_start_nodes();
+    let execution = execute_n2_graph_capturing(
+        cfg,
+        input.graph,
+        input.db_path,
+        HashMap::new(),
+        target_dir,
+        Box::new(|work| {
+            for file_id in start_nodes {
+                work.want_file(file_id)?;
+            }
+            Ok(())
+        }),
+    )?;
     Ok(finish_captured_build(cfg, &execution, None, user_log))
 }
 
@@ -1207,24 +1340,18 @@ pub fn execute_test_build(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
-    build_meta: &BuildMeta,
+    build_metas: &[&BuildMeta],
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
-    let start_nodes = input.graph.get_start_nodes();
-
-    execute_build_partial(
-        cfg,
-        input,
-        target_dir,
-        Some(build_meta),
-        user_log,
-        Box::new(|work| {
-            for file_id in start_nodes {
-                work.want_file(file_id)?;
-            }
-            Ok(())
-        }),
-    )
+    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    // Generated-driver diagnostics can be projected back to source paths only
+    // when one Target Layout owns every captured line. Multi-backend builds
+    // keep the raw path until diagnostic capture retains BuildId provenance.
+    let build_meta = match build_metas {
+        [build_meta] => Some(*build_meta),
+        _ => None,
+    };
+    Ok(finish_captured_build(cfg, &execution, build_meta, user_log))
 }
 
 /// Callback on the [`n2::work::Work`] to be done for target artifacts.
@@ -1245,7 +1372,19 @@ pub fn execute_build_partial(
     user_log: &UserLog,
     want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
-    let execution = execute_build_partial_capturing(cfg, input, target_dir, want_files)?;
+    let N2ExecutionInput {
+        graph,
+        db_path,
+        backend_by_build,
+    } = input.into_n2_execution()?;
+    let execution = execute_n2_graph_capturing(
+        cfg,
+        graph,
+        db_path,
+        backend_by_build,
+        target_dir,
+        want_files,
+    )?;
     Ok(finish_captured_build(cfg, &execution, build_meta, user_log))
 }
 
@@ -1254,11 +1393,17 @@ fn execute_build_capturing(
     input: BuildInput,
     target_dir: &Path,
 ) -> anyhow::Result<CapturedBuildExecution> {
-    // Get start nodes (leaf outputs) before moving the graph.
-    let start_nodes = input.graph.get_start_nodes();
-    execute_build_partial_capturing(
+    let N2ExecutionInput {
+        graph,
+        db_path,
+        backend_by_build,
+    } = input.into_n2_execution()?;
+    let start_nodes = graph.get_start_nodes();
+    execute_n2_graph_capturing(
         cfg,
-        input,
+        graph,
+        db_path,
+        backend_by_build,
         target_dir,
         Box::new(|work| {
             // Want only the leaf output files, not all files including stdlib.
@@ -1270,9 +1415,11 @@ fn execute_build_capturing(
     )
 }
 
-fn execute_build_partial_capturing(
+fn execute_n2_graph_capturing(
     cfg: &BuildConfig,
-    input: BuildInput,
+    mut build_graph: n2::graph::Graph,
+    db_path: PathBuf,
+    backend_by_build: HashMap<n2::graph::BuildId, Option<TargetBackend>>,
     target_dir: &Path,
     want_files: Box<WantFileFn>,
 ) -> anyhow::Result<CapturedBuildExecution> {
@@ -1282,8 +1429,6 @@ fn execute_build_partial_capturing(
         target_dir.display()
     ))?;
 
-    let mut build_graph = input.graph;
-    let db_path = input.db_path;
     db_path
         .parent()
         .map(std::fs::create_dir_all)
@@ -1306,6 +1451,10 @@ fn execute_build_partial_capturing(
         .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
         .unwrap();
 
+    // FIXME: Preserve `backend_by_build` through diagnostic capture once n2's
+    // final-output callback exposes its BuildId. The n2 projection deliberately
+    // retains BuildId -> ActionId today; the current console callback erases it.
+    let _backend_by_build = backend_by_build;
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
     let mut prog_console: Box<dyn n2::progress::Progress> = create_progress_console(
         Some(Box::new(capture_diagnostics_callback(Arc::clone(

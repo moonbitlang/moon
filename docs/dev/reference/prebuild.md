@@ -140,6 +140,10 @@ Behavior:
   `.mbti` path retain the meanings described above. Lowering preserves their
   explicit producer artifacts, and the n2 adapter realizes those artifacts as
   matching file edges.
+- Each backend-specific Execution Plan still contains one complete package
+  prebuild action. When the command layer composes a multi-backend invocation,
+  it shares those providers by identical physical outputs and complete
+  execution behavior before constructing the invocation's single n2 graph.
 
 ## Environment Capture
 

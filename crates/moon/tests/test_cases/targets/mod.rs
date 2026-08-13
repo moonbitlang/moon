@@ -79,9 +79,21 @@ Finished. moon: ran 2 tasks, now up to date
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
 Finished. moon: no work to do
-Finished. moon: no work to do
 
 "#]]);
+}
+
+#[test]
+fn multi_target_tests_wait_for_every_backend_to_build() {
+    let dir = TestDir::new("targets/build_barrier");
+
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+        .args(["test", "--target", "wasm,js", "--serial"])
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("MOON_DEP_CACHE", "off")
+        .current_dir(&dir)
+        .assert()
+        .code(1);
 }
 
 #[test]

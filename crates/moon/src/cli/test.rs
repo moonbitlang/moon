@@ -399,30 +399,23 @@ fn run_test_impl(
     validate_test_or_bench_invocation(cli, &test_cmd)?;
     let resolve_output =
         sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
-    let run_targets = || -> anyhow::Result<i32> {
-        let mut ret_value = 0;
-        for t in targets.iter().copied() {
-            info!(backend = ?t, "running tests for backend");
-            let x = run_test_or_bench_from_resolved(
-                cli,
-                &test_cmd,
-                &dirs,
-                display_backend_hint,
-                Some(t),
-                resolve_output.clone(),
-                output,
-            )
-            .context(format!("failed to run test for target {t:?}"))?;
-            ret_value = ret_value.max(x);
-        }
-        Ok(ret_value)
-    };
-
     let _lock;
     if !cli.dry_run {
         _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
     }
-    let ret_value = run_targets()?;
+    let ret_value = run_test_or_bench_from_resolved(
+        cli,
+        &test_cmd,
+        &dirs,
+        display_backend_hint,
+        &targets,
+        resolve_output,
+        output,
+    )
+    .with_context(|| match targets.as_slice() {
+        [target] => format!("failed to run test for target {target:?}"),
+        _ => format!("failed to run test for targets {targets:?}"),
+    })?;
     debug!(exit_code = ret_value, "completed moon test command");
     Ok(ret_value)
 }
@@ -1007,7 +1000,7 @@ fn run_test_rr(
         cmd,
         dirs,
         display_backend_hint,
-        selected_target_backend,
+        selected_target_backend.as_slice(),
         resolve_output,
         output,
     )
@@ -1022,7 +1015,7 @@ pub(crate) fn run_test_or_bench_from_resolved(
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     display_backend_hint: Option<()>,
-    selected_target_backend: Option<TargetBackend>,
+    selected_target_backends: &[TargetBackend],
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
@@ -1034,15 +1027,36 @@ pub(crate) fn run_test_or_bench_from_resolved(
         ..
     } = dirs;
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let planned_runs = plan_test_or_bench_rr_from_resolved_all(
-        cli,
-        cmd,
-        target_dir,
-        mooncake_bin_dir,
-        selected_target_backend,
-        resolve_output,
-        user_log,
-    )?;
+    let planned_runs = if selected_target_backends.is_empty() {
+        plan_test_or_bench_rr_from_resolved_all(
+            cli,
+            cmd,
+            target_dir,
+            mooncake_bin_dir,
+            None,
+            resolve_output,
+            user_log,
+        )?
+    } else {
+        selected_target_backends
+            .iter()
+            .copied()
+            .map(|target| {
+                plan_test_or_bench_rr_from_resolved_all(
+                    cli,
+                    cmd,
+                    target_dir,
+                    mooncake_bin_dir,
+                    Some(target),
+                    resolve_output.clone(),
+                    user_log,
+                )
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+    };
     let effective_display_backend_hint = if planned_runs.len() > 1 {
         Some(())
     } else {
@@ -1053,23 +1067,78 @@ pub(crate) fn run_test_or_bench_from_resolved(
         artifacts_path: Vec::new(),
         test_filter_args: Vec::new(),
     });
+
+    if planned_runs.is_empty() {
+        return Ok(0);
+    }
+
+    if cli.dry_run {
+        let (build_metas_and_filters, build_inputs): (Vec<_>, Vec<_>) = planned_runs
+            .into_iter()
+            .map(|(meta, input, filter)| ((meta, filter), input))
+            .unzip();
+        let build_input = rr_build::compose_build_inputs(build_inputs)?;
+        output.write_result(|writer| {
+            rr_build::write_dry_run(
+                writer,
+                &build_input,
+                build_metas_and_filters
+                    .iter()
+                    .flat_map(|(meta, _)| meta.artifacts.values()),
+                source_dir,
+                target_dir,
+            )
+        })?;
+        return Ok(0);
+    }
+
+    for (build_meta, _, _) in &planned_runs {
+        rr_build::generate_all_pkgs_json(build_meta)?;
+    }
+    let (build_metas_and_filters, build_inputs): (Vec<_>, Vec<_>) = planned_runs
+        .into_iter()
+        .map(|(meta, input, filter)| ((meta, filter), input))
+        .unzip();
+    let build_metas = build_metas_and_filters
+        .iter()
+        .map(|(meta, _)| meta)
+        .collect::<Vec<_>>();
+    let build_graph = rr_build::compose_build_inputs(build_inputs)?;
+    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let build_graph_backup = cmd.update.then(|| build_graph.clone());
+    let result = rr_build::execute_test_build(
+        &build_config,
+        build_graph,
+        target_dir,
+        &build_metas,
+        user_log,
+    )?;
+    drop(build_metas);
+    if !result.successful() {
+        return Ok(result.return_code_for_success());
+    }
+    let built = BuiltTestExecution {
+        build_config,
+        build_graph_backup,
+    };
+
     let mut exit_code = 0;
-    for (build_meta, build_graph, filter) in planned_runs {
+    for (build_meta, filter) in build_metas_and_filters {
         debug!(
             artifact_count = build_meta.artifacts.len(),
             backend = ?build_meta.target_backend(),
             "planned rupes-recta build graph"
         );
 
-        exit_code = exit_code.max(rr_test_from_plan(
+        exit_code = exit_code.max(rr_test_after_build(
             cli,
             cmd,
             source_dir,
             target_dir,
             effective_display_backend_hint,
             &build_meta,
-            build_graph,
             filter,
+            &built,
             build_only_artifacts.as_mut(),
             output,
         )?);
@@ -1585,7 +1654,6 @@ fn rr_test_from_plan(
     build_only_artifacts: Option<&mut TestArtifacts>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
-    let user_log = output.user_log();
     let built = match execute_test_build_from_plan(
         cli,
         cmd,
@@ -1599,6 +1667,36 @@ fn rr_test_from_plan(
         TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
         TestBuildExecution::Built(built) => *built,
     };
+
+    rr_test_after_build(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        build_meta,
+        filter,
+        &built,
+        build_only_artifacts,
+        output,
+    )
+}
+
+#[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
+fn rr_test_after_build(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: Option<()>,
+    build_meta: &rr_build::BuildMeta,
+    filter: TestFilter,
+    built: &BuiltTestExecution,
+    build_only_artifacts: Option<&mut TestArtifacts>,
+    output: &CommandOutput,
+) -> Result<i32, anyhow::Error> {
+    let user_log = output.user_log();
 
     if cmd.outline {
         let entries = collect_test_outline(
@@ -1819,8 +1917,13 @@ fn execute_test_build_from_plan(
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result =
-        rr_build::execute_test_build(&build_config, build_graph, target_dir, build_meta, user_log)?;
+    let result = rr_build::execute_test_build(
+        &build_config,
+        build_graph,
+        target_dir,
+        &[build_meta],
+        user_log,
+    )?;
     debug!(
         success = result.successful(),
         exit_code = result.return_code_for_success(),
