@@ -518,6 +518,16 @@ declaration).
 
 The concrete rules of lowering is performed in [its module](/crates/moonbuild-rupes-recta/src/build_lower/mod.rs).
 
+Lightweight commands that do not select logical Build Artifacts do not need a
+synthetic Build Plan. `moon fmt` performs its lightweight project discovery and
+constructs complete execution actions directly. Formatter execution and
+dry-run then use the same Execution Plan adapters as project builds.
+
+Legacy manifest migration is one formatter execution action. Its internal
+formatting and legacy-file removal are encapsulated by the internal
+`migrate-manifest` tool command rather than represented as separate execution
+actions or a fake removal output.
+
 The layout of the target directory (the paths of all artifacts)
 is defined in [its module](/crates/moonbuild-rupes-recta/src/target_layout.rs).
 

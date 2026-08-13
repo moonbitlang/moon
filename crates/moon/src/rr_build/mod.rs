@@ -73,8 +73,7 @@ use crate::build_flags::{BuildFlags, OutputStyle};
 pub mod action_identity;
 mod dry_run;
 pub use dry_run::{
-    format_dry_run_command, write_dry_run, write_dry_run_all, write_fmt_dry_run,
-    write_standalone_dry_run,
+    format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
 };
 
 /// Synchronize dependencies and return resolved project data.
@@ -842,22 +841,28 @@ pub fn plan_fmt(
     selected_packages: &[PackageId],
     project_manifest: &ProjectManifest,
     user_log: &UserLog,
-) -> anyhow::Result<FmtBuildInput> {
-    let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
+) -> anyhow::Result<BuildInput> {
+    let execution_plan = Arc::new(moonbuild_rupes_recta::fmt::build_execution_plan_for_fmt(
         resolved,
         cfg,
         target_dir,
         selected_packages,
         project_manifest,
         user_log,
-    )?;
+    )?);
     let layout = TargetLayout::from_fmt_resolve_output(
         target_dir.to_path_buf(),
         resolved,
         BuildProfile::Debug,
     );
-    let db_path = layout.n2_db_path();
-    Ok(FmtBuildInput { graph, db_path })
+    let action_ids = execution_plan.action_ids().collect::<Vec<_>>();
+    let action_backends = action_ids.iter().map(|&action| (action, None)).collect();
+    Ok(BuildInput {
+        execution_plan,
+        action_ids,
+        action_backends,
+        db_path: layout.n2_db_path(),
+    })
 }
 
 /// Generate `packages.json` at both its legacy and configuration-scoped paths.
@@ -1066,15 +1071,6 @@ pub struct BuildInput {
     db_path: PathBuf,
 }
 
-/// Formatting still constructs n2 actions directly.
-/// FIXME(execution-plan-fmt): Remove this boundary when formatter lowering
-/// produces an Execution Plan.
-#[derive(Debug)]
-pub struct FmtBuildInput {
-    graph: n2::graph::Graph,
-    db_path: PathBuf,
-}
-
 /// Dependency-package and script-package inputs for standalone execution.
 ///
 /// Keeping this orchestration outside [`BuildInput`] lets ordinary workspace
@@ -1206,30 +1202,6 @@ pub fn execute_build(
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
-    Ok(finish_captured_build(cfg, &execution, None, user_log))
-}
-
-/// Execute formatter work that has not yet migrated to Execution Plan.
-pub fn execute_fmt(
-    cfg: &BuildConfig,
-    input: FmtBuildInput,
-    target_dir: &Path,
-    user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
-    let start_nodes = input.graph.get_start_nodes();
-    let execution = execute_n2_graph_capturing(
-        cfg,
-        input.graph,
-        input.db_path,
-        HashMap::new(),
-        target_dir,
-        Box::new(|work| {
-            for file_id in start_nodes {
-                work.want_file(file_id)?;
-            }
-            Ok(())
-        }),
-    )?;
     Ok(finish_captured_build(cfg, &execution, None, user_log))
 }
 

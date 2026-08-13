@@ -22,12 +22,14 @@ pub(crate) mod embed;
 pub(crate) mod exec;
 pub(crate) mod format_and_diff;
 pub(crate) mod format_workspace;
+pub(crate) mod migrate_manifest;
 pub(crate) mod write_rsp_file;
 
 use demangle::*;
 use embed::*;
 use format_and_diff::*;
 use format_workspace::*;
+use migrate_manifest::*;
 use moonutil::{cli_support::UniversalFlags, user_log::UserLog};
 use write_rsp_file::*;
 
@@ -41,6 +43,8 @@ pub(crate) struct ToolSubcommand {
 pub(crate) enum ToolSubcommands {
     FormatAndDiff(FormatAndDiffSubcommand),
     FormatWorkspace(FormatWorkspaceSubcommand),
+    #[clap(hide = true)]
+    MigrateManifest(MigrateManifestSubcommand),
     Embed(Embed),
     WriteTccRspFile(WriteTccRspFile),
     BuildBinaryDep(build_binary_dep::BuildBinaryDepArgs),
@@ -55,6 +59,7 @@ pub(crate) fn run_tool(
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
         ToolSubcommands::FormatWorkspace(subcmd) => run_format_workspace(subcmd, user_log),
+        ToolSubcommands::MigrateManifest(subcmd) => run_migrate_manifest(subcmd),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
         ToolSubcommands::WriteTccRspFile(subcmd) => write_tcc_rsp_file(subcmd),
         ToolSubcommands::BuildBinaryDep(subcmd) => {

@@ -222,6 +222,50 @@ pub struct ExecutionAction {
 }
 
 impl ExecutionAction {
+    pub(crate) fn new(
+        inputs: Vec<PathBuf>,
+        outputs: Vec<PathBuf>,
+        command: LoweredCommand,
+        fileloc: String,
+        description: String,
+    ) -> Self {
+        Self {
+            inputs,
+            external_inputs: Vec::new(),
+            outputs,
+            command,
+            cache_eligible: true,
+            fileloc,
+            description,
+            can_dirty_on_output: false,
+            error_package: None::<crate::pkg_name::PackageFQN>.into(),
+        }
+    }
+
+    pub(crate) fn with_external_inputs(mut self, external_inputs: Vec<ExternalInput>) -> Self {
+        self.external_inputs = external_inputs;
+        self
+    }
+
+    pub(crate) fn with_cache_eligible(mut self, cache_eligible: bool) -> Self {
+        self.cache_eligible = cache_eligible;
+        self
+    }
+
+    pub(crate) fn with_can_dirty_on_output(mut self, can_dirty_on_output: bool) -> Self {
+        self.can_dirty_on_output = can_dirty_on_output;
+        self
+    }
+
+    pub(crate) fn with_error_package(
+        mut self,
+        error_package: OptionalPackageFQNWithSource,
+    ) -> Self {
+        self.error_package = error_package;
+        self
+    }
+
+    /// Declared output paths produced by other actions in this plan.
     pub fn inputs(&self) -> &[PathBuf] {
         &self.inputs
     }
@@ -390,81 +434,52 @@ pub enum ExecutionPlanMergeError {
     ConflictingOutput { path: PathBuf },
 }
 
-pub(crate) struct ExecutionActionDraft {
-    pub(crate) artifact_inputs: Vec<ArtifactKey>,
-    pub(crate) semantic_outputs: Vec<(ArtifactKey, Vec<PathBuf>)>,
-    pub(crate) declared_outputs: Vec<PathBuf>,
-    pub(crate) external_inputs: Vec<ExternalInput>,
-    pub(crate) command: LoweredCommand,
-    pub(crate) cache_eligible: bool,
-    pub(crate) fileloc: String,
-    pub(crate) description: String,
-    pub(crate) can_dirty_on_output: bool,
-    pub(crate) error_package: OptionalPackageFQNWithSource,
-}
-
-impl ExecutionActionDraft {
-    #[cfg(test)]
-    pub(crate) fn is_cache_eligible(&self) -> bool {
-        self.cache_eligible
-    }
-}
-
 #[derive(Default)]
 pub(crate) struct ExecutionPlanBuilder {
-    actions: Vec<PendingAction>,
+    actions: Vec<ExecutionAction>,
     outputs: HashMap<PathBuf, DeclaredOutput>,
     artifacts: HashMap<ArtifactKey, Vec<PathBuf>>,
 }
 
-struct PendingAction {
-    action: ExecutionAction,
-    requirements: Vec<ArtifactKey>,
-}
-
 impl ExecutionPlanBuilder {
-    pub(crate) fn add_action(&mut self, draft: ExecutionActionDraft) -> ActionId {
-        let action = ActionId(self.actions.len());
-        let mut output_paths = Vec::new();
+    pub(crate) fn add_action(
+        &mut self,
+        action: ExecutionAction,
+        semantic_outputs: impl IntoIterator<Item = (ArtifactKey, Vec<PathBuf>)>,
+    ) -> ActionId {
+        let action_id = ActionId(self.actions.len());
+        let mut artifacts_by_path = HashMap::new();
 
-        for (artifact, paths) in draft.semantic_outputs {
+        for (artifact, paths) in semantic_outputs {
             assert!(
                 !paths.is_empty(),
                 "execution artifact has no physical outputs: {artifact:?}"
             );
-            let outputs = paths
-                .into_iter()
-                .map(|path| self.add_output(action, path, Some(artifact.clone())))
-                .collect::<Vec<_>>();
-            let previous = self.artifacts.insert(artifact.clone(), outputs.clone());
+            for path in &paths {
+                let previous = artifacts_by_path.insert(path.clone(), artifact.clone());
+                assert!(
+                    previous.is_none(),
+                    "declared execution output realizes multiple artifacts: {}",
+                    path.display()
+                );
+            }
+            let previous = self.artifacts.insert(artifact.clone(), paths);
             assert!(
                 previous.is_none(),
                 "execution artifact has multiple providers: {artifact:?}"
             );
-            output_paths.extend(outputs);
         }
-        output_paths.extend(
-            draft
-                .declared_outputs
-                .into_iter()
-                .map(|path| self.add_output(action, path, None)),
+
+        for path in &action.outputs {
+            self.add_output(action_id, path.clone(), artifacts_by_path.remove(path));
+        }
+        assert!(
+            artifacts_by_path.is_empty(),
+            "artifact output paths should be declared by their execution action"
         );
 
-        self.actions.push(PendingAction {
-            action: ExecutionAction {
-                inputs: Vec::new(),
-                external_inputs: draft.external_inputs,
-                outputs: output_paths,
-                command: draft.command,
-                cache_eligible: draft.cache_eligible,
-                fileloc: draft.fileloc,
-                description: draft.description,
-                can_dirty_on_output: draft.can_dirty_on_output,
-                error_package: draft.error_package,
-            },
-            requirements: draft.artifact_inputs,
-        });
-        action
+        self.actions.push(action);
+        action_id
     }
 
     fn add_output(
@@ -493,25 +508,16 @@ impl ExecutionPlanBuilder {
         self,
         requested_artifacts: impl IntoIterator<Item = ArtifactKey>,
     ) -> ExecutionPlan {
-        let actions = self
-            .actions
-            .into_iter()
-            .map(|pending| ExecutionAction {
-                inputs: pending
-                    .requirements
-                    .into_iter()
-                    .flat_map(|artifact| {
-                        let outputs = self.artifacts.get(&artifact).unwrap_or_else(|| {
-                        panic!(
-                            "execution action requires artifact without a provider: {artifact:?}"
-                        )
-                    });
-                        outputs.iter().cloned()
-                    })
-                    .collect(),
-                ..pending.action
-            })
-            .collect();
+        for (index, action) in self.actions.iter().enumerate() {
+            for input in action.inputs() {
+                assert!(
+                    self.outputs.contains_key(input),
+                    "execution action {:?} depends on an undeclared producer output: {}",
+                    ActionId(index),
+                    input.display()
+                );
+            }
+        }
 
         let mut seen = HashSet::new();
         let mut requested = Vec::new();
@@ -527,7 +533,7 @@ impl ExecutionPlanBuilder {
             requested.push((artifact, outputs));
         }
         ExecutionPlan {
-            actions,
+            actions: self.actions,
             outputs: self.outputs,
             requested_artifacts: requested,
         }
@@ -538,33 +544,34 @@ impl ExecutionPlanBuilder {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use crate::pkg_name::PackageFQN;
-
     use super::*;
 
-    fn draft(
-        artifact_inputs: Vec<ArtifactKey>,
+    fn execution_action(
+        inputs: Vec<PathBuf>,
         semantic_outputs: Vec<(ArtifactKey, Vec<PathBuf>)>,
         declared_outputs: Vec<PathBuf>,
         command: &str,
-    ) -> ExecutionActionDraft {
-        ExecutionActionDraft {
-            artifact_inputs,
+    ) -> (ExecutionAction, Vec<(ArtifactKey, Vec<PathBuf>)>) {
+        let outputs = semantic_outputs
+            .iter()
+            .flat_map(|(_, paths)| paths.iter().cloned())
+            .chain(declared_outputs)
+            .collect();
+        (
+            ExecutionAction::new(
+                inputs,
+                outputs,
+                LoweredCommand::from(vec![command.to_string()]),
+                command.to_string(),
+                command.to_string(),
+            ),
             semantic_outputs,
-            declared_outputs,
-            external_inputs: Vec::new(),
-            command: LoweredCommand::from(vec![command.to_string()]),
-            cache_eligible: true,
-            fileloc: command.to_string(),
-            description: command.to_string(),
-            can_dirty_on_output: false,
-            error_package: None::<PackageFQN>.into(),
-        }
+        )
     }
 
     fn producer_and_consumer_plan() -> (ExecutionPlan, ActionId, ActionId) {
         let mut builder = ExecutionPlanBuilder::default();
-        let producer = builder.add_action(draft(
+        let (action, outputs) = execution_action(
             Vec::new(),
             vec![(
                 ArtifactKey::RuntimeLibrary,
@@ -572,13 +579,15 @@ mod tests {
             )],
             Vec::new(),
             "archive-runtime",
-        ));
-        let consumer = builder.add_action(draft(
-            vec![ArtifactKey::RuntimeLibrary],
+        );
+        let producer = builder.add_action(action, outputs);
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("build/libmoonbitrun.a")],
             Vec::new(),
             vec![PathBuf::from("build/app.dSYM")],
             "generate-debug-symbols",
-        ));
+        );
+        let consumer = builder.add_action(action, outputs);
         let plan = builder.finish([ArtifactKey::RuntimeLibrary]);
         (plan, producer, consumer)
     }
@@ -634,12 +643,27 @@ mod tests {
     #[test]
     #[should_panic(expected = "execution artifact has no physical outputs")]
     fn semantic_artifact_requires_a_physical_output() {
-        ExecutionPlanBuilder::default().add_action(draft(
+        let (action, outputs) = execution_action(
             Vec::new(),
             vec![(ArtifactKey::RuntimeLibrary, Vec::new())],
             Vec::new(),
             "archive-runtime",
-        ));
+        );
+        ExecutionPlanBuilder::default().add_action(action, outputs);
+    }
+
+    #[test]
+    #[should_panic(expected = "depends on an undeclared producer output")]
+    fn execution_inputs_require_a_producer_in_the_same_plan() {
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("src/main.mbt")],
+            Vec::new(),
+            vec![PathBuf::from("build/main.mi")],
+            "compile-main",
+        );
+        builder.add_action(action, outputs);
+        builder.finish([]);
     }
 
     #[test]
@@ -681,12 +705,13 @@ mod tests {
     fn merge_remaps_plan_local_action_ids() {
         let (first, _, _) = producer_and_consumer_plan();
         let mut builder = ExecutionPlanBuilder::default();
-        builder.add_action(draft(
+        let (action, outputs) = execution_action(
             Vec::new(),
             Vec::new(),
             vec![PathBuf::from("build/other-output")],
             "other-command",
-        ));
+        );
+        builder.add_action(action, outputs);
         let second = builder.finish([]);
         let mut composed = ExecutionPlan::default();
 

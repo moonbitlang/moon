@@ -218,53 +218,20 @@ fn test_workspace_commands() {
         "#]],
     );
 
-    if cfg!(windows) {
-        check(
-            get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
-            expect![[r#"
-                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
-                moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
-                cmd /c del ./liba/src/lib/moon.pkg.json
-                moonfmt ./app/src/main/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/app/main/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/alice/app/main/moon.pkg ./app/src/main/moon.pkg
-                cmd /c del ./app/src/main/moon.pkg.json
-                moonfmt ./liba/moon.mod.json -o ./_build/wasm-gc/release/format/alice/liba/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/alice/liba/moon.mod ./liba/moon.mod
-                cmd /c del ./liba/moon.mod.json
-                moonfmt ./app/moon.mod.json -o ./_build/wasm-gc/release/format/alice/app/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/alice/app/moon.mod ./app/moon.mod
-                cmd /c del ./app/moon.mod.json
-                moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
-                moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
-                moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt
-                moonfmt ./liba/src/lib/lib.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib.mbt
-            "#]],
-        );
-    } else {
-        check(
-            get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
-            expect![[r#"
-                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
-                moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
-                cp ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
-                rm ./liba/src/lib/moon.pkg.json
-                moonfmt ./app/src/main/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/app/main/moon.pkg
-                cp ./_build/wasm-gc/release/format/alice/app/main/moon.pkg ./app/src/main/moon.pkg
-                rm ./app/src/main/moon.pkg.json
-                moonfmt ./liba/moon.mod.json -o ./_build/wasm-gc/release/format/alice/liba/moon.mod
-                cp ./_build/wasm-gc/release/format/alice/liba/moon.mod ./liba/moon.mod
-                rm ./liba/moon.mod.json
-                moonfmt ./app/moon.mod.json -o ./_build/wasm-gc/release/format/alice/app/moon.mod
-                cp ./_build/wasm-gc/release/format/alice/app/moon.mod ./app/moon.mod
-                rm ./app/moon.mod.json
-                moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
-                moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
-                moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt
-                moonfmt ./liba/src/lib/lib.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib.mbt
-            "#]],
-        );
-    }
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
+            moon tool migrate-manifest --old ./liba/src/lib/moon.pkg.json --dest ./liba/src/lib/moon.pkg
+            moon tool migrate-manifest --old ./app/src/main/moon.pkg.json --dest ./app/src/main/moon.pkg
+            moon tool migrate-manifest --old ./liba/moon.mod.json --dest ./liba/moon.mod
+            moon tool migrate-manifest --old ./app/moon.mod.json --dest ./app/moon.mod
+            moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
+            moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
+            moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt
+            moonfmt ./liba/src/lib/lib.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib.mbt
+        "#]],
+    );
 
     let stderr = get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
     assert!(stderr.contains("Finished. moon: ran "));

@@ -32,7 +32,7 @@ use crate::{
     ResolveOutput,
     build_plan::{ArtifactKey, BuildAction, BuildPlan, PackagePrebuildAction},
     discover::{DiscoverResult, DiscoveredPackage},
-    execution_plan::{ExecutionActionDraft, ExternalInput},
+    execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, ExternalInput},
     model::{BackendConfig, BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
     target_layout::ArtifactPathResolver,
@@ -377,11 +377,12 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, execution))]
     pub(super) fn lower_action(
         &mut self,
         node: BuildPlanNode,
-    ) -> Result<ExecutionActionDraft, LoweringError> {
+        execution: &mut ExecutionPlanBuilder,
+    ) -> Result<ActionId, LoweringError> {
         let action = self.action(node);
         let action_artifacts = ActionArtifacts::new(self, node);
 
@@ -592,28 +593,36 @@ impl<'a> LoweringContext<'a> {
             ],
             _ => Vec::new(),
         };
-        Ok(ExecutionActionDraft {
-            artifact_inputs: action_artifacts
-                .dependencies
-                .into_iter()
-                .map(|artifact| artifact.artifact)
-                .collect(),
-            semantic_outputs: action_artifacts
-                .outputs
-                .into_iter()
-                .map(|artifact| (artifact.artifact, artifact.paths))
-                .collect(),
-            declared_outputs,
-            external_inputs,
+        let inputs = action_artifacts
+            .dependencies
+            .into_iter()
+            .flat_map(|artifact| artifact.paths)
+            .collect();
+        let semantic_outputs = action_artifacts
+            .outputs
+            .into_iter()
+            .map(|artifact| (artifact.artifact, artifact.paths))
+            .collect::<Vec<_>>();
+        let outputs = semantic_outputs
+            .iter()
+            .flat_map(|(_, paths)| paths.iter().cloned())
+            .chain(declared_outputs)
+            .collect();
+        let execution_action = ExecutionAction::new(
+            inputs,
+            outputs,
             command,
-            cache_eligible,
-            fileloc: node.string_id(self.modules, self.packages),
-            description: self.human_desc(node, action),
-            can_dirty_on_output: matches!(
-                node,
-                BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
-            ),
-            error_package,
-        })
+            node.string_id(self.modules, self.packages),
+            self.human_desc(node, action),
+        )
+        .with_external_inputs(external_inputs)
+        .with_cache_eligible(cache_eligible)
+        .with_can_dirty_on_output(matches!(
+            node,
+            BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
+        ))
+        .with_error_package(error_package);
+
+        Ok(execution.add_action(execution_action, semantic_outputs))
     }
 }

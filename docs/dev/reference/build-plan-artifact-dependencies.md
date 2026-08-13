@@ -201,24 +201,36 @@ when it realizes the action's output.
 
 ## Execution Plan
 
-Lowering consumes `BuildPlan` directly. A borrowed `BuildAction` value may be
-hydrated on demand while constructing a command, but there is no stored
-`BuildActionPlan` and no second action topology between semantic planning and
-execution lowering.
+Lowering consumes `BuildPlan` directly and inserts complete `ExecutionAction`
+values into the Execution Plan. A borrowed `BuildAction` value may be hydrated
+on demand while constructing a command, but there is no stored
+`BuildActionPlan`, draft execution action, or second action topology between
+semantic planning and execution lowering.
 
 `ExecutionPlan` assigns an `ActionId` to each concrete `ExecutionAction`.
 Declared outputs are instead keyed by their concrete paths, which are already
-required to be unique within the plan. Each execution action names the paths it
-consumes, and every declared output retains its producer `ActionId` and optional
-`ArtifactKey`. Adapters and identity consumers can therefore follow the
-relationship without another dependency object, output arena, or plan-wide
-artifact registry. One action may provide several Build Artifacts, and a Build
-Artifact may realize to one or several physical outputs.
+required to be unique within the plan. An execution action's `inputs` are
+declared outputs produced by other actions in the same plan. Source files,
+manifests, tools, and other paths not produced by the plan are
+`ExternalInput` observations instead. Every declared output retains its
+producer `ActionId` and optional `ArtifactKey`, so adapters and identity
+consumers can follow the relationship without another dependency object,
+output arena, or plan-wide artifact registry. One action may provide several
+Build Artifacts, and a Build Artifact may realize to one or several physical
+outputs.
 
-The builder's artifact registry exists only while the plan is finalized. It
-also resolves requested artifacts to output paths for command results. The final
-Execution Plan therefore does not impose one global `ArtifactKey` namespace on
-future composition of independently scoped Build Plans.
+The builder's artifact registry exists only while actions are inserted. It
+annotates declared outputs and resolves requested artifacts to output paths for
+command results. Artifact requirements have already been realized as concrete
+action inputs before insertion; finalization does not hold or repair partial
+actions. The final Execution Plan therefore does not impose one global
+`ArtifactKey` namespace on future composition of independently scoped Build
+Plans.
+
+`moon fmt` is a Lightweight Command with no logical Build Artifact selection,
+so it constructs complete Execution Actions directly after its lightweight
+project discovery. It does not synthesize a Build Plan, but shares the same
+Execution Plan, n2 adapter, dry-run, and execution path.
 
 Multi-backend invocations keep one independently scoped Build Plan and
 Execution Plan per backend through lowering. The command layer then composes

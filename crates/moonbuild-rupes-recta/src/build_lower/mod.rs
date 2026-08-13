@@ -270,7 +270,7 @@ fn lower_actions(
 
     for node in plan.all_nodes() {
         debug!("Lowering action: {:?}", node);
-        let action = execution.add_action(ctx.lower_action(node)?);
+        let action = ctx.lower_action(node, &mut execution)?;
         action_ids.insert(node, action);
     }
 
@@ -784,9 +784,22 @@ mod tests {
         };
 
         let mut context = LoweringContext::new(artifact_paths, &resolve_output, &plan, &options);
-        for node in [check_node, link_core_node] {
-            let action = context.lower_action(node).expect("lowering should succeed");
-            assert!(!action.is_cache_eligible(), "{node:?} should be ineligible");
+        let mut execution = ExecutionPlanBuilder::default();
+        let nodes = [check_node, link_core_node];
+        let actions = nodes
+            .into_iter()
+            .map(|node| {
+                context
+                    .lower_action(node, &mut execution)
+                    .expect("lowering should succeed")
+            })
+            .collect::<Vec<_>>();
+        let execution = execution.finish([]);
+        for (node, action) in nodes.into_iter().zip(actions) {
+            assert!(
+                !execution.action(action).is_cache_eligible(),
+                "{node:?} should be ineligible"
+            );
         }
     }
 
@@ -1052,12 +1065,12 @@ mod tests {
             lowering_environment,
         };
 
-        let mut context =
-            LoweringContext::new(artifact_paths.clone(), &resolve_output, &plan, &options);
-        for node in [c_stub_node, exe_node] {
-            let action = context.lower_action(node).expect("lowering should succeed");
+        let nodes = [c_stub_node, exe_node];
+        let (execution, actions) =
+            lower_actions(&resolve_output, &plan, &options).expect("lowering should succeed");
+        for node in nodes {
             assert!(
-                !action.is_cache_eligible(),
+                !execution.action(actions[&node]).is_cache_eligible(),
                 "{node:?} with opaque flags should be ineligible"
             );
         }

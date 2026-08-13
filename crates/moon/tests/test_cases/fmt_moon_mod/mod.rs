@@ -118,29 +118,14 @@ fn test_fmt_migrates_moon_mod_by_default() {
 
     let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
 
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    }
+    check(
+        output,
+        expect![[r#"
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool migrate-manifest --old ./moon.mod.json --dest ./moon.mod
+            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+        "#]],
+    );
 }
 
 #[test]
@@ -196,29 +181,14 @@ fn test_fmt_moon_mod_json_migration_dry_run() {
         ],
     );
 
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    }
+    check(
+        output,
+        expect![[r#"
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool migrate-manifest --old ./moon.mod.json --dest ./moon.mod
+            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+        "#]],
+    );
 }
 
 #[test]
