@@ -18,13 +18,15 @@
 
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::v8_builder::ScopeExt;
+use crate::v8_import::{V8ImportError, V8ImportState};
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -173,7 +175,7 @@ struct WasiContext {
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
     descriptors: Mutex<DescriptorTable>,
-    memory: OnceLock<v8::Global<v8::WasmMemoryObject>>,
+    v8_import: Rc<V8ImportState>,
     termination_request: TerminationRequest,
 }
 
@@ -703,36 +705,17 @@ fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s WasiCon
     unsafe { &*(ptr as *const WasiContext) }
 }
 
-fn cached_wasi_memory<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    context: &WasiContext,
-) -> WasiResult<v8::Local<'s, v8::WasmMemoryObject>> {
-    context
-        .memory
-        .get()
-        .map(|memory| v8::Local::new(scope, memory))
-        .ok_or(WASI_ERRNO_FAULT)
-}
-
 fn with_wasi_memory_mut<T>(
     scope: &mut v8::HandleScope,
     context: &WasiContext,
     f: impl FnOnce(&mut [u8]) -> WasiResult<T>,
 ) -> WasiResult<T> {
-    let memory_object = cached_wasi_memory(scope, context)?;
-    let buffer = memory_object.buffer();
-    let len = buffer.byte_length();
-
-    let Some(ptr) = buffer.data() else {
-        if len == 0 {
-            let mut empty = [];
-            return f(&mut empty);
-        }
-        return Err(WASI_ERRNO_FAULT);
-    };
-
-    let memory = unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr() as *mut u8, len) };
-    f(memory)
+    context
+        .v8_import
+        .with_memory_mut(scope, |memory| {
+            Ok::<WasiResult<T>, V8ImportError>(f(memory))
+        })
+        .map_err(|_| WASI_ERRNO_FAULT)?
 }
 
 fn result_to_errno(result: WasiResult<()>) -> WasiErrno {
@@ -744,22 +727,6 @@ fn result_to_errno(result: WasiResult<()>) -> WasiErrno {
 
 fn finish_with_result(ret: &mut v8::ReturnValue, result: WasiResult<()>) {
     ret.set_int32(result_to_errno(result));
-}
-
-fn set_memory(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = (|| -> WasiResult<()> {
-        let context = callback_context(&args);
-        let memory_value = args.get(0);
-        let memory = v8::Local::<v8::WasmMemoryObject>::try_from(memory_value)
-            .map_err(|_| WASI_ERRNO_INVAL)?;
-        let _ = context.memory.set(v8::Global::new(scope, memory));
-        Ok(())
-    })();
-    finish_with_result(&mut ret, result);
 }
 
 fn random_get(
@@ -1827,6 +1794,7 @@ pub(crate) fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
+    v8_import: Rc<V8ImportState>,
     termination_request: TerminationRequest,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
@@ -1839,12 +1807,11 @@ pub(crate) fn init_env<'s>(
         preopen_dir_host_path,
         preopen_dir_real_path,
         descriptors: Mutex::new(DescriptorTable::new()),
-        memory: OnceLock::new(),
+        v8_import,
         termination_request,
     });
     let context_ptr = &*context as *const WasiContext as *mut std::ffi::c_void;
 
-    set_wasi_func!(obj, scope, context_ptr, set_memory);
     set_wasi_func!(obj, scope, context_ptr, args_get);
     set_wasi_func!(obj, scope, context_ptr, args_sizes_get);
     set_wasi_func!(obj, scope, context_ptr, environ_get);
@@ -1878,7 +1845,7 @@ mod tests {
             preopen_dir_host_path: root.to_path_buf(),
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
             descriptors: Mutex::new(DescriptorTable::new()),
-            memory: OnceLock::new(),
+            v8_import: Rc::new(V8ImportState::new()),
             termination_request: TerminationRequest::default(),
         }
     }

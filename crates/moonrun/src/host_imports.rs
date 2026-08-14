@@ -27,6 +27,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::any::Any;
 use std::io::{self, Write};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 
@@ -352,6 +353,10 @@ pub(crate) fn install(
 ) -> run_termination::TerminationRequest {
     let global_proxy = scope.get_current_context().global(scope);
     let termination_request = run_termination::TerminationRequest::default();
+    let host = Rc::new(crate::host::Host::new(Arc::clone(&async_policy)));
+    let v8_import = Rc::new(crate::v8_import::V8ImportState::new());
+    let v8_import_runtime = global_proxy.child(scope, "__moonrun_v8_import");
+    crate::v8_import::register_memory_setter(v8_import_runtime, scope, Rc::as_ptr(&v8_import));
 
     let print_env_box = Box::<PrintEnv>::default();
     let identifier = scope.string("print");
@@ -386,7 +391,8 @@ pub(crate) fn install(
             async_runtime,
             scope,
             dtors,
-            Arc::clone(&async_policy),
+            Rc::clone(&host),
+            Rc::clone(&v8_import),
             termination_request.clone(),
         );
     }
@@ -398,6 +404,7 @@ pub(crate) fn install(
             scope,
             wasm_file_name,
             args,
+            Rc::clone(&v8_import),
             termination_request.clone(),
             dtors,
         );

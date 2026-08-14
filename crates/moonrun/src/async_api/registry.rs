@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::v8_builder::ObjectExt;
-
 use super::context::{
     AsyncContext, FinishI32, FinishI64, FinishVoid, ImportArgs, ImportContext, callback_context,
     throw_import_error,
@@ -213,7 +211,13 @@ macro_rules! register_async_import {
         ) {
             unreachable!("fake async import should not be called")
         }
-        register_func_impl($obj, $scope, $wasm_symbol, callback, $context_ptr);
+        crate::v8_import::register_func(
+            $obj,
+            $scope,
+            $wasm_symbol,
+            callback,
+            $context_ptr,
+        );
     }};
     (
         $kind:ident,
@@ -259,23 +263,14 @@ macro_rules! register_async_import {
                 Err(error) => throw_import_error(scope, $wasm_symbol, error),
             }
         }
-        register_func_impl($obj, $scope, $wasm_symbol, callback, $context_ptr);
+        crate::v8_import::register_func(
+            $obj,
+            $scope,
+            $wasm_symbol,
+            callback,
+            $context_ptr,
+        );
     }};
-}
-
-fn register_func_impl<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    name: &str,
-    callback: impl v8::MapFnTo<v8::FunctionCallback>,
-    context_ptr: *const AsyncContext,
-) {
-    let data = v8::External::new(scope, context_ptr as *mut std::ffi::c_void);
-    let function = v8::Function::builder(callback)
-        .data(data.into())
-        .build(scope)
-        .unwrap();
-    obj.set_value(scope, name, function.into());
 }
 
 // This block is the complete `moonbitlang/async` ABI surface registered by moonrun.
