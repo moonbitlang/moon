@@ -312,31 +312,44 @@ pub(crate) fn run_info(
     std::fs::create_dir_all(target_dir)?;
     let _lock = lock_directory(target_dir, output.user_log())?;
 
-    let mut all_meta = vec![];
-    let mut ok = true;
-    for (tgt, target_kind) in execution_targets {
-        let (success, meta) = run_info_rr_internal(
-            &cli,
-            &cmd,
-            tgt,
-            target_kind,
-            target_dir,
-            mooncake_bin_dir,
-            resolve_output.clone(),
-            &selection,
-            &output_plan,
-            output.user_log(),
-        )?;
-        if !success {
-            ok = false;
-            continue;
-        }
-        all_meta.push((tgt, meta));
+    let planned_runs = execution_targets
+        .into_iter()
+        .map(|(target, target_kind)| {
+            let (meta, input) = plan_info_rr(
+                &cli,
+                &cmd,
+                target,
+                target_kind,
+                target_dir,
+                mooncake_bin_dir,
+                resolve_output.clone(),
+                &selection,
+                &output_plan,
+                output.user_log(),
+            )?;
+            Ok((target, meta, input))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    if planned_runs.is_empty() {
+        return Ok(0);
     }
 
-    if !ok {
+    for (_, meta, _) in &planned_runs {
+        rr_build::generate_all_pkgs_json(meta)?;
+    }
+    let (all_meta, build_inputs): (Vec<_>, Vec<_>) = planned_runs
+        .into_iter()
+        .map(|(target, meta, input)| ((target, meta), input))
+        .unzip();
+    let build_input = rr_build::compose_build_inputs(build_inputs)?;
+    // TODO: UX: Consider mirroring flags from `moon check`?
+    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
+    let result = rr_build::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+    let print_result = result.print_info(cli.quiet, "generating mbti files");
+    if !result.successful() {
         return Ok(1);
     }
+    print_result?;
 
     imp::promote_info_results(&output_plan, all_meta.iter());
     output.write_result(|writer| {
@@ -345,11 +358,9 @@ pub(crate) fn run_info(
     Ok(0)
 }
 
-/// Run `moon info` for the given target.
-///
-/// Returns `(success, build metadata if not dry-run)`.
+/// Plan `moon info` for one target backend.
 #[allow(clippy::too_many_arguments)]
-fn run_info_rr_internal(
+fn plan_info_rr(
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: TargetBackend,
@@ -360,7 +371,7 @@ fn run_info_rr_internal(
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
     user_log: &UserLog,
-) -> anyhow::Result<(bool, BuildMeta)> {
+) -> anyhow::Result<(BuildMeta, rr_build::BuildInput)> {
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -385,7 +396,7 @@ fn run_info_rr_internal(
     )?;
     let intent =
         calc_user_intent_for_info(&ctx, &resolve_output, planning_context.target_backend())?;
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         user_log,
@@ -393,19 +404,5 @@ fn run_info_rr_internal(
         intent,
         mooncake_bin_dir,
         resolve_output,
-    )?;
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    rr_build::generate_all_pkgs_json(&build_meta)?;
-
-    // TODO: UX: Consider mirroring flags from `moon check`?
-    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-    let success = result.successful();
-    let print_result = result.print_info(cli.quiet, "generating mbti files");
-    if success {
-        print_result?;
-    }
-
-    Ok((success, build_meta))
+    )
 }
