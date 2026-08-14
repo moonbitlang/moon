@@ -30,7 +30,8 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    rc::Rc,
+    sync::mpsc,
 };
 
 use anyhow::Context;
@@ -707,7 +708,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         .copied()
         .map(|id| (id, Some(cx.backend.target_backend())))
         .collect();
-    let execution_plan = Arc::new(compile_output.execution_plan);
+    let execution_plan = Rc::new(compile_output.execution_plan);
     let build_meta = BuildMeta {
         resolve_output,
         artifacts,
@@ -805,7 +806,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     let layout = cx.artifact_paths.target_layout();
     let dependency_actions = compile_output.dependency_actions;
     let script_actions = compile_output.script_actions;
-    let execution_plan = Arc::new(compile_output.execution_plan);
+    let execution_plan = Rc::new(compile_output.execution_plan);
     let action_backends = execution_plan
         .action_ids()
         .map(|id| (id, Some(backend)))
@@ -814,7 +815,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         None
     } else {
         Some(BuildInput {
-            execution_plan: Arc::clone(&execution_plan),
+            execution_plan: Rc::clone(&execution_plan),
             action_ids: dependency_actions,
             action_backends: action_backends.clone(),
             db_path: layout.n2_db_path(),
@@ -842,7 +843,7 @@ pub fn plan_fmt(
     project_manifest: &ProjectManifest,
     user_log: &UserLog,
 ) -> anyhow::Result<BuildInput> {
-    let execution_plan = Arc::new(moonbuild_rupes_recta::fmt::build_execution_plan_for_fmt(
+    let execution_plan = Rc::new(moonbuild_rupes_recta::fmt::build_execution_plan_for_fmt(
         resolved,
         cfg,
         target_dir,
@@ -1059,7 +1060,7 @@ impl Default for BuildConfig {
 #[derive(Debug, Clone)]
 pub struct BuildInput {
     /// Executor-neutral actions shared by execution and its projections.
-    execution_plan: Arc<ExecutionPlan>,
+    execution_plan: Rc<ExecutionPlan>,
 
     /// The portion of the Execution Plan owned by this execution phase.
     action_ids: Vec<ActionId>,
@@ -1139,7 +1140,7 @@ impl BuildInput {
         }
 
         Ok(Self {
-            execution_plan: Arc::new(execution_plan),
+            execution_plan: Rc::new(execution_plan),
             action_ids,
             action_backends,
             db_path,
@@ -1177,12 +1178,47 @@ pub(crate) fn compose_build_inputs(inputs: Vec<BuildInput>) -> anyhow::Result<Bu
 
 struct CapturedBuildExecution {
     n_tasks_executed: Option<usize>,
-    diagnostics: ResultCatcher,
+    action_outputs: Vec<CapturedActionOutput>,
+}
+
+struct CapturedActionOutput {
+    target_backend: Option<TargetBackend>,
+    content: ResultCatcher,
 }
 
 impl CapturedBuildExecution {
     fn successful(&self) -> bool {
         self.n_tasks_executed.is_some()
+    }
+
+    fn diagnostic_sources<'a>(
+        &'a self,
+        build_metas: impl IntoIterator<Item = &'a BuildMeta>,
+    ) -> Vec<CapturedDiagnosticSource<'a>> {
+        let build_metas = build_metas.into_iter().collect::<Vec<_>>();
+        let sole_build_meta = match build_metas.as_slice() {
+            [build_meta] => Some(*build_meta),
+            _ => None,
+        };
+        self.action_outputs
+            .iter()
+            .map(|output| {
+                let build_meta = output
+                    .target_backend
+                    .and_then(|backend| {
+                        build_metas
+                            .iter()
+                            .find(|meta| meta.target_backend() == backend)
+                            .copied()
+                    })
+                    .or(sole_build_meta);
+                CapturedDiagnosticSource {
+                    diagnostics: &output.content,
+                    build_succeeded: self.successful(),
+                    build_meta,
+                }
+            })
+            .collect()
     }
 }
 
@@ -1213,8 +1249,16 @@ pub struct JsonBuildOutput {
     pub n_warnings: usize,
     pub hidden_errors: usize,
     pub hidden_warnings: usize,
-    pub diagnostics: Vec<serde_json::Value>,
+    pub diagnostics: Vec<JsonBuildDiagnostic>,
     pub non_diagnostic_output: Vec<String>,
+}
+
+/// One compiler diagnostic and the backend of the n2 action that emitted it.
+/// The command layer remains responsible for projecting this into its JSON
+/// schema.
+pub struct JsonBuildDiagnostic {
+    pub target_backend: Option<TargetBackend>,
+    pub value: serde_json::Value,
 }
 
 impl JsonBuildOutput {
@@ -1230,26 +1274,51 @@ pub fn execute_build_json(
     target_dir: &Path,
 ) -> anyhow::Result<JsonBuildOutput> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
-    let collected = collect_json_diagnostics(
-        &[CapturedDiagnosticSource::new(&execution, None)],
-        cfg,
-        true,
-    );
+    // Keep the existing per-backend diagnostic-limit semantics while all
+    // backends execute in one n2 graph. Shared actions have no backend and are
+    // collected in their own group.
+    let mut sources_by_backend = BTreeMap::new();
+    for output in &execution.action_outputs {
+        sources_by_backend
+            .entry(output.target_backend)
+            .or_insert_with(Vec::new)
+            .push(CapturedDiagnosticSource {
+                diagnostics: &output.content,
+                build_succeeded: execution.successful(),
+                build_meta: None,
+            });
+    }
+
+    let mut n_errors = 0;
+    let mut n_warnings = 0;
+    let mut hidden_errors = 0;
+    let mut hidden_warnings = 0;
+    let mut diagnostics = Vec::new();
+    let mut non_diagnostic_output = Vec::new();
+    for (target_backend, sources) in sources_by_backend {
+        let collected = collect_json_diagnostics(&sources, cfg, true);
+        n_errors += collected.processed.n_errors;
+        n_warnings += collected.processed.n_warnings;
+        hidden_errors += collected.processed.hidden_errors;
+        hidden_warnings += collected.processed.hidden_warnings;
+        diagnostics.extend(collected.diagnostics.into_iter().map(|content| {
+            JsonBuildDiagnostic {
+                target_backend,
+                value: serde_json::from_str(&content)
+                    .expect("collected Moonc diagnostic should remain valid JSON"),
+            }
+        }));
+        non_diagnostic_output.extend(collected.non_diagnostic_output);
+    }
+
     Ok(JsonBuildOutput {
         n_tasks_executed: execution.n_tasks_executed,
-        n_errors: collected.processed.n_errors,
-        n_warnings: collected.processed.n_warnings,
-        hidden_errors: collected.processed.hidden_errors,
-        hidden_warnings: collected.processed.hidden_warnings,
-        diagnostics: collected
-            .diagnostics
-            .into_iter()
-            .map(|content| {
-                serde_json::from_str(&content)
-                    .expect("collected Moonc diagnostic should remain valid JSON")
-            })
-            .collect(),
-        non_diagnostic_output: collected.non_diagnostic_output,
+        n_errors,
+        n_warnings,
+        hidden_errors,
+        hidden_warnings,
+        diagnostics,
+        non_diagnostic_output,
     })
 }
 
@@ -1284,13 +1353,9 @@ pub fn execute_standalone_build(
             return Err(error);
         }
     };
-    let processed = process_captured_diagnostics(
-        &[
-            CapturedDiagnosticSource::new(&dependency_execution, None),
-            CapturedDiagnosticSource::new(&script_execution, None),
-        ],
-        cfg,
-    );
+    let mut diagnostic_sources = dependency_execution.diagnostic_sources([]);
+    diagnostic_sources.extend(script_execution.diagnostic_sources([]));
+    let processed = process_captured_diagnostics(&diagnostic_sources, cfg);
     processed.warn_if_limited(user_log);
 
     Ok(N2RunStats {
@@ -1316,14 +1381,14 @@ pub fn execute_test_build(
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
-    // Generated-driver diagnostics can be projected back to source paths only
-    // when one Target Layout owns every captured line. Multi-backend builds
-    // keep the raw path until diagnostic capture retains BuildId provenance.
-    let build_meta = match build_metas {
-        [build_meta] => Some(*build_meta),
-        _ => None,
-    };
-    Ok(finish_captured_build(cfg, &execution, build_meta, user_log))
+    let sources = execution.diagnostic_sources(build_metas.iter().copied());
+    let processed = process_captured_diagnostics(&sources, cfg);
+    processed.warn_if_limited(user_log);
+    Ok(N2RunStats {
+        n_tasks_executed: execution.n_tasks_executed,
+        n_errors: processed.n_errors,
+        n_warnings: processed.n_warnings,
+    })
 }
 
 /// Callback on the [`n2::work::Work`] to be done for target artifacts.
@@ -1423,15 +1488,24 @@ fn execute_n2_graph_capturing(
         .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
         .unwrap();
 
-    // FIXME: Preserve `backend_by_build` through diagnostic capture once n2's
-    // final-output callback exposes its BuildId. The n2 projection deliberately
-    // retains BuildId -> ActionId today; the current console callback erases it.
-    let _backend_by_build = backend_by_build;
-    let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
+    let (captured_output_sender, captured_output_receiver) = mpsc::channel();
     let mut prog_console: Box<dyn n2::progress::Progress> = create_progress_console(
-        Some(Box::new(capture_diagnostics_callback(Arc::clone(
-            &result_catcher,
-        )))),
+        Some(Box::new(move |build_id, output: &str| {
+            let target_backend = backend_by_build
+                .get(&build_id)
+                .copied()
+                .expect("every n2 build should retain its action backend");
+            let mut captured = ResultCatcher::default();
+            for line in output.split('\n').filter(|line| !line.is_empty()) {
+                captured.append_content(line, None);
+            }
+            captured_output_sender
+                .send(CapturedActionOutput {
+                    target_backend,
+                    content: captured,
+                })
+                .expect("captured output receiver should outlive n2 progress");
+        })),
         cfg.verbose,
         cfg.suppress_progress,
     );
@@ -1456,14 +1530,11 @@ fn execute_n2_graph_capturing(
     drop(work);
     drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
     let res = res?;
-    let diagnostics = {
-        let mut result_catcher = result_catcher.lock().unwrap();
-        std::mem::take(&mut *result_catcher)
-    };
+    let action_outputs = captured_output_receiver.into_iter().collect();
 
     Ok(CapturedBuildExecution {
         n_tasks_executed: res,
-        diagnostics,
+        action_outputs,
     })
 }
 
@@ -1473,26 +1544,13 @@ fn finish_captured_build(
     build_meta: Option<&BuildMeta>,
     user_log: &UserLog,
 ) -> N2RunStats {
-    let processed =
-        process_captured_diagnostics(&[CapturedDiagnosticSource::new(execution, build_meta)], cfg);
+    let sources = execution.diagnostic_sources(build_meta);
+    let processed = process_captured_diagnostics(&sources, cfg);
     processed.warn_if_limited(user_log);
     N2RunStats {
         n_tasks_executed: execution.n_tasks_executed,
         n_errors: processed.n_errors,
         n_warnings: processed.n_warnings,
-    }
-}
-
-/// Capture compiler output from n2 so it can be processed after the build.
-fn capture_diagnostics_callback(catcher: Arc<Mutex<ResultCatcher>>) -> impl Fn(&str) {
-    move |output: &str| {
-        let mut catcher = catcher.lock().unwrap();
-        output
-            .split('\n')
-            .filter(|it| !it.is_empty())
-            .for_each(|content| {
-                catcher.append_content(content, None);
-            });
     }
 }
 
@@ -1504,16 +1562,6 @@ struct CapturedDiagnosticSource<'a> {
     diagnostics: &'a ResultCatcher,
     build_succeeded: bool,
     build_meta: Option<&'a BuildMeta>,
-}
-
-impl<'a> CapturedDiagnosticSource<'a> {
-    fn new(execution: &'a CapturedBuildExecution, build_meta: Option<&'a BuildMeta>) -> Self {
-        Self {
-            diagnostics: &execution.diagnostics,
-            build_succeeded: execution.successful(),
-            build_meta,
-        }
-    }
 }
 
 struct ProcessedDiagnostics {

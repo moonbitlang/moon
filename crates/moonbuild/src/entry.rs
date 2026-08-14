@@ -18,23 +18,26 @@
 
 use ariadne::ReportKind;
 use colored::Colorize;
-use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
+use n2::progress::{BuildOutputCallback, DumbConsoleProgress, FancyConsoleProgress, Progress};
 use n2::terminal;
 use std::io::Write;
 
 use crate::runtest::TestStatistics;
 use moonutil::test_metadata::MbtTestInfo;
 
-#[allow(clippy::type_complexity)]
 pub fn create_progress_console(
-    callback: Option<Box<dyn Fn(&str) + Send>>,
+    callback: Option<Box<BuildOutputCallback>>,
     verbose: bool,
     suppress_progress: bool,
 ) -> Box<dyn Progress> {
     if !suppress_progress && terminal::use_fancy() {
-        Box::new(FancyConsoleProgress::new(verbose, callback))
+        Box::new(FancyConsoleProgress::new_with_build_output(
+            verbose, callback,
+        ))
     } else {
-        Box::new(DumbConsoleProgress::new(verbose, callback))
+        Box::new(DumbConsoleProgress::new_with_build_output(
+            verbose, callback,
+        ))
     }
 }
 

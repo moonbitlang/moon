@@ -324,10 +324,16 @@ duplicating the provider.
 Ordinary project and workspace commands execute one n2 graph per invocation.
 A single-backend invocation projects one Execution Plan directly; a
 multi-backend invocation first composes its independently lowered Execution
-Plans as described above. JSON-formatted `moon check` is temporarily an
-exception: until n2's final-output callback exposes the originating Build ID,
-it executes one graph per backend so each diagnostic can retain its backend
-tag.
+Plans as described above. The n2 adapter preserves each Build ID's originating
+Action ID, which execution projects through the composed plan's action-backend
+map. n2 reports completed action output with that Build ID. This lets
+JSON-formatted `moon check` execute the same composed graph while the command
+layer still annotates each compiler diagnostic with its backend.
+
+The n2 failure budget applies to the composed invocation-wide graph rather
+than restarting for each backend. JSON output reports every diagnostic that
+completed before that executor boundary; diagnostic-limit summaries include
+machine-readable hidden error and warning counts when output was truncated.
 
 ## Results above lowering
 

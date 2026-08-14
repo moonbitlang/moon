@@ -92,10 +92,11 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
 3. Execute the build graph
    - Generate metadata files required by compiler actions. Full project checks
      also publish `packages.json` for tooling compatibility during migration.
-   - For an ordinary multi-backend invocation, compose the independently
-     lowered Execution Plans into one executor graph, sharing compatible
-     physical providers such as package prebuild actions. JSON-formatted
-     checks remain per-backend until diagnostic capture retains Build IDs.
+   - For a multi-backend invocation, compose the independently lowered
+     Execution Plans into one executor graph, sharing compatible physical
+     providers such as package prebuild actions. JSON-formatted checks retain
+     each diagnostic's backend through the originating n2 Build ID, so they use
+     the same composed graph.
    - Execute the concrete build graph in its executor ([n2][]).
      The executor ensures the graph is executed incrementally, rebuilding only the changed parts.
 4. Perform other operations required after build
