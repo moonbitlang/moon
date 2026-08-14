@@ -87,7 +87,9 @@ use artifact::ArtifactPlan;
 pub(crate) use artifact::package_file_key;
 use constructor::BuildPlanConstructor;
 pub use package_prebuild::PrebuildInfo;
-pub(crate) use package_prebuild::{PackagePrebuildAction, PackagePrebuildPlan};
+pub(crate) use package_prebuild::{
+    PackagePrebuildAction, PackagePrebuildPlan, is_package_prebuild_node,
+};
 
 /// A build plan of actions and the artifacts that connect them.
 ///

@@ -387,8 +387,14 @@ impl BuildPlanNode {
     }
 
     /// Return a human-readable description for this build plan node, resolving
-    /// PackageId/ModuleId to names.
-    pub fn human_desc(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    /// PackageId/ModuleId to names and rendering its plan and target kinds as
+    /// one qualifier.
+    pub(crate) fn human_desc(
+        &self,
+        env: &ResolvedEnv,
+        packages: &DiscoverResult,
+        plan_kind: &str,
+    ) -> String {
         let file_basename = |path: &std::path::Path| {
             path.file_name()
                 .and_then(|name| name.to_str())
@@ -396,30 +402,30 @@ impl BuildPlanNode {
                 .unwrap_or_else(|| path.display().to_string())
         };
 
-        let kind_suffix = |kind: TargetKind| match kind {
-            TargetKind::Source => "",
-            TargetKind::WhiteboxTest => " (whitebox test)",
-            TargetKind::BlackboxTest => " (blackbox test)",
-            TargetKind::InlineTest => " (inline test)",
-            TargetKind::SubPackage => " (subpackage)",
+        let qualifier = |kind: TargetKind| match kind {
+            TargetKind::Source => format!(" ({plan_kind})"),
+            TargetKind::WhiteboxTest => format!(" ({plan_kind}, whitebox test)"),
+            TargetKind::BlackboxTest => format!(" ({plan_kind}, blackbox test)"),
+            TargetKind::InlineTest => format!(" ({plan_kind}, inline test)"),
+            TargetKind::SubPackage => format!(" ({plan_kind}, subpackage)"),
         };
 
-        match self {
+        let description = match self {
             BuildPlanNode::Check(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("check {}{}", fqn, kind_suffix(build_target.kind))
+                format!("check {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::EmitProof(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("emit proof {}{}", fqn, kind_suffix(build_target.kind))
+                format!("emit proof {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::Prove(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("prove {}{}", fqn, kind_suffix(build_target.kind))
+                format!("prove {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::BuildCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("build {}{}", fqn, kind_suffix(build_target.kind))
+                format!("build {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::BuildCStub(package_id, index) => {
                 let pkg = packages.get_package(*package_id);
@@ -431,31 +437,27 @@ impl BuildPlanNode {
             }
             BuildPlanNode::LinkCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("link {}{}", fqn, kind_suffix(build_target.kind))
+                format!("link {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::MakeExecutable(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("make executable {}{}", fqn, kind_suffix(build_target.kind))
+                format!("make executable {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::GenerateDsym(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("generate dSYM {}{}", fqn, kind_suffix(build_target.kind))
+                format!("generate dSYM {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::GenerateTestInfo(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!(
                     "generate test driver for {}{}",
                     fqn,
-                    kind_suffix(build_target.kind)
+                    qualifier(build_target.kind)
                 )
             }
             BuildPlanNode::GenerateMbti(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!(
-                    "generate mbti for {}{}",
-                    fqn,
-                    kind_suffix(build_target.kind)
-                )
+                format!("generate mbti for {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::Bundle(module_id) => {
                 let module_src = env.module_source(*module_id);
@@ -491,7 +493,7 @@ impl BuildPlanNode {
                 } else {
                     outputs.join(", ")
                 };
-                format!("prebuild script {} {}", packages.fqn(*package_id), joined)
+                format!("run script {} {}", packages.fqn(*package_id), joined)
             }
             BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
                 let pkg = packages.get_package(*package_id);
@@ -509,6 +511,12 @@ impl BuildPlanNode {
                 let src = env.module_source(*module_id);
                 format!("build docs {}", src)
             }
+        };
+
+        if self.extract_target().is_some() {
+            description
+        } else {
+            format!("{description} ({plan_kind})")
         }
     }
 

@@ -30,7 +30,9 @@ use walkdir::WalkDir;
 use super::{BuildOptions, CExecutableRealization, CStubLibraryRealization, LoweringError};
 use crate::{
     ResolveOutput,
-    build_plan::{ArtifactKey, BuildAction, BuildPlan, PackagePrebuildAction},
+    build_plan::{
+        ArtifactKey, BuildAction, BuildPlan, PackagePrebuildAction, is_package_prebuild_node,
+    },
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, ExternalInput},
     model::{BackendConfig, BuildPlanNode, BuildTarget},
@@ -366,14 +368,25 @@ impl<'a> LoweringContext<'a> {
             );
             format!("run {tool} {} {input_name}", self.packages.fqn(package))
         };
+        let plan_kind = if is_package_prebuild_node(node) {
+            "prebuild"
+        } else {
+            self.opt.target_backend().to_flag()
+        };
         match action {
             BuildAction::RunMoonLexPrebuild { package, input, .. } => {
-                generator_desc("moonlex", package, input)
+                format!(
+                    "{} ({plan_kind})",
+                    generator_desc("moonlex", package, input)
+                )
             }
             BuildAction::RunMoonYaccPrebuild { package, input, .. } => {
-                generator_desc("moonyacc", package, input)
+                format!(
+                    "{} ({plan_kind})",
+                    generator_desc("moonyacc", package, input)
+                )
             }
-            _ => node.human_desc(self.modules, self.packages),
+            _ => node.human_desc(self.modules, self.packages, plan_kind),
         }
     }
 

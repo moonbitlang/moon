@@ -84,6 +84,41 @@ Finished. moon: no work to do
 }
 
 #[test]
+fn progress_identifies_backend_and_prebuild_plan_kinds() {
+    for (target, backend_plan_kinds) in [("wasm", &["wasm"][..]), ("wasm,js", &["wasm", "js"][..])]
+    {
+        let dir = TestDir::new("targets/shared_n2_db");
+
+        moon_cmd(&dir)
+            .args(["check", "--target", target, "-j1", "--trace", "--quiet"])
+            .assert()
+            .success();
+
+        let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+        let events: serde_json::Value = serde_json::from_str(&trace).unwrap();
+        let descriptions = events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|event| event["name"] == "n2.task" && event["ph"] == "B")
+            .filter_map(|event| event["args"]["desc"].as_str())
+            .map(|description| description.trim_matches('"'))
+            .collect::<Vec<_>>();
+
+        for plan_kind in backend_plan_kinds {
+            assert!(descriptions.iter().any(|description| {
+                description.starts_with("check ")
+                    && description.ends_with(&format!("({plan_kind})"))
+            }));
+        }
+        assert!(descriptions.iter().any(|description| {
+            description.starts_with("run script ")
+                && description.ends_with("generated.txt (prebuild)")
+        }));
+    }
+}
+
+#[test]
 fn multi_target_tests_wait_for_every_backend_to_build() {
     let dir = TestDir::new("targets/build_barrier");
 
