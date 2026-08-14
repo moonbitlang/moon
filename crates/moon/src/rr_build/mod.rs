@@ -30,7 +30,8 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, mpsc},
+    rc::Rc,
+    sync::mpsc,
 };
 
 use anyhow::Context;
@@ -707,7 +708,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         .copied()
         .map(|id| (id, Some(cx.backend.target_backend())))
         .collect();
-    let execution_plan = Arc::new(compile_output.execution_plan);
+    let execution_plan = Rc::new(compile_output.execution_plan);
     let build_meta = BuildMeta {
         resolve_output,
         artifacts,
@@ -805,7 +806,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     let layout = cx.artifact_paths.target_layout();
     let dependency_actions = compile_output.dependency_actions;
     let script_actions = compile_output.script_actions;
-    let execution_plan = Arc::new(compile_output.execution_plan);
+    let execution_plan = Rc::new(compile_output.execution_plan);
     let action_backends = execution_plan
         .action_ids()
         .map(|id| (id, Some(backend)))
@@ -814,7 +815,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         None
     } else {
         Some(BuildInput {
-            execution_plan: Arc::clone(&execution_plan),
+            execution_plan: Rc::clone(&execution_plan),
             action_ids: dependency_actions,
             action_backends: action_backends.clone(),
             db_path: layout.n2_db_path(),
@@ -842,7 +843,7 @@ pub fn plan_fmt(
     project_manifest: &ProjectManifest,
     user_log: &UserLog,
 ) -> anyhow::Result<BuildInput> {
-    let execution_plan = Arc::new(moonbuild_rupes_recta::fmt::build_execution_plan_for_fmt(
+    let execution_plan = Rc::new(moonbuild_rupes_recta::fmt::build_execution_plan_for_fmt(
         resolved,
         cfg,
         target_dir,
@@ -1059,7 +1060,7 @@ impl Default for BuildConfig {
 #[derive(Debug, Clone)]
 pub struct BuildInput {
     /// Executor-neutral actions shared by execution and its projections.
-    execution_plan: Arc<ExecutionPlan>,
+    execution_plan: Rc<ExecutionPlan>,
 
     /// The portion of the Execution Plan owned by this execution phase.
     action_ids: Vec<ActionId>,
@@ -1139,7 +1140,7 @@ impl BuildInput {
         }
 
         Ok(Self {
-            execution_plan: Arc::new(execution_plan),
+            execution_plan: Rc::new(execution_plan),
             action_ids,
             action_backends,
             db_path,
