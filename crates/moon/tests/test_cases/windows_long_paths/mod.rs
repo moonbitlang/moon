@@ -303,12 +303,15 @@ fn check_native_reports_its_long_output_directory() {
 
 #[test]
 fn info_native_reports_its_long_check_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["info", "--target", "native"],
-        "native",
-        "debug",
-        "check",
+    let case = LongPathCase::new();
+    // Keep the requested and canonical backends identical so this test has one
+    // intentionally failing compiler action. Multi-backend scheduling is not
+    // part of the long-path reporting contract.
+    write_file(
+        &case.dir.as_ref().join("moon.mod"),
+        "name = \"test/long-path\"\npreferred_target = \"native\"\n",
     );
+    case.assert_compiler_path_failure(&["info", "--target", "native"], "native", "debug", "check");
 }
 
 #[test]
