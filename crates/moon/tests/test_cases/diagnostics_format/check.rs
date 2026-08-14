@@ -187,6 +187,30 @@ fn test_moon_check_complete_json_collects_every_planned_backend() {
 }
 
 #[test]
+fn test_moon_check_complete_json_target_all_preserves_backend_provenance() {
+    let dir = TestDir::new("dedup_diag_error_limit.in");
+
+    moon_cmd(&dir)
+        .args([
+            "check",
+            "--json",
+            "--target",
+            "all",
+            "--diagnostic-limit",
+            "1",
+            "--sort-input",
+            "-j1",
+        ])
+        .assert()
+        .failure()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"failure","diagnostics":[[..]"target_backend":"wasm"[..]"target_backend":"wasm-gc"[..]"target_backend":"js"[..]"target_backend":"native"[..]],"messages":[{"$message_type":"moon","level":"warning","message":"diagnostic output limited by --diagnostic-limit: 0 errors and 12 warnings were not displayed."}],"summary":{"tasks_executed":null,"moon_errors":0,"moon_warnings":1,"diagnostic_errors":4,"diagnostic_warnings":12,"hidden_diagnostic_warnings":12}}
+
+"#]]);
+}
+
+#[test]
 fn test_moon_check_complete_json_quiet_filters_moon_warnings() {
     let dir = TestDir::new("dedup_diag_error_limit.in");
     let report = parse_complete_json(

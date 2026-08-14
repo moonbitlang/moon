@@ -92,6 +92,10 @@ struct CheckJsonSummary {
     moon_warnings: usize,
     diagnostic_errors: usize,
     diagnostic_warnings: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hidden_diagnostic_errors: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hidden_diagnostic_warnings: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -111,28 +115,31 @@ struct CheckJsonAccumulator {
     build_failed: bool,
     diagnostic_errors: usize,
     diagnostic_warnings: usize,
+    hidden_diagnostic_errors: usize,
+    hidden_diagnostic_warnings: usize,
 }
 
 impl CheckJsonAccumulator {
-    fn append_build(
-        &mut self,
-        target_backend: TargetBackend,
-        mut result: rr_build::JsonBuildOutput,
-        user_log: &UserLog,
-    ) {
+    fn append_build(&mut self, result: rr_build::JsonBuildOutput, user_log: &UserLog) {
         let successful = result.successful();
-        for diagnostic in &mut result.diagnostics {
-            diagnostic
-                .as_object_mut()
-                .expect("Moonc diagnostic should be a JSON object")
-                .insert(
-                    "target_backend".to_string(),
-                    serde_json::Value::String(target_backend.to_flag().to_string()),
-                );
-        }
-        self.diagnostics.extend(result.diagnostics);
+        self.diagnostics
+            .extend(result.diagnostics.into_iter().map(|diagnostic| {
+                let mut value = diagnostic.value;
+                if let Some(target_backend) = diagnostic.target_backend {
+                    value
+                        .as_object_mut()
+                        .expect("Moonc diagnostic should be a JSON object")
+                        .insert(
+                            "target_backend".to_string(),
+                            serde_json::Value::String(target_backend.to_flag().to_string()),
+                        );
+                }
+                value
+            }));
         self.diagnostic_errors += result.n_errors;
         self.diagnostic_warnings += result.n_warnings;
+        self.hidden_diagnostic_errors += result.hidden_errors;
+        self.hidden_diagnostic_warnings += result.hidden_warnings;
         self.tasks_executed = if successful && !self.build_failed {
             Some(self.tasks_executed.unwrap_or_default() + result.n_tasks_executed.unwrap())
         } else {
@@ -286,6 +293,10 @@ pub(crate) fn write_check_json(
             moon_warnings,
             diagnostic_errors: outcome.accumulator.diagnostic_errors,
             diagnostic_warnings: outcome.accumulator.diagnostic_warnings,
+            hidden_diagnostic_errors: (outcome.accumulator.hidden_diagnostic_errors != 0)
+                .then_some(outcome.accumulator.hidden_diagnostic_errors),
+            hidden_diagnostic_warnings: (outcome.accumulator.hidden_diagnostic_warnings != 0)
+                .then_some(outcome.accumulator.hidden_diagnostic_warnings),
         },
     };
     output.write_result(|writer| -> anyhow::Result<()> {
@@ -617,14 +628,13 @@ fn run_check_for_single_file_rr(
     cfg.explain_errors |= cmd.explain;
 
     if let Some(json) = json {
-        let target_backend = build_meta.target_backend();
         let result = rr_build::execute_build_json(
             &cfg.with_suppressed_progress(true),
             build_graph,
             target_dir,
         )?;
         let successful = result.successful();
-        json.append_build(target_backend, result, user_log);
+        json.append_build(result, user_log);
         return Ok(if successful { 0 } else { 1 });
     }
 
@@ -830,25 +840,18 @@ fn run_check_normal_rr_from_resolved(
             }
         }
 
+        let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
+        let build_input = rr_build::compose_build_inputs(build_inputs)?;
         if let Some(json) = json {
-            // FIXME: Compose JSON checks after n2 exposes BuildId on its final
-            // output callback, so diagnostics can retain their backend tag.
-            let mut ok = true;
-            for (build_meta, build_graph) in planned_runs {
-                let target_backend = build_meta.target_backend();
-                let result = rr_build::execute_build_json(
-                    &cfg.clone().with_suppressed_progress(true),
-                    build_graph,
-                    target_dir,
-                )?;
-                let successful = result.successful();
-                json.append_build(target_backend, result, user_log);
-                ok &= successful;
-            }
-            ok
+            let result = rr_build::execute_build_json(
+                &cfg.with_suppressed_progress(true),
+                build_input,
+                target_dir,
+            )?;
+            let successful = result.successful();
+            json.append_build(result, user_log);
+            successful
         } else {
-            let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-            let build_input = rr_build::compose_build_inputs(build_inputs)?;
             let result = rr_build::execute_build(&cfg, build_input, target_dir, user_log)?;
             result.print_info(cli.quiet, "checking")?;
             result.successful()
