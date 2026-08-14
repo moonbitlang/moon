@@ -30,7 +30,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, mpsc},
 };
 
 use anyhow::Context;
@@ -1487,12 +1487,24 @@ fn execute_n2_graph_capturing(
         .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
         .unwrap();
 
-    let action_outputs = Arc::new(Mutex::new(Vec::new()));
+    let (captured_output_sender, captured_output_receiver) = mpsc::channel();
     let mut prog_console: Box<dyn n2::progress::Progress> = create_progress_console(
-        Some(Box::new(capture_diagnostics_callback(
-            backend_by_build,
-            Arc::clone(&action_outputs),
-        ))),
+        Some(Box::new(move |build_id, output: &str| {
+            let target_backend = backend_by_build
+                .get(&build_id)
+                .copied()
+                .expect("every n2 build should retain its action backend");
+            let mut captured = ResultCatcher::default();
+            for line in output.split('\n').filter(|line| !line.is_empty()) {
+                captured.append_content(line, None);
+            }
+            captured_output_sender
+                .send(CapturedActionOutput {
+                    target_backend,
+                    content: captured,
+                })
+                .expect("captured output receiver should outlive n2 progress");
+        })),
         cfg.verbose,
         cfg.suppress_progress,
     );
@@ -1517,10 +1529,7 @@ fn execute_n2_graph_capturing(
     drop(work);
     drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
     let res = res?;
-    let action_outputs = {
-        let mut outputs = action_outputs.lock().unwrap();
-        std::mem::take(&mut *outputs)
-    };
+    let action_outputs = captured_output_receiver.into_iter().collect();
 
     Ok(CapturedBuildExecution {
         n_tasks_executed: res,
@@ -1541,27 +1550,6 @@ fn finish_captured_build(
         n_tasks_executed: execution.n_tasks_executed,
         n_errors: processed.n_errors,
         n_warnings: processed.n_warnings,
-    }
-}
-
-/// Capture each n2 action's output together with its backend provenance.
-fn capture_diagnostics_callback(
-    backend_by_build: HashMap<n2::graph::BuildId, Option<TargetBackend>>,
-    action_outputs: Arc<Mutex<Vec<CapturedActionOutput>>>,
-) -> impl Fn(n2::graph::BuildId, &str) {
-    move |build_id, output: &str| {
-        let target_backend = backend_by_build
-            .get(&build_id)
-            .copied()
-            .expect("every n2 build should retain its action backend");
-        let mut captured = ResultCatcher::default();
-        for line in output.split('\n').filter(|line| !line.is_empty()) {
-            captured.append_content(line, None);
-        }
-        action_outputs.lock().unwrap().push(CapturedActionOutput {
-            target_backend,
-            content: captured,
-        });
     }
 }
 
