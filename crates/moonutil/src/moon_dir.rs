@@ -24,7 +24,7 @@ use std::sync::LazyLock;
 use semver::Version;
 
 use crate::{
-    constants::{BUILD_DIR, MOON_LOCK, PRELUDE_PROOF_DIR},
+    constants::{BUILD_DIR, PRELUDE_PROOF_DIR},
     resolution::ModuleName,
     target::TargetBackend,
 };
@@ -94,16 +94,6 @@ impl MoonHomeLayout {
             .join(format!("{version}.zip"))
     }
 
-    /// Lock serializing publication of one source archive version.
-    pub fn registry_source_archive_lock_path(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> PathBuf {
-        self.registry_source_archive_path(name, version)
-            .with_extension("zip.lock")
-    }
-
     /// Directory containing cached executable artifacts.
     pub fn registry_assets_dir(&self) -> PathBuf {
         self.registry_cache_dir().join("assets")
@@ -139,25 +129,9 @@ impl MoonHomeLayout {
             .join(artifact_name)
     }
 
-    /// Lock serializing publication within one registry package asset directory.
-    pub fn registry_package_assets_lock_path(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        package_path: &str,
-    ) -> PathBuf {
-        self.registry_package_assets_dir(name, version, package_path)
-            .join(MOON_LOCK)
-    }
-
     /// Materialized symbol metadata downloaded during registry sync.
     pub fn registry_symbols_dir(&self) -> PathBuf {
         self.registry_dir().join("symbols")
-    }
-
-    /// Lock serializing updates to the registry index and symbols.
-    pub fn registry_update_lock_path(&self) -> PathBuf {
-        self.registry_dir().join(MOON_LOCK)
     }
 
     /// State used to coalesce concurrent registry updates.
@@ -366,28 +340,14 @@ fn derives_paths_from_one_home_root() {
         Path::new("moon-home/registry/cache/moonbitlang/parser/0.3.3.zip")
     );
     assert_eq!(
-        layout.registry_source_archive_lock_path(&name, &version),
-        Path::new("moon-home/registry/cache/moonbitlang/parser/0.3.3.zip.lock")
-    );
-    assert_eq!(
         layout.registry_executable_artifact_path(&name, &version, "cmd/moonfmt", "moonfmt.wasm"),
         Path::new(
             "moon-home/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm"
         )
     );
     assert_eq!(
-        layout.registry_package_assets_lock_path(&name, &version, "cmd/moonfmt"),
-        Path::new(
-            "moon-home/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/.moon-lock"
-        )
-    );
-    assert_eq!(
         layout.registry_symbols_dir(),
         Path::new("moon-home/registry/symbols")
-    );
-    assert_eq!(
-        layout.registry_update_lock_path(),
-        Path::new("moon-home/registry/.moon-lock")
     );
     assert_eq!(
         layout.registry_update_state_path(),

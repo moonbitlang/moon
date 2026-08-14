@@ -23,7 +23,7 @@ use anyhow::Context;
 use moonutil::{
     MoonHomeLayout,
     git::{GitCommandError, Stdios},
-    locks::FileLock,
+    locks::lock_directory,
     registry::RegistryConfig,
     user_log::UserLog,
 };
@@ -626,7 +626,7 @@ fn run_registry_update_locked(
     let state_path = home.registry_update_state_path();
     let _lock = {
         let _span = tracing::debug_span!("acquire_registry_update_lock").entered();
-        FileLock::lock_file_with_user_log(&home.registry_update_lock_path(), user_log)
+        lock_directory(&registry_dir, user_log)
             .context("failed to lock registry update directory")?
     };
 

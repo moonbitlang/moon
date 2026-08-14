@@ -41,7 +41,7 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    locks::FileLock, project::PackageDirs, target::TargetBackend, user_log::UserLog,
+    locks::lock_directory, project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 
 use crate::{
@@ -188,7 +188,7 @@ pub(crate) fn run_build_binary_dep(
             resolve_output.clone(),
         )?;
 
-        let _lock = FileLock::lock(target_dir)?;
+        let _lock = lock_directory(target_dir, user_log)?;
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&build_meta)?;
 

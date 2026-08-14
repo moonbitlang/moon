@@ -36,7 +36,7 @@ use moonutil::{
     build_options::{RunMode, TestArtifacts},
     cache::{CacheKind, resolve_cache_root},
     constants::is_moon_pkg_exist,
-    locks::FileLock,
+    locks::lock_directory,
     target::TargetBackend,
     user_log::UserLog,
 };
@@ -203,7 +203,7 @@ pub(crate) struct RunExecutable {
     pub(crate) target_dir: PathBuf,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
-    lock: Option<FileLock>,
+    lock: Option<std::fs::File>,
 }
 
 struct BuildExecutableFromPlanOptions {
@@ -798,7 +798,7 @@ fn build_executable_from_plan(
         });
     }
 
-    let lock = FileLock::lock_with_verbosity(target_dir, options.output.verbose)?;
+    let lock = lock_directory(target_dir, user_log)?;
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(build_meta)?;
 

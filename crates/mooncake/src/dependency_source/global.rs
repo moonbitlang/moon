@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use moonutil::{
-    locks::FileLock,
+    locks::lock_directory,
     manifest::read_module_desc_file_in_dir,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
     toolchain,
@@ -136,7 +136,7 @@ impl DependencySource for ImmutableDependencySource<'_> {
         frozen: bool,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {
-        let _lock = FileLock::lock_with_user_log(self.root, user_log).with_context(|| {
+        let _lock = lock_directory(self.root, user_log).with_context(|| {
             format!(
                 "Unable to lock dependency source cache `{}`",
                 self.root.display()

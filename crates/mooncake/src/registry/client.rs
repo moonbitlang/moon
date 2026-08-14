@@ -28,8 +28,12 @@ use std::{
 use anyhow::{Context, bail};
 use indexmap::map::IndexMap;
 use moonutil::{
-    MOON_HOME, MoonHomeLayout, dependency::SourceDependencyInfo, locks::FileLock,
-    registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
+    MOON_HOME, MoonHomeLayout,
+    dependency::SourceDependencyInfo,
+    locks::{lock_directory, lock_file},
+    registry::RegistryConfig,
+    resolution::ModuleName,
+    user_log::UserLog,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;
@@ -280,7 +284,7 @@ fn ensure_cached_wasm(
             parent.display()
         )
     })?;
-    let _lock = FileLock::lock(parent)
+    let _lock = lock_directory(parent, user_log)
         .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
 
     if cache_path.exists() {
@@ -534,14 +538,12 @@ impl RegistryClient {
             .parent()
             .expect("registry cache file has a parent");
         std::fs::create_dir_all(cache_dir)?;
-        let cache_lock_file = self.home.registry_source_archive_lock_path(name, version);
-        let _cache_lock = FileLock::lock_file_with_user_log(&cache_lock_file, user_log)
-            .with_context(|| {
-                format!(
-                    "Unable to lock registry archive cache file `{}`",
-                    cache_lock_file.display()
-                )
-            })?;
+        let _cache_lock = lock_file(&cache_file, user_log).with_context(|| {
+            format!(
+                "Unable to lock registry archive cache file `{}`",
+                cache_file.display()
+            )
+        })?;
         if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
             user_log.status(format!("Using cached {name}@{version}"));
             return Ok(archive);
@@ -627,7 +629,7 @@ mod tests {
     };
 
     use log::LevelFilter;
-    use moonutil::user_log::UserLogEntryLevel;
+    use moonutil::{constants::MOON_LOCK, locks::lock_file, user_log::UserLogEntryLevel};
 
     use super::*;
     use crate::registry::Registry;
@@ -835,12 +837,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(path, cache_path);
-        assert!(
-            !registry
-                .home
-                .registry_package_assets_lock_path(&name, &version, "cmd/moonfmt")
-                .exists()
-        );
+        assert!(!cache_path.parent().unwrap().join(MOON_LOCK).exists());
     }
 
     #[test]
@@ -1117,28 +1114,9 @@ mod tests {
         std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
         std::fs::write(&archive_path, archive).unwrap();
 
-        let open_lock = |path: &Path| {
-            let lock = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(path)
-                .unwrap();
-            lock.lock().unwrap();
-            lock
-        };
-        let module_lock = open_lock(
-            &archive_path
-                .parent()
-                .unwrap()
-                .join(moonutil::constants::MOON_LOCK),
-        );
-        let version_lock = open_lock(
-            &registry
-                .home
-                .registry_source_archive_lock_path(&name, &version),
-        );
+        let module_lock =
+            lock_directory(archive_path.parent().unwrap(), &quiet_user_log()).unwrap();
+        let version_lock = lock_file(&archive_path, &quiet_user_log()).unwrap();
 
         let destination = sandbox.path().join("source");
         let (result_sender, result_receiver) = std::sync::mpsc::channel();
@@ -1257,12 +1235,6 @@ mod tests {
             result.unwrap();
         }
         assert_eq!(request_count.load(Ordering::Relaxed), 1);
-        assert!(
-            registry
-                .home
-                .registry_source_archive_lock_path(&name, &version)
-                .is_file()
-        );
     }
 
     #[test]

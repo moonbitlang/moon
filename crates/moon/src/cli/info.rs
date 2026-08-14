@@ -29,7 +29,7 @@ use moonutil::{
     build_options::RunMode,
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
-    locks::FileLock,
+    locks::lock_directory,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
     user_log::UserLog,
@@ -310,7 +310,7 @@ pub(crate) fn run_info(
         imp::plan_info_outputs(&resolve_output, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
     std::fs::create_dir_all(target_dir)?;
-    let _lock = FileLock::lock_with_user_log(target_dir, output.user_log())?;
+    let _lock = lock_directory(target_dir, output.user_log())?;
 
     let mut all_meta = vec![];
     let mut ok = true;

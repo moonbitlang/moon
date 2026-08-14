@@ -18,59 +18,62 @@
 
 use crate::{constants::MOON_LOCK, user_log::UserLog};
 
-pub struct FileLock {
-    _file: std::fs::File,
+/// Lock a directory through its stable `.moon-lock` file.
+///
+/// Reports contention through `user_log` only after one second of waiting.
+pub fn lock_directory(
+    path: &std::path::Path,
+    user_log: &UserLog,
+) -> std::io::Result<std::fs::File> {
+    acquire(&path.join(MOON_LOCK), user_log)
 }
 
-impl FileLock {
-    pub fn lock(path: &std::path::Path) -> std::io::Result<Self> {
-        Self::lock_with_verbosity(path, true)
-    }
+/// Lock a file through an adjacent `<filename>.lock` file.
+///
+/// Reports contention through `user_log` only after one second of waiting.
+pub fn lock_file(path: &std::path::Path, user_log: &UserLog) -> std::io::Result<std::fs::File> {
+    let mut lock_path = path.as_os_str().to_os_string();
+    lock_path.push(".lock");
+    acquire(std::path::Path::new(&lock_path), user_log)
+}
 
-    pub fn lock_with_verbosity(path: &std::path::Path, verbose: bool) -> std::io::Result<Self> {
-        let user_log = UserLog::new(if verbose {
-            log::LevelFilter::Debug
-        } else {
-            log::LevelFilter::Error
-        });
-        Self::lock_with_user_log(path, &user_log)
-    }
-
-    pub fn lock_with_user_log(path: &std::path::Path, user_log: &UserLog) -> std::io::Result<Self> {
-        Self::lock_file_with_user_log(&path.join(MOON_LOCK), user_log)
-    }
-
-    /// Lock a stable file path.
-    ///
-    /// Callers must not remove the lock file after unlocking it. A waiter may
-    /// still hold the old file open while a new caller creates and locks a
-    /// different file at the same path, splitting one lock domain into two.
-    pub fn lock_file_with_user_log(
-        path: &std::path::Path,
-        user_log: &UserLog,
-    ) -> std::io::Result<Self> {
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)?;
-        match file.try_lock() {
-            Ok(_) => Ok(FileLock { _file: file }),
-            Err(std::fs::TryLockError::WouldBlock) => {
-                #[cfg(test)]
-                let _ = user_log;
-                #[cfg(not(test))]
-                user_log.status(format!(
-                    "Blocking waiting for file lock {} ...",
-                    path.display()
-                ));
-                file.lock().map_err(|error| {
+/// Acquire an advisory lock and return its stable lock file as the guard.
+///
+/// Keep the returned file alive for the required lock lifetime. Lock files
+/// must remain on disk after unlocking: removing one can let waiters on the old
+/// file and newcomers on its replacement hold the same logical lock
+/// simultaneously.
+fn acquire(path: &std::path::Path, user_log: &UserLog) -> std::io::Result<std::fs::File> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let (acquired, wait) = std::sync::mpsc::channel();
+            std::thread::scope(|scope| {
+                scope.spawn(move || {
+                    if matches!(
+                        wait.recv_timeout(std::time::Duration::from_secs(1)),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                    ) {
+                        user_log.status(format!(
+                            "Blocking waiting for file lock {} ...",
+                            path.display()
+                        ));
+                    }
+                });
+                let result = file.lock().map_err(|error| {
                     std::io::Error::new(error.kind(), "failed to acquire file lock")
-                })?;
-                Ok(FileLock { _file: file })
-            }
-            Err(std::fs::TryLockError::Error(error)) => Err(error),
+                });
+                let _ = acquired.send(());
+                result
+            })?;
+            Ok(file)
         }
+        Err(std::fs::TryLockError::Error(error)) => Err(error),
     }
 }

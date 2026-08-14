@@ -22,7 +22,7 @@ use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::locks::FileLock;
+use moonutil::locks::lock_directory;
 use moonutil::project::PackageDirs;
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
@@ -113,7 +113,7 @@ pub(crate) fn run_build(
     let resolve_output = sync_and_resolve_build_project(cli, &cmd, &dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     let result =
         run_build_rr_from_resolved(cli, &cmd, &dirs, false, &targets, resolve_output, output)
@@ -173,7 +173,7 @@ fn run_build_rr(
     let resolve_output = sync_and_resolve_build_project(cli, cmd, dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
-        _lock = FileLock::lock_with_user_log(&dirs.target_dir, output.user_log())?;
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     run_build_rr_from_resolved(
         cli,
