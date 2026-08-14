@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-08-10.
+// Snapshot generated from `moonc check -warn-help` on 2026-08-14.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -455,6 +455,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "unused_lexcase",
         description: "`lexmatch`/`lexscan` branch that can never be selected because other branches takes precedence or its pattern matches nothing.",
         id: 90,
+    },
+    WarningEntry {
+        mnemonic: "unused_errdefer",
+        description: "unused `errdefer` statement",
+        id: 91,
     },
 ];
 
