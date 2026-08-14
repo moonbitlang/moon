@@ -60,8 +60,20 @@ imports. WASI does not pass through the Host Filesystem.
 _Avoid_: WASI filesystem, V8 filesystem
 
 **Handle**:
-An opaque value held by MoonBit code that names a moonrun object at the Native-Shaped Async Boundary, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, or Completion Source.
+An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, or Completion Source.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
+
+**Host**:
+The per-run composition root for moonrun-owned import state. It creates one Host Key namespace, wires it into domain states such as the Async Host, and performs leak checking only when the complete run is torn down. Domain operations and payload accounting remain on their owning state or API module.
+_Avoid_: giant host API, async-only host
+
+**Host Key**:
+The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
+_Avoid_: resource payload, raw pointer, per-API key
+
+**V8 Import Runtime**:
+The shared V8 adapter state used by all memory-consuming host imports, including WASI. After instantiation, the JavaScript runner binds the instance's exact `memory` export through one explicit setter, independent of which import families are present. The runtime reacquires that memory's backing buffer for every import call, decodes ABI arguments, registers callbacks, and constructs traps.
+_Avoid_: Async API, SQLite API, domain state
 
 **Resource**:
 A moonrun-owned OS or runtime object that can be acquired by a Job, such as a file, socket, or directory cursor.
@@ -101,7 +113,7 @@ The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm A
 _Avoid_: Runtime state, native-stub implementation
 
 **Async Host**:
-Moonrun-owned async runtime state for one V8 `moonbitlang/async` host instance: the Handle table, host workers, completion queues, guest-memory helper types, and opaque host poll instances.
+Moonrun-owned async runtime state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Host's shared Host Key namespace.
 _Avoid_: `moonbitlang/async` source mirror
 
 **Async Sys**:

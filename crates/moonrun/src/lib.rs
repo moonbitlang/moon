@@ -29,6 +29,7 @@ mod async_sys;
 mod backtrace_api;
 mod demangle_js_template;
 mod fs_api_temp;
+mod host;
 mod host_fs;
 mod host_imports;
 mod memory_sanitizer_api;
@@ -38,6 +39,7 @@ mod sys_api;
 mod util;
 mod v8_backend;
 mod v8_builder;
+mod v8_import;
 mod wasi_api;
 
 pub use runtime::{RunOptions, RunOutcome, Runtime, RuntimeConfig};

@@ -915,7 +915,7 @@ fn test_moon_run_async_host_leak_check_env() {
         .stdout_eq("leaked\n");
     let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
     assert!(
-        stderr.contains("moonrun async host leaked handles: polls=1"),
+        stderr.contains("moonrun host leaked resources: async(polls=1"),
         "expected async host leak assertion in stderr, got:\n{stderr}"
     );
 }

@@ -48,11 +48,11 @@ mod time;
 mod tls;
 
 use std::any::Any;
-use std::sync::Arc;
+use std::rc::Rc;
 
-use crate::async_host::AsyncHost;
-use crate::async_policy::AsyncPolicy;
+use crate::host::Host;
 use crate::run_termination::TerminationRequest;
+use crate::v8_import::V8ImportState;
 
 pub(crate) use registry::MOONBIT_ASYNC_MODULE;
 
@@ -60,13 +60,13 @@ pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     dtors: &mut Vec<Box<dyn Any>>,
-    policy: Arc<AsyncPolicy>,
+    host: Rc<Host>,
+    v8_import: Rc<V8ImportState>,
     termination_request: TerminationRequest,
 ) {
     let context = Box::new(context::AsyncContext::new(
-        scope,
-        obj,
-        AsyncHost::new(policy),
+        host,
+        v8_import,
         termination_request,
     ));
     let context_ptr = &*context as *const context::AsyncContext;

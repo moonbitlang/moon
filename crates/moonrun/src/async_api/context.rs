@@ -16,56 +16,45 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ptr::NonNull;
-use std::sync::OnceLock;
+use std::rc::Rc;
 
 use crate::async_host::{AsyncHost, AsyncHostError, AsyncHostResult};
+use crate::host::Host;
 use crate::run_termination::{RunTermination, TerminationRequest};
+use crate::v8_import::{V8ImportError, V8ImportState};
+
+pub(super) use crate::v8_import::ImportArgs;
 
 pub(super) struct AsyncContext {
-    pub(super) host: AsyncHost,
-    imports: v8::Global<v8::Object>,
-    // The memory object is stable, but memory.grow may replace its buffer.
-    // Cache the object while reacquiring buffer storage for every import.
-    memory: OnceLock<v8::Global<v8::WasmMemoryObject>>,
+    host: Rc<Host>,
+    v8_import: Rc<V8ImportState>,
     termination_request: TerminationRequest,
 }
 
 impl AsyncContext {
-    pub(super) fn new<'s>(
-        scope: &mut v8::HandleScope<'s>,
-        imports: v8::Local<'s, v8::Object>,
-        host: AsyncHost,
+    pub(super) fn new(
+        host: Rc<Host>,
+        v8_import: Rc<V8ImportState>,
         termination_request: TerminationRequest,
     ) -> Self {
         Self {
             host,
-            imports: v8::Global::new(scope, imports),
-            memory: OnceLock::new(),
+            v8_import,
             termination_request,
         }
     }
 }
 
-impl Drop for AsyncContext {
-    fn drop(&mut self) {
-        self.host.assert_no_leaked_handles_if_enabled();
-    }
-}
-
 pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s AsyncContext {
-    let data = args.data();
-    assert!(data.is_external());
-    let data: v8::Local<v8::Data> = data.into();
-    let ptr = v8::Local::<v8::External>::try_from(data).unwrap().value();
-    unsafe { &*(ptr as *const AsyncContext) }
+    // SAFETY: every async callback is registered with the pointer to the
+    // `AsyncContext` retained by `async_api::init_env` for the V8 run.
+    unsafe { crate::v8_import::callback_context(args) }
 }
 
 pub(super) struct ImportContext<'a, 'scope> {
     pub(super) scope: &'a mut v8::HandleScope<'scope>,
     pub(super) host: &'a AsyncHost,
-    imports: &'a v8::Global<v8::Object>,
-    memory: &'a OnceLock<v8::Global<v8::WasmMemoryObject>>,
+    v8_import: &'a V8ImportState,
     termination_request: &'a TerminationRequest,
 }
 
@@ -73,9 +62,8 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
     pub(super) fn new(scope: &'a mut v8::HandleScope<'scope>, context: &'a AsyncContext) -> Self {
         Self {
             scope,
-            host: &context.host,
-            imports: &context.imports,
-            memory: &context.memory,
+            host: context.host.async_state(),
+            v8_import: &context.v8_import,
             termination_request: &context.termination_request,
         }
     }
@@ -92,18 +80,8 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
         f: impl FnOnce(&AsyncHost, &mut [u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
         let host = self.host;
-        let memory_object = memory_object(self.scope, self.imports, self.memory)?;
-        let buffer = memory_object.buffer();
-        let len = buffer.byte_length();
-
-        let ptr = match buffer.data() {
-            Some(ptr) => ptr.cast::<u8>(),
-            None if len == 0 => NonNull::dangling(),
-            None => return Err(AsyncHostError::Fault),
-        };
-
-        let memory = unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
-        f(host, memory)
+        self.v8_import
+            .with_memory_mut(self.scope, |memory| f(host, memory))
     }
 
     pub(super) fn with_memory_mut<T>(
@@ -114,83 +92,13 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
     }
 }
 
-pub(super) struct ImportArgs<'a, 'scope, 'args> {
-    scope: &'a mut v8::HandleScope<'scope>,
-    args: &'a v8::FunctionCallbackArguments<'args>,
-    next_index: i32,
-}
-
-impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
-    pub(super) fn new(
-        scope: &'a mut v8::HandleScope<'scope>,
-        args: &'a v8::FunctionCallbackArguments<'args>,
-    ) -> Self {
-        Self {
-            scope,
-            args,
-            next_index: 0,
+impl From<V8ImportError> for AsyncHostError {
+    fn from(error: V8ImportError) -> Self {
+        match error {
+            V8ImportError::Fault => Self::Fault,
+            V8ImportError::InvalidArgument => Self::Inval,
         }
     }
-
-    pub(super) fn next_i32(&mut self) -> AsyncHostResult<i32> {
-        let index = self.next_index;
-        self.next_index += 1;
-        self.args
-            .get(index)
-            .int32_value(self.scope)
-            .ok_or(AsyncHostError::Inval)
-    }
-
-    pub(super) fn next_i64(&mut self) -> AsyncHostResult<i64> {
-        let index = self.next_index;
-        self.next_index += 1;
-        let value = self.args.get(index);
-        if value.is_big_int() {
-            let bigint =
-                v8::Local::<v8::BigInt>::try_from(value).map_err(|_| AsyncHostError::Inval)?;
-            let (result, lossless) = bigint.i64_value();
-            if lossless {
-                return Ok(result);
-            }
-        }
-        value.integer_value(self.scope).ok_or(AsyncHostError::Inval)
-    }
-
-    pub(super) fn next_u64(&mut self) -> AsyncHostResult<u64> {
-        let index = self.next_index;
-        self.next_index += 1;
-        let value = self.args.get(index);
-        if !value.is_big_int() {
-            return Err(AsyncHostError::Inval);
-        }
-        let bigint = v8::Local::<v8::BigInt>::try_from(value).map_err(|_| AsyncHostError::Inval)?;
-        let (result, lossless) = bigint.u64_value();
-        if lossless {
-            Ok(result)
-        } else {
-            Err(AsyncHostError::Inval)
-        }
-    }
-}
-
-fn memory_object<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    imports: &v8::Global<v8::Object>,
-    cached: &OnceLock<v8::Global<v8::WasmMemoryObject>>,
-) -> AsyncHostResult<v8::Local<'s, v8::WasmMemoryObject>> {
-    if let Some(memory) = cached.get() {
-        return Ok(v8::Local::new(scope, memory));
-    }
-
-    let imports = v8::Local::new(scope, imports);
-    let key = v8::String::new(scope, "memory").ok_or(AsyncHostError::Fault)?;
-    let memory = imports
-        .get(scope, key.into())
-        .ok_or(AsyncHostError::Fault)?;
-    let memory =
-        v8::Local::<v8::WasmMemoryObject>::try_from(memory).map_err(|_| AsyncHostError::Fault)?;
-    let _ = cached.set(v8::Global::new(scope, memory));
-    Ok(memory)
 }
 
 pub(super) fn throw_import_error(
@@ -198,10 +106,7 @@ pub(super) fn throw_import_error(
     import_name: &str,
     error: AsyncHostError,
 ) {
-    let message = format!("moonbitlang/async.{import_name} failed: {error:?}");
-    let message = v8::String::new(scope, &message).unwrap_or_else(|| v8::String::empty(scope));
-    let exception = v8::Exception::error(scope, message);
-    scope.throw_exception(exception);
+    crate::v8_import::throw_import_error(scope, super::MOONBIT_ASYNC_MODULE, import_name, error);
 }
 
 pub(super) trait FinishVoid {

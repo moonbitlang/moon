@@ -16,10 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Moonrun-owned async wasm host state.
+//! Moonrun-owned async domain state.
 //!
-//! This module owns one V8 host instance's runtime state: the Handle table, host
-//! workers, guest memory helpers, and host poll instances.
+//! This module owns async resources and operations for one run: Handle-indexed
+//! resources, workers, jobs, and poll instances. Runtime adapter concerns such
+//! as V8 callbacks and guest-memory access live in `async_api` and `v8_import`.
 //!
 //! Native async multiplexes pollable IO through epoll, kqueue, or IOCP, with
 //! thread-pool completions as one registered event
@@ -33,9 +34,10 @@ use std::ffi::OsString;
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, AsRawSocket, RawHandle};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
 
-use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
+use slotmap::{Key, SecondaryMap};
 
 use crate::async_policy::{AsyncPolicy, RuntimePathBase};
 #[cfg(unix)]
@@ -49,6 +51,8 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+pub(crate) use crate::host::HostKey as HandleKey;
+use crate::host::{HostKeys, HostResourceKind as HandleKind};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -70,8 +74,6 @@ pub(crate) enum AsyncHostError {
 
 pub(crate) type AsyncHostResult<T> = Result<T, AsyncHostError>;
 pub(crate) const INVALID_HOST_HANDLE: u64 = 0;
-pub(crate) const CHECK_FD_LEAK_ENV: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
-
 enum HostCBuffer {
     Available(Box<[u8]>),
     // A readdir Job temporarily owns the buffer. Keeping the slot reserved
@@ -260,10 +262,6 @@ impl<const N: usize> GuestMemory for [u8; N] {
     }
 }
 
-new_key_type! {
-    pub(crate) struct HandleKey;
-}
-
 #[derive(Debug)]
 struct HostAddrInfo {
     addr: Box<[u8]>,
@@ -296,10 +294,6 @@ fn handle_from_key(key: HandleKey) -> HostHandle {
     key.data().as_ffi()
 }
 
-fn key_from_handle(handle: u64) -> HandleKey {
-    KeyData::from_ffi(handle).into()
-}
-
 #[cfg(unix)]
 fn error_message_buffer(message: String) -> Box<[u8]> {
     let mut bytes = message.into_bytes();
@@ -317,25 +311,8 @@ fn error_message_buffer(message: String) -> Box<[u8]> {
     bytes.into_boxed_slice()
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum HandleKind {
-    Resource,
-    Job,
-    Poll,
-    Worker,
-    CBuffer,
-    #[cfg(unix)]
-    ProcessArgv,
-    ProcessEnv,
-    ProcessEnvBuilder,
-    AddrInfo,
-    TlsConnection,
-    #[cfg(windows)]
-    IoResult,
-}
-
 struct HandleTable {
-    handles: SlotMap<HandleKey, HandleKind>,
+    keys: Rc<RefCell<HostKeys>>,
     resources: SecondaryMap<HandleKey, ResourceRef>,
     invalid_resource: HandleKey,
     stdio_resources: [HandleKey; 3],
@@ -343,7 +320,13 @@ struct HandleTable {
 
 impl Default for HandleTable {
     fn default() -> Self {
-        let mut handles = SlotMap::with_key();
+        Self::with_keys(Rc::new(RefCell::new(HostKeys::default())))
+    }
+}
+
+impl HandleTable {
+    fn with_keys(keys: Rc<RefCell<HostKeys>>) -> Self {
+        let mut handles = keys.borrow_mut();
         let mut resources = SecondaryMap::new();
 
         let invalid_resource = handles.insert(HandleKind::Resource);
@@ -381,16 +364,15 @@ impl Default for HandleTable {
             keys
         };
 
+        drop(handles);
         Self {
-            handles,
+            keys,
             resources,
             invalid_resource,
             stdio_resources,
         }
     }
-}
 
-impl HandleTable {
     fn invalid_fd(&self) -> HostHandle {
         handle_from_key(self.invalid_resource)
     }
@@ -457,18 +439,21 @@ impl HandleTable {
         if key == self.invalid_resource || self.stdio_resources.contains(&key) {
             return Err(AsyncHostError::Badf);
         }
-        self.handles.remove(key).ok_or(AsyncHostError::Badf)?;
+        self.keys
+            .borrow_mut()
+            .remove(key)
+            .ok_or(AsyncHostError::Badf)?;
         self.resources.remove(key).ok_or(AsyncHostError::Badf)
     }
 
     fn insert_resource(&mut self, resource: Resource) -> HostHandle {
-        let key = self.handles.insert(HandleKind::Resource);
+        let key = self.keys.borrow_mut().insert(HandleKind::Resource);
         self.resources.insert(key, Arc::new(resource));
         handle_from_key(key)
     }
 
     fn insert(&mut self, kind: HandleKind) -> HandleKey {
-        self.handles.insert(kind)
+        self.keys.borrow_mut().insert(kind)
     }
 
     fn job(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
@@ -476,7 +461,7 @@ impl HandleTable {
     }
 
     fn remove_job_key(&mut self, key: HandleKey) {
-        let removed = self.handles.remove(key);
+        let removed = self.keys.borrow_mut().remove(key);
         debug_assert!(
             matches!(removed, Some(HandleKind::Job)),
             "validated Job Handle must remain reserved until removal"
@@ -500,12 +485,9 @@ impl HandleTable {
     }
 
     fn remove_worker_key(&mut self, worker_key: HandleKey) {
-        if self
-            .handles
-            .get(worker_key)
-            .is_some_and(|kind| *kind == HandleKind::Worker)
-        {
-            self.handles.remove(worker_key);
+        let mut keys = self.keys.borrow_mut();
+        if keys.kind(worker_key) == Some(HandleKind::Worker) {
+            keys.remove(worker_key);
         }
     }
 
@@ -580,36 +562,24 @@ impl HandleTable {
             .count()
     }
 
-    fn handle_count_excluding_reserved(&self) -> usize {
-        self.handles
-            .iter()
-            .filter(|(key, kind)| {
-                if *key == self.invalid_resource || self.stdio_resources.contains(key) {
-                    return false;
-                }
-                match kind {
-                    HandleKind::Resource => self
-                        .resources
-                        .get(*key)
-                        .is_some_and(|resource| !resource.is_invalid()),
-                    _ => true,
-                }
-            })
-            .count()
-    }
-
     fn key(&self, handle: HostHandle, expected: HandleKind) -> AsyncHostResult<HandleKey> {
-        let key = key_from_handle(handle);
-        match self.handles.get(key) {
-            Some(kind) if *kind == expected => Ok(key),
-            _ => Err(AsyncHostError::Badf),
-        }
+        self.keys
+            .borrow()
+            .key(handle, expected)
+            .ok_or(AsyncHostError::Badf)
     }
 
     fn remove(&mut self, handle: HostHandle, expected: HandleKind) -> AsyncHostResult<HandleKey> {
         let key = self.key(handle, expected)?;
-        self.handles.remove(key).ok_or(AsyncHostError::Badf)?;
+        self.keys
+            .borrow_mut()
+            .remove(key)
+            .ok_or(AsyncHostError::Badf)?;
         Ok(key)
+    }
+
+    fn kind(&self, key: HandleKey) -> Option<HandleKind> {
+        self.keys.borrow().kind(key)
     }
 }
 
@@ -1242,6 +1212,10 @@ impl Default for AsyncHost {
 
 impl AsyncHost {
     pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
+        Self::with_keys(policy, Rc::new(RefCell::new(HostKeys::default())))
+    }
+
+    pub(crate) fn with_keys(policy: Arc<AsyncPolicy>, keys: Rc<RefCell<HostKeys>>) -> Self {
         let process_policy_state = policy
             .has_process_policy()
             .then(|| Arc::new(ProcessPolicyState::default()));
@@ -1263,7 +1237,7 @@ impl AsyncHost {
             completed_job_receiver,
             polls: RefCell::new(PollTable::default()),
             thread_pool_completions: RefCell::new(ThreadPoolCompletions::default()),
-            handles: RefCell::new(HandleTable::default()),
+            handles: RefCell::new(HandleTable::with_keys(keys)),
             tls_connections: RefCell::new(SecondaryMap::new()),
             tls_error: RefCell::new(None),
             workers: RefCell::new(SecondaryMap::new()),
@@ -1405,11 +1379,9 @@ impl AsyncHost {
         thread_pool::open_job_get_fd(result)
     }
 
-    pub(crate) fn assert_no_leaked_handles_if_enabled(&self) {
-        if std::thread::panicking() || std::env::var_os(CHECK_FD_LEAK_ENV).is_none() {
-            return;
-        }
-        let summary = {
+    /// Describe live async payloads without inspecting another domain's keys.
+    pub(crate) fn leak_summary(&self) -> Option<String> {
+        {
             let mut leaks = Vec::new();
 
             {
@@ -1449,6 +1421,28 @@ impl AsyncHost {
                     leaks.push(format!("polls={}", polls.polls.len()));
                 }
             }
+            #[cfg(unix)]
+            {
+                let process_argvs = self.process_argvs.borrow();
+                if !process_argvs.is_empty() {
+                    leaks.push(format!("process_argvs={}", process_argvs.len()));
+                }
+            }
+            {
+                let process_envs = self.process_envs.borrow();
+                if !process_envs.is_empty() {
+                    leaks.push(format!("process_envs={}", process_envs.len()));
+                }
+            }
+            {
+                let process_env_builders = self.process_env_builders.borrow();
+                if !process_env_builders.is_empty() {
+                    leaks.push(format!(
+                        "process_env_builders={}",
+                        process_env_builders.len()
+                    ));
+                }
+            }
             {
                 let completions = self.thread_pool_completions.borrow();
                 #[cfg(unix)]
@@ -1476,20 +1470,15 @@ impl AsyncHost {
             {
                 let handles = self.handles.borrow();
                 let leaked_resources = handles.resource_count_excluding_reserved();
-                let leaked_handles = handles.handle_count_excluding_reserved();
                 let invalid_resource_is_valid = handles
-                    .handles
-                    .get(handles.invalid_resource)
-                    .is_some_and(|kind| *kind == HandleKind::Resource)
+                    .kind(handles.invalid_resource)
+                    .is_some_and(|kind| kind == HandleKind::Resource)
                     && handles
                         .resources
                         .get(handles.invalid_resource)
                         .is_some_and(|resource| resource.is_invalid());
                 if !invalid_resource_is_valid {
                     leaks.push("invalid_resource=invalid".to_string());
-                }
-                if leaked_handles != 0 {
-                    leaks.push(format!("handles={leaked_handles}"));
                 }
                 if leaked_resources != 0 {
                     leaks.push(format!("resources={leaked_resources}"));
@@ -1503,10 +1492,6 @@ impl AsyncHost {
             }
 
             (!leaks.is_empty()).then(|| leaks.join(", "))
-        };
-
-        if let Some(summary) = summary {
-            panic!("moonrun async host leaked handles: {summary}");
         }
     }
 
