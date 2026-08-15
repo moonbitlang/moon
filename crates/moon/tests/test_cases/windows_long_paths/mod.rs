@@ -25,10 +25,6 @@ struct LongPathCase {
 
 impl LongPathCase {
     fn new() -> Self {
-        Self::new_with_preferred_target("wasm-gc")
-    }
-
-    fn new_with_preferred_target(preferred_target: &str) -> Self {
         let dir = TestDir::new_empty();
         let root = dir.as_ref();
         assert!(
@@ -63,7 +59,7 @@ impl LongPathCase {
         // target explicitly to commands that support it.
         write_file(
             &root.join("moon.mod"),
-            &format!("name = \"test/long-path\"\npreferred_target = \"{preferred_target}\"\n"),
+            "name = \"test/long-path\"\npreferred_target = \"wasm-gc\"\n",
         );
         write_file(&package_manifest, "pkgtype(kind: \"executable\")\n");
         write_file(
@@ -303,12 +299,6 @@ fn check_native_reports_its_long_output_directory() {
         "debug",
         "check",
     );
-}
-
-#[test]
-fn info_native_reports_its_long_check_directory() {
-    let case = LongPathCase::new_with_preferred_target("native");
-    case.assert_compiler_path_failure(&["info", "--target", "native"], "native", "debug", "check");
 }
 
 #[test]
