@@ -131,7 +131,7 @@ pub fn compile(
     )?;
 
     info!("Build plan created successfully");
-    debug!("Build plan contains {} nodes", plan.node_count());
+    debug!("Build plan contains {} actions", plan.action_count());
 
     lower_plan(cx, resolve_output, plan)
 }
@@ -166,7 +166,10 @@ pub fn compile_standalone(
     )?;
 
     info!("Standalone build plan created successfully");
-    debug!("Standalone build plan contains {} nodes", plan.node_count());
+    debug!(
+        "Standalone build plan contains {} actions",
+        plan.action_count()
+    );
 
     let lower_env = lowering_options(cx);
     let lowered = build_lower::lower_standalone_build_plan(
@@ -488,22 +491,22 @@ mod tests {
             .build_plan
             .as_deref()
             .expect("standalone should retain one logical plan for debug export");
-        assert_eq!(plan.node_count(), 3);
+        assert_eq!(plan.action_count(), 3);
         assert!(
             !plan
-                .all_nodes()
-                .any(|node| node == BuildPlanNode::MakeExecutable(script_target))
+                .all_actions()
+                .any(|action| action == BuildPlanNode::MakeExecutable(script_target).into())
         );
         assert_eq!(
             plan.artifact_provider(&ArtifactKey::Executable {
                 package: script_target.package,
                 target_kind: script_target.kind,
             }),
-            BuildPlanNode::LinkCore(script_target)
+            BuildPlanNode::LinkCore(script_target).into()
         );
         assert!(
-            plan.dependency_nodes(BuildPlanNode::BuildCore(script_target))
-                .any(|node| node == BuildPlanNode::BuildCore(dependency_target))
+            plan.dependency_actions(&BuildPlanNode::BuildCore(script_target).into())
+                .any(|action| action == BuildPlanNode::BuildCore(dependency_target).into())
         );
 
         let dependency_outputs = output

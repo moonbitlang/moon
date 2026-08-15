@@ -330,9 +330,10 @@ and then generate a test driver and related metadata.
 Both files are generated per-build-target via `moon generate-test-driver` (`GenerateTestInfo`).
 The driver is used in `BuildPackage` like a regular source file.
 
-## Glossary of major build plan nodes
+## Glossary of major Build Plan actions
 
-The following is a table
+Backend build-plan nodes and package prebuild actions are peer action kinds.
+`TargetKind` appears only inside backend nodes for which it has meaning.
 
 | Build plan node                 | Command                     | Outputs               | Dependencies                               | Note                                           |
 | ------------------------------- | --------------------------- | --------------------- | ------------------------------------------ | ---------------------------------------------- |
@@ -348,7 +349,11 @@ The following is a table
 | `GenerateMbti(BuildTarget)`     | `mooninfo`                  | `.mbti`               | `.mi`                                      | Get text repr of `.mi`                         |
 | `GenerateTestInfo(BuildTarget)` | `moon generate-test-driver` | test driver, metadata | source files                               | Generate the test driver and metadata          |
 | `BuildVirtual(PackageId)`       | `moonc build-interface`     | `.mi`                 | `.mbti`                                    | Get interface from `.mbti`                     |
-| `RunPrebuild(PackageId, int)`   | User-defined                | user-defined          | user-defined                               | Run a user-defined prebuild task               |
+
+`PackagePrebuildKey` separately identifies custom, moonlex, and moonyacc
+actions. Custom commands use their manifest declaration position because a
+valid command may have no output or the same outputs as another command;
+built-in generators use their input path.
 
 ## Solving import loops
 

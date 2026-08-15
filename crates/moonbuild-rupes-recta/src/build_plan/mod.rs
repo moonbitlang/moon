@@ -87,9 +87,23 @@ use artifact::ArtifactPlan;
 pub(crate) use artifact::package_file_key;
 use constructor::BuildPlanConstructor;
 pub use package_prebuild::PrebuildInfo;
-pub(crate) use package_prebuild::{
-    PackagePrebuildAction, PackagePrebuildPlan, is_package_prebuild_node,
-};
+pub(crate) use package_prebuild::{PackagePrebuildAction, PackagePrebuildKey, PackagePrebuildPlan};
+
+/// Identity of one semantic action in a Build Plan.
+///
+/// Backend work and package-level prebuild are peer action kinds. Target kind
+/// remains nested inside the backend actions for which it is meaningful.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum BuildPlanActionKey {
+    Backend(BuildPlanNode),
+    PackagePrebuild(PackagePrebuildKey),
+}
+
+impl From<BuildPlanNode> for BuildPlanActionKey {
+    fn from(node: BuildPlanNode) -> Self {
+        Self::Backend(node)
+    }
+}
 
 /// A build plan of actions and the artifacts that connect them.
 ///
@@ -142,32 +156,32 @@ pub struct BuildPlan {
 }
 
 impl BuildPlan {
-    /// Get the list of nodes that **the given node depends on**.
-    pub fn dependency_nodes(
+    /// Get the semantic actions that **the given action depends on**.
+    pub(crate) fn dependency_actions(
         &self,
-        node: BuildPlanNode,
-    ) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        action: &BuildPlanActionKey,
+    ) -> impl Iterator<Item = BuildPlanActionKey> + '_ {
         let mut seen = HashSet::new();
-        self.artifact_dependencies(node)
+        self.artifact_dependencies(action)
             .map(|(provider, _)| provider)
-            .filter(move |dependency| seen.insert(*dependency))
+            .filter(move |dependency| seen.insert(dependency.clone()))
     }
 
     pub(crate) fn artifact_dependencies(
         &self,
-        node: BuildPlanNode,
-    ) -> impl Iterator<Item = (BuildPlanNode, ArtifactKey)> + '_ {
-        self.artifacts.dependencies(node)
+        action: &BuildPlanActionKey,
+    ) -> impl Iterator<Item = (BuildPlanActionKey, ArtifactKey)> + '_ {
+        self.artifacts.dependencies(action)
     }
 
     pub(crate) fn provided_artifacts(
         &self,
-        node: BuildPlanNode,
+        action: &BuildPlanActionKey,
     ) -> impl Iterator<Item = ArtifactKey> + '_ {
-        self.artifacts.provided_by(node).cloned()
+        self.artifacts.provided_by(action).cloned()
     }
 
-    pub(crate) fn artifact_provider(&self, artifact: &ArtifactKey) -> BuildPlanNode {
+    pub(crate) fn artifact_provider(&self, artifact: &ArtifactKey) -> BuildPlanActionKey {
         self.artifacts
             .provider(artifact)
             .expect("requested artifact should have a provider")
@@ -222,14 +236,19 @@ impl BuildPlan {
         self.bundle_info.get(&module_id)
     }
 
-    pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
+    pub(crate) fn all_actions(&self) -> impl Iterator<Item = BuildPlanActionKey> + '_ {
         self.actions
             .iter()
             .copied()
-            .chain(self.package_prebuild.nodes())
+            .map(BuildPlanActionKey::Backend)
+            .chain(
+                self.package_prebuild
+                    .actions()
+                    .map(|(key, _)| BuildPlanActionKey::PackagePrebuild(key.clone())),
+            )
     }
 
-    pub fn node_count(&self) -> usize {
+    pub fn action_count(&self) -> usize {
         self.actions.len() + self.package_prebuild.action_count()
     }
 }
@@ -237,7 +256,6 @@ impl BuildPlan {
 #[cfg(test)]
 impl BuildPlan {
     pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
-        assert!(!package_prebuild::is_package_prebuild_node(node));
         self.actions.insert(node);
     }
 
@@ -251,10 +269,18 @@ impl BuildPlan {
     }
 
     pub(crate) fn test_provide_artifact(&mut self, provider: BuildPlanNode, artifact: ArtifactKey) {
-        if !package_prebuild::is_package_prebuild_node(provider) {
-            self.actions.insert(provider);
-        }
+        self.actions.insert(provider);
         self.artifacts.provide(provider, artifact);
+    }
+
+    pub(crate) fn test_provide_prebuild_artifact(
+        &mut self,
+        provider: PackagePrebuildKey,
+        artifact: ArtifactKey,
+    ) {
+        assert!(self.package_prebuild.contains_key(&provider));
+        self.artifacts
+            .provide(BuildPlanActionKey::PackagePrebuild(provider), artifact);
     }
 
     pub(crate) fn test_insert_build_target_info(
@@ -268,23 +294,30 @@ impl BuildPlan {
     pub(crate) fn test_insert_moonlex_prebuild(
         &mut self,
         package: PackageId,
-        index: u32,
         input: PathBuf,
         output: PathBuf,
-    ) {
-        self.package_prebuild
-            .insert_moonlex(package, index, input, output);
+    ) -> PackagePrebuildKey {
+        let key = PackagePrebuildKey::MoonLex {
+            package,
+            input: input.clone(),
+        };
+        self.package_prebuild.insert_moonlex(package, input, output);
+        key
     }
 
     pub(crate) fn test_insert_moonyacc_prebuild(
         &mut self,
         package: PackageId,
-        index: u32,
         input: PathBuf,
         output: PathBuf,
-    ) {
+    ) -> PackagePrebuildKey {
+        let key = PackagePrebuildKey::MoonYacc {
+            package,
+            input: input.clone(),
+        };
         self.package_prebuild
-            .insert_moonyacc(package, index, input, output);
+            .insert_moonyacc(package, input, output);
+        key
     }
 
     pub(crate) fn test_insert_link_core_info(&mut self, target: BuildTarget, info: LinkCoreInfo) {
@@ -720,8 +753,8 @@ pub fn build_plan(
     let result = constructor.finish();
 
     info!(
-        "Build plan construction completed with {} total nodes",
-        result.node_count()
+        "Build plan construction completed with {} total actions",
+        result.action_count()
     );
     Ok(result)
 }

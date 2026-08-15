@@ -38,7 +38,7 @@ Notes:
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
 - During ordinary input-module builds that plan package prebuild, each planned
   action's declared outputs are tracked as build outputs. Bin-dep compatibility
-  builds do not create package-level prebuild nodes; they consume existing
+  builds do not create package-level prebuild actions; they consume existing
   `.mbt` and `.mbt.md` outputs as package sources.
 - Outputs of actions in the current `PackagePrebuildPlan` go through the same
   File Interpretation as paths in the Package File Set. `.mbt` becomes a
@@ -128,6 +128,10 @@ Behavior:
 - `PackagePrebuildPlan` is an action-storage seam, not a separate dependency
   model. Each declared output is registered as a `PrebuildOutput` artifact in
   the Build Plan's common artifact registry.
+- The common registry keys providers and consumers by `BuildPlanActionKey`,
+  whose `Backend` and `PackagePrebuild` variants are peer action kinds.
+  Package prebuild is therefore never represented as a backend node with an
+  inapplicable target kind.
 - There is no explicit edge between two prebuild tasks solely because one is
   written earlier in `pre-build`. If one task consumes another task's declared
   output, it records an Artifact Requirement on that `PrebuildOutput`.

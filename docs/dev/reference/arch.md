@@ -59,10 +59,11 @@ We will use these terms in the document:
   [Modules and Packages](./modules-packages.md).
 
 - The **build plan** is a logical representation of requested artifacts and
-  the actions that produce them. It contains **build plan nodes** that
-  represent build operations (e.g. "compile package X", "check package Y"),
-  but not the actual command line to execute. Nodes require logical artifacts;
-  the plan records the action that provides each artifact.
+  the actions that produce them. Its actions are either backend build-plan
+  nodes (for example, "compile package X" or "check package Y") or package
+  prebuild actions. It does not contain the actual command line to execute.
+  Actions require logical artifacts; the plan records the action that provides
+  each artifact.
 
 - The **execution plan** is the executor-neutral concrete graph. It contains
   commands, input paths, external file observations, and declared physical
@@ -96,9 +97,10 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
      Execution Plans into one executor graph, sharing compatible physical
      providers such as package prebuild actions. JSON-formatted checks retain
      each diagnostic's backend through the originating n2 Build ID, so they use
-     the same composed graph. Lowering completes each progress description with
-     its plan kind and optional target kind, such as `(wasm, blackbox test)` or
-     `(prebuild)`, before the executor receives it.
+     the same composed graph. Backend actions render their backend together
+     with any applicable target kind, such as `(wasm, blackbox test)`;
+     package-prebuild actions independently render `(prebuild)` before the
+     executor receives either description.
    - Execute the concrete build graph in its executor ([n2][]).
      The executor ensures the graph is executed incrementally, rebuilding only the changed parts.
 4. Perform other operations required after build
@@ -365,7 +367,7 @@ The compilation of a package is controlled by a number of axes:
   The rest are tests: _whitebox test_, _blackbox test_, _inline test_.
   A **build target** is the package combined with its build target kind
   ("package X's blackbox test").
-- The action, or **build plan node** to execute on the package:
+- The backend action, or **build plan node**, to execute on the package:
   build, check, link, etc.
 - The properties of the package itself.
   For example, a package can optionally be _virtual_ to be overridable.
@@ -441,7 +443,19 @@ blackbox check/test artifacts for `is-main` packages.
 The details of how a user intent is mapped to requested artifacts
 is described in [its module](/crates/moonbuild-rupes-recta/src/intent.rs).
 
-## Build plan node
+## Build Plan actions
+
+`BuildPlanActionKey` makes the two top-level action kinds explicit:
+
+- `Backend(BuildPlanNode)` identifies backend-specific semantic work.
+- `PackagePrebuild(PackagePrebuildKey)` identifies package-level file
+  generation independent of backend target kind.
+
+`TargetKind` is nested only in backend nodes whose meaning varies across
+source, whitebox, blackbox, or inline-test targets. It is not an optional field
+on a generic action and does not apply to package prebuild.
+
+### Backend build-plan nodes
 
 **Build plan nodes** are logical representation of the command to be executed.
 Many build plan nodes operate on build targets,
@@ -453,18 +467,20 @@ Here are some examples:
 - `LinkCore(BuildTarget)` links all dependencies of a build target into the compiled form.
 - `BuildVirtual(PackageId)` builds the virtual package interface of the given package
   (build targets don't make sense on virtual packages).
-- `RunPrebuild(PackageId, u32)` runs the prebuild command of a package with the given index.
 - `BuildRuntimeObject(u32)` compiles one shipped runtime C translation unit.
 - `BuildRuntimeLib` collects the runtime objects into the single runtime
   library used globally by all consumers in the project. TCC-run lowers this
   node directly from all runtime sources instead.
 
-The full list of build plan nodes are available in [its module](/crates/moonbuild-rupes-recta/src/model.rs).
+The full list of backend build-plan nodes is available in
+[its module](/crates/moonbuild-rupes-recta/src/model.rs). Package prebuild keys
+and actions are defined in
+[`package_prebuild.rs`](/crates/moonbuild-rupes-recta/src/build_plan/package_prebuild.rs).
 
-### Node dependency
+### Action dependency
 
-Build plan nodes require artifacts to form a directed acyclic graph called the
-**build plan**. The artifact registry selects the provider node for each
+Build Plan actions require artifacts to form a directed acyclic graph. The
+artifact registry selects the provider action for each
 requirement.
 
 For example, if build target A depends on build target B,
