@@ -18,11 +18,9 @@
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
-use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ACTION_MODIFIED, FILE_NOTIFY_EXTENDED_INFORMATION,
-};
+use windows_sys::Win32::Storage::FileSystem::{FILE_ACTION_MODIFIED, FILE_NOTIFY_INFORMATION};
 
-const EVENT_SIZE: usize = std::mem::size_of::<FILE_NOTIFY_EXTENDED_INFORMATION>();
+const EVENT_SIZE: usize = std::mem::size_of::<FILE_NOTIFY_INFORMATION>();
 
 ported_fns! {
     #[ported(
@@ -30,7 +28,7 @@ ported_fns! {
         original = "moonbitlang_async_has_ReadDirectoryChangesExW"
     )]
     pub(crate) fn has_read_directory_changes_ex() -> bool {
-        true
+        false
     }
 
     #[ported(
@@ -70,7 +68,7 @@ ported_fns! {
         original = "moonbitlang_async_watcher_event_get_path_offset"
     )]
     pub(crate) fn event_get_path_offset() -> u32 {
-        u32::try_from(std::mem::offset_of!(FILE_NOTIFY_EXTENDED_INFORMATION, FileName))
+        u32::try_from(std::mem::offset_of!(FILE_NOTIFY_INFORMATION, FileName))
             .expect("Windows watcher path offset fits u32")
     }
 
@@ -78,8 +76,8 @@ ported_fns! {
         source = "src/fs/watch_windows.c",
         original = "moonbitlang_async_watcher_event_get_file_id"
     )]
-    pub(crate) fn event_get_file_id(buffer: &[u8], offset: u32) -> AsyncHostResult<u64> {
-        Ok(event_at(buffer, offset)?.FileId as u64)
+    pub(crate) fn event_get_file_id(_buffer: &[u8], _offset: u32) -> AsyncHostResult<u64> {
+        Err(AsyncHostError::Inval)
     }
 
     #[ported(
@@ -87,14 +85,14 @@ ported_fns! {
         original = "moonbitlang_async_watcher_event_get_parent_file_id"
     )]
     pub(crate) fn event_get_parent_file_id(
-        buffer: &[u8],
-        offset: u32,
+        _buffer: &[u8],
+        _offset: u32,
     ) -> AsyncHostResult<u64> {
-        Ok(event_at(buffer, offset)?.ParentFileId as u64)
+        Err(AsyncHostError::Inval)
     }
 }
 
-fn event_at(buffer: &[u8], offset: u32) -> AsyncHostResult<FILE_NOTIFY_EXTENDED_INFORMATION> {
+fn event_at(buffer: &[u8], offset: u32) -> AsyncHostResult<FILE_NOTIFY_INFORMATION> {
     let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     let end = offset
         .checked_add(EVENT_SIZE)
@@ -103,4 +101,48 @@ fn event_at(buffer: &[u8], offset: u32) -> AsyncHostResult<FILE_NOTIFY_EXTENDED_
         return Err(AsyncHostError::Fault);
     }
     Ok(unsafe { std::ptr::read_unaligned(buffer.as_ptr().add(offset).cast()) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_windows_watcher_uses_basic_event_layout() {
+        assert!(!has_read_directory_changes_ex());
+        assert_eq!(
+            event_buffer_size(),
+            u32::try_from(std::mem::size_of::<FILE_NOTIFY_INFORMATION>() * 16384).unwrap()
+        );
+        assert_eq!(
+            event_get_path_offset(),
+            u32::try_from(std::mem::offset_of!(FILE_NOTIFY_INFORMATION, FileName)).unwrap()
+        );
+    }
+
+    #[test]
+    fn basic_event_accessors_read_unaligned_headers() {
+        let offset = 3usize;
+        let mut buffer = vec![0; offset + EVENT_SIZE];
+        let mut event = unsafe { std::mem::zeroed::<FILE_NOTIFY_INFORMATION>() };
+        event.NextEntryOffset = EVENT_SIZE as u32;
+        event.Action = FILE_ACTION_MODIFIED;
+        event.FileNameLength = 4;
+        unsafe {
+            std::ptr::write_unaligned(buffer.as_mut_ptr().add(offset).cast(), event);
+        }
+
+        assert_eq!(
+            event_get_size(&buffer, offset as u32),
+            Ok(EVENT_SIZE as u32)
+        );
+        assert_eq!(event_is_modify(&buffer, offset as u32), Ok(true));
+        assert_eq!(event_get_path_len(&buffer, offset as u32), Ok(4));
+    }
+
+    #[test]
+    fn extended_event_accessors_are_rejected() {
+        assert_eq!(event_get_file_id(&[], 0), Err(AsyncHostError::Inval));
+        assert_eq!(event_get_parent_file_id(&[], 0), Err(AsyncHostError::Inval));
+    }
 }

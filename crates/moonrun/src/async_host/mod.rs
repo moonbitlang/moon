@@ -765,7 +765,7 @@ struct HostIoResult {
     // read constructors allocate output capacity, and write constructors copy
     // the input payload before any overlapped operation can outlive the import.
     buffer: Vec<u8>,
-    // ReadDirectoryChangesExW writes into a stable host C buffer. Lease it
+    // ReadDirectoryChangesW writes into a stable host C buffer. Lease it
     // while the OVERLAPPED operation is pending, then return it to the CBuffer
     // table before the guest parses the completed events.
     read_dir_changes_buffer: Option<CBufferLease>,
@@ -3116,8 +3116,7 @@ impl AsyncHost {
         use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
         use windows_sys::Win32::Storage::FileSystem::{
             FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME,
-            FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE, ReadDirectoryChangesExW,
-            ReadDirectoryNotifyExtendedInformation,
+            FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE, ReadDirectoryChangesW,
         };
 
         let handles = self.handles.borrow();
@@ -3140,7 +3139,7 @@ impl AsyncHost {
             .as_mut_ptr();
         let mut bytes_returned = 0;
         let success = unsafe {
-            ReadDirectoryChangesExW(
+            ReadDirectoryChangesW(
                 file.as_file()?.as_raw_handle(),
                 buffer.cast(),
                 len,
@@ -3152,14 +3151,13 @@ impl AsyncHost {
                 &mut bytes_returned,
                 result.overlapped_ptr(),
                 None,
-                ReadDirectoryNotifyExtendedInformation,
             )
         };
         if success == 0 {
             return Err(last_native_error());
         }
 
-        // ReadDirectoryChangesExW reports that the completion packet was
+        // ReadDirectoryChangesW reports that the completion packet was
         // queued, not synchronous completion. Match native async by exposing
         // the operation as pending even though the Windows call returned TRUE.
         result.mark_pending(Arc::clone(file))?;
