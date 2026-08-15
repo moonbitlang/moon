@@ -270,9 +270,8 @@ impl PackageId {
 ///
 /// Note: You may recognize that some nodes are keyed by [`BuildTarget`] while
 /// others are keyed by just [`PackageId`] or even [`ModuleId`]. This is because
-/// some artifacts (like C stubs and prebuild scripts) are shared by every
-/// target within the package/module, so they don't need to be duplicated for
-/// each target.
+/// some backend artifacts, such as C stubs, are shared by every target within
+/// the package/module and do not need to be duplicated for each target.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum BuildPlanNode {
     /// Check the given build target
@@ -344,14 +343,6 @@ pub enum BuildPlanNode {
     /// Build the virtual package's `.mbti` interface file to get an `.mi` file.
     BuildVirtual(PackageId),
 
-    /// Run the i-th prebuild script in the prebuild script list.
-    RunPrebuild(PackageId, u32),
-
-    /// Run the i-th prebuild rule for `moonlex` predefined prebuild.
-    RunMoonLexPrebuild(PackageId, u32),
-    /// Run the i-th prebuild rule for `moonyacc` predefined prebuild.
-    RunMoonYaccPrebuild(PackageId, u32),
-
     /// Docs build for a single selected module.
     ///
     /// The legacy layout does not have a separate folder for different kinds
@@ -379,16 +370,19 @@ impl BuildPlanNode {
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs(_)
-            | BuildPlanNode::BuildVirtual(_)
-            | BuildPlanNode::RunPrebuild(_, _)
-            | BuildPlanNode::RunMoonLexPrebuild(_, _)
-            | BuildPlanNode::RunMoonYaccPrebuild(_, _) => None,
+            | BuildPlanNode::BuildVirtual(_) => None,
         }
     }
 
     /// Return a human-readable description for this build plan node, resolving
-    /// PackageId/ModuleId to names.
-    pub fn human_desc(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    /// PackageId/ModuleId to names and rendering its backend and target kind as
+    /// one qualifier.
+    pub(crate) fn human_desc(
+        &self,
+        env: &ResolvedEnv,
+        packages: &DiscoverResult,
+        backend: &str,
+    ) -> String {
         let file_basename = |path: &std::path::Path| {
             path.file_name()
                 .and_then(|name| name.to_str())
@@ -396,30 +390,30 @@ impl BuildPlanNode {
                 .unwrap_or_else(|| path.display().to_string())
         };
 
-        let kind_suffix = |kind: TargetKind| match kind {
-            TargetKind::Source => "",
-            TargetKind::WhiteboxTest => " (whitebox test)",
-            TargetKind::BlackboxTest => " (blackbox test)",
-            TargetKind::InlineTest => " (inline test)",
-            TargetKind::SubPackage => " (subpackage)",
+        let qualifier = |kind: TargetKind| match kind {
+            TargetKind::Source => format!(" ({backend})"),
+            TargetKind::WhiteboxTest => format!(" ({backend}, whitebox test)"),
+            TargetKind::BlackboxTest => format!(" ({backend}, blackbox test)"),
+            TargetKind::InlineTest => format!(" ({backend}, inline test)"),
+            TargetKind::SubPackage => format!(" ({backend}, subpackage)"),
         };
 
-        match self {
+        let description = match self {
             BuildPlanNode::Check(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("check {}{}", fqn, kind_suffix(build_target.kind))
+                format!("check {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::EmitProof(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("emit proof {}{}", fqn, kind_suffix(build_target.kind))
+                format!("emit proof {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::Prove(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("prove {}{}", fqn, kind_suffix(build_target.kind))
+                format!("prove {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::BuildCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("build {}{}", fqn, kind_suffix(build_target.kind))
+                format!("build {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::BuildCStub(package_id, index) => {
                 let pkg = packages.get_package(*package_id);
@@ -431,31 +425,27 @@ impl BuildPlanNode {
             }
             BuildPlanNode::LinkCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("link {}{}", fqn, kind_suffix(build_target.kind))
+                format!("link {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::MakeExecutable(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("make executable {}{}", fqn, kind_suffix(build_target.kind))
+                format!("make executable {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::GenerateDsym(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("generate dSYM {}{}", fqn, kind_suffix(build_target.kind))
+                format!("generate dSYM {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::GenerateTestInfo(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!(
                     "generate test driver for {}{}",
                     fqn,
-                    kind_suffix(build_target.kind)
+                    qualifier(build_target.kind)
                 )
             }
             BuildPlanNode::GenerateMbti(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!(
-                    "generate mbti for {}{}",
-                    fqn,
-                    kind_suffix(build_target.kind)
-                )
+                format!("generate mbti for {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::Bundle(module_id) => {
                 let module_src = env.module_source(*module_id);
@@ -472,43 +462,16 @@ impl BuildPlanNode {
             BuildPlanNode::BuildVirtual(package_id) => {
                 format!("build virtual {}", packages.fqn(*package_id))
             }
-            BuildPlanNode::RunPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let cmd = &pkg.raw.pre_build.as_ref().expect("prebuild exists")[*index as usize];
-                let outputs: Vec<String> = cmd
-                    .output()
-                    .iter()
-                    .map(|path| {
-                        std::path::Path::new(path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| path.clone())
-                    })
-                    .collect();
-                let joined = if outputs.is_empty() {
-                    "(no outputs)".to_string()
-                } else {
-                    outputs.join(", ")
-                };
-                format!("prebuild script {} {}", packages.fqn(*package_id), joined)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let input = &pkg.mbt_lex_files[*index as usize];
-                let input_name = file_basename(input.as_path());
-                format!("run moonlex {} {}", packages.fqn(*package_id), input_name)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let input = &pkg.mbt_yacc_files[*index as usize];
-                let input_name = file_basename(input.as_path());
-                format!("run moonyacc {} {}", packages.fqn(*package_id), input_name)
-            }
             BuildPlanNode::BuildDocs(module_id) => {
                 let src = env.module_source(*module_id);
                 format!("build docs {}", src)
             }
+        };
+
+        if self.extract_target().is_some() {
+            description
+        } else {
+            format!("{description} ({backend})")
         }
     }
 
@@ -571,18 +534,6 @@ impl BuildPlanNode {
             BuildPlanNode::BuildVirtual(pkg) => {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@BuildVirtual", fqn)
-            }
-            BuildPlanNode::RunPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunPrebuild_{}", fqn, idx)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunMoonLexPrebuild_{}", fqn, idx)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunMoonYaccPrebuild_{}", fqn, idx)
             }
             BuildPlanNode::BuildDocs(module_id) => {
                 let src = env.module_source(*module_id);

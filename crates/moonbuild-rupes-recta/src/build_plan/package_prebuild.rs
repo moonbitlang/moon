@@ -18,7 +18,40 @@
 
 use std::path::PathBuf;
 
-use crate::model::{BuildPlanNode, PackageId};
+use indexmap::IndexMap;
+
+use crate::model::PackageId;
+
+/// Identity of one package-level file-generation action.
+///
+/// Custom commands have no declared name and may intentionally have no output,
+/// so their manifest position is their only lossless declaration coordinate.
+/// Built-in generators are instead identified by their concrete input path.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum PackagePrebuildKey {
+    Custom {
+        package: PackageId,
+        declaration_index: u32,
+    },
+    MoonLex {
+        package: PackageId,
+        input: PathBuf,
+    },
+    MoonYacc {
+        package: PackageId,
+        input: PathBuf,
+    },
+}
+
+impl PackagePrebuildKey {
+    pub(crate) fn package(&self) -> PackageId {
+        match self {
+            Self::Custom { package, .. }
+            | Self::MoonLex { package, .. }
+            | Self::MoonYacc { package, .. } => *package,
+        }
+    }
+}
 
 /// Resolved information about a custom package prebuild command.
 #[derive(Debug)]
@@ -33,46 +66,12 @@ pub struct PrebuildInfo {
 
 #[derive(Debug)]
 pub(crate) enum PackagePrebuildAction {
-    Custom {
-        package: PackageId,
-        index: u32,
-        info: PrebuildInfo,
-    },
-    MoonLex {
-        package: PackageId,
-        index: u32,
-        input: PathBuf,
-        output: PathBuf,
-    },
-    MoonYacc {
-        package: PackageId,
-        index: u32,
-        input: PathBuf,
-        output: PathBuf,
-    },
+    Custom { info: PrebuildInfo },
+    MoonLex { input: PathBuf, output: PathBuf },
+    MoonYacc { input: PathBuf, output: PathBuf },
 }
 
 impl PackagePrebuildAction {
-    pub(crate) fn node(&self) -> BuildPlanNode {
-        match self {
-            Self::Custom { package, index, .. } => BuildPlanNode::RunPrebuild(*package, *index),
-            Self::MoonLex { package, index, .. } => {
-                BuildPlanNode::RunMoonLexPrebuild(*package, *index)
-            }
-            Self::MoonYacc { package, index, .. } => {
-                BuildPlanNode::RunMoonYaccPrebuild(*package, *index)
-            }
-        }
-    }
-
-    pub(crate) fn package(&self) -> PackageId {
-        match self {
-            Self::Custom { package, .. }
-            | Self::MoonLex { package, .. }
-            | Self::MoonYacc { package, .. } => *package,
-        }
-    }
-
     pub(crate) fn output_paths(&self) -> &[PathBuf] {
         match self {
             Self::Custom { info, .. } => &info.resolved_outputs,
@@ -84,7 +83,7 @@ impl PackagePrebuildAction {
 
     pub(crate) fn input_paths(&self) -> &[PathBuf] {
         match self {
-            Self::Custom { info, .. } => &info.resolved_inputs,
+            Self::Custom { info } => &info.resolved_inputs,
             Self::MoonLex { input, .. } | Self::MoonYacc { input, .. } => {
                 std::slice::from_ref(input)
             }
@@ -95,13 +94,11 @@ impl PackagePrebuildAction {
 /// Backend-independent package prebuild actions within one Build Plan.
 ///
 /// Actions are stored separately from backend actions, but use the same
-/// artifact provider/requirement registry. Each action is complete: its command
-/// and physical inputs/outputs travel together. The existing `(package,
-/// index)` node is only a compatibility address used by Build Action
-/// Projection.
+/// artifact provider/requirement registry. Each key names exactly one action;
+/// command data and physical outputs remain stored with that action.
 #[derive(Default)]
 pub(crate) struct PackagePrebuildPlan {
-    actions: Vec<PackagePrebuildAction>,
+    actions: IndexMap<PackagePrebuildKey, PackagePrebuildAction>,
 }
 
 impl PackagePrebuildPlan {
@@ -109,115 +106,99 @@ impl PackagePrebuildPlan {
         self.actions.len()
     }
 
-    pub(crate) fn nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.actions.iter().map(PackagePrebuildAction::node)
+    pub(crate) fn actions(
+        &self,
+    ) -> impl Iterator<Item = (&PackagePrebuildKey, &PackagePrebuildAction)> {
+        self.actions.iter()
     }
 
-    pub(crate) fn contains_node(&self, node: BuildPlanNode) -> bool {
-        self.actions.iter().any(|action| action.node() == node)
+    pub(crate) fn contains_key(&self, key: &PackagePrebuildKey) -> bool {
+        self.actions.contains_key(key)
     }
 
-    pub(crate) fn action(&self, node: BuildPlanNode) -> Option<&PackagePrebuildAction> {
-        self.actions.iter().find(|action| action.node() == node)
+    pub(crate) fn action(&self, key: &PackagePrebuildKey) -> Option<&PackagePrebuildAction> {
+        self.actions.get(key)
     }
 
     pub(crate) fn actions_for_package(
         &self,
         package: PackageId,
-    ) -> impl Iterator<Item = &PackagePrebuildAction> {
+    ) -> impl Iterator<Item = (&PackagePrebuildKey, &PackagePrebuildAction)> {
         self.actions
             .iter()
-            .filter(move |action| action.package() == package)
+            .filter(move |(key, _)| key.package() == package)
     }
 
     pub(crate) fn insert_custom(&mut self, package: PackageId, index: u32, info: PrebuildInfo) {
-        let node = BuildPlanNode::RunPrebuild(package, index);
+        let key = PackagePrebuildKey::Custom {
+            package,
+            declaration_index: index,
+        };
+        let previous = self
+            .actions
+            .insert(key, PackagePrebuildAction::Custom { info });
         debug_assert!(
-            !self.contains_node(node),
+            previous.is_none(),
             "custom prebuild should only be planned once"
         );
-        self.actions.push(PackagePrebuildAction::Custom {
-            package,
-            index,
-            info,
-        });
     }
 
-    pub(crate) fn insert_moonlex(
-        &mut self,
-        package: PackageId,
-        index: u32,
-        input: PathBuf,
-        output: PathBuf,
-    ) {
-        let node = BuildPlanNode::RunMoonLexPrebuild(package, index);
-        if self.contains_node(node) {
+    pub(crate) fn insert_moonlex(&mut self, package: PackageId, input: PathBuf, output: PathBuf) {
+        let key = PackagePrebuildKey::MoonLex {
+            package,
+            input: input.clone(),
+        };
+        if self.contains_key(&key) {
             return;
         }
-        self.actions.push(PackagePrebuildAction::MoonLex {
-            package,
-            index,
-            input,
-            output,
-        });
+        self.actions
+            .insert(key, PackagePrebuildAction::MoonLex { input, output });
     }
 
-    pub(crate) fn insert_moonyacc(
-        &mut self,
-        package: PackageId,
-        index: u32,
-        input: PathBuf,
-        output: PathBuf,
-    ) {
-        let node = BuildPlanNode::RunMoonYaccPrebuild(package, index);
-        if self.contains_node(node) {
+    pub(crate) fn insert_moonyacc(&mut self, package: PackageId, input: PathBuf, output: PathBuf) {
+        let key = PackagePrebuildKey::MoonYacc {
+            package,
+            input: input.clone(),
+        };
+        if self.contains_key(&key) {
             return;
         }
-        self.actions.push(PackagePrebuildAction::MoonYacc {
-            package,
-            index,
-            input,
-            output,
-        });
+        self.actions
+            .insert(key, PackagePrebuildAction::MoonYacc { input, output });
     }
 
     /// All concrete outputs produced for one package, in planning order.
     pub(crate) fn output_paths(&self, package: PackageId) -> impl Iterator<Item = &PathBuf> {
         self.actions
             .iter()
-            .filter(move |action| action.package() == package)
-            .flat_map(PackagePrebuildAction::output_paths)
+            .filter(move |(key, _)| key.package() == package)
+            .flat_map(|(_, action)| action.output_paths())
     }
 
     pub(crate) fn custom_output_paths(&self, package: PackageId) -> impl Iterator<Item = &PathBuf> {
-        self.actions.iter().flat_map(move |action| match action {
-            PackagePrebuildAction::Custom {
-                package: action_package,
-                info,
-                ..
-            } if *action_package == package => info.resolved_outputs.as_slice(),
-            _ => &[],
-        })
+        self.actions
+            .iter()
+            .flat_map(move |(key, action)| match (key, action) {
+                (
+                    PackagePrebuildKey::Custom {
+                        package: action_package,
+                        ..
+                    },
+                    PackagePrebuildAction::Custom { info },
+                ) if *action_package == package => info.resolved_outputs.as_slice(),
+                _ => &[],
+            })
     }
-}
-
-pub(crate) fn is_package_prebuild_node(node: BuildPlanNode) -> bool {
-    matches!(
-        node,
-        BuildPlanNode::RunPrebuild(..)
-            | BuildPlanNode::RunMoonLexPrebuild(..)
-            | BuildPlanNode::RunMoonYaccPrebuild(..)
-    )
 }
 
 #[cfg(test)]
 mod tests {
     use slotmap::KeyData;
 
-    use crate::model::TargetKind;
+    use crate::model::{BuildPlanNode, TargetKind};
 
     use super::*;
-    use crate::build_plan::BuildPlan;
+    use crate::build_plan::{BuildPlan, BuildPlanActionKey};
 
     fn package_id(raw: u64) -> PackageId {
         PackageId::from(KeyData::from_ffi(raw))
@@ -227,7 +208,10 @@ mod tests {
     fn package_prebuild_provider_is_separate_from_backend_graph() {
         let package = package_id(1);
         let backend_node = BuildPlanNode::Check(package.build_target(TargetKind::Source));
-        let prebuild_node = BuildPlanNode::RunPrebuild(package, 0);
+        let prebuild_key = PackagePrebuildKey::Custom {
+            package,
+            declaration_index: 0,
+        };
         let mut plan = BuildPlan::default();
         plan.actions.insert(backend_node);
         plan.package_prebuild.insert_custom(
@@ -242,12 +226,16 @@ mod tests {
         );
 
         assert!(plan.actions.contains(&backend_node));
-        assert!(!plan.actions.contains(&prebuild_node));
         assert_eq!(plan.package_prebuild_plan().action_count(), 1);
+        assert!(plan.package_prebuild.contains_key(&prebuild_key));
+        let backend = BuildPlanActionKey::Backend(backend_node);
         assert_eq!(
-            plan.all_nodes().collect::<Vec<_>>(),
-            [backend_node, prebuild_node]
+            plan.all_actions().collect::<Vec<_>>(),
+            [
+                backend.clone(),
+                BuildPlanActionKey::PackagePrebuild(prebuild_key),
+            ]
         );
-        assert_eq!(plan.dependency_nodes(backend_node).count(), 0);
+        assert_eq!(plan.dependency_actions(&backend).count(), 0);
     }
 }

@@ -116,14 +116,20 @@ registry:
 ```rust
 pub struct BuildPlan {
     actions: IndexSet<BuildPlanNode>,
+    package_prebuild: PackagePrebuildPlan,
     artifacts: ArtifactPlan,
     // hydrated planning metadata
 }
 
+enum BuildPlanActionKey {
+    Backend(BuildPlanNode),
+    PackagePrebuild(PackagePrebuildKey),
+}
+
 struct ArtifactPlan {
-    providers: HashMap<ArtifactKey, BuildPlanNode>,
-    artifacts_by_provider: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
-    requirements_by_consumer: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
+    providers: HashMap<ArtifactKey, BuildPlanActionKey>,
+    artifacts_by_provider: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
+    requirements_by_consumer: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
 }
 ```
 
@@ -131,6 +137,13 @@ There is no weighted action-edge graph and no `FileDependencyKind`. A provider
 may expose multiple artifacts, but each artifact has at most one provider in a
 plan. At the end of planning, validation requires every requested artifact and
 every Artifact Requirement to have a provider.
+
+`BuildPlanActionKey` is the sole union of semantic action kinds. Backend nodes
+retain `BuildTarget` and therefore `TargetKind` only where those concepts
+apply. Package prebuild actions are a peer branch keyed by their declaration
+coordinate: custom commands use the manifest declaration index, while moonlex
+and moonyacc use their concrete input paths. No package prebuild action is
+projected through a synthetic `BuildPlanNode`.
 
 Builders name only what they consume:
 
@@ -253,10 +266,10 @@ identity or cache digest. Concrete output paths likewise are not cache digests.
 
 ## Action lowering and n2 adaptation
 
-`build_lower` walks semantic `BuildPlanNode` values, hydrates the metadata for
-one node on demand, and resolves every `ArtifactKey` through
+`build_lower` walks semantic `BuildPlanActionKey` values, hydrates the metadata
+for one action on demand, and resolves every `ArtifactKey` through
 `ArtifactPathResolver`. `ActionArtifacts` realizes outputs with the current
-node as provider context and requirements with the selected provider node as
+action as provider context and requirements with the selected provider action as
 context:
 
 ```rust

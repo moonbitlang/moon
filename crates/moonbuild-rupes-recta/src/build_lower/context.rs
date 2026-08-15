@@ -30,7 +30,10 @@ use walkdir::WalkDir;
 use super::{BuildOptions, CExecutableRealization, CStubLibraryRealization, LoweringError};
 use crate::{
     ResolveOutput,
-    build_plan::{ArtifactKey, BuildAction, BuildPlan, PackagePrebuildAction},
+    build_plan::{
+        ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildAction,
+        PackagePrebuildKey, package_file_key,
+    },
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, ExternalInput},
     model::{BackendConfig, BuildPlanNode, BuildTarget},
@@ -66,7 +69,7 @@ pub(super) struct RealizedArtifact {
 }
 
 impl ActionArtifacts {
-    fn new(ctx: &LoweringContext<'_>, action: BuildPlanNode) -> Self {
+    fn new(ctx: &LoweringContext<'_>, action: &BuildPlanActionKey) -> Self {
         let outputs = ctx
             .plan
             .provided_artifacts(action)
@@ -75,7 +78,7 @@ impl ActionArtifacts {
         let dependencies = ctx
             .plan
             .artifact_dependencies(action)
-            .map(|(dependency_action, artifact)| Self::realize(ctx, dependency_action, artifact))
+            .map(|(dependency_action, artifact)| Self::realize(ctx, &dependency_action, artifact))
             .collect();
         Self {
             outputs,
@@ -85,7 +88,7 @@ impl ActionArtifacts {
 
     fn realize(
         ctx: &LoweringContext<'_>,
-        provider_action: BuildPlanNode,
+        provider_action: &BuildPlanActionKey,
         artifact: ArtifactKey,
     ) -> RealizedArtifact {
         let paths = ctx.artifact_paths.paths_for_artifact(
@@ -219,7 +222,45 @@ impl<'a> LoweringContext<'a> {
         self.packages.get_package(target.package)
     }
 
-    fn action(&self, node: BuildPlanNode) -> BuildAction<'a> {
+    fn action(&self, action: &BuildPlanActionKey) -> BuildAction<'a> {
+        let node = match action {
+            BuildPlanActionKey::Backend(node) => *node,
+            BuildPlanActionKey::PackagePrebuild(key) => {
+                let action = self
+                    .plan
+                    .package_prebuild_plan()
+                    .action(key)
+                    .expect("package prebuild key should name a planned action");
+                return match (key, action) {
+                    (PackagePrebuildKey::Custom { .. }, PackagePrebuildAction::Custom { info }) => {
+                        BuildAction::RunPrebuild { info }
+                    }
+                    (
+                        PackagePrebuildKey::MoonLex {
+                            package,
+                            input: key_input,
+                        },
+                        PackagePrebuildAction::MoonLex { input, output },
+                    ) if key_input == input => BuildAction::RunMoonLexPrebuild {
+                        package: *package,
+                        input,
+                        output,
+                    },
+                    (
+                        PackagePrebuildKey::MoonYacc {
+                            package,
+                            input: key_input,
+                        },
+                        PackagePrebuildAction::MoonYacc { input, output },
+                    ) if key_input == input => BuildAction::RunMoonYaccPrebuild {
+                        package: *package,
+                        input,
+                        output,
+                    },
+                    _ => unreachable!("package prebuild key and action kind must agree"),
+                };
+            }
+        };
         match node {
             BuildPlanNode::Check(target) => BuildAction::Check {
                 target,
@@ -323,42 +364,10 @@ impl<'a> LoweringContext<'a> {
                     .expect("Runtime info should be present for BuildRuntimeLib nodes"),
             },
             BuildPlanNode::BuildDocs(module) => BuildAction::BuildDocs { module },
-            BuildPlanNode::RunPrebuild(_, _) => {
-                let Some(PackagePrebuildAction::Custom { info, .. }) =
-                    self.plan.package_prebuild_plan().action(node)
-                else {
-                    unreachable!("complete package prebuild actions contain their prebuild info");
-                };
-                BuildAction::RunPrebuild { info }
-            }
-            BuildPlanNode::RunMoonLexPrebuild(package, _) => {
-                let Some(PackagePrebuildAction::MoonLex { input, output, .. }) =
-                    self.plan.package_prebuild_plan().action(node)
-                else {
-                    unreachable!("moonlex actions contain their input and output paths");
-                };
-                BuildAction::RunMoonLexPrebuild {
-                    package,
-                    input,
-                    output,
-                }
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package, _) => {
-                let Some(PackagePrebuildAction::MoonYacc { input, output, .. }) =
-                    self.plan.package_prebuild_plan().action(node)
-                else {
-                    unreachable!("moonyacc actions contain their input and output paths");
-                };
-                BuildAction::RunMoonYaccPrebuild {
-                    package,
-                    input,
-                    output,
-                }
-            }
         }
     }
 
-    fn human_desc(&self, node: BuildPlanNode, action: BuildAction<'_>) -> String {
+    fn human_desc(&self, action_key: &BuildPlanActionKey, action: BuildAction<'_>) -> String {
         let generator_desc = |tool: &str, package, input: &Path| {
             let input_name = input.file_name().map_or_else(
                 || input.display().to_string(),
@@ -366,25 +375,80 @@ impl<'a> LoweringContext<'a> {
             );
             format!("run {tool} {} {input_name}", self.packages.fqn(package))
         };
+        let description = match (action_key, action) {
+            (BuildPlanActionKey::Backend(node), _) => {
+                return node.human_desc(
+                    self.modules,
+                    self.packages,
+                    self.opt.target_backend().to_flag(),
+                );
+            }
+            (BuildPlanActionKey::PackagePrebuild(key), BuildAction::RunPrebuild { info }) => {
+                let outputs = info
+                    .resolved_outputs
+                    .iter()
+                    .map(|output| {
+                        output.file_name().map_or_else(
+                            || output.display().to_string(),
+                            |name| name.to_string_lossy().into_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let outputs = if outputs.is_empty() {
+                    "(no outputs)".to_string()
+                } else {
+                    outputs.join(", ")
+                };
+                format!("run script {} {outputs}", self.packages.fqn(key.package()))
+            }
+            (
+                BuildPlanActionKey::PackagePrebuild(_),
+                BuildAction::RunMoonLexPrebuild { package, input, .. },
+            ) => generator_desc("moonlex", package, input),
+            (
+                BuildPlanActionKey::PackagePrebuild(_),
+                BuildAction::RunMoonYaccPrebuild { package, input, .. },
+            ) => generator_desc("moonyacc", package, input),
+            _ => unreachable!("Build Plan action kind must agree with its hydrated action"),
+        };
+        format!("{description} (prebuild)")
+    }
+
+    fn string_id(&self, action: &BuildPlanActionKey) -> String {
         match action {
-            BuildAction::RunMoonLexPrebuild { package, input, .. } => {
-                generator_desc("moonlex", package, input)
+            BuildPlanActionKey::Backend(node) => node.string_id(self.modules, self.packages),
+            BuildPlanActionKey::PackagePrebuild(PackagePrebuildKey::Custom {
+                package,
+                declaration_index,
+            }) => format!(
+                "{}@RunPrebuild_{}",
+                self.packages.fqn(*package),
+                declaration_index
+            ),
+            BuildPlanActionKey::PackagePrebuild(PackagePrebuildKey::MoonLex { package, input }) => {
+                let package = self.packages.get_package(*package);
+                let input = package_file_key(&package.root_path, input);
+                format!("{}@RunMoonLexPrebuild_{}", package.fqn, input.display())
             }
-            BuildAction::RunMoonYaccPrebuild { package, input, .. } => {
-                generator_desc("moonyacc", package, input)
+            BuildPlanActionKey::PackagePrebuild(PackagePrebuildKey::MoonYacc {
+                package,
+                input,
+            }) => {
+                let package = self.packages.get_package(*package);
+                let input = package_file_key(&package.root_path, input);
+                format!("{}@RunMoonYaccPrebuild_{}", package.fqn, input.display())
             }
-            _ => node.human_desc(self.modules, self.packages),
         }
     }
 
     #[instrument(level = Level::DEBUG, skip(self, execution))]
     pub(super) fn lower_action(
         &mut self,
-        node: BuildPlanNode,
+        action_key: &BuildPlanActionKey,
         execution: &mut ExecutionPlanBuilder,
     ) -> Result<ActionId, LoweringError> {
-        let action = self.action(node);
-        let action_artifacts = ActionArtifacts::new(self, node);
+        let action = self.action(action_key);
+        let action_artifacts = ActionArtifacts::new(self, action_key);
 
         // Lower the action to its command and tool-specific execution transport.
         let cmd = match action {
@@ -505,10 +569,12 @@ impl<'a> LoweringContext<'a> {
         external_inputs.sort();
         external_inputs.dedup();
 
-        let error_package = node
-            .extract_target()
-            .map(|target| self.get_package(target).fqn.clone())
-            .into();
+        let error_package = match action_key {
+            BuildPlanActionKey::Backend(node) => node.extract_target(),
+            BuildPlanActionKey::PackagePrebuild(_) => None,
+        }
+        .map(|target| self.get_package(target).fqn.clone())
+        .into();
         // Keep this exhaustive: adding an action must require an explicit
         // decision that lowering describes every filesystem observation.
         let cache_eligible = match action {
@@ -612,14 +678,16 @@ impl<'a> LoweringContext<'a> {
             inputs,
             outputs,
             command,
-            node.string_id(self.modules, self.packages),
-            self.human_desc(node, action),
+            self.string_id(action_key),
+            self.human_desc(action_key, action),
         )
         .with_external_inputs(external_inputs)
         .with_cache_eligible(cache_eligible)
         .with_can_dirty_on_output(matches!(
-            node,
-            BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
+            action_key,
+            BuildPlanActionKey::Backend(
+                BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
+            )
         ))
         .with_error_package(error_package);
 

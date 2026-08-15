@@ -24,7 +24,9 @@ use std::{
 use indexmap::IndexSet;
 use moonutil::resolution::ModuleId;
 
-use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind};
+use crate::model::{BuildTarget, PackageId, TargetKind};
+
+use super::BuildPlanActionKey;
 
 /// Normalize a package file declaration without retaining the package's
 /// physical root. Explicit paths outside the package remain absolute because
@@ -196,32 +198,41 @@ impl ArtifactKey {
 
 /// Artifact providers and the artifact requirements of each action.
 ///
-/// The existing high-level [`BuildPlanNode`] identifies an action. Multiple
-/// artifacts may name the same provider without introducing a positional or
-/// arena ID.
+/// [`BuildPlanActionKey`] distinguishes backend actions from package prebuild
+/// actions without introducing a positional or arena ID. Multiple artifacts
+/// may name the same provider.
 #[derive(Debug, Default)]
 pub(super) struct ArtifactPlan {
-    providers: HashMap<ArtifactKey, BuildPlanNode>,
-    artifacts_by_provider: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
-    requirements_by_consumer: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
+    providers: HashMap<ArtifactKey, BuildPlanActionKey>,
+    artifacts_by_provider: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
+    requirements_by_consumer: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
 }
 
 impl ArtifactPlan {
-    pub(super) fn require(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
+    pub(super) fn require(
+        &mut self,
+        consumer: impl Into<BuildPlanActionKey>,
+        artifact: ArtifactKey,
+    ) {
         self.requirements_by_consumer
-            .entry(consumer)
+            .entry(consumer.into())
             .or_default()
             .insert(artifact);
     }
 
-    pub(super) fn provide(&mut self, provider: BuildPlanNode, artifact: ArtifactKey) {
-        if let Some(&existing) = self.providers.get(&artifact) {
+    pub(super) fn provide(
+        &mut self,
+        provider: impl Into<BuildPlanActionKey>,
+        artifact: ArtifactKey,
+    ) {
+        let provider = provider.into();
+        if let Some(existing) = self.providers.get(&artifact) {
             assert_eq!(
-                existing, provider,
+                existing, &provider,
                 "artifact {artifact:?} has conflicting providers {existing:?} and {provider:?}"
             );
         } else {
-            self.providers.insert(artifact.clone(), provider);
+            self.providers.insert(artifact.clone(), provider.clone());
         }
         self.artifacts_by_provider
             .entry(provider)
@@ -229,27 +240,29 @@ impl ArtifactPlan {
             .insert(artifact);
     }
 
-    pub(super) fn provider(&self, artifact: &ArtifactKey) -> Option<BuildPlanNode> {
-        self.providers.get(artifact).copied()
+    pub(super) fn provider(&self, artifact: &ArtifactKey) -> Option<BuildPlanActionKey> {
+        self.providers.get(artifact).cloned()
     }
 
-    pub(super) fn requirements(&self) -> impl Iterator<Item = (BuildPlanNode, ArtifactKey)> + '_ {
+    pub(super) fn requirements(
+        &self,
+    ) -> impl Iterator<Item = (BuildPlanActionKey, ArtifactKey)> + '_ {
         self.requirements_by_consumer
             .iter()
-            .flat_map(|(&consumer, requirements)| {
+            .flat_map(|(consumer, requirements)| {
                 requirements
                     .iter()
                     .cloned()
-                    .map(move |artifact| (consumer, artifact))
+                    .map(move |artifact| (consumer.clone(), artifact))
             })
     }
 
-    pub(super) fn provided_by(
-        &self,
-        provider: BuildPlanNode,
-    ) -> impl Iterator<Item = &ArtifactKey> {
+    pub(super) fn provided_by<'a>(
+        &'a self,
+        provider: &BuildPlanActionKey,
+    ) -> impl Iterator<Item = &'a ArtifactKey> + 'a {
         self.artifacts_by_provider
-            .get(&provider)
+            .get(provider)
             .into_iter()
             .flat_map(IndexSet::iter)
     }
@@ -265,14 +278,14 @@ impl ArtifactPlan {
 
     pub(super) fn dependencies(
         &self,
-        consumer: BuildPlanNode,
-    ) -> impl Iterator<Item = (BuildPlanNode, ArtifactKey)> + '_ {
+        consumer: &BuildPlanActionKey,
+    ) -> impl Iterator<Item = (BuildPlanActionKey, ArtifactKey)> + '_ {
         self.requirements_by_consumer
-            .get(&consumer)
+            .get(consumer)
             .into_iter()
             .flat_map(|requirements| requirements.iter().cloned())
             .map(|artifact| {
-                let provider = self.providers[&artifact];
+                let provider = self.providers[&artifact].clone();
                 (provider, artifact)
             })
     }
@@ -285,13 +298,14 @@ mod tests {
     use slotmap::SlotMap;
 
     use super::*;
+    use crate::model::BuildPlanNode;
 
     #[test]
     fn multiple_artifacts_can_share_one_provider() {
         let mut packages = SlotMap::<PackageId, ()>::with_key();
         let package = packages.insert(());
         let target = package.build_target(TargetKind::Source);
-        let provider = BuildPlanNode::BuildCore(target);
+        let provider = BuildPlanActionKey::Backend(BuildPlanNode::BuildCore(target));
         let build_mi = ArtifactKey::BuildMi {
             package,
             target_kind: TargetKind::Source,
@@ -302,10 +316,10 @@ mod tests {
         };
 
         let mut plan = ArtifactPlan::default();
-        plan.provide(provider, build_mi.clone());
-        plan.provide(provider, core_ir.clone());
+        plan.provide(provider.clone(), build_mi.clone());
+        plan.provide(provider.clone(), core_ir.clone());
 
-        assert_eq!(plan.provider(&build_mi), Some(provider));
+        assert_eq!(plan.provider(&build_mi), Some(provider.clone()));
         assert_eq!(plan.provider(&core_ir), Some(provider));
         assert_eq!(plan.providers.len(), 2);
     }
@@ -315,7 +329,7 @@ mod tests {
         let mut packages = SlotMap::<PackageId, ()>::with_key();
         let dependency = packages.insert(());
         let consumer = packages.insert(());
-        let consumer = BuildPlanNode::BuildVirtual(consumer);
+        let consumer = BuildPlanActionKey::Backend(BuildPlanNode::BuildVirtual(consumer));
         let check_mi = ArtifactKey::CheckMi {
             package: dependency,
             target_kind: TargetKind::Source,
@@ -326,7 +340,7 @@ mod tests {
         };
 
         let mut plan = ArtifactPlan::default();
-        plan.require(consumer, build_mi.clone());
+        plan.require(consumer.clone(), build_mi.clone());
 
         assert_eq!(
             plan.requirements().collect::<HashSet<_>>(),

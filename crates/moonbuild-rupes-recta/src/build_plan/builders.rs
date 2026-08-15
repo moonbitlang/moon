@@ -57,8 +57,8 @@ use crate::{
 };
 
 use super::{
-    BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
-    MakeExecutableInfo,
+    BuildCStubsInfo, BuildPlanActionKey, BuildPlanConstructError, BuildRuntimeInfo,
+    BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo, PackagePrebuildKey,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
     c_stub_archive_fingerprint,
     constructor::{BuildPlanConstructor, PackageFileSet},
@@ -216,10 +216,11 @@ impl<'a> BuildPlanConstructor<'a> {
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| {
-                    !self
-                        .res
-                        .package_prebuild
-                        .contains_node(BuildPlanNode::RunPrebuild(pkg_id, *index as u32))
+                    let key = PackagePrebuildKey::Custom {
+                        package: pkg_id,
+                        declaration_index: *index as u32,
+                    };
+                    !self.res.package_prebuild.contains_key(&key)
                 })
                 .map(|(index, command)| {
                     self.resolve_custom_prebuild(pkg_id, command)
@@ -267,17 +268,17 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        for (index, input) in moonlex_inputs.into_iter().enumerate() {
+        for input in moonlex_inputs {
             let output = input.with_extension("mbt");
             self.res
                 .package_prebuild
-                .insert_moonlex(pkg_id, index as u32, input, output);
+                .insert_moonlex(pkg_id, input, output);
         }
-        for (index, input) in moonyacc_inputs.into_iter().enumerate() {
+        for input in moonyacc_inputs {
             let output = input.with_extension("mbt");
             self.res
                 .package_prebuild
-                .insert_moonyacc(pkg_id, index as u32, input, output);
+                .insert_moonyacc(pkg_id, input, output);
         }
         self.register_package_prebuild_artifacts(pkg_id);
         Ok(())
@@ -289,9 +290,9 @@ impl<'a> BuildPlanConstructor<'a> {
             .res
             .package_prebuild
             .actions_for_package(package)
-            .map(|action| {
+            .map(|(key, action)| {
                 (
-                    action.node(),
+                    key.clone(),
                     action.input_paths().to_vec(),
                     action.output_paths().to_vec(),
                 )
@@ -300,11 +301,11 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let providers = actions
             .iter()
-            .flat_map(|(node, _, outputs)| {
+            .flat_map(|(key, _, outputs)| {
                 outputs.iter().map(|output| {
                     (
                         output.clone(),
-                        *node,
+                        BuildPlanActionKey::PackagePrebuild(key.clone()),
                         ArtifactKey::PrebuildOutput {
                             package,
                             path: package_file_key(&pkg.root_path, output),
@@ -315,14 +316,19 @@ impl<'a> BuildPlanConstructor<'a> {
             .collect::<Vec<_>>();
 
         for (_, provider, artifact) in &providers {
-            self.res.artifacts.provide(*provider, artifact.clone());
+            self.res
+                .artifacts
+                .provide(provider.clone(), artifact.clone());
         }
         for (consumer, inputs, _) in actions {
             for input in inputs {
                 if let Some((_, _, artifact)) =
                     providers.iter().find(|(output, _, _)| *output == input)
                 {
-                    self.res.artifacts.require(consumer, artifact.clone());
+                    self.res.artifacts.require(
+                        BuildPlanActionKey::PackagePrebuild(consumer.clone()),
+                        artifact.clone(),
+                    );
                 }
             }
         }

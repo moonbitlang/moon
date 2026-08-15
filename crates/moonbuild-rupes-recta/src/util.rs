@@ -20,7 +20,10 @@
 
 use crate::discover::DiscoverResult;
 use crate::pkg_solve::DepRelationship;
-use crate::{build_plan::BuildPlan, model::BuildPlanNode};
+use crate::{
+    build_plan::{BuildPlan, BuildPlanActionKey, PackagePrebuildKey, package_file_key},
+    model::BuildPlanNode,
+};
 use moonutil::resolution::ResolvedEnv;
 use petgraph::Direction;
 use std::io::{self, Write};
@@ -192,21 +195,12 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
-            BuildPlanNode::RunPrebuild(target, index) => {
-                format!("{:?}@RunPrebuild_{}", target, index)
-            }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 format!("BuildRuntimeObject_{index}")
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs(module_id) => format!("{:?}@BuildDocs", module_id),
             BuildPlanNode::BuildVirtual(target) => format!("{:?}@BuildVirtual", target),
-            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
-                format!("{:?}@RunMoonLexPrebuild_{}", package_id, index)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
-                format!("{:?}@RunMoonYaccPrebuild_{}", package_id, index)
-            }
         }
     }
 
@@ -260,10 +254,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(build_target.package);
                 format!("{}\\nGenerateMbti", fqn)
             }
-            BuildPlanNode::RunPrebuild(target, index) => {
-                let fqn = packages.fqn(*target);
-                format!("{}\\nRunPrebuild_{}", fqn, index)
-            }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 format!("BuildRuntimeObject_{index}")
             }
@@ -275,14 +265,6 @@ impl BuildPlanNode {
             BuildPlanNode::BuildVirtual(package) => {
                 let fqn = packages.fqn(*package);
                 format!("{}\\nBuildVirtual", fqn)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
-                let fqn = packages.fqn(*package_id);
-                format!("{}\\nRunMoonLexPrebuild_{}", fqn, index)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
-                let fqn = packages.fqn(*package_id);
-                format!("{}\\nRunMoonYaccPrebuild_{}", fqn, index)
             }
         }
     }
@@ -301,13 +283,74 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
-            BuildPlanNode::RunPrebuild(_, _) => "khaki",
             BuildPlanNode::BuildRuntimeObject(_) => "orange",
             BuildPlanNode::BuildRuntimeLib => "orange",
             BuildPlanNode::BuildDocs(_) => "lavender",
             BuildPlanNode::BuildVirtual(_) => "lightsteelblue",
-            BuildPlanNode::RunMoonLexPrebuild(..) => "plum",
-            BuildPlanNode::RunMoonYaccPrebuild(..) => "thistle",
+        }
+    }
+}
+
+impl BuildPlanActionKey {
+    fn gen_node_id(&self, packages: &DiscoverResult) -> String {
+        match self {
+            Self::Backend(node) => node.gen_node_id(),
+            Self::PackagePrebuild(PackagePrebuildKey::Custom {
+                package,
+                declaration_index,
+            }) => format!("{package:?}@RunPrebuild_{declaration_index}"),
+            Self::PackagePrebuild(PackagePrebuildKey::MoonLex { package, input }) => {
+                let package_root = &packages.get_package(*package).root_path;
+                let input = package_file_key(package_root, input);
+                format!("{package:?}@RunMoonLexPrebuild_{}", input.display())
+            }
+            Self::PackagePrebuild(PackagePrebuildKey::MoonYacc { package, input }) => {
+                let package_root = &packages.get_package(*package).root_path;
+                let input = package_file_key(package_root, input);
+                format!("{package:?}@RunMoonYaccPrebuild_{}", input.display())
+            }
+        }
+    }
+
+    fn gen_label(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+        let file_name = |path: &Path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string())
+        };
+        match self {
+            Self::Backend(node) => node.gen_label(env, packages),
+            Self::PackagePrebuild(PackagePrebuildKey::Custom {
+                package,
+                declaration_index,
+            }) => format!(
+                "{}\\nRunPrebuild_{}",
+                packages.fqn(*package),
+                declaration_index
+            ),
+            Self::PackagePrebuild(PackagePrebuildKey::MoonLex { package, input }) => {
+                format!(
+                    "{}\\nRunMoonLexPrebuild_{}",
+                    packages.fqn(*package),
+                    file_name(input)
+                )
+            }
+            Self::PackagePrebuild(PackagePrebuildKey::MoonYacc { package, input }) => {
+                format!(
+                    "{}\\nRunMoonYaccPrebuild_{}",
+                    packages.fqn(*package),
+                    file_name(input)
+                )
+            }
+        }
+    }
+
+    fn gen_color(&self) -> &'static str {
+        match self {
+            Self::Backend(node) => node.gen_color(),
+            Self::PackagePrebuild(PackagePrebuildKey::Custom { .. }) => "khaki",
+            Self::PackagePrebuild(PackagePrebuildKey::MoonLex { .. }) => "plum",
+            Self::PackagePrebuild(PackagePrebuildKey::MoonYacc { .. }) => "thistle",
         }
     }
 }
@@ -323,11 +366,11 @@ pub fn print_build_plan_dot(
     writeln!(writer, "    rankdir=TB;")?;
     writeln!(writer, "    node [shape=box];")?;
 
-    // Nodes: use BuildPlanNode debug as ID, label with package FQN, target kind, and action
-    for node in build_plan.all_nodes() {
-        let node_id = node.gen_node_id();
-        let label = node.gen_label(env, packages);
-        let color = node.gen_color();
+    // Nodes: label both backend and package-prebuild actions.
+    for action in build_plan.all_actions() {
+        let node_id = action.gen_node_id(packages);
+        let label = action.gen_label(env, packages);
+        let color = action.gen_color();
 
         writeln!(
             writer,
@@ -336,11 +379,11 @@ pub fn print_build_plan_dot(
         )?;
     }
 
-    // Edges: dependencies between build plan nodes
-    for node in build_plan.all_nodes() {
-        for dep in build_plan.dependency_nodes(node) {
-            let node_id = node.gen_node_id();
-            let dep_id = dep.gen_node_id();
+    // Edges: artifact requirements between Build Plan actions.
+    for action in build_plan.all_actions() {
+        for dep in build_plan.dependency_actions(&action) {
+            let node_id = action.gen_node_id(packages);
+            let dep_id = dep.gen_node_id(packages);
             writeln!(writer, "    \"{}\" -> \"{}\";\n", node_id, dep_id)?;
         }
     }

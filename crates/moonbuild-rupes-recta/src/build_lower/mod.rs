@@ -34,7 +34,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    build_plan::BuildPlan,
+    build_plan::{BuildPlan, BuildPlanActionKey},
     execution_plan::{ActionId, ExecutionPlan, ExecutionPlanBuilder},
     model::{BackendConfig, BuildPlanNode, OperatingSystem, PackageId},
     target_layout::{
@@ -263,15 +263,15 @@ fn lower_actions(
     resolve_output: &ResolveOutput,
     plan: &BuildPlan,
     opt: &BuildOptions,
-) -> Result<(ExecutionPlan, HashMap<BuildPlanNode, ActionId>), LoweringError> {
+) -> Result<(ExecutionPlan, HashMap<BuildPlanActionKey, ActionId>), LoweringError> {
     let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
     let mut execution = ExecutionPlanBuilder::default();
     let mut action_ids = HashMap::new();
 
-    for node in plan.all_nodes() {
-        debug!("Lowering action: {:?}", node);
-        let action = ctx.lower_action(node, &mut execution)?;
-        action_ids.insert(node, action);
+    for action_key in plan.all_actions() {
+        debug!("Lowering action: {:?}", action_key);
+        let action = ctx.lower_action(&action_key, &mut execution)?;
+        action_ids.insert(action_key, action);
     }
 
     Ok((
@@ -285,53 +285,53 @@ fn lower_actions(
 fn partition_standalone_actions(
     plan: &BuildPlan,
     script_package: PackageId,
-) -> (Vec<BuildPlanNode>, Vec<BuildPlanNode>) {
-    let action_package = |node| match node {
-        BuildPlanNode::Check(target)
-        | BuildPlanNode::EmitProof(target)
-        | BuildPlanNode::Prove(target)
-        | BuildPlanNode::BuildCore(target)
-        | BuildPlanNode::LinkCore(target)
-        | BuildPlanNode::MakeExecutable(target)
-        | BuildPlanNode::GenerateDsym(target)
-        | BuildPlanNode::GenerateTestInfo(target)
-        | BuildPlanNode::GenerateMbti(target) => Some(target.package),
-        BuildPlanNode::BuildCStub(package, _)
-        | BuildPlanNode::ArchiveOrLinkCStubs(package)
-        | BuildPlanNode::BuildVirtual(package)
-        | BuildPlanNode::RunPrebuild(package, _)
-        | BuildPlanNode::RunMoonLexPrebuild(package, _)
-        | BuildPlanNode::RunMoonYaccPrebuild(package, _) => Some(package),
-        BuildPlanNode::Bundle(_)
-        | BuildPlanNode::BuildRuntimeObject(_)
-        | BuildPlanNode::BuildRuntimeLib
-        | BuildPlanNode::BuildDocs(_) => None,
+) -> (Vec<BuildPlanActionKey>, Vec<BuildPlanActionKey>) {
+    let action_package = |action: &BuildPlanActionKey| match action {
+        BuildPlanActionKey::Backend(node) => match node {
+            BuildPlanNode::Check(target)
+            | BuildPlanNode::EmitProof(target)
+            | BuildPlanNode::Prove(target)
+            | BuildPlanNode::BuildCore(target)
+            | BuildPlanNode::LinkCore(target)
+            | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::GenerateDsym(target)
+            | BuildPlanNode::GenerateTestInfo(target)
+            | BuildPlanNode::GenerateMbti(target) => Some(target.package),
+            BuildPlanNode::BuildCStub(package, _)
+            | BuildPlanNode::ArchiveOrLinkCStubs(package)
+            | BuildPlanNode::BuildVirtual(package) => Some(*package),
+            BuildPlanNode::Bundle(_)
+            | BuildPlanNode::BuildRuntimeObject(_)
+            | BuildPlanNode::BuildRuntimeLib
+            | BuildPlanNode::BuildDocs(_) => None,
+        },
+        BuildPlanActionKey::PackagePrebuild(key) => Some(key.package()),
     };
-    let nodes = plan.all_nodes().collect::<Vec<_>>();
-    let script_owned_actions = nodes
+    let actions = plan.all_actions().collect::<Vec<_>>();
+    let script_owned_actions = actions
         .iter()
-        .copied()
-        .filter(|&node| action_package(node) == Some(script_package))
+        .filter(|action| action_package(action) == Some(script_package))
+        .cloned()
         .collect::<HashSet<_>>();
     assert!(
         !script_owned_actions.is_empty(),
         "standalone action plan should contain work for the synthesized script package"
     );
 
-    let mut dependency_actions = nodes
+    let mut dependency_actions = actions
         .iter()
-        .copied()
-        .filter(|&node| action_package(node).is_some_and(|package| package != script_package))
+        .filter(|action| action_package(action).is_some_and(|package| package != script_package))
+        .cloned()
         .collect::<HashSet<_>>();
-    let mut pending = dependency_actions.iter().copied().collect::<Vec<_>>();
+    let mut pending = dependency_actions.iter().cloned().collect::<Vec<_>>();
     while let Some(action) = pending.pop() {
-        for dependency in plan.dependency_nodes(action) {
+        for dependency in plan.dependency_actions(&action) {
             assert!(
                 !script_owned_actions.contains(&dependency),
                 "standalone dependency preparation action {action:?} depends on \
                  script action {dependency:?}"
             );
-            if dependency_actions.insert(dependency) {
+            if dependency_actions.insert(dependency.clone()) {
                 pending.push(dependency);
             }
         }
@@ -343,12 +343,12 @@ fn partition_standalone_actions(
         "standalone root action should remain in the script execution phase"
     );
 
-    let dependencies = nodes
+    let dependencies = actions
         .iter()
-        .copied()
         .filter(|action| dependency_actions.contains(action))
+        .cloned()
         .collect();
-    let script = nodes
+    let script = actions
         .into_iter()
         .filter(|action| !dependency_actions.contains(action))
         .collect();
@@ -653,27 +653,25 @@ mod tests {
     fn lowered_generator_actions_track_host_and_payload_executables() {
         let (resolve_output, target) = single_package_resolve_output();
         let mut plan = BuildPlan::default();
-        plan.test_insert_moonlex_prebuild(
+        let moonlex = plan.test_insert_moonlex_prebuild(
             target.package,
-            0,
             PathBuf::from("main/lexer.mbl"),
             PathBuf::from("main/lexer.mbt"),
         );
-        plan.test_insert_moonyacc_prebuild(
+        let moonyacc = plan.test_insert_moonyacc_prebuild(
             target.package,
-            0,
             PathBuf::from("main/parser.mby"),
             PathBuf::from("main/parser.mbt"),
         );
-        plan.test_provide_artifact(
-            BuildPlanNode::RunMoonLexPrebuild(target.package, 0),
+        plan.test_provide_prebuild_artifact(
+            moonlex,
             ArtifactKey::PrebuildOutput {
                 package: target.package,
                 path: PathBuf::from("lexer.mbt"),
             },
         );
-        plan.test_provide_artifact(
-            BuildPlanNode::RunMoonYaccPrebuild(target.package, 0),
+        plan.test_provide_prebuild_artifact(
+            moonyacc,
             ArtifactKey::PrebuildOutput {
                 package: target.package,
                 path: PathBuf::from("parser.mbt"),
@@ -789,8 +787,9 @@ mod tests {
         let actions = nodes
             .into_iter()
             .map(|node| {
+                let action = BuildPlanActionKey::Backend(node);
                 context
-                    .lower_action(node, &mut execution)
+                    .lower_action(&action, &mut execution)
                     .expect("lowering should succeed")
             })
             .collect::<Vec<_>>();
@@ -858,9 +857,15 @@ mod tests {
 
         assert_eq!(
             dependency_nodes,
-            HashSet::from([dependency_node, runtime_node])
+            HashSet::from([
+                BuildPlanActionKey::Backend(dependency_node),
+                BuildPlanActionKey::Backend(runtime_node),
+            ])
         );
-        assert_eq!(script_nodes, HashSet::from([script_node]));
+        assert_eq!(
+            script_nodes,
+            HashSet::from([BuildPlanActionKey::Backend(script_node)])
+        );
     }
 
     #[test]
@@ -891,7 +896,13 @@ mod tests {
         let script_nodes = script_nodes.into_iter().collect::<HashSet<_>>();
 
         assert!(dependency_actions.is_empty());
-        assert_eq!(script_nodes, HashSet::from([script_node, runtime_node]));
+        assert_eq!(
+            script_nodes,
+            HashSet::from([
+                BuildPlanActionKey::Backend(script_node),
+                BuildPlanActionKey::Backend(runtime_node),
+            ])
+        );
     }
 
     #[test]
@@ -1070,7 +1081,9 @@ mod tests {
             lower_actions(&resolve_output, &plan, &options).expect("lowering should succeed");
         for node in nodes {
             assert!(
-                !execution.action(actions[&node]).is_cache_eligible(),
+                !execution
+                    .action(actions[&BuildPlanActionKey::Backend(node)])
+                    .is_cache_eligible(),
                 "{node:?} with opaque flags should be ineligible"
             );
         }
