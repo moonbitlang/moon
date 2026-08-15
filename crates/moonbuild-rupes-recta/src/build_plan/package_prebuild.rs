@@ -91,11 +91,11 @@ impl PackagePrebuildAction {
     }
 }
 
-/// Backend-independent package prebuild actions within one Build Plan.
+/// The backend-independent package-prebuild subplan within one Build Plan.
 ///
-/// Actions are stored separately from backend actions, but use the same
-/// artifact provider/requirement registry. Each key names exactly one action;
-/// command data and physical outputs remain stored with that action.
+/// Each key names exactly one action. Command data and physical outputs remain
+/// with that action, while cross-subplan dependencies use the enclosing Build
+/// Plan's artifact registry.
 #[derive(Default)]
 pub(crate) struct PackagePrebuildPlan {
     actions: IndexMap<PackagePrebuildKey, PackagePrebuildAction>,
@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn package_prebuild_provider_is_separate_from_backend_graph() {
+    fn package_prebuild_provider_is_separate_from_backend_plan() {
         let package = package_id(1);
         let backend_node = BuildPlanNode::Check(package.build_target(TargetKind::Source));
         let prebuild_key = PackagePrebuildKey::Custom {
@@ -213,7 +213,7 @@ mod tests {
             declaration_index: 0,
         };
         let mut plan = BuildPlan::default();
-        plan.actions.insert(backend_node);
+        plan.backend.insert(backend_node);
         plan.package_prebuild.insert_custom(
             package,
             0,
@@ -225,8 +225,8 @@ mod tests {
             },
         );
 
-        assert!(plan.actions.contains(&backend_node));
-        assert_eq!(plan.package_prebuild_plan().action_count(), 1);
+        assert!(plan.backend.contains(&backend_node));
+        assert_eq!(plan.package_prebuild.action_count(), 1);
         assert!(plan.package_prebuild.contains_key(&prebuild_key));
         let backend = BuildPlanActionKey::Backend(backend_node);
         assert_eq!(

@@ -83,16 +83,16 @@ mod package_prebuild;
 
 pub(crate) use action::BuildAction;
 pub use artifact::ArtifactKey;
-use artifact::ArtifactPlan;
+use artifact::ArtifactRegistry;
 pub(crate) use artifact::package_file_key;
 use constructor::BuildPlanConstructor;
 pub use package_prebuild::PrebuildInfo;
 pub(crate) use package_prebuild::{PackagePrebuildAction, PackagePrebuildKey, PackagePrebuildPlan};
 
-/// Identity of one semantic action in a Build Plan.
+/// A qualified reference to one semantic action in a Build Plan.
 ///
-/// Backend work and package-level prebuild are peer action kinds. Target kind
-/// remains nested inside the backend actions for which it is meaningful.
+/// The referenced action remains owned by its backend or package-prebuild
+/// subplan; this enum does not define a third action identity.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum BuildPlanActionKey {
     Backend(BuildPlanNode),
@@ -105,26 +105,23 @@ impl From<BuildPlanNode> for BuildPlanActionKey {
     }
 }
 
-/// A build plan of actions and the artifacts that connect them.
+/// Backend-specific actions and the shared metadata required to lower them.
 ///
-/// Build-plan nodes identify actions. Every dependency names a logical artifact
-/// and is resolved through that artifact's unique provider. The plan also
-/// stores the metadata required to lower each action.
+/// A completed Backend Plan contains the metadata required to lower every
+/// planned action. Keeping both here makes that invariant local to backend
+/// planning.
 #[derive(Default)]
-pub struct BuildPlan {
+struct BackendPlan {
     /// Planned backend actions, in stable insertion order.
     actions: IndexSet<BuildPlanNode>,
 
-    /// Logical artifacts provided and required by planned actions.
-    artifacts: ArtifactPlan,
-
     /// The map of build target to its files and metadata.
-    /// Used by nodes that require access to the raw MoonBit source files, like
+    /// Used by actions that require access to the raw MoonBit source files, like
     /// `Check`, `BuildCore`, `GenerateTestInfo` and `Format`.
     ///
-    /// The following maps contain metadata needed for different types of build
-    /// nodes. For each node present in the final graph, its metadata must
-    /// already be present in the map.
+    /// The following maps contain metadata needed for different backend action
+    /// kinds. Every action in the completed subplan must be lowerable from
+    /// these maps.
     build_target_infos: HashMap<BuildTarget, BuildTargetInfo>,
 
     /// The map of build target to the metadata it needs when linking core
@@ -142,14 +139,46 @@ pub struct BuildPlan {
     /// The information needed to build the native runtime library.
     runtime_info: Option<BuildRuntimeInfo>,
 
-    /// Backend-independent package file-generation actions.
-    package_prebuild: PackagePrebuildPlan,
-
     /// The concrete `.mbti` input selected for each planned virtual contract.
     virtual_contract_inputs: HashMap<PackageId, PathBuf>,
 
     /// The map of build target to its bundle information
     bundle_info: HashMap<ModuleId, BuildBundleInfo>,
+}
+
+impl BackendPlan {
+    fn actions(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        self.actions.iter().copied()
+    }
+
+    fn contains(&self, action: &BuildPlanNode) -> bool {
+        self.actions.contains(action)
+    }
+
+    fn insert(&mut self, action: BuildPlanNode) {
+        self.actions.insert(action);
+    }
+
+    fn action_count(&self) -> usize {
+        self.actions.len()
+    }
+}
+
+/// A build plan composed from backend work, package prebuild, and the
+/// artifacts that connect the two subplans.
+///
+/// Each subplan owns its action membership and lowering metadata. The artifact
+/// registry records provider and consumer relationships across the two
+/// subplans through [`BuildPlanActionKey`].
+#[derive(Default)]
+pub struct BuildPlan {
+    backend: BackendPlan,
+
+    /// Backend-independent package file-generation actions.
+    package_prebuild: PackagePrebuildPlan,
+
+    /// Logical artifacts provided and required by planned actions.
+    artifacts: ArtifactRegistry,
 
     /// Logical results requested by the caller, in request order.
     requested_artifacts: IndexSet<ArtifactKey>,
@@ -193,53 +222,56 @@ impl BuildPlan {
 
     /// Get build target information for the given target.
     pub fn get_build_target_info(&self, target: &BuildTarget) -> Option<&BuildTargetInfo> {
-        self.build_target_infos.get(target)
+        self.backend.build_target_infos.get(target)
     }
 
     /// Get link core information for the given target.
     pub fn get_link_core_info(&self, target: &BuildTarget) -> Option<&LinkCoreInfo> {
-        self.link_core_info.get(target)
+        self.backend.link_core_info.get(target)
     }
 
     /// Get C stubs information for the given target.
     pub fn get_c_stubs_info(&self, target: PackageId) -> Option<&BuildCStubsInfo> {
-        self.c_stubs_info.get(&target)
+        self.backend.c_stubs_info.get(&target)
     }
 
     /// Get make executable information for the given target.
     pub fn get_make_executable_info(&self, target: &BuildTarget) -> Option<&MakeExecutableInfo> {
-        self.make_executable_info.get(target)
+        self.backend.make_executable_info.get(target)
     }
 
     /// Get the resolved dsymutil executable.
     pub fn get_dsymutil(&self) -> Option<&Path> {
-        self.dsymutil.as_deref()
+        self.backend.dsymutil.as_deref()
     }
 
     /// Get runtime library build information.
     pub fn get_runtime_info(&self) -> Option<&BuildRuntimeInfo> {
-        self.runtime_info.as_ref()
+        self.backend.runtime_info.as_ref()
     }
 
-    pub(crate) fn package_prebuild_plan(&self) -> &PackagePrebuildPlan {
-        &self.package_prebuild
+    pub(crate) fn package_prebuild_action(
+        &self,
+        key: &PackagePrebuildKey,
+    ) -> Option<&PackagePrebuildAction> {
+        self.package_prebuild.action(key)
     }
 
     pub(crate) fn virtual_contract_input(&self, package: PackageId) -> Option<&Path> {
-        self.virtual_contract_inputs
+        self.backend
+            .virtual_contract_inputs
             .get(&package)
             .map(PathBuf::as_path)
     }
 
     /// Get bundle information for the given module.
     pub fn bundle_info(&self, module_id: ModuleId) -> Option<&BuildBundleInfo> {
-        self.bundle_info.get(&module_id)
+        self.backend.bundle_info.get(&module_id)
     }
 
     pub(crate) fn all_actions(&self) -> impl Iterator<Item = BuildPlanActionKey> + '_ {
-        self.actions
-            .iter()
-            .copied()
+        self.backend
+            .actions()
             .map(BuildPlanActionKey::Backend)
             .chain(
                 self.package_prebuild
@@ -249,14 +281,14 @@ impl BuildPlan {
     }
 
     pub fn action_count(&self) -> usize {
-        self.actions.len() + self.package_prebuild.action_count()
+        self.backend.action_count() + self.package_prebuild.action_count()
     }
 }
 
 #[cfg(test)]
 impl BuildPlan {
     pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
-        self.actions.insert(node);
+        self.backend.insert(node);
     }
 
     pub(crate) fn test_request_artifact(&mut self, artifact: ArtifactKey) {
@@ -264,12 +296,12 @@ impl BuildPlan {
     }
 
     pub(crate) fn test_require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
-        self.actions.insert(consumer);
+        self.backend.insert(consumer);
         self.artifacts.require(consumer, artifact);
     }
 
     pub(crate) fn test_provide_artifact(&mut self, provider: BuildPlanNode, artifact: ArtifactKey) {
-        self.actions.insert(provider);
+        self.backend.insert(provider);
         self.artifacts.provide(provider, artifact);
     }
 
@@ -288,7 +320,7 @@ impl BuildPlan {
         target: BuildTarget,
         info: BuildTargetInfo,
     ) {
-        self.build_target_infos.insert(target, info);
+        self.backend.build_target_infos.insert(target, info);
     }
 
     pub(crate) fn test_insert_moonlex_prebuild(
@@ -321,11 +353,11 @@ impl BuildPlan {
     }
 
     pub(crate) fn test_insert_link_core_info(&mut self, target: BuildTarget, info: LinkCoreInfo) {
-        self.link_core_info.insert(target, info);
+        self.backend.link_core_info.insert(target, info);
     }
 
     pub(crate) fn test_insert_c_stubs_info(&mut self, package: PackageId, info: BuildCStubsInfo) {
-        self.c_stubs_info.insert(package, info);
+        self.backend.c_stubs_info.insert(package, info);
     }
 
     pub(crate) fn test_insert_make_executable_info(
@@ -333,15 +365,15 @@ impl BuildPlan {
         target: BuildTarget,
         info: MakeExecutableInfo,
     ) {
-        self.make_executable_info.insert(target, info);
+        self.backend.make_executable_info.insert(target, info);
     }
 
     pub(crate) fn test_insert_dsymutil(&mut self, dsymutil: PathBuf) {
-        self.dsymutil = Some(dsymutil);
+        self.backend.dsymutil = Some(dsymutil);
     }
 
     pub(crate) fn test_insert_runtime_info(&mut self, info: BuildRuntimeInfo) {
-        self.runtime_info = Some(info);
+        self.backend.runtime_info = Some(info);
     }
 }
 

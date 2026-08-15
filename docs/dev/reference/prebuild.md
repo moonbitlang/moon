@@ -125,11 +125,13 @@ Behavior:
 - During ordinary input-module builds, each backend-specific Build Plan owns a
   separate `PackagePrebuildPlan` containing the requested custom, moonlex, and
   moonyacc actions. Bin-dep compatibility builds create none.
-- `PackagePrebuildPlan` is an action-storage seam, not a separate dependency
-  model. Each declared output is registered as a `PrebuildOutput` artifact in
-  the Build Plan's common artifact registry.
+- `PackagePrebuildPlan` owns package file-generation actions as a peer of the
+  `BackendPlan`; it is not a separate dependency model. Each declared output
+  is registered as a `PrebuildOutput` artifact in the Build Plan's common
+  artifact registry.
 - The common registry keys providers and consumers by `BuildPlanActionKey`,
-  whose `Backend` and `PackagePrebuild` variants are peer action kinds.
+  whose variants qualify references into the peer backend and package-prebuild
+  subplans.
   Package prebuild is therefore never represented as a backend node with an
   inapplicable target kind.
 - There is no explicit edge between two prebuild tasks solely because one is
