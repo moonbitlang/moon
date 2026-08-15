@@ -18,3 +18,17 @@ fn test_moon_info_compare_backends() {
 
     expect_file!["moon_info_compare_backends.out"].assert_eq(&out);
 }
+
+#[test]
+fn test_moon_info_composes_backend_builds() {
+    let dir = TestDir::new("moon_info_compare_backends");
+
+    moon_cmd(&dir)
+        .args(["info", "--target", "all"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Finished. moon: ran [..] tasks, now up to date
+
+"#]]);
+}

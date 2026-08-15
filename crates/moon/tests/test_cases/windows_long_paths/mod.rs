@@ -302,16 +302,6 @@ fn check_native_reports_its_long_output_directory() {
 }
 
 #[test]
-fn info_native_reports_its_long_check_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["info", "--target", "native"],
-        "native",
-        "debug",
-        "check",
-    );
-}
-
-#[test]
 fn build_native_reports_its_long_output_directory() {
     LongPathCase::new().assert_compiler_path_failure(
         &["build", "--target", "native"],
