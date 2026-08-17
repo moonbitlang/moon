@@ -189,17 +189,12 @@ pub(super) fn make_accept_io_result(
     context.host.make_accept_io_result(addr_len)
 }
 
-#[ported(
-    source = "src/internal/event_loop/io_windows.c",
-    original = "moonbitlang_async_make_read_dir_changes_io_result"
-)]
 #[cfg(windows)]
 pub(super) fn make_read_dir_changes_io_result(
     context: &mut ImportContext<'_, '_>,
     buffer: u64,
-    len: u32,
 ) -> crate::async_host::AsyncHostResult<u64> {
-    context.host.make_read_dir_changes_io_result(buffer, len)
+    context.host.make_read_dir_changes_io_result(buffer)
 }
 
 #[ported(

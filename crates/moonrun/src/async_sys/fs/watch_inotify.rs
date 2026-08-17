@@ -21,6 +21,7 @@ use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
 
 const EVENT_HEADER_SIZE: usize = std::mem::size_of::<libc::inotify_event>();
+const NAME_MAX: usize = 255;
 
 ported_fns! {
     #[ported(
@@ -53,7 +54,7 @@ ported_fns! {
         original = "moonbitlang_async_inotify_event_buffer_size"
     )]
     pub(crate) fn event_buffer_size() -> u32 {
-        let min_size = EVENT_HEADER_SIZE + libc::NAME_MAX as usize + 1;
+        let min_size = EVENT_HEADER_SIZE + NAME_MAX + 1;
         u32::try_from(4096usize.max(min_size)).expect("inotify event buffer size fits u32")
     }
 

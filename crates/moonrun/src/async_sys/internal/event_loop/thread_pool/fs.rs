@@ -273,11 +273,11 @@ ported_fns! {
         read_native_dir(dir, buffer, restart)
     }
 
-    #[cfg(target_os = "linux")]
     #[ported(
         source = "src/internal/event_loop/fs.c",
         original = "inotify_add_watch_job_worker"
     )]
+    #[cfg(target_os = "linux")]
     pub(super) fn run_inotify_add_watch_job(
         inotify: &Resource,
         path: OsString,
@@ -296,7 +296,7 @@ ported_fns! {
             libc::inotify_add_watch(inotify.as_file()?.as_raw_fd(), path.as_ptr(), flags)
         };
         if watch < 0 {
-            return Err(AsyncHostError::last_native_error());
+            return Err(last_native_error());
         }
         Ok(i64::from(watch))
     }

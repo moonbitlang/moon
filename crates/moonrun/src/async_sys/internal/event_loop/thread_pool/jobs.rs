@@ -443,11 +443,11 @@ ported_fns! {
         })
     }
 
-    #[cfg(target_os = "linux")]
     #[ported(
         source = "src/internal/event_loop/fs.c",
         original = "moonbitlang_async_make_inotify_add_watch_job"
     )]
+    #[cfg(target_os = "linux")]
     pub(crate) fn make_inotify_add_watch_job(
         inotify: ResourceRef,
         path: OsString,

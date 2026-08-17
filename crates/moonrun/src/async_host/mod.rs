@@ -104,6 +104,38 @@ impl CBufferLease {
         (self.key, self.buffer)
     }
 }
+
+#[cfg(windows)]
+enum HostWindowsWatcherBuffer {
+    Available(crate::async_sys::fs::watch_windows::EventBuffer),
+    Leased,
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+pub(crate) struct WindowsWatcherBufferLease {
+    key: HandleKey,
+    buffer: crate::async_sys::fs::watch_windows::EventBuffer,
+}
+
+#[cfg(windows)]
+impl WindowsWatcherBufferLease {
+    fn new(key: HandleKey, buffer: crate::async_sys::fs::watch_windows::EventBuffer) -> Self {
+        Self { key, buffer }
+    }
+
+    fn buffer(&self) -> &crate::async_sys::fs::watch_windows::EventBuffer {
+        &self.buffer
+    }
+
+    fn buffer_mut(&mut self) -> &mut crate::async_sys::fs::watch_windows::EventBuffer {
+        &mut self.buffer
+    }
+
+    fn into_parts(self) -> (HandleKey, crate::async_sys::fs::watch_windows::EventBuffer) {
+        (self.key, self.buffer)
+    }
+}
 #[cfg(unix)]
 type HostProcessArgv = Vec<Option<OsString>>;
 #[cfg(unix)]
@@ -438,6 +470,16 @@ impl HandleTable {
         self.remove(handle, HandleKind::CBuffer)
     }
 
+    #[cfg(windows)]
+    fn windows_watcher_buffer(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
+        self.key(handle, HandleKind::WindowsWatcherBuffer)
+    }
+
+    #[cfg(windows)]
+    fn remove_windows_watcher_buffer(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
+        self.remove(handle, HandleKind::WindowsWatcherBuffer)
+    }
+
     #[cfg(unix)]
     fn process_argv(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
         self.key(handle, HandleKind::ProcessArgv)
@@ -765,10 +807,10 @@ struct HostIoResult {
     // read constructors allocate output capacity, and write constructors copy
     // the input payload before any overlapped operation can outlive the import.
     buffer: Vec<u8>,
-    // ReadDirectoryChangesW writes into a stable host C buffer. Lease it
-    // while the OVERLAPPED operation is pending, then return it to the CBuffer
-    // table before the guest parses the completed events.
-    read_dir_changes_buffer: Option<CBufferLease>,
+    // Directory change notification writes into a stable host watcher buffer.
+    // Lease it while the OVERLAPPED operation is pending, then restore the
+    // bytes and selected event layout before the guest parses the batch.
+    read_dir_changes_buffer: Option<WindowsWatcherBufferLease>,
     read_dir_changes_len: usize,
     socket_flags: u32,
     addr_buffer: Vec<u8>,
@@ -933,7 +975,8 @@ impl HostIoResult {
         })
     }
 
-    fn for_read_dir_changes(buffer: CBufferLease, len: usize) -> Self {
+    fn for_read_dir_changes(buffer: WindowsWatcherBufferLease) -> Self {
+        let len = buffer.buffer().capacity();
         Self {
             overlapped: Self::zeroed_overlapped(),
             kind: HostIoKind::ReadDirChanges,
@@ -953,6 +996,10 @@ impl HostIoResult {
 
     fn overlapped_ptr(&mut self) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
         &mut self.overlapped
+    }
+
+    fn reset_overlapped(&mut self) {
+        self.overlapped = Self::zeroed_overlapped();
     }
 
     fn overlapped_addr(&mut self) -> OverlappedAddr {
@@ -1162,6 +1209,8 @@ pub(crate) struct AsyncHost {
     errno: Cell<i32>,
     addr_infos: RefCell<SecondaryMap<HandleKey, HostAddrInfo>>,
     c_buffers: RefCell<SecondaryMap<HandleKey, HostCBuffer>>,
+    #[cfg(windows)]
+    windows_watcher_buffers: RefCell<SecondaryMap<HandleKey, HostWindowsWatcherBuffer>>,
     #[cfg(unix)]
     process_argvs: RefCell<SecondaryMap<HandleKey, HostProcessArgv>>,
     process_envs: RefCell<SecondaryMap<HandleKey, HostProcessEnv>>,
@@ -1199,6 +1248,8 @@ impl AsyncHost {
             errno: Cell::new(0),
             addr_infos: RefCell::new(SecondaryMap::new()),
             c_buffers: RefCell::new(SecondaryMap::new()),
+            #[cfg(windows)]
+            windows_watcher_buffers: RefCell::new(SecondaryMap::new()),
             #[cfg(unix)]
             process_argvs: RefCell::new(SecondaryMap::new()),
             process_envs: RefCell::new(SecondaryMap::new()),
@@ -1302,6 +1353,16 @@ impl AsyncHost {
         }
     }
 
+    #[cfg(windows)]
+    fn restore_windows_watcher_buffer(&self, buffer: WindowsWatcherBufferLease) {
+        let (key, buffer) = buffer.into_parts();
+        if let Some(entry) = self.windows_watcher_buffers.borrow_mut().get_mut(key)
+            && matches!(entry, HostWindowsWatcherBuffer::Leased)
+        {
+            *entry = HostWindowsWatcherBuffer::Available(buffer);
+        }
+    }
+
     fn revoke_unclaimed_spawn(process_policy_state: Option<&ProcessPolicyState>, job: &Job) {
         let Some(state) = process_policy_state else {
             return;
@@ -1364,6 +1425,13 @@ impl AsyncHost {
                 let c_buffers = self.c_buffers.borrow();
                 if !c_buffers.is_empty() {
                     leaks.push(format!("c_buffers={}", c_buffers.len()));
+                }
+            }
+            #[cfg(windows)]
+            {
+                let buffers = self.windows_watcher_buffers.borrow();
+                if !buffers.is_empty() {
+                    leaks.push(format!("windows_watcher_buffers={}", buffers.len()));
                 }
             }
             {
@@ -1869,6 +1937,73 @@ impl AsyncHost {
             HostCBuffer::Available(buffer) => Ok(CBufferLease::new(key, buffer)),
             HostCBuffer::Leased => {
                 *entry = HostCBuffer::Leased;
+                Err(AsyncHostError::Badf)
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn insert_windows_watcher_buffer(&self) -> u64 {
+        let key = self
+            .handles
+            .borrow_mut()
+            .insert(HandleKind::WindowsWatcherBuffer);
+        self.windows_watcher_buffers.borrow_mut().insert(
+            key,
+            HostWindowsWatcherBuffer::Available(
+                crate::async_sys::fs::watch_windows::EventBuffer::new(),
+            ),
+        );
+        handle_from_key(key)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn free_windows_watcher_buffer(&self, handle: u64) -> AsyncHostResult<()> {
+        if handle == INVALID_HOST_HANDLE {
+            return Ok(());
+        }
+        let key = self
+            .handles
+            .borrow_mut()
+            .remove_windows_watcher_buffer(handle)?;
+        self.windows_watcher_buffers
+            .borrow_mut()
+            .remove(key)
+            .map(|_| ())
+            .ok_or(AsyncHostError::Badf)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn with_windows_watcher_buffer<T>(
+        &self,
+        handle: u64,
+        f: impl FnOnce(&crate::async_sys::fs::watch_windows::EventBuffer) -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let key = self.handles.borrow().windows_watcher_buffer(handle)?;
+        let buffers = self.windows_watcher_buffers.borrow();
+        match buffers.get(key).ok_or(AsyncHostError::Badf)? {
+            HostWindowsWatcherBuffer::Available(buffer) => f(buffer),
+            HostWindowsWatcherBuffer::Leased => Err(AsyncHostError::Badf),
+        }
+    }
+
+    #[cfg(windows)]
+    fn lease_windows_watcher_buffer(
+        &self,
+        handle: u64,
+    ) -> AsyncHostResult<WindowsWatcherBufferLease> {
+        if handle == INVALID_HOST_HANDLE {
+            return Err(AsyncHostError::Badf);
+        }
+        let key = self.handles.borrow().windows_watcher_buffer(handle)?;
+        let mut buffers = self.windows_watcher_buffers.borrow_mut();
+        let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        match std::mem::replace(entry, HostWindowsWatcherBuffer::Leased) {
+            HostWindowsWatcherBuffer::Available(buffer) => {
+                Ok(WindowsWatcherBufferLease::new(key, buffer))
+            }
+            HostWindowsWatcherBuffer::Leased => {
+                *entry = HostWindowsWatcherBuffer::Leased;
                 Err(AsyncHostError::Badf)
             }
         }
@@ -2828,17 +2963,9 @@ impl AsyncHost {
     pub(crate) fn make_read_dir_changes_io_result(
         &self,
         buffer_handle: u64,
-        len: u32,
     ) -> AsyncHostResult<u64> {
-        let mut buffer = self.lease_c_buffer(buffer_handle)?;
-        let len = match usize::try_from(len) {
-            Ok(len) if len <= buffer.as_mut_slice().len() => len,
-            _ => {
-                self.restore_c_buffer(buffer);
-                return Err(AsyncHostError::Fault);
-            }
-        };
-        self.insert_io_result(HostIoResult::for_read_dir_changes(buffer, len))
+        let buffer = self.lease_windows_watcher_buffer(buffer_handle)?;
+        self.insert_io_result(HostIoResult::for_read_dir_changes(buffer))
     }
 
     #[cfg(windows)]
@@ -2884,7 +3011,7 @@ impl AsyncHost {
         drop(io_results);
         drop(handles);
         if let Some(buffer) = buffer {
-            self.restore_c_buffer(buffer);
+            self.restore_windows_watcher_buffer(buffer);
         }
         Ok(())
     }
@@ -2919,7 +3046,7 @@ impl AsyncHost {
         drop(io_results);
         drop(handles);
         if let Some(buffer) = buffer {
-            self.restore_c_buffer(buffer);
+            self.restore_windows_watcher_buffer(buffer);
         }
         status
     }
@@ -2966,11 +3093,24 @@ impl AsyncHost {
             result.clear_pending();
             i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
         };
+        if result.kind == HostIoKind::ReadDirChanges {
+            let completed_len = status
+                .as_ref()
+                .ok()
+                .and_then(|len| usize::try_from(*len).ok())
+                .unwrap_or(0);
+            result
+                .read_dir_changes_buffer
+                .as_mut()
+                .ok_or(AsyncHostError::Inval)?
+                .buffer_mut()
+                .complete_read(completed_len)?;
+        }
         let buffer = result.read_dir_changes_buffer.take();
         drop(io_results);
         drop(handles);
         if let Some(buffer) = buffer {
-            self.restore_c_buffer(buffer);
+            self.restore_windows_watcher_buffer(buffer);
         }
         status
     }
@@ -3113,7 +3253,8 @@ impl AsyncHost {
         fd_handle: HostHandle,
         result_handle: u64,
     ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
+        use crate::async_sys::fs::watch_windows::EventLayout;
+        use windows_sys::Win32::Foundation::{ERROR_INVALID_FUNCTION, ERROR_IO_PENDING};
         use windows_sys::Win32::Storage::FileSystem::{
             FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME,
             FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE, ReadDirectoryChangesW,
@@ -3135,31 +3276,81 @@ impl AsyncHost {
             .read_dir_changes_buffer
             .as_mut()
             .ok_or(AsyncHostError::Inval)?
+            .buffer_mut()
             .as_mut_slice()
             .as_mut_ptr();
+        let notify_filter = FILE_NOTIFY_CHANGE_SIZE
+            | FILE_NOTIFY_CHANGE_LAST_WRITE
+            | FILE_NOTIFY_CHANGE_FILE_NAME
+            | FILE_NOTIFY_CHANGE_DIR_NAME;
         let mut bytes_returned = 0;
-        let success = unsafe {
-            ReadDirectoryChangesW(
+        let extended = unsafe {
+            crate::async_sys::fs::watch_windows::read_directory_changes_extended(
                 file.as_file()?.as_raw_handle(),
                 buffer.cast(),
                 len,
                 1,
-                FILE_NOTIFY_CHANGE_SIZE
-                    | FILE_NOTIFY_CHANGE_LAST_WRITE
-                    | FILE_NOTIFY_CHANGE_FILE_NAME
-                    | FILE_NOTIFY_CHANGE_DIR_NAME,
+                notify_filter,
                 &mut bytes_returned,
                 result.overlapped_ptr(),
-                None,
             )
+        };
+        let (success, layout) = match extended {
+            Some(success) if success != 0 => (success, EventLayout::Extended),
+            Some(_) => {
+                let error = last_native_error();
+                if error
+                    != AsyncHostError::Native(
+                        i32::try_from(ERROR_INVALID_FUNCTION).expect("Windows error code fits i32"),
+                    )
+                {
+                    return Err(error);
+                }
+                result.reset_overlapped();
+                bytes_returned = 0;
+                let success = unsafe {
+                    ReadDirectoryChangesW(
+                        file.as_file()?.as_raw_handle(),
+                        buffer.cast(),
+                        len,
+                        1,
+                        notify_filter,
+                        &mut bytes_returned,
+                        result.overlapped_ptr(),
+                        None,
+                    )
+                };
+                (success, EventLayout::Basic)
+            }
+            None => {
+                let success = unsafe {
+                    ReadDirectoryChangesW(
+                        file.as_file()?.as_raw_handle(),
+                        buffer.cast(),
+                        len,
+                        1,
+                        notify_filter,
+                        &mut bytes_returned,
+                        result.overlapped_ptr(),
+                        None,
+                    )
+                };
+                (success, EventLayout::Basic)
+            }
         };
         if success == 0 {
             return Err(last_native_error());
         }
+        result
+            .read_dir_changes_buffer
+            .as_mut()
+            .ok_or(AsyncHostError::Inval)?
+            .buffer_mut()
+            .begin_read(layout);
 
-        // ReadDirectoryChangesW reports that the completion packet was
-        // queued, not synchronous completion. Match native async by exposing
-        // the operation as pending even though the Windows call returned TRUE.
+        // Directory change notification reports that the completion packet
+        // was queued, not synchronous completion. Match native async by
+        // exposing the operation as pending even though the call returned TRUE.
         result.mark_pending(Arc::clone(file))?;
         Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
     }
@@ -6404,31 +6595,31 @@ mod tests {
     #[test]
     fn read_dir_changes_io_result_leases_buffer_until_free() {
         let host = AsyncHost::default();
-        let buffer = host.insert_c_buffer(vec![1, 2, 3].into_boxed_slice());
-        let result = host.make_read_dir_changes_io_result(buffer, 3).unwrap();
+        let buffer = host.insert_windows_watcher_buffer();
+        let result = host.make_read_dir_changes_io_result(buffer).unwrap();
 
         assert_eq!(
-            host.with_c_buffer(buffer, |_| Ok(())),
+            host.with_windows_watcher_buffer(buffer, |_| Ok(())),
             Err(AsyncHostError::Badf)
         );
 
         host.free_io_result(result).unwrap();
         assert_eq!(
-            host.with_c_buffer(buffer, |bytes| Ok(bytes.to_vec())),
-            Ok(vec![1, 2, 3])
+            host.with_windows_watcher_buffer(buffer, |buffer| Ok(buffer.capacity())),
+            Ok(usize::try_from(crate::async_sys::fs::watch_windows::event_buffer_size()).unwrap())
         );
-        host.free_c_buffer(buffer).unwrap();
+        host.free_windows_watcher_buffer(buffer).unwrap();
     }
 
     #[cfg(windows)]
     #[test]
-    fn rejected_read_dir_changes_length_restores_buffer() {
+    fn read_dir_changes_rejects_a_generic_c_buffer() {
         let host = AsyncHost::default();
         let buffer = host.insert_c_buffer(vec![1, 2, 3].into_boxed_slice());
 
         assert_eq!(
-            host.make_read_dir_changes_io_result(buffer, 4),
-            Err(AsyncHostError::Fault)
+            host.make_read_dir_changes_io_result(buffer),
+            Err(AsyncHostError::Badf)
         );
         assert_eq!(
             host.with_c_buffer(buffer, |bytes| Ok(bytes.to_vec())),

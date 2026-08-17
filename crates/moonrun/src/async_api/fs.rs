@@ -393,24 +393,17 @@ pub(super) fn kqueue_watcher_event_has_modify(
     })
 }
 
-#[ported(
-    source = "src/fs/watch_windows.c",
-    original = "moonbitlang_async_has_ReadDirectoryChangesExW"
-)]
 #[cfg(windows)]
-pub(super) fn watcher_has_read_directory_changes_ex(
-    _context: &mut ImportContext<'_, '_>,
-) -> i32 {
-    i32::from(watch_windows::has_read_directory_changes_ex())
+pub(super) fn windows_watcher_buffer_new(context: &mut ImportContext<'_, '_>) -> u64 {
+    context.host.insert_windows_watcher_buffer()
 }
 
-#[ported(
-    source = "src/fs/watch_windows.c",
-    original = "moonbitlang_async_watcher_event_buffer_size"
-)]
 #[cfg(windows)]
-pub(super) fn watcher_event_buffer_size(_context: &mut ImportContext<'_, '_>) -> u32 {
-    watch_windows::event_buffer_size()
+pub(super) fn windows_watcher_buffer_free(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+) -> AsyncHostResult<()> {
+    context.host.free_windows_watcher_buffer(buffer)
 }
 
 #[ported(
@@ -425,7 +418,9 @@ pub(super) fn watcher_event_get_size(
 ) -> AsyncHostResult<u32> {
     context
         .host
-        .with_c_buffer(buffer, |buffer| watch_windows::event_get_size(buffer, offset))
+        .with_windows_watcher_buffer(buffer, |buffer| {
+            watch_windows::event_get_size(buffer, offset)
+        })
 }
 
 #[ported(
@@ -438,62 +433,61 @@ pub(super) fn watcher_event_is_modify(
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
-    context.host.with_c_buffer(buffer, |buffer| {
+    context.host.with_windows_watcher_buffer(buffer, |buffer| {
         watch_windows::event_is_modify(buffer, offset).map(i32::from)
     })
 }
 
-#[ported(
-    source = "src/fs/watch_windows.c",
-    original = "moonbitlang_async_watcher_event_get_path_len"
-)]
 #[cfg(windows)]
-pub(super) fn watcher_event_get_path_len(
+pub(super) fn watcher_event_path_len(
     context: &mut ImportContext<'_, '_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u32> {
     context
         .host
-        .with_c_buffer(buffer, |buffer| watch_windows::event_get_path_len(buffer, offset))
+        .with_windows_watcher_buffer(buffer, |buffer| {
+            watch_windows::event_path_len(buffer, offset)
+        })
 }
 
-#[ported(
-    source = "src/fs/watch_windows.c",
-    original = "moonbitlang_async_watcher_event_get_path_offset"
-)]
 #[cfg(windows)]
-pub(super) fn watcher_event_get_path_offset(_context: &mut ImportContext<'_, '_>) -> u32 {
-    watch_windows::event_get_path_offset()
-}
-
-#[ported(
-    source = "src/fs/watch_windows.c",
-    original = "moonbitlang_async_watcher_event_get_file_id"
-)]
-#[cfg(windows)]
-pub(super) fn watcher_event_get_file_id(
+pub(super) fn watcher_event_path_copy(
     context: &mut ImportContext<'_, '_>,
     buffer: u64,
     offset: u32,
-) -> AsyncHostResult<u64> {
-    context
+    out: u32,
+    out_len: u32,
+) -> AsyncHostResult<()> {
+    let path = context
         .host
-        .with_c_buffer(buffer, |buffer| watch_windows::event_get_file_id(buffer, offset))
+        .with_windows_watcher_buffer(buffer, |buffer| {
+            watch_windows::event_path_units(buffer, offset)
+        })?;
+    if usize::try_from(out_len).map_err(|_| AsyncHostError::Fault)? != path.len() {
+        return Err(AsyncHostError::Inval);
+    }
+    context.with_memory_mut(|memory| write_u16(memory, out, &path))
 }
 
-#[ported(
-    source = "src/fs/watch_windows.c",
-    original = "moonbitlang_async_watcher_event_get_parent_file_id"
-)]
 #[cfg(windows)]
-pub(super) fn watcher_event_get_parent_file_id(
+pub(super) fn watcher_event_has_file_ids(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+) -> AsyncHostResult<i32> {
+    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+        watch_windows::event_has_file_ids(buffer).map(i32::from)
+    })
+}
+
+#[cfg(windows)]
+pub(super) fn watcher_event_dirty_file_id(
     context: &mut ImportContext<'_, '_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u64> {
-    context.host.with_c_buffer(buffer, |buffer| {
-        watch_windows::event_get_parent_file_id(buffer, offset)
+    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+        watch_windows::event_dirty_file_id(buffer, offset)
     })
 }
 

@@ -530,11 +530,11 @@ pub(super) fn make_readdir_job(
         ))
 }
 
-#[cfg(target_os = "linux")]
 #[ported(
     source = "src/internal/event_loop/fs.c",
     original = "moonbitlang_async_make_inotify_add_watch_job"
 )]
+#[cfg(target_os = "linux")]
 pub(super) fn make_inotify_add_watch_job(
     context: &mut ImportContext<'_, '_>,
     inotify: u64,
