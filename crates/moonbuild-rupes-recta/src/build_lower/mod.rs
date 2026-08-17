@@ -377,7 +377,7 @@ mod tests {
     use crate::{
         build_plan::{
             ArtifactKey, BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo,
-            LinkCoreInfo, MakeExecutableInfo,
+            LinkCoreInfo, MakeExecutableInfo, PackageCompilation,
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
@@ -530,7 +530,6 @@ mod tests {
             patch_file: None,
             why3_config: None,
             proof_prelude: PathBuf::from("proof-prelude"),
-            check_mi_against: None,
             value_tracing: false,
         }
     }
@@ -735,6 +734,7 @@ mod tests {
         plan.test_add_node(check_node);
         plan.test_add_node(link_core_node);
         plan.test_insert_build_target_info(target, build_target_info());
+        plan.test_insert_package_compilation(check_node, PackageCompilation::default());
         plan.test_provide_artifact(
             check_node,
             ArtifactKey::CheckMi {
@@ -1012,6 +1012,7 @@ mod tests {
             },
         );
         plan.test_insert_build_target_info(target, build_target_info());
+        plan.test_insert_package_compilation(build_core_node, PackageCompilation::default());
         plan.test_insert_link_core_info(
             target,
             LinkCoreInfo {

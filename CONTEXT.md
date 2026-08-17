@@ -91,6 +91,14 @@ The backend-specific subplan that owns its semantic action membership and the
 shared planning information required to lower those actions.
 _Avoid_: Package Prebuild Plan, bare action set
 
+**Package Compilation Specification**:
+The action-specific package-interface imports and compilation mode retained by
+the Backend Plan after Build Target Projection. Imports name Build Artifacts;
+the Artifact Registry decides whether each one is planned or supplied by an
+external source.
+_Avoid_: Reconstructing compiler inputs during lowering, provider-specific
+action behavior
+
 **Package Prebuild Plan**:
 The subplan that owns package-level file-generation actions whose meaning is
 independent of Target Backend. It participates in the enclosing Build Plan's

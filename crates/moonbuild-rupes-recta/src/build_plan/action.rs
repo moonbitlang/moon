@@ -22,7 +22,7 @@ use moonutil::resolution::ModuleId;
 
 use super::{
     BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
-    PrebuildInfo,
+    PackageCompilation, PrebuildInfo,
 };
 use crate::model::{BuildTarget, PackageId};
 
@@ -35,18 +35,22 @@ pub(crate) enum BuildAction<'a> {
     Check {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
+        compilation: &'a PackageCompilation,
     },
     EmitProof {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
+        compilation: &'a PackageCompilation,
     },
     Prove {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
+        compilation: &'a PackageCompilation,
     },
     BuildCore {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
+        compilation: &'a PackageCompilation,
     },
     BuildCStub {
         package: PackageId,
@@ -80,6 +84,7 @@ pub(crate) enum BuildAction<'a> {
     BuildVirtual {
         package: PackageId,
         input: &'a Path,
+        compilation: &'a PackageCompilation,
     },
     Bundle {
         module: ModuleId,

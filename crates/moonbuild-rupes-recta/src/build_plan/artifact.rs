@@ -134,6 +134,13 @@ pub enum ArtifactKey {
     },
 }
 
+/// A source of logical artifacts that is not an action in this Build Plan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExternalArtifactSource {
+    /// Package interfaces supplied by the injected standard-library bundle.
+    StandardLibrary,
+}
+
 impl ArtifactKey {
     /// The package target whose compilation lifecycle owns this artifact.
     /// Module-wide, package-wide, runtime, and prebuild artifacts have no
@@ -204,6 +211,7 @@ impl ArtifactKey {
 #[derive(Debug, Default)]
 pub(super) struct ArtifactRegistry {
     providers: HashMap<ArtifactKey, BuildPlanActionKey>,
+    external: HashMap<ArtifactKey, ExternalArtifactSource>,
     artifacts_by_provider: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
     requirements_by_consumer: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
 }
@@ -226,6 +234,10 @@ impl ArtifactRegistry {
         artifact: ArtifactKey,
     ) {
         let provider = provider.into();
+        assert!(
+            !self.external.contains_key(&artifact),
+            "artifact {artifact:?} is already supplied externally"
+        );
         if let Some(existing) = self.providers.get(&artifact) {
             assert_eq!(
                 existing, &provider,
@@ -238,6 +250,23 @@ impl ArtifactRegistry {
             .entry(provider)
             .or_default()
             .insert(artifact);
+    }
+
+    pub(super) fn provide_external(
+        &mut self,
+        artifact: ArtifactKey,
+        source: ExternalArtifactSource,
+    ) {
+        assert!(
+            !self.providers.contains_key(&artifact),
+            "artifact {artifact:?} already has a planned provider"
+        );
+        if let Some(existing) = self.external.insert(artifact.clone(), source) {
+            assert_eq!(
+                existing, source,
+                "artifact {artifact:?} has conflicting external sources"
+            );
+        }
     }
 
     pub(super) fn provider(&self, artifact: &ArtifactKey) -> Option<BuildPlanActionKey> {
@@ -270,8 +299,8 @@ impl ArtifactRegistry {
     pub(super) fn validate(&self) {
         for (_, artifact) in self.requirements() {
             assert!(
-                self.providers.contains_key(&artifact),
-                "required artifact {artifact:?} has no provider in the build plan"
+                self.providers.contains_key(&artifact) || self.external.contains_key(&artifact),
+                "required artifact {artifact:?} has no planned or external source"
             );
         }
     }
@@ -284,9 +313,27 @@ impl ArtifactRegistry {
             .get(consumer)
             .into_iter()
             .flat_map(|requirements| requirements.iter().cloned())
-            .map(|artifact| {
-                let provider = self.providers[&artifact].clone();
-                (provider, artifact)
+            .filter_map(|artifact| {
+                self.providers
+                    .get(&artifact)
+                    .cloned()
+                    .map(|provider| (provider, artifact))
+            })
+    }
+
+    pub(super) fn external_requirements<'a>(
+        &'a self,
+        consumer: &'a BuildPlanActionKey,
+    ) -> impl Iterator<Item = (ArtifactKey, ExternalArtifactSource)> + 'a {
+        self.requirements_by_consumer
+            .get(consumer)
+            .into_iter()
+            .flat_map(|requirements| requirements.iter())
+            .filter_map(|artifact| {
+                self.external
+                    .get(artifact)
+                    .copied()
+                    .map(|source| (artifact.clone(), source))
             })
     }
 }
@@ -348,6 +395,32 @@ mod tests {
         );
         assert_eq!(plan.provider(&build_mi), None);
         assert_ne!(check_mi, build_mi);
+    }
+
+    #[test]
+    fn external_artifacts_satisfy_requirements_without_action_dependencies() {
+        let mut packages = SlotMap::<PackageId, ()>::with_key();
+        let dependency = packages.insert(());
+        let consumer = packages.insert(());
+        let consumer = BuildPlanActionKey::Backend(BuildPlanNode::Check(
+            consumer.build_target(TargetKind::Source),
+        ));
+        let artifact = ArtifactKey::CheckMi {
+            package: dependency,
+            target_kind: TargetKind::Source,
+        };
+
+        let mut plan = ArtifactRegistry::default();
+        plan.require(consumer.clone(), artifact.clone());
+        plan.provide_external(artifact.clone(), ExternalArtifactSource::StandardLibrary);
+
+        plan.validate();
+        assert_eq!(plan.provider(&artifact), None);
+        assert_eq!(plan.dependencies(&consumer).count(), 0);
+        assert_eq!(
+            plan.external_requirements(&consumer).collect::<Vec<_>>(),
+            [(artifact, ExternalArtifactSource::StandardLibrary)]
+        );
     }
 
     #[test]

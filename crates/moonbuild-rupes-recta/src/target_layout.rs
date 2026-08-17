@@ -977,6 +977,34 @@ impl ArtifactPathResolver {
         }
     }
 
+    pub(crate) fn paths_for_external_artifact(
+        &self,
+        artifact: &ArtifactKey,
+        source: crate::build_plan::ExternalArtifactSource,
+        packages: &DiscoverResult,
+        options: ArtifactPathOptions,
+    ) -> Vec<PathBuf> {
+        let crate::build_plan::ExternalArtifactSource::StandardLibrary = source;
+        let target = match artifact {
+            ArtifactKey::CheckMi {
+                package,
+                target_kind,
+            }
+            | ArtifactKey::BuildMi {
+                package,
+                target_kind,
+            } => package.build_target(*target_kind),
+            ArtifactKey::VirtualContractMi { package } => package.build_target(TargetKind::Source),
+            _ => unreachable!("only package interfaces may have external artifact sources"),
+        };
+        match self.mi_of_build_target_aux(packages, &target, options.target_backend(), false) {
+            MiPathResult::Std(path) => vec![path],
+            MiPathResult::Regular(_) => {
+                unreachable!("external package interfaces must come from the injected stdlib")
+            }
+        }
+    }
+
     fn package_interface_paths(
         &self,
         action_context: BuildAction<'_>,
@@ -985,7 +1013,9 @@ impl ArtifactPathResolver {
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
         match action_context {
-            BuildAction::Check { info, .. } if info.check_mi_against.is_some() => {
+            BuildAction::Check { compilation, .. }
+                if compilation.mode.virtual_contract().is_some() =>
+            {
                 // Generate a `.mi` artifact in edge cases such as --no-mi and
                 // virtual implementation checks.
                 match self.mi_of_build_target_impl_virtual(
@@ -1286,7 +1316,6 @@ mod tests {
             patch_file: None,
             why3_config: None,
             proof_prelude: PathBuf::from("proof-prelude"),
-            check_mi_against: None,
             value_tracing: false,
         }
     }
@@ -1454,6 +1483,7 @@ mod tests {
         );
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
+        let compilation = crate::build_plan::PackageCompilation::default();
 
         assert_eq!(
             resolver.paths_for_artifact(
@@ -1464,6 +1494,7 @@ mod tests {
                 BuildAction::Check {
                     target,
                     info: &info,
+                    compilation: &compilation,
                 },
                 &packages,
                 &modules,
@@ -1484,6 +1515,7 @@ mod tests {
         );
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
+        let compilation = crate::build_plan::PackageCompilation::default();
 
         assert_eq!(
             resolver.paths_for_artifact(
@@ -1494,6 +1526,7 @@ mod tests {
                 BuildAction::BuildCore {
                     target,
                     info: &info,
+                    compilation: &compilation,
                 },
                 &packages,
                 &modules,
@@ -1513,8 +1546,13 @@ mod tests {
             None,
         );
         let target = package.build_target(TargetKind::Source);
-        let mut info = build_target_info();
-        info.check_mi_against = Some(target);
+        let info = build_target_info();
+        let compilation = crate::build_plan::PackageCompilation {
+            imports: Vec::new(),
+            mode: crate::build_plan::PackageCompilationMode::VirtualImplementation {
+                contract: ArtifactKey::VirtualContractMi { package },
+            },
+        };
 
         assert_eq!(
             resolver.paths_for_artifact(
@@ -1525,6 +1563,7 @@ mod tests {
                 BuildAction::Check {
                     target,
                     info: &info,
+                    compilation: &compilation,
                 },
                 &packages,
                 &modules,
@@ -1550,6 +1589,17 @@ mod tests {
                 .into_path(),
             PathBuf::from("toolchain/core/_build/wasm-gc/release/bundle/ffi/ffi.mi"),
         );
+        assert_eq!(
+            resolver.paths_for_external_artifact(
+                &ArtifactKey::VirtualContractMi { package },
+                crate::build_plan::ExternalArtifactSource::StandardLibrary,
+                &packages,
+                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
+            ),
+            vec![PathBuf::from(
+                "toolchain/core/_build/wasm-gc/release/bundle/ffi/ffi.mi"
+            )],
+        );
     }
 
     #[test]
@@ -1558,6 +1608,7 @@ mod tests {
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
+        let compilation = crate::build_plan::PackageCompilation::default();
 
         assert_eq!(
             resolver.paths_for_artifact(
@@ -1568,6 +1619,7 @@ mod tests {
                 BuildAction::EmitProof {
                     target,
                     info: &info,
+                    compilation: &compilation,
                 },
                 &packages,
                 &modules,
@@ -1588,6 +1640,7 @@ mod tests {
                 BuildAction::Prove {
                     target,
                     info: &info,
+                    compilation: &compilation,
                 },
                 &packages,
                 &modules,
@@ -1611,6 +1664,7 @@ mod tests {
         );
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
+        let compilation = crate::build_plan::PackageCompilation::default();
         let options = artifact_options(ExecutableArtifact::WasmGC { use_wat: false });
 
         let virtual_contract = resolver.paths_for_artifact(
@@ -1618,6 +1672,7 @@ mod tests {
             BuildAction::BuildVirtual {
                 package,
                 input: Path::new("pkg.mbti"),
+                compilation: &compilation,
             },
             &packages,
             &modules,
@@ -1631,6 +1686,7 @@ mod tests {
             BuildAction::EmitProof {
                 target,
                 info: &info,
+                compilation: &compilation,
             },
             &packages,
             &modules,

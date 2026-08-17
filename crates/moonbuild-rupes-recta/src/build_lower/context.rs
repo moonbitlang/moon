@@ -49,6 +49,9 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) packages: &'a DiscoverResult,
     pub(crate) modules: &'a ResolvedEnv,
     pub(crate) module_dirs: &'a DirSyncResult,
+    // FIXME: Proof-specific `--dep-proof` metadata and transitive load paths
+    // are still reconstructed from Resolve Output during lowering. Project
+    // that topology into Build Plan before removing this remaining relation.
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildPlan,
     pub(crate) opt: &'a BuildOptions,
@@ -61,6 +64,7 @@ pub(crate) struct LoweringContext<'a> {
 pub(super) struct ActionArtifacts {
     outputs: Vec<RealizedArtifact>,
     dependencies: Vec<RealizedArtifact>,
+    external: Vec<RealizedArtifact>,
 }
 
 pub(super) struct RealizedArtifact {
@@ -80,9 +84,23 @@ impl ActionArtifacts {
             .artifact_dependencies(action)
             .map(|(dependency_action, artifact)| Self::realize(ctx, &dependency_action, artifact))
             .collect();
+        let external = ctx
+            .plan
+            .external_artifact_requirements(action)
+            .map(|(artifact, source)| RealizedArtifact {
+                paths: ctx.artifact_paths.paths_for_external_artifact(
+                    &artifact,
+                    source,
+                    ctx.packages,
+                    ctx.opt.artifact_path_options(),
+                ),
+                artifact,
+            })
+            .collect();
         Self {
             outputs,
             dependencies,
+            external,
         }
     }
 
@@ -137,6 +155,34 @@ impl ActionArtifacts {
     ) -> PathBuf {
         Self::single_matching_path(&self.dependencies, matches)
             .unwrap_or_else(|| unreachable!("expected one matching dependency artifact"))
+    }
+
+    pub(super) fn single_input_path(&self, artifact: &ArtifactKey) -> PathBuf {
+        let matched = self
+            .dependencies
+            .iter()
+            .chain(&self.external)
+            .filter(|realized| &realized.artifact == artifact)
+            .collect::<Vec<_>>();
+        match matched.as_slice() {
+            [artifact] => Self::optional_single_realized_path(artifact)
+                .unwrap_or_else(|| unreachable!("expected one path for input artifact")),
+            [] => unreachable!(
+                "expected input artifact {artifact:?}; available inputs: {:?}",
+                self.dependencies
+                    .iter()
+                    .chain(&self.external)
+                    .map(|realized| &realized.artifact)
+                    .collect::<Vec<_>>()
+            ),
+            _ => unreachable!("input artifact {artifact:?} has multiple realizations"),
+        }
+    }
+
+    pub(super) fn is_external(&self, artifact: &ArtifactKey) -> bool {
+        self.external
+            .iter()
+            .any(|realized| &realized.artifact == artifact)
     }
 
     pub(super) fn dependency_paths_matching(
@@ -267,6 +313,10 @@ impl<'a> LoweringContext<'a> {
                     .plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for Check nodes"),
+                compilation: self
+                    .plan
+                    .package_compilation(node)
+                    .expect("Package compilation should be present for Check nodes"),
             },
             BuildPlanNode::EmitProof(target) => BuildAction::EmitProof {
                 target,
@@ -274,6 +324,10 @@ impl<'a> LoweringContext<'a> {
                     .plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for EmitProof nodes"),
+                compilation: self
+                    .plan
+                    .package_compilation(node)
+                    .expect("Package compilation should be present for EmitProof nodes"),
             },
             BuildPlanNode::Prove(target) => BuildAction::Prove {
                 target,
@@ -281,6 +335,10 @@ impl<'a> LoweringContext<'a> {
                     .plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for Prove nodes"),
+                compilation: self
+                    .plan
+                    .package_compilation(node)
+                    .expect("Package compilation should be present for Prove nodes"),
             },
             BuildPlanNode::BuildCore(target) => BuildAction::BuildCore {
                 target,
@@ -288,6 +346,10 @@ impl<'a> LoweringContext<'a> {
                     .plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for BuildCore nodes"),
+                compilation: self
+                    .plan
+                    .package_compilation(node)
+                    .expect("Package compilation should be present for BuildCore nodes"),
             },
             BuildPlanNode::BuildCStub(package, index) => BuildAction::BuildCStub {
                 package,
@@ -340,6 +402,10 @@ impl<'a> LoweringContext<'a> {
                     .plan
                     .virtual_contract_input(package)
                     .expect("virtual contract input should be selected during build planning"),
+                compilation: self
+                    .plan
+                    .package_compilation(node)
+                    .expect("Package compilation should be present for BuildVirtual nodes"),
             },
             BuildPlanNode::Bundle(module) => BuildAction::Bundle {
                 module,
@@ -451,18 +517,26 @@ impl<'a> LoweringContext<'a> {
 
         // Lower the action to its command and tool-specific execution transport.
         let cmd = match action {
-            BuildAction::Check { target, info } => {
-                self.lower_check(&action_artifacts, target, info)?
-            }
-            BuildAction::EmitProof { target, info } => {
-                self.lower_emit_proof(&action_artifacts, target, info)?
-            }
-            BuildAction::Prove { target, info } => {
-                self.lower_prove(&action_artifacts, target, info)?
-            }
-            BuildAction::BuildCore { target, info } => {
-                self.lower_build_mbt(&action_artifacts, target, info)?
-            }
+            BuildAction::Check {
+                target,
+                info,
+                compilation,
+            } => self.lower_check(&action_artifacts, target, info, compilation)?,
+            BuildAction::EmitProof {
+                target,
+                info,
+                compilation,
+            } => self.lower_emit_proof(&action_artifacts, target, info, compilation)?,
+            BuildAction::Prove {
+                target,
+                info,
+                compilation,
+            } => self.lower_prove(&action_artifacts, target, info, compilation)?,
+            BuildAction::BuildCore {
+                target,
+                info,
+                compilation,
+            } => self.lower_build_mbt(&action_artifacts, target, info, compilation)?,
             BuildAction::BuildCStub {
                 package,
                 index,
@@ -488,9 +562,11 @@ impl<'a> LoweringContext<'a> {
             BuildAction::GenerateMbti { target } => {
                 self.lower_generate_mbti(&action_artifacts, target)
             }
-            BuildAction::BuildVirtual { package, input } => {
-                self.lower_parse_mbti(package, input)?
-            }
+            BuildAction::BuildVirtual {
+                package,
+                input,
+                compilation,
+            } => self.lower_parse_mbti(&action_artifacts, package, input, compilation)?,
             BuildAction::Bundle { module, targets } => {
                 self.lower_bundle(&action_artifacts, module, targets)?
             }

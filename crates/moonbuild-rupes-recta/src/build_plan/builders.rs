@@ -58,7 +58,8 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanActionKey, BuildPlanConstructError, BuildRuntimeInfo,
-    BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo, PackagePrebuildKey,
+    BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo, PackageCompilation, PackageCompilationMode,
+    PackageInterfaceImport, PackagePrebuildKey,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
     c_stub_archive_fingerprint,
     constructor::{BuildPlanConstructor, PackageFileSet},
@@ -421,13 +422,9 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    fn require_check_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
-            return;
-        }
-
+    fn check_mi_of_dep(&self, dep: BuildTarget) -> ArtifactKey {
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
-        let artifact = if pkg_info.is_virtual() {
+        if pkg_info.is_virtual() {
             ArtifactKey::VirtualContractMi {
                 package: dep.package,
             }
@@ -436,17 +433,12 @@ impl<'a> BuildPlanConstructor<'a> {
                 package: dep.package,
                 target_kind: dep.kind,
             }
-        };
-        self.require_artifact(node, artifact);
+        }
     }
 
-    fn require_build_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
-            return;
-        }
-
+    fn build_mi_of_dep(&self, dep: BuildTarget) -> ArtifactKey {
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
-        let artifact = if pkg_info.is_virtual() {
+        if pkg_info.is_virtual() {
             ArtifactKey::VirtualContractMi {
                 package: dep.package,
             }
@@ -455,40 +447,35 @@ impl<'a> BuildPlanConstructor<'a> {
                 package: dep.package,
                 target_kind: dep.kind,
             }
-        };
-        self.require_artifact(node, artifact);
+        }
     }
 
-    fn require_build_outputs_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
-            return;
-        }
-
+    fn require_build_outputs_of_dep(
+        &mut self,
+        node: BuildPlanNode,
+        dep: BuildTarget,
+    ) -> ArtifactKey {
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
         if pkg_info.is_virtual() {
-            self.require_artifact(
-                node,
-                ArtifactKey::VirtualContractMi {
-                    package: dep.package,
-                },
-            );
-            return;
+            return ArtifactKey::VirtualContractMi {
+                package: dep.package,
+            };
         }
 
-        self.require_artifact(
-            node,
-            ArtifactKey::BuildMi {
-                package: dep.package,
-                target_kind: dep.kind,
-            },
-        );
-        self.require_artifact(
-            node,
-            ArtifactKey::CoreIr {
-                package: dep.package,
-                target_kind: dep.kind,
-            },
-        );
+        let interface = ArtifactKey::BuildMi {
+            package: dep.package,
+            target_kind: dep.kind,
+        };
+        if !(self.build_env.std && pkg_info.is_stdlib) {
+            self.require_artifact(
+                node,
+                ArtifactKey::CoreIr {
+                    package: dep.package,
+                    target_kind: dep.kind,
+                },
+            );
+        }
+        interface
     }
 
     /// Specify a need on the proof artifacts of a dependency.
@@ -496,20 +483,17 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Dependency proofs stay modular: dependents only require the dependency's
     /// proof surface (`.mi` + `.mlw`). Provider selection decides whether an
     /// explicit `Prove` or an internal `EmitProof` action supplies that surface.
-    fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
+    fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) -> ArtifactKey {
         // As with normal `.mi` dependencies, stdlib packages are resolved via
         // the injected stdlib path rather than by planning local nodes.
         if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
-            return;
+            return self.check_mi_of_dep(dep);
         }
 
-        self.require_artifact(
-            node,
-            ArtifactKey::ProofMi {
-                package: dep.package,
-                target_kind: dep.kind,
-            },
-        );
+        let interface = ArtifactKey::ProofMi {
+            package: dep.package,
+            target_kind: dep.kind,
+        };
         self.require_artifact(
             node,
             ArtifactKey::ProofWhyml {
@@ -517,34 +501,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind: dep.kind,
             },
         );
-    }
-
-    fn need_virtual_if_necessary(
-        &mut self,
-        pkg: &DiscoveredPackage,
-        node: BuildPlanNode,
-        target: BuildTarget,
-    ) {
-        // If the given target is a virtual package with default implementation,
-        // we need to build its interface first. Injected stdlib contracts are
-        // already supplied by `-std-path` and remain external to this plan.
-        if pkg.is_virtual() && !(self.build_env.std && pkg.is_stdlib) {
-            self.require_artifact(
-                node,
-                ArtifactKey::VirtualContractMi {
-                    package: target.package,
-                },
-            );
-        }
-
-        // If the given target implements a virtual package, we need to build
-        // the virtual package's interface first, unless that contract comes
-        // from the injected stdlib.
-        if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package)
-            && !(self.build_env.std && self.input.pkg_dirs.is_stdlib_package(*vpkg_id))
-        {
-            self.require_artifact(node, ArtifactKey::VirtualContractMi { package: *vpkg_id });
-        }
+        interface
     }
 
     pub(crate) fn build_proof_node(
@@ -561,19 +518,25 @@ impl<'a> BuildPlanConstructor<'a> {
         );
 
         self.need_node(node);
-        for dep in self
+        let dependencies = self
             .input
             .pkg_rel
             .dep_graph
-            .neighbors_directed(target, petgraph::Direction::Outgoing)
-        {
+            .edges_directed(target, petgraph::Direction::Outgoing)
+            .map(|(_, dep, edge)| (dep, edge.short_alias.clone()))
+            .collect::<Vec<_>>();
+        let mut imports = Vec::with_capacity(dependencies.len());
+        for (dep, alias) in dependencies {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_proof_of_dep(node, dep);
+            imports.push(PackageInterfaceImport {
+                artifact: self.need_proof_of_dep(node, dep),
+                alias,
+            });
         }
 
         self.plan_package_prebuild(target.package)?;
-        self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
+        self.register_package_compilation(node, target, imports);
         self.resolved_node(node);
 
         Ok(())
@@ -596,20 +559,26 @@ impl<'a> BuildPlanConstructor<'a> {
         self.need_node(node);
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
-        for dep in self
+        let dependencies = self
             .input
             .pkg_rel
             .dep_graph
-            .neighbors_directed(target, petgraph::Direction::Outgoing)
-        {
+            .edges_directed(target, petgraph::Direction::Outgoing)
+            .map(|(_, dep, edge)| (dep, edge.short_alias.clone()))
+            .collect::<Vec<_>>();
+        let mut imports = Vec::with_capacity(dependencies.len());
+        for (dep, alias) in dependencies {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.require_check_mi_of_dep(node, dep);
+            imports.push(PackageInterfaceImport {
+                artifact: self.check_mi_of_dep(dep),
+                alias,
+            });
         }
 
         self.plan_package_prebuild(target.package)?;
 
-        self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
+        self.register_package_compilation(node, target, imports);
 
         self.resolved_node(node);
 
@@ -634,14 +603,20 @@ impl<'a> BuildPlanConstructor<'a> {
         // tracks normal dependency `.core` artifacts in n2 so implementation
         // changes in dependencies dirty downstream build-package actions.
         self.need_node(node);
-        for dep in self
+        let dependencies = self
             .input
             .pkg_rel
             .dep_graph
-            .neighbors_directed(target, petgraph::Direction::Outgoing)
-        {
+            .edges_directed(target, petgraph::Direction::Outgoing)
+            .map(|(_, dep, edge)| (dep, edge.short_alias.clone()))
+            .collect::<Vec<_>>();
+        let mut imports = Vec::with_capacity(dependencies.len());
+        for (dep, alias) in dependencies {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.require_build_outputs_of_dep(node, dep);
+            imports.push(PackageInterfaceImport {
+                artifact: self.require_build_outputs_of_dep(node, dep),
+                alias,
+            });
         }
 
         // If the given target is a test, we will also need to generate the test driver.
@@ -655,11 +630,10 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
-        self.need_virtual_if_necessary(pkg, node, target);
-
         self.plan_package_prebuild(target.package)?;
 
         self.populate_target_info(target);
+        self.register_package_compilation(node, target, imports);
         self.resolved_node(node);
 
         Ok(())
@@ -858,8 +832,6 @@ impl<'a> BuildPlanConstructor<'a> {
         let why3_config = self.input_directive.prove_why3_config.clone();
         let proof_prelude = self.input_directive.proof_prelude.clone();
 
-        let mi_check_target = self.mi_check_target(target, pkg);
-
         BuildTargetInfo {
             regular_files,
             mbtp_files,
@@ -870,7 +842,6 @@ impl<'a> BuildPlanConstructor<'a> {
             patch_file,
             why3_config,
             proof_prelude,
-            check_mi_against: mi_check_target,
             value_tracing: self
                 .input_directive
                 .value_tracing
@@ -927,31 +898,44 @@ impl<'a> BuildPlanConstructor<'a> {
         ));
     }
 
-    /// Check if a given target needs to check `.mi` against another target.
-    #[allow(clippy::manual_map)]
-    fn mi_check_target(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<BuildTarget> {
-        // Mi checks.
-        // - A virtual package with a default implementation checks .mi with its
-        //   own virtual interface declaration.
-        // - A package implementing a virtual package checks .mi with the
-        //   virtual package it implements.
-        if target.kind == TargetKind::Source {
-            if let Some(vpkg) = &pkg.raw.virtual_pkg {
-                if vpkg.has_default {
-                    Some(target.package.build_target(TargetKind::Source))
-                } else {
+    fn register_package_compilation(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+        mut imports: Vec<PackageInterfaceImport>,
+    ) {
+        imports.sort_by(|left, right| left.alias.cmp(&right.alias));
+
+        let mode = if target.kind != TargetKind::Source {
+            PackageCompilationMode::Regular
+        } else {
+            let pkg = self.input.pkg_dirs.get_package(target.package);
+            if let Some(virtual_pkg) = &pkg.raw.virtual_pkg {
+                if !virtual_pkg.has_default {
                     unreachable!(
-                        "A virtual package without default implementation should not have a build target info, thus should not reach here"
+                        "a virtual package without a default implementation has no compilation target"
                     );
                 }
-            } else if let Some(implement) = self.input.pkg_rel.virt_impl.get(target.package) {
-                Some(implement.build_target(TargetKind::Source))
+                PackageCompilationMode::VirtualDefault {
+                    contract: ArtifactKey::VirtualContractMi {
+                        package: target.package,
+                    },
+                }
+            } else if let Some(package) = self.input.pkg_rel.virt_impl.get(target.package) {
+                PackageCompilationMode::VirtualImplementation {
+                    contract: ArtifactKey::VirtualContractMi { package: *package },
+                }
             } else {
-                None
+                PackageCompilationMode::Regular
             }
-        } else {
-            None
-        }
+        };
+
+        let previous = self
+            .res
+            .backend
+            .package_compilations
+            .insert(node, PackageCompilation { imports, mode });
+        debug_assert!(previous.is_none(), "package compilation should be unique");
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
@@ -1671,7 +1655,8 @@ impl<'a> BuildPlanConstructor<'a> {
         // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
         // usually means `moonc check` instead of `moonc build`.
         self.check_backend_compatibility_for_mi_dep(_node, target)?;
-        self.require_check_mi_of_dep(_node, target);
+        let artifact = self.check_mi_of_dep(target);
+        self.require_artifact(_node, artifact);
         self.resolved_node(_node);
         Ok(())
     }
@@ -1724,23 +1709,42 @@ impl<'a> BuildPlanConstructor<'a> {
             .virtual_contract_inputs
             .insert(target, selected);
 
-        for dep in self.input.pkg_rel.dep_graph.neighbors_directed(
-            target.build_target(TargetKind::Source),
-            petgraph::Direction::Outgoing,
-        ) {
+        let dependencies = self
+            .input
+            .pkg_rel
+            .dep_graph
+            .edges_directed(
+                target.build_target(TargetKind::Source),
+                petgraph::Direction::Outgoing,
+            )
+            .map(|(_, dep, edge)| (dep, edge.short_alias.clone()))
+            .collect::<Vec<_>>();
+        let mut imports = Vec::with_capacity(dependencies.len());
+        for (dep, alias) in dependencies {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            match self.build_env.action {
-                RunMode::Check | RunMode::Prove => self.require_check_mi_of_dep(node, dep),
+            let artifact = match self.build_env.action {
+                RunMode::Check | RunMode::Prove => self.check_mi_of_dep(dep),
                 RunMode::Build
                 | RunMode::Run
                 | RunMode::Test
                 | RunMode::Bench
-                | RunMode::Bundle => self.require_build_mi_of_dep(node, dep),
+                | RunMode::Bundle => self.build_mi_of_dep(dep),
                 RunMode::Format => {
                     unreachable!("format plans do not compile virtual package contracts")
                 }
-            }
+            };
+            imports.push(PackageInterfaceImport { artifact, alias });
         }
+
+        imports.sort_by(|left, right| left.alias.cmp(&right.alias));
+        let previous = self.res.backend.package_compilations.insert(
+            node,
+            PackageCompilation {
+                imports,
+                mode: PackageCompilationMode::Regular,
+            },
+        );
+        debug_assert!(previous.is_none(), "package compilation should be unique");
 
         self.resolved_node(node);
 

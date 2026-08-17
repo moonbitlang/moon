@@ -84,6 +84,7 @@ mod package_prebuild;
 pub(crate) use action::BuildAction;
 pub use artifact::ArtifactKey;
 use artifact::ArtifactRegistry;
+pub(crate) use artifact::ExternalArtifactSource;
 pub(crate) use artifact::package_file_key;
 use constructor::BuildPlanConstructor;
 pub use package_prebuild::PrebuildInfo;
@@ -123,6 +124,11 @@ struct BackendPlan {
     /// kinds. Every action in the completed subplan must be lowerable from
     /// these maps.
     build_target_infos: HashMap<BuildTarget, BuildTargetInfo>,
+
+    /// The package-interface inputs and compilation mode of each compiler
+    /// action. This is action-specific because one target may participate in
+    /// different compilation lifecycles within the same Build Plan.
+    package_compilations: HashMap<BuildPlanNode, PackageCompilation>,
 
     /// The map of build target to the metadata it needs when linking core
     link_core_info: HashMap<BuildTarget, LinkCoreInfo>,
@@ -203,6 +209,13 @@ impl BuildPlan {
         self.artifacts.dependencies(action)
     }
 
+    pub(crate) fn external_artifact_requirements<'a>(
+        &'a self,
+        action: &'a BuildPlanActionKey,
+    ) -> impl Iterator<Item = (ArtifactKey, ExternalArtifactSource)> + 'a {
+        self.artifacts.external_requirements(action)
+    }
+
     pub(crate) fn provided_artifacts(
         &self,
         action: &BuildPlanActionKey,
@@ -223,6 +236,10 @@ impl BuildPlan {
     /// Get build target information for the given target.
     pub fn get_build_target_info(&self, target: &BuildTarget) -> Option<&BuildTargetInfo> {
         self.backend.build_target_infos.get(target)
+    }
+
+    pub(crate) fn package_compilation(&self, node: BuildPlanNode) -> Option<&PackageCompilation> {
+        self.backend.package_compilations.get(&node)
     }
 
     /// Get link core information for the given target.
@@ -323,6 +340,14 @@ impl BuildPlan {
         self.backend.build_target_infos.insert(target, info);
     }
 
+    pub(crate) fn test_insert_package_compilation(
+        &mut self,
+        node: BuildPlanNode,
+        compilation: PackageCompilation,
+    ) {
+        self.backend.package_compilations.insert(node, compilation);
+    }
+
     pub(crate) fn test_insert_moonlex_prebuild(
         &mut self,
         package: PackageId,
@@ -377,6 +402,66 @@ impl BuildPlan {
     }
 }
 
+/// A package interface passed to one compiler action as an ordinary import.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PackageInterfaceImport {
+    pub(crate) artifact: ArtifactKey,
+    pub(crate) alias: arcstr::Substr,
+}
+
+/// How one compiler action treats the package body it compiles.
+///
+/// Virtual-package modes affect the contract input, compiler flags, and
+/// package-interface output behavior together. The contract remains a logical
+/// artifact reference; provider or external-source selection belongs to the
+/// artifact registry.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) enum PackageCompilationMode {
+    #[default]
+    Regular,
+    VirtualDefault {
+        contract: ArtifactKey,
+    },
+    VirtualImplementation {
+        contract: ArtifactKey,
+    },
+}
+
+impl PackageCompilationMode {
+    pub(crate) fn virtual_contract(&self) -> Option<&ArtifactKey> {
+        match self {
+            Self::Regular => None,
+            Self::VirtualDefault { contract } | Self::VirtualImplementation { contract } => {
+                Some(contract)
+            }
+        }
+    }
+
+    pub(crate) fn is_virtual_implementation(&self) -> bool {
+        matches!(self, Self::VirtualImplementation { .. })
+    }
+}
+
+/// The action-specific package compilation specification retained by Build
+/// Plan after Build Target Projection.
+///
+/// Lowering consumes this value directly instead of reconstructing imports or
+/// virtual-package behavior from Resolve Output.
+#[derive(Debug, Default)]
+pub(crate) struct PackageCompilation {
+    pub(crate) imports: Vec<PackageInterfaceImport>,
+    pub(crate) mode: PackageCompilationMode,
+}
+
+impl PackageCompilation {
+    pub(crate) fn required_artifacts(&self) -> impl Iterator<Item = &ArtifactKey> {
+        self.imports
+            .iter()
+            .map(|import| &import.artifact)
+            .chain(self.mode.virtual_contract())
+    }
+}
+
 /// Common information about a moonbit package being built
 #[derive(Debug)]
 pub struct BuildTargetInfo {
@@ -409,9 +494,6 @@ pub struct BuildTargetInfo {
     /// The directory containing the selected proof prelude provider.
     pub(crate) proof_prelude: PathBuf,
 
-    /// Check the `.mi` file against the given target. Used in virtual packages.
-    /// Also implies that the target must not generate a `.mi` file.
-    pub(crate) check_mi_against: Option<BuildTarget>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether compiling this target needs the standard library
     // pub std: bool,

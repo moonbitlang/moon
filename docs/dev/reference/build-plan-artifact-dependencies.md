@@ -122,7 +122,8 @@ pub struct BuildPlan {
 
 struct BackendPlan {
     actions: IndexSet<BuildPlanNode>,
-    // metadata required to lower backend actions
+    package_compilations: HashMap<BuildPlanNode, PackageCompilation>,
+    // other metadata required to lower backend actions
 }
 
 struct PackagePrebuildPlan {
@@ -136,6 +137,7 @@ enum BuildPlanActionKey {
 
 struct ArtifactRegistry {
     providers: HashMap<ArtifactKey, BuildPlanActionKey>,
+    external: HashMap<ArtifactKey, ExternalArtifactSource>,
     artifacts_by_provider: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
     requirements_by_consumer: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
 }
@@ -143,8 +145,10 @@ struct ArtifactRegistry {
 
 There is no weighted action-edge graph and no `FileDependencyKind`. A provider
 may expose multiple artifacts, but each artifact has at most one provider in a
-plan. At the end of planning, validation requires every requested artifact and
-every Artifact Requirement to have a provider.
+plan. An Artifact Requirement may instead resolve to a declared external source,
+such as the injected standard-library bundle. At the end of planning,
+validation requires every requested artifact to have a provider and every
+Artifact Requirement to have either a provider or an external source.
 
 `BuildPlanActionKey` is the union used by the common artifact registry to
 connect providers and consumers from either subplan. Backend nodes retain
@@ -153,22 +157,39 @@ Package prebuild actions are keyed by their declaration coordinate: custom
 commands use the manifest declaration index, while moonlex and moonyacc use
 their concrete input paths.
 
-Builders name only what they consume:
+Package compiler actions retain an action-specific Package Compilation
+Specification produced by Build Target Projection:
 
 ```rust
-self.require_artifact(
-    consumer,
-    ArtifactKey::BuildMi { package, target_kind },
-);
-self.require_artifact(
-    consumer,
-    ArtifactKey::CoreIr { package, target_kind },
-);
+struct PackageCompilation {
+    imports: Vec<PackageInterfaceImport>,
+    mode: PackageCompilationMode,
+}
+
+struct PackageInterfaceImport {
+    artifact: ArtifactKey,
+    alias: Substr,
+}
+
+enum PackageCompilationMode {
+    Regular,
+    VirtualDefault { contract: ArtifactKey },
+    VirtualImplementation { contract: ArtifactKey },
+}
 ```
 
-The central artifact rule maps each key to its provider action and schedules
-that action. Builders do not encode `Check`, `BuildCore`, or another provider
-in a dependency edge.
+Its ordinary imports name lifecycle-specific interface artifacts and retain
+the aliases passed to the compiler. Its mode records behavior of the package
+compilation action: whether it checks a virtual contract, which contract it
+checks, and whether `-impl-virtual` applies. The central artifact rule derives
+Artifact Requirements from this specification, maps planned artifacts to
+provider actions, and records supported external sources. Builders do not
+encode `Check`, `BuildCore`, or another provider in a dependency edge.
+
+Non-interface needs that do not become compiler `-i` arguments remain direct
+Artifact Requirements. For example, a downstream build additionally requires
+dependency Core IR so implementation changes dirty it, and proof compilation
+requires dependency WhyML artifacts.
 
 The same rule handles invocation roots. `UserIntent` names results such as
 `CheckMi`, `CoreIr`, or `Executable`; it does not construct provider actions.
@@ -277,8 +298,8 @@ identity or cache digest. Concrete output paths likewise are not cache digests.
 `build_lower` walks semantic `BuildPlanActionKey` values, hydrates the metadata
 for one action on demand, and resolves every `ArtifactKey` through
 `ArtifactPathResolver`. `ActionArtifacts` realizes outputs with the current
-action as provider context and requirements with the selected provider action as
-context:
+action as provider context, planned requirements with their selected provider
+action as context, and external requirements with their declared source:
 
 ```rust
 let outputs = plan
@@ -288,28 +309,50 @@ let outputs = plan
 let dependencies = plan
     .artifact_dependencies(node)
     .map(|(provider, artifact)| realize(provider, artifact));
+
+let external = plan
+    .external_artifact_requirements(node)
+    .map(|(artifact, source)| realize_external(source, artifact));
 ```
 
 The `ExecutionPlanBuilder` registers each realized semantic output, assigns
 `ActionId` handles, and rejects duplicate artifact providers or physical-output
-paths. On finalization it converts each artifact requirement into the selected
-provider's output paths, then discards the
-temporary provider registry. An `ExecutionAction` combines those inputs,
-external file observations, declared outputs, the concrete process command,
-diagnostics, and executor/cache policy. The n2 adapter alone registers files
-and constructs `n2::Build` values.
+paths. Artifact requirements have already become concrete action inputs before
+insertion. On finalization the builder verifies that each such input names a
+declared output and resolves requested Build Artifacts to result paths. An
+`ExecutionAction` combines those inputs, external file observations, declared
+outputs, the concrete process command, diagnostics, and executor/cache policy.
+The n2 adapter alone registers files and constructs `n2::Build` values.
 
 Every lowered command retains structured argv. Response files change only its
 execution transport. The first argument's resolved executable path is an
 external input unless a dependency artifact provides it. External inputs are
 sorted and deduplicated before n2 adaptation.
 
-Some existing command builders also repeat a dependency artifact path in their
-additional file inputs. This preserves the current n2 graph contract while the
-explicit artifact dependency remains the authoritative producer edge. Removing
-those redundant file inputs is a separate graph-normalization change; dry-run
-or another `ExecutionPlan` consumer must not rely on the duplication to recover
-producer ordering.
+Package compiler lowering consumes the Package Compilation Specification
+directly. It does not traverse Resolve Output again to reconstruct ordinary
+`.mi` arguments or virtual-package behavior. Every import and virtual contract
+becomes an Artifact Requirement before lowering. `ActionArtifacts` supplies the
+realized path regardless of whether the registry selected a planned provider
+or an external source, so the compiler flag and the execution dependency cannot
+name the contract through independent path calculations.
+
+Injected standard-library interfaces are the current external artifact source.
+Their exact `.mi` paths are used in compiler argv, while the existing recursive
+`StandardLibraryInterfaces` observation remains the execution/cache input. The
+n2 adapter intentionally does not enumerate that directory as ordinary file
+edges. A virtual contract used by `-check-mi`/`-impl-virtual` additionally
+retains its exact file observation, matching the compiler action's direct use
+of that contract.
+
+FIXME: proof-specific `--dep-proof` metadata and transitive WhyML load paths
+are still reconstructed from Resolve Output during lowering. Project that
+topology into Build Plan before removing lowering's remaining package relation.
+
+FIXME: generated package sources still reach Build Target Projection as paths,
+and planning recovers their `PrebuildOutput` requirements by matching those
+paths against package-prebuild outputs. Move that provenance into the projected
+action input before requiring all produced and external inputs to be disjoint.
 
 Some semantic filesystem observations cannot be represented as ordinary n2
 file edges. Compiler actions carry the selected standard-library interface

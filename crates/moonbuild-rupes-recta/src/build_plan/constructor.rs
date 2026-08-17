@@ -34,6 +34,7 @@ use tracing::{Level, instrument};
 
 use super::{
     BuildEnvironment, BuildPlan, BuildPlanActionKey, BuildPlanConstructError,
+    ExternalArtifactSource,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
 };
 
@@ -212,7 +213,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Panics if the node is not present in the resolved data.
         self.ensure_resolved(node);
         self.register_artifact_outputs(node);
-        self.register_generated_file_requirements(node);
+        self.register_action_requirements(node);
     }
 
     fn register_artifact_outputs(&mut self, node: BuildPlanNode) {
@@ -227,9 +228,15 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::BuildCore(target) => {
-                let emits_mi = self.res.get_build_target_info(&target).is_some_and(|info| {
-                    info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
-                });
+                let emits_mi = self
+                    .res
+                    .get_build_target_info(&target)
+                    .zip(self.res.package_compilation(node))
+                    .is_some_and(|(info, compilation)| {
+                        compilation.mode.virtual_contract().is_none()
+                            && !info.no_mi()
+                            && !target.kind.is_test()
+                    });
                 if emits_mi {
                     self.res.artifacts.provide(
                         node,
@@ -388,7 +395,17 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn register_generated_file_requirements(&mut self, node: BuildPlanNode) {
+    fn register_action_requirements(&mut self, node: BuildPlanNode) {
+        let compilation_artifacts = self
+            .res
+            .package_compilation(node)
+            .into_iter()
+            .flat_map(|compilation| compilation.required_artifacts().cloned())
+            .collect::<Vec<_>>();
+        for artifact in compilation_artifacts {
+            self.require_artifact(node, artifact);
+        }
+
         let target = match node {
             BuildPlanNode::Check(target)
             | BuildPlanNode::EmitProof(target)
@@ -440,7 +457,22 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Record an artifact requirement and schedule the artifact rule's unique
     /// provider. The caller names only the artifact it consumes.
     pub(super) fn require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
-        self.need_artifact_provider(&artifact);
+        let external_package = match &artifact {
+            ArtifactKey::CheckMi { package, .. }
+            | ArtifactKey::BuildMi { package, .. }
+            | ArtifactKey::VirtualContractMi { package } => Some(*package),
+            _ => None,
+        };
+        if self.build_env.std
+            && external_package
+                .is_some_and(|package| self.input.pkg_dirs.is_stdlib_package(package))
+        {
+            self.res
+                .artifacts
+                .provide_external(artifact.clone(), ExternalArtifactSource::StandardLibrary);
+        } else {
+            self.need_artifact_provider(&artifact);
+        }
         self.res.artifacts.require(consumer, artifact);
     }
 
@@ -573,6 +605,13 @@ impl<'a> BuildPlanConstructor<'a> {
                         node
                     );
                 }
+                if !matches!(node, BuildPlanNode::GenerateTestInfo(_)) {
+                    assert!(
+                        self.res.backend.package_compilations.contains_key(&node),
+                        "Package compilation should be present when resolving node {:?}",
+                        node
+                    );
+                }
             }
             BuildPlanNode::BuildCStub(build_target, _)
             | BuildPlanNode::ArchiveOrLinkCStubs(build_target) => {
@@ -642,7 +681,13 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::BuildDocs(_) => (),
-            BuildPlanNode::BuildVirtual(_build_target) => (),
+            BuildPlanNode::BuildVirtual(_) => {
+                assert!(
+                    self.res.backend.package_compilations.contains_key(&node),
+                    "Package compilation should be present when resolving node {:?}",
+                    node
+                );
+            }
         }
     }
 
