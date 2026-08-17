@@ -807,10 +807,10 @@ declare_async_imports! {
     fake io::read_io_result(fd: u64, result: u64) -> i32 => "io/read/windows";
 
     #[cfg(windows)]
-    ported io::read_dir_changes_io_result(fd: u64, result: u64) -> i32 => "io/read_dir_changes/windows";
+    ported io::read_dir_changes_io_result(fd: u64, result: u64) -> i32 => "io/read_dir_changes/windows/basic";
 
     #[cfg(not(windows))]
-    fake io::read_dir_changes_io_result(fd: u64, result: u64) -> i32 => "io/read_dir_changes/windows";
+    fake io::read_dir_changes_io_result(fd: u64, result: u64) -> i32 => "io/read_dir_changes/windows/basic";
 
     #[cfg(windows)]
     ported io::write_io_result(fd: u64, result: u64) -> i32 => "io/write/windows";
@@ -1064,52 +1064,52 @@ declare_async_imports! {
     fake fs::kqueue_watcher_event_has_modify(buffer: u64, index: u32) -> i32 => "fs/kqueue_watcher/event_has_modify";
 
     #[cfg(windows)]
-    ported fs::watcher_has_read_directory_changes_ex() -> i32 => "fs/watcher/has_ReadDirectoryChangesExW/windows";
+    ported fs::watcher_has_read_directory_changes_ex() -> i32 => "fs/watcher/windows/has_ReadDirectoryChangesExW";
 
     #[cfg(not(windows))]
-    fake fs::watcher_has_read_directory_changes_ex() -> i32 => "fs/watcher/has_ReadDirectoryChangesExW/windows";
+    fake fs::watcher_has_read_directory_changes_ex() -> i32 => "fs/watcher/windows/has_ReadDirectoryChangesExW";
 
     #[cfg(windows)]
-    ported fs::watcher_event_buffer_size() -> u32 => "fs/watcher/event_buffer_size/windows";
+    ported fs::watcher_event_buffer_size() -> u32 => "fs/watcher/windows/basic/event_buffer_size";
 
     #[cfg(not(windows))]
-    fake fs::watcher_event_buffer_size() -> u32 => "fs/watcher/event_buffer_size/windows";
+    fake fs::watcher_event_buffer_size() -> u32 => "fs/watcher/windows/basic/event_buffer_size";
 
     #[cfg(windows)]
-    ported fs::watcher_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/watcher/event_get_size/windows";
+    ported fs::watcher_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/basic/event_get_size";
 
     #[cfg(not(windows))]
-    fake fs::watcher_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/watcher/event_get_size/windows";
+    fake fs::watcher_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/basic/event_get_size";
 
     #[cfg(windows)]
-    ported fs::watcher_event_is_modify(buffer: u64, offset: u32) -> i32 => "fs/watcher/event_is_modify/windows";
+    ported fs::watcher_event_is_modify(buffer: u64, offset: u32) -> i32 => "fs/watcher/windows/basic/event_is_modify";
 
     #[cfg(not(windows))]
-    fake fs::watcher_event_is_modify(buffer: u64, offset: u32) -> i32 => "fs/watcher/event_is_modify/windows";
+    fake fs::watcher_event_is_modify(buffer: u64, offset: u32) -> i32 => "fs/watcher/windows/basic/event_is_modify";
 
     #[cfg(windows)]
-    ported fs::watcher_event_get_path_len(buffer: u64, offset: u32) -> u32 => "fs/watcher/event_get_path_len/windows";
+    ported fs::watcher_event_get_path_len(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/basic/event_get_path_len";
 
     #[cfg(not(windows))]
-    fake fs::watcher_event_get_path_len(buffer: u64, offset: u32) -> u32 => "fs/watcher/event_get_path_len/windows";
+    fake fs::watcher_event_get_path_len(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/basic/event_get_path_len";
 
     #[cfg(windows)]
-    ported fs::watcher_event_get_path_offset() -> u32 => "fs/watcher/event_get_path_offset/windows";
+    ported fs::watcher_event_get_path_offset() -> u32 => "fs/watcher/windows/basic/event_get_path_offset";
 
     #[cfg(not(windows))]
-    fake fs::watcher_event_get_path_offset() -> u32 => "fs/watcher/event_get_path_offset/windows";
+    fake fs::watcher_event_get_path_offset() -> u32 => "fs/watcher/windows/basic/event_get_path_offset";
 
     #[cfg(windows)]
-    ported fs::watcher_event_get_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/event_get_file_id/windows";
+    ported fs::watcher_event_get_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/windows/extended/event_get_file_id";
 
     #[cfg(not(windows))]
-    fake fs::watcher_event_get_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/event_get_file_id/windows";
+    fake fs::watcher_event_get_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/windows/extended/event_get_file_id";
 
     #[cfg(windows)]
-    ported fs::watcher_event_get_parent_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/event_get_parent_file_id/windows";
+    ported fs::watcher_event_get_parent_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/windows/extended/event_get_parent_file_id";
 
     #[cfg(not(windows))]
-    fake fs::watcher_event_get_parent_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/event_get_parent_file_id/windows";
+    fake fs::watcher_event_get_parent_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/windows/extended/event_get_parent_file_id";
 
     // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
     // MoonBit String pointer plus UTF-16 code-unit length.
