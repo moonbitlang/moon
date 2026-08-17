@@ -110,15 +110,23 @@ consumers track it without exposing it as a caller-requested Build Artifact.
 
 ## Planning IR
 
-`BuildPlan` stores planned actions in stable insertion order and one artifact
-registry:
+`BuildPlan` composes two action-owning subplans with one artifact registry:
 
 ```rust
 pub struct BuildPlan {
-    actions: IndexSet<BuildPlanNode>,
+    backend: BackendPlan,
     package_prebuild: PackagePrebuildPlan,
-    artifacts: ArtifactPlan,
-    // hydrated planning metadata
+    artifacts: ArtifactRegistry,
+    requested_artifacts: IndexSet<ArtifactKey>,
+}
+
+struct BackendPlan {
+    actions: IndexSet<BuildPlanNode>,
+    // metadata required to lower backend actions
+}
+
+struct PackagePrebuildPlan {
+    actions: IndexMap<PackagePrebuildKey, PackagePrebuildAction>,
 }
 
 enum BuildPlanActionKey {
@@ -126,7 +134,7 @@ enum BuildPlanActionKey {
     PackagePrebuild(PackagePrebuildKey),
 }
 
-struct ArtifactPlan {
+struct ArtifactRegistry {
     providers: HashMap<ArtifactKey, BuildPlanActionKey>,
     artifacts_by_provider: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
     requirements_by_consumer: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
@@ -138,12 +146,12 @@ may expose multiple artifacts, but each artifact has at most one provider in a
 plan. At the end of planning, validation requires every requested artifact and
 every Artifact Requirement to have a provider.
 
-`BuildPlanActionKey` is the sole union of semantic action kinds. Backend nodes
-retain `BuildTarget` and therefore `TargetKind` only where those concepts
-apply. Package prebuild actions are a peer branch keyed by their declaration
-coordinate: custom commands use the manifest declaration index, while moonlex
-and moonyacc use their concrete input paths. No package prebuild action is
-projected through a synthetic `BuildPlanNode`.
+`BuildPlanActionKey` is the union used by the common artifact registry to
+connect providers and consumers from either subplan. Backend nodes retain
+`BuildTarget` and therefore `TargetKind` only where those concepts apply.
+Package prebuild actions are keyed by their declaration coordinate: custom
+commands use the manifest declaration index, while moonlex and moonyacc use
+their concrete input paths.
 
 Builders name only what they consume:
 
@@ -193,12 +201,12 @@ providers and cannot substitute for one another.
 
 ## Package prebuild actions
 
-Each backend-specific `BuildPlan` owns a `PackagePrebuildPlan` containing
-complete custom prebuild, moonlex, and moonyacc actions. This is an action
-storage boundary, not a second dependency model.
+Each backend-specific `BuildPlan` composes a `BackendPlan` and a
+`PackagePrebuildPlan`. The package-prebuild subplan owns complete custom
+prebuild, moonlex, and moonyacc actions; it is not a second dependency model.
 
 Every generated file is registered as `PrebuildOutput { package, path }` in the
-same `ArtifactPlan` used by backend actions. A prebuild action consuming an
+same `ArtifactRegistry` used by backend actions. A prebuild action consuming an
 earlier generated file records an Artifact Requirement, so custom-to-moonlex
 and custom-to-moonyacc pipelines are explicit before n2 adaptation. Backend
 actions likewise require the generated `.mbt`, `.mbt.md`, `.mbtp`, or `.mbti`

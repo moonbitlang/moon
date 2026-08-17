@@ -80,6 +80,23 @@ _Avoid_: Using entity names for operations, adding containers only to mirror voc
 
 ## Build Planning
 
+**Build Plan**:
+A self-contained semantic plan for one Target Backend, composed from a Backend
+Plan, a Package Prebuild Plan, and the Build Artifact relationships between
+their actions.
+_Avoid_: Execution Plan, treating either subplan as the complete build
+
+**Backend Plan**:
+The backend-specific subplan that owns its semantic action membership and the
+shared planning information required to lower those actions.
+_Avoid_: Package Prebuild Plan, bare action set
+
+**Package Prebuild Plan**:
+The subplan that owns package-level file-generation actions whose meaning is
+independent of Target Backend. It participates in the enclosing Build Plan's
+artifact relationships rather than defining a separate dependency model.
+_Avoid_: Backend Plan, prebuild action graph
+
 **Build Artifact**:
 A logical build result identified independently of its physical output root and provider derivation. Artifact identity includes the semantic output kind: check, build, proof, and virtual-contract `.mi` files are distinct. Identity is scoped to one backend-specific Build Plan.
 _Avoid_: Output path, action ID, build product

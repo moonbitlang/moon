@@ -134,14 +134,25 @@ impl<'a> BuildPlanConstructor<'a> {
                 continue;
             };
             let cc_overridden = native.cc.is_some()
-                && self.res.make_executable_info.iter().any(|(target, info)| {
-                    target.package == package
-                        && info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
-                });
+                && self
+                    .res
+                    .backend
+                    .make_executable_info
+                    .iter()
+                    .any(|(target, info)| {
+                        target.package == package
+                            && info.effective_native_toolchain.source()
+                                == ToolchainSource::EnvOverride
+                    });
             let stub_cc_overridden = native.stub_cc.is_some()
-                && self.res.c_stubs_info.get(&package).is_some_and(|info| {
-                    info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
-                });
+                && self
+                    .res
+                    .backend
+                    .c_stubs_info
+                    .get(&package)
+                    .is_some_and(|info| {
+                        info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
+                    });
             let fields = [
                 cc_overridden.then_some("`link.native.cc`"),
                 stub_cc_overridden.then_some("`link.native.stub-cc`"),
@@ -1044,7 +1055,7 @@ impl<'a> BuildPlanConstructor<'a> {
             link_flags,
             static_archive_fingerprint,
         };
-        self.res.c_stubs_info.insert(target, c_info);
+        self.res.backend.c_stubs_info.insert(target, c_info);
         self.resolved_node(node);
 
         Ok(())
@@ -1095,7 +1106,10 @@ impl<'a> BuildPlanConstructor<'a> {
             abort_overridden,
             // std: self.build_env.std, // Can move std/nostd to per-package info
         };
-        self.res.link_core_info.insert(target, link_core_info);
+        self.res
+            .backend
+            .link_core_info
+            .insert(target, link_core_info);
         self.resolved_node(node);
 
         Ok(())
@@ -1197,12 +1211,12 @@ impl<'a> BuildPlanConstructor<'a> {
                 unreachable!("non-native executable planning returns before toolchain planning")
             }
         };
-        if generate_dsym && self.res.dsymutil.is_none() {
-            self.res.dsymutil = Some(moonutil::toolchain::resolve_executable("dsymutil").map_err(
-                |error| {
+        if generate_dsym && self.res.backend.dsymutil.is_none() {
+            self.res.backend.dsymutil = Some(
+                moonutil::toolchain::resolve_executable("dsymutil").map_err(|error| {
                     BuildPlanConstructError::FailedToResolveDsymutil(error, pkg.fqn.clone().into())
-                },
-            )?);
+                })?,
+            );
         }
 
         let v = MakeExecutableInfo {
@@ -1211,7 +1225,7 @@ impl<'a> BuildPlanConstructor<'a> {
             c_flags,
             link_flags,
         };
-        self.res.make_executable_info.insert(target, v);
+        self.res.backend.make_executable_info.insert(target, v);
 
         self.require_artifact(node, ArtifactKey::RuntimeLibrary);
 
@@ -1491,6 +1505,7 @@ impl<'a> BuildPlanConstructor<'a> {
             "recording bundle targets"
         );
         self.res
+            .backend
             .bundle_info
             .insert(module_id, BuildBundleInfo { bundle_targets });
         self.resolved_node(node);
@@ -1610,7 +1625,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 .cc()
                 .archiver_updates_existing_archive())
         .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
-        self.res.runtime_info = Some(BuildRuntimeInfo {
+        self.res.backend.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
             source_files,
             simdutf_objects,
@@ -1620,6 +1635,7 @@ impl<'a> BuildPlanConstructor<'a> {
         if builds_static_archive {
             let source_count = self
                 .res
+                .backend
                 .runtime_info
                 .as_ref()
                 .expect("runtime info was just populated")
@@ -1628,6 +1644,7 @@ impl<'a> BuildPlanConstructor<'a> {
             for index in 0..source_count {
                 let source = &self
                     .res
+                    .backend
                     .runtime_info
                     .as_ref()
                     .expect("runtime info was just populated")
@@ -1702,7 +1719,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 MBTI_USER_WRITTEN
             ));
         }
-        self.res.virtual_contract_inputs.insert(target, selected);
+        self.res
+            .backend
+            .virtual_contract_inputs
+            .insert(target, selected);
 
         for dep in self.input.pkg_rel.dep_graph.neighbors_directed(
             target.build_target(TargetKind::Source),

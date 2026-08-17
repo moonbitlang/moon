@@ -188,7 +188,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         if !self.resolved.contains(&node) {
             self.pending.push(node);
-            self.res.actions.insert(node);
+            self.res.backend.insert(node);
         }
         node
     }
@@ -202,7 +202,7 @@ impl<'a> BuildPlanConstructor<'a> {
             node
         );
         debug_assert!(
-            self.res.actions.contains(&node),
+            self.res.backend.contains(&node),
             "Node {:?} should be in the plan before resolving",
             node
         );
@@ -355,6 +355,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildRuntimeObject(index) => {
                 let info = self
                     .res
+                    .backend
                     .runtime_info
                     .as_ref()
                     .expect("runtime info should be present for runtime object nodes");
@@ -395,7 +396,7 @@ impl<'a> BuildPlanConstructor<'a> {
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::GenerateTestInfo(target) => target,
             BuildPlanNode::BuildVirtual(package) => {
-                let Some(input) = self.res.virtual_contract_inputs.get(&package) else {
+                let Some(input) = self.res.backend.virtual_contract_inputs.get(&package) else {
                     return;
                 };
                 let pkg = self.input.pkg_dirs.get_package(package);
@@ -522,6 +523,7 @@ impl<'a> BuildPlanConstructor<'a> {
             ArtifactKey::RuntimeObject { source } => {
                 let info = self
                     .res
+                    .backend
                     .runtime_info
                     .as_ref()
                     .expect("runtime info should be planned before its object requirements");
@@ -562,7 +564,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 let pkg = self.input.pkg_dirs.get_package(build_target.package);
                 if pkg.has_implementation() {
                     assert!(
-                        self.res.build_target_infos.contains_key(&build_target),
+                        self.res
+                            .backend
+                            .build_target_infos
+                            .contains_key(&build_target),
                         "Build target info for {:?} should be present when resolving node {:?}",
                         build_target,
                         node
@@ -572,7 +577,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildCStub(build_target, _)
             | BuildPlanNode::ArchiveOrLinkCStubs(build_target) => {
                 assert!(
-                    self.res.c_stubs_info.contains_key(&build_target),
+                    self.res.backend.c_stubs_info.contains_key(&build_target),
                     "C stubs info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
@@ -580,7 +585,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::LinkCore(build_target) => {
                 assert!(
-                    self.res.link_core_info.contains_key(&build_target),
+                    self.res.backend.link_core_info.contains_key(&build_target),
                     "Link core info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
@@ -589,14 +594,17 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::MakeExecutable(build_target)
             | BuildPlanNode::GenerateDsym(build_target) => {
                 assert!(
-                    self.res.make_executable_info.contains_key(&build_target),
+                    self.res
+                        .backend
+                        .make_executable_info
+                        .contains_key(&build_target),
                     "Make executable info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
                 );
                 if matches!(node, BuildPlanNode::GenerateDsym(_)) {
                     assert!(
-                        self.res.dsymutil.is_some(),
+                        self.res.backend.dsymutil.is_some(),
                         "dSYM info for {:?} should be present when resolving node {:?}",
                         build_target,
                         node
@@ -606,7 +614,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::GenerateMbti(_build_target) => (),
             BuildPlanNode::Bundle(module_id) => {
                 assert!(
-                    self.res.bundle_info.contains_key(&module_id),
+                    self.res.backend.bundle_info.contains_key(&module_id),
                     "Bundle info for module {:?} should be present when resolving node {:?}",
                     module_id,
                     node
@@ -615,6 +623,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildRuntimeObject(index) => {
                 let info = self
                     .res
+                    .backend
                     .runtime_info
                     .as_ref()
                     .expect("Runtime info should be present for runtime object nodes");
@@ -627,7 +636,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::BuildRuntimeLib => {
                 assert!(
-                    self.res.runtime_info.is_some(),
+                    self.res.backend.runtime_info.is_some(),
                     "Runtime info should be present when resolving node {:?}",
                     node
                 );
@@ -704,7 +713,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
     /// Populate the target info for the given target, if not already present.
     pub(super) fn populate_target_info(&mut self, target: BuildTarget) {
-        if self.res.build_target_infos.contains_key(&target) {
+        if self.res.backend.build_target_infos.contains_key(&target) {
             // Already populated
             return;
         }
@@ -715,6 +724,6 @@ impl<'a> BuildPlanConstructor<'a> {
             let pkg = self.input.pkg_dirs.get_package(target.package);
             self.warn_if_main_package_uses_blackbox_inputs(pkg, &info.regular_files);
         }
-        self.res.build_target_infos.insert(target, info);
+        self.res.backend.build_target_infos.insert(target, info);
     }
 }

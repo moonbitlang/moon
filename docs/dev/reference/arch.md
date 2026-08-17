@@ -445,6 +445,7 @@ is described in [its module](/crates/moonbuild-rupes-recta/src/intent.rs).
 
 ## Build Plan actions
 
+`BuildPlan` composes a backend subplan and a package-prebuild subplan.
 `BuildPlanActionKey` makes the two top-level action kinds explicit:
 
 - `Backend(BuildPlanNode)` identifies backend-specific semantic work.

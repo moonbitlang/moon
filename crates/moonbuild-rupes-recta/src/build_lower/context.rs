@@ -228,8 +228,7 @@ impl<'a> LoweringContext<'a> {
             BuildPlanActionKey::PackagePrebuild(key) => {
                 let action = self
                     .plan
-                    .package_prebuild_plan()
-                    .action(key)
+                    .package_prebuild_action(key)
                     .expect("package prebuild key should name a planned action");
                 return match (key, action) {
                     (PackagePrebuildKey::Custom { .. }, PackagePrebuildAction::Custom { info }) => {

@@ -198,17 +198,17 @@ impl ArtifactKey {
 
 /// Artifact providers and the artifact requirements of each action.
 ///
-/// [`BuildPlanActionKey`] distinguishes backend actions from package prebuild
-/// actions without introducing a positional or arena ID. Multiple artifacts
-/// may name the same provider.
+/// [`BuildPlanActionKey`] qualifies references to actions owned by the backend
+/// and package-prebuild subplans without introducing a positional or arena ID.
+/// Multiple artifacts may name the same provider.
 #[derive(Debug, Default)]
-pub(super) struct ArtifactPlan {
+pub(super) struct ArtifactRegistry {
     providers: HashMap<ArtifactKey, BuildPlanActionKey>,
     artifacts_by_provider: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
     requirements_by_consumer: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
 }
 
-impl ArtifactPlan {
+impl ArtifactRegistry {
     pub(super) fn require(
         &mut self,
         consumer: impl Into<BuildPlanActionKey>,
@@ -315,7 +315,7 @@ mod tests {
             target_kind: TargetKind::Source,
         };
 
-        let mut plan = ArtifactPlan::default();
+        let mut plan = ArtifactRegistry::default();
         plan.provide(provider.clone(), build_mi.clone());
         plan.provide(provider.clone(), core_ir.clone());
 
@@ -339,7 +339,7 @@ mod tests {
             target_kind: TargetKind::Source,
         };
 
-        let mut plan = ArtifactPlan::default();
+        let mut plan = ArtifactRegistry::default();
         plan.require(consumer.clone(), build_mi.clone());
 
         assert_eq!(
@@ -361,7 +361,7 @@ mod tests {
             target_kind: TargetKind::Source,
         };
 
-        let mut plan = ArtifactPlan::default();
+        let mut plan = ArtifactRegistry::default();
         plan.provide(BuildPlanNode::BuildCore(target), artifact.clone());
         plan.provide(BuildPlanNode::Check(target), artifact);
     }
