@@ -51,7 +51,7 @@ pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResu
 pub(super) fn env_block_length(
     context: &mut ImportContext<'_, '_>,
     env: u64,
-) -> AsyncHostResult<i32> {
+) -> AsyncHostResult<u32> {
     context.host.process_env_length(env)
 }
 
@@ -60,7 +60,7 @@ pub(super) fn env_block_length(
 pub(super) fn env_block_length(
     context: &mut ImportContext<'_, '_>,
     env: u64,
-) -> AsyncHostResult<i32> {
+) -> AsyncHostResult<u32> {
     context.host.process_env_length(env)
 }
 
@@ -68,7 +68,7 @@ pub(super) fn env_block_length(
 #[cfg(unix)]
 pub(super) fn allocate_env_block(
     context: &mut ImportContext<'_, '_>,
-    size: i32,
+    size: u32,
 ) -> AsyncHostResult<u64> {
     let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
     Ok(context.host.insert_process_env(vec![None; size]))
@@ -78,7 +78,7 @@ pub(super) fn allocate_env_block(
 #[cfg(windows)]
 pub(super) fn allocate_env_block(
     context: &mut ImportContext<'_, '_>,
-    size: i32,
+    size: u32,
 ) -> AsyncHostResult<u64> {
     let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
     let size = size.checked_add(1).ok_or(AsyncHostError::Fault)?;
@@ -133,11 +133,11 @@ pub(super) fn write_env_block(
 pub(super) fn env_block_add_entry(
     context: &mut ImportContext<'_, '_>,
     env: u64,
-    index: i32,
-    key: i32,
-    key_len: i32,
-    value: i32,
-    value_len: i32,
+    index: u32,
+    key: u32,
+    key_len: u32,
+    value: u32,
+    value_len: u32,
 ) -> AsyncHostResult<()> {
     let key = read_guest_os_string(context, key, key_len)?;
     let value = read_guest_os_string(context, value, value_len)?;
@@ -149,11 +149,11 @@ pub(super) fn env_block_add_entry(
 pub(super) fn env_block_add_entry(
     context: &mut ImportContext<'_, '_>,
     env: u64,
-    offset: i32,
-    key: i32,
-    key_len: i32,
-    value: i32,
-    value_len: i32,
+    offset: u32,
+    key: u32,
+    key_len: u32,
+    value: u32,
+    value_len: u32,
 ) -> AsyncHostResult<()> {
     let key = read_guest_u16(context, key, key_len)?;
     let value = read_guest_u16(context, value, value_len)?;
@@ -198,10 +198,10 @@ pub(super) fn make_env(
 pub(super) fn env_add_entry(
     context: &mut ImportContext<'_, '_>,
     env: u64,
-    key: i32,
-    key_len: i32,
-    value: i32,
-    value_len: i32,
+    key: u32,
+    key_len: u32,
+    value: u32,
+    value_len: u32,
 ) -> AsyncHostResult<()> {
     let key = read_guest_os_string(context, key, key_len)?;
     let value = read_guest_os_string(context, value, value_len)?;
@@ -216,10 +216,10 @@ pub(super) fn env_add_entry(
 pub(super) fn env_add_entry(
     context: &mut ImportContext<'_, '_>,
     env: u64,
-    key: i32,
-    key_len: i32,
-    value: i32,
-    value_len: i32,
+    key: u32,
+    key_len: u32,
+    value: u32,
+    value_len: u32,
 ) -> AsyncHostResult<()> {
     let key = read_guest_os_string(context, key, key_len)?;
     let value = read_guest_os_string(context, value, value_len)?;
@@ -232,7 +232,7 @@ pub(super) fn env_add_entry(
 #[cfg(unix)]
 pub(super) fn make_argv_array_unix(
     context: &mut ImportContext<'_, '_>,
-    len: i32,
+    len: u32,
 ) -> AsyncHostResult<u64> {
     context.host.insert_process_argv(len)
 }
@@ -245,9 +245,9 @@ pub(super) fn make_argv_array_unix(
 pub(super) fn argv_array_add_encoded_entry_unix(
     context: &mut ImportContext<'_, '_>,
     argv: u64,
-    index: i32,
-    arg: i32,
-    arg_len: i32,
+    index: u32,
+    arg: u32,
+    arg_len: u32,
 ) -> AsyncHostResult<()> {
     let arg = read_guest_os_string(context, arg, arg_len)?;
     context.host.process_argv_add_entry(argv, index, arg)
@@ -258,9 +258,9 @@ pub(super) fn argv_array_add_encoded_entry_unix(
 pub(super) fn argv_array_add_entry_unix(
     context: &mut ImportContext<'_, '_>,
     argv: u64,
-    index: i32,
-    arg: i32,
-    arg_len: i32,
+    index: u32,
+    arg: u32,
+    arg_len: u32,
 ) -> AsyncHostResult<()> {
     let arg = read_guest_os_string(context, arg, arg_len)?;
     context.host.process_argv_add_entry(argv, index, arg)
@@ -325,7 +325,7 @@ pub(super) fn get_process_result(
     context: &mut ImportContext<'_, '_>,
     handle: u64,
     pid: i32,
-    out: i32,
+    out: u32,
 ) -> i32 {
     let result = (|| {
         let handle_id = if handle == INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
@@ -543,8 +543,8 @@ fn windows_env_block(entries: Vec<OsString>) -> Vec<u16> {
 #[cfg(windows)]
 fn read_guest_u16(
     context: &mut ImportContext<'_, '_>,
-    ptr: i32,
-    len: i32,
+    ptr: u32,
+    len: u32,
 ) -> AsyncHostResult<Vec<u16>> {
     context.with_memory_mut(|memory| read_u16(memory, ptr, len))
 }

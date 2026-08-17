@@ -78,7 +78,7 @@ ported_fns! {
     )]
     pub(super) fn run_read_job(
         file: &Resource,
-        len: i32,
+        len: u32,
         position: i64,
         result: &mut Option<Vec<u8>>,
     ) -> AsyncHostResult<i64> {
@@ -264,7 +264,7 @@ ported_fns! {
     pub(super) fn run_readdir_job(
         dir: &Resource,
         buffer: &mut [u8],
-        len: i32,
+        len: u32,
         restart: bool,
     ) -> AsyncHostResult<i64> {
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;

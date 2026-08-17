@@ -132,7 +132,7 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_list_get"
     )]
-    pub(crate) fn event_list_get(instance: &PollInstance, index: i32) -> AsyncHostResult<&PollEvent> {
+    pub(crate) fn event_list_get(instance: &PollInstance, index: u32) -> AsyncHostResult<&PollEvent> {
         let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
         if index >= instance.event_count {
             return Err(AsyncHostError::Fault);
@@ -165,8 +165,8 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_get_bytes_transferred"
     )]
-    pub(crate) fn event_get_bytes_transferred(event: &PollEvent) -> i32 {
-        event.dwNumberOfBytesTransferred as i32
+    pub(crate) fn event_get_bytes_transferred(event: &PollEvent) -> u32 {
+        event.dwNumberOfBytesTransferred
     }
 }
 

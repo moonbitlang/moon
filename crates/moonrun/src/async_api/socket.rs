@@ -31,21 +31,21 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn ipv4_addr_size(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn ipv4_addr_size(_context: &mut ImportContext<'_, '_>) -> u32 {
     sys::ipv4_addr_size()
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn ipv6_addr_size(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn ipv6_addr_size(_context: &mut ImportContext<'_, '_>) -> u32 {
     sys::ipv6_addr_size()
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn init_ip_addr(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    ip: i32,
-    port: i32,
+    addr: u32,
+    ip: u32,
+    port: u32,
 ) -> AsyncHostResult<()> {
     context.with_memory_mut(|memory| {
         let addr_len = sys::ipv4_addr_size();
@@ -57,10 +57,10 @@ pub(super) fn init_ip_addr(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn init_ipv6_addr(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    ip: i32,
-    port: i32,
-    scope_id: i32,
+    addr: u32,
+    ip: u32,
+    port: u32,
+    scope_id: u32,
 ) -> AsyncHostResult<()> {
     context.with_memory_mut(|memory| {
         let ip = memory.read_exact(ip, 16)?.to_vec();
@@ -79,9 +79,9 @@ pub(super) fn gai_strerror(context: &mut ImportContext<'_, '_>, code: i32) -> u6
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn ip_addr_get_ip(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    addr_len: i32,
-) -> AsyncHostResult<i32> {
+    addr: u32,
+    addr_len: u32,
+) -> AsyncHostResult<u32> {
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
         sys::ip_addr_get_ip(addr)
@@ -91,9 +91,9 @@ pub(super) fn ip_addr_get_ip(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn ip_addr_get_port(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    addr_len: i32,
-) -> AsyncHostResult<i32> {
+    addr: u32,
+    addr_len: u32,
+) -> AsyncHostResult<u32> {
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
         sys::ip_addr_get_port(addr)
@@ -103,8 +103,8 @@ pub(super) fn ip_addr_get_port(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_is_ipv6(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> AsyncHostResult<i32> {
     context
         .with_memory_mut(|memory| {
@@ -117,8 +117,8 @@ pub(super) fn addr_is_ipv6(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_is_multicast(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> AsyncHostResult<i32> {
     context
         .with_memory_mut(|memory| {
@@ -129,16 +129,16 @@ pub(super) fn addr_is_multicast(
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn addr_get_ipv6_bytes_offset(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn addr_get_ipv6_bytes_offset(_context: &mut ImportContext<'_, '_>) -> u32 {
     sys::addr_get_ipv6_bytes_offset()
 }
 
 pub(super) fn addr_copy_ipv6_bytes(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    out: i32,
-    addr_len: i32,
-    len: i32,
+    addr: u32,
+    out: u32,
+    addr_len: u32,
+    len: u32,
 ) -> AsyncHostResult<()> {
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
@@ -160,9 +160,9 @@ pub(super) fn addr_copy_ipv6_bytes(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_get_ipv6_scope_id(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    addr_len: i32,
-) -> AsyncHostResult<i32> {
+    addr: u32,
+    addr_len: u32,
+) -> AsyncHostResult<u32> {
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
         sys::addr_get_ipv6_scope_id(addr)
@@ -172,8 +172,8 @@ pub(super) fn addr_get_ipv6_scope_id(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_is_ipv6_wildcard(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> AsyncHostResult<i32> {
     context
         .with_memory_mut(|memory| {
@@ -198,7 +198,7 @@ pub(super) fn addrinfo_get_next(
 pub(super) fn addrinfo_addr_size(
     context: &mut ImportContext<'_, '_>,
     addrinfo: u64,
-) -> AsyncHostResult<i32> {
+) -> AsyncHostResult<u32> {
     if addrinfo == crate::async_host::INVALID_HOST_HANDLE {
         return Ok(0);
     }
@@ -210,9 +210,9 @@ pub(super) fn addrinfo_addr_size(
 pub(super) fn addrinfo_fill_addr(
     context: &mut ImportContext<'_, '_>,
     addrinfo: u64,
-    out: i32,
-    port: i32,
-    out_len: i32,
+    out: u32,
+    port: u32,
+    out_len: u32,
 ) -> AsyncHostResult<()> {
     if addrinfo == crate::async_host::INVALID_HOST_HANDLE {
         return Ok(());
@@ -258,10 +258,10 @@ pub(super) fn make_udp_socket(context: &mut ImportContext<'_, '_>, family: i32, 
 pub(super) fn join_multicast_group(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    multi_addr: i32,
-    local_addr: i32,
-    multi_addr_len: i32,
-    local_addr_len: i32,
+    multi_addr: u32,
+    local_addr: u32,
+    multi_addr_len: u32,
+    local_addr_len: u32,
 ) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
@@ -278,9 +278,9 @@ pub(super) fn join_multicast_group(
 pub(super) fn join_multicast_group_v6(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    multi_addr: i32,
-    interface_index: i32,
-    multi_addr_len: i32,
+    multi_addr: u32,
+    interface_index: u32,
+    multi_addr_len: u32,
 ) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
@@ -296,8 +296,8 @@ pub(super) fn join_multicast_group_v6(
 pub(super) fn set_multicast_interface(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    local_addr: i32,
-    local_addr_len: i32,
+    local_addr: u32,
+    local_addr_len: u32,
 ) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
@@ -313,7 +313,7 @@ pub(super) fn set_multicast_interface(
 pub(super) fn set_multicast_interface_v6(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    interface_index: i32,
+    interface_index: u32,
 ) -> i32 {
     let host = context.host;
     zero_or_minus_one(
@@ -408,7 +408,7 @@ pub(super) fn enable_keepalive(
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
+pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: u32, addr_len: u32) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
@@ -418,7 +418,7 @@ pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: i3
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_>, name: i32, name_len: i32) -> i32 {
+pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_>, name: u32, name_len: u32) -> u32 {
     let result = context.with_memory_mut(|memory| {
         let name = read_u16(memory, name, name_len)?;
         sys::if_nametoindex(&name)
@@ -433,7 +433,7 @@ pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_>, name: i32, nam
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn if_indextoname(context: &mut ImportContext<'_, '_>, index: i32) -> u64 {
+pub(super) fn if_indextoname(context: &mut ImportContext<'_, '_>, index: u32) -> u64 {
     match sys::if_indextoname(index) {
         Ok(name) => context.host.insert_c_buffer(name.into_boxed_slice()),
         Err(error) => {
@@ -444,7 +444,7 @@ pub(super) fn if_indextoname(context: &mut ImportContext<'_, '_>, index: i32) ->
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn find_ipv6_test_interface(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn find_ipv6_test_interface(_context: &mut ImportContext<'_, '_>) -> u32 {
     sys::find_ipv6_test_interface()
 }
 
@@ -452,8 +452,8 @@ pub(super) fn find_ipv6_test_interface(_context: &mut ImportContext<'_, '_>) -> 
 pub(super) fn udp_client_connect(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
@@ -466,7 +466,7 @@ pub(super) fn udp_client_connect(
     zero_or_minus_one(context, result)
 }
 
-pub(super) fn bind(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
+pub(super) fn bind(context: &mut ImportContext<'_, '_>, fd: u64, addr: u32, addr_len: u32) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
@@ -481,28 +481,22 @@ pub(super) fn bind(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr
 pub(super) fn recvfrom(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    buf: i32,
-    offset: i32,
-    len: i32,
-    addr: i32,
-    addr_len: i32,
+    buf: u32,
+    offset: u32,
+    len: u32,
+    addr: u32,
+    addr_len: u32,
 ) -> i32 {
-    let offset_buf = match checked_add_i32(buf, offset) {
-        Ok(offset_buf) => offset_buf,
-        Err(error) => {
-            context.host.record_error(error);
-            return -1;
-        }
-    };
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
-        memory.read_exact(offset_buf, len)?;
+        let buf = buf.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        memory.read_exact(buf, len)?;
         let mut data = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
         let mut addr_data = memory.read_exact(addr, addr_len)?.to_vec();
         let n = host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
             sys::recvfrom(fd, &mut data, &mut addr_data)
         })?;
-        memory.write_exact(offset_buf, &data[..n])?;
+        memory.write_exact(buf, &data[..n])?;
         memory.write_exact(addr, &addr_data)?;
         i32::try_from(n).map_err(|_| AsyncHostError::Fault)
     });
@@ -520,22 +514,16 @@ pub(super) fn recvfrom(
 pub(super) fn sendto(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    buf: i32,
-    offset: i32,
-    len: i32,
-    addr: i32,
-    addr_len: i32,
+    buf: u32,
+    offset: u32,
+    len: u32,
+    addr: u32,
+    addr_len: u32,
 ) -> i32 {
-    let offset_buf = match checked_add_i32(buf, offset) {
-        Ok(offset_buf) => offset_buf,
-        Err(error) => {
-            context.host.record_error(error);
-            return -1;
-        }
-    };
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
-        let data = memory.read_exact(offset_buf, len)?;
+        let buf = buf.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        let data = memory.read_exact(buf, len)?;
         let addr = memory.read_exact(addr, addr_len)?;
         host.policy().connect_socket(addr)?;
         host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
@@ -554,7 +542,7 @@ pub(super) fn sendto(
 
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
-pub(super) fn connect(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
+pub(super) fn connect(context: &mut ImportContext<'_, '_>, fd: u64, addr: u32, addr_len: u32) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
@@ -579,7 +567,7 @@ pub(super) fn getsockerr(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
 
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
-pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> u64 {
+pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: u32, addr_len: u32) -> u64 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
@@ -786,11 +774,6 @@ fn socket_addr_port(addr: &[u8]) -> AsyncHostResult<u16> {
         }
         _ => Err(AsyncHostError::Inval),
     }
-}
-
-#[cfg(unix)]
-fn checked_add_i32(lhs: i32, rhs: i32) -> AsyncHostResult<i32> {
-    lhs.checked_add(rhs).ok_or(AsyncHostError::Fault)
 }
 
 #[cfg(test)]

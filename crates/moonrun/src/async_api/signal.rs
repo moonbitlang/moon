@@ -26,7 +26,7 @@ use super::provenance::ported_imports;
 ported_imports! {
 pub(super) fn get_signal_by_index(
     _context: &mut ImportContext<'_, '_>,
-    index: i32,
+    index: u32,
 ) -> i32 {
     signal::get_signal_by_index(index)
 }
@@ -35,10 +35,10 @@ pub(super) fn get_signal_by_index(
 #[cfg(any(unix, windows))]
 pub(super) fn set_global_cancellation_signals(
     context: &mut ImportContext<'_, '_>,
-    all_signals: i32,
-    all_signals_len: i32,
-    signals: i32,
-    signals_len: i32,
+    all_signals: u32,
+    all_signals_len: u32,
+    signals: u32,
+    signals_len: u32,
 ) -> crate::async_host::AsyncHostResult<()> {
     let all_signals = context.with_memory_mut(|memory| read_i32_array(memory, all_signals, all_signals_len))?;
     let signals = context.with_memory_mut(|memory| read_i32_array(memory, signals, signals_len))?;
@@ -63,8 +63,8 @@ pub(super) fn set_console_control_handler(
 #[cfg(any(unix, windows))]
 fn read_i32_array(
     memory: &(impl GuestMemory + ?Sized),
-    offset: i32,
-    len: i32,
+    offset: u32,
+    len: u32,
 ) -> crate::async_host::AsyncHostResult<Vec<i32>> {
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
     let byte_len = len
@@ -72,7 +72,7 @@ fn read_i32_array(
         .ok_or(AsyncHostError::Fault)?;
     let bytes = memory.read_exact(
         offset,
-        i32::try_from(byte_len).map_err(|_| AsyncHostError::Fault)?,
+        u32::try_from(byte_len).map_err(|_| AsyncHostError::Fault)?,
     )?;
     Ok(bytes
         .chunks_exact(std::mem::size_of::<i32>())

@@ -417,7 +417,7 @@ pub(crate) enum JobPayload {
     },
     Read {
         file: Option<ResourceRef>,
-        len: i32,
+        len: u32,
         position: i64,
         result: Option<Vec<u8>>,
     },
@@ -505,7 +505,7 @@ pub(crate) enum JobPayload {
     Readdir {
         dir: Option<ResourceRef>,
         buffer: Option<CBufferLease>,
-        len: i32,
+        len: u32,
         restart: bool,
     },
     Bind {

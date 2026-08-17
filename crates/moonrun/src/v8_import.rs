@@ -158,6 +158,15 @@ impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
             .ok_or(V8ImportError::InvalidArgument)
     }
 
+    /// Decode the same Wasm `i32` value with unsigned Rust semantics.
+    pub(crate) fn next_u32(&mut self) -> Result<u32, V8ImportError> {
+        let value = self.args.get(self.next_index);
+        self.next_index += 1;
+        value
+            .uint32_value(self.scope)
+            .ok_or(V8ImportError::InvalidArgument)
+    }
+
     pub(crate) fn next_i64(&mut self) -> Result<i64, V8ImportError> {
         let value = self.args.get(self.next_index);
         self.next_index += 1;
@@ -177,16 +186,18 @@ impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
     pub(crate) fn next_u64(&mut self) -> Result<u64, V8ImportError> {
         let value = self.args.get(self.next_index);
         self.next_index += 1;
-        if !value.is_big_int() {
-            return Err(V8ImportError::InvalidArgument);
-        }
-        let bigint =
-            v8::Local::<v8::BigInt>::try_from(value).map_err(|_| V8ImportError::InvalidArgument)?;
-        let (result, lossless) = bigint.u64_value();
-        lossless
-            .then_some(result)
-            .ok_or(V8ImportError::InvalidArgument)
+        decode_wasm_u64(value).ok_or(V8ImportError::InvalidArgument)
     }
+}
+
+pub(crate) fn decode_wasm_u64(value: v8::Local<v8::Value>) -> Option<u64> {
+    let bigint = v8::Local::<v8::BigInt>::try_from(value).ok()?;
+    let (signed, signed_lossless) = bigint.i64_value();
+    if signed_lossless {
+        return Some(u64::from_ne_bytes(signed.to_ne_bytes()));
+    }
+    let (unsigned, unsigned_lossless) = bigint.u64_value();
+    unsigned_lossless.then_some(unsigned)
 }
 
 pub(crate) fn register_func<'s, T>(
@@ -214,4 +225,24 @@ pub(crate) fn throw_import_error(
     let message = v8::String::new(scope, &message).unwrap_or_else(|| v8::String::empty(scope));
     let exception = v8::Exception::error(scope, message);
     scope.throw_exception(exception);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wasm_u64_decoder_preserves_all_i64_bit_patterns() {
+        crate::v8_backend::initialize(&crate::runtime::RuntimeConfig::default()).unwrap();
+        let isolate = &mut v8::Isolate::new(Default::default());
+        let scope = &mut v8::HandleScope::new(isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        let signed = v8::BigInt::new_from_i64(scope, -1);
+        assert_eq!(decode_wasm_u64(signed.into()), Some(u64::MAX));
+
+        let unsigned = v8::BigInt::new_from_u64(scope, u64::MAX);
+        assert_eq!(decode_wasm_u64(unsigned.into()), Some(u64::MAX));
+    }
 }

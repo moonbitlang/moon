@@ -57,8 +57,9 @@ impl StatRequest {
         }
     }
 
-    pub(super) fn new(mask: u32, capacity: i32) -> AsyncHostResult<Self> {
-        if mask & !STAT_SUPPORTED_PROPERTY_MASK != 0 || capacity < STAT_HEADER_LEN as i32 {
+    pub(super) fn new(mask: u32, capacity: u32) -> AsyncHostResult<Self> {
+        let header_len = u32::try_from(STAT_HEADER_LEN).map_err(|_| AsyncHostError::Fault)?;
+        if mask & !STAT_SUPPORTED_PROPERTY_MASK != 0 || capacity < header_len {
             return Err(AsyncHostError::Inval);
         }
         let property_words = (0..8)
@@ -1012,7 +1013,7 @@ mod tests {
                 .sum::<usize>();
             let expected_len = STAT_HEADER_LEN + expected_words * 8;
 
-            let request = StatRequest::new(mask, expected_len as i32).unwrap();
+            let request = StatRequest::new(mask, u32::try_from(expected_len).unwrap()).unwrap();
 
             assert_eq!(request.mask(), mask);
             assert_eq!(request.encoded_len(), expected_len);
@@ -1076,7 +1077,7 @@ mod tests {
         let mut job = make_fstatx_job(
             std::sync::Arc::new(Resource::new(raw)),
             request,
-            StatRequest::new(request, 40).unwrap().encoded_len() as i32,
+            u32::try_from(StatRequest::new(request, 40).unwrap().encoded_len()).unwrap(),
         );
 
         run_host_job(&mut job);

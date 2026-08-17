@@ -31,12 +31,12 @@ pub(super) fn is_null(_context: &mut ImportContext<'_, '_>, ptr: u64) -> i32 {
 pub(super) fn blit_to_c(
     context: &mut ImportContext<'_, '_>,
     dst: u64,
-    dst_offset: i32,
-    src: i32,
-    src_offset: i32,
-    len: i32,
+    dst_offset: u32,
+    src: u32,
+    src_offset: u32,
+    len: u32,
 ) -> AsyncHostResult<()> {
-    let src_len = checked_add_i32(src_offset, len)?;
+    let src_len = src_offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
     context.with_host_and_memory_mut(|host, memory| {
         let src = memory.read_exact(src, src_len)?;
         host.with_c_buffer_mut(dst, |dst| {
@@ -49,12 +49,12 @@ pub(super) fn blit_to_c(
 pub(super) fn blit_from_c(
     context: &mut ImportContext<'_, '_>,
     src: u64,
-    src_offset: i32,
-    dst: i32,
-    dst_offset: i32,
-    len: i32,
+    src_offset: u32,
+    dst: u32,
+    dst_offset: u32,
+    len: u32,
 ) -> AsyncHostResult<()> {
-    let dst_len = checked_add_i32(dst_offset, len)?;
+    let dst_len = dst_offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
     context.with_host_and_memory_mut(|host, memory| {
         let dst = memory.read_exact_mut(dst, dst_len)?;
         host.with_c_buffer(src, |src| {
@@ -67,21 +67,21 @@ pub(super) fn blit_from_c(
 pub(super) fn c_buffer_get(
     context: &mut ImportContext<'_, '_>,
     buf: u64,
-    index: i32,
+    index: u32,
 ) -> AsyncHostResult<i32> {
     context.host
         .with_c_buffer(buf, |buf| stub::c_buffer_get(buf, index).map(i32::from))
 }
 
 #[ported(source = "src/internal/c_buffer/stub.c")]
-pub(super) fn strlen(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHostResult<i32> {
+pub(super) fn strlen(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHostResult<u32> {
     context.host.with_c_buffer(buf, stub::strlen)
 }
 
-pub(super) fn length(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHostResult<i32> {
+pub(super) fn length(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHostResult<u32> {
     context
         .host
-        .with_c_buffer(buf, |buf| i32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault))
+        .with_c_buffer(buf, |buf| u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault))
 }
 
 pub(super) fn free(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostResult<()> {
@@ -92,11 +92,8 @@ pub(super) fn free(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostRe
     source = "src/internal/c_buffer/stub.c",
     original = "moonbitlang_async_make_c_buffer"
 )]
-pub(super) fn new(context: &mut ImportContext<'_, '_>, size: i32) -> AsyncHostResult<u64> {
+pub(super) fn new(context: &mut ImportContext<'_, '_>, size: u32) -> AsyncHostResult<u64> {
     Ok(context.host.insert_c_buffer(stub::make_c_buffer(size)?))
 }
 
-fn checked_add_i32(lhs: i32, rhs: i32) -> AsyncHostResult<i32> {
-    lhs.checked_add(rhs).ok_or(AsyncHostError::Fault)
-}
 }

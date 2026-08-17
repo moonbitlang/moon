@@ -468,8 +468,7 @@ mod tests {
 
     fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {
         let mut addr = vec![0; crate::async_sys::socket::ipv4_addr_size() as usize];
-        crate::async_sys::socket::init_ip_addr(&mut addr, u32::from(ip) as i32, i32::from(port))
-            .unwrap();
+        crate::async_sys::socket::init_ip_addr(&mut addr, u32::from(ip), u32::from(port)).unwrap();
         addr.into_boxed_slice()
     }
 }

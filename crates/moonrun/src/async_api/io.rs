@@ -25,9 +25,9 @@ ported_imports! {
 pub(super) fn read(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    dst: i32,
-    offset: i32,
-    len: i32,
+    dst: u32,
+    offset: u32,
+    len: u32,
 ) -> i32 {
     // Unix io/read is the pollable nonblocking path. Regular files are routed
     // through worker jobs, so this borrowed guest slice must not outlive the syscall.
@@ -47,9 +47,9 @@ pub(super) fn read(
 pub(super) fn write(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    src: i32,
-    offset: i32,
-    len: i32,
+    src: u32,
+    offset: u32,
+    len: u32,
 ) -> i32 {
     // See io/read: this import is for pollable nonblocking handles, not
     // regular files, and the borrowed guest slice is used only for the syscall.
@@ -71,7 +71,7 @@ pub(super) fn write(
 #[cfg(windows)]
 pub(super) fn make_file_read_io_result(
     context: &mut ImportContext<'_, '_>,
-    len: i32,
+    len: u32,
     position: i64,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.host.make_file_read_io_result(len, position)
@@ -84,9 +84,9 @@ pub(super) fn make_file_read_io_result(
 #[cfg(windows)]
 pub(super) fn make_file_write_io_result(
     context: &mut ImportContext<'_, '_>,
-    src: i32,
-    offset: i32,
-    len: i32,
+    src: u32,
+    offset: u32,
+    len: u32,
     position: i64,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.with_host_and_memory_mut(|host, memory| {
@@ -101,7 +101,7 @@ pub(super) fn make_file_write_io_result(
 #[cfg(windows)]
 pub(super) fn make_socket_read_io_result(
     context: &mut ImportContext<'_, '_>,
-    len: i32,
+    len: u32,
     flags: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.host.make_socket_read_io_result(len, flags)
@@ -114,9 +114,9 @@ pub(super) fn make_socket_read_io_result(
 #[cfg(windows)]
 pub(super) fn make_socket_write_io_result(
     context: &mut ImportContext<'_, '_>,
-    src: i32,
-    offset: i32,
-    len: i32,
+    src: u32,
+    offset: u32,
+    len: u32,
     flags: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.with_host_and_memory_mut(|host, memory| {
@@ -132,10 +132,10 @@ pub(super) fn make_socket_write_io_result(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_socket_with_addr_read_io_result(
     context: &mut ImportContext<'_, '_>,
-    len: i32,
+    len: u32,
     flags: i32,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.with_host_and_memory_mut(|host, memory| {
         host.make_socket_with_addr_read_io_result(memory, len, flags, addr, addr_len)
@@ -150,12 +150,12 @@ pub(super) fn make_socket_with_addr_read_io_result(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_socket_with_addr_write_io_result(
     context: &mut ImportContext<'_, '_>,
-    src: i32,
-    offset: i32,
-    len: i32,
+    src: u32,
+    offset: u32,
+    len: u32,
     flags: i32,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.with_host_and_memory_mut(|host, memory| {
         host.make_socket_with_addr_write_io_result(memory, src, offset, len, flags, addr, addr_len)
@@ -169,8 +169,8 @@ pub(super) fn make_socket_with_addr_write_io_result(
 #[cfg(windows)]
 pub(super) fn make_connect_io_result(
     context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.with_host_and_memory_mut(|host, memory| {
         host.make_connect_io_result(memory, addr, addr_len)
@@ -184,7 +184,7 @@ pub(super) fn make_connect_io_result(
 #[cfg(windows)]
 pub(super) fn make_accept_io_result(
     context: &mut ImportContext<'_, '_>,
-    addr_len: i32,
+    addr_len: u32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.host.make_accept_io_result(addr_len)
 }
@@ -197,8 +197,8 @@ pub(super) fn make_accept_io_result(
 pub(super) fn get_accept_peer_addr(
     context: &mut ImportContext<'_, '_>,
     result: u64,
-    dst: i32,
-    dst_len: i32,
+    dst: u32,
+    dst_len: u32,
 ) -> crate::async_host::AsyncHostResult<()> {
     context.with_host_and_memory_mut(|host, memory| {
         host.get_accept_peer_addr(memory, result, dst, dst_len)
@@ -267,9 +267,9 @@ pub(super) fn io_result_get_status(
 pub(super) fn io_result_copy_read(
     context: &mut ImportContext<'_, '_>,
     result: u64,
-    dst: i32,
-    offset: i32,
-    len: i32,
+    dst: u32,
+    offset: u32,
+    len: u32,
 ) -> crate::async_host::AsyncHostResult<()> {
     context.with_host_and_memory_mut(|host, memory| {
         host.io_result_copy_read(memory, result, dst, offset, len)
@@ -281,11 +281,11 @@ pub(super) fn io_result_copy_read(
 pub(super) fn io_result_copy_read_with_addr(
     context: &mut ImportContext<'_, '_>,
     result: u64,
-    dst: i32,
-    offset: i32,
-    len: i32,
-    addr: i32,
-    addr_len: i32,
+    dst: u32,
+    offset: u32,
+    len: u32,
+    addr: u32,
+    addr_len: u32,
 ) -> crate::async_host::AsyncHostResult<()> {
     context.with_host_and_memory_mut(|host, memory| {
         host.io_result_copy_read_with_addr(memory, result, dst, offset, len, addr, addr_len)
