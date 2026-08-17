@@ -40,7 +40,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32) -> i32 {
+pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: u32, len: u32) -> i32 {
     let result = (|| {
         let units = tmp_path_utf16_units(context.host.policy())?;
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
@@ -65,7 +65,7 @@ pub(super) fn close_fd(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
 }
 
 #[ported(source = "src/fs/dir.c")]
-pub(super) fn dir_buffer_min_size(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn dir_buffer_min_size(_context: &mut ImportContext<'_, '_>) -> u32 {
     dir::buffer_min_size()
 }
 
@@ -73,8 +73,8 @@ pub(super) fn dir_buffer_min_size(_context: &mut ImportContext<'_, '_>) -> i32 {
 pub(super) fn dir_entry_length(
     context: &mut ImportContext<'_, '_>,
     buf: u64,
-    offset: i32,
-) -> AsyncHostResult<i32> {
+    offset: u32,
+) -> AsyncHostResult<u32> {
     context.host
         .with_c_buffer(buf, |buf| dir::entry_length(buf, 0, offset))
 }
@@ -83,8 +83,8 @@ pub(super) fn dir_entry_length(
 pub(super) fn dir_entry_name_len(
     context: &mut ImportContext<'_, '_>,
     buf: u64,
-    offset: i32,
-) -> AsyncHostResult<i32> {
+    offset: u32,
+) -> AsyncHostResult<u32> {
     context.host
         .with_c_buffer(buf, |buf| dir::entry_name_len(buf, 0, offset))
 }
@@ -93,8 +93,8 @@ pub(super) fn dir_entry_name_len(
 pub(super) fn dir_entry_name_offset(
     context: &mut ImportContext<'_, '_>,
     buf: u64,
-    offset: i32,
-) -> AsyncHostResult<i32> {
+    offset: u32,
+) -> AsyncHostResult<u32> {
     context.host
         .with_c_buffer(buf, |buf| dir::entry_name_offset(buf, 0, offset))
 }
@@ -103,7 +103,7 @@ pub(super) fn dir_entry_name_offset(
 pub(super) fn dir_entry_is_dir(
     context: &mut ImportContext<'_, '_>,
     buf: u64,
-    offset: i32,
+    offset: u32,
 ) -> AsyncHostResult<i32> {
     context.host
         .with_c_buffer(buf, |buf| dir::entry_is_dir(buf, 0, offset))
@@ -113,7 +113,7 @@ pub(super) fn dir_entry_is_dir(
 pub(super) fn dir_entry_is_hidden(
     context: &mut ImportContext<'_, '_>,
     buf: u64,
-    offset: i32,
+    offset: u32,
 ) -> AsyncHostResult<i32> {
     context.host
         .with_c_buffer(buf, |buf| dir::entry_is_hidden(buf, 0, offset))
@@ -124,7 +124,7 @@ pub(super) fn dir_entry_is_hidden(
 pub(super) fn dir_entry_file_id(
     context: &mut ImportContext<'_, '_>,
     buf: u64,
-    offset: i32,
+    offset: u32,
 ) -> AsyncHostResult<u64> {
     context.host
         .with_c_buffer(buf, |buf| dir::entry_file_id(buf, 0, offset))

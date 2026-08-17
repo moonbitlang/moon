@@ -90,7 +90,7 @@ ported_fns! {
     )]
     pub(crate) fn make_read_job(
         file: ResourceRef,
-        len: i32,
+        len: u32,
         position: i64,
     ) -> Job {
         Job::new(JobPayload::Read {
@@ -152,7 +152,7 @@ ported_fns! {
         sync: i32,
         mode: i32,
         stat_request: u32,
-        stat_result_len: i32,
+        stat_result_len: u32,
     ) -> Job {
         let request = match StatRequest::new(stat_request, stat_result_len) {
             Ok(request) => request,
@@ -177,7 +177,7 @@ ported_fns! {
     pub(crate) fn make_fstatx_job(
         file: ResourceRef,
         stat_request: u32,
-        stat_result_len: i32,
+        stat_result_len: u32,
     ) -> Job {
         let request = match StatRequest::new(stat_request, stat_result_len) {
             Ok(request) => request,
@@ -198,7 +198,7 @@ ported_fns! {
         parent: Option<ResourceRef>,
         path: OsString,
         stat_request: u32,
-        stat_result_len: i32,
+        stat_result_len: u32,
         follow_symlink: bool,
     ) -> Job {
         let request = match StatRequest::new(stat_request, stat_result_len) {
@@ -432,7 +432,7 @@ ported_fns! {
     pub(crate) fn make_readdir_job(
         dir: ResourceRef,
         buffer: crate::async_host::CBufferLease,
-        len: i32,
+        len: u32,
         restart: bool,
     ) -> Job {
         Job::new(JobPayload::Readdir {

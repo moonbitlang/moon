@@ -145,7 +145,7 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_list_get"
     )]
-    pub(crate) fn event_list_get(instance: &PollInstance, index: i32) -> AsyncHostResult<&PollEvent> {
+    pub(crate) fn event_list_get(instance: &PollInstance, index: u32) -> AsyncHostResult<&PollEvent> {
         let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
         if index >= instance.event_count {
             return Err(AsyncHostError::Fault);

@@ -27,8 +27,8 @@ use super::context::ImportContext;
 // Windows OsString preserves the original UTF-16 code units.
 pub(super) fn read_guest(
     context: &mut ImportContext<'_, '_>,
-    ptr: i32,
-    len: i32,
+    ptr: u32,
+    len: u32,
 ) -> AsyncHostResult<OsString> {
     context.with_memory_mut(|memory| {
         let units = read_u16(memory, ptr, len)?;
@@ -56,9 +56,9 @@ fn guest_os_string_from_utf16(units: &[u16]) -> AsyncHostResult<OsString> {
 pub(super) fn decode_len(
     context: &mut ImportContext<'_, '_>,
     ptr: u64,
-    offset: i32,
+    offset: u32,
     len: i32,
-) -> AsyncHostResult<i32> {
+) -> AsyncHostResult<u32> {
     let string = context
         .host
         .with_c_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
@@ -68,27 +68,27 @@ pub(super) fn decode_len(
 pub(super) fn decode(
     context: &mut ImportContext<'_, '_>,
     ptr: u64,
-    offset: i32,
+    offset: u32,
     len: i32,
-    out: i32,
-    out_len: i32,
+    out: u32,
+    out_len: u32,
 ) -> AsyncHostResult<()> {
     let string = context
         .host
         .with_c_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
     let units = string.encode_utf16().collect::<Vec<_>>();
-    let actual_len = i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault)?;
+    let actual_len = u32::try_from(units.len()).map_err(|_| AsyncHostError::Fault)?;
     if actual_len != out_len {
         return Err(AsyncHostError::Inval);
     }
     context.with_memory_mut(|memory| write_u16(memory, out, &units))
 }
 
-fn utf16_len(string: &str) -> AsyncHostResult<i32> {
-    i32::try_from(string.encode_utf16().count()).map_err(|_| AsyncHostError::Fault)
+fn utf16_len(string: &str) -> AsyncHostResult<u32> {
+    u32::try_from(string.encode_utf16().count()).map_err(|_| AsyncHostError::Fault)
 }
 
-fn decode_native_string(bytes: &[u8], offset: i32, len: i32) -> AsyncHostResult<String> {
+fn decode_native_string(bytes: &[u8], offset: u32, len: i32) -> AsyncHostResult<String> {
     let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     let bytes = bytes.get(offset..).ok_or(AsyncHostError::Fault)?;
     let bytes = native_string_bytes(bytes, len)?;

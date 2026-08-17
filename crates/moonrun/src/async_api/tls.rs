@@ -36,8 +36,8 @@ pub(super) fn new(context: &mut ImportContext<'_, '_>) -> u64 {
 pub(super) fn set_client(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    host: i32,
-    host_len: i32,
+    host: u32,
+    host_len: u32,
     sni: i32,
     trust_abi: i32,
 ) -> AsyncHostResult<i32> {
@@ -52,8 +52,8 @@ pub(super) fn set_client(
 pub(super) fn add_root_certificate(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    root: i32,
-    root_len: i32,
+    root: u32,
+    root_len: u32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
         let root = memory.read_exact(root, root_len)?;
@@ -66,11 +66,11 @@ pub(super) fn add_root_certificate(
 pub(super) fn set_server_files(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    private_key_file: i32,
-    private_key_file_len: i32,
+    private_key_file: u32,
+    private_key_file_len: u32,
     private_key_type_abi: i32,
-    certificate_file: i32,
-    certificate_file_len: i32,
+    certificate_file: u32,
+    certificate_file_len: u32,
     certificate_type_abi: i32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
@@ -90,8 +90,8 @@ pub(super) fn set_server_files(
 pub(super) fn set_server_pfx(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    pfx_content: i32,
-    pfx_content_len: i32,
+    pfx_content: u32,
+    pfx_content_len: u32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
         host.tls_set_server_pfx(
@@ -121,15 +121,15 @@ pub(super) fn take_global_error(context: &mut ImportContext<'_, '_>) -> u64 {
 pub(super) fn read_plain(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    in_buffer: i32,
-    in_buffer_offset: i32,
-    in_buffer_len: i32,
-    out_buffer: i32,
-    out_buffer_offset: i32,
-    out_buffer_len: i32,
-    plain_buffer: i32,
-    plain_buffer_offset: i32,
-    plain_buffer_len: i32,
+    in_buffer: u32,
+    in_buffer_offset: u32,
+    in_buffer_len: u32,
+    out_buffer: u32,
+    out_buffer_offset: u32,
+    out_buffer_len: u32,
+    plain_buffer: u32,
+    plain_buffer_offset: u32,
+    plain_buffer_len: u32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
         let (input, output, plain) = read_guest_buffers3_mut(
@@ -150,15 +150,15 @@ pub(super) fn read_plain(
 pub(super) fn write_plain(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    in_buffer: i32,
-    in_buffer_offset: i32,
-    in_buffer_len: i32,
-    out_buffer: i32,
-    out_buffer_offset: i32,
-    out_buffer_len: i32,
-    plain_buffer: i32,
-    plain_buffer_offset: i32,
-    plain_buffer_len: i32,
+    in_buffer: u32,
+    in_buffer_offset: u32,
+    in_buffer_len: u32,
+    out_buffer: u32,
+    out_buffer_offset: u32,
+    out_buffer_len: u32,
+    plain_buffer: u32,
+    plain_buffer_offset: u32,
+    plain_buffer_len: u32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
         let (input, output, plain) = read_guest_buffers3_mut(
@@ -179,12 +179,12 @@ pub(super) fn write_plain(
 pub(super) fn connect(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    in_buffer: i32,
-    in_buffer_offset: i32,
-    in_buffer_len: i32,
-    out_buffer: i32,
-    out_buffer_offset: i32,
-    out_buffer_len: i32,
+    in_buffer: u32,
+    in_buffer_offset: u32,
+    in_buffer_len: u32,
+    out_buffer: u32,
+    out_buffer_offset: u32,
+    out_buffer_len: u32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
         let (input, output) = read_guest_input_output_mut(
@@ -203,12 +203,12 @@ pub(super) fn connect(
 pub(super) fn accept(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-    in_buffer: i32,
-    in_buffer_offset: i32,
-    in_buffer_len: i32,
-    out_buffer: i32,
-    out_buffer_offset: i32,
-    out_buffer_len: i32,
+    in_buffer: u32,
+    in_buffer_offset: u32,
+    in_buffer_len: u32,
+    out_buffer: u32,
+    out_buffer_offset: u32,
+    out_buffer_len: u32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
         let (input, output) = read_guest_input_output_mut(
@@ -223,7 +223,7 @@ pub(super) fn accept(
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/bytes_read")]
-pub(super) fn bytes_read(context: &mut ImportContext<'_, '_>, tls: u64) -> AsyncHostResult<i32> {
+pub(super) fn bytes_read(context: &mut ImportContext<'_, '_>, tls: u64) -> AsyncHostResult<u32> {
     context.host.tls_bytes_read(tls)
 }
 
@@ -231,7 +231,7 @@ pub(super) fn bytes_read(context: &mut ImportContext<'_, '_>, tls: u64) -> Async
 pub(super) fn bytes_to_write(
     context: &mut ImportContext<'_, '_>,
     tls: u64,
-) -> AsyncHostResult<i32> {
+) -> AsyncHostResult<u32> {
     context.host.tls_bytes_to_write(tls)
 }
 
@@ -278,19 +278,18 @@ pub(super) fn server_endpoint_channel_binding(
 }
 }
 
-fn guest_offset(ptr: i32, offset: i32) -> AsyncHostResult<i32> {
-    if offset < 0 {
-        return Err(AsyncHostError::Fault);
-    }
+fn guest_offset(ptr: u32, offset: u32) -> AsyncHostResult<usize> {
+    let ptr = usize::try_from(ptr).map_err(|_| AsyncHostError::Fault)?;
+    let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     ptr.checked_add(offset).ok_or(AsyncHostError::Fault)
 }
 
 fn read_guest_input_output_mut(
     memory: &mut (impl GuestMemory + ?Sized),
-    input_offset: i32,
-    input_len: i32,
-    output_offset: i32,
-    output_len: i32,
+    input_offset: usize,
+    input_len: u32,
+    output_offset: usize,
+    output_len: u32,
 ) -> AsyncHostResult<(&mut [u8], &mut [u8])> {
     let input = guest_range(memory.bytes().len(), input_offset, input_len)?;
     let output = guest_range(memory.bytes().len(), output_offset, output_len)?;
@@ -313,12 +312,12 @@ fn read_guest_input_output_mut(
 
 fn read_guest_buffers3_mut(
     memory: &mut (impl GuestMemory + ?Sized),
-    first_offset: i32,
-    first_len: i32,
-    second_offset: i32,
-    second_len: i32,
-    third_offset: i32,
-    third_len: i32,
+    first_offset: usize,
+    first_len: u32,
+    second_offset: usize,
+    second_len: u32,
+    third_offset: usize,
+    third_len: u32,
 ) -> AsyncHostResult<(&mut [u8], &mut [u8], &mut [u8])> {
     let memory_len = memory.bytes().len();
     let first = guest_range(memory_len, first_offset, first_len)?;
@@ -351,10 +350,9 @@ fn ranges_overlap(first: &std::ops::Range<usize>, second: &std::ops::Range<usize
 
 fn guest_range(
     memory_len: usize,
-    offset: i32,
-    len: i32,
+    offset: usize,
+    len: u32,
 ) -> AsyncHostResult<std::ops::Range<usize>> {
-    let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
     let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
     if end > memory_len {
@@ -363,14 +361,14 @@ fn guest_range(
     Ok(offset..end)
 }
 
-fn read_guest_string(memory: &[u8], ptr: i32, len: i32) -> AsyncHostResult<String> {
+fn read_guest_string(memory: &[u8], ptr: u32, len: u32) -> AsyncHostResult<String> {
     let units = read_u16(memory, ptr, len)?;
     Ok(std::char::decode_utf16(units)
         .map(|unit| unit.unwrap_or(std::char::REPLACEMENT_CHARACTER))
         .collect())
 }
 
-fn read_guest_os_path(memory: &[u8], ptr: i32, len: i32) -> AsyncHostResult<PathBuf> {
+fn read_guest_os_path(memory: &[u8], ptr: u32, len: u32) -> AsyncHostResult<PathBuf> {
     let units = read_u16(memory, ptr, len)?;
 
     #[cfg(unix)]

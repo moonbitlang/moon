@@ -231,9 +231,9 @@ pub(crate) fn run_host_job(job: &mut Job) {
 pub(crate) fn get_read_result(
     job: &Job,
     memory: &mut (impl GuestMemory + ?Sized),
-    dst: i32,
-    offset: i32,
-    len: i32,
+    dst: u32,
+    offset: u32,
+    len: u32,
 ) -> AsyncHostResult<()> {
     if job.err() != 0 {
         return Ok(());
@@ -245,14 +245,14 @@ pub(crate) fn get_read_result(
     else {
         return Err(AsyncHostError::Badf);
     };
-    let dst_offset = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-    memory.write_with_capacity(dst_offset, len, result)
+    let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+    memory.write_with_capacity(dst, len, result)
 }
 
 pub(crate) fn get_file_time_result(
     job: &Job,
     memory: &mut (impl GuestMemory + ?Sized),
-    dst: i32,
+    dst: u32,
 ) -> AsyncHostResult<()> {
     if job.err() != 0 {
         return Ok(());
@@ -283,8 +283,8 @@ pub(crate) fn get_file_time_result(
 pub(crate) fn get_stat_result(
     job: &Job,
     memory: &mut (impl GuestMemory + ?Sized),
-    dst: i32,
-    dst_len: i32,
+    dst: u32,
+    dst_len: u32,
 ) -> AsyncHostResult<()> {
     if job.err() != 0 {
         return Ok(());

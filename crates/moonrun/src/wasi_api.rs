@@ -249,6 +249,14 @@ fn read_i32_arg(
     args.get(index).int32_value(scope).ok_or(WASI_ERRNO_INVAL)
 }
 
+fn read_u32_arg(
+    scope: &mut v8::HandleScope,
+    args: &v8::FunctionCallbackArguments,
+    index: i32,
+) -> WasiResult<u32> {
+    args.get(index).uint32_value(scope).ok_or(WASI_ERRNO_INVAL)
+}
+
 fn read_u64_arg(
     scope: &mut v8::HandleScope,
     args: &v8::FunctionCallbackArguments,
@@ -256,20 +264,14 @@ fn read_u64_arg(
 ) -> WasiResult<u64> {
     let value = args.get(index);
     if value.is_big_int() {
-        let bigint = v8::Local::<v8::BigInt>::try_from(value).map_err(|_| WASI_ERRNO_INVAL)?;
-        let (result, lossless) = bigint.u64_value();
-        if lossless {
-            Ok(result)
-        } else {
-            Err(WASI_ERRNO_INVAL)
-        }
+        crate::v8_import::decode_wasm_u64(value).ok_or(WASI_ERRNO_INVAL)
     } else {
         let value = value.integer_value(scope).ok_or(WASI_ERRNO_INVAL)?;
         u64::try_from(value).map_err(|_| WASI_ERRNO_INVAL)
     }
 }
 
-fn ptr_to_offset(ptr: i32) -> WasiResult<usize> {
+fn ptr_to_offset(ptr: u32) -> WasiResult<usize> {
     usize::try_from(ptr).map_err(|_| WASI_ERRNO_FAULT)
 }
 
@@ -301,7 +303,7 @@ fn write_u32_at(memory: &mut [u8], offset: usize, value: u32) -> WasiResult<()> 
     Ok(())
 }
 
-fn write_u32(memory: &mut [u8], ptr: i32, value: u32) -> WasiResult<()> {
+fn write_u32(memory: &mut [u8], ptr: u32, value: u32) -> WasiResult<()> {
     write_u32_at(memory, ptr_to_offset(ptr)?, value)
 }
 
@@ -336,8 +338,8 @@ fn table_bytes_len(values: &[Vec<u8>]) -> WasiResult<u32> {
 fn write_c_string_table(
     memory: &mut [u8],
     values: &[Vec<u8>],
-    pointers_ptr: i32,
-    bytes_ptr: i32,
+    pointers_ptr: u32,
+    bytes_ptr: u32,
 ) -> WasiResult<()> {
     let pointers_base = ptr_to_offset(pointers_ptr)?;
     let mut cursor = ptr_to_offset(bytes_ptr)?;
@@ -357,7 +359,7 @@ fn write_c_string_table(
     Ok(())
 }
 
-fn iovec(memory: &[u8], iovs_ptr: i32, index: u32) -> WasiResult<(usize, usize)> {
+fn iovec(memory: &[u8], iovs_ptr: u32, index: u32) -> WasiResult<(usize, usize)> {
     let base = ptr_to_offset(iovs_ptr)?;
     let index_offset = usize::try_from(index).map_err(|_| WASI_ERRNO_FAULT)?;
     let iov_offset = base
@@ -503,7 +505,7 @@ fn guest_path_from_bytes(path: &[u8]) -> WasiResult<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-fn read_path_from_memory(memory: &[u8], path_ptr: i32, path_len: usize) -> WasiResult<PathBuf> {
+fn read_path_from_memory(memory: &[u8], path_ptr: u32, path_len: usize) -> WasiResult<PathBuf> {
     let path = checked_range(memory, ptr_to_offset(path_ptr)?, path_len)?;
     if path.contains(&0) {
         return Err(WASI_ERRNO_INVAL);
@@ -735,8 +737,8 @@ fn random_get(
     mut ret: v8::ReturnValue,
 ) {
     let result = (|| -> WasiResult<()> {
-        let buffer = read_i32_arg(scope, &args, 0)?;
-        let length = read_i32_arg(scope, &args, 1)?;
+        let buffer = read_u32_arg(scope, &args, 0)?;
+        let length = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
         with_wasi_memory_mut(scope, context, |memory| {
             let offset = ptr_to_offset(buffer)?;
@@ -780,14 +782,14 @@ fn path_open(
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
         let dirflags = read_i32_arg(scope, &args, 1)?;
-        let path_ptr = read_i32_arg(scope, &args, 2)?;
+        let path_ptr = read_u32_arg(scope, &args, 2)?;
         let path_len =
-            usize::try_from(read_i32_arg(scope, &args, 3)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 3)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let oflags = read_i32_arg(scope, &args, 4)?;
         let rights_base = read_u64_arg(scope, &args, 5)?;
         let rights_inheriting = read_u64_arg(scope, &args, 6)?;
         let fdflags = read_i32_arg(scope, &args, 7)?;
-        let opened_fd_ptr = read_i32_arg(scope, &args, 8)?;
+        let opened_fd_ptr = read_u32_arg(scope, &args, 8)?;
         let context = callback_context(&args);
 
         validate_known_flag_bits(dirflags, WASI_KNOWN_LOOKUPFLAGS_MASK)?;
@@ -883,13 +885,13 @@ fn path_readlink(
 ) {
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
-        let path_ptr = read_i32_arg(scope, &args, 1)?;
+        let path_ptr = read_u32_arg(scope, &args, 1)?;
         let path_len =
-            usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
-        let buf_ptr = read_i32_arg(scope, &args, 3)?;
+            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let buf_ptr = read_u32_arg(scope, &args, 3)?;
         let buf_len =
-            usize::try_from(read_i32_arg(scope, &args, 4)?).map_err(|_| WASI_ERRNO_INVAL)?;
-        let buf_used_ptr = read_i32_arg(scope, &args, 5)?;
+            usize::try_from(read_u32_arg(scope, &args, 4)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let buf_used_ptr = read_u32_arg(scope, &args, 5)?;
         let context = callback_context(&args);
         require_fd_right(context, dirfd, WASI_RIGHT_PATH_READLINK)?;
 
@@ -936,9 +938,9 @@ fn path_create_directory(
 ) {
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
-        let path_ptr = read_i32_arg(scope, &args, 1)?;
+        let path_ptr = read_u32_arg(scope, &args, 1)?;
         let path_len =
-            usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
         require_fd_right(context, dirfd, WASI_RIGHT_PATH_CREATE_DIRECTORY)?;
 
@@ -965,13 +967,13 @@ fn path_rename(
 ) {
     let result = (|| -> WasiResult<()> {
         let old_fd = read_i32_arg(scope, &args, 0)?;
-        let old_path_ptr = read_i32_arg(scope, &args, 1)?;
+        let old_path_ptr = read_u32_arg(scope, &args, 1)?;
         let old_path_len =
-            usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let new_fd = read_i32_arg(scope, &args, 3)?;
-        let new_path_ptr = read_i32_arg(scope, &args, 4)?;
+        let new_path_ptr = read_u32_arg(scope, &args, 4)?;
         let new_path_len =
-            usize::try_from(read_i32_arg(scope, &args, 5)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 5)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
         require_fd_right(context, old_fd, WASI_RIGHT_PATH_RENAME_SOURCE)?;
         require_fd_right(context, new_fd, WASI_RIGHT_PATH_RENAME_TARGET)?;
@@ -1011,9 +1013,9 @@ fn path_remove_directory(
 ) {
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
-        let path_ptr = read_i32_arg(scope, &args, 1)?;
+        let path_ptr = read_u32_arg(scope, &args, 1)?;
         let path_len =
-            usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
         require_fd_right(context, dirfd, WASI_RIGHT_PATH_REMOVE_DIRECTORY)?;
 
@@ -1040,9 +1042,9 @@ fn path_unlink_file(
 ) {
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
-        let path_ptr = read_i32_arg(scope, &args, 1)?;
+        let path_ptr = read_u32_arg(scope, &args, 1)?;
         let path_len =
-            usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
         require_fd_right(context, dirfd, WASI_RIGHT_PATH_UNLINK_FILE)?;
 
@@ -1064,7 +1066,7 @@ fn path_unlink_file(
 
 fn parse_poll_subscriptions(
     memory: &[u8],
-    in_ptr: i32,
+    in_ptr: u32,
     nsubscriptions: usize,
 ) -> WasiResult<Vec<PollSubscription>> {
     let base = ptr_to_offset(in_ptr)?;
@@ -1368,14 +1370,14 @@ fn poll_oneoff_impl(
     mut ret: v8::ReturnValue,
 ) {
     let result = (|| -> WasiResult<()> {
-        let in_ptr = read_i32_arg(scope, &args, 0)?;
-        let out_ptr = read_i32_arg(scope, &args, 1)?;
-        let nsubscriptions_i32 = read_i32_arg(scope, &args, 2)?;
-        let nevents_ptr = read_i32_arg(scope, &args, 3)?;
-        if nsubscriptions_i32 <= 0 {
+        let in_ptr = read_u32_arg(scope, &args, 0)?;
+        let out_ptr = read_u32_arg(scope, &args, 1)?;
+        let nsubscriptions_u32 = read_u32_arg(scope, &args, 2)?;
+        let nevents_ptr = read_u32_arg(scope, &args, 3)?;
+        if nsubscriptions_u32 == 0 {
             return Err(WASI_ERRNO_INVAL);
         }
-        let nsubscriptions = usize::try_from(nsubscriptions_i32).map_err(|_| WASI_ERRNO_INVAL)?;
+        let nsubscriptions = usize::try_from(nsubscriptions_u32).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
 
         let mut subscriptions = with_wasi_memory_mut(scope, context, |memory| {
@@ -1431,7 +1433,7 @@ fn fd_prestat_get(
 ) {
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
-        let prestat_ptr = read_i32_arg(scope, &args, 1)?;
+        let prestat_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
         if !preopen_matches(context, fd) {
             return Err(WASI_ERRNO_BADF);
@@ -1458,9 +1460,9 @@ fn fd_prestat_dir_name(
 ) {
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
-        let path_ptr = read_i32_arg(scope, &args, 1)?;
+        let path_ptr = read_u32_arg(scope, &args, 1)?;
         let path_len =
-            usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
         if !preopen_matches(context, fd) {
             return Err(WASI_ERRNO_BADF);
@@ -1488,11 +1490,11 @@ fn fd_readdir(
 ) {
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
-        let buf_ptr = read_i32_arg(scope, &args, 1)?;
+        let buf_ptr = read_u32_arg(scope, &args, 1)?;
         let buf_len =
-            usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let cookie = read_u64_arg(scope, &args, 3)?;
-        let buf_used_ptr = read_i32_arg(scope, &args, 4)?;
+        let buf_used_ptr = read_u32_arg(scope, &args, 4)?;
         let context = callback_context(&args);
         require_fd_right(context, fd, WASI_RIGHT_FD_READDIR)?;
         let dir_path = dir_path_for_fd(context, fd)?;
@@ -1533,8 +1535,8 @@ fn args_sizes_get(
     mut ret: v8::ReturnValue,
 ) {
     let result = (|| -> WasiResult<()> {
-        let argc_ptr = read_i32_arg(scope, &args, 0)?;
-        let argv_buf_size_ptr = read_i32_arg(scope, &args, 1)?;
+        let argc_ptr = read_u32_arg(scope, &args, 0)?;
+        let argv_buf_size_ptr = read_u32_arg(scope, &args, 1)?;
 
         let context = callback_context(&args);
         let argc = u32::try_from(context.argv.len()).map_err(|_| WASI_ERRNO_FAULT)?;
@@ -1556,8 +1558,8 @@ fn args_get(
     mut ret: v8::ReturnValue,
 ) {
     let result = (|| -> WasiResult<()> {
-        let argv_ptr = read_i32_arg(scope, &args, 0)?;
-        let argv_buf_ptr = read_i32_arg(scope, &args, 1)?;
+        let argv_ptr = read_u32_arg(scope, &args, 0)?;
+        let argv_buf_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
 
         with_wasi_memory_mut(scope, context, |memory| {
@@ -1574,8 +1576,8 @@ fn environ_sizes_get(
     mut ret: v8::ReturnValue,
 ) {
     let result = (|| -> WasiResult<()> {
-        let environc_ptr = read_i32_arg(scope, &args, 0)?;
-        let environ_buf_size_ptr = read_i32_arg(scope, &args, 1)?;
+        let environc_ptr = read_u32_arg(scope, &args, 0)?;
+        let environ_buf_size_ptr = read_u32_arg(scope, &args, 1)?;
 
         let environ = collect_environ();
         let environc = u32::try_from(environ.len()).map_err(|_| WASI_ERRNO_FAULT)?;
@@ -1598,8 +1600,8 @@ fn environ_get(
     mut ret: v8::ReturnValue,
 ) {
     let result = (|| -> WasiResult<()> {
-        let environ_ptr = read_i32_arg(scope, &args, 0)?;
-        let environ_buf_ptr = read_i32_arg(scope, &args, 1)?;
+        let environ_ptr = read_u32_arg(scope, &args, 0)?;
+        let environ_buf_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
 
         let environ = collect_environ();
@@ -1631,10 +1633,9 @@ fn fd_write(
 ) {
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
-        let iovs_ptr = read_i32_arg(scope, &args, 1)?;
-        let iovs_len =
-            u32::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
-        let nwritten_ptr = read_i32_arg(scope, &args, 3)?;
+        let iovs_ptr = read_u32_arg(scope, &args, 1)?;
+        let iovs_len = read_u32_arg(scope, &args, 2)?;
+        let nwritten_ptr = read_u32_arg(scope, &args, 3)?;
         let context = callback_context(&args);
         require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
         let descriptor = if fd > WASI_FD_STDERR {
@@ -1699,10 +1700,9 @@ fn fd_read(
 ) {
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
-        let iovs_ptr = read_i32_arg(scope, &args, 1)?;
-        let iovs_len =
-            u32::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
-        let nread_ptr = read_i32_arg(scope, &args, 3)?;
+        let iovs_ptr = read_u32_arg(scope, &args, 1)?;
+        let iovs_len = read_u32_arg(scope, &args, 2)?;
+        let nread_ptr = read_u32_arg(scope, &args, 3)?;
         let context = callback_context(&args);
         require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
         let descriptor = if fd > WASI_FD_STDERR {

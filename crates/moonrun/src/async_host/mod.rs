@@ -164,20 +164,20 @@ pub(crate) trait GuestMemory {
 
     fn bytes_mut(&mut self) -> &mut [u8];
 
-    fn read_exact(&self, offset: i32, len: i32) -> AsyncHostResult<&[u8]> {
+    fn read_exact(&self, offset: u32, len: u32) -> AsyncHostResult<&[u8]> {
         let (offset, end) = guest_bounds(offset, len)?;
         self.bytes().get(offset..end).ok_or(AsyncHostError::Fault)
     }
 
-    fn read_exact_mut(&mut self, offset: i32, len: i32) -> AsyncHostResult<&mut [u8]> {
+    fn read_exact_mut(&mut self, offset: u32, len: u32) -> AsyncHostResult<&mut [u8]> {
         let (offset, end) = guest_bounds(offset, len)?;
         self.bytes_mut()
             .get_mut(offset..end)
             .ok_or(AsyncHostError::Fault)
     }
 
-    fn write_exact(&mut self, offset: i32, data: &[u8]) -> AsyncHostResult<()> {
-        let len = i32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
+    fn write_exact(&mut self, offset: u32, data: &[u8]) -> AsyncHostResult<()> {
+        let len = u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
         let dst = self.read_exact_mut(offset, len)?;
         dst.copy_from_slice(data);
         Ok(())
@@ -185,11 +185,11 @@ pub(crate) trait GuestMemory {
 
     fn write_with_capacity(
         &mut self,
-        offset: i32,
-        capacity: i32,
+        offset: u32,
+        capacity: u32,
         data: &[u8],
     ) -> AsyncHostResult<()> {
-        let data_len = i32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
+        let data_len = u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
         if data_len > capacity {
             return Err(AsyncHostError::Fault);
         }
@@ -198,19 +198,19 @@ pub(crate) trait GuestMemory {
         Ok(())
     }
 
-    fn write_u64_le(&mut self, offset: i32, value: u64) -> AsyncHostResult<()> {
+    fn write_u64_le(&mut self, offset: u32, value: u64) -> AsyncHostResult<()> {
         self.write_exact(offset, &value.to_le_bytes())
     }
 }
 
-fn guest_bounds(offset: i32, len: i32) -> AsyncHostResult<(usize, usize)> {
+fn guest_bounds(offset: u32, len: u32) -> AsyncHostResult<(usize, usize)> {
     let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
     let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
     Ok((offset, end))
 }
 
-pub(crate) fn read_u16(memory: &[u8], offset: i32, len: i32) -> AsyncHostResult<Vec<u16>> {
+pub(crate) fn read_u16(memory: &[u8], offset: u32, len: u32) -> AsyncHostResult<Vec<u16>> {
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
     let (offset, end) = u16_bounds(memory.len(), offset, len)?;
     Ok(memory[offset..end]
@@ -219,7 +219,7 @@ pub(crate) fn read_u16(memory: &[u8], offset: i32, len: i32) -> AsyncHostResult<
         .collect())
 }
 
-pub(crate) fn write_u16(memory: &mut [u8], offset: i32, data: &[u16]) -> AsyncHostResult<()> {
+pub(crate) fn write_u16(memory: &mut [u8], offset: u32, data: &[u16]) -> AsyncHostResult<()> {
     let (offset, end) = u16_bounds(memory.len(), offset, data.len())?;
     for (dst, value) in memory[offset..end]
         .chunks_exact_mut(std::mem::size_of::<u16>())
@@ -230,7 +230,7 @@ pub(crate) fn write_u16(memory: &mut [u8], offset: i32, data: &[u16]) -> AsyncHo
     Ok(())
 }
 
-fn u16_bounds(memory_len: usize, offset: i32, len: usize) -> AsyncHostResult<(usize, usize)> {
+fn u16_bounds(memory_len: usize, offset: u32, len: usize) -> AsyncHostResult<(usize, usize)> {
     let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     if len != 0 && offset % std::mem::align_of::<u16>() != 0 {
         return Err(AsyncHostError::Fault);
@@ -850,7 +850,7 @@ impl HostIoResult {
         unsafe { overlapped.assume_init() }
     }
 
-    fn for_file_read(len: i32, position: i64) -> AsyncHostResult<Self> {
+    fn for_file_read(len: u32, position: i64) -> AsyncHostResult<Self> {
         let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
         Ok(Self::for_file(IO_RESULT_READ_EVENT, buffer, position))
     }
@@ -878,7 +878,7 @@ impl HostIoResult {
         }
     }
 
-    fn for_socket_read(len: i32, flags: i32) -> AsyncHostResult<Self> {
+    fn for_socket_read(len: u32, flags: i32) -> AsyncHostResult<Self> {
         let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
         Ok(Self::for_socket(IO_RESULT_READ_EVENT, buffer, flags))
     }
@@ -904,7 +904,7 @@ impl HostIoResult {
     }
 
     fn for_socket_with_addr_read(
-        len: i32,
+        len: u32,
         flags: i32,
         addr_buffer: Vec<u8>,
     ) -> AsyncHostResult<Self> {
@@ -958,7 +958,7 @@ impl HostIoResult {
         }
     }
 
-    fn for_accept(addr_len: i32) -> AsyncHostResult<Self> {
+    fn for_accept(addr_len: u32) -> AsyncHostResult<Self> {
         let addr_len_usize = usize::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?;
         let accept_addr_len = addr_len_usize
             .checked_add(16)
@@ -973,7 +973,7 @@ impl HostIoResult {
             buffer: Vec::new(),
             socket_flags: 0,
             addr_buffer: Vec::new(),
-            addr_len,
+            addr_len: i32::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?,
             accept_buffer: vec![0; accept_buffer_len],
             accept_bytes_received: 0,
             pending_resource: None,
@@ -1002,26 +1002,26 @@ impl HostIoResult {
     fn copy_read_payload(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        dst: i32,
-        offset: i32,
-        len: i32,
+        dst: u32,
+        offset: u32,
+        len: u32,
     ) -> AsyncHostResult<()> {
-        let dst_offset = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let bytes_transferred = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         let data = self
             .buffer
             .get(..bytes_transferred)
             .ok_or(AsyncHostError::Fault)?;
-        memory.write_exact(dst_offset, data)?;
+        let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        memory.write_exact(dst, data)?;
         Ok(())
     }
 
     fn copy_read_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        dst: i32,
-        offset: i32,
-        len: i32,
+        dst: u32,
+        offset: u32,
+        len: u32,
     ) -> AsyncHostResult<()> {
         self.validate_completed_read()?;
         if self.kind == HostIoKind::SocketWithAddr {
@@ -1033,11 +1033,11 @@ impl HostIoResult {
     fn copy_read_result_with_addr(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        dst: i32,
-        offset: i32,
-        len: i32,
-        addr: i32,
-        addr_len: i32,
+        dst: u32,
+        offset: u32,
+        len: u32,
+        addr: u32,
+        addr_len: u32,
     ) -> AsyncHostResult<()> {
         self.validate_completed_read()?;
         if self.kind != HostIoKind::SocketWithAddr {
@@ -1658,7 +1658,7 @@ impl AsyncHost {
         Ok(result)
     }
 
-    pub(crate) fn poll_get_event(&self, poll_handle: u64, index: i32) -> AsyncHostResult<u64> {
+    pub(crate) fn poll_get_event(&self, poll_handle: u64, index: u32) -> AsyncHostResult<u64> {
         let poll_key = self.handles.borrow().poll(poll_handle)?;
         let polls = self.polls.borrow();
         if polls.current_event_poll != Some(poll_key) {
@@ -1666,7 +1666,7 @@ impl AsyncHost {
         }
         let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
         poll::event_list_get(&poll.instance, index)?;
-        u64::try_from(index).map_err(|_| AsyncHostError::Fault)
+        Ok(u64::from(index))
     }
 
     fn with_event<T>(
@@ -1674,7 +1674,7 @@ impl AsyncHost {
         event_handle: u64,
         f: impl FnOnce(&poll::PollEvent) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let index = event_index(event_handle)?;
+        let index = u32::try_from(event_handle).map_err(|_| AsyncHostError::Fault)?;
         let polls = self.polls.borrow();
         let poll_key = polls.current_event_poll.ok_or(AsyncHostError::Badf)?;
         let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
@@ -1720,7 +1720,7 @@ impl AsyncHost {
     }
 
     #[cfg(windows)]
-    pub(crate) fn poll_event_bytes_transferred(&self, event_handle: u64) -> AsyncHostResult<i32> {
+    pub(crate) fn poll_event_bytes_transferred(&self, event_handle: u64) -> AsyncHostResult<u32> {
         self.with_event(event_handle, |event| {
             Ok(poll::event_get_bytes_transferred(event))
         })
@@ -1897,7 +1897,7 @@ impl AsyncHost {
     }
 
     #[cfg(unix)]
-    pub(crate) fn insert_process_argv(&self, len: i32) -> AsyncHostResult<u64> {
+    pub(crate) fn insert_process_argv(&self, len: u32) -> AsyncHostResult<u64> {
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         let key = self.handles.borrow_mut().insert(HandleKind::ProcessArgv);
         self.process_argvs.borrow_mut().insert(key, vec![None; len]);
@@ -1908,7 +1908,7 @@ impl AsyncHost {
     pub(crate) fn process_argv_add_entry(
         &self,
         handle: u64,
-        index: i32,
+        index: u32,
         value: OsString,
     ) -> AsyncHostResult<()> {
         let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
@@ -1925,7 +1925,7 @@ impl AsyncHost {
         &self,
         argv_handle: u64,
         env_handle: u64,
-        inherited_env_entry_count: i32,
+        inherited_env_entry_count: u32,
     ) -> AsyncHostResult<(Vec<OsString>, Vec<OsString>)> {
         if argv_handle == INVALID_HOST_HANDLE || env_handle == INVALID_HOST_HANDLE {
             return Err(AsyncHostError::Badf);
@@ -2053,20 +2053,20 @@ impl AsyncHost {
     }
 
     #[cfg(unix)]
-    pub(crate) fn process_env_length(&self, handle: u64) -> AsyncHostResult<i32> {
+    pub(crate) fn process_env_length(&self, handle: u64) -> AsyncHostResult<u32> {
         let key = self.process_env(handle)?;
         let process_envs = self.process_envs.borrow();
         let env = process_envs.get(key).ok_or(AsyncHostError::Badf)?;
-        i32::try_from(env.len()).map_err(|_| AsyncHostError::Fault)
+        u32::try_from(env.len()).map_err(|_| AsyncHostError::Fault)
     }
 
     #[cfg(windows)]
-    pub(crate) fn process_env_length(&self, handle: u64) -> AsyncHostResult<i32> {
+    pub(crate) fn process_env_length(&self, handle: u64) -> AsyncHostResult<u32> {
         let key = self.process_env(handle)?;
         let process_envs = self.process_envs.borrow();
         let env = process_envs.get(key).ok_or(AsyncHostError::Badf)?;
         let len = env.len().checked_sub(1).ok_or(AsyncHostError::Fault)?;
-        i32::try_from(len).map_err(|_| AsyncHostError::Fault)
+        u32::try_from(len).map_err(|_| AsyncHostError::Fault)
     }
 
     #[cfg(unix)]
@@ -2126,7 +2126,7 @@ impl AsyncHost {
     pub(crate) fn process_env_add_entry(
         &self,
         handle: u64,
-        index: i32,
+        index: u32,
         key: OsString,
         value: OsString,
     ) -> AsyncHostResult<()> {
@@ -2143,7 +2143,7 @@ impl AsyncHost {
     pub(crate) fn process_env_add_entry(
         &self,
         handle: u64,
-        offset: i32,
+        offset: u32,
         key: &[u16],
         value: &[u16],
     ) -> AsyncHostResult<()> {
@@ -2709,12 +2709,12 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         handle: HostHandle,
-        dst: i32,
-        offset: i32,
-        len: i32,
+        dst: u32,
+        offset: u32,
+        len: u32,
     ) -> AsyncHostResult<i32> {
-        let offset_dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        let dst = memory.read_exact_mut(offset_dst, len)?;
+        let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        let dst = memory.read_exact_mut(dst, len)?;
         self.with_resource(handle, |file| {
             crate::async_sys::internal::event_loop::io::read(file.as_file()?.as_raw_fd(), dst)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
@@ -2726,12 +2726,12 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         handle: HostHandle,
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
     ) -> AsyncHostResult<i32> {
-        let offset_src = src.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        let src = memory.read_exact(offset_src, len)?;
+        let src = src.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        let src = memory.read_exact(src, len)?;
         self.with_resource(handle, |file| {
             crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), src)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
@@ -2741,16 +2741,16 @@ impl AsyncHost {
     #[cfg(windows)]
     fn read_guest_slice(
         memory: &mut (impl GuestMemory + ?Sized),
-        ptr: i32,
-        offset: i32,
-        len: i32,
+        ptr: u32,
+        offset: u32,
+        len: u32,
     ) -> AsyncHostResult<Vec<u8>> {
-        let start = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        Ok(memory.read_exact(start, len)?.to_vec())
+        let ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        Ok(memory.read_exact(ptr, len)?.to_vec())
     }
 
     #[cfg(windows)]
-    pub(crate) fn make_file_read_io_result(&self, len: i32, position: i64) -> AsyncHostResult<u64> {
+    pub(crate) fn make_file_read_io_result(&self, len: u32, position: i64) -> AsyncHostResult<u64> {
         self.insert_io_result(HostIoResult::for_file_read(len, position)?)
     }
 
@@ -2758,9 +2758,9 @@ impl AsyncHost {
     pub(crate) fn make_file_write_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         position: i64,
     ) -> AsyncHostResult<u64> {
         let buffer = Self::read_guest_slice(memory, src, offset, len)?;
@@ -2768,7 +2768,7 @@ impl AsyncHost {
     }
 
     #[cfg(windows)]
-    pub(crate) fn make_socket_read_io_result(&self, len: i32, flags: i32) -> AsyncHostResult<u64> {
+    pub(crate) fn make_socket_read_io_result(&self, len: u32, flags: i32) -> AsyncHostResult<u64> {
         self.insert_io_result(HostIoResult::for_socket_read(len, flags)?)
     }
 
@@ -2776,9 +2776,9 @@ impl AsyncHost {
     pub(crate) fn make_socket_write_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         flags: i32,
     ) -> AsyncHostResult<u64> {
         let buffer = Self::read_guest_slice(memory, src, offset, len)?;
@@ -2789,10 +2789,10 @@ impl AsyncHost {
     pub(crate) fn make_socket_with_addr_read_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        len: i32,
+        len: u32,
         flags: i32,
-        addr: i32,
-        addr_len: i32,
+        addr: u32,
+        addr_len: u32,
     ) -> AsyncHostResult<u64> {
         let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
         self.insert_io_result(HostIoResult::for_socket_with_addr_read(
@@ -2807,12 +2807,12 @@ impl AsyncHost {
     pub(crate) fn make_socket_with_addr_write_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         flags: i32,
-        addr: i32,
-        addr_len: i32,
+        addr: u32,
+        addr_len: u32,
     ) -> AsyncHostResult<u64> {
         let buffer = Self::read_guest_slice(memory, src, offset, len)?;
         let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
@@ -2827,15 +2827,15 @@ impl AsyncHost {
     pub(crate) fn make_connect_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        addr: i32,
-        addr_len: i32,
+        addr: u32,
+        addr_len: u32,
     ) -> AsyncHostResult<u64> {
         let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
         self.insert_io_result(HostIoResult::for_connect(addr_buffer))
     }
 
     #[cfg(windows)]
-    pub(crate) fn make_accept_io_result(&self, addr_len: i32) -> AsyncHostResult<u64> {
+    pub(crate) fn make_accept_io_result(&self, addr_len: u32) -> AsyncHostResult<u64> {
         self.insert_io_result(HostIoResult::for_accept(addr_len)?)
     }
 
@@ -2955,9 +2955,9 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         result_handle: u64,
-        dst: i32,
-        offset: i32,
-        len: i32,
+        dst: u32,
+        offset: u32,
+        len: u32,
     ) -> AsyncHostResult<()> {
         let key = self.handles.borrow().io_result(result_handle)?;
         let io_results = self.io_results.borrow();
@@ -2971,11 +2971,11 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         result_handle: u64,
-        dst: i32,
-        offset: i32,
-        len: i32,
-        addr: i32,
-        addr_len: i32,
+        dst: u32,
+        offset: u32,
+        len: u32,
+        addr: u32,
+        addr_len: u32,
     ) -> AsyncHostResult<()> {
         let key = self.handles.borrow().io_result(result_handle)?;
         let io_results = self.io_results.borrow();
@@ -3303,8 +3303,8 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         result_handle: u64,
-        dst: i32,
-        dst_len: i32,
+        dst: u32,
+        dst_len: u32,
     ) -> AsyncHostResult<()> {
         let key = self.handles.borrow().io_result(result_handle)?;
         let io_results = self.io_results.borrow();
@@ -3718,9 +3718,9 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         handle: u64,
-        dst: i32,
-        offset: i32,
-        len: i32,
+        dst: u32,
+        offset: u32,
+        len: u32,
     ) -> AsyncHostResult<()> {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
@@ -3732,7 +3732,7 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         handle: u64,
-        dst: i32,
+        dst: u32,
     ) -> AsyncHostResult<()> {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
@@ -3744,8 +3744,8 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         handle: u64,
-        dst: i32,
-        dst_len: i32,
+        dst: u32,
+        dst_len: u32,
     ) -> AsyncHostResult<()> {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
@@ -3784,8 +3784,8 @@ impl AsyncHost {
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         source_fd: HostHandle,
-        dst: i32,
-        max_jobs: i32,
+        dst: u32,
+        max_jobs: u32,
     ) -> AsyncHostResult<i32> {
         let (completion_notifier, completion_source) = {
             let completions = self.thread_pool_completions.borrow();
@@ -3805,8 +3805,8 @@ impl AsyncHost {
         let max_bytes = max_jobs
             .checked_mul(std::mem::size_of::<i32>())
             .ok_or(AsyncHostError::Fault)?;
-        let max_bytes_i32 = i32::try_from(max_bytes).map_err(|_| AsyncHostError::Fault)?;
-        let completions = memory.read_exact_mut(dst, max_bytes_i32)?;
+        let max_bytes_u32 = u32::try_from(max_bytes).map_err(|_| AsyncHostError::Fault)?;
+        let completions = memory.read_exact_mut(dst, max_bytes_u32)?;
         let bytes = completion_notifier.fetch(completions)?;
         self.restore_completed_worker_jobs();
         debug_assert_eq!(bytes % std::mem::size_of::<i32>(), 0);
@@ -4008,12 +4008,14 @@ impl AsyncHost {
         })
     }
 
-    pub(crate) fn tls_bytes_read(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, 0, |tls| tls.bytes_read())
+    pub(crate) fn tls_bytes_read(&self, handle: HostHandle) -> AsyncHostResult<u32> {
+        let bytes = self.with_tls_connection_mut(handle, 0, |tls| tls.bytes_read())?;
+        u32::try_from(bytes).map_err(|_| AsyncHostError::Fault)
     }
 
-    pub(crate) fn tls_bytes_to_write(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, 0, |tls| tls.bytes_to_write())
+    pub(crate) fn tls_bytes_to_write(&self, handle: HostHandle) -> AsyncHostResult<u32> {
+        let bytes = self.with_tls_connection_mut(handle, 0, |tls| tls.bytes_to_write())?;
+        u32::try_from(bytes).map_err(|_| AsyncHostError::Fault)
     }
 
     pub(crate) fn tls_wants_read(&self, handle: HostHandle) -> AsyncHostResult<i32> {
@@ -4277,10 +4279,6 @@ fn raw_overlapped_handle(file: &Resource) -> AsyncHostResult<RawHandle> {
 #[cfg(windows)]
 fn raw_fd_to_guest(fd: RawFd) -> AsyncHostResult<HostHandle> {
     Ok(fd as usize as u64)
-}
-
-fn event_index(event: u64) -> AsyncHostResult<i32> {
-    i32::try_from(event).map_err(|_| AsyncHostError::Fault)
 }
 
 #[cfg(test)]
@@ -4916,7 +4914,7 @@ mod tests {
     fn guest_memory_read_exact_rejects_out_of_bounds_access() {
         let memory = [0; 4];
 
-        for (offset, len) in [(-1, 1), (0, -1), (3, 2), (i32::MAX, 1), (2, i32::MAX)] {
+        for (offset, len) in [(3, 2), (u32::MAX, 1), (2, u32::MAX)] {
             assert_eq!(memory.read_exact(offset, len), Err(AsyncHostError::Fault));
         }
     }
@@ -4934,7 +4932,7 @@ mod tests {
     fn guest_memory_read_exact_mut_rejects_out_of_bounds_access() {
         let mut memory = [0; 4];
 
-        for (offset, len) in [(-1, 1), (0, -1), (3, 2), (i32::MAX, 1), (2, i32::MAX)] {
+        for (offset, len) in [(3, 2), (u32::MAX, 1), (2, u32::MAX)] {
             assert_eq!(
                 memory.read_exact_mut(offset, len),
                 Err(AsyncHostError::Fault)

@@ -89,8 +89,8 @@ pub(super) fn cancel_worker(context: &mut ImportContext<'_, '_>, worker: u64) ->
 pub(super) fn fetch_completion(
     context: &mut ImportContext<'_, '_>,
     source_fd: u64,
-    dst: i32,
-    max_jobs: i32,
+    dst: u32,
+    max_jobs: u32,
 ) -> i32 {
     match context.with_host_and_memory_mut(|host, memory| {
         host.fetch_completion(memory, source_fd, dst, max_jobs)
@@ -122,8 +122,8 @@ pub(super) fn make_sleep_job(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_open_job_legacy(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     access: i32,
     create_mode: i32,
     append: i32,
@@ -152,15 +152,15 @@ pub(super) fn make_open_job_legacy(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_open_stat_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     access: i32,
     create_mode: i32,
     append: i32,
     sync: i32,
     mode: i32,
     stat_request: i32,
-    stat_result_len: i32,
+    stat_result_len: u32,
 ) -> AsyncHostResult<u64> {
     let filename = read_guest_os_string(context, path_ptr, path_len)?;
     context.host.insert_job(thread_pool::make_open_stat_job(
@@ -183,7 +183,7 @@ pub(super) fn make_fstatx_job(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
     stat_request: i32,
-    stat_result_len: i32,
+    stat_result_len: u32,
 ) -> AsyncHostResult<u64> {
     let file = context.host.acquire_resource(fd)?;
     context.host.insert_job(thread_pool::make_fstatx_job(
@@ -200,10 +200,10 @@ pub(super) fn make_fstatx_job(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_statx_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     stat_request: i32,
-    stat_result_len: i32,
+    stat_result_len: u32,
     parent: u64,
     follow_symlink: i32,
 ) -> AsyncHostResult<u64> {
@@ -229,8 +229,8 @@ pub(super) fn make_statx_job(
 pub(super) fn get_stat_result(
     context: &mut ImportContext<'_, '_>,
     job: u64,
-    dst: i32,
-    dst_len: i32,
+    dst: u32,
+    dst_len: u32,
 ) -> AsyncHostResult<()> {
     context.with_host_and_memory_mut(|host, memory| {
         host.get_stat_result(memory, job, dst, dst_len)
@@ -241,7 +241,7 @@ pub(super) fn get_stat_result(
 pub(super) fn make_read_job(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    len: i32,
+    len: u32,
     position: i64,
 ) -> AsyncHostResult<u64> {
     let file = context
@@ -255,17 +255,16 @@ pub(super) fn make_read_job(
 pub(super) fn make_write_job(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
-    ptr: i32,
-    offset: i32,
-    len: i32,
+    ptr: u32,
+    offset: u32,
+    len: u32,
     position: i64,
 ) -> AsyncHostResult<u64> {
     let file = context
         .host
         .acquire_resource_of_class(fd, ResourceClass::File)?;
-    let offset_ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-    let data =
-        context.with_memory_mut(|memory| Ok(memory.read_exact(offset_ptr, len)?.to_vec()))?;
+    let ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+    let data = context.with_memory_mut(|memory| Ok(memory.read_exact(ptr, len)?.to_vec()))?;
 
     context.host
         .insert_job(thread_pool::make_write_job(file, data, position))
@@ -274,9 +273,9 @@ pub(super) fn make_write_job(
 pub(super) fn get_read_result(
     context: &mut ImportContext<'_, '_>,
     job: u64,
-    dst: i32,
-    offset: i32,
-    len: i32,
+    dst: u32,
+    offset: u32,
+    len: u32,
 ) -> AsyncHostResult<()> {
     context.with_host_and_memory_mut(|host, memory| {
         host.get_read_result(memory, job, dst, offset, len)
@@ -292,8 +291,8 @@ pub(super) fn get_read_result(
 pub(super) fn make_file_kind_by_path_job(
     context: &mut ImportContext<'_, '_>,
     parent: u64,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     follow_symlink: i32,
 ) -> AsyncHostResult<u64> {
     let parent = if parent == context.host.invalid_fd() {
@@ -363,8 +362,8 @@ pub(super) fn make_file_time_job(
 )]
 pub(super) fn make_file_time_by_path_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     follow_symlink: i32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
@@ -379,7 +378,7 @@ pub(super) fn make_file_time_by_path_job(
 pub(super) fn get_file_time_result(
     context: &mut ImportContext<'_, '_>,
     job: u64,
-    out: i32,
+    out: u32,
 ) -> AsyncHostResult<()> {
     context.with_host_and_memory_mut(|host, memory| {
         host.get_file_time_result(memory, job, out)
@@ -389,8 +388,8 @@ pub(super) fn get_file_time_result(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_access_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     access: i32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
@@ -402,8 +401,8 @@ pub(super) fn make_access_job(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_chmod_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     mode: i32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
@@ -441,8 +440,8 @@ pub(super) fn make_flock_job(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_remove_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
     context.host.insert_job(thread_pool::make_remove_job(path))
@@ -451,10 +450,10 @@ pub(super) fn make_remove_job(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_rename_job(
     context: &mut ImportContext<'_, '_>,
-    old_path_ptr: i32,
-    old_path_len: i32,
-    new_path_ptr: i32,
-    new_path_len: i32,
+    old_path_ptr: u32,
+    old_path_len: u32,
+    new_path_ptr: u32,
+    new_path_len: u32,
     replace: i32,
 ) -> AsyncHostResult<u64> {
     let old_path = read_guest_os_string(context, old_path_ptr, old_path_len)?;
@@ -470,10 +469,10 @@ pub(super) fn make_rename_job(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_symlink_job(
     context: &mut ImportContext<'_, '_>,
-    target_ptr: i32,
-    target_len: i32,
-    path_ptr: i32,
-    path_len: i32,
+    target_ptr: u32,
+    target_len: u32,
+    path_ptr: u32,
+    path_len: u32,
     force_symlink: i32,
 ) -> AsyncHostResult<u64> {
     let target = read_guest_os_string(context, target_ptr, target_len)?;
@@ -489,8 +488,8 @@ pub(super) fn make_symlink_job(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_mkdir_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
     mode: i32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
@@ -502,8 +501,8 @@ pub(super) fn make_mkdir_job(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_rmdir_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
     context.host.insert_job(thread_pool::make_rmdir_job(path))
@@ -514,7 +513,7 @@ pub(super) fn make_readdir_job(
     context: &mut ImportContext<'_, '_>,
     dir: u64,
     buf: u64,
-    len: i32,
+    len: u32,
     restart: i32,
 ) -> AsyncHostResult<u64> {
     let dir = context
@@ -534,8 +533,8 @@ pub(super) fn make_readdir_job(
 pub(super) fn make_bind_job(
     context: &mut ImportContext<'_, '_>,
     socket: u64,
-    addr: i32,
-    addr_len: i32,
+    addr: u32,
+    addr_len: u32,
 ) -> AsyncHostResult<u64> {
     let socket = context.host.acquire_socket_resource(socket)?;
     let addr = context.with_memory_mut(|memory| Ok(memory.read_exact(addr, addr_len)?.to_vec()))?;
@@ -548,8 +547,8 @@ pub(super) fn make_bind_job(
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_getaddrinfo_job(
     context: &mut ImportContext<'_, '_>,
-    host: i32,
-    host_len: i32,
+    host: u32,
+    host_len: u32,
 ) -> AsyncHostResult<u64> {
     let host = read_guest_os_string(context, host, host_len)?;
     match context.host.policy().resolve_dns(&host) {
@@ -569,16 +568,16 @@ pub(super) fn make_getaddrinfo_job(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_spawn_job_unix(
     context: &mut ImportContext<'_, '_>,
-    path: i32,
-    path_len: i32,
+    path: u32,
+    path_len: u32,
     args: u64,
     env: u64,
-    inherited_env_entry_count: i32,
+    inherited_env_entry_count: u32,
     stdin: u64,
     stdout: u64,
     stderr: u64,
-    cwd: i32,
-    cwd_len: i32,
+    cwd: u32,
+    cwd_len: u32,
     has_cwd: i32,
 ) -> AsyncHostResult<u64> {
     let (args, env) = context.host.take_legacy_process_spawn_inputs(
@@ -613,8 +612,8 @@ pub(super) fn make_spawn_job_unix(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_job_unix(
     context: &mut ImportContext<'_, '_>,
-    path: i32,
-    path_len: i32,
+    path: u32,
+    path_len: u32,
     args: u64,
     env: u64,
     stdin: u64,
@@ -645,8 +644,8 @@ pub(super) fn spawn_job_unix(
 pub(super) fn spawn_job_set_cwd(
     context: &mut ImportContext<'_, '_>,
     job: u64,
-    cwd: i32,
-    cwd_len: i32,
+    cwd: u32,
+    cwd_len: u32,
 ) -> AsyncHostResult<()> {
     let cwd = read_guest_os_string(context, cwd, cwd_len)?;
     context.host.spawn_job_set_cwd(job, cwd)
@@ -663,14 +662,14 @@ pub(super) fn spawn_job_set_cwd(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_spawn_job_windows(
     context: &mut ImportContext<'_, '_>,
-    command_line: i32,
-    command_line_len: i32,
+    command_line: u32,
+    command_line_len: u32,
     env: u64,
     stdin: u64,
     stdout: u64,
     stderr: u64,
-    cwd: i32,
-    cwd_len: i32,
+    cwd: u32,
+    cwd_len: u32,
     has_cwd: i32,
     no_console_window: i32,
     is_orphan: i32,
@@ -710,8 +709,8 @@ pub(super) fn make_spawn_job_windows(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_job_windows(
     context: &mut ImportContext<'_, '_>,
-    command_line: i32,
-    command_line_len: i32,
+    command_line: u32,
+    command_line_len: u32,
     env: u64,
     stdin: u64,
     stdout: u64,
@@ -803,8 +802,8 @@ pub(super) fn make_wait_for_process_job(
 #[cfg(unix)]
 pub(super) fn make_sigwait_job(
     context: &mut ImportContext<'_, '_>,
-    signals: i32,
-    signals_len: i32,
+    signals: u32,
+    signals_len: u32,
 ) -> AsyncHostResult<u64> {
     let signals =
         context.with_memory_mut(|memory| read_i32_array(memory, signals, signals_len))?;
@@ -835,8 +834,8 @@ pub(super) fn get_getaddrinfo_result(
 #[cfg(unix)]
 fn read_i32_array(
     memory: &(impl GuestMemory + ?Sized),
-    offset: i32,
-    len: i32,
+    offset: u32,
+    len: u32,
 ) -> AsyncHostResult<Vec<i32>> {
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
     let byte_len = len
@@ -844,7 +843,7 @@ fn read_i32_array(
         .ok_or(AsyncHostError::Fault)?;
     let bytes = memory.read_exact(
         offset,
-        i32::try_from(byte_len).map_err(|_| AsyncHostError::Fault)?,
+        u32::try_from(byte_len).map_err(|_| AsyncHostError::Fault)?,
     )?;
     Ok(bytes
         .chunks_exact(std::mem::size_of::<i32>())
@@ -855,8 +854,8 @@ fn read_i32_array(
 #[ported(source = "src/internal/event_loop/fs.c")]
 pub(super) fn make_realpath_job(
     context: &mut ImportContext<'_, '_>,
-    path_ptr: i32,
-    path_len: i32,
+    path_ptr: u32,
+    path_len: u32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
     context

@@ -358,12 +358,12 @@ impl TlsConnection {
         self.advance_state(input, output)
     }
 
-    pub(crate) fn bytes_read(&self) -> i32 {
-        self.schannel.bytes_read as i32
+    pub(crate) fn bytes_read(&self) -> usize {
+        self.schannel.bytes_read
     }
 
-    pub(crate) fn bytes_to_write(&self) -> i32 {
-        self.schannel.bytes_to_write as i32
+    pub(crate) fn bytes_to_write(&self) -> usize {
+        self.schannel.bytes_to_write
     }
 
     pub(crate) fn peer_certificate(&mut self) -> Result<Option<Vec<u8>>, ()> {

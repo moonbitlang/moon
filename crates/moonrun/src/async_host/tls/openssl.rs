@@ -254,12 +254,12 @@ impl TlsConnection {
         self.advance_state(input, output)
     }
 
-    pub(crate) fn bytes_read(&self) -> i32 {
-        self.last_bytes_read as i32
+    pub(crate) fn bytes_read(&self) -> usize {
+        self.last_bytes_read
     }
 
-    pub(crate) fn bytes_to_write(&self) -> i32 {
-        self.last_bytes_to_write as i32
+    pub(crate) fn bytes_to_write(&self) -> usize {
+        self.last_bytes_to_write
     }
 
     fn advance_state(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {

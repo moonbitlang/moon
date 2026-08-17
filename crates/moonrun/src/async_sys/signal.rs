@@ -102,7 +102,7 @@ ported_fns! {
     }
 }
 
-pub(crate) fn get_signal_by_index(index: i32) -> i32 {
+pub(crate) fn get_signal_by_index(index: u32) -> i32 {
     match index {
         0 => signal_int(),
         1 => signal_term(),

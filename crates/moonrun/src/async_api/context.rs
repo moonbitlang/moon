@@ -153,10 +153,30 @@ impl FinishI32 for i32 {
     }
 }
 
+impl FinishI32 for u32 {
+    fn finish_i32(
+        self,
+        _scope: &mut v8::HandleScope,
+        ret: &mut v8::ReturnValue,
+        _import_name: &str,
+    ) {
+        ret.set_uint32(self);
+    }
+}
+
 impl FinishI32 for AsyncHostResult<i32> {
     fn finish_i32(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
         match self {
             Ok(value) => ret.set_int32(value),
+            Err(error) => throw_import_error(scope, import_name, error),
+        }
+    }
+}
+
+impl FinishI32 for AsyncHostResult<u32> {
+    fn finish_i32(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+        match self {
+            Ok(value) => ret.set_uint32(value),
             Err(error) => throw_import_error(scope, import_name, error),
         }
     }

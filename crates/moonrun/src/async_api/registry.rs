@@ -76,7 +76,11 @@ macro_rules! import_kind {
 
 #[cfg(test)]
 macro_rules! wasm_type {
+    // Wasm integer types are signless, so both Rust types map to the same ABI.
     (i32) => {
+        WasmType::I32
+    };
+    (u32) => {
         WasmType::I32
     };
     (i64) => {
@@ -100,6 +104,9 @@ macro_rules! wasm_result {
 macro_rules! decode_wasm_arg {
     ($args:ident, i32) => {
         $args.next_i32()
+    };
+    ($args:ident, u32) => {
+        $args.next_u32()
     };
     ($args:ident, i64) => {
         $args.next_i64()
@@ -139,6 +146,9 @@ macro_rules! finish_wasm_import {
         $result.finish_void($scope, &mut $ret, $name)
     };
     ($scope:ident, $ret:ident, $name:expr, i32, $result:expr) => {
+        $result.finish_i32($scope, &mut $ret, $name)
+    };
+    ($scope:ident, $ret:ident, $name:expr, u32, $result:expr) => {
         $result.finish_i32($scope, &mut $ret, $name)
     };
     ($scope:ident, $ret:ident, $name:expr, i64, $result:expr) => {
@@ -331,7 +341,7 @@ declare_async_imports! {
 
     ported event_bus::wait(bus: u64, timeout_ms: i32) -> i32 => "event_bus/wait";
 
-    ported event_bus::get_event(bus: u64, index: i32) -> u64 => "event_bus/get_event";
+    ported event_bus::get_event(bus: u64, index: u32) -> u64 => "event_bus/get_event";
 
     ported event_bus::event_fd(event: u64) -> u64 => "event_bus/event_fd";
 
@@ -354,10 +364,10 @@ declare_async_imports! {
     fake event_bus::event_io_result(event: u64) -> u64 => "event_bus/event_io_result/windows";
 
     #[cfg(windows)]
-    ported event_bus::event_bytes_transferred(event: u64) -> i32 => "event_bus/event_bytes_transferred/windows";
+    ported event_bus::event_bytes_transferred(event: u64) -> u32 => "event_bus/event_bytes_transferred/windows";
 
     #[cfg(not(windows))]
-    fake event_bus::event_bytes_transferred(event: u64) -> i32 => "event_bus/event_bytes_transferred/windows";
+    fake event_bus::event_bytes_transferred(event: u64) -> u32 => "event_bus/event_bytes_transferred/windows";
 
     ported event_loop::errno_is_cancelled(errno: i32) -> i32 => "thread_pool/errno_is_cancelled";
 
@@ -384,10 +394,10 @@ declare_async_imports! {
     helper thread_pool::destroy_thread_pool() -> void => "thread_pool/destroy_thread_pool";
 
     #[cfg(unix)]
-    helper thread_pool::fetch_completion(source_fd: u64, dst: i32, max_jobs: i32) -> i32 => "thread_pool/fetch_completion/unix";
+    helper thread_pool::fetch_completion(source_fd: u64, dst: u32, max_jobs: u32) -> i32 => "thread_pool/fetch_completion/unix";
 
     #[cfg(windows)]
-    fake thread_pool::fetch_completion(source_fd: u64, dst: i32, max_jobs: i32) -> i32 => "thread_pool/fetch_completion/unix";
+    fake thread_pool::fetch_completion(source_fd: u64, dst: u32, max_jobs: u32) -> i32 => "thread_pool/fetch_completion/unix";
 
     ported thread_pool::make_sleep_job(duration_ms: i32) -> u64 => "thread_pool/make_sleep_job";
 
@@ -396,7 +406,7 @@ declare_async_imports! {
 
     // Cryptographically secure random bytes. Like the other native-style
     // helpers, this returns 0 on success and -1 after recording errno.
-    helper random::fill(buffer: i32, length: i32) -> i32 => "random/fill";
+    helper random::fill(buffer: u32, length: u32) -> i32 => "random/fill";
 
     // os_error/stub.c predicates, errno accessors, and string formatting.
     ported os_error::get_errno() -> i32 => "os_error/get_errno";
@@ -424,9 +434,9 @@ declare_async_imports! {
     helper os_error::free_errno_str(ptr: u64) -> void => "os_error/free_errno_str";
 
     // Decode host-native strings into guest-owned MoonBit String storage.
-    helper os_string::decode_len(ptr: u64, offset: i32, len: i32) -> i32 => "os_string/decode_len";
+    helper os_string::decode_len(ptr: u64, offset: u32, len: i32) -> u32 => "os_string/decode_len";
 
-    helper os_string::decode(ptr: u64, offset: i32, len: i32, out: i32, out_len: i32) -> void => "os_string/decode";
+    helper os_string::decode(ptr: u64, offset: u32, len: i32, out: u32, out_len: u32) -> void => "os_string/decode";
 
     helper fs::close_fd(fd: u64) -> i32 => "fd_util/close_fd";
 
@@ -434,13 +444,13 @@ declare_async_imports! {
 
     helper stdio::get_stdio_handle(id: i32) -> u64 => "stdio/get_stdio_handle";
 
-    helper signal::get_signal_by_index(index: i32) -> i32 => "signal/get_signal_by_index";
+    helper signal::get_signal_by_index(index: u32) -> i32 => "signal/get_signal_by_index";
 
     ported signal::set_global_cancellation_signals(
-        all_signals: i32,
-        all_signals_len: i32,
-        signals: i32,
-        signals_len: i32,
+        all_signals: u32,
+        all_signals_len: u32,
+        signals: u32,
+        signals_len: u32,
     ) -> void => "signal/set_global_cancellation_signals";
 
     #[cfg(windows)]
@@ -453,16 +463,16 @@ declare_async_imports! {
 
     #[cfg(unix)]
     ported fd_util::pipe(
-        dst: i32,
-        len: i32,
+        dst: u32,
+        len: u32,
         read_end_is_async: i32,
         write_end_is_async: i32,
     ) -> i32 => "fd_util/pipe";
 
     #[cfg(windows)]
     helper fd_util::pipe(
-        dst: i32,
-        len: i32,
+        dst: u32,
+        len: u32,
         read_end_is_async: i32,
         write_end_is_async: i32,
     ) -> i32 => "fd_util/pipe";
@@ -471,42 +481,42 @@ declare_async_imports! {
 
     helper fd_util::set_cloexec(fd: u64) -> i32 => "fd_util/set_cloexec";
 
-    helper fd_util::sizeof_file_time() -> i32 => "fd_util/sizeof_file_time";
+    helper fd_util::sizeof_file_time() -> u32 => "fd_util/sizeof_file_time";
 
-    ported fd_util::get_atime_sec(ptr: i32) -> i64 => "fd_util/get_atime_sec";
+    ported fd_util::get_atime_sec(ptr: u32) -> i64 => "fd_util/get_atime_sec";
 
-    ported fd_util::get_atime_nsec(ptr: i32) -> i32 => "fd_util/get_atime_nsec";
+    ported fd_util::get_atime_nsec(ptr: u32) -> i32 => "fd_util/get_atime_nsec";
 
-    ported fd_util::get_mtime_sec(ptr: i32) -> i64 => "fd_util/get_mtime_sec";
+    ported fd_util::get_mtime_sec(ptr: u32) -> i64 => "fd_util/get_mtime_sec";
 
-    ported fd_util::get_mtime_nsec(ptr: i32) -> i32 => "fd_util/get_mtime_nsec";
+    ported fd_util::get_mtime_nsec(ptr: u32) -> i32 => "fd_util/get_mtime_nsec";
 
-    ported fd_util::get_ctime_sec(ptr: i32) -> i64 => "fd_util/get_ctime_sec";
+    ported fd_util::get_ctime_sec(ptr: u32) -> i64 => "fd_util/get_ctime_sec";
 
-    ported fd_util::get_ctime_nsec(ptr: i32) -> i32 => "fd_util/get_ctime_nsec";
+    ported fd_util::get_ctime_nsec(ptr: u32) -> i32 => "fd_util/get_ctime_nsec";
 
     // Small internal utility stubs.
     ported env_util::getpid() -> i32 => "env_util/getpid";
 
     #[cfg(unix)]
-    ported io::read(fd: u64, dst: i32, offset: i32, len: i32) -> i32 => "io/read/unix";
+    ported io::read(fd: u64, dst: u32, offset: u32, len: u32) -> i32 => "io/read/unix";
 
     #[cfg(windows)]
-    fake io::read(fd: u64, dst: i32, offset: i32, len: i32) -> i32 => "io/read/unix";
+    fake io::read(fd: u64, dst: u32, offset: u32, len: u32) -> i32 => "io/read/unix";
 
     #[cfg(unix)]
-    ported io::write(fd: u64, src: i32, offset: i32, len: i32) -> i32 => "io/write/unix";
+    ported io::write(fd: u64, src: u32, offset: u32, len: u32) -> i32 => "io/write/unix";
 
     #[cfg(windows)]
-    fake io::write(fd: u64, src: i32, offset: i32, len: i32) -> i32 => "io/write/unix";
+    fake io::write(fd: u64, src: u32, offset: u32, len: u32) -> i32 => "io/write/unix";
 
-    ported socket::ipv4_addr_size() -> i32 => "socket/ipv4_addr_size";
+    ported socket::ipv4_addr_size() -> u32 => "socket/ipv4_addr_size";
 
-    ported socket::ipv6_addr_size() -> i32 => "socket/ipv6_addr_size";
+    ported socket::ipv6_addr_size() -> u32 => "socket/ipv6_addr_size";
 
-    ported socket::init_ip_addr(addr: i32, ip: i32, port: i32) -> void => "socket/init_ip_addr";
+    ported socket::init_ip_addr(addr: u32, ip: u32, port: u32) -> void => "socket/init_ip_addr";
 
-    ported socket::init_ipv6_addr(addr: i32, ip: i32, port: i32, scope_id: i32) -> void => "socket/init_ipv6_addr";
+    ported socket::init_ipv6_addr(addr: u32, ip: u32, port: u32, scope_id: u32) -> void => "socket/init_ipv6_addr";
 
     #[cfg(unix)]
     ported socket::gai_strerror(code: i32) -> u64 => "socket/gai_strerror";
@@ -514,29 +524,29 @@ declare_async_imports! {
     #[cfg(windows)]
     fake socket::gai_strerror(code: i32) -> u64 => "socket/gai_strerror";
 
-    ported socket::ip_addr_get_ip(addr: i32, addr_len: i32) -> i32 => "socket/ip_addr_get_ip";
+    ported socket::ip_addr_get_ip(addr: u32, addr_len: u32) -> u32 => "socket/ip_addr_get_ip";
 
-    ported socket::ip_addr_get_port(addr: i32, addr_len: i32) -> i32 => "socket/ip_addr_get_port";
+    ported socket::ip_addr_get_port(addr: u32, addr_len: u32) -> u32 => "socket/ip_addr_get_port";
 
-    ported socket::addr_is_ipv6(addr: i32, addr_len: i32) -> i32 => "socket/addr_is_ipv6";
+    ported socket::addr_is_ipv6(addr: u32, addr_len: u32) -> i32 => "socket/addr_is_ipv6";
 
-    ported socket::addr_is_multicast(addr: i32, addr_len: i32) -> i32 => "socket/addr_is_multicast";
+    ported socket::addr_is_multicast(addr: u32, addr_len: u32) -> i32 => "socket/addr_is_multicast";
 
-    ported socket::addr_get_ipv6_bytes_offset() -> i32 => "socket/addr_get_ipv6_bytes_offset";
+    ported socket::addr_get_ipv6_bytes_offset() -> u32 => "socket/addr_get_ipv6_bytes_offset";
 
-    helper socket::addr_copy_ipv6_bytes(addr: i32, out: i32, addr_len: i32, len: i32) -> void => "socket/addr_copy_ipv6_bytes";
+    helper socket::addr_copy_ipv6_bytes(addr: u32, out: u32, addr_len: u32, len: u32) -> void => "socket/addr_copy_ipv6_bytes";
 
-    ported socket::addr_get_ipv6_scope_id(addr: i32, addr_len: i32) -> i32 => "socket/addr_get_ipv6_scope_id";
+    ported socket::addr_get_ipv6_scope_id(addr: u32, addr_len: u32) -> u32 => "socket/addr_get_ipv6_scope_id";
 
-    ported socket::addr_is_ipv6_wildcard(addr: i32, addr_len: i32) -> i32 => "socket/addr_is_ipv6_wildcard";
+    ported socket::addr_is_ipv6_wildcard(addr: u32, addr_len: u32) -> i32 => "socket/addr_is_ipv6_wildcard";
 
     helper socket::addrinfo_is_null(addrinfo: u64) -> i32 => "socket/addrinfo_is_null";
 
     helper socket::addrinfo_get_next(addrinfo: u64) -> u64 => "socket/addrinfo_get_next";
 
-    ported socket::addrinfo_addr_size(addrinfo: u64) -> i32 => "socket/addrinfo_addr_size";
+    ported socket::addrinfo_addr_size(addrinfo: u64) -> u32 => "socket/addrinfo_addr_size";
 
-    ported socket::addrinfo_fill_addr(addrinfo: u64, out: i32, port: i32, out_len: i32) -> void => "socket/addrinfo_fill_addr";
+    ported socket::addrinfo_fill_addr(addrinfo: u64, out: u32, port: u32, out_len: u32) -> void => "socket/addrinfo_fill_addr";
 
     helper socket::addrinfo_free(addrinfo: u64) -> void => "socket/addrinfo_free";
 
@@ -544,13 +554,13 @@ declare_async_imports! {
 
     ported socket::make_udp_socket(family: i32, multicast: i32) -> u64 => "socket/make_udp_socket";
 
-    ported socket::join_multicast_group(fd: u64, multi_addr: i32, local_addr: i32, multi_addr_len: i32, local_addr_len: i32) -> i32 => "socket/join_multicast_group";
+    ported socket::join_multicast_group(fd: u64, multi_addr: u32, local_addr: u32, multi_addr_len: u32, local_addr_len: u32) -> i32 => "socket/join_multicast_group";
 
-    ported socket::join_multicast_group_v6(fd: u64, multi_addr: i32, interface_index: i32, multi_addr_len: i32) -> i32 => "socket/join_multicast_group_v6";
+    ported socket::join_multicast_group_v6(fd: u64, multi_addr: u32, interface_index: u32, multi_addr_len: u32) -> i32 => "socket/join_multicast_group_v6";
 
-    ported socket::set_multicast_interface(fd: u64, local_addr: i32, local_addr_len: i32) -> i32 => "socket/set_multicast_interface";
+    ported socket::set_multicast_interface(fd: u64, local_addr: u32, local_addr_len: u32) -> i32 => "socket/set_multicast_interface";
 
-    ported socket::set_multicast_interface_v6(fd: u64, interface_index: i32) -> i32 => "socket/set_multicast_interface_v6";
+    ported socket::set_multicast_interface_v6(fd: u64, interface_index: u32) -> i32 => "socket/set_multicast_interface_v6";
 
     ported socket::set_multicast_ttl(fd: u64, ttl: i32, family: i32) -> i32 => "socket/set_multicast_ttl";
 
@@ -566,35 +576,35 @@ declare_async_imports! {
 
     ported socket::enable_keepalive(fd: u64, keep_idle: i32, keep_count: i32, keep_intvl: i32) -> i32 => "socket/enable_keepalive";
 
-    ported socket::getsockname(fd: u64, addr: i32, addr_len: i32) -> i32 => "socket/getsockname";
+    ported socket::getsockname(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/getsockname";
 
-    ported socket::if_nametoindex(name: i32, name_len: i32) -> i32 => "socket/if_nametoindex";
+    ported socket::if_nametoindex(name: u32, name_len: u32) -> u32 => "socket/if_nametoindex";
 
-    ported socket::if_indextoname(index: i32) -> u64 => "socket/if_indextoname";
+    ported socket::if_indextoname(index: u32) -> u64 => "socket/if_indextoname";
 
-    ported socket::find_ipv6_test_interface() -> i32 => "socket/find_ipv6_test_interface";
+    ported socket::find_ipv6_test_interface() -> u32 => "socket/find_ipv6_test_interface";
 
-    ported socket::udp_client_connect(fd: u64, addr: i32, addr_len: i32) -> i32 => "socket/udp_client_connect";
+    ported socket::udp_client_connect(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/udp_client_connect";
 
-    helper socket::bind(fd: u64, addr: i32, addr_len: i32) -> i32 => "socket/bind";
-
-    #[cfg(unix)]
-    ported socket::recvfrom(fd: u64, buf: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> i32 => "socket/recvfrom/unix";
-
-    #[cfg(windows)]
-    fake socket::recvfrom(fd: u64, buf: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> i32 => "socket/recvfrom/unix";
+    helper socket::bind(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/bind";
 
     #[cfg(unix)]
-    ported socket::sendto(fd: u64, buf: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> i32 => "socket/sendto/unix";
+    ported socket::recvfrom(fd: u64, buf: u32, offset: u32, len: u32, addr: u32, addr_len: u32) -> i32 => "socket/recvfrom/unix";
 
     #[cfg(windows)]
-    fake socket::sendto(fd: u64, buf: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> i32 => "socket/sendto/unix";
+    fake socket::recvfrom(fd: u64, buf: u32, offset: u32, len: u32, addr: u32, addr_len: u32) -> i32 => "socket/recvfrom/unix";
 
     #[cfg(unix)]
-    ported socket::connect(fd: u64, addr: i32, addr_len: i32) -> i32 => "socket/connect/unix";
+    ported socket::sendto(fd: u64, buf: u32, offset: u32, len: u32, addr: u32, addr_len: u32) -> i32 => "socket/sendto/unix";
 
     #[cfg(windows)]
-    fake socket::connect(fd: u64, addr: i32, addr_len: i32) -> i32 => "socket/connect/unix";
+    fake socket::sendto(fd: u64, buf: u32, offset: u32, len: u32, addr: u32, addr_len: u32) -> i32 => "socket/sendto/unix";
+
+    #[cfg(unix)]
+    ported socket::connect(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/connect/unix";
+
+    #[cfg(windows)]
+    fake socket::connect(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/connect/unix";
 
     #[cfg(unix)]
     ported socket::getsockerr(fd: u64) -> i32 => "socket/getsockerr/unix";
@@ -603,10 +613,10 @@ declare_async_imports! {
     fake socket::getsockerr(fd: u64) -> i32 => "socket/getsockerr/unix";
 
     #[cfg(unix)]
-    ported socket::accept(fd: u64, addr: i32, addr_len: i32) -> u64 => "socket/accept/unix";
+    ported socket::accept(fd: u64, addr: u32, addr_len: u32) -> u64 => "socket/accept/unix";
 
     #[cfg(windows)]
-    fake socket::accept(fd: u64, addr: i32, addr_len: i32) -> u64 => "socket/accept/unix";
+    fake socket::accept(fd: u64, addr: u32, addr_len: u32) -> u64 => "socket/accept/unix";
 
     #[cfg(windows)]
     ported socket::connect_io_result(fd: u64, result: u64) -> i32 => "socket/connect/windows";
@@ -634,113 +644,113 @@ declare_async_imports! {
 
     #[cfg(windows)]
     ported io::make_file_read_io_result(
-        len: i32,
+        len: u32,
         position: i64,
     ) -> u64 => "io/make_file_read_io_result/windows";
 
     #[cfg(not(windows))]
     fake io::make_file_read_io_result(
-        len: i32,
+        len: u32,
         position: i64,
     ) -> u64 => "io/make_file_read_io_result/windows";
 
     #[cfg(windows)]
     ported io::make_file_write_io_result(
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         position: i64,
     ) -> u64 => "io/make_file_write_io_result/windows";
 
     #[cfg(not(windows))]
     fake io::make_file_write_io_result(
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         position: i64,
     ) -> u64 => "io/make_file_write_io_result/windows";
 
     #[cfg(windows)]
     ported io::make_socket_read_io_result(
-        len: i32,
+        len: u32,
         flags: i32,
     ) -> u64 => "io/make_socket_read_io_result/windows";
 
     #[cfg(not(windows))]
     fake io::make_socket_read_io_result(
-        len: i32,
+        len: u32,
         flags: i32,
     ) -> u64 => "io/make_socket_read_io_result/windows";
 
     #[cfg(windows)]
     ported io::make_socket_write_io_result(
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         flags: i32,
     ) -> u64 => "io/make_socket_write_io_result/windows";
 
     #[cfg(not(windows))]
     fake io::make_socket_write_io_result(
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         flags: i32,
     ) -> u64 => "io/make_socket_write_io_result/windows";
 
     #[cfg(windows)]
     ported io::make_socket_with_addr_read_io_result(
-        len: i32,
+        len: u32,
         flags: i32,
-        addr: i32,
-        addr_len: i32,
+        addr: u32,
+        addr_len: u32,
     ) -> u64 => "io/make_socket_with_addr_read_io_result/windows";
 
     #[cfg(not(windows))]
     fake io::make_socket_with_addr_read_io_result(
-        len: i32,
+        len: u32,
         flags: i32,
-        addr: i32,
-        addr_len: i32,
+        addr: u32,
+        addr_len: u32,
     ) -> u64 => "io/make_socket_with_addr_read_io_result/windows";
 
     #[cfg(windows)]
     ported io::make_socket_with_addr_write_io_result(
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         flags: i32,
-        addr: i32,
-        addr_len: i32,
+        addr: u32,
+        addr_len: u32,
     ) -> u64 => "io/make_socket_with_addr_write_io_result/windows";
 
     #[cfg(not(windows))]
     fake io::make_socket_with_addr_write_io_result(
-        src: i32,
-        offset: i32,
-        len: i32,
+        src: u32,
+        offset: u32,
+        len: u32,
         flags: i32,
-        addr: i32,
-        addr_len: i32,
+        addr: u32,
+        addr_len: u32,
     ) -> u64 => "io/make_socket_with_addr_write_io_result/windows";
 
     #[cfg(windows)]
-    ported io::make_connect_io_result(addr: i32, addr_len: i32) -> u64 => "io/make_connect_io_result/windows";
+    ported io::make_connect_io_result(addr: u32, addr_len: u32) -> u64 => "io/make_connect_io_result/windows";
 
     #[cfg(not(windows))]
-    fake io::make_connect_io_result(addr: i32, addr_len: i32) -> u64 => "io/make_connect_io_result/windows";
+    fake io::make_connect_io_result(addr: u32, addr_len: u32) -> u64 => "io/make_connect_io_result/windows";
 
     #[cfg(windows)]
-    ported io::make_accept_io_result(addr_len: i32) -> u64 => "io/make_accept_io_result/windows";
+    ported io::make_accept_io_result(addr_len: u32) -> u64 => "io/make_accept_io_result/windows";
 
     #[cfg(not(windows))]
-    fake io::make_accept_io_result(addr_len: i32) -> u64 => "io/make_accept_io_result/windows";
+    fake io::make_accept_io_result(addr_len: u32) -> u64 => "io/make_accept_io_result/windows";
 
     #[cfg(windows)]
-    ported io::get_accept_peer_addr(result: u64, dst: i32, dst_len: i32) -> void => "io/get_accept_peer_addr/windows";
+    ported io::get_accept_peer_addr(result: u64, dst: u32, dst_len: u32) -> void => "io/get_accept_peer_addr/windows";
 
     #[cfg(not(windows))]
-    fake io::get_accept_peer_addr(result: u64, dst: i32, dst_len: i32) -> void => "io/get_accept_peer_addr/windows";
+    fake io::get_accept_peer_addr(result: u64, dst: u32, dst_len: u32) -> void => "io/get_accept_peer_addr/windows";
 
     #[cfg(windows)]
     ported io::free_io_result(result: u64) -> void => "io/free_io_result/windows";
@@ -767,16 +777,16 @@ declare_async_imports! {
     fake io::io_result_get_status(result: u64, fd: u64) -> i32 => "io/io_result_get_status/windows";
 
     #[cfg(windows)]
-    helper io::io_result_copy_read(result: u64, dst: i32, offset: i32, len: i32) -> void => "io/io_result_copy_read/windows";
+    helper io::io_result_copy_read(result: u64, dst: u32, offset: u32, len: u32) -> void => "io/io_result_copy_read/windows";
 
     #[cfg(not(windows))]
-    fake io::io_result_copy_read(result: u64, dst: i32, offset: i32, len: i32) -> void => "io/io_result_copy_read/windows";
+    fake io::io_result_copy_read(result: u64, dst: u32, offset: u32, len: u32) -> void => "io/io_result_copy_read/windows";
 
     #[cfg(windows)]
-    helper io::io_result_copy_read_with_addr(result: u64, dst: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> void => "io/io_result_copy_read_with_addr/windows";
+    helper io::io_result_copy_read_with_addr(result: u64, dst: u32, offset: u32, len: u32, addr: u32, addr_len: u32) -> void => "io/io_result_copy_read_with_addr/windows";
 
     #[cfg(not(windows))]
-    fake io::io_result_copy_read_with_addr(result: u64, dst: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> void => "io/io_result_copy_read_with_addr/windows";
+    fake io::io_result_copy_read_with_addr(result: u64, dst: u32, offset: u32, len: u32, addr: u32, addr_len: u32) -> void => "io/io_result_copy_read_with_addr/windows";
 
     #[cfg(windows)]
     ported io::read_io_result(fd: u64, result: u64) -> i32 => "io/read/windows";
@@ -798,17 +808,17 @@ declare_async_imports! {
 
     helper c_buffer::is_null(ptr: u64) -> i32 => "c_buffer/is_null";
 
-    ported c_buffer::blit_to_c(dst: u64, dst_offset: i32, src: i32, src_offset: i32, len: i32) -> void => "c_buffer/blit_to_c";
+    ported c_buffer::blit_to_c(dst: u64, dst_offset: u32, src: u32, src_offset: u32, len: u32) -> void => "c_buffer/blit_to_c";
 
-    ported c_buffer::blit_from_c(src: u64, src_offset: i32, dst: i32, dst_offset: i32, len: i32) -> void => "c_buffer/blit_from_c";
+    ported c_buffer::blit_from_c(src: u64, src_offset: u32, dst: u32, dst_offset: u32, len: u32) -> void => "c_buffer/blit_from_c";
 
-    ported c_buffer::c_buffer_get(buf: u64, index: i32) -> i32 => "c_buffer/c_buffer_get";
+    ported c_buffer::c_buffer_get(buf: u64, index: u32) -> i32 => "c_buffer/c_buffer_get";
 
-    ported c_buffer::strlen(buf: u64) -> i32 => "c_buffer/strlen";
+    ported c_buffer::strlen(buf: u64) -> u32 => "c_buffer/strlen";
 
-    helper c_buffer::length(buf: u64) -> i32 => "c_buffer/length";
+    helper c_buffer::length(buf: u64) -> u32 => "c_buffer/length";
 
-    ported c_buffer::new(size: i32) -> u64 => "c_buffer/new";
+    ported c_buffer::new(size: u32) -> u64 => "c_buffer/new";
 
     helper c_buffer::free(ptr: u64) -> void => "c_buffer/free";
 
@@ -818,32 +828,32 @@ declare_async_imports! {
 
     ported tls::set_client(
         tls: u64,
-        host: i32,
-        host_len: i32,
+        host: u32,
+        host_len: u32,
         sni: i32,
         trust: i32,
     ) -> i32 => "tls/connection/set_client";
 
     ported tls::add_root_certificate(
         tls: u64,
-        root: i32,
-        root_len: i32,
+        root: u32,
+        root_len: u32,
     ) -> i32 => "tls/connection/add_root_certificate";
 
     ported tls::set_server_files(
         tls: u64,
-        private_key_file: i32,
-        private_key_file_len: i32,
+        private_key_file: u32,
+        private_key_file_len: u32,
         private_key_type_abi: i32,
-        certificate_file: i32,
-        certificate_file_len: i32,
+        certificate_file: u32,
+        certificate_file_len: u32,
         certificate_type_abi: i32,
     ) -> i32 => "tls/connection/set_server_files";
 
     ported tls::set_server_pfx(
         tls: u64,
-        pfx_content: i32,
-        pfx_content_len: i32,
+        pfx_content: u32,
+        pfx_content_len: u32,
     ) -> i32 => "tls/connection/set_server_pfx";
 
     ported tls::free(tls: u64) -> void => "tls/connection/free";
@@ -854,53 +864,53 @@ declare_async_imports! {
 
     ported tls::read_plain(
         tls: u64,
-        in_buffer: i32,
-        in_buffer_offset: i32,
-        in_buffer_len: i32,
-        out_buffer: i32,
-        out_buffer_offset: i32,
-        out_buffer_len: i32,
-        plain_buffer: i32,
-        plain_buffer_offset: i32,
-        plain_buffer_len: i32,
+        in_buffer: u32,
+        in_buffer_offset: u32,
+        in_buffer_len: u32,
+        out_buffer: u32,
+        out_buffer_offset: u32,
+        out_buffer_len: u32,
+        plain_buffer: u32,
+        plain_buffer_offset: u32,
+        plain_buffer_len: u32,
     ) -> i32 => "tls/connection/read_plain";
 
     ported tls::write_plain(
         tls: u64,
-        in_buffer: i32,
-        in_buffer_offset: i32,
-        in_buffer_len: i32,
-        out_buffer: i32,
-        out_buffer_offset: i32,
-        out_buffer_len: i32,
-        plain_buffer: i32,
-        plain_buffer_offset: i32,
-        plain_buffer_len: i32,
+        in_buffer: u32,
+        in_buffer_offset: u32,
+        in_buffer_len: u32,
+        out_buffer: u32,
+        out_buffer_offset: u32,
+        out_buffer_len: u32,
+        plain_buffer: u32,
+        plain_buffer_offset: u32,
+        plain_buffer_len: u32,
     ) -> i32 => "tls/connection/write_plain";
 
     ported tls::connect(
         tls: u64,
-        in_buffer: i32,
-        in_buffer_offset: i32,
-        in_buffer_len: i32,
-        out_buffer: i32,
-        out_buffer_offset: i32,
-        out_buffer_len: i32,
+        in_buffer: u32,
+        in_buffer_offset: u32,
+        in_buffer_len: u32,
+        out_buffer: u32,
+        out_buffer_offset: u32,
+        out_buffer_len: u32,
     ) -> i32 => "tls/connection/connect";
 
     ported tls::accept(
         tls: u64,
-        in_buffer: i32,
-        in_buffer_offset: i32,
-        in_buffer_len: i32,
-        out_buffer: i32,
-        out_buffer_offset: i32,
-        out_buffer_len: i32,
+        in_buffer: u32,
+        in_buffer_offset: u32,
+        in_buffer_len: u32,
+        out_buffer: u32,
+        out_buffer_offset: u32,
+        out_buffer_len: u32,
     ) -> i32 => "tls/connection/accept";
 
-    ported tls::bytes_read(tls: u64) -> i32 => "tls/connection/bytes_read";
+    ported tls::bytes_read(tls: u64) -> u32 => "tls/connection/bytes_read";
 
-    ported tls::bytes_to_write(tls: u64) -> i32 => "tls/connection/bytes_to_write";
+    ported tls::bytes_to_write(tls: u64) -> u32 => "tls/connection/bytes_to_write";
 
     ported tls::wants_read(tls: u64) -> i32 => "tls/connection/wants_read";
 
@@ -927,29 +937,29 @@ declare_async_imports! {
 
     // Writes the native temporary directory as UTF-16 code units into a
     // guest-allocated MoonBit String.
-    ported fs::get_tmp_path(ptr: i32, len: i32) -> i32 => "fs/get_tmp_path";
+    ported fs::get_tmp_path(ptr: u32, len: u32) -> i32 => "fs/get_tmp_path";
 
     helper fs::get_tmp_path_buffer() -> u64 => "fs/get_tmp_path_buffer";
 
-    ported fs::dir_buffer_min_size() -> i32 => "fs/dir_buffer_min_size";
+    ported fs::dir_buffer_min_size() -> u32 => "fs/dir_buffer_min_size";
 
-    ported fs::dir_entry_length(buf: u64, offset: i32) -> i32 => "fs/dir_entry_length";
+    ported fs::dir_entry_length(buf: u64, offset: u32) -> u32 => "fs/dir_entry_length";
 
-    ported fs::dir_entry_name_len(buf: u64, offset: i32) -> i32 => "fs/dir_entry_get_name_len";
+    ported fs::dir_entry_name_len(buf: u64, offset: u32) -> u32 => "fs/dir_entry_get_name_len";
 
-    ported fs::dir_entry_name_offset(buf: u64, offset: i32) -> i32 => "fs/dir_entry_get_name_offset";
+    ported fs::dir_entry_name_offset(buf: u64, offset: u32) -> u32 => "fs/dir_entry_get_name_offset";
 
-    ported fs::dir_entry_is_dir(buf: u64, offset: i32) -> i32 => "fs/dir_entry_is_dir";
+    ported fs::dir_entry_is_dir(buf: u64, offset: u32) -> i32 => "fs/dir_entry_is_dir";
 
-    ported fs::dir_entry_is_hidden(buf: u64, offset: i32) -> i32 => "fs/dir_entry_is_hidden";
+    ported fs::dir_entry_is_hidden(buf: u64, offset: u32) -> i32 => "fs/dir_entry_is_hidden";
 
-    ported fs::dir_entry_file_id(buf: u64, offset: i32) -> u64 => "fs/dir_entry_get_file_id";
+    ported fs::dir_entry_file_id(buf: u64, offset: u32) -> u64 => "fs/dir_entry_get_file_id";
 
     // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
     // MoonBit String pointer plus UTF-16 code-unit length.
     compat thread_pool::make_open_job_legacy(
-        path_ptr: i32,
-        path_len: i32,
+        path_ptr: u32,
+        path_len: u32,
         access: i32,
         create_mode: i32,
         append: i32,
@@ -958,33 +968,33 @@ declare_async_imports! {
     ) -> u64 => "thread_pool/make_open_job";
 
     ported thread_pool::make_open_stat_job(
-        path_ptr: i32,
-        path_len: i32,
+        path_ptr: u32,
+        path_len: u32,
         access: i32,
         create_mode: i32,
         append: i32,
         sync: i32,
         mode: i32,
         stat_request: i32,
-        stat_result_len: i32,
+        stat_result_len: u32,
     ) -> u64 => "thread_pool/make_open_stat_job";
 
     ported thread_pool::make_fstatx_job(
         fd: u64,
         stat_request: i32,
-        stat_result_len: i32,
+        stat_result_len: u32,
     ) -> u64 => "thread_pool/make_fstatx_job";
 
     ported thread_pool::make_statx_job(
-        path_ptr: i32,
-        path_len: i32,
+        path_ptr: u32,
+        path_len: u32,
         stat_request: i32,
-        stat_result_len: i32,
+        stat_result_len: u32,
         parent: u64,
         follow_symlink: i32,
     ) -> u64 => "thread_pool/make_statx_job";
 
-    helper thread_pool::get_stat_result(job: u64, dst: i32, dst_len: i32) -> void => "thread_pool/get_stat_result";
+    helper thread_pool::get_stat_result(job: u64, dst: u32, dst_len: u32) -> void => "thread_pool/get_stat_result";
 
     ported thread_pool::open_job_get_fd(job: u64) -> u64 => "thread_pool/open_job_get_fd";
 
@@ -994,16 +1004,16 @@ declare_async_imports! {
 
     compat thread_pool::open_job_get_file_id(job: u64) -> u64 => "thread_pool/open_job_get_file_id";
 
-    ported thread_pool::make_read_job(fd: u64, len: i32, position: i64) -> u64 => "thread_pool/make_read_job";
+    ported thread_pool::make_read_job(fd: u64, len: u32, position: i64) -> u64 => "thread_pool/make_read_job";
 
-    ported thread_pool::make_write_job(fd: u64, ptr: i32, offset: i32, len: i32, position: i64) -> u64 => "thread_pool/make_write_job";
+    ported thread_pool::make_write_job(fd: u64, ptr: u32, offset: u32, len: u32, position: i64) -> u64 => "thread_pool/make_write_job";
 
-    helper thread_pool::get_read_result(job: u64, dst: i32, offset: i32, len: i32) -> void => "thread_pool/get_read_result";
+    helper thread_pool::get_read_result(job: u64, dst: u32, offset: u32, len: u32) -> void => "thread_pool/get_read_result";
 
     compat thread_pool::make_file_kind_by_path_job(
         parent: u64,
-        path_ptr: i32,
-        path_len: i32,
+        path_ptr: u32,
+        path_len: u32,
         follow_symlink: i32,
     ) -> u64 => "thread_pool/make_file_kind_by_path_job";
 
@@ -1014,89 +1024,89 @@ declare_async_imports! {
     compat thread_pool::make_file_time_job(fd: u64) -> u64 => "thread_pool/make_file_time_job";
 
     compat thread_pool::make_file_time_by_path_job(
-        path_ptr: i32,
-        path_len: i32,
+        path_ptr: u32,
+        path_len: u32,
         follow_symlink: i32,
     ) -> u64 => "thread_pool/make_file_time_by_path_job";
 
-    helper thread_pool::get_file_time_result(job: u64, out: i32) -> void => "thread_pool/get_file_time_result";
+    helper thread_pool::get_file_time_result(job: u64, out: u32) -> void => "thread_pool/get_file_time_result";
 
-    ported thread_pool::make_access_job(path_ptr: i32, path_len: i32, access: i32) -> u64 => "thread_pool/make_access_job";
+    ported thread_pool::make_access_job(path_ptr: u32, path_len: u32, access: i32) -> u64 => "thread_pool/make_access_job";
 
-    ported thread_pool::make_chmod_job(path_ptr: i32, path_len: i32, mode: i32) -> u64 => "thread_pool/make_chmod_job";
+    ported thread_pool::make_chmod_job(path_ptr: u32, path_len: u32, mode: i32) -> u64 => "thread_pool/make_chmod_job";
 
     ported thread_pool::make_fsync_job(fd: u64, only_data: i32) -> u64 => "thread_pool/make_fsync_job";
 
     ported thread_pool::make_flock_job(fd: u64, exclusive: i32) -> u64 => "thread_pool/make_flock_job";
 
-    ported thread_pool::make_remove_job(path_ptr: i32, path_len: i32) -> u64 => "thread_pool/make_remove_job";
+    ported thread_pool::make_remove_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_remove_job";
 
     ported thread_pool::make_rename_job(
-        old_path_ptr: i32,
-        old_path_len: i32,
-        new_path_ptr: i32,
-        new_path_len: i32,
+        old_path_ptr: u32,
+        old_path_len: u32,
+        new_path_ptr: u32,
+        new_path_len: u32,
         replace: i32,
     ) -> u64 => "thread_pool/make_rename_job";
 
     ported thread_pool::make_symlink_job(
-        target_ptr: i32,
-        target_len: i32,
-        path_ptr: i32,
-        path_len: i32,
+        target_ptr: u32,
+        target_len: u32,
+        path_ptr: u32,
+        path_len: u32,
         force_symlink: i32,
     ) -> u64 => "thread_pool/make_symlink_job";
 
-    ported thread_pool::make_mkdir_job(path_ptr: i32, path_len: i32, mode: i32) -> u64 => "thread_pool/make_mkdir_job";
+    ported thread_pool::make_mkdir_job(path_ptr: u32, path_len: u32, mode: i32) -> u64 => "thread_pool/make_mkdir_job";
 
-    ported thread_pool::make_rmdir_job(path_ptr: i32, path_len: i32) -> u64 => "thread_pool/make_rmdir_job";
+    ported thread_pool::make_rmdir_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_rmdir_job";
 
-    ported thread_pool::make_readdir_job(dir: u64, buf: u64, len: i32, restart: i32) -> u64 => "thread_pool/make_readdir_job";
+    ported thread_pool::make_readdir_job(dir: u64, buf: u64, len: u32, restart: i32) -> u64 => "thread_pool/make_readdir_job";
 
-    ported thread_pool::make_bind_job(socket: u64, addr: i32, addr_len: i32) -> u64 => "thread_pool/make_bind_job";
+    ported thread_pool::make_bind_job(socket: u64, addr: u32, addr_len: u32) -> u64 => "thread_pool/make_bind_job";
 
-    ported thread_pool::make_getaddrinfo_job(host: i32, host_len: i32) -> u64 => "thread_pool/make_getaddrinfo_job";
+    ported thread_pool::make_getaddrinfo_job(host: u32, host_len: u32) -> u64 => "thread_pool/make_getaddrinfo_job";
 
     helper thread_pool::get_getaddrinfo_result(job: u64) -> u64 => "thread_pool/get_getaddrinfo_result";
 
-    ported thread_pool::make_realpath_job(path_ptr: i32, path_len: i32) -> u64 => "thread_pool/make_realpath_job";
+    ported thread_pool::make_realpath_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_realpath_job";
 
     ported thread_pool::get_realpath_result(job: u64) -> u64 => "thread_pool/get_realpath_result";
 
     #[cfg(unix)]
     compat thread_pool::make_spawn_job_unix(
-        path: i32,
-        path_len: i32,
+        path: u32,
+        path_len: u32,
         args: u64,
         env: u64,
-        inherited_env_entry_count: i32,
+        inherited_env_entry_count: u32,
         stdin: u64,
         stdout: u64,
         stderr: u64,
-        cwd: i32,
-        cwd_len: i32,
+        cwd: u32,
+        cwd_len: u32,
         has_cwd: i32,
     ) -> u64 => "thread_pool/make_spawn_job/unix";
 
     #[cfg(windows)]
     fake thread_pool::make_spawn_job_unix(
-        path: i32,
-        path_len: i32,
+        path: u32,
+        path_len: u32,
         args: u64,
         env: u64,
-        inherited_env_entry_count: i32,
+        inherited_env_entry_count: u32,
         stdin: u64,
         stdout: u64,
         stderr: u64,
-        cwd: i32,
-        cwd_len: i32,
+        cwd: u32,
+        cwd_len: u32,
         has_cwd: i32,
     ) -> u64 => "thread_pool/make_spawn_job/unix";
 
     #[cfg(unix)]
     ported thread_pool::spawn_job_unix(
-        path: i32,
-        path_len: i32,
+        path: u32,
+        path_len: u32,
         args: u64,
         env: u64,
         stdin: u64,
@@ -1106,8 +1116,8 @@ declare_async_imports! {
 
     #[cfg(windows)]
     fake thread_pool::spawn_job_unix(
-        path: i32,
-        path_len: i32,
+        path: u32,
+        path_len: u32,
         args: u64,
         env: u64,
         stdin: u64,
@@ -1117,14 +1127,14 @@ declare_async_imports! {
 
     #[cfg(windows)]
     compat thread_pool::make_spawn_job_windows(
-        command_line: i32,
-        command_line_len: i32,
+        command_line: u32,
+        command_line_len: u32,
         env: u64,
         stdin: u64,
         stdout: u64,
         stderr: u64,
-        cwd: i32,
-        cwd_len: i32,
+        cwd: u32,
+        cwd_len: u32,
         has_cwd: i32,
         no_console_window: i32,
         is_orphan: i32,
@@ -1132,14 +1142,14 @@ declare_async_imports! {
 
     #[cfg(unix)]
     fake thread_pool::make_spawn_job_windows(
-        command_line: i32,
-        command_line_len: i32,
+        command_line: u32,
+        command_line_len: u32,
         env: u64,
         stdin: u64,
         stdout: u64,
         stderr: u64,
-        cwd: i32,
-        cwd_len: i32,
+        cwd: u32,
+        cwd_len: u32,
         has_cwd: i32,
         no_console_window: i32,
         is_orphan: i32,
@@ -1147,8 +1157,8 @@ declare_async_imports! {
 
     #[cfg(windows)]
     ported thread_pool::spawn_job_windows(
-        command_line: i32,
-        command_line_len: i32,
+        command_line: u32,
+        command_line_len: u32,
         env: u64,
         stdin: u64,
         stdout: u64,
@@ -1158,8 +1168,8 @@ declare_async_imports! {
 
     #[cfg(unix)]
     fake thread_pool::spawn_job_windows(
-        command_line: i32,
-        command_line_len: i32,
+        command_line: u32,
+        command_line_len: u32,
         env: u64,
         stdin: u64,
         stdout: u64,
@@ -1169,8 +1179,8 @@ declare_async_imports! {
 
     ported thread_pool::spawn_job_set_cwd(
         job: u64,
-        cwd: i32,
-        cwd_len: i32,
+        cwd: u32,
+        cwd_len: u32,
     ) -> void => "thread_pool/spawn_job/set_cwd";
 
     #[cfg(windows)]
@@ -1190,16 +1200,16 @@ declare_async_imports! {
     ported thread_pool::make_wait_for_process_job(handle: u64, pid: i32) -> u64 => "thread_pool/make_wait_for_process_job";
 
     #[cfg(unix)]
-    ported thread_pool::make_sigwait_job(signals: i32, signals_len: i32) -> u64 => "thread_pool/make_sigwait_job";
+    ported thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
 
     #[cfg(windows)]
-    fake thread_pool::make_sigwait_job(signals: i32, signals_len: i32) -> u64 => "thread_pool/make_sigwait_job";
+    fake thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
 
     helper process::get_curr_env() -> u64 => "process/get_curr_env";
 
-    helper process::env_block_length(env: u64) -> i32 => "process/env_block_length";
+    helper process::env_block_length(env: u64) -> u32 => "process/env_block_length";
 
-    helper process::allocate_env_block(size: i32) -> u64 => "process/allocate_env_block";
+    helper process::allocate_env_block(size: u32) -> u64 => "process/allocate_env_block";
 
     compat process::free_env(env: u64) -> void => "process/free_env";
 
@@ -1207,28 +1217,28 @@ declare_async_imports! {
 
     helper process::env_block_add_entry(
         env: u64,
-        index_or_offset: i32,
-        key: i32,
-        key_len: i32,
-        value: i32,
-        value_len: i32,
+        index_or_offset: u32,
+        key: u32,
+        key_len: u32,
+        value: u32,
+        value_len: u32,
     ) -> void => "process/env_block_add_entry";
 
     helper process::make_env(inherit_env: i32) -> u64 => "process/make_env";
 
     ported process::env_add_entry(
         env: u64,
-        key: i32,
-        key_len: i32,
-        value: i32,
-        value_len: i32,
+        key: u32,
+        key_len: u32,
+        value: u32,
+        value_len: u32,
     ) -> void => "process/env_add_entry";
 
     #[cfg(unix)]
-    helper process::make_argv_array_unix(len: i32) -> u64 => "process/make_argv_array/unix";
+    helper process::make_argv_array_unix(len: u32) -> u64 => "process/make_argv_array/unix";
 
     #[cfg(windows)]
-    fake process::make_argv_array_unix(len: i32) -> u64 => "process/make_argv_array/unix";
+    fake process::make_argv_array_unix(len: u32) -> u64 => "process/make_argv_array/unix";
 
     #[cfg(unix)]
     compat process::free_argv(argv: u64) -> void => "process/free_argv";
@@ -1239,38 +1249,38 @@ declare_async_imports! {
     #[cfg(unix)]
     helper process::argv_array_add_encoded_entry_unix(
         argv: u64,
-        index: i32,
-        arg: i32,
-        arg_len: i32,
+        index: u32,
+        arg: u32,
+        arg_len: u32,
     ) -> void => "process/argv_array_add_encoded_entry/unix";
 
     #[cfg(windows)]
     fake process::argv_array_add_encoded_entry_unix(
         argv: u64,
-        index: i32,
-        arg: i32,
-        arg_len: i32,
+        index: u32,
+        arg: u32,
+        arg_len: u32,
     ) -> void => "process/argv_array_add_encoded_entry/unix";
 
     #[cfg(unix)]
     helper process::argv_array_add_entry_unix(
         argv: u64,
-        index: i32,
-        arg: i32,
-        arg_len: i32,
+        index: u32,
+        arg: u32,
+        arg_len: u32,
     ) -> void => "process/argv_array_add_entry/unix";
 
     #[cfg(windows)]
     fake process::argv_array_add_entry_unix(
         argv: u64,
-        index: i32,
-        arg: i32,
-        arg_len: i32,
+        index: u32,
+        arg: u32,
+        arg_len: u32,
     ) -> void => "process/argv_array_add_entry/unix";
 
     helper process::open_pid_handle(pid: i32) -> u64 => "process/open_pid_handle";
 
-    ported process::get_process_result(handle: u64, pid: i32, out: i32) -> i32 => "process/get_process_result";
+    ported process::get_process_result(handle: u64, pid: i32, out: u32) -> i32 => "process/get_process_result";
 
     ported process::terminate(pid: i32, signal: i32) -> void => "process/terminate";
 

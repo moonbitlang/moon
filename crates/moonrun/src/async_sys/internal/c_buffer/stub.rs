@@ -26,10 +26,10 @@ ported_fns! {
     )]
     pub(crate) fn blit_to_c(
         dst: &mut [u8],
-        dst_offset: i32,
+        dst_offset: u32,
         src: &[u8],
-        src_offset: i32,
-        len: i32,
+        src_offset: u32,
+        len: u32,
     ) -> AsyncHostResult<()> {
         let src = checked_range(src, src_offset, len)?;
         let dst = checked_range_mut(dst, dst_offset, len)?;
@@ -43,10 +43,10 @@ ported_fns! {
     )]
     pub(crate) fn blit_from_c(
         src: &[u8],
-        src_offset: i32,
+        src_offset: u32,
         dst: &mut [u8],
-        dst_offset: i32,
-        len: i32,
+        dst_offset: u32,
+        len: u32,
     ) -> AsyncHostResult<()> {
         let src = checked_range(src, src_offset, len)?;
         let dst = checked_range_mut(dst, dst_offset, len)?;
@@ -58,7 +58,7 @@ ported_fns! {
         source = "src/internal/c_buffer/stub.c",
         original = "moonbitlang_async_c_buffer_get"
     )]
-    pub(crate) fn c_buffer_get(buf: &[u8], index: i32) -> AsyncHostResult<u8> {
+    pub(crate) fn c_buffer_get(buf: &[u8], index: u32) -> AsyncHostResult<u8> {
         let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
         buf.get(index).copied().ok_or(AsyncHostError::Fault)
     }
@@ -67,33 +67,33 @@ ported_fns! {
         source = "src/internal/c_buffer/stub.c",
         original = "moonbitlang_async_strlen"
     )]
-    pub(crate) fn strlen(buf: &[u8]) -> AsyncHostResult<i32> {
+    pub(crate) fn strlen(buf: &[u8]) -> AsyncHostResult<u32> {
         let len = buf
             .iter()
             .position(|byte| *byte == 0)
             .ok_or(AsyncHostError::Fault)?;
-        i32::try_from(len).map_err(|_| AsyncHostError::Fault)
+        u32::try_from(len).map_err(|_| AsyncHostError::Fault)
     }
 
     #[ported(
         source = "src/internal/c_buffer/stub.c",
         original = "moonbitlang_async_make_c_buffer"
     )]
-    pub(crate) fn make_c_buffer(size: i32) -> AsyncHostResult<Box<[u8]>> {
+    pub(crate) fn make_c_buffer(size: u32) -> AsyncHostResult<Box<[u8]>> {
         let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
         Ok(vec![0; size].into_boxed_slice())
     }
 
 }
 
-fn checked_range(src: &[u8], offset: i32, len: i32) -> AsyncHostResult<&[u8]> {
+fn checked_range(src: &[u8], offset: u32, len: u32) -> AsyncHostResult<&[u8]> {
     let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
     let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
     src.get(offset..end).ok_or(AsyncHostError::Fault)
 }
 
-fn checked_range_mut(src: &mut [u8], offset: i32, len: i32) -> AsyncHostResult<&mut [u8]> {
+fn checked_range_mut(src: &mut [u8], offset: u32, len: u32) -> AsyncHostResult<&mut [u8]> {
     let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
     let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;

@@ -195,7 +195,7 @@ pub(super) fn wait(context: &mut ImportContext<'_, '_>, bus: u64, timeout_ms: i3
 pub(super) fn get_event(
     context: &mut ImportContext<'_, '_>,
     bus: u64,
-    index: i32,
+    index: u32,
 ) -> AsyncHostResult<u64> {
     context.host.poll_get_event(bus, index)
 }
@@ -229,6 +229,6 @@ pub(super) fn event_io_result(
 pub(super) fn event_bytes_transferred(
     context: &mut ImportContext<'_, '_>,
     event: u64,
-) -> AsyncHostResult<i32> {
+) -> AsyncHostResult<u32> {
     context.host.poll_event_bytes_transferred(event)
 }
