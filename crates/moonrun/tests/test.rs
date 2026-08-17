@@ -373,6 +373,38 @@ fn test_moon_run_with_cli_args() {
 }
 
 #[test]
+fn test_moonrun_current_exe_absolutizes_relative_module_path() {
+    let dir = TestDir::new("test_current_exe.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["test", "main", "--target", "wasm", "--build-only"])
+        .assert()
+        .success();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&dir)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--test-args")
+        .arg(
+            r#"{"package":"username/current_exe/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
+        )
+        .arg("_build/wasm/debug/test/main/main.blackbox_test.wasm")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"main_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"main_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+
+"#]])
+        .stderr_eq("");
+}
+
+#[test]
 fn test_moonrun_exits_with_guest_exit_code() {
     let dir = TestDir::new("test_cli_args.in");
 

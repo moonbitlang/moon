@@ -1,0 +1,117 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Runtime-facing `moonbitlang/core` imports for the linear wasm backend.
+
+use std::path::Path;
+
+use crate::async_host::{AsyncHostError, AsyncHostResult, INVALID_HOST_HANDLE};
+use crate::runtime::{Executable, Runtime};
+
+pub(crate) const MOONBIT_CORE_MODULE: &str = "moonbitlang/core";
+
+pub(crate) fn current_exe(runtime: &Runtime) -> u64 {
+    match current_exe_buffer(runtime.executable()) {
+        Ok(buffer) => runtime.async_host().insert_c_buffer(buffer),
+        Err(error) => {
+            runtime.async_host().record_error(error);
+            INVALID_HOST_HANDLE
+        }
+    }
+}
+
+fn current_exe_buffer(executable: &Executable) -> AsyncHostResult<Box<[u8]>> {
+    path_to_moonbit_string_buffer(executable.path()?)
+}
+
+#[cfg(unix)]
+fn path_to_moonbit_string_buffer(path: &Path) -> AsyncHostResult<Box<[u8]>> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let path =
+        std::str::from_utf8(path.as_os_str().as_bytes()).map_err(|_| AsyncHostError::Inval)?;
+    Ok(utf16_buffer(path.encode_utf16()))
+}
+
+#[cfg(windows)]
+fn path_to_moonbit_string_buffer(path: &Path) -> AsyncHostResult<Box<[u8]>> {
+    use std::os::windows::ffi::OsStrExt;
+
+    Ok(utf16_buffer(path.as_os_str().encode_wide()))
+}
+
+fn utf16_buffer(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
+    units
+        .into_iter()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn in_memory_module_cannot_produce_current_exe() {
+        #[cfg(unix)]
+        let mask = {
+            let mut mask = unsafe { std::mem::zeroed() };
+            unsafe { libc::sigemptyset(&mut mask) };
+            mask
+        };
+        let runtime = Runtime::new(
+            None,
+            None,
+            None,
+            crate::WorkingDirectory::Ambient,
+            Executable::unavailable(),
+            crate::signal_channel().1,
+            #[cfg(unix)]
+            mask,
+        )
+        .unwrap();
+
+        assert_eq!(current_exe(&runtime), INVALID_HOST_HANDLE);
+        assert_eq!(
+            runtime.async_host().get_errno(),
+            AsyncHostError::Inval.errno()
+        );
+    }
+
+    #[test]
+    fn string_buffer_contains_little_endian_utf16() {
+        assert_eq!(
+            utf16_buffer("a\u{10000}".encode_utf16()).as_ref(),
+            &[b'a', 0, 0, 0xd8, 0, 0xdc]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_path_reports_an_error() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = std::path::PathBuf::from(OsString::from_vec(vec![b'/', 0xff]));
+        assert_eq!(
+            current_exe_buffer(&Executable::from_file(&path)),
+            Err(AsyncHostError::Inval)
+        );
+    }
+}

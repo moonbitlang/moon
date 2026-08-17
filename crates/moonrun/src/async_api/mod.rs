@@ -60,8 +60,10 @@ pub(crate) use registry::register_wasmtime_imports;
 #[cfg(feature = "v8")]
 pub(crate) unsafe fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
+    core_obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     context: *const V8RunContext,
 ) {
     registry::register_imports(obj, scope, context);
+    registry::register_core_imports(core_obj, scope, context);
 }

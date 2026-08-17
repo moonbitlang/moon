@@ -20,6 +20,7 @@
 
 mod environment;
 mod environment_provisioning;
+mod executable;
 mod stdio;
 mod working_directory;
 
@@ -42,6 +43,7 @@ use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
 pub(crate) use environment_provisioning::EnvProvisioning;
+pub(crate) use executable::Executable;
 pub(crate) use stdio::{Stdio, StdioStream, Utf16Writer};
 pub use working_directory::WorkingDirectory;
 
@@ -107,11 +109,13 @@ impl HostKeys {
 
 /// Backend-neutral composition root for one Moonrun virtual environment.
 ///
-/// `RunOptions` selects the process-facing dependencies. `Runtime` realizes
-/// them once, distributes domain policy together with shared Runtime State,
-/// wires host domain state to one key namespace, and owns it until teardown.
+/// The selected Module supplies immutable executable identity, while
+/// `RunOptions` selects the other process-facing dependencies. `Runtime`
+/// realizes them once, distributes domain policy together with shared Runtime
+/// State, wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
     environment: Arc<Env>,
+    executable: Executable,
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     filesystem: Arc<HostFs>,
@@ -127,6 +131,7 @@ impl Runtime {
         policy_source_dir: Option<&Path>,
         inherited_policy: Option<&[u8]>,
         working_directory: WorkingDirectory,
+        executable: Executable,
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
@@ -183,6 +188,7 @@ impl Runtime {
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
             environment,
+            executable,
             working_directory,
             stdio,
             filesystem,
@@ -193,6 +199,10 @@ impl Runtime {
 
     pub(crate) fn environment(&self) -> &Arc<Env> {
         &self.environment
+    }
+
+    pub(crate) fn executable(&self) -> &Executable {
+        &self.executable
     }
 
     pub(crate) fn filesystem(&self) -> &Arc<HostFs> {
@@ -270,5 +280,29 @@ mod tests {
         let replacement = keys.insert(HostResourceKind::Poll);
         assert_ne!(poll_handle, replacement.data().as_ffi());
         assert_eq!(keys.key(poll_handle, HostResourceKind::Poll), None);
+    }
+
+    #[test]
+    fn runtime_owns_the_selected_executable() {
+        let path = std::env::current_exe().unwrap();
+        #[cfg(unix)]
+        let mask = {
+            let mut mask = unsafe { std::mem::zeroed() };
+            unsafe { libc::sigemptyset(&mut mask) };
+            mask
+        };
+        let runtime = Runtime::new(
+            None,
+            None,
+            None,
+            WorkingDirectory::Ambient,
+            Executable::from_file(&path),
+            crate::signal_channel().1,
+            #[cfg(unix)]
+            mask,
+        )
+        .unwrap();
+
+        assert_eq!(runtime.executable().path(), Ok(path.as_path()));
     }
 }

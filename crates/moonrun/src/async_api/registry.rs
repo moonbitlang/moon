@@ -19,6 +19,9 @@
 #[cfg(feature = "v8")]
 use super::context::ImportContext;
 #[cfg(feature = "v8")]
+use crate::core_api;
+
+#[cfg(feature = "v8")]
 use super::context::{
     FinishI32, FinishI64, FinishVoid, ImportArgs, callback_context, throw_import_error,
 };
@@ -528,6 +531,33 @@ macro_rules! register_wasmtime_async_import {
             },
         )?;
     }};
+}
+
+#[cfg(feature = "v8")]
+pub(super) fn register_core_imports<'s>(
+    obj: v8::Local<'s, v8::Object>,
+    scope: &mut v8::HandleScope<'s>,
+    context_ptr: *const crate::v8::context::V8RunContext,
+) {
+    register_async_import!(
+        helper,
+        obj,
+        scope,
+        context_ptr,
+        "env/current_exe",
+        u64,
+        core_import::current_exe,
+        ()
+    );
+}
+
+#[cfg(feature = "v8")]
+mod core_import {
+    use super::*;
+
+    pub(super) fn current_exe(context: &mut ImportContext<'_, '_>) -> u64 {
+        core_api::current_exe(context.runtime())
+    }
 }
 
 // This block is the complete `moonbitlang/async` ABI surface registered by moonrun.

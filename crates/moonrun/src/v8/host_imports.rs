@@ -21,7 +21,7 @@
 use super::builder::{ArgsExt, ObjectExt, ScopeExt};
 use super::context;
 use crate::runtime::{Stdio, Utf16Writer};
-use crate::{async_api, filesystem, run_termination, sqlite, util};
+use crate::{async_api, core_api, filesystem, run_termination, sqlite, util};
 use anyhow::Context;
 use rand::Rng;
 use rand::SeedableRng;
@@ -336,9 +336,10 @@ pub(super) fn install<'s>(
 
     {
         let async_runtime = module_imports.child(scope, async_api::MOONBIT_ASYNC_MODULE);
+        let core = module_imports.child(scope, core_api::MOONBIT_CORE_MODULE);
         // SAFETY: the installed imports retain `v8_context` throughout guest
         // execution.
-        unsafe { async_api::init_env(async_runtime, scope, v8_context_ptr) };
+        unsafe { async_api::init_env(async_runtime, core, scope, v8_context_ptr) };
     }
 
     {
