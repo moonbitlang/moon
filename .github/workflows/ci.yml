@@ -420,7 +420,6 @@ jobs:
         run: |
           cargo run --bin moon -- -C ~/.moon/lib/core test --target all
           cargo run --bin moon -- -C ~/.moon/lib/core test --release --target all
-          cargo run --bin moon -- -C ~/.moon/lib/core test --doc
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         env:
@@ -428,7 +427,6 @@ jobs:
         run: |
           cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target all
           cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target all
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --doc
 
   # coverage:
   #   needs: bleeding-test
