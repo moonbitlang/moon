@@ -56,13 +56,7 @@ pub(super) fn to_n2_graph(
         let mut input_paths = action
             .inputs
             .iter()
-            .cloned()
-            .chain(
-                action
-                    .external_inputs
-                    .iter()
-                    .filter_map(|input| input.n2_path().map(ToOwned::to_owned)),
-            )
+            .filter_map(|input| input.n2_path().map(ToOwned::to_owned))
             .collect::<Vec<_>>();
         input_paths.sort();
 

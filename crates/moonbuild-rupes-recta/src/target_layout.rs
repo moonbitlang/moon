@@ -38,7 +38,7 @@ use moonutil::{
 
 use crate::{
     ResolveOutput,
-    build_plan::{ArtifactKey, BuildAction, package_file_key},
+    build_plan::{ArtifactKey, BuildAction},
     discover::{DiscoverResult, DiscoveredLocalProject},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
@@ -959,21 +959,6 @@ impl ArtifactPathResolver {
                 )]
             }
             ArtifactKey::DocsDir { .. } => vec![self.target_layout.doc_dir()],
-            ArtifactKey::PrebuildOutput { package, path } => match action_context {
-                BuildAction::RunPrebuild { info, .. } => {
-                    let pkg = packages.get_package(*package);
-                    vec![
-                        info.resolved_outputs
-                            .iter()
-                            .find(|output| package_file_key(&pkg.root_path, output) == *path)
-                            .expect("prebuild artifact should name one command output")
-                            .clone(),
-                    ]
-                }
-                BuildAction::RunMoonLexPrebuild { output, .. }
-                | BuildAction::RunMoonYaccPrebuild { output, .. } => vec![output.to_path_buf()],
-                _ => unreachable!("prebuild artifacts require prebuild actions"),
-            },
         }
     }
 
@@ -1171,7 +1156,6 @@ mod tests {
     use crate::{
         build_plan::{
             ArtifactKey, BuildAction, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo,
-            PrebuildInfo,
         },
         discover::DiscoveredPackage,
         pkg_name::{PackageFQN, PackagePath},
@@ -1317,15 +1301,6 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
-        }
-    }
-
-    fn prebuild_info(path: PathBuf) -> PrebuildInfo {
-        PrebuildInfo {
-            resolved_inputs: Vec::new(),
-            resolved_outputs: vec![path],
-            cwd: PathBuf::from("."),
-            command: "generate".to_string(),
         }
     }
 
@@ -1714,10 +1689,8 @@ mod tests {
     #[test]
     fn artifact_resolver_handles_non_package_artifacts() {
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
-        let (packages, modules, package) = package_fixture("ffi");
+        let (packages, modules, _) = package_fixture("ffi");
         let module = modules.input_module_ids()[0];
-        let prebuild_output = PathBuf::from("source/generated.mbt");
-        let prebuild = prebuild_info(prebuild_output.clone());
         let options = ArtifactPathOptions {
             os: OperatingSystem::Linux,
             executable: ExecutableArtifact::TccRunResponseFile,
@@ -1779,19 +1752,6 @@ mod tests {
                 options,
             ),
             vec![PathBuf::from("_build/doc")],
-        );
-        assert_eq!(
-            resolver.paths_for_artifact(
-                &ArtifactKey::PrebuildOutput {
-                    package,
-                    path: prebuild_output.clone(),
-                },
-                BuildAction::RunPrebuild { info: &prebuild },
-                &packages,
-                &modules,
-                options,
-            ),
-            vec![PathBuf::from("source/generated.mbt")],
         );
     }
 

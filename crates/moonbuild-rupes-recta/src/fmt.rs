@@ -46,7 +46,7 @@ use moonutil::{
 use crate::{
     discover::{DiscoveredLocalProject, DiscoveredPackage, discover_local_project},
     execution_plan::{
-        ExecutionAction, ExecutionPlan, ExecutionPlanBuilder, ExternalInput, LoweredCommand,
+        ExecutionAction, ExecutionPlan, ExecutionPlanBuilder, InputObservation, LoweredCommand,
     },
     model::PackageId,
     pkg_name::{PackageFQN, PackagePath},
@@ -176,25 +176,22 @@ fn add_format_action<I, O>(
     O::Item: Into<std::path::PathBuf>,
 {
     let command = LoweredCommand::from(args);
-    let mut external_inputs = external_files
+    let inputs = external_files
         .into_iter()
-        .map(|path| ExternalInput::File(path.into()))
+        .map(|path| InputObservation::File(path.into()))
         .chain(
             command
                 .executable()
-                .map(|path| ExternalInput::File(path.to_path_buf())),
+                .map(|path| InputObservation::File(path.to_path_buf())),
         )
         .collect::<Vec<_>>();
-    external_inputs.sort();
-    external_inputs.dedup();
     let action = ExecutionAction::new(
-        Vec::new(),
+        inputs,
         outputs.into_iter().map(Into::into).collect(),
         command,
         description.clone(),
         description,
     )
-    .with_external_inputs(external_inputs)
     .with_cache_eligible(cache_eligible)
     .with_can_dirty_on_output(can_dirty_on_output);
     execution.add_action(action, []);
@@ -726,7 +723,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formatter_sources_are_external_inputs() {
+    fn formatter_sources_are_file_observations() {
         let source = PathBuf::from("src/main.mbt");
         let executable = PathBuf::from("bin/moonfmt");
         let mut builder = ExecutionPlanBuilder::default();
@@ -745,10 +742,12 @@ mod tests {
 
         let plan = builder.finish([]);
         let action = plan.action(plan.action_ids().next().expect("one formatter action"));
-        assert!(action.inputs().is_empty());
         assert_eq!(
-            action.external_inputs(),
-            &[ExternalInput::File(executable), ExternalInput::File(source),]
+            action.inputs(),
+            &[
+                InputObservation::File(executable),
+                InputObservation::File(source),
+            ]
         );
     }
 }

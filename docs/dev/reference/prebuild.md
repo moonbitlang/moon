@@ -126,26 +126,22 @@ Behavior:
   separate `PackagePrebuildPlan` containing the requested custom, moonlex, and
   moonyacc actions. Bin-dep compatibility builds create none.
 - `PackagePrebuildPlan` owns package file-generation actions as a peer of the
-  `BackendPlan`; it is not a separate dependency model. Each declared output
-  is registered as a `PrebuildOutput` artifact in the Build Plan's common
-  artifact registry.
-- The common registry keys providers and consumers by `BuildPlanActionKey`,
-  whose variants qualify references into the peer backend and package-prebuild
-  subplans.
-  Package prebuild is therefore never represented as a backend node with an
+  `BackendPlan`; it is not a separate semantic artifact model. Package
+  prebuild is therefore never represented as a backend node with an
   inapplicable target kind.
 - There is no explicit edge between two prebuild tasks solely because one is
-  written earlier in `pre-build`. If one task consumes another task's declared
-  output, it records an Artifact Requirement on that `PrebuildOutput`.
-- Backend actions likewise require the generated `.mbt`, `.mbt.md`, `.mbtp`,
-  or selected virtual `.mbti` artifacts included by Build Target Projection.
+  written earlier in `pre-build`. Their concrete inputs and outputs form a
+  dependency only when the paths match in the completed Execution Plan.
+- Build Target Projection includes generated `.mbt`, `.mbt.md`, `.mbtp`, and
+  selected virtual `.mbti` paths in the same package file sets as discovered
+  paths. These package files are not Build Artifacts.
 - All planned package prebuild actions remain part of normal execution.
   Declared outputs that no backend action consumes are leaf outputs of the n2
   graph, so they are still requested and the invocation waits for them.
 - Generated `.mbt`/`.mbt.md`, `.mbtp`, `.mbl`/`.mby`, and the selected virtual
-  `.mbti` path retain the meanings described above. Lowering preserves their
-  explicit producer artifacts, and the n2 adapter realizes those artifacts as
-  matching file edges.
+  `.mbti` path retain the meanings described above. Lowering records them as
+  concrete input and output observations; matching paths recover the producer
+  relationship without a parallel package-file identity.
 - Each backend-specific Execution Plan still contains one complete package
   prebuild action. When the command layer composes a multi-backend invocation,
   it shares those providers by identical physical outputs and complete

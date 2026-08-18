@@ -164,12 +164,12 @@ impl BackendPlan {
     }
 }
 
-/// A build plan composed from backend work, package prebuild, and the
-/// artifacts that connect the two subplans.
+/// A build plan composed from backend work, package prebuild, and semantic
+/// Build Artifact relationships.
 ///
 /// Each subplan owns its action membership and lowering metadata. The artifact
-/// registry records provider and consumer relationships across the two
-/// subplans through [`BuildPlanActionKey`].
+/// registry records provider and consumer relationships; concrete package-file
+/// dependencies are connected later by Execution Plan input and output paths.
 #[derive(Default)]
 pub struct BuildPlan {
     backend: BackendPlan,
@@ -200,20 +200,34 @@ impl BuildPlan {
         &self,
         action: &BuildPlanActionKey,
     ) -> impl Iterator<Item = (BuildPlanActionKey, ArtifactKey)> + '_ {
-        self.artifacts.dependencies(action)
+        match action {
+            BuildPlanActionKey::Backend(node) => Some(*node),
+            BuildPlanActionKey::PackagePrebuild(_) => None,
+        }
+        .into_iter()
+        .flat_map(|node| self.artifacts.dependencies(node))
+        .map(|(provider, artifact)| (BuildPlanActionKey::Backend(provider), artifact))
     }
 
     pub(crate) fn provided_artifacts(
         &self,
         action: &BuildPlanActionKey,
     ) -> impl Iterator<Item = ArtifactKey> + '_ {
-        self.artifacts.provided_by(action).cloned()
+        match action {
+            BuildPlanActionKey::Backend(node) => Some(*node),
+            BuildPlanActionKey::PackagePrebuild(_) => None,
+        }
+        .into_iter()
+        .flat_map(|node| self.artifacts.provided_by(node))
+        .cloned()
     }
 
     pub(crate) fn artifact_provider(&self, artifact: &ArtifactKey) -> BuildPlanActionKey {
-        self.artifacts
-            .provider(artifact)
-            .expect("requested artifact should have a provider")
+        BuildPlanActionKey::Backend(
+            self.artifacts
+                .provider(artifact)
+                .expect("requested artifact should have a provider"),
+        )
     }
 
     pub fn requested_artifacts(&self) -> impl Iterator<Item = &ArtifactKey> {
@@ -303,16 +317,6 @@ impl BuildPlan {
     pub(crate) fn test_provide_artifact(&mut self, provider: BuildPlanNode, artifact: ArtifactKey) {
         self.backend.insert(provider);
         self.artifacts.provide(provider, artifact);
-    }
-
-    pub(crate) fn test_provide_prebuild_artifact(
-        &mut self,
-        provider: PackagePrebuildKey,
-        artifact: ArtifactKey,
-    ) {
-        assert!(self.package_prebuild.contains_key(&provider));
-        self.artifacts
-            .provide(BuildPlanActionKey::PackagePrebuild(provider), artifact);
     }
 
     pub(crate) fn test_insert_build_target_info(

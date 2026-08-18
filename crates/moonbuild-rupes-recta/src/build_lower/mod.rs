@@ -52,7 +52,7 @@ mod moonc_command;
 mod utils;
 
 pub use crate::execution_plan::{
-    ExternalInput, LoweredCommand, LoweredCommandExecution, LoweredResponseFile,
+    InputObservation, LoweredCommand, LoweredCommandExecution, LoweredResponseFile,
 };
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
@@ -653,29 +653,15 @@ mod tests {
     fn lowered_generator_actions_track_host_and_payload_executables() {
         let (resolve_output, target) = single_package_resolve_output();
         let mut plan = BuildPlan::default();
-        let moonlex = plan.test_insert_moonlex_prebuild(
+        plan.test_insert_moonlex_prebuild(
             target.package,
             PathBuf::from("main/lexer.mbl"),
             PathBuf::from("main/lexer.mbt"),
         );
-        let moonyacc = plan.test_insert_moonyacc_prebuild(
+        plan.test_insert_moonyacc_prebuild(
             target.package,
             PathBuf::from("main/parser.mby"),
             PathBuf::from("main/parser.mbt"),
-        );
-        plan.test_provide_prebuild_artifact(
-            moonlex,
-            ArtifactKey::PrebuildOutput {
-                package: target.package,
-                path: PathBuf::from("lexer.mbt"),
-            },
-        );
-        plan.test_provide_prebuild_artifact(
-            moonyacc,
-            ArtifactKey::PrebuildOutput {
-                package: target.package,
-                path: PathBuf::from("parser.mbt"),
-            },
         );
 
         let artifact_paths = ArtifactPathResolver::new(

@@ -80,22 +80,13 @@ impl PackagePrebuildAction {
             }
         }
     }
-
-    pub(crate) fn input_paths(&self) -> &[PathBuf] {
-        match self {
-            Self::Custom { info } => &info.resolved_inputs,
-            Self::MoonLex { input, .. } | Self::MoonYacc { input, .. } => {
-                std::slice::from_ref(input)
-            }
-        }
-    }
 }
 
 /// The backend-independent package-prebuild subplan within one Build Plan.
 ///
-/// Each key names exactly one action. Command data and physical outputs remain
-/// with that action, while cross-subplan dependencies use the enclosing Build
-/// Plan's artifact registry.
+/// Each key names exactly one action. Command data and physical inputs and
+/// outputs remain with that action; Execution Plan construction connects them
+/// to other actions by matching concrete paths.
 #[derive(Default)]
 pub(crate) struct PackagePrebuildPlan {
     actions: IndexMap<PackagePrebuildKey, PackagePrebuildAction>,
@@ -118,15 +109,6 @@ impl PackagePrebuildPlan {
 
     pub(crate) fn action(&self, key: &PackagePrebuildKey) -> Option<&PackagePrebuildAction> {
         self.actions.get(key)
-    }
-
-    pub(crate) fn actions_for_package(
-        &self,
-        package: PackageId,
-    ) -> impl Iterator<Item = (&PackagePrebuildKey, &PackagePrebuildAction)> {
-        self.actions
-            .iter()
-            .filter(move |(key, _)| key.package() == package)
     }
 
     pub(crate) fn insert_custom(&mut self, package: PackageId, index: u32, info: PrebuildInfo) {
@@ -205,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn package_prebuild_provider_is_separate_from_backend_plan() {
+    fn package_prebuild_action_is_separate_from_backend_plan() {
         let package = package_id(1);
         let backend_node = BuildPlanNode::Check(package.build_target(TargetKind::Source));
         let prebuild_key = PackagePrebuildKey::Custom {

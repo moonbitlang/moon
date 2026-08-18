@@ -110,6 +110,7 @@ impl<'a> LoweringContext<'a> {
 
     fn set_build_commons(
         &self,
+        artifacts: &ActionArtifacts,
         pkg: &DiscoveredPackage,
         info: &'a BuildTargetInfo,
         is_main: bool,
@@ -152,18 +153,33 @@ impl<'a> LoweringContext<'a> {
         // Patch and MI/virtual config
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
 
-        // Compute -check-mi and virtual implementation mapping when requested
+        // BuildTargetInfo selects the virtual-package flag and alias behavior;
+        // the artifact dependency remains the sole authority for its `.mi`
+        // path.
         let mut virtual_implementation = None;
         let mut check_mi = None;
         let no_mi = info.no_mi();
 
         if let Some(v_target) = info.check_mi_against {
-            // The target to check against is always the Source target of the virtual package
-            let mi_path = self.artifact_paths.mi_of_build_target(
-                self.packages,
-                &v_target,
-                self.opt.target_backend(),
-            );
+            let mi_path = if self.opt.stdlib_path.is_some()
+                && self.packages.is_stdlib_package(v_target.package)
+            {
+                // Installed stdlib virtual contracts are known toolchain
+                // inputs, not artifacts produced by this Build Plan.
+                self.artifact_paths.mi_of_build_target(
+                    self.packages,
+                    &v_target,
+                    self.opt.target_backend(),
+                )
+            } else {
+                artifacts.single_dependency_path_matching(|artifact| {
+                    matches!(
+                        artifact,
+                        ArtifactKey::VirtualContractMi { package }
+                            if *package == v_target.package
+                    )
+                })
+            };
 
             // If current package is NOT the same package as the virtual target,
             // this package is a concrete implementation → add -impl-virtual mapping.
@@ -213,51 +229,28 @@ impl<'a> LoweringContext<'a> {
 
     fn extend_extra_inputs(
         &self,
+        info: &BuildTargetInfo,
         commons: &BuildCommonConfig<'a>,
         extra_inputs: &mut Vec<PathBuf>,
     ) {
-        // Also track any -check-mi file used by this command (virtual checks/impl)
-        if let Some(p) = &commons.check_mi {
-            extra_inputs.push(p.as_ref().to_path_buf());
-        }
-        if let Some(impl_v) = &commons.virtual_implementation {
-            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
+        // Local virtual interfaces are already observed by their artifact
+        // dependency. Installed stdlib contracts have no provider in this
+        // plan, so keep the exact `-check-mi`/`-impl-virtual` file as a regular
+        // execution input alongside the broader recursive stdlib observation.
+        if let Some(target) = info.check_mi_against
+            && self.opt.stdlib_path.is_some()
+            && self.packages.is_stdlib_package(target.package)
+        {
+            let path = match (&commons.check_mi, &commons.virtual_implementation) {
+                (Some(path), None) => path.as_ref(),
+                (None, Some(implementation)) => implementation.mi_path.as_ref(),
+                _ => unreachable!("virtual validation should select exactly one interface path"),
+            };
+            extra_inputs.push(path.to_path_buf());
         }
         if let Some(patch) = &commons.patch_file {
             extra_inputs.push(patch.as_ref().to_path_buf());
         }
-    }
-
-    fn prove_mi_inputs_of(&self, target: BuildTarget) -> Vec<MiDependency<'a>> {
-        let mut deps: Vec<MiDependency<'a>> = self
-            .rel
-            .dep_graph
-            .edges_directed(target, Direction::Outgoing)
-            .map(|(_, dep, w)| {
-                // `moonc prove` still expects stdlib interfaces as explicit `-i`
-                // inputs, but those come from the injected toolchain location
-                // (for example `$MOON_HOME/lib/core/_build/wasm-gc/.../prelude.mi`)
-                // rather than from proof emission. Non-stdlib proof deps instead
-                // use the emitted proof interface under `_build/verif`, for
-                // example `_build/verif/pkg_<stem>.mi`.
-                let in_file = if self.opt.stdlib_path.is_some()
-                    && self.packages.is_stdlib_package(dep.package)
-                {
-                    self.artifact_paths.mi_of_build_target(
-                        self.packages,
-                        &dep,
-                        self.opt.target_backend(),
-                    )
-                } else {
-                    self.artifact_paths
-                        .target_layout()
-                        .emit_proof_mi_path(self.packages, &dep)
-                };
-                MiDependency::new(in_file, &w.short_alias)
-            })
-            .collect();
-        deps.sort_by(|x, y| x.alias.cmp(&y.alias));
-        deps
     }
 
     fn dep_proofs_of(&self, target: BuildTarget) -> Vec<compiler::DepProof<'a>> {
@@ -349,7 +342,7 @@ impl<'a> LoweringContext<'a> {
                     unreachable!("regular Check actions should have one package interface artifact")
                 }
             });
-        let mi_inputs = self.mi_inputs_of(target);
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         // Collect files iterator once so we can pass slices and extra inputs
         let files_vec = self.compiler_source_files(info);
@@ -383,7 +376,7 @@ impl<'a> LoweringContext<'a> {
                 backend,
                 target.kind,
             ),
-            defaults: self.set_build_commons(package, info, is_main),
+            defaults: self.set_build_commons(artifacts, package, info, is_main),
             mi_out: mi_output.into(),
             single_file: package.is_single_file(),
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
@@ -396,8 +389,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs.push(package.config_path());
         }
 
-        // Also track any -check-mi file used by this command (virtual checks/impl)
-        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
 
         let commandline =
             moonc_command::lower(cmd.build_command(&*BINARIES.moonc), cmd.mi_out.as_ref())?;
@@ -417,7 +409,7 @@ impl<'a> LoweringContext<'a> {
     ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
-        let mi_inputs = self.prove_mi_inputs_of(target);
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let files_vec = self.compiler_source_files(info);
 
@@ -443,7 +435,7 @@ impl<'a> LoweringContext<'a> {
                 backend,
                 target.kind,
             ),
-            defaults: self.set_build_commons(package, info, package.raw.is_main),
+            defaults: self.set_build_commons(artifacts, package, info, package.raw.is_main),
             whyml_out: whyml_output.clone().into(),
             proof_report_out: None,
             why3_config: None,
@@ -459,7 +451,7 @@ impl<'a> LoweringContext<'a> {
         if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
-        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
 
         let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &whyml_output)?;
 
@@ -478,7 +470,7 @@ impl<'a> LoweringContext<'a> {
     ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
-        let mi_inputs = self.prove_mi_inputs_of(target);
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let files_vec = self.compiler_source_files(info);
 
@@ -520,7 +512,7 @@ impl<'a> LoweringContext<'a> {
                 backend,
                 target.kind,
             ),
-            defaults: self.set_build_commons(package, info, package.raw.is_main),
+            defaults: self.set_build_commons(artifacts, package, info, package.raw.is_main),
             whyml_out: whyml_output.clone().into(),
             proof_report_out: Some(proof_report_output.clone().into()),
             why3_config: Some(why3_config.clone().into()),
@@ -539,7 +531,7 @@ impl<'a> LoweringContext<'a> {
         if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
-        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
 
         let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &whyml_output)?;
 
@@ -586,7 +578,7 @@ impl<'a> LoweringContext<'a> {
                 )
             });
 
-        let mi_inputs = self.mi_inputs_of(target);
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let mut files = self.compiler_source_files(info);
         match target.kind {
@@ -625,7 +617,7 @@ impl<'a> LoweringContext<'a> {
                 backend,
                 target.kind,
             ),
-            defaults: self.set_build_commons(package, info, is_main),
+            defaults: self.set_build_commons(artifacts, package, info, is_main),
             core_out: core_output.clone().into(),
             mi_out: mi_output.into(),
             flags: self.set_flags(),
@@ -646,7 +638,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs.push(package.config_path());
         }
 
-        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
 
         let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &core_output)?;
 
@@ -1368,9 +1360,10 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, artifacts))]
     pub(super) fn lower_parse_mbti(
         &mut self,
+        artifacts: &ActionArtifacts,
         pid: PackageId,
         mbti_path: &Path,
     ) -> Result<BuildCommand, LoweringError> {
@@ -1385,7 +1378,7 @@ impl<'a> LoweringContext<'a> {
         );
 
         // Resolve interface dependencies from the dep graph (path:alias pairs)
-        let mi_inputs = self.mi_inputs_of(target);
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         // Construct `moonc build-interface` command
         let mut cmd = compiler::MooncBuildInterface::new(
@@ -1412,18 +1405,53 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn mi_inputs_of(&self, target: BuildTarget) -> Vec<MiDependency<'a>> {
+    #[instrument(level = Level::DEBUG, skip(self, artifacts))]
+    pub(super) fn mi_inputs_of(
+        &self,
+        artifacts: &ActionArtifacts,
+        target: BuildTarget,
+    ) -> Vec<MiDependency<'a>> {
+        // The package graph retains compiler-facing aliases and ordering. The
+        // selected artifact requirement supplies each dependency's path.
         let mut deps: Vec<MiDependency<'a>> = self
             .rel
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
-            .map(|(_, it, w)| {
-                let in_file = self.artifact_paths.mi_of_build_target(
-                    self.packages,
-                    &it,
-                    self.opt.target_backend(),
-                );
+            .map(|(_, dep, w)| {
+                let in_file = if self.opt.stdlib_path.is_some()
+                    && self.packages.is_stdlib_package(dep.package)
+                {
+                    // Installed stdlib interfaces are selected by the known
+                    // toolchain layout, outside this Build Plan's providers.
+                    self.artifact_paths.mi_of_build_target(
+                        self.packages,
+                        &dep,
+                        self.opt.target_backend(),
+                    )
+                } else {
+                    artifacts.single_dependency_path_matching(|artifact| {
+                        matches!(
+                            artifact,
+                            ArtifactKey::CheckMi {
+                                package,
+                                target_kind,
+                            }
+                                | ArtifactKey::BuildMi {
+                                    package,
+                                    target_kind,
+                                }
+                                | ArtifactKey::ProofMi {
+                                    package,
+                                    target_kind,
+                                }
+                                if *package == dep.package && *target_kind == dep.kind
+                        ) || matches!(
+                            artifact,
+                            ArtifactKey::VirtualContractMi { package }
+                                if *package == dep.package
+                        )
+                    })
+                };
                 MiDependency::new(in_file, &w.short_alias)
             })
             .collect::<Vec<_>>();

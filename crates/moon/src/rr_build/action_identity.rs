@@ -35,7 +35,7 @@ use anyhow::{Context, bail};
 use blake3::Hasher;
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey,
-    execution_plan::{ExecutionPlan, ExternalInput, LoweredCommandExecution},
+    execution_plan::{ExecutionPlan, InputObservation, LoweredCommandExecution},
     model::TargetKind,
 };
 
@@ -114,21 +114,22 @@ pub fn compute_action_identities(
         .map(|(index, action)| (*action, index))
         .collect::<HashMap<_, _>>();
 
-    let actions = action_ids
-        .into_iter()
-        .map(|id| {
-            let action = plan.action(id);
-            let mut dependency_outputs = HashMap::new();
-            for path in action.inputs() {
-                let output = plan.declared_output(path).with_context(|| {
-                    format!(
-                        "execution action {id:?} depends on undeclared output {}",
-                        path.display()
-                    )
-                })?;
-                let artifact = output.artifact().with_context(|| {
-                    format!("execution action {id:?} depends on a physical-only output")
-                })?;
+    let mut actions = Vec::with_capacity(action_ids.len());
+    for id in action_ids {
+        let action = plan.action(id);
+        let mut dependency_outputs = HashMap::new();
+        let mut dependencies = Vec::new();
+        let mut external_inputs = Vec::new();
+        for input in action.inputs() {
+            let InputObservation::File(path) = input else {
+                external_inputs.push(input.clone());
+                continue;
+            };
+            let Some(output) = plan.declared_output(path) else {
+                external_inputs.push(input.clone());
+                continue;
+            };
+            if let Some(artifact) = output.artifact() {
                 let (producer, paths) = dependency_outputs
                     .entry(artifact)
                     .or_insert_with(|| (output.producer(), Vec::new()));
@@ -136,76 +137,91 @@ pub fn compute_action_identities(
                     bail!("execution artifact {artifact:?} has multiple producers");
                 }
                 paths.push(output.path().to_owned());
-            }
-            let dependencies = dependency_outputs
-                .into_iter()
-                .map(|(artifact, (producer_id, paths))| {
-                    let producer = index_by_id.get(&producer_id).copied().with_context(|| {
-                        format!("execution action {id:?} is missing producer {producer_id:?}")
+            } else {
+                let producer = index_by_id
+                    .get(&output.producer())
+                    .copied()
+                    .with_context(|| {
+                        format!(
+                            "execution action {id:?} is missing producer {:?}",
+                            output.producer()
+                        )
                     })?;
-                    Ok(CanonicalProduct {
-                        producer: Some(producer),
-                        logical: Some(LogicalProduct::from(artifact)),
-                        paths,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            let external_inputs = action.external_inputs().to_vec();
-            let mut artifact_outputs = HashMap::<&ArtifactKey, Vec<PathBuf>>::new();
-            let mut outputs = Vec::new();
-            for path in action.outputs() {
-                let output = plan.declared_output(path).with_context(|| {
-                    format!(
-                        "execution action {id:?} names undeclared output {}",
-                        path.display()
-                    )
-                })?;
-                if let Some(artifact) = output.artifact() {
-                    artifact_outputs
-                        .entry(artifact)
-                        .or_default()
-                        .push(output.path().to_owned());
-                } else {
-                    outputs.push(CanonicalProduct {
-                        producer: None,
-                        logical: None,
-                        paths: vec![output.path().to_owned()],
-                    });
-                }
+                dependencies.push(CanonicalProduct {
+                    producer: Some(producer),
+                    logical: None,
+                    paths: vec![output.path().to_owned()],
+                });
             }
-            outputs.extend(artifact_outputs.into_iter().map(|(artifact, paths)| {
-                CanonicalProduct {
+        }
+        for (artifact, (producer_id, paths)) in dependency_outputs {
+            let producer = index_by_id.get(&producer_id).copied().with_context(|| {
+                format!("execution action {id:?} is missing producer {producer_id:?}")
+            })?;
+            dependencies.push(CanonicalProduct {
+                producer: Some(producer),
+                logical: Some(LogicalProduct::from(artifact)),
+                paths,
+            });
+        }
+
+        let mut artifact_outputs = HashMap::<&ArtifactKey, Vec<PathBuf>>::new();
+        let mut outputs = Vec::new();
+        for path in action.outputs() {
+            let output = plan.declared_output(path).with_context(|| {
+                format!(
+                    "execution action {id:?} names undeclared output {}",
+                    path.display()
+                )
+            })?;
+            if let Some(artifact) = output.artifact() {
+                artifact_outputs
+                    .entry(artifact)
+                    .or_default()
+                    .push(output.path().to_owned());
+            } else {
+                outputs.push(CanonicalProduct {
+                    producer: None,
+                    logical: None,
+                    paths: vec![output.path().to_owned()],
+                });
+            }
+        }
+        outputs.extend(
+            artifact_outputs
+                .into_iter()
+                .map(|(artifact, paths)| CanonicalProduct {
                     producer: None,
                     logical: Some(LogicalProduct::from(artifact)),
                     paths,
-                }
-            }));
-            let execution = match action.command().execution() {
-                LoweredCommandExecution::Inline(command) => CanonicalExecution::Inline {
+                }),
+        );
+
+        let execution = match action.command().execution() {
+            LoweredCommandExecution::Inline(command) => CanonicalExecution::Inline {
+                command: command.clone(),
+            },
+            LoweredCommandExecution::ResponseFile { command, file } => {
+                CanonicalExecution::ResponseFile {
                     command: command.clone(),
-                },
-                LoweredCommandExecution::ResponseFile { command, file } => {
-                    CanonicalExecution::ResponseFile {
-                        command: command.clone(),
-                        path: file.path.clone(),
-                        content: file.content.clone(),
-                    }
+                    path: file.path.clone(),
+                    content: file.content.clone(),
                 }
-            };
-            Ok(CanonicalAction {
-                dependencies,
-                external_inputs,
-                outputs,
-                command: CanonicalCommand {
-                    args: action.command().args().to_vec(),
-                    execution,
-                    cwd: action.command().cwd().map(ToOwned::to_owned),
-                    environment: action.command().env().to_vec(),
-                },
-                cache_eligible: action.is_cache_eligible(),
-            })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+            }
+        };
+        actions.push(CanonicalAction {
+            dependencies,
+            external_inputs,
+            outputs,
+            command: CanonicalCommand {
+                args: action.command().args().to_vec(),
+                execution,
+                cwd: action.command().cwd().map(ToOwned::to_owned),
+                environment: action.command().env().to_vec(),
+            },
+            cache_eligible: action.is_cache_eligible(),
+        });
+    }
 
     compute_canonical_actions(&actions, context)
 }
@@ -213,7 +229,7 @@ pub fn compute_action_identities(
 #[derive(Clone)]
 struct CanonicalAction {
     dependencies: Vec<CanonicalProduct>,
-    external_inputs: Vec<ExternalInput>,
+    external_inputs: Vec<InputObservation>,
     outputs: Vec<CanonicalProduct>,
     command: CanonicalCommand,
     cache_eligible: bool,
@@ -286,9 +302,6 @@ impl From<&ArtifactKey> for LogicalProduct {
                 (b"generated-mbti".as_slice(), Some(*target_kind), None)
             }
             ArtifactKey::DocsDir { .. } => (b"docs-dir".as_slice(), None, None),
-            ArtifactKey::PrebuildOutput { path, .. } => {
-                (b"prebuild-output-path".as_slice(), None, Some(path.clone()))
-            }
         };
         Self {
             kind,
@@ -344,7 +357,7 @@ struct ActionIdentityBuilder<'a> {
     context: &'a ActionIdentityContext,
     identities: Vec<Option<ActionIdentity>>,
     visiting: HashSet<usize>,
-    external_digests: HashMap<ExternalInput, ActionDigest>,
+    external_digests: HashMap<InputObservation, ActionDigest>,
     file_digests: HashMap<PathBuf, ActionDigest>,
 }
 
@@ -387,7 +400,6 @@ impl ActionIdentityBuilder<'_> {
                 })
                 .collect::<Vec<_>>();
             outputs.sort_unstable_by_key(|digest| digest.0);
-            outputs.dedup();
 
             (
                 action.external_inputs.clone(),
@@ -410,8 +422,8 @@ impl ActionIdentityBuilder<'_> {
             input_fingerprint.field(
                 b"kind",
                 match input {
-                    ExternalInput::File(_) => b"file",
-                    ExternalInput::StandardLibraryInterfaces(_) => b"stdlib-interfaces",
+                    InputObservation::File(_) => b"file",
+                    InputObservation::StandardLibraryInterfaces(_) => b"stdlib-interfaces",
                 },
             );
             input_fingerprint.field(b"path", path_bytes(input.path()));
@@ -424,7 +436,6 @@ impl ActionIdentityBuilder<'_> {
             external_input_digests.push(input_fingerprint.finish());
         }
         external_input_digests.sort_unstable_by_key(|digest| digest.0);
-        external_input_digests.dedup();
         fingerprint.sequence(b"external-inputs", external_input_digests.len());
         for input in external_input_digests {
             fingerprint.field(b"external-input", input.as_bytes());
@@ -445,7 +456,6 @@ impl ActionIdentityBuilder<'_> {
             dependency_digests.push(dependency_fingerprint.finish());
         }
         dependency_digests.sort_unstable_by_key(|digest| digest.0);
-        dependency_digests.dedup();
         fingerprint.sequence(b"dependencies", dependency_digests.len());
         for dependency in dependency_digests {
             fingerprint.field(b"dependency", dependency.as_bytes());
@@ -528,14 +538,13 @@ impl ActionIdentityBuilder<'_> {
             .map(|path| path_bytes(path).to_vec())
             .collect::<Vec<_>>();
         paths.sort();
-        paths.dedup();
         fingerprint.sequence(b"concrete-paths", paths.len());
         for path in paths {
             fingerprint.field(b"concrete-path", &path);
         }
     }
 
-    fn external_digest(&mut self, input: &ExternalInput) -> anyhow::Result<ActionDigest> {
+    fn external_digest(&mut self, input: &InputObservation) -> anyhow::Result<ActionDigest> {
         if let Some(digest) = self.external_digests.get(input) {
             return Ok(*digest);
         }
@@ -543,14 +552,14 @@ impl ActionIdentityBuilder<'_> {
         let metadata = std::fs::metadata(path)
             .with_context(|| format!("failed to inspect action input {}", path.display()))?;
         let digest = match input {
-            ExternalInput::File(_) if metadata.is_file() => self.digest_file(path)?,
-            ExternalInput::File(_) => {
+            InputObservation::File(_) if metadata.is_file() => self.digest_file(path)?,
+            InputObservation::File(_) => {
                 bail!("action input is not a regular file: {}", path.display())
             }
-            ExternalInput::StandardLibraryInterfaces(_) if metadata.is_dir() => {
+            InputObservation::StandardLibraryInterfaces(_) if metadata.is_dir() => {
                 self.digest_stdlib_interfaces(path)?
             }
-            ExternalInput::StandardLibraryInterfaces(_) => bail!(
+            InputObservation::StandardLibraryInterfaces(_) => bail!(
                 "standard-library interface input is not a directory: {}",
                 path.display()
             ),
@@ -742,7 +751,7 @@ mod tests {
 
     fn action(
         dependencies: Vec<CanonicalProduct>,
-        external_inputs: Vec<ExternalInput>,
+        external_inputs: Vec<InputObservation>,
         output: impl Into<PathBuf>,
     ) -> CanonicalAction {
         let output = output.into();
@@ -782,7 +791,7 @@ mod tests {
         let make_action = |private_work_root: &Path| {
             let mut action = action(
                 Vec::new(),
-                vec![ExternalInput::File(source_root.join("lib.mbt"))],
+                vec![InputObservation::File(source_root.join("lib.mbt"))],
                 private_work_root.join("lib.mi"),
             );
             action.command.args = vec![
@@ -832,8 +841,16 @@ mod tests {
         fs::write(&second_source, "pub fn answer() -> Int { 42 }").unwrap();
 
         let output = root.path().join("_build/lib.mi");
-        let first = action(Vec::new(), vec![ExternalInput::File(first_source)], &output);
-        let second = action(Vec::new(), vec![ExternalInput::File(second_source)], output);
+        let first = action(
+            Vec::new(),
+            vec![InputObservation::File(first_source)],
+            &output,
+        );
+        let second = action(
+            Vec::new(),
+            vec![InputObservation::File(second_source)],
+            output,
+        );
 
         assert_ne!(
             compute_canonical_actions(&[first], &context(root.path())).unwrap(),
@@ -891,7 +908,7 @@ mod tests {
         fs::write(root.path().join("dep.mbt"), "let value = 1").unwrap();
         let producer = action(
             Vec::new(),
-            vec![ExternalInput::File(root.path().join("dep.mbt"))],
+            vec![InputObservation::File(root.path().join("dep.mbt"))],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -904,7 +921,7 @@ mod tests {
 
         let producer = action(
             Vec::new(),
-            vec![ExternalInput::File(root.path().join("dep.mbt"))],
+            vec![InputObservation::File(root.path().join("dep.mbt"))],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -921,7 +938,7 @@ mod tests {
         fs::write(root.path().join("dep.mbt"), "let value = 2").unwrap();
         let producer = action(
             Vec::new(),
-            vec![ExternalInput::File(root.path().join("dep.mbt"))],
+            vec![InputObservation::File(root.path().join("dep.mbt"))],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -989,12 +1006,12 @@ mod tests {
 
         let first_producer = action(
             Vec::new(),
-            vec![ExternalInput::File(first_input.clone())],
+            vec![InputObservation::File(first_input.clone())],
             root.path().join("_build/first.mi"),
         );
         let second_producer = action(
             Vec::new(),
-            vec![ExternalInput::File(second_input.clone())],
+            vec![InputObservation::File(second_input.clone())],
             root.path().join("_build/second.mi"),
         );
         let mut consumer = action(
@@ -1003,8 +1020,8 @@ mod tests {
                 product(Some(1), root.path().join("_build/second.mi")),
             ],
             vec![
-                ExternalInput::File(first_input.clone()),
-                ExternalInput::File(second_input.clone()),
+                InputObservation::File(first_input.clone()),
+                InputObservation::File(second_input.clone()),
             ],
             root.path().join("_build/main.mi"),
         );
@@ -1033,12 +1050,12 @@ mod tests {
             &[
                 action(
                     Vec::new(),
-                    vec![ExternalInput::File(first_input)],
+                    vec![InputObservation::File(first_input)],
                     root.path().join("_build/first.mi"),
                 ),
                 action(
                     Vec::new(),
-                    vec![ExternalInput::File(second_input)],
+                    vec![InputObservation::File(second_input)],
                     root.path().join("_build/second.mi"),
                 ),
                 consumer,
@@ -1072,7 +1089,7 @@ mod tests {
         fs::write(stdlib.join("README.md"), "one").unwrap();
         let action = action(
             Vec::new(),
-            vec![ExternalInput::StandardLibraryInterfaces(stdlib.clone())],
+            vec![InputObservation::StandardLibraryInterfaces(stdlib.clone())],
             root.path().join("_build/lib.mi"),
         );
         let original =
@@ -1120,7 +1137,7 @@ mod tests {
         fs::create_dir(&unmodeled_directory).unwrap();
         let mut producer = action(
             Vec::new(),
-            vec![ExternalInput::File(unmodeled_directory)],
+            vec![InputObservation::File(unmodeled_directory)],
             root.path().join("_build/generated.mbt"),
         );
         producer.cache_eligible = false;

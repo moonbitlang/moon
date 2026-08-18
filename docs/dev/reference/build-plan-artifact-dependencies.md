@@ -41,7 +41,7 @@ can be shared safely.
 
 `ArtifactKey` names a logical result independently of its provider action and
 physical output root. The complete enum covers package compilation, proof,
-test generation, linking, native support, documentation, and prebuild outputs.
+test generation, linking, native support, and documentation results.
 Representative variants are:
 
 ```rust
@@ -63,7 +63,6 @@ pub enum ArtifactKey {
     LinkedCore { package: PackageId, target_kind: TargetKind },
     Executable { package: PackageId, target_kind: TargetKind },
 
-    PrebuildOutput { package: PackageId, path: PathBuf },
     // other logical artifacts
 }
 ```
@@ -90,12 +89,12 @@ inline-test, whitebox-test, and blackbox-test targets have different
 `TargetKind` values. Backend and profile remain configuration scope rather than
 being repeated in every package artifact.
 
-Package file artifacts use normalized declaration paths instead of list
-indices. C-stub paths are relative to the package root. Supported prebuild
-outputs follow the same rule; an explicitly absolute declaration outside the
-package remains absolute because it has no package-relative identity. Runtime
-object keys use their stable path within the toolchain library layout, such as
-`runtime/foo.c`, rather than the installed toolchain root.
+C-stub artifact keys use normalized declaration paths rather than list indices;
+their source paths are relative to the package root. Runtime-object keys use
+their stable path within the toolchain library layout, such as `runtime/foo.c`,
+rather than the installed toolchain root. Ordinary package sources and
+prebuild outputs remain concrete paths in package file sets rather than Build
+Artifacts.
 
 An output needs an artifact key only when Build Plan selects or consumes it as
 an independently meaningful result. Merely declaring a physical output to n2
@@ -135,9 +134,9 @@ enum BuildPlanActionKey {
 }
 
 struct ArtifactRegistry {
-    providers: HashMap<ArtifactKey, BuildPlanActionKey>,
-    artifacts_by_provider: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
-    requirements_by_consumer: HashMap<BuildPlanActionKey, IndexSet<ArtifactKey>>,
+    providers: HashMap<ArtifactKey, BuildPlanNode>,
+    artifacts_by_provider: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
+    requirements_by_consumer: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
 }
 ```
 
@@ -146,12 +145,13 @@ may expose multiple artifacts, but each artifact has at most one provider in a
 plan. At the end of planning, validation requires every requested artifact and
 every Artifact Requirement to have a provider.
 
-`BuildPlanActionKey` is the union used by the common artifact registry to
-connect providers and consumers from either subplan. Backend nodes retain
-`BuildTarget` and therefore `TargetKind` only where those concepts apply.
-Package prebuild actions are keyed by their declaration coordinate: custom
-commands use the manifest declaration index, while moonlex and moonyacc use
-their concrete input paths.
+`BuildPlanActionKey` is the action union used while lowering the two subplans.
+Backend nodes retain `BuildTarget` and therefore `TargetKind` only where those
+concepts apply. Package prebuild actions are keyed by their declaration
+coordinate: custom commands use the manifest declaration index, while moonlex
+and moonyacc use their concrete input paths. The artifact registry currently
+contains only semantic backend artifacts; concrete package-file relationships
+are resolved after lowering.
 
 Builders name only what they consume:
 
@@ -203,22 +203,24 @@ providers and cannot substitute for one another.
 
 Each backend-specific `BuildPlan` composes a `BackendPlan` and a
 `PackagePrebuildPlan`. The package-prebuild subplan owns complete custom
-prebuild, moonlex, and moonyacc actions; it is not a second dependency model.
+prebuild, moonlex, and moonyacc actions; it is not a second semantic artifact
+model.
 
-Every generated file is registered as `PrebuildOutput { package, path }` in the
-same `ArtifactRegistry` used by backend actions. A prebuild action consuming an
-earlier generated file records an Artifact Requirement, so custom-to-moonlex
-and custom-to-moonyacc pipelines are explicit before n2 adaptation. Backend
-actions likewise require the generated `.mbt`, `.mbt.md`, `.mbtp`, or `.mbti`
-artifacts selected into their final file projection.
+Package discovery and prebuild declarations contribute concrete paths to the
+package file sets used by Build Target Projection. A path does not gain a
+different identity depending on whether discovery already observed it or a
+prebuild action declares it as an output. Lowering places those paths in the
+consumer's input observations and declares the producing prebuild action's
+outputs. Execution Plan consumers resolve matching input and output paths to
+the same producer relationship, including custom-to-moonlex and
+custom-to-moonyacc pipelines.
 
 Unconsumed package prebuild actions remain planned under the existing
 semantics. Their outputs become n2 start nodes because no later action consumes
 them.
 
-The prebuild action retains resolved execution paths and cwd. The artifact key
-retains declaration identity. `ArtifactPathResolver` checks that the two agree
-when it realizes the action's output.
+The prebuild action retains its resolved execution paths and cwd. Its output
+paths are physical execution behavior, not semantic `ArtifactKey` values.
 
 ## Execution Plan
 
@@ -230,23 +232,23 @@ semantic planning and execution lowering.
 
 `ExecutionPlan` assigns an `ActionId` to each concrete `ExecutionAction`.
 Declared outputs are instead keyed by their concrete paths, which are already
-required to be unique within the plan. An execution action's `inputs` are
-declared outputs produced by other actions in the same plan. Source files,
-manifests, tools, and other paths not produced by the plan are
-`ExternalInput` observations instead. Every declared output retains its
-producer `ActionId` and optional `ArtifactKey`, so adapters and identity
-consumers can follow the relationship without another dependency object,
-output arena, or plan-wide artifact registry. One action may provide several
-Build Artifacts, and a Build Artifact may realize to one or several physical
-outputs.
+required to be unique within the plan. An execution action has one collection
+of `InputObservation` values. A regular file observation resolves to a
+producer when its path matches a declared output; an unmatched path is
+supplied across the Execution Plan boundary. This distinction is therefore a
+property of the completed graph, not something each command builder must
+classify. Every declared output retains its producer `ActionId` and optional
+`ArtifactKey`, so adapters and identity consumers can follow the relationship
+without another dependency object, output arena, or plan-wide artifact
+registry. One action may provide several Build Artifacts, and a Build Artifact
+may realize to one or several physical outputs.
 
 The builder's artifact registry exists only while actions are inserted. It
 annotates declared outputs and resolves requested artifacts to output paths for
 command results. Artifact requirements have already been realized as concrete
-action inputs before insertion; finalization does not hold or repair partial
-actions. The final Execution Plan therefore does not impose one global
-`ArtifactKey` namespace on future composition of independently scoped Build
-Plans.
+input observations before insertion. The final Execution Plan therefore does
+not impose one global `ArtifactKey` namespace on future composition of
+independently scoped Build Plans.
 
 `moon fmt` is a Lightweight Command with no logical Build Artifact selection,
 so it constructs complete Execution Actions directly after its lightweight
@@ -292,30 +294,28 @@ let dependencies = plan
 
 The `ExecutionPlanBuilder` registers each realized semantic output, assigns
 `ActionId` handles, and rejects duplicate artifact providers or physical-output
-paths. On finalization it converts each artifact requirement into the selected
-provider's output paths, then discards the
-temporary provider registry. An `ExecutionAction` combines those inputs,
-external file observations, declared outputs, the concrete process command,
-diagnostics, and executor/cache policy. The n2 adapter alone registers files
-and constructs `n2::Build` values.
+paths. An `ExecutionAction` combines input observations, declared outputs, the
+concrete process command, diagnostics, and executor/cache policy. Consumers
+resolve a regular input path through the plan's declared-output index; the n2
+adapter alone registers files and constructs `n2::Build` values.
 
 Every lowered command retains structured argv. Response files change only its
-execution transport. The first argument's resolved executable path is an
-external input unless a dependency artifact provides it. External inputs are
-sorted and deduplicated before n2 adaptation.
-
-Some existing command builders also repeat a dependency artifact path in their
-additional file inputs. This preserves the current n2 graph contract while the
-explicit artifact dependency remains the authoritative producer edge. Removing
-those redundant file inputs is a separate graph-normalization change; dry-run
-or another `ExecutionPlan` consumer must not rely on the duplication to recover
-producer ordering.
+execution transport. The first argument's resolved executable path is another
+input observation unless a dependency artifact already supplies that path.
+Input observations are sorted and required to be unique before n2 adaptation.
+A realized artifact dependency is the sole input declaration for its physical
+path; command metadata such as `-check-mi` and `-impl-virtual` describes how
+the compiler uses that local path without declaring it again. An installed
+standard-library virtual contract has no provider in the current Build Plan,
+so lowering also retains its exact interface file as an ordinary n2 input.
 
 Some semantic filesystem observations cannot be represented as ordinary n2
 file edges. Compiler actions carry the selected standard-library interface
 bundle as a recursive `.mi` input for action identity, while the n2 adapter
-omits that directory from its file list. Native lowering enumerates the chosen
-toolchain include tree and attaches its headers as ordinary inputs.
+omits that directory from its file list. Exact standard-library virtual
+contracts used by `-check-mi` or `-impl-virtual` therefore remain separate file
+observations for n2. Native lowering enumerates the chosen toolchain include
+tree and attaches its headers as ordinary inputs.
 
 Actions with broader unmodeled observations remain cache-ineligible. This
 includes proof execution, documentation generation, arbitrary prebuild shell
