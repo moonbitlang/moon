@@ -42,7 +42,7 @@ jobs:
     outputs:
       CCAA-signed: ${{ steps.CCAA-check-step.outputs.CCAA-signed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: CCAA check
         id: CCAA-check-step
         env:
@@ -80,7 +80,7 @@ jobs:
     env:
       HAWKEYE_VERSION: v5.6.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Download HawkEye
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/korandoru/hawkeye/releases/download/$HAWKEYE_VERSION/hawkeye-installer.sh | sh
       - name: License Header Check
@@ -97,7 +97,7 @@ jobs:
       - name: download typos
         run: curl -LsSf https://github.com/crate-ci/typos/releases/download/$TYPOS_VERSION/typos-$TYPOS_VERSION-x86_64-unknown-linux-musl.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: check for typos
@@ -108,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup mdBook
         uses: peaceiris/actions-mdbook@v2
@@ -134,12 +134,13 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: 1.95.0
           components: rustfmt, clippy
 
       - name: Cargo cache
@@ -202,14 +203,8 @@ jobs:
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}/target/debug/moonrun
         run: |
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target native
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target native
+          cargo run --bin moon -- -C ~/.moon/lib/core test --target all
+          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target all
 
       # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
       # TODO: Add this back when we add LLVM to nightly
@@ -226,12 +221,13 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: 1.95.0
           components: rustfmt, clippy
 
       - name: Cargo cache
@@ -260,14 +256,8 @@ jobs:
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}\target\debug\moonrun.exe
         run: |
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target native
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target all
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target all
 
       # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
       # TODO: Add this back when we add LLVM to nightly
@@ -289,12 +279,13 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: 1.95.0
           components: rustfmt, clippy
 
       - name: Cargo cache
@@ -365,12 +356,13 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: 1.95.0
           components: rustfmt, clippy
 
       - name: Cargo cache
@@ -426,28 +418,16 @@ jobs:
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}/target/debug/moonrun
         run: |
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target native
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target native
+          cargo run --bin moon -- -C ~/.moon/lib/core test --target all
+          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target all
           cargo run --bin moon -- -C ~/.moon/lib/core test --doc
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}\target\debug\moonrun.exe
         run: |
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target native
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target all
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target all
           cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --doc
 
   # coverage:
