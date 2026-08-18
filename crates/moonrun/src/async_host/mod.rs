@@ -51,6 +51,7 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+use crate::guest_memory::{GuestMemory, GuestMemoryError};
 pub(crate) use crate::host::HostKey as HandleKey;
 use crate::host::{HostKeys, HostResourceKind as HandleKind};
 
@@ -159,55 +160,10 @@ impl AsyncHostError {
     }
 }
 
-pub(crate) trait GuestMemory {
-    fn bytes(&self) -> &[u8];
-
-    fn bytes_mut(&mut self) -> &mut [u8];
-
-    fn read_exact(&self, offset: u32, len: u32) -> AsyncHostResult<&[u8]> {
-        let (offset, end) = guest_bounds(offset, len)?;
-        self.bytes().get(offset..end).ok_or(AsyncHostError::Fault)
+impl From<GuestMemoryError> for AsyncHostError {
+    fn from(_error: GuestMemoryError) -> Self {
+        Self::Fault
     }
-
-    fn read_exact_mut(&mut self, offset: u32, len: u32) -> AsyncHostResult<&mut [u8]> {
-        let (offset, end) = guest_bounds(offset, len)?;
-        self.bytes_mut()
-            .get_mut(offset..end)
-            .ok_or(AsyncHostError::Fault)
-    }
-
-    fn write_exact(&mut self, offset: u32, data: &[u8]) -> AsyncHostResult<()> {
-        let len = u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
-        let dst = self.read_exact_mut(offset, len)?;
-        dst.copy_from_slice(data);
-        Ok(())
-    }
-
-    fn write_with_capacity(
-        &mut self,
-        offset: u32,
-        capacity: u32,
-        data: &[u8],
-    ) -> AsyncHostResult<()> {
-        let data_len = u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
-        if data_len > capacity {
-            return Err(AsyncHostError::Fault);
-        }
-        let dst = self.read_exact_mut(offset, capacity)?;
-        dst[..data.len()].copy_from_slice(data);
-        Ok(())
-    }
-
-    fn write_u64_le(&mut self, offset: u32, value: u64) -> AsyncHostResult<()> {
-        self.write_exact(offset, &value.to_le_bytes())
-    }
-}
-
-fn guest_bounds(offset: u32, len: u32) -> AsyncHostResult<(usize, usize)> {
-    let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
-    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-    let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
-    Ok((offset, end))
 }
 
 pub(crate) fn read_u16(memory: &[u8], offset: u32, len: u32) -> AsyncHostResult<Vec<u16>> {
@@ -243,26 +199,6 @@ fn u16_bounds(memory_len: usize, offset: u32, len: usize) -> AsyncHostResult<(us
         return Err(AsyncHostError::Fault);
     }
     Ok((offset, end))
-}
-
-impl GuestMemory for [u8] {
-    fn bytes(&self) -> &[u8] {
-        self
-    }
-
-    fn bytes_mut(&mut self) -> &mut [u8] {
-        self
-    }
-}
-
-impl<const N: usize> GuestMemory for [u8; N] {
-    fn bytes(&self) -> &[u8] {
-        self.as_slice()
-    }
-
-    fn bytes_mut(&mut self) -> &mut [u8] {
-        self.as_mut_slice()
-    }
 }
 
 #[derive(Debug)]
@@ -1049,7 +985,8 @@ impl HostIoResult {
             .addr_buffer
             .get(..actual_addr_len)
             .ok_or(AsyncHostError::Fault)?;
-        memory.write_with_capacity(addr, addr_len, addr_data)
+        memory.write_with_capacity(addr, addr_len, addr_data)?;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -3319,7 +3256,8 @@ impl AsyncHost {
             .accept_buffer
             .get(offset..end)
             .ok_or(AsyncHostError::Fault)?;
-        memory.write_with_capacity(dst, dst_len, addr)
+        memory.write_with_capacity(dst, dst_len, addr)?;
+        Ok(())
     }
 
     #[cfg(windows)]
@@ -4903,44 +4841,6 @@ mod tests {
     }
 
     #[test]
-    fn guest_memory_read_exact_accepts_in_bounds_access() {
-        let memory = [1, 2, 3, 4];
-
-        assert_eq!(memory.read_exact(1, 2).unwrap(), &[2, 3]);
-        assert!(memory.read_exact(4, 0).unwrap().is_empty());
-    }
-
-    #[test]
-    fn guest_memory_read_exact_rejects_out_of_bounds_access() {
-        let memory = [0; 4];
-
-        for (offset, len) in [(3, 2), (u32::MAX, 1), (2, u32::MAX)] {
-            assert_eq!(memory.read_exact(offset, len), Err(AsyncHostError::Fault));
-        }
-    }
-
-    #[test]
-    fn guest_memory_read_exact_mut_accepts_in_bounds_access() {
-        let mut memory = [1, 2, 3, 4];
-
-        memory.read_exact_mut(1, 2).unwrap().fill(9);
-
-        assert_eq!(memory, [1, 9, 9, 4]);
-    }
-
-    #[test]
-    fn guest_memory_read_exact_mut_rejects_out_of_bounds_access() {
-        let mut memory = [0; 4];
-
-        for (offset, len) in [(3, 2), (u32::MAX, 1), (2, u32::MAX)] {
-            assert_eq!(
-                memory.read_exact_mut(offset, len),
-                Err(AsyncHostError::Fault)
-            );
-        }
-    }
-
-    #[test]
     fn guest_memory_helpers_read_and_write_u16_units() {
         let mut memory = AlignedBytes([0; 8]);
 
@@ -4969,19 +4869,6 @@ mod tests {
 
         assert!(read_u16(&memory, 0, 0).unwrap().is_empty());
         write_u16(&mut memory, 0, &[]).unwrap();
-    }
-
-    #[test]
-    fn guest_memory_writes_fixed_little_endian_words() {
-        let mut memory = [0; 16];
-
-        memory.write_u64_le(2, 0x1020_3040_5060_7080).unwrap();
-
-        assert_eq!(
-            &memory[2..10],
-            &[0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10]
-        );
-        assert_eq!(memory.write_u64_le(10, 1), Err(AsyncHostError::Fault));
     }
 
     #[test]

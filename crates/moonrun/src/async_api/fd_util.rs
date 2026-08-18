@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
@@ -96,12 +97,13 @@ pub(super) fn pipe(
         if len < 2 {
             return Err(AsyncHostError::Fault);
         }
-        context.with_memory_mut(|memory| memory.read_exact_mut(dst, 16).map(|_| ()))?;
+        context.with_memory_mut(|memory| Ok(memory.read_exact_mut(dst, 16).map(|_| ())?))?;
         let fds = context.host
             .pipe(read_end_is_async != 0, write_end_is_async != 0)?;
         context.with_memory_mut(|memory| {
             memory.write_u64_le(dst, fds[0])?;
-            memory.write_u64_le(dst.checked_add(8).ok_or(AsyncHostError::Fault)?, fds[1])
+            memory.write_u64_le(dst.checked_add(8).ok_or(AsyncHostError::Fault)?, fds[1])?;
+            Ok(())
         })
     })();
     match result {

@@ -467,7 +467,7 @@ try {
     let instance = new WebAssembly.Instance(module, spectest);
     const memory = instance.exports.memory;
     if (memory instanceof WebAssembly.Memory) {
-        __moonrun_v8_import.set_memory(memory);
+        __moonrun_v8_import.bind_memory(memory);
     }
     if (test_mode) {
         for (param of testParams) {

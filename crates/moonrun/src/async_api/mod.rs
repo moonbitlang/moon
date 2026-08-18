@@ -16,12 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Runtime-facing `moonbitlang/async` import adapter.
+//! V8-facing `moonbitlang/async` import adapter.
 //!
 //! This layer owns the canonical wasm import list, decodes wasm ABI values from
 //! callback arguments, acquires guest memory, sets return values, and reports
 //! traps. Callback implementations are written against `ImportContext` so the
-//! host behavior stays separate from runtime-specific memory access.
+//! engine-neutral Host behavior stays separate from V8-specific memory access.
 //! Ported native-stub behavior belongs in `async_sys`; shared runtime state
 //! belongs in `async_host`.
 
@@ -47,30 +47,17 @@ mod thread_pool;
 mod time;
 mod tls;
 
-use std::any::Any;
-use std::rc::Rc;
-
-use crate::host::Host;
-use crate::run_termination::TerminationRequest;
-use crate::v8_import::V8ImportState;
+use crate::v8_import::V8RunContext;
 
 pub(crate) use registry::MOONBIT_ASYNC_MODULE;
 
-pub(crate) fn init_env<'s>(
+/// # Safety
+///
+/// `context` must remain valid whenever a registered callback can be invoked.
+pub(crate) unsafe fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-    dtors: &mut Vec<Box<dyn Any>>,
-    host: Rc<Host>,
-    v8_import: Rc<V8ImportState>,
-    termination_request: TerminationRequest,
+    context: *const V8RunContext,
 ) {
-    let context = Box::new(context::AsyncContext::new(
-        host,
-        v8_import,
-        termination_request,
-    ));
-    let context_ptr = &*context as *const context::AsyncContext;
-    dtors.push(context);
-
-    registry::register_imports(obj, scope, context_ptr);
+    registry::register_imports(obj, scope, context);
 }

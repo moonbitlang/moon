@@ -21,8 +21,12 @@ A host-owned queue of completed job identifiers that the guest event loop drains
 _Avoid_: Notify pipe, callback queue
 
 **Guest Memory**:
-The wasm linear memory owned by the guest program.
-_Avoid_: Wasm buffer, V8 memory
+The wasm linear memory owned by the guest program. A runtime adapter exposes it
+to a host operation only through a fresh, checked borrow for one host call.
+That borrow uses unsigned wasm addresses, does not reserve address zero, and
+must not survive guest re-entry or memory growth; an individual ABI decides
+whether zero represents null.
+_Avoid_: Wasm buffer, V8 Memory Binding, retained memory pointer, C null policy
 
 **Untrusted Guest**:
 A wasm program that may call the async boundary outside the sequencing and ownership discipline expected from MoonBit async code.
@@ -71,9 +75,13 @@ _Avoid_: giant host API, async-only host
 The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
 _Avoid_: resource payload, raw pointer, per-API key
 
-**V8 Import Runtime**:
-The shared V8 adapter state used by all memory-consuming host imports, including WASI. After instantiation, the JavaScript runner binds the instance's exact `memory` export through one explicit setter, independent of which import families are present. The runtime reacquires that memory's backing buffer for every import call, decodes ABI arguments, registers callbacks, and constructs traps.
-_Avoid_: Async API, SQLite API, domain state
+**V8 Memory Binding**:
+The V8 adapter's retained handle to the instance's exact exported memory. The JavaScript runner binds it once after instantiation, and every memory-consuming import reacquires the current backing buffer before borrowing Guest Memory. Imports invoked by a wasm start function cannot use this post-instantiation binding.
+_Avoid_: Guest Memory, Host memory, generic runtime memory
+
+**V8 Run Context**:
+The V8-private per-run composition object that retains the Host, V8 Memory Binding, and termination request for current V8 adapters. Other wasm runtimes carry the same engine-neutral Host state through their own adapter mechanisms rather than implementing a universal runtime context.
+_Avoid_: Host, import family, universal runtime context
 
 **Resource**:
 A moonrun-owned OS or runtime object that can be acquired by a Job, such as a file, socket, or directory cursor.

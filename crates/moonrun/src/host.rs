@@ -82,7 +82,7 @@ impl HostKeys {
 /// Composition root for host-owned state.
 ///
 /// Behavior remains on each domain state. `Host` wires those states to one key
-/// namespace and performs teardown only after every import context is gone.
+/// namespace and performs teardown with the complete per-run Host.
 pub(crate) struct Host {
     async_state: AsyncHost,
 }

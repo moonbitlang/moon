@@ -29,6 +29,7 @@ mod async_sys;
 mod backtrace_api;
 mod demangle_js_template;
 mod fs_api_temp;
+mod guest_memory;
 mod host;
 mod host_fs;
 mod host_imports;

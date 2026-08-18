@@ -16,12 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Shared V8 adapter mechanics for memory-consuming wasm host imports.
+//! Per-run context and shared mechanics for the current V8 host adapters.
 
 use std::fmt::Debug;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::OnceLock;
 
+use crate::host::Host;
+use crate::run_termination::TerminationRequest;
 use crate::v8_builder::ObjectExt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,18 +37,18 @@ pub(crate) enum V8ImportError {
 ///
 /// The `WebAssembly.Memory` object is stable. Its backing buffer is not, so an
 /// import must reacquire the buffer on every guest-to-host call.
-pub(crate) struct V8ImportState {
+pub(crate) struct V8MemoryBinding {
     memory: OnceLock<v8::Global<v8::WasmMemoryObject>>,
 }
 
-impl V8ImportState {
+impl V8MemoryBinding {
     pub(crate) fn new() -> Self {
         Self {
             memory: OnceLock::new(),
         }
     }
 
-    fn set_memory(
+    fn bind(
         &self,
         scope: &mut v8::HandleScope,
         memory: v8::Local<v8::WasmMemoryObject>,
@@ -86,6 +89,38 @@ impl V8ImportState {
     }
 }
 
+/// Per-run state needed by V8 adapters for engine-neutral Host operations.
+///
+/// This is deliberately V8-private. Other wasm runtimes acquire Guest Memory
+/// and carry Host state through their own adapter mechanisms.
+pub(crate) struct V8RunContext {
+    host: Host,
+    memory_binding: Rc<V8MemoryBinding>,
+    termination_request: TerminationRequest,
+}
+
+impl V8RunContext {
+    pub(crate) fn new(host: Host, termination_request: TerminationRequest) -> Self {
+        Self {
+            host,
+            memory_binding: Rc::new(V8MemoryBinding::new()),
+            termination_request,
+        }
+    }
+
+    pub(crate) fn host(&self) -> &Host {
+        &self.host
+    }
+
+    pub(crate) fn memory_binding(&self) -> &Rc<V8MemoryBinding> {
+        &self.memory_binding
+    }
+
+    pub(crate) fn termination_request(&self) -> &TerminationRequest {
+        &self.termination_request
+    }
+}
+
 /// Recover the concrete context pointer installed with `register_func`.
 ///
 /// # Safety
@@ -100,13 +135,13 @@ pub(crate) unsafe fn callback_context<'s, T>(args: &v8::FunctionCallbackArgument
     unsafe { &*(pointer as *const T) }
 }
 
-fn memory_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s V8ImportState {
-    // SAFETY: `register_memory_setter` installs only a `V8ImportState` pointer
-    // and its owner retains that state for the complete V8 run.
+fn memory_binding<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s V8MemoryBinding {
+    // SAFETY: `register_memory_binder` installs only a `V8MemoryBinding`
+    // pointer and its owner retains that binding for the complete V8 run.
     unsafe { callback_context(args) }
 }
 
-fn set_memory(
+fn bind_memory(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     _ret: v8::ReturnValue,
@@ -117,19 +152,27 @@ fn set_memory(
         }
         let memory = v8::Local::<v8::WasmMemoryObject>::try_from(args.get(0))
             .map_err(|_| V8ImportError::InvalidArgument)?;
-        memory_context(&args).set_memory(scope, memory)
+        memory_binding(&args).bind(scope, memory)
     })();
     if let Err(error) = result {
-        throw_import_error(scope, "__moonrun_v8_import", "set_memory", error);
+        throw_import_error(scope, "__moonrun_v8_import", "bind_memory", error);
     }
 }
 
-pub(crate) fn register_memory_setter<'s>(
+/// Register the bootstrap hook that binds the instance's exported memory.
+///
+/// The JS runner can obtain an exported memory only after instantiation. Until
+/// it calls this hook, memory-consuming imports fail with `Fault`.
+/// # Safety
+///
+/// `binding` must remain valid whenever the registered callback can be
+/// invoked.
+pub(crate) unsafe fn register_memory_binder<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-    state: *const V8ImportState,
+    binding: *const V8MemoryBinding,
 ) {
-    register_func(obj, scope, "set_memory", set_memory, state);
+    register_func(obj, scope, "bind_memory", bind_memory, binding);
 }
 
 pub(crate) struct ImportArgs<'a, 'scope, 'args> {
