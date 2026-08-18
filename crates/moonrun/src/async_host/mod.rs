@@ -985,7 +985,8 @@ impl HostIoResult {
             .addr_buffer
             .get(..actual_addr_len)
             .ok_or(AsyncHostError::Fault)?;
-        memory.write_with_capacity(addr, addr_len, addr_data)
+        memory.write_with_capacity(addr, addr_len, addr_data)?;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -3255,7 +3256,8 @@ impl AsyncHost {
             .accept_buffer
             .get(offset..end)
             .ok_or(AsyncHostError::Fault)?;
-        memory.write_with_capacity(dst, dst_len, addr)
+        memory.write_with_capacity(dst, dst_len, addr)?;
+        Ok(())
     }
 
     #[cfg(windows)]
