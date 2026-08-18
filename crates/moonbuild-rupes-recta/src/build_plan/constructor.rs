@@ -33,7 +33,7 @@ use moonutil::user_log::UserLog;
 use tracing::{Level, instrument};
 
 use super::{
-    BuildEnvironment, BuildPlan, BuildPlanActionKey, BuildPlanConstructError,
+    BuildEnvironment, BuildPlan, BuildPlanConstructError,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
 };
 
@@ -212,7 +212,6 @@ impl<'a> BuildPlanConstructor<'a> {
         // Panics if the node is not present in the resolved data.
         self.ensure_resolved(node);
         self.register_artifact_outputs(node);
-        self.register_generated_file_requirements(node);
     }
 
     fn register_artifact_outputs(&mut self, node: BuildPlanNode) {
@@ -388,55 +387,6 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn register_generated_file_requirements(&mut self, node: BuildPlanNode) {
-        let target = match node {
-            BuildPlanNode::Check(target)
-            | BuildPlanNode::EmitProof(target)
-            | BuildPlanNode::Prove(target)
-            | BuildPlanNode::BuildCore(target)
-            | BuildPlanNode::GenerateTestInfo(target) => target,
-            BuildPlanNode::BuildVirtual(package) => {
-                let Some(input) = self.res.backend.virtual_contract_inputs.get(&package) else {
-                    return;
-                };
-                let pkg = self.input.pkg_dirs.get_package(package);
-                let artifact = ArtifactKey::PrebuildOutput {
-                    package,
-                    path: package_file_key(&pkg.root_path, input),
-                };
-                if self.res.artifacts.provider(&artifact).is_some() {
-                    self.res.artifacts.require(node, artifact);
-                }
-                return;
-            }
-            _ => return,
-        };
-
-        let Some(info) = self.res.get_build_target_info(&target) else {
-            return;
-        };
-        let inputs = info
-            .files()
-            .chain(info.doctest_files())
-            .chain(info.mbtp_files())
-            .map(Path::to_path_buf)
-            .collect::<HashSet<_>>();
-        let pkg = self.input.pkg_dirs.get_package(target.package);
-        let artifacts = self
-            .res
-            .package_prebuild
-            .output_paths(target.package)
-            .filter(|path| inputs.contains(*path))
-            .map(|path| ArtifactKey::PrebuildOutput {
-                package: target.package,
-                path: package_file_key(&pkg.root_path, path),
-            })
-            .collect::<Vec<_>>();
-        for artifact in artifacts {
-            self.res.artifacts.require(node, artifact);
-        }
-    }
-
     /// Record an artifact requirement and schedule the artifact rule's unique
     /// provider. The caller names only the artifact it consumes.
     pub(super) fn require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
@@ -540,15 +490,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind,
             } => BuildPlanNode::GenerateMbti(package.build_target(*target_kind)),
             ArtifactKey::DocsDir { module } => BuildPlanNode::BuildDocs(*module),
-            ArtifactKey::PrebuildOutput { .. } => {
-                let provider = self
-                    .res
-                    .artifacts
-                    .provider(artifact)
-                    .expect("prebuild artifact should name a planned output");
-                debug_assert!(matches!(provider, BuildPlanActionKey::PackagePrebuild(_)));
-                return;
-            }
         };
 
         self.need_node(provider);

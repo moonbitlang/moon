@@ -72,16 +72,20 @@ impl N2Projection {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ActionId(pub(crate) usize);
 
-/// A concrete file observation that is not produced by an action in this plan.
+/// One concrete filesystem observation made by an execution action.
+///
+/// Regular file observations are matched against declared outputs after all
+/// actions have been lowered. An unmatched file is supplied across the
+/// Execution Plan boundary; a matched file depends on that output's producer.
 #[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ExternalInput {
+pub enum InputObservation {
     /// One regular file observed by the action.
     File(PathBuf),
     /// The recursive `.mi` tree observed through `moonc -std-path`.
     StandardLibraryInterfaces(PathBuf),
 }
 
-impl ExternalInput {
+impl InputObservation {
     pub fn path(&self) -> &Path {
         match self {
             Self::File(path) | Self::StandardLibraryInterfaces(path) => path,
@@ -210,8 +214,7 @@ impl DeclaredOutput {
 /// One concrete action after command construction and path realization.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionAction {
-    inputs: Vec<PathBuf>,
-    external_inputs: Vec<ExternalInput>,
+    inputs: Vec<InputObservation>,
     outputs: Vec<PathBuf>,
     command: LoweredCommand,
     cache_eligible: bool,
@@ -223,15 +226,19 @@ pub struct ExecutionAction {
 
 impl ExecutionAction {
     pub(crate) fn new(
-        inputs: Vec<PathBuf>,
+        mut inputs: Vec<InputObservation>,
         outputs: Vec<PathBuf>,
         command: LoweredCommand,
         fileloc: String,
         description: String,
     ) -> Self {
+        inputs.sort();
+        assert!(
+            inputs.windows(2).all(|pair| pair[0] != pair[1]),
+            "execution action inputs must be declared once"
+        );
         Self {
             inputs,
-            external_inputs: Vec::new(),
             outputs,
             command,
             cache_eligible: true,
@@ -240,11 +247,6 @@ impl ExecutionAction {
             can_dirty_on_output: false,
             error_package: None::<crate::pkg_name::PackageFQN>.into(),
         }
-    }
-
-    pub(crate) fn with_external_inputs(mut self, external_inputs: Vec<ExternalInput>) -> Self {
-        self.external_inputs = external_inputs;
-        self
     }
 
     pub(crate) fn with_cache_eligible(mut self, cache_eligible: bool) -> Self {
@@ -265,13 +267,8 @@ impl ExecutionAction {
         self
     }
 
-    /// Declared output paths produced by other actions in this plan.
-    pub fn inputs(&self) -> &[PathBuf] {
+    pub fn inputs(&self) -> &[InputObservation] {
         &self.inputs
-    }
-
-    pub fn external_inputs(&self) -> &[ExternalInput] {
-        &self.external_inputs
     }
 
     pub fn outputs(&self) -> &[PathBuf] {
@@ -508,17 +505,6 @@ impl ExecutionPlanBuilder {
         self,
         requested_artifacts: impl IntoIterator<Item = ArtifactKey>,
     ) -> ExecutionPlan {
-        for (index, action) in self.actions.iter().enumerate() {
-            for input in action.inputs() {
-                assert!(
-                    self.outputs.contains_key(input),
-                    "execution action {:?} depends on an undeclared producer output: {}",
-                    ActionId(index),
-                    input.display()
-                );
-            }
-        }
-
         let mut seen = HashSet::new();
         let mut requested = Vec::new();
         for artifact in requested_artifacts {
@@ -559,7 +545,7 @@ mod tests {
             .collect();
         (
             ExecutionAction::new(
-                inputs,
+                inputs.into_iter().map(InputObservation::File).collect(),
                 outputs,
                 LoweredCommand::from(vec![command.to_string()]),
                 command.to_string(),
@@ -593,11 +579,22 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "execution action inputs must be declared once")]
+    fn execution_action_rejects_duplicate_input_declarations() {
+        execution_action(
+            vec![PathBuf::from("src/main.mbt"), PathBuf::from("src/main.mbt")],
+            Vec::new(),
+            Vec::new(),
+            "compile-main",
+        );
+    }
+
+    #[test]
     fn artifact_edges_and_physical_only_outputs_have_distinct_identity() {
         let (plan, producer, consumer) = producer_and_consumer_plan();
 
         let input = plan
-            .declared_output(&plan.action(consumer).inputs()[0])
+            .declared_output(plan.action(consumer).inputs()[0].path())
             .expect("action input should resolve to a declared output");
         assert_eq!(input.artifact(), Some(&ArtifactKey::RuntimeLibrary));
         assert_eq!(input.producer(), producer);
@@ -653,8 +650,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "depends on an undeclared producer output")]
-    fn execution_inputs_require_a_producer_in_the_same_plan() {
+    fn execution_inputs_without_a_producer_are_boundary_observations() {
         let mut builder = ExecutionPlanBuilder::default();
         let (action, outputs) = execution_action(
             vec![PathBuf::from("src/main.mbt")],
@@ -663,7 +659,12 @@ mod tests {
             "compile-main",
         );
         builder.add_action(action, outputs);
-        builder.finish([]);
+        let plan = builder.finish([]);
+
+        assert!(
+            plan.declared_output(Path::new("src/main.mbt")).is_none(),
+            "an unmatched input should not acquire a producer"
+        );
     }
 
     #[test]

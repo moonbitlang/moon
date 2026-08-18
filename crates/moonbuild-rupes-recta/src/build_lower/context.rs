@@ -35,7 +35,7 @@ use crate::{
         PackagePrebuildKey, package_file_key,
     },
     discover::{DiscoverResult, DiscoveredPackage},
-    execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, ExternalInput},
+    execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, InputObservation},
     model::{BackendConfig, BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
     target_layout::ArtifactPathResolver,
@@ -489,7 +489,7 @@ impl<'a> LoweringContext<'a> {
                 self.lower_generate_mbti(&action_artifacts, target)
             }
             BuildAction::BuildVirtual { package, input } => {
-                self.lower_parse_mbti(package, input)?
+                self.lower_parse_mbti(&action_artifacts, package, input)?
             }
             BuildAction::Bundle { module, targets } => {
                 self.lower_bundle(&action_artifacts, module, targets)?
@@ -510,7 +510,7 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
-        let (command, mut external_inputs) = cmd.into_lowered_parts(
+        let (command, mut inputs) = cmd.into_lowered_parts(
             action_artifacts
                 .dependencies
                 .iter()
@@ -525,7 +525,7 @@ impl<'a> LoweringContext<'a> {
                 | BuildAction::BuildVirtual { .. }
         ) && let Some(stdlib_root) = &self.opt.stdlib_path
         {
-            external_inputs.push(ExternalInput::StandardLibraryInterfaces(
+            inputs.push(InputObservation::StandardLibraryInterfaces(
                 moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend()),
             ));
         }
@@ -547,11 +547,11 @@ impl<'a> LoweringContext<'a> {
                 )
         );
         if observes_toolchain_headers {
-            external_inputs.extend(
+            inputs.extend(
                 self.toolchain_include_files()?
                     .iter()
                     .cloned()
-                    .map(ExternalInput::File),
+                    .map(InputObservation::File),
             );
         }
 
@@ -562,11 +562,16 @@ impl<'a> LoweringContext<'a> {
             let path = Path::new(&self.opt.compiler_paths().lib_path).join(name);
             let rendered = path.display().to_string();
             if command.args().iter().any(|argument| argument == &rendered) {
-                external_inputs.push(ExternalInput::File(path));
+                inputs.push(InputObservation::File(path));
             }
         }
-        external_inputs.sort();
-        external_inputs.dedup();
+        inputs.extend(
+            action_artifacts
+                .dependencies
+                .iter()
+                .flat_map(|artifact| artifact.paths.iter().cloned())
+                .map(InputObservation::File),
+        );
 
         let error_package = match action_key {
             BuildPlanActionKey::Backend(node) => node.extract_target(),
@@ -656,13 +661,11 @@ impl<'a> LoweringContext<'a> {
                         self.opt.artifact_path_options().executable,
                     ),
             ],
+            BuildAction::RunPrebuild { info } => info.resolved_outputs.clone(),
+            BuildAction::RunMoonLexPrebuild { output, .. }
+            | BuildAction::RunMoonYaccPrebuild { output, .. } => vec![output.to_path_buf()],
             _ => Vec::new(),
         };
-        let inputs = action_artifacts
-            .dependencies
-            .into_iter()
-            .flat_map(|artifact| artifact.paths)
-            .collect();
         let semantic_outputs = action_artifacts
             .outputs
             .into_iter()
@@ -680,7 +683,6 @@ impl<'a> LoweringContext<'a> {
             self.string_id(action_key),
             self.human_desc(action_key, action),
         )
-        .with_external_inputs(external_inputs)
         .with_cache_eligible(cache_eligible)
         .with_can_dirty_on_output(matches!(
             action_key,

@@ -93,28 +93,35 @@ _Avoid_: Package Prebuild Plan, bare action set
 
 **Package Prebuild Plan**:
 The subplan that owns package-level file-generation actions whose meaning is
-independent of Target Backend. It participates in the enclosing Build Plan's
-artifact relationships rather than defining a separate dependency model.
+independent of Target Backend. Its concrete inputs and outputs participate in
+Execution Plan dependency resolution rather than defining a second semantic
+artifact model.
 _Avoid_: Backend Plan, prebuild action graph
 
 **Build Artifact**:
-A logical build result identified independently of its physical output root and provider derivation. Artifact identity includes the semantic output kind: check, build, proof, and virtual-contract `.mi` files are distinct. Identity is scoped to one backend-specific Build Plan.
+A logical build result identified independently of its physical realization
+and provider edge. Check, build, proof, and virtual-contract `.mi` files are
+distinct Build Artifacts even when their physical forms match.
 _Avoid_: Output path, action ID, build product
 
 **Artifact Requirement**:
-A declaration that a build-plan derivation needs a Build Artifact. It does not name the derivation that provides the artifact.
+A declaration that a Build Plan action needs a Build Artifact. It does not name the action that provides the artifact.
 _Avoid_: Action dependency, producer edge
 
 **Artifact Provider**:
-The build-plan derivation registered as producing a Build Artifact. Every required artifact has exactly one provider within a Build Plan.
-_Avoid_: Choosing a provider separately at each requirement call site
+The Build Plan action connected by a provider edge to a Build Artifact.
+Provider association is graph topology rather than artifact identity. Every
+Artifact Requirement in a Build Plan has exactly one provider.
+_Avoid_: Provider-specific artifact identity, choosing a provider at each requirement call site
 
 **Execution Plan**:
 The executor-neutral graph of concrete execution actions, input paths, and declared physical outputs. Project builds produce it by lowering one backend-specific Build Plan; lightweight commands without logical Build Artifacts may construct it directly.
 _Avoid_: n2 graph, Build Plan, list of lowered commands
 
 **Execution Action**:
-One concrete command plus all execution behavior MoonBuild knows can affect it: input paths, external file observations, declared outputs, working directory, environment, response-file transport, diagnostics, and cache policy.
+One concrete command plus all execution behavior MoonBuild knows can affect it:
+input paths and their observation kinds, declared outputs, working directory,
+environment, response-file transport, diagnostics, and cache policy.
 _Avoid_: Build plan node, process ID, cache digest
 
 **Action ID**:

@@ -57,8 +57,8 @@ use crate::{
 };
 
 use super::{
-    BuildCStubsInfo, BuildPlanActionKey, BuildPlanConstructError, BuildRuntimeInfo,
-    BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo, PackagePrebuildKey,
+    BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
+    MakeExecutableInfo, PackagePrebuildKey,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
     c_stub_archive_fingerprint,
     constructor::{BuildPlanConstructor, PackageFileSet},
@@ -245,7 +245,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // A custom prebuild may itself generate moonlex/moonyacc input. Treat
         // those paths exactly like files observed during package discovery;
-        // the matching prebuild artifacts connect their producer actions.
+        // matching input and output paths connect their execution actions.
         let custom_outputs = self
             .res
             .package_prebuild
@@ -291,58 +291,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 .package_prebuild
                 .insert_moonyacc(pkg_id, input, output);
         }
-        self.register_package_prebuild_artifacts(pkg_id);
         Ok(())
-    }
-
-    fn register_package_prebuild_artifacts(&mut self, package: PackageId) {
-        let pkg = self.input.pkg_dirs.get_package(package);
-        let actions = self
-            .res
-            .package_prebuild
-            .actions_for_package(package)
-            .map(|(key, action)| {
-                (
-                    key.clone(),
-                    action.input_paths().to_vec(),
-                    action.output_paths().to_vec(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let providers = actions
-            .iter()
-            .flat_map(|(key, _, outputs)| {
-                outputs.iter().map(|output| {
-                    (
-                        output.clone(),
-                        BuildPlanActionKey::PackagePrebuild(key.clone()),
-                        ArtifactKey::PrebuildOutput {
-                            package,
-                            path: package_file_key(&pkg.root_path, output),
-                        },
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
-
-        for (_, provider, artifact) in &providers {
-            self.res
-                .artifacts
-                .provide(provider.clone(), artifact.clone());
-        }
-        for (consumer, inputs, _) in actions {
-            for input in inputs {
-                if let Some((_, _, artifact)) =
-                    providers.iter().find(|(output, _, _)| *output == input)
-                {
-                    self.res.artifacts.require(
-                        BuildPlanActionKey::PackagePrebuild(consumer.clone()),
-                        artifact.clone(),
-                    );
-                }
-            }
-        }
     }
 
     fn check_backend_compatibility_for_dep(

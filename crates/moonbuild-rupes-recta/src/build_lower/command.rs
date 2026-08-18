@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use moonutil::compiler_flags::Toolchain;
 
-use crate::execution_plan::{ExternalInput, LoweredCommand};
+use crate::execution_plan::{InputObservation, LoweredCommand};
 
 /// Command data produced by action-specific lowering before common execution
 /// metadata and declared outputs are attached.
@@ -34,14 +34,14 @@ impl BuildCommand {
     /// Finish the common action-lowering boundary.
     ///
     /// Structured commands carry a concrete executable as `argv[0]`. Keep that
-    /// tool file alongside the action's other external inputs so execution
+    /// tool file alongside the action's other input observations so execution
     /// adapters can invalidate the action when the executable changes in place.
-    /// If a dependency artifact already provides that path, omit the external
-    /// copy.
+    /// If another input source already provides that path, do not add a second
+    /// declaration for the executable.
     pub(super) fn into_lowered_parts<'a>(
         self,
         dependency_paths: impl IntoIterator<Item = &'a Path>,
-    ) -> (LoweredCommand, Vec<ExternalInput>) {
+    ) -> (LoweredCommand, Vec<InputObservation>) {
         let Self {
             mut extra_inputs,
             commandline,
@@ -50,15 +50,21 @@ impl BuildCommand {
             let is_dependency = dependency_paths.into_iter().any(|path| path == executable);
             if is_dependency {
                 extra_inputs.retain(|path| path != executable);
-            } else {
+            } else if !extra_inputs.iter().any(|path| path == executable) {
                 extra_inputs.push(executable.to_owned());
             }
         }
         extra_inputs.sort();
-        extra_inputs.dedup();
+        assert!(
+            extra_inputs.windows(2).all(|pair| pair[0] != pair[1]),
+            "lowered command inputs must be declared once"
+        );
         (
             commandline,
-            extra_inputs.into_iter().map(ExternalInput::File).collect(),
+            extra_inputs
+                .into_iter()
+                .map(InputObservation::File)
+                .collect(),
         )
     }
 
@@ -97,7 +103,7 @@ mod tests {
                 content: "build-package".to_string(),
             },
         );
-        let (commandline, external_inputs) = BuildCommand {
+        let (commandline, inputs) = BuildCommand {
             extra_inputs: vec![
                 PathBuf::from("z.mbt"),
                 executable.clone(),
@@ -108,11 +114,11 @@ mod tests {
         .into_lowered_parts(std::iter::empty());
 
         assert_eq!(
-            external_inputs,
+            inputs,
             vec![
-                ExternalInput::File(PathBuf::from("a.mbt")),
-                ExternalInput::File(executable),
-                ExternalInput::File(PathBuf::from("z.mbt")),
+                InputObservation::File(PathBuf::from("a.mbt")),
+                InputObservation::File(executable),
+                InputObservation::File(PathBuf::from("z.mbt")),
             ]
         );
         assert!(matches!(
