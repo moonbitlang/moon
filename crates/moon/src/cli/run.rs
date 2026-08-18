@@ -107,7 +107,8 @@ pub(crate) struct RunSubcommand {
     #[clap(trailing_var_arg = true, num_args = 0.., allow_hyphen_values = true)]
     pub args: Vec<String>,
 
-    #[clap(skip)]
+    /// Pass a moonrun JSON policy file to the Wasm backend; ignored by other backends
+    #[clap(long = "wasm-policy", value_name = "PATH")]
     pub(crate) moonrun_policy: Option<PathBuf>,
 
     #[clap(flatten)]
@@ -350,7 +351,7 @@ fn build_wasm_file_executable_from_arg(
     let print_dir = std::env::current_dir().context("failed to get current directory")?;
     if cli.dry_run {
         let mut run_cmd = crate::run::command_for_with_moonrun_policy(
-            crate::run::ExecutionMode::MoonRun,
+            crate::run::ExecutionMode::Wasm,
             &wasm_path,
             None,
             cmd.moonrun_policy.as_deref(),

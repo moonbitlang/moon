@@ -284,7 +284,7 @@ pub(crate) fn prepare(
         } => {
             let wasm_path = super::runwasm::cached_wasm_path(&package, user_log)?;
             prepare_artifact(
-                crate::run::ExecutionMode::MoonRun,
+                crate::run::ExecutionMode::Wasm,
                 &wasm_path,
                 experimental_policy.as_deref(),
                 &args,

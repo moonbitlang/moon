@@ -113,6 +113,22 @@ fn run_diagnostic_limit_parses() {
 }
 
 #[test]
+fn run_wasm_policy_parses() {
+    let (_, cmd) = parse_run_command(&[
+        "run",
+        "--wasm-policy",
+        "moonrun-policy.json",
+        "-e",
+        r#"fn main { println("hello") }"#,
+    ]);
+
+    assert_eq!(
+        cmd.moonrun_policy.as_deref(),
+        Some(std::path::Path::new("moonrun-policy.json"))
+    );
+}
+
+#[test]
 fn native_target_dry_run_test_command_parses_as_expected() {
     let (cli, cmd) =
         parse_test_command(&["test", "--target", "native", "--dry-run", "--sort-input"]);

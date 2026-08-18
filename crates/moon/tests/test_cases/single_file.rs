@@ -140,6 +140,79 @@ fn test_moon_run_single_file_dry_run() {
 }
 
 #[test]
+fn test_moon_run_wasm_policy_is_only_forwarded_to_wasm_backend() {
+    let dir = TestDir::new("run_single_mbt_file.in");
+
+    let wasm_output = get_stdout(
+        &dir,
+        [
+            "run",
+            "a/b/single.mbt",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+            "moonrun-policy.json",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        wasm_output
+            .lines()
+            .last()
+            .is_some_and(|line| line.contains("--policy moonrun-policy.json")),
+        "expected Wasm run command to forward the policy:\n{wasm_output}"
+    );
+
+    let wasm_gc_output = get_stdout(
+        &dir,
+        [
+            "run",
+            "a/b/single.mbt",
+            "--target",
+            "wasm-gc",
+            "--wasm-policy",
+            "missing-wasm-gc-policy.json",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        wasm_gc_output
+            .lines()
+            .last()
+            .is_some_and(|line| line.contains("single.wasm")),
+        "expected the WasmGC run command to use moonrun:\n{wasm_gc_output}"
+    );
+    assert!(
+        !wasm_gc_output.contains("missing-wasm-gc-policy.json"),
+        "expected the WasmGC backend to ignore the policy:\n{wasm_gc_output}"
+    );
+
+    let js_output = get_stdout(
+        &dir,
+        [
+            "run",
+            "a/b/single.mbt",
+            "--target",
+            "js",
+            "--wasm-policy",
+            "missing-policy.json",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        js_output
+            .lines()
+            .last()
+            .is_some_and(|line| line.contains("single.js")),
+        "expected the JavaScript run command to remain unchanged:\n{js_output}"
+    );
+    assert!(
+        !js_output.contains("missing-policy.json"),
+        "expected the JavaScript backend to ignore the policy:\n{js_output}"
+    );
+}
+
+#[test]
 fn test_moon_run_single_mbt_file() {
     let dir = TestDir::new("run_single_mbt_file.in");
 
