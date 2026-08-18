@@ -140,7 +140,7 @@ fn test_moon_run_single_file_dry_run() {
 }
 
 #[test]
-fn test_moon_run_wasm_policy_is_only_forwarded_to_wasm_backend() {
+fn test_moon_run_wasm_policy_is_only_forwarded_to_wasm_backends() {
     let dir = TestDir::new("run_single_mbt_file.in");
 
     let wasm_output = get_stdout(
@@ -171,7 +171,7 @@ fn test_moon_run_wasm_policy_is_only_forwarded_to_wasm_backend() {
             "--target",
             "wasm-gc",
             "--wasm-policy",
-            "missing-wasm-gc-policy.json",
+            "wasm-gc-policy.json",
             "--dry-run",
         ],
     );
@@ -183,8 +183,11 @@ fn test_moon_run_wasm_policy_is_only_forwarded_to_wasm_backend() {
         "expected the WasmGC run command to use moonrun:\n{wasm_gc_output}"
     );
     assert!(
-        !wasm_gc_output.contains("missing-wasm-gc-policy.json"),
-        "expected the WasmGC backend to ignore the policy:\n{wasm_gc_output}"
+        wasm_gc_output
+            .lines()
+            .last()
+            .is_some_and(|line| line.contains("--policy wasm-gc-policy.json")),
+        "expected the WasmGC run command to forward the policy:\n{wasm_gc_output}"
     );
 
     let js_output = get_stdout(

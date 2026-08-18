@@ -250,7 +250,7 @@ Run a main package
   Possible values: `info`, `warn`, `error`
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
-* `--wasm-policy <PATH>` — Pass a moonrun JSON policy file to the Wasm backend; ignored by other backends
+* `--wasm-policy <PATH>` — Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 * `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux

@@ -461,6 +461,30 @@ fn test_runwasm_local_package_forwards_experimental_policy() {
 }
 
 #[test]
+fn test_run_direct_wasm_forwards_policy() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "run",
+            "_build/wasm/debug/build/main/main.wasm",
+            "--wasm-policy",
+            "missing-policy.json",
+        ],
+        [("MOONRUN_OVERRIDE", moonrun_bin())],
+    );
+    assert!(
+        stderr.contains("failed to load sandbox policy"),
+        "expected direct Wasm execution to forward the policy:\n{stderr}"
+    );
+}
+
+#[test]
 fn test_run_with_explicit_target_exits_with_guest_exit_code() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)

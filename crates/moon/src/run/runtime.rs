@@ -27,8 +27,7 @@ use moonbuild_rupes_recta::model::{BackendConfig, NativeBackendMode, TccRunConfi
 /// The runtime mode used to execute one built artifact.
 #[derive(Clone, Copy)]
 pub(crate) enum ExecutionMode<'a> {
-    Wasm,
-    WasmGc,
+    MoonRun,
     Node,
     Native,
     TccRun(&'a TccRunConfig),
@@ -37,8 +36,7 @@ pub(crate) enum ExecutionMode<'a> {
 impl<'a> From<&'a BackendConfig> for ExecutionMode<'a> {
     fn from(backend: &'a BackendConfig) -> Self {
         match backend {
-            BackendConfig::Wasm { .. } => Self::Wasm,
-            BackendConfig::WasmGc { .. } => Self::WasmGc,
+            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } => Self::MoonRun,
             BackendConfig::Js => Self::Node,
             BackendConfig::Native(NativeBackendMode::TccRun(config)) => Self::TccRun(config),
             BackendConfig::Native(
@@ -78,15 +76,13 @@ pub(crate) fn command_for_with_moonrun_policy(
     moonrun_policy: Option<&Path>,
 ) -> Command {
     match mode {
-        mode @ (ExecutionMode::Wasm | ExecutionMode::WasmGc) => {
+        ExecutionMode::MoonRun => {
             let mut cmd = Command::new(&*moonutil::toolchain::BINARIES.moonrun);
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
             }
-            if matches!(mode, ExecutionMode::Wasm)
-                && let Some(policy) = moonrun_policy
-            {
+            if let Some(policy) = moonrun_policy {
                 cmd.arg("--policy");
                 cmd.arg(policy);
             }
