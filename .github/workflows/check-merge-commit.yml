@@ -28,11 +28,11 @@ jobs:
 
     steps:
     - name: Check out the repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
   
     - name: Get all commit messages
       id: get-commit-messages
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           // If this commit is not part of a PR (e.g. in merge queue check),

@@ -40,11 +40,13 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: 1.95.0
 
       - name: Cargo cache
         uses: Swatinem/rust-cache@v2
@@ -81,12 +83,13 @@ jobs:
       LINUX_GLIBC_VERSION: ${{ inputs.glibc-version || '2.23' }}
       LINUX_TARGET: x86_64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: 1.95.0
           targets: ${{ env.LINUX_TARGET }}
 
       - uses: mlugg/setup-zig@v2
