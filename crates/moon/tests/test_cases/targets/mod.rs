@@ -1,5 +1,7 @@
 use super::*;
 
+mod n2_compaction;
+
 #[test]
 fn test_many_targets() {
     let dir = TestDir::new("targets/many_targets");

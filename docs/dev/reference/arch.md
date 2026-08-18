@@ -139,6 +139,33 @@ database for each execution; sharing persistent state does not compose the
 graphs or reuse one open database handle. The dependency and script graphs of a
 standalone build execute sequentially against this database.
 
+n2 records completed builds in an append-only log. When the database is at
+least 2 MiB, opening it compacts the log if all path records and live build
+records fit in one third of its current size. Compaction scans the complete
+database after replay, independently of the partial graph that opened it, and
+preserves every path record so persistent path IDs remain stable. Moon holds
+the target-directory lock across database use because compaction replaces the
+database file before returning its append handle.
+
+A later complete build record supersedes an entire older record when they
+share any declared output. This whole-record rule is intentionally
+conservative for histories whose multi-output ownership changes. For example,
+after records for outputs `{a, b}` and then `{a, c}`, compaction may discard
+the older `{a, b}` record. If the graph later returns to `{a, b}`, the
+invocation that performed compaction may still use the older state replayed
+before rewriting, while a subsequent invocation rebuilds once and records
+fresh state.
+
+Known n2 limitation: replay validates cached work from command, input, and
+output metadata rather than output-producer provenance. If overlapping output
+ownership changes and an intervening producer preserves the old output
+timestamps, the invocation that opens and compacts the complete history can
+reuse an older compatible record and observe stale output. Compaction removes
+that older record, so a subsequent invocation rebuilds. Normal `--target all`
+and single-target alternation does not create this ownership history:
+multi-backend composition shares a provider only when its complete Execution
+Action and output set agree, while backend-specific outputs use distinct paths.
+
 ### Directory and environment facts
 
 Directory discovery is intentionally front-loaded. Command entry points should
