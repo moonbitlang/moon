@@ -179,7 +179,9 @@ fn accepts_conservative_rebuild_after_output_set_change() {
     let bloated_size = append_incompatible_output_records(&database);
 
     // This invocation replays the complete log before compacting it, so the
-    // compatible older records still make the graph up to date.
+    // compatible older records still make the graph up to date. The synthetic
+    // record does not execute an intervening producer or alter output metadata;
+    // this test covers compaction's cache behavior, not output provenance.
     moon_cmd(&dir)
         .args(["build", "--target", "wasm"])
         .assert()
@@ -195,12 +197,13 @@ Finished. moon: no work to do
         "n2 database should be compacted: {bloated_size} -> {compacted_size}"
     );
 
-    // Known and accepted n2 trade-off: compaction treats any shared output as
-    // superseding the complete older record. If multi-output ownership changes
-    // and later changes back, Moon may conservatively rebuild once. This loses
-    // only a cache hit; it cannot reuse stale work or produce an incorrect build.
-    // Reconsider this decision if normal Moon target selection starts changing
-    // overlapping output sets across invocations.
+    // Known and accepted n2 compaction trade-off: treating any shared output as
+    // superseding the complete older record can cause one conservative rebuild.
+    // This assertion accepts that cache-hit loss for unchanged outputs. It does
+    // not assert provenance safety under arbitrary ownership changes: n2 replay
+    // can reuse stale output if an intervening producer preserves old output
+    // metadata. Normal Moon target selection does not create overlapping output
+    // ownership changes; reconsider this decision if that invariant changes.
     moon_cmd(&dir)
         .args(["build", "--target", "wasm"])
         .assert()
