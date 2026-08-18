@@ -19,9 +19,10 @@
 use std::path::PathBuf;
 
 use crate::async_host::{
-    AsyncHostError, AsyncHostResult, GuestMemory, read_u16,
+    AsyncHostError, AsyncHostResult, read_u16,
     tls::{TlsFileType, TlsTrust},
 };
+use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;

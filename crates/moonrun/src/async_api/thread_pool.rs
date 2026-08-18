@@ -16,8 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::{self, ResourceClass, ResourceRef};
+use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
 use super::os_string::read_guest as read_guest_os_string;

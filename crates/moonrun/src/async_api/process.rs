@@ -24,8 +24,9 @@ use std::os::windows::io::AsRawHandle;
 
 #[cfg(windows)]
 use crate::async_host::read_u16;
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, INVALID_HOST_HANDLE};
+use crate::async_host::{AsyncHostError, AsyncHostResult, INVALID_HOST_HANDLE};
 use crate::async_sys::process;
+use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
 use super::os_string::read_guest as read_guest_os_string;
@@ -366,7 +367,7 @@ pub(super) fn get_process_result(
                 process::get_process_result(Some(raw_handle), pid)
             })?
         };
-        context.with_memory_mut(|memory| memory.write_exact(out, &code.to_le_bytes()))
+        context.with_memory_mut(|memory| Ok(memory.write_exact(out, &code.to_le_bytes())?))
     })();
     match result {
         Ok(()) => 0,

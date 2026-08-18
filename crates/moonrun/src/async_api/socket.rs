@@ -21,10 +21,11 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
+use crate::async_host::{AsyncHostError, AsyncHostResult, read_u16};
 use crate::async_policy::AsyncPolicy;
 use crate::async_sys::internal::event_loop::thread_pool::{Resource, ResourceClass};
 use crate::async_sys::socket as sys;
+use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;

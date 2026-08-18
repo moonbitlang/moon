@@ -16,8 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::c_buffer::stub;
+use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;

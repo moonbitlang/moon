@@ -16,8 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
+use crate::guest_memory::GuestMemory;
 
 use super::fs::{
     run_access_job, run_chmod_job, run_file_kind_by_path_job, run_file_size_job,
@@ -246,7 +247,7 @@ pub(crate) fn get_read_result(
         return Err(AsyncHostError::Badf);
     };
     let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-    memory.write_with_capacity(dst, len, result)
+    Ok(memory.write_with_capacity(dst, len, result)?)
 }
 
 pub(crate) fn get_file_time_result(
@@ -277,7 +278,7 @@ pub(crate) fn get_file_time_result(
     record[24..28].copy_from_slice(&fd_util::stub::get_mtime_nsec(file_time).to_le_bytes());
     record[32..40].copy_from_slice(&fd_util::stub::get_ctime_sec(file_time).to_le_bytes());
     record[40..44].copy_from_slice(&fd_util::stub::get_ctime_nsec(file_time).to_le_bytes());
-    memory.write_exact(dst, &record)
+    Ok(memory.write_exact(dst, &record)?)
 }
 
 pub(crate) fn get_stat_result(
@@ -290,5 +291,5 @@ pub(crate) fn get_stat_result(
         return Ok(());
     }
     let result = super::jobs::stat_job_result(job)?;
-    memory.write_with_capacity(dst, dst_len, result.as_bytes())
+    Ok(memory.write_with_capacity(dst, dst_len, result.as_bytes())?)
 }

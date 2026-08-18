@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::context::{
-    AsyncContext, FinishI32, FinishI64, FinishVoid, ImportArgs, ImportContext, callback_context,
+    FinishI32, FinishI64, FinishVoid, ImportArgs, ImportContext, callback_context,
     throw_import_error,
 };
 #[cfg(test)]
@@ -184,7 +184,7 @@ macro_rules! declare_async_imports {
         pub(super) fn register_imports<'s>(
             obj: v8::Local<'s, v8::Object>,
             scope: &mut v8::HandleScope<'s>,
-            context_ptr: *const AsyncContext,
+            context_ptr: *const crate::v8_import::V8RunContext,
         ) {
             $(
                 $(#[$meta])*

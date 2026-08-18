@@ -353,10 +353,21 @@ pub(crate) fn install(
 ) -> run_termination::TerminationRequest {
     let global_proxy = scope.get_current_context().global(scope);
     let termination_request = run_termination::TerminationRequest::default();
-    let host = Rc::new(crate::host::Host::new(Arc::clone(&async_policy)));
-    let v8_import = Rc::new(crate::v8_import::V8ImportState::new());
+    let v8_context = Box::new(crate::v8_import::V8RunContext::new(
+        crate::host::Host::new(Arc::clone(&async_policy)),
+        termination_request.clone(),
+    ));
+    let v8_context_ptr = &*v8_context as *const crate::v8_import::V8RunContext;
     let v8_import_runtime = global_proxy.child(scope, "__moonrun_v8_import");
-    crate::v8_import::register_memory_setter(v8_import_runtime, scope, Rc::as_ptr(&v8_import));
+    // SAFETY: `dtors` retains `v8_context` throughout guest execution. The
+    // single-shot runner does not re-enter V8 after dropping `dtors`.
+    unsafe {
+        crate::v8_import::register_memory_binder(
+            v8_import_runtime,
+            scope,
+            Rc::as_ptr(v8_context.memory_binding()),
+        )
+    };
 
     let print_env_box = Box::<PrintEnv>::default();
     let identifier = scope.string("print");
@@ -387,14 +398,8 @@ pub(crate) fn install(
 
     {
         let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
-        async_api::init_env(
-            async_runtime,
-            scope,
-            dtors,
-            Rc::clone(&host),
-            Rc::clone(&v8_import),
-            termination_request.clone(),
-        );
+        // SAFETY: the same lifetime invariant as the memory binding above.
+        unsafe { async_api::init_env(async_runtime, scope, v8_context_ptr) };
     }
 
     {
@@ -404,11 +409,15 @@ pub(crate) fn install(
             scope,
             wasm_file_name,
             args,
-            Rc::clone(&v8_import),
+            Rc::clone(v8_context.memory_binding()),
             termination_request.clone(),
             dtors,
         );
     }
+
+    // All V8 callbacks are unreachable after the single-shot run returns, so
+    // retaining this one box in `dtors` covers every pointer registered above.
+    dtors.push(v8_context);
 
     // API for the fs module
     {

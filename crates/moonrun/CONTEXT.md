@@ -71,9 +71,17 @@ _Avoid_: giant host API, async-only host
 The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
 _Avoid_: resource payload, raw pointer, per-API key
 
-**V8 Import Runtime**:
-The shared V8 adapter state used by all memory-consuming host imports, including WASI. After instantiation, the JavaScript runner binds the instance's exact `memory` export through one explicit setter, independent of which import families are present. The runtime reacquires that memory's backing buffer for every import call, decodes ABI arguments, registers callbacks, and constructs traps.
-_Avoid_: Async API, SQLite API, domain state
+**Guest Memory**:
+A short-lived, runtime-neutral view of wasm linear memory during one host call. It provides checked access using unsigned wasm addresses and never reserves address zero; an individual ABI decides whether zero represents null. The view must not survive a guest re-entry or memory growth.
+_Avoid_: V8 Memory Binding, retained memory pointer, C null policy
+
+**V8 Memory Binding**:
+The V8 adapter's retained handle to the instance's exact exported memory. The JavaScript runner binds it once after instantiation, and every memory-consuming import reacquires the current backing buffer before constructing a Guest Memory view. Imports invoked by a wasm start function cannot use this post-instantiation binding.
+_Avoid_: Guest Memory, Host memory, generic runtime memory
+
+**V8 Run Context**:
+The V8-private per-run composition object that retains the Host, V8 Memory Binding, and termination request for current V8 adapters. Other wasm runtimes carry the same engine-neutral Host state through their own adapter mechanisms rather than implementing a universal runtime context.
+_Avoid_: Host, import family, universal runtime context
 
 **Resource**:
 A moonrun-owned OS or runtime object that can be acquired by a Job, such as a file, socket, or directory cursor.

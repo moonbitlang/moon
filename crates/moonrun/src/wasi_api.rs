@@ -18,7 +18,7 @@
 
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::v8_builder::ScopeExt;
-use crate::v8_import::{V8ImportError, V8ImportState};
+use crate::v8_import::{V8ImportError, V8MemoryBinding};
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -175,7 +175,7 @@ struct WasiContext {
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
     descriptors: Mutex<DescriptorTable>,
-    v8_import: Rc<V8ImportState>,
+    memory_binding: Rc<V8MemoryBinding>,
     termination_request: TerminationRequest,
 }
 
@@ -713,7 +713,7 @@ fn with_wasi_memory_mut<T>(
     f: impl FnOnce(&mut [u8]) -> WasiResult<T>,
 ) -> WasiResult<T> {
     context
-        .v8_import
+        .memory_binding
         .with_memory_mut(scope, |memory| {
             Ok::<WasiResult<T>, V8ImportError>(f(memory))
         })
@@ -1794,7 +1794,7 @@ pub(crate) fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
-    v8_import: Rc<V8ImportState>,
+    memory_binding: Rc<V8MemoryBinding>,
     termination_request: TerminationRequest,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
@@ -1807,7 +1807,7 @@ pub(crate) fn init_env<'s>(
         preopen_dir_host_path,
         preopen_dir_real_path,
         descriptors: Mutex::new(DescriptorTable::new()),
-        v8_import,
+        memory_binding,
         termination_request,
     });
     let context_ptr = &*context as *const WasiContext as *mut std::ffi::c_void;
@@ -1845,7 +1845,7 @@ mod tests {
             preopen_dir_host_path: root.to_path_buf(),
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
             descriptors: Mutex::new(DescriptorTable::new()),
-            v8_import: Rc::new(V8ImportState::new()),
+            memory_binding: Rc::new(V8MemoryBinding::new()),
             termination_request: TerminationRequest::default(),
         }
     }

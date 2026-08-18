@@ -18,7 +18,8 @@
 
 use rand::{RngCore, rngs::OsRng};
 
-use crate::async_host::{AsyncHostError, GuestMemory};
+use crate::async_host::AsyncHostError;
+use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
 

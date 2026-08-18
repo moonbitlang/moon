@@ -16,55 +16,32 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::rc::Rc;
-
 use crate::async_host::{AsyncHost, AsyncHostError, AsyncHostResult};
-use crate::host::Host;
 use crate::run_termination::{RunTermination, TerminationRequest};
-use crate::v8_import::{V8ImportError, V8ImportState};
+use crate::v8_import::{V8ImportError, V8MemoryBinding, V8RunContext};
 
 pub(super) use crate::v8_import::ImportArgs;
 
-pub(super) struct AsyncContext {
-    host: Rc<Host>,
-    v8_import: Rc<V8ImportState>,
-    termination_request: TerminationRequest,
-}
-
-impl AsyncContext {
-    pub(super) fn new(
-        host: Rc<Host>,
-        v8_import: Rc<V8ImportState>,
-        termination_request: TerminationRequest,
-    ) -> Self {
-        Self {
-            host,
-            v8_import,
-            termination_request,
-        }
-    }
-}
-
-pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s AsyncContext {
-    // SAFETY: every async callback is registered with the pointer to the
-    // `AsyncContext` retained by `async_api::init_env` for the V8 run.
+pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s V8RunContext {
+    // SAFETY: every async callback is registered with the pointer to the V8
+    // run context retained by `host_imports` for the complete run.
     unsafe { crate::v8_import::callback_context(args) }
 }
 
 pub(super) struct ImportContext<'a, 'scope> {
     pub(super) scope: &'a mut v8::HandleScope<'scope>,
     pub(super) host: &'a AsyncHost,
-    v8_import: &'a V8ImportState,
+    memory_binding: &'a V8MemoryBinding,
     termination_request: &'a TerminationRequest,
 }
 
 impl<'a, 'scope> ImportContext<'a, 'scope> {
-    pub(super) fn new(scope: &'a mut v8::HandleScope<'scope>, context: &'a AsyncContext) -> Self {
+    pub(super) fn new(scope: &'a mut v8::HandleScope<'scope>, context: &'a V8RunContext) -> Self {
         Self {
             scope,
-            host: context.host.async_state(),
-            v8_import: &context.v8_import,
-            termination_request: &context.termination_request,
+            host: context.host().async_state(),
+            memory_binding: context.memory_binding(),
+            termination_request: context.termination_request(),
         }
     }
 
@@ -80,7 +57,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
         f: impl FnOnce(&AsyncHost, &mut [u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
         let host = self.host;
-        self.v8_import
+        self.memory_binding
             .with_memory_mut(self.scope, |memory| f(host, memory))
     }
 
