@@ -21,8 +21,12 @@ A host-owned queue of completed job identifiers that the guest event loop drains
 _Avoid_: Notify pipe, callback queue
 
 **Guest Memory**:
-The wasm linear memory owned by the guest program.
-_Avoid_: Wasm buffer, V8 memory
+The wasm linear memory owned by the guest program. A runtime adapter exposes it
+to a host operation only through a fresh, checked borrow for one host call.
+That borrow uses unsigned wasm addresses, does not reserve address zero, and
+must not survive guest re-entry or memory growth; an individual ABI decides
+whether zero represents null.
+_Avoid_: Wasm buffer, V8 Memory Binding, retained memory pointer, C null policy
 
 **Untrusted Guest**:
 A wasm program that may call the async boundary outside the sequencing and ownership discipline expected from MoonBit async code.
@@ -71,12 +75,8 @@ _Avoid_: giant host API, async-only host
 The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
 _Avoid_: resource payload, raw pointer, per-API key
 
-**Guest Memory**:
-A short-lived, runtime-neutral view of wasm linear memory during one host call. It provides checked access using unsigned wasm addresses and never reserves address zero; an individual ABI decides whether zero represents null. The view must not survive a guest re-entry or memory growth.
-_Avoid_: V8 Memory Binding, retained memory pointer, C null policy
-
 **V8 Memory Binding**:
-The V8 adapter's retained handle to the instance's exact exported memory. The JavaScript runner binds it once after instantiation, and every memory-consuming import reacquires the current backing buffer before constructing a Guest Memory view. Imports invoked by a wasm start function cannot use this post-instantiation binding.
+The V8 adapter's retained handle to the instance's exact exported memory. The JavaScript runner binds it once after instantiation, and every memory-consuming import reacquires the current backing buffer before borrowing Guest Memory. Imports invoked by a wasm start function cannot use this post-instantiation binding.
 _Avoid_: Guest Memory, Host memory, generic runtime memory
 
 **V8 Run Context**:
