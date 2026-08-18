@@ -24,7 +24,7 @@ use std::process::Command;
 use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::model::{BackendConfig, NativeBackendMode, TccRunConfig};
 
-/// The concrete process used to execute one built artifact.
+/// The runtime mode used to execute one built artifact.
 #[derive(Clone, Copy)]
 pub(crate) enum ExecutionMode<'a> {
     MoonRun,

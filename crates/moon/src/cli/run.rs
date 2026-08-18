@@ -107,7 +107,8 @@ pub(crate) struct RunSubcommand {
     #[clap(trailing_var_arg = true, num_args = 0.., allow_hyphen_values = true)]
     pub args: Vec<String>,
 
-    #[clap(skip)]
+    /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
+    #[clap(long = "wasm-policy", value_name = "PATH")]
     pub(crate) moonrun_policy: Option<PathBuf>,
 
     #[clap(flatten)]
