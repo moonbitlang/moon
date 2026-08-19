@@ -22,15 +22,20 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-#[cfg(test)]
 use slotmap::Key;
 use slotmap::{KeyData, SlotMap, new_key_type};
 
 use crate::async_host::AsyncHost;
 use crate::async_policy::AsyncPolicy;
+use crate::sqlite::SqliteHost;
 
 new_key_type! {
     pub(crate) struct HostKey;
+}
+
+/// The one null Handle value shared by every Host resource kind.
+pub(crate) fn null_handle() -> u64 {
+    HostKey::null().data().as_ffi()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +55,8 @@ pub(crate) enum HostResourceKind {
     TlsConnection,
     #[cfg(windows)]
     IoResult,
+    SqliteDatabase,
+    SqliteStatement,
 }
 
 /// The only identity mint for moonrun-owned opaque guest handles.
@@ -87,18 +94,28 @@ impl HostKeys {
 /// namespace and performs teardown with the complete per-run Host.
 pub(crate) struct Host {
     async_state: AsyncHost,
+    sqlite: SqliteHost,
 }
 
 impl Host {
     pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         Self {
-            async_state: AsyncHost::with_keys(policy, keys),
+            async_state: AsyncHost::with_keys(policy, Rc::clone(&keys)),
+            sqlite: SqliteHost::with_keys(keys),
         }
     }
 
     pub(crate) fn async_state(&self) -> &AsyncHost {
         &self.async_state
+    }
+
+    pub(crate) fn null_handle(&self) -> u64 {
+        null_handle()
+    }
+
+    pub(crate) fn sqlite(&self) -> &SqliteHost {
+        &self.sqlite
     }
 }
 
@@ -110,8 +127,15 @@ impl Drop for Host {
             return;
         }
 
+        let mut leaks = Vec::new();
         if let Some(summary) = self.async_state.leak_summary() {
-            panic!("moonrun host leaked resources: async({summary})");
+            leaks.push(format!("async({summary})"));
+        }
+        if let Some(summary) = self.sqlite.leak_summary() {
+            leaks.push(format!("sqlite({summary})"));
+        }
+        if !leaks.is_empty() {
+            panic!("moonrun Host leaked state: {}", leaks.join(", "));
         }
     }
 }
@@ -128,6 +152,12 @@ mod tests {
         let job_handle = job.data().as_ffi();
         let poll_handle = poll.data().as_ffi();
 
+        assert_eq!(
+            HostKey::from(KeyData::from_ffi(null_handle())),
+            HostKey::null()
+        );
+        assert_ne!(job_handle, null_handle());
+        assert_eq!(keys.key(null_handle(), HostResourceKind::Job), None);
         assert_ne!(job_handle, poll_handle);
         assert_eq!(keys.key(job_handle, HostResourceKind::Job), Some(job));
         assert_eq!(keys.key(job_handle, HostResourceKind::Poll), None);

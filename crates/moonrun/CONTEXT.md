@@ -64,15 +64,16 @@ imports. WASI does not pass through the Host Filesystem.
 _Avoid_: WASI filesystem, V8 filesystem
 
 **Handle**:
-An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, or Completion Source.
+An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, Completion Source, SQLite Database, or SQLite Statement.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
 
 **Host**:
-The per-run composition root for moonrun-owned import state. It creates one Host Key namespace, wires it into domain states such as the Async Host, and performs leak checking only when the complete run is torn down. Domain operations and payload accounting remain on their owning state or API module.
+The per-run composition root for moonrun-owned import state. It creates one Host Key namespace, wires it into domain modules such as the Async Host and SQLite Host, and performs leak checking only when the complete run is torn down. Domain operations and payload accounting remain on their owning Host module.
 _Avoid_: giant host API, async-only host
 
 **Host Key**:
 The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
+All Handle kinds share the slotmap null Host Key. An ABI that needs to create or compare a null Handle obtains its encoded value from the running Host rather than hard-coding the slotmap representation.
 _Avoid_: resource payload, raw pointer, per-API key
 
 **V8 Memory Binding**:
@@ -121,8 +122,16 @@ The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm A
 _Avoid_: Runtime state, native-stub implementation
 
 **Async Host**:
-Moonrun-owned async runtime state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Host's shared Host Key namespace.
+Moonrun-owned async runtime state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Host's shared Host Key namespace and contains no SQLite state.
 _Avoid_: `moonbitlang/async` source mirror
+
+**SQLite API**:
+The V8-facing `moonbitlang/sqlite` adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. UTF-8 filenames use a NUL-terminated backing Bytes value plus its byte length; the adapter bounds the read by that length and validates the terminator and encoding. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Borrowed strings such as `sqlite3_errmsg16` are copied into caller-provided Guest Memory.
+_Avoid_: SQLite Host, SQLite wrapper SDK
+
+**SQLite Host**:
+The engine-neutral SQLite implementation for one run. It owns SQLite policy and operations, uses the Host's shared Host Key namespace, and contains the Database and Statement pointer maps, teardown, and leak accounting. Runtime adapters lower their own memory and scalar representations before crossing its interface.
+_Avoid_: SQLite API, Async Host, V8 SQLite
 
 **Async Sys**:
 The V8-free native-stub port layer. Implemented files follow the `moonbitlang/async` source layout and carry provenance for the native source path and symbol they track. Poller files are direct ports behind the wasm `poll/*` imports.

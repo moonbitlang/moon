@@ -20,7 +20,8 @@
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 use crate::{
-    async_api, async_policy, backtrace_api, fs_api_temp, run_termination, sys_api, util, wasi_api,
+    async_api, async_policy, backtrace_api, fs_api_temp, run_termination, sqlite, sys_api, util,
+    wasi_api,
 };
 use rand::Rng;
 use rand::SeedableRng;
@@ -400,6 +401,12 @@ pub(crate) fn install(
         let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
         // SAFETY: the same lifetime invariant as the memory binding above.
         unsafe { async_api::init_env(async_runtime, scope, v8_context_ptr) };
+    }
+
+    {
+        let sqlite = global_proxy.child(scope, sqlite::v8::MOONBIT_SQLITE_MODULE);
+        // SAFETY: the same lifetime invariant as the memory binding above.
+        unsafe { sqlite::v8::init_env(sqlite, scope, v8_context_ptr) };
     }
 
     {
