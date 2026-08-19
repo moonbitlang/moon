@@ -628,6 +628,56 @@ fn test_moon_run_with_async_host_imports() {
 }
 
 #[test]
+fn test_moon_run_with_sqlite_ffi_imports() {
+    let dir = TestDir::new("test_sqlite_ffi.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&dir)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("ok\n")
+        .stderr_eq("");
+
+    assert!(!dir.join("not-a-memory-database").exists());
+
+    let leaked_wasm = dir.join("_build/wasm/debug/build/leak/leak.wasm");
+    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&dir)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("RUST_BACKTRACE", "0")
+        .arg(&leaked_wasm)
+        .assert()
+        .failure()
+        .stdout_eq("leaked\n");
+    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
+    assert!(
+        stderr.contains("moonrun Host leaked state: sqlite(databases=1)"),
+        "expected SQLite leak assertion in stderr, got:\n{stderr}"
+    );
+
+    let invalid_handle_wasm =
+        dir.join("_build/wasm/debug/build/invalid_handle/invalid_handle.wasm");
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&invalid_handle_wasm)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbitlang/sqlite.sqlite3_close failed: InvalidHandle
+[..]
+"#]]);
+}
+
+#[test]
 fn test_moon_run_with_async_stdio_imports() {
     let dir = TestDir::new("test_async_stdio.in");
 
@@ -915,7 +965,7 @@ fn test_moon_run_async_host_leak_check_env() {
         .stdout_eq("leaked\n");
     let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
     assert!(
-        stderr.contains("moonrun host leaked resources: async(polls=1"),
+        stderr.contains("moonrun Host leaked state: async(polls=1"),
         "expected async host leak assertion in stderr, got:\n{stderr}"
     );
 }

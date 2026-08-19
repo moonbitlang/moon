@@ -1,6 +1,6 @@
 # Use One Handle Namespace
 
-Moonrun will use a single Handle namespace created by the per-run Host and shared by its domain states. Guest-visible Handles for Resources, Jobs, Workers, poll instances, Host Buffers, address-info results, and similar moonrun objects are allocated from one primary `SlotMap<HostKey, HostResourceKind>`, so a Resource Handle cannot accidentally also be a Job or poll handle.
+Moonrun will use a single Handle namespace created by the per-run Host and shared by its domain states. Guest-visible Handles for Resources, Jobs, Workers, poll instances, Host Buffers, address-info results, SQLite Databases, SQLite Statements, and similar moonrun objects are allocated from one primary `SlotMap<HostKey, HostResourceKind>`, so a Resource Handle cannot accidentally also be a Job, poll, or SQLite handle.
 
 Payload storage should not mint identity. Family-specific state lives in `SecondaryMap<HostKey, Payload>` tables, and lookup-only structures such as Windows overlapped-pointer maps are secondary indexes back to Handles. The Host Key table validates the expected `HostResourceKind` before any payload map is touched; generation bits on `HostKey` still reject stale Handles after removal. Import registries declare ABI and register callbacks; they do not own keys or payloads.
 
