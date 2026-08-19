@@ -1,0 +1,60 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2024 International Digital Economy Academy
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! V8-facing, synchronous adapter for the SQLite Host interface.
+//!
+//! The `sqlite3_*` imports keep SQLite-shaped operations while adapting native
+//! pointers to a portable wasm ABI. Guest-memory pointers are unsigned wasm
+//! `i32` offsets, while SQLite-owned objects and the reserved VFS parameter are
+//! opaque `u64` Handles. The guest obtains their shared null value at runtime
+//! through `sqlite3_null_handle`.
+//!
+//! UTF-16 inputs and outputs use the little-endian code units stored by wasm.
+//! `sqlite3_prepare16_v2` receives a backing String plus a code-unit offset and
+//! length, and returns `pzTail` as an absolute code-unit offset in that same
+//! String. This preserves multiple-statement and `StringView` semantics without
+//! exposing a runtime-specific address. `sqlite3_errmsg16_length` measures the
+//! current error and `sqlite3_errmsg16` copies it into a caller-provided Guest
+//! Memory buffer instead of exposing SQLite's borrowed native pointer. SQLite
+//! behavior and policy belong to the parent `sqlite` module; this adapter only
+//! lowers V8 values and Guest Memory.
+//! Callback-bearing extension APIs, varargs, process-global configuration,
+//! custom VFSes, and file-backed databases are outside the MVP.
+
+mod connection;
+mod context;
+mod registry;
+mod registry_macros;
+mod statement;
+
+use crate::v8_import::V8RunContext;
+
+pub(crate) use registry::MOONBIT_SQLITE_MODULE;
+
+/// # Safety
+///
+/// `context` must remain valid whenever a registered callback can be invoked.
+pub(crate) unsafe fn init_env<'s>(
+    obj: v8::Local<'s, v8::Object>,
+    scope: &mut v8::HandleScope<'s>,
+    context: *const V8RunContext,
+) {
+    // SAFETY: the caller retains the per-run V8 context throughout guest
+    // execution and does not re-enter V8 after dropping it.
+    unsafe { registry::register_imports(obj, scope, context) };
+}

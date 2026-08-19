@@ -16,32 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Embeddable execution support for MoonBit Wasm programs.
-//!
-//! The interface is experimental. It currently separates guest termination
-//! from host-process termination, while retaining Moonrun's existing V8 and
-//! process-scoped host integrations.
+///|
+fn event_bus_create() -> UInt64 = "moonbitlang/async" "event_bus/create"
 
-mod async_api;
-mod async_host;
-mod async_policy;
-mod async_sys;
-mod backtrace_api;
-mod demangle_js_template;
-mod fs_api_temp;
-mod guest_memory;
-mod host;
-mod host_fs;
-mod host_imports;
-mod memory_sanitizer_api;
-mod run_termination;
-mod runtime;
-mod sqlite;
-mod sys_api;
-mod util;
-mod v8_backend;
-mod v8_builder;
-mod v8_import;
-mod wasi_api;
+///|
+fn sqlite3_close(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_close"
 
-pub use runtime::{RunOptions, RunOutcome, Runtime, RuntimeConfig};
+///|
+fn main {
+  let event_bus = event_bus_create()
+  ignore(sqlite3_close(event_bus))
+}
