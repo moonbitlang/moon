@@ -101,8 +101,8 @@ impl Host {
     pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         Self {
-            async_state: AsyncHost::with_keys(policy, Rc::clone(&keys)),
-            sqlite: SqliteHost::with_keys(keys),
+            async_state: AsyncHost::with_keys(Arc::clone(&policy), Rc::clone(&keys)),
+            sqlite: SqliteHost::with_keys(policy, keys),
         }
     }
 

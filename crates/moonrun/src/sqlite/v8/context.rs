@@ -165,12 +165,21 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::sync::Arc;
 
+    use crate::async_policy::AsyncPolicy;
     use crate::host::HostKeys;
+
+    fn host() -> SqliteHost {
+        SqliteHost::with_keys(
+            Arc::new(AsyncPolicy::allow_all()),
+            Rc::new(RefCell::new(HostKeys::default())),
+        )
+    }
 
     #[test]
     fn utf16_view_uses_code_unit_offsets_and_lengths() {
-        let host = SqliteHost::with_keys(Rc::new(RefCell::new(HostKeys::default())));
+        let host = host();
         let mut memory = (0_u8..16).collect::<Vec<_>>();
         let context = ImportContext {
             host: &host,
@@ -190,7 +199,7 @@ mod tests {
 
     #[test]
     fn utf8_c_string_checks_its_explicit_length() {
-        let host = SqliteHost::with_keys(Rc::new(RefCell::new(HostKeys::default())));
+        let host = host();
         let mut memory = b"x:memory:\0trailing".to_vec();
         let context = ImportContext {
             host: &host,
@@ -209,7 +218,7 @@ mod tests {
 
     #[test]
     fn byte_view_uses_byte_offsets_and_lengths() {
-        let host = SqliteHost::with_keys(Rc::new(RefCell::new(HostKeys::default())));
+        let host = host();
         let mut memory = (0_u8..8).collect::<Vec<_>>();
         let context = ImportContext {
             host: &host,

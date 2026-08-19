@@ -167,6 +167,35 @@ connections to the IP addresses returned by that lookup on the configured port.
 Use `dns` only when a program needs standalone DNS lookup permission without
 also granting outbound connects.
 
+## Security Model and Known Limitations
+
+Moonrun Policy authorizes operations performed by supported moonrun-owned host
+interfaces. It is not an operating-system syscall sandbox or a complete
+resource-isolation mechanism. In particular:
+
+- SQLite supports private in-memory databases and file-backed databases through
+  the default native VFS. Guest-selected database paths are authorized by
+  Moonrun Policy when the connection is opened. Connections require read
+  access to the database path and its parent directory; writable connections
+  also require write access to that directory, where SQLite may use journal,
+  WAL, and shared-memory files.
+- File-backed SQLite authorization is currently a pathname check performed
+  before the native VFS opens the database. If another guest filesystem
+  operation or external actor replaces that path or one of its parent symlinks
+  between those steps, SQLite can resolve a file outside the checked roots.
+  Moonrun does not yet bind this authorization to a stable filesystem identity.
+- SQLite may use its native VFS to create internal temporary files in the
+  operating system's default temporary directory, even when the main database
+  is in memory. These internal paths are not selected by the guest and do not
+  currently pass through the filesystem policy.
+- Native SQLite CPU time, heap usage, database size, and temporary-disk usage
+  do not currently have per-run quotas.
+
+Deployments that require strict isolation for untrusted workloads should also
+use operating-system process isolation and resource limits. Security defects
+that violate the documented policy should be reported privately rather than
+added to this list with a public reproducer.
+
 # Contribution
 
 To contribute, please read the contribution guidelines at [docs/dev](./docs/dev/README.md).

@@ -62,6 +62,9 @@ const SQLITE_BLOB = 4
 const SQLITE_NULL = 5
 
 ///|
+const SQLITE_OPEN_READONLY = 0x00000001
+
+///|
 const SQLITE_OPEN_READWRITE = 0x00000002
 
 ///|
@@ -256,22 +259,74 @@ fn main raise {
     msg="sqlite3_finalize(NULL) failed",
   )
 
-  let rejected = Ref(null_handle)
-  let rejected_filename = b"not-a-memory-database\x00"
+  let denied = Ref(null_handle)
+  let denied_filename = b"denied/database.sqlite\x00"
   assert_true(
     sqlite3_open_v2(
-      rejected_filename,
-      rejected_filename.length(),
-      rejected,
+      denied_filename,
+      denied_filename.length(),
+      denied,
       SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
       null_handle,
     ) ==
     SQLITE_CANTOPEN,
-    msg="file-backed database was not rejected",
+    msg="database outside the filesystem policy was not rejected",
   )
   assert_true(
-    rejected.val == null_handle,
-    msg="rejected database returned a handle",
+    denied.val == null_handle,
+    msg="denied database returned a handle",
+  )
+
+  let file_database = Ref(null_handle)
+  let file_database_filename = b"allowed/database.sqlite\x00"
+  assert_true(
+    sqlite3_open_v2(
+      file_database_filename,
+      file_database_filename.length(),
+      file_database,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+      null_handle,
+    ) ==
+    SQLITE_OK,
+    msg="file-backed database open failed",
+  )
+  let file_database = file_database.val
+  execute(file_database, "CREATE TABLE persisted(value INTEGER)", null_handle)
+  execute(file_database, "INSERT INTO persisted VALUES (42)", null_handle)
+  assert_true(
+    sqlite3_close(file_database) == SQLITE_OK,
+    msg="file-backed database close failed",
+  )
+
+  let reopened = Ref(null_handle)
+  assert_true(
+    sqlite3_open_v2(
+      file_database_filename,
+      file_database_filename.length(),
+      reopened,
+      SQLITE_OPEN_READONLY,
+      null_handle,
+    ) ==
+    SQLITE_OK,
+    msg="file-backed database reopen failed",
+  )
+  let reopened = reopened.val
+  let persisted = prepare(reopened, "SELECT value FROM persisted", null_handle)
+  assert_true(
+    sqlite3_step(persisted) == SQLITE_ROW,
+    msg="file-backed database returned no row",
+  )
+  assert_true(
+    sqlite3_column_int64(persisted, 0) == 42L,
+    msg="file-backed value did not persist",
+  )
+  assert_true(
+    sqlite3_finalize(persisted) == SQLITE_OK,
+    msg="file-backed query finalize failed",
+  )
+  assert_true(
+    sqlite3_close(reopened) == SQLITE_OK,
+    msg="file-backed database reopen close failed",
   )
 
   let custom_vfs = Ref(null_handle)

@@ -88,10 +88,25 @@ impl AsyncPolicy {
     }
 
     pub(crate) fn stat_path(&self, base: RuntimePathBase<'_>, path: &OsStr) -> AsyncHostResult<()> {
+        self.read_path(base, path)
+    }
+
+    pub(crate) fn read_path(&self, base: RuntimePathBase<'_>, path: &OsStr) -> AsyncHostResult<()> {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
         fs.allows(base, path, FsIntents::read())
+    }
+
+    pub(crate) fn write_path(
+        &self,
+        base: RuntimePathBase<'_>,
+        path: &OsStr,
+    ) -> AsyncHostResult<()> {
+        let Some(fs) = self.fs_policy() else {
+            return Ok(());
+        };
+        fs.allows(base, path, FsIntents::write())
     }
 
     pub(crate) fn stat_entry_path(
@@ -117,10 +132,7 @@ impl AsyncPolicy {
     }
 
     pub(crate) fn chmod_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows(RuntimePathBase::CurrentDirectory, path, FsIntents::write())
+        self.write_path(RuntimePathBase::CurrentDirectory, path)
     }
 
     pub(crate) fn remove_path(&self, path: &OsStr) -> AsyncHostResult<()> {
