@@ -116,15 +116,6 @@ impl SqliteHost {
         Ok(unsafe { ffi::sqlite3_finalize(statement.pointer.as_ptr()) })
     }
 
-    pub(crate) fn column_int64(&self, statement: u64, column: i32) -> SqliteHostResult<i64> {
-        let statement = self.statement(statement)?;
-        let columns = unsafe { ffi::sqlite3_data_count(statement.pointer.as_ptr()) };
-        if !(0..columns).contains(&column) {
-            return Err(SqliteHostError::InvalidInput);
-        }
-        Ok(unsafe { ffi::sqlite3_column_int64(statement.pointer.as_ptr(), column) })
-    }
-
     fn insert_statement(&self, statement: Statement) -> u64 {
         let key = self
             .keys
@@ -135,7 +126,7 @@ impl SqliteHost {
         key.data().as_ffi()
     }
 
-    fn statement(&self, handle: u64) -> SqliteHostResult<Statement> {
+    pub(super) fn statement(&self, handle: u64) -> SqliteHostResult<Statement> {
         let key = self
             .keys
             .borrow()
@@ -199,40 +190,6 @@ mod tests {
         assert_eq!(outcome.tail_offset, sql.len() as u32);
         let statement = outcome.statement.unwrap();
         assert_eq!(host.step(statement), Ok(ffi::SQLITE_DONE));
-        assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
-        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
-    }
-
-    #[test]
-    fn column_access_requires_a_current_row_and_valid_index() {
-        let host = host();
-        let database = open_memory(&host);
-        let sql = utf16le("SELECT 42");
-        let statement = host
-            .prepare16_v2(database, &sql)
-            .unwrap()
-            .statement
-            .unwrap();
-
-        assert_eq!(
-            host.column_int64(statement, 0),
-            Err(SqliteHostError::InvalidInput)
-        );
-        assert_eq!(host.step(statement), Ok(ffi::SQLITE_ROW));
-        assert_eq!(
-            host.column_int64(statement, -1),
-            Err(SqliteHostError::InvalidInput)
-        );
-        assert_eq!(
-            host.column_int64(statement, 1),
-            Err(SqliteHostError::InvalidInput)
-        );
-        assert_eq!(host.column_int64(statement, 0), Ok(42));
-        assert_eq!(host.step(statement), Ok(ffi::SQLITE_DONE));
-        assert_eq!(
-            host.column_int64(statement, 0),
-            Err(SqliteHostError::InvalidInput)
-        );
         assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
         assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
     }

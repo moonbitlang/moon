@@ -84,6 +84,20 @@ impl ImportContext<'_> {
         Ok(units)
     }
 
+    /// Borrow one byte view from a MoonBit backing Bytes value.
+    pub(super) fn read_bytes_view(
+        &self,
+        pointer: u32,
+        offset: u32,
+        length: u32,
+    ) -> SqliteResult<&[u8]> {
+        if pointer == 0 {
+            return Err(SqliteError::Fault);
+        }
+        let pointer = pointer.checked_add(offset).ok_or(SqliteError::Overflow)?;
+        Ok(self.memory.read_exact(pointer, length)?)
+    }
+
     /// Borrow one NUL-terminated UTF-8 string from a MoonBit Bytes value.
     ///
     /// Length includes the terminator. The explicit length bounds the Guest
@@ -191,5 +205,21 @@ mod tests {
         );
         assert_eq!(context.read_utf8_c_string(1, 8), Err(SqliteError::Fault));
         assert_eq!(context.read_utf8_c_string(1, 10), Err(SqliteError::Fault));
+    }
+
+    #[test]
+    fn byte_view_uses_byte_offsets_and_lengths() {
+        let host = SqliteHost::with_keys(Rc::new(RefCell::new(HostKeys::default())));
+        let mut memory = (0_u8..8).collect::<Vec<_>>();
+        let context = ImportContext {
+            host: &host,
+            memory: &mut memory,
+        };
+
+        assert_eq!(context.read_bytes_view(1, 2, 3), Ok(&[3, 4, 5][..]));
+        assert_eq!(
+            context.read_bytes_view(1, u32::MAX, 1),
+            Err(SqliteError::Overflow)
+        );
     }
 }

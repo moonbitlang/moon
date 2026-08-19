@@ -18,7 +18,7 @@
 
 use super::context::{SqliteError, with_memory_context};
 use super::registry_macros::declare_sqlite_imports;
-use super::{connection, statement};
+use super::{bind, column, connection, statement};
 use crate::v8_import::{ImportArgs, V8ImportError, V8RunContext};
 
 pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
@@ -44,6 +44,9 @@ declare_sqlite_imports! {
         output: u32,
         capacity: u32,
     ) -> u32 => "sqlite3_errmsg16";
+    SqliteHost::errcode(database: u64) -> i32 => "sqlite3_errcode";
+    SqliteHost::extended_errcode(database: u64)
+        -> i32 => "sqlite3_extended_errcode";
     SqliteHost::close(database: u64) -> i32 => "sqlite3_close";
 
     statement::prepare16_v2(
@@ -54,8 +57,49 @@ declare_sqlite_imports! {
         statement_out: u32,
         tail_out: u32,
     ) -> i32 => "sqlite3_prepare16_v2";
+    SqliteHost::bind_null(statement: u64, index: i32)
+        -> i32 => "sqlite3_bind_null";
+    SqliteHost::bind_int64(statement: u64, index: i32, value: i64)
+        -> i32 => "sqlite3_bind_int64";
+    SqliteHost::bind_double(statement: u64, index: i32, value: f64)
+        -> i32 => "sqlite3_bind_double";
+    bind::bind_text16(
+        statement: u64,
+        index: i32,
+        value: u32,
+        value_offset: i32,
+        value_length: i32,
+    ) -> i32 => "sqlite3_bind_text16";
+    bind::bind_blob(
+        statement: u64,
+        index: i32,
+        value: u32,
+        value_offset: i32,
+        value_length: i32,
+    ) -> i32 => "sqlite3_bind_blob";
     SqliteHost::step(statement: u64) -> i32 => "sqlite3_step";
     SqliteHost::finalize(statement: u64) -> i32 => "sqlite3_finalize";
+    SqliteHost::column_count(statement: u64) -> i32 => "sqlite3_column_count";
+    SqliteHost::column_type(statement: u64, column: i32)
+        -> i32 => "sqlite3_column_type";
     SqliteHost::column_int64(statement: u64, column: i32)
         -> i64 => "sqlite3_column_int64";
+    SqliteHost::column_double(statement: u64, column: i32)
+        -> f64 => "sqlite3_column_double";
+    SqliteHost::column_text16_length(statement: u64, column: i32)
+        -> u32 => "sqlite3_column_text16_length";
+    column::column_text16(
+        statement: u64,
+        column: i32,
+        output: u32,
+        capacity: u32,
+    ) -> u32 => "sqlite3_column_text16";
+    SqliteHost::column_blob_length(statement: u64, column: i32)
+        -> u32 => "sqlite3_column_blob_length";
+    column::column_blob(
+        statement: u64,
+        column: i32,
+        output: u32,
+        capacity: u32,
+    ) -> u32 => "sqlite3_column_blob";
 }

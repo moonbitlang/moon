@@ -226,6 +226,14 @@ impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
             .ok_or(V8ImportError::InvalidArgument)
     }
 
+    pub(crate) fn next_f64(&mut self) -> Result<f64, V8ImportError> {
+        let value = self.args.get(self.next_index);
+        self.next_index += 1;
+        value
+            .number_value(self.scope)
+            .ok_or(V8ImportError::InvalidArgument)
+    }
+
     pub(crate) fn next_u64(&mut self) -> Result<u64, V8ImportError> {
         let value = self.args.get(self.next_index);
         self.next_index += 1;

@@ -28,14 +28,16 @@
 //! `sqlite3_prepare16_v2` receives a backing String plus a code-unit offset and
 //! length, and returns `pzTail` as an absolute code-unit offset in that same
 //! String. This preserves multiple-statement and `StringView` semantics without
-//! exposing a runtime-specific address. `sqlite3_errmsg16_length` measures the
-//! current error and `sqlite3_errmsg16` copies it into a caller-provided Guest
-//! Memory buffer instead of exposing SQLite's borrowed native pointer. SQLite
-//! behavior and policy belong to the parent `sqlite` module; this adapter only
-//! lowers V8 values and Guest Memory.
+//! exposing a runtime-specific address. UTF-16 and blob bindings are copied by
+//! SQLite before the Guest Memory borrow ends. Error messages and variable-size
+//! columns use length-and-copy pairs instead of exposing borrowed native
+//! pointers. SQLite behavior and policy belong to the parent `sqlite` module;
+//! this adapter only lowers V8 values and Guest Memory.
 //! Callback-bearing extension APIs, varargs, process-global configuration,
 //! custom VFSes, and file-backed databases are outside the MVP.
 
+mod bind;
+mod column;
 mod connection;
 mod context;
 mod registry;

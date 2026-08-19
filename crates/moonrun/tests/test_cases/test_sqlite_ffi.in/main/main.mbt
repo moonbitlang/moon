@@ -26,16 +26,40 @@ const SQLITE_ERROR = 1
 const SQLITE_BUSY = 5
 
 ///|
+const SQLITE_CONSTRAINT = 19
+
+///|
 const SQLITE_CANTOPEN = 14
 
 ///|
 const SQLITE_AUTH = 23
 
 ///|
+const SQLITE_RANGE = 25
+
+///|
+const SQLITE_CONSTRAINT_UNIQUE = 2067
+
+///|
 const SQLITE_ROW = 100
 
 ///|
 const SQLITE_DONE = 101
+
+///|
+const SQLITE_INTEGER = 1
+
+///|
+const SQLITE_FLOAT = 2
+
+///|
+const SQLITE_TEXT = 3
+
+///|
+const SQLITE_BLOB = 4
+
+///|
+const SQLITE_NULL = 5
 
 ///|
 const SQLITE_OPEN_READWRITE = 0x00000002
@@ -74,6 +98,12 @@ fn sqlite3_errmsg16(
 ) -> Int = "moonbitlang/sqlite" "sqlite3_errmsg16"
 
 ///|
+fn sqlite3_errcode(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_errcode"
+
+///|
+fn sqlite3_extended_errcode(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_extended_errcode"
+
+///|
 fn sqlite3_close(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_close"
 
 ///|
@@ -89,13 +119,79 @@ fn sqlite3_prepare16_v2(
 ) -> Int = "moonbitlang/sqlite" "sqlite3_prepare16_v2"
 
 ///|
+fn sqlite3_bind_null(statement : UInt64, index : Int) -> Int = "moonbitlang/sqlite" "sqlite3_bind_null"
+
+///|
+fn sqlite3_bind_int64(statement : UInt64, index : Int, value : Int64) -> Int = "moonbitlang/sqlite" "sqlite3_bind_int64"
+
+///|
+fn sqlite3_bind_double(statement : UInt64, index : Int, value : Double) -> Int = "moonbitlang/sqlite" "sqlite3_bind_double"
+
+///|
+#unsafe_skip_stub_check
+#borrow(value)
+fn sqlite3_bind_text16(
+  statement : UInt64,
+  index : Int,
+  value : String,
+  value_offset : Int,
+  value_length : Int,
+) -> Int = "moonbitlang/sqlite" "sqlite3_bind_text16"
+
+///|
+#unsafe_skip_stub_check
+#borrow(value)
+fn sqlite3_bind_blob(
+  statement : UInt64,
+  index : Int,
+  value : Bytes,
+  value_offset : Int,
+  value_length : Int,
+) -> Int = "moonbitlang/sqlite" "sqlite3_bind_blob"
+
+///|
 fn sqlite3_step(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_step"
 
 ///|
 fn sqlite3_finalize(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_finalize"
 
 ///|
+fn sqlite3_column_count(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_column_count"
+
+///|
+fn sqlite3_column_type(statement : UInt64, column : Int) -> Int = "moonbitlang/sqlite" "sqlite3_column_type"
+
+///|
 fn sqlite3_column_int64(statement : UInt64, column : Int) -> Int64 = "moonbitlang/sqlite" "sqlite3_column_int64"
+
+///|
+fn sqlite3_column_double(statement : UInt64, column : Int) -> Double = "moonbitlang/sqlite" "sqlite3_column_double"
+
+///|
+fn sqlite3_column_text16_length(statement : UInt64, column : Int) -> Int = "moonbitlang/sqlite" "sqlite3_column_text16_length"
+
+///|
+#unsafe_skip_stub_check
+#borrow(output)
+fn sqlite3_column_text16(
+  statement : UInt64,
+  column : Int,
+  output : FixedArray[UInt16],
+  capacity : Int,
+) -> Int = "moonbitlang/sqlite" "sqlite3_column_text16"
+
+///|
+fn sqlite3_column_blob_length(statement : UInt64, column : Int) -> Int = "moonbitlang/sqlite" "sqlite3_column_blob_length"
+
+///|
+#unsafe_skip_stub_check
+#borrow(output)
+fn sqlite3_column_blob(
+  statement : UInt64,
+  column : Int,
+  output : FixedArray[Byte],
+  capacity : Int,
+) -> Int = "moonbitlang/sqlite" "sqlite3_column_blob"
 
 ///|
 extern "wasm" fn grow_memory_for_test(pages : Int) -> Int =
@@ -237,6 +333,14 @@ fn main raise {
     SQLITE_ERROR,
     msg="invalid SQL did not fail",
   )
+  assert_true(
+    sqlite3_errcode(database) == SQLITE_ERROR,
+    msg="sqlite3_errcode did not report the prepare error",
+  )
+  assert_true(
+    sqlite3_extended_errcode(database) == SQLITE_ERROR,
+    msg="sqlite3_extended_errcode did not report the prepare error",
+  )
   let short_error : FixedArray[UInt16] = FixedArray::make(5, 0xFFFF)
   let error_length = sqlite3_errmsg16_length(database)
   let copied_error_length = sqlite3_errmsg16(
@@ -261,7 +365,8 @@ fn main raise {
     msg="short output was partially overwritten",
   )
   let complete_error : FixedArray[UInt16] = FixedArray::make(
-    error_length + 1, 0xFFFF,
+    error_length + 1,
+    0xFFFF,
   )
   assert_true(
     sqlite3_errmsg16(database, complete_error, complete_error.length()) ==
@@ -290,6 +395,162 @@ fn main raise {
     msg="query returned an extra row",
   )
   assert_true(sqlite3_finalize(query) == SQLITE_OK, msg="query finalize failed")
+
+  let bound = prepare(database, "SELECT ?1, ?2, ?3, ?4, ?5", null_handle)
+  let text_backing = "xx值😀yy"
+  let text = text_backing.view(
+    start_offset=2,
+    end_offset=text_backing.length() - 2,
+  )
+  let blob_backing = b"\xAA\x00\x7F\xFF\xBB"
+  let blob = blob_backing[1:4]
+  assert_true(
+    sqlite3_bind_int64(bound, 1, 5000000000L) == SQLITE_OK,
+    msg="sqlite3_bind_int64 failed",
+  )
+  assert_true(
+    sqlite3_bind_double(bound, 2, 3.5) == SQLITE_OK,
+    msg="sqlite3_bind_double failed",
+  )
+  assert_true(
+    sqlite3_bind_text16(
+      bound,
+      3,
+      text.data(),
+      text.start_offset(),
+      text.length(),
+    ) ==
+    SQLITE_OK,
+    msg="sqlite3_bind_text16 failed",
+  )
+  assert_true(
+    sqlite3_bind_blob(bound, 4, blob.data(), blob.start_offset(), blob.length()) ==
+    SQLITE_OK,
+    msg="sqlite3_bind_blob failed",
+  )
+  assert_true(
+    sqlite3_bind_null(bound, 5) == SQLITE_OK,
+    msg="sqlite3_bind_null failed",
+  )
+  assert_true(
+    sqlite3_bind_null(bound, 6) == SQLITE_RANGE,
+    msg="out-of-range bind did not return SQLITE_RANGE",
+  )
+  assert_true(
+    sqlite3_step(bound) == SQLITE_ROW,
+    msg="bound query returned no row",
+  )
+  assert_true(
+    sqlite3_column_count(bound) == 5,
+    msg="bound query returned the wrong column count",
+  )
+  assert_true(
+    sqlite3_column_type(bound, 0) == SQLITE_INTEGER &&
+    sqlite3_column_type(bound, 1) == SQLITE_FLOAT &&
+    sqlite3_column_type(bound, 2) == SQLITE_TEXT &&
+    sqlite3_column_type(bound, 3) == SQLITE_BLOB &&
+    sqlite3_column_type(bound, 4) == SQLITE_NULL,
+    msg="bound query returned the wrong SQLite types",
+  )
+  assert_true(
+    sqlite3_column_int64(bound, 0) == 5000000000L,
+    msg="bound integer did not round-trip",
+  )
+  assert_true(
+    sqlite3_column_double(bound, 1) == 3.5,
+    msg="bound double did not round-trip",
+  )
+
+  let text_length = sqlite3_column_text16_length(bound, 2)
+  assert_true(
+    text_length == text.length(),
+    msg="UTF-16 column returned the wrong length",
+  )
+  let short_text : FixedArray[UInt16] = FixedArray::make(2, 0xFFFF)
+  assert_true(
+    sqlite3_column_text16(bound, 2, short_text, short_text.length()) ==
+    text_length,
+    msg="short UTF-16 copy returned the wrong length",
+  )
+  assert_true(
+    short_text[0] == 0xFFFF && short_text[1] == 0xFFFF,
+    msg="short UTF-16 output was partially overwritten",
+  )
+  let text_output : FixedArray[UInt16] = FixedArray::make(
+    text_length + 1,
+    0xFFFF,
+  )
+  assert_true(
+    sqlite3_column_text16(bound, 2, text_output, text_output.length()) ==
+    text_length,
+    msg="UTF-16 copy returned the wrong length",
+  )
+  assert_true(
+    text_output[0] == 0x503C &&
+    text_output[1] == 0xD83D &&
+    text_output[2] == 0xDE00 &&
+    text_output[3] == 0,
+    msg="UTF-16 column did not round-trip",
+  )
+
+  let blob_length = sqlite3_column_blob_length(bound, 3)
+  assert_true(blob_length == 3, msg="blob column returned the wrong length")
+  let short_blob : FixedArray[Byte] = FixedArray::make(2, 0xAA)
+  assert_true(
+    sqlite3_column_blob(bound, 3, short_blob, short_blob.length()) ==
+    blob_length,
+    msg="short blob copy returned the wrong length",
+  )
+  assert_true(
+    short_blob[0] == 0xAA && short_blob[1] == 0xAA,
+    msg="short blob output was partially overwritten",
+  )
+  let blob_output : FixedArray[Byte] = FixedArray::make(blob_length, 0)
+  assert_true(
+    sqlite3_column_blob(bound, 3, blob_output, blob_output.length()) ==
+    blob_length,
+    msg="blob copy returned the wrong length",
+  )
+  assert_true(
+    blob_output[0] == 0 && blob_output[1] == 0x7F && blob_output[2] == 0xFF,
+    msg="blob column did not round-trip",
+  )
+  assert_true(
+    sqlite3_finalize(bound) == SQLITE_OK,
+    msg="bound query finalize failed",
+  )
+
+  execute(
+    database, "CREATE TABLE unique_values(value INTEGER UNIQUE)", null_handle,
+  )
+  execute(database, "INSERT INTO unique_values VALUES (7)", null_handle)
+  let duplicate = prepare(
+    database, "INSERT INTO unique_values VALUES (?1)", null_handle,
+  )
+  assert_true(
+    sqlite3_bind_int64(duplicate, 1, 7L) == SQLITE_OK,
+    msg="duplicate value bind failed",
+  )
+  assert_true(
+    sqlite3_step(duplicate) == SQLITE_CONSTRAINT,
+    msg="duplicate value did not fail with SQLITE_CONSTRAINT",
+  )
+  assert_true(
+    sqlite3_errcode(database) == SQLITE_CONSTRAINT,
+    msg="sqlite3_errcode did not report the constraint error",
+  )
+  assert_true(
+    sqlite3_extended_errcode(database) == SQLITE_CONSTRAINT_UNIQUE,
+    msg="sqlite3_extended_errcode did not report the unique constraint",
+  )
+  assert_true(
+    sqlite3_errmsg16_length(database) > 0,
+    msg="constraint error did not provide a message",
+  )
+  assert_true(
+    sqlite3_finalize(duplicate) == SQLITE_CONSTRAINT,
+    msg="failed statement finalize did not preserve its result code",
+  )
 
   let batch = "ignored SELECT 42; SELECT 7 ignored"
   let batch_start = "ignored ".length()

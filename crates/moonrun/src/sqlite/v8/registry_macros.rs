@@ -23,6 +23,12 @@ macro_rules! decode_wasm_arg {
     ($args:ident, u32) => {
         $args.next_u32()
     };
+    ($args:ident, i64) => {
+        $args.next_i64()
+    };
+    ($args:ident, f64) => {
+        $args.next_f64()
+    };
     ($args:ident, u64) => {
         $args.next_u64()
     };
@@ -75,6 +81,14 @@ macro_rules! finish_sqlite_import {
     ($scope:ident, $ret:ident, $name:expr, i64, $result:expr) => {
         match $result {
             Ok(value) => $ret.set(v8::BigInt::new_from_i64($scope, value).into()),
+            Err(error) => {
+                crate::v8_import::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
+            }
+        }
+    };
+    ($scope:ident, $ret:ident, $name:expr, f64, $result:expr) => {
+        match $result {
+            Ok(value) => $ret.set(v8::Number::new($scope, value).into()),
             Err(error) => {
                 crate::v8_import::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
             }
