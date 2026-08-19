@@ -173,10 +173,12 @@ Moonrun Policy authorizes operations performed by supported moonrun-owned host
 interfaces. It is not an operating-system syscall sandbox or a complete
 resource-isolation mechanism. In particular:
 
-- SQLite currently exposes only private in-memory databases. File-backed
-  database access is planned, but its exact VFS and temporary-file integration
-  is not yet part of the interface contract. Guest-selected database paths will
-  be subject to Moonrun Policy when that support is added.
+- SQLite supports private in-memory databases and file-backed databases through
+  the default native VFS. Guest-selected database paths are authorized by
+  Moonrun Policy when the connection is opened. Connections require read
+  access to the database path and its parent directory; writable connections
+  also require write access to that directory, where SQLite may use journal,
+  WAL, and shared-memory files.
 - SQLite may use its native VFS to create internal temporary files in the
   operating system's default temporary directory, even when the main database
   is in memory. These internal paths are not selected by the guest and do not

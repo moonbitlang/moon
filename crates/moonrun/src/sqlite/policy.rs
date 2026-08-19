@@ -17,16 +17,53 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::{CStr, c_char, c_int, c_void};
+use std::path::Path;
 use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
 
+use crate::async_policy::{AsyncPolicy, RuntimePathBase};
 use crate::host::null_handle;
 
 /// Ensure the requested database and VFS are available in the MVP.
-pub(super) fn ensure_valid_database(filename: &CStr, vfs: u64) -> Result<(), i32> {
-    if filename.to_bytes() != b":memory:" || vfs != null_handle() {
+///
+/// File-backed connections use SQLite's default VFS. The main database is
+/// authorized for reading together with its parent directory because SQLite
+/// may read journal, WAL, and shared-memory files beside it. Writable
+/// connections also require write access to that directory.
+pub(super) fn ensure_valid_database(
+    policy: &AsyncPolicy,
+    filename: &CStr,
+    flags: i32,
+    vfs: u64,
+) -> Result<(), i32> {
+    if vfs != null_handle() {
         return Err(ffi::SQLITE_CANTOPEN);
+    }
+    if filename.to_bytes() == b":memory:" {
+        return Ok(());
+    }
+
+    let filename = filename.to_str().map_err(|_| ffi::SQLITE_CANTOPEN)?;
+    if filename.is_empty() {
+        return Err(ffi::SQLITE_CANTOPEN);
+    }
+    let database = Path::new(filename);
+    policy
+        .read_path(RuntimePathBase::CurrentDirectory, database.as_os_str())
+        .map_err(|_| ffi::SQLITE_CANTOPEN)?;
+    let parent = database
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty());
+    let parent = parent.unwrap_or_else(|| Path::new("."));
+    policy
+        .read_path(RuntimePathBase::CurrentDirectory, parent.as_os_str())
+        .map_err(|_| ffi::SQLITE_CANTOPEN)?;
+
+    if flags & (ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE) != 0 {
+        policy
+            .write_path(RuntimePathBase::CurrentDirectory, parent.as_os_str())
+            .map_err(|_| ffi::SQLITE_CANTOPEN)?;
     }
     Ok(())
 }
@@ -77,6 +114,11 @@ unsafe extern "C" fn untrusted_authorizer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
+
+    fn c_path(path: &Path) -> CString {
+        CString::new(path.to_str().unwrap()).unwrap()
+    }
 
     #[test]
     fn open_flags_preserve_only_access_modes() {
@@ -97,14 +139,98 @@ mod tests {
     }
 
     #[test]
-    fn database_policy_accepts_only_private_memory_and_the_default_vfs() {
-        assert_eq!(ensure_valid_database(c":memory:", null_handle()), Ok(()));
+    fn database_policy_accepts_memory_and_files_with_the_default_vfs() {
+        let policy = AsyncPolicy::allow_all();
         assert_eq!(
-            ensure_valid_database(c"database.sqlite", null_handle()),
+            ensure_valid_database(
+                &policy,
+                c":memory:",
+                ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
+                null_handle()
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_valid_database(
+                &policy,
+                c"database.sqlite",
+                ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
+                null_handle()
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_valid_database(&policy, c":memory:", ffi::SQLITE_OPEN_READWRITE, u64::MAX),
             Err(ffi::SQLITE_CANTOPEN)
         );
         assert_eq!(
-            ensure_valid_database(c":memory:", u64::MAX),
+            ensure_valid_database(&policy, c"", ffi::SQLITE_OPEN_READWRITE, null_handle()),
+            Err(ffi::SQLITE_CANTOPEN)
+        );
+    }
+
+    #[test]
+    fn database_policy_requires_read_access_and_parent_write_access() {
+        let temp = tempfile::tempdir().unwrap();
+        let allowed = temp.path().join("allowed");
+        let denied = temp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let policy_file = temp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
+        )
+        .unwrap();
+        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let allowed_database = c_path(&allowed.join("database.sqlite"));
+        let denied_database = c_path(&denied.join("database.sqlite"));
+
+        assert_eq!(
+            ensure_valid_database(
+                &policy,
+                &allowed_database,
+                ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
+                null_handle()
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_valid_database(
+                &policy,
+                &denied_database,
+                ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
+                null_handle()
+            ),
+            Err(ffi::SQLITE_CANTOPEN)
+        );
+    }
+
+    #[test]
+    fn database_requires_its_directory_not_just_the_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("database.sqlite");
+        std::fs::write(&database, []).unwrap();
+        let policy_file = temp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            "[fs]\nread = [\"database.sqlite\"]\nwrite = [\"database.sqlite\"]\n",
+        )
+        .unwrap();
+        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let database = c_path(&database);
+
+        assert_eq!(
+            ensure_valid_database(&policy, &database, ffi::SQLITE_OPEN_READONLY, null_handle()),
+            Err(ffi::SQLITE_CANTOPEN)
+        );
+        assert_eq!(
+            ensure_valid_database(
+                &policy,
+                &database,
+                ffi::SQLITE_OPEN_READWRITE,
+                null_handle()
+            ),
             Err(ffi::SQLITE_CANTOPEN)
         );
     }

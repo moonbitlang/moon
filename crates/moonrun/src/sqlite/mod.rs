@@ -28,10 +28,12 @@ mod statement;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use libsqlite3_sys as ffi;
 use slotmap::SecondaryMap;
 
+use crate::async_policy::AsyncPolicy;
 use crate::host::{HostKey, HostKeys};
 
 use connection::Database;
@@ -60,14 +62,16 @@ pub(crate) type SqliteHostResult<T> = Result<T, SqliteHostError>;
 /// crossing this interface. The shared Host Key table supplies identity, while
 /// SQLite-owned pointers remain private payloads of this module.
 pub(crate) struct SqliteHost {
+    policy: Arc<AsyncPolicy>,
     keys: Rc<RefCell<HostKeys>>,
     databases: RefCell<SecondaryMap<HostKey, Database>>,
     statements: RefCell<SecondaryMap<HostKey, Statement>>,
 }
 
 impl SqliteHost {
-    pub(crate) fn with_keys(keys: Rc<RefCell<HostKeys>>) -> Self {
+    pub(crate) fn with_keys(policy: Arc<AsyncPolicy>, keys: Rc<RefCell<HostKeys>>) -> Self {
         Self {
+            policy,
             keys,
             databases: RefCell::new(SecondaryMap::new()),
             statements: RefCell::new(SecondaryMap::new()),
@@ -106,7 +110,10 @@ pub(super) mod tests {
     use super::*;
 
     pub(super) fn host() -> SqliteHost {
-        SqliteHost::with_keys(Rc::new(RefCell::new(HostKeys::default())))
+        SqliteHost::with_keys(
+            Arc::new(AsyncPolicy::allow_all()),
+            Rc::new(RefCell::new(HostKeys::default())),
+        )
     }
 
     pub(super) fn open_memory(host: &SqliteHost) -> u64 {

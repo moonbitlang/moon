@@ -638,17 +638,26 @@ fn test_moon_run_with_sqlite_ffi_imports() {
         .success();
 
     let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+    std::fs::create_dir(dir.join("allowed")).unwrap();
+    std::fs::create_dir(dir.join("denied")).unwrap();
+    let policy_file = dir.join("policy.toml");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&dir)
         .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&policy_file)
         .arg(&wasm_file)
         .assert()
         .success()
         .stdout_eq("ok\n")
-        .stderr_eq("");
+        .stderr_eq(snapbox::str![[r#"
+Sandbox policy blocked file read: "denied/database.sqlite"
 
-    assert!(!dir.join("not-a-memory-database").exists());
+"#]]);
+
+    assert!(dir.join("allowed/database.sqlite").exists());
+    assert!(!dir.join("denied/database.sqlite").exists());
 
     let leaked_wasm = dir.join("_build/wasm/debug/build/leak/leak.wasm");
     let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))

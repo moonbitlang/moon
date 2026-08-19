@@ -63,13 +63,13 @@ pub(crate) struct OpenOutcome {
 
 impl SqliteHost {
     pub(crate) fn open_v2(&self, filename: &CStr, flags: i32, vfs: u64) -> OpenOutcome {
-        if let Err(code) = ensure_valid_database(filename, vfs) {
+        let flags = ensure_open_flags(flags);
+        if let Err(code) = ensure_valid_database(&self.policy, filename, flags, vfs) {
             return OpenOutcome {
                 code,
                 database: None,
             };
         }
-        let flags = ensure_open_flags(flags);
 
         let mut database = ptr::null_mut();
         let code =
