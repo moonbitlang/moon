@@ -169,6 +169,12 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend(internal::event_loop::thread_pool::ported_symbols());
     symbols.extend_from_slice(fs::dir::PORTED_SYMBOLS);
     symbols.extend_from_slice(fs::stub::PORTED_SYMBOLS);
+    #[cfg(target_os = "linux")]
+    symbols.extend_from_slice(fs::watch_inotify::PORTED_SYMBOLS);
+    #[cfg(target_os = "macos")]
+    symbols.extend_from_slice(fs::watch_kqueue::PORTED_SYMBOLS);
+    #[cfg(windows)]
+    symbols.extend_from_slice(fs::watch_windows::PORTED_SYMBOLS);
     symbols.extend_from_slice(os_error::stub::PORTED_SYMBOLS);
     symbols.extend_from_slice(process::PORTED_SYMBOLS);
     symbols.extend_from_slice(signal::PORTED_SYMBOLS);

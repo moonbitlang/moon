@@ -747,6 +747,12 @@ declare_async_imports! {
     fake io::make_accept_io_result(addr_len: u32) -> u64 => "io/make_accept_io_result/windows";
 
     #[cfg(windows)]
+    helper io::make_read_dir_changes_io_result(buffer: u64) -> u64 => "io/make_read_dir_changes_io_result/windows";
+
+    #[cfg(not(windows))]
+    fake io::make_read_dir_changes_io_result(buffer: u64) -> u64 => "io/make_read_dir_changes_io_result/windows";
+
+    #[cfg(windows)]
     ported io::get_accept_peer_addr(result: u64, dst: u32, dst_len: u32) -> void => "io/get_accept_peer_addr/windows";
 
     #[cfg(not(windows))]
@@ -793,6 +799,12 @@ declare_async_imports! {
 
     #[cfg(not(windows))]
     fake io::read_io_result(fd: u64, result: u64) -> i32 => "io/read/windows";
+
+    #[cfg(windows)]
+    ported io::read_dir_changes_io_result(fd: u64, result: u64) -> i32 => "io/read_dir_changes/windows";
+
+    #[cfg(not(windows))]
+    fake io::read_dir_changes_io_result(fd: u64, result: u64) -> i32 => "io/read_dir_changes/windows";
 
     #[cfg(windows)]
     ported io::write_io_result(fd: u64, result: u64) -> i32 => "io/write/windows";
@@ -955,6 +967,149 @@ declare_async_imports! {
 
     ported fs::dir_entry_file_id(buf: u64, offset: u32) -> u64 => "fs/dir_entry_get_file_id";
 
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_create() -> u64 => "fs/inotify/create";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_create() -> u64 => "fs/inotify/create";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_remove_file(watcher: u64, wd: u64) -> i32 => "fs/inotify/remove_file";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_remove_file(watcher: u64, wd: u64) -> i32 => "fs/inotify/remove_file";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_event_buffer_size() -> u32 => "fs/inotify/event_buffer_size";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_event_buffer_size() -> u32 => "fs/inotify/event_buffer_size";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_fetch_event(watcher: u64, buffer: u64, len: u32) -> i32 => "fs/inotify/fetch_event";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_fetch_event(watcher: u64, buffer: u64, len: u32) -> i32 => "fs/inotify/fetch_event";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/inotify/event_get_size";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/inotify/event_get_size";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_event_get_wd(buffer: u64, offset: u32) -> u64 => "fs/inotify/event_get_wd";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_event_get_wd(buffer: u64, offset: u32) -> u64 => "fs/inotify/event_get_wd";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_event_has_relevant_event(buffer: u64, offset: u32) -> i32 => "fs/inotify/event_has_relevant_event";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_event_has_relevant_event(buffer: u64, offset: u32) -> i32 => "fs/inotify/event_has_relevant_event";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_event_has_overflow(buffer: u64, offset: u32) -> i32 => "fs/inotify/event_has_overflow";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_event_has_overflow(buffer: u64, offset: u32) -> i32 => "fs/inotify/event_has_overflow";
+
+    #[cfg(target_os = "linux")]
+    ported fs::inotify_event_has_ignore(buffer: u64, offset: u32) -> i32 => "fs/inotify/event_has_ignore";
+
+    #[cfg(not(target_os = "linux"))]
+    fake fs::inotify_event_has_ignore(buffer: u64, offset: u32) -> i32 => "fs/inotify/event_has_ignore";
+
+    #[cfg(target_os = "macos")]
+    ported fs::kqueue_watcher_create() -> u64 => "fs/kqueue_watcher/create";
+
+    #[cfg(not(target_os = "macos"))]
+    fake fs::kqueue_watcher_create() -> u64 => "fs/kqueue_watcher/create";
+
+    #[cfg(target_os = "macos")]
+    ported fs::kqueue_watcher_buffer_size() -> u32 => "fs/kqueue_watcher/buffer_size";
+
+    #[cfg(not(target_os = "macos"))]
+    fake fs::kqueue_watcher_buffer_size() -> u32 => "fs/kqueue_watcher/buffer_size";
+
+    #[cfg(target_os = "macos")]
+    ported fs::kqueue_watcher_add_file(kqueue: u64, file: u64, is_dir: i32) -> i32 => "fs/kqueue_watcher/add_file";
+
+    #[cfg(not(target_os = "macos"))]
+    fake fs::kqueue_watcher_add_file(kqueue: u64, file: u64, is_dir: i32) -> i32 => "fs/kqueue_watcher/add_file";
+
+    #[cfg(target_os = "macos")]
+    ported fs::kqueue_watcher_fetch_event(kqueue: u64, buffer: u64, len: u32) -> i32 => "fs/kqueue_watcher/fetch_event";
+
+    #[cfg(not(target_os = "macos"))]
+    fake fs::kqueue_watcher_fetch_event(kqueue: u64, buffer: u64, len: u32) -> i32 => "fs/kqueue_watcher/fetch_event";
+
+    #[cfg(target_os = "macos")]
+    ported fs::kqueue_watcher_event_get_fd(buffer: u64, index: u32) -> u64 => "fs/kqueue_watcher/event_get_fd";
+
+    #[cfg(not(target_os = "macos"))]
+    fake fs::kqueue_watcher_event_get_fd(buffer: u64, index: u32) -> u64 => "fs/kqueue_watcher/event_get_fd";
+
+    #[cfg(target_os = "macos")]
+    ported fs::kqueue_watcher_event_has_modify(buffer: u64, index: u32) -> i32 => "fs/kqueue_watcher/event_has_modify";
+
+    #[cfg(not(target_os = "macos"))]
+    fake fs::kqueue_watcher_event_has_modify(buffer: u64, index: u32) -> i32 => "fs/kqueue_watcher/event_has_modify";
+
+    #[cfg(windows)]
+    helper fs::windows_watcher_buffer_new() -> u64 => "fs/watcher/windows/buffer/new";
+
+    #[cfg(not(windows))]
+    fake fs::windows_watcher_buffer_new() -> u64 => "fs/watcher/windows/buffer/new";
+
+    #[cfg(windows)]
+    helper fs::windows_watcher_buffer_free(buffer: u64) -> void => "fs/watcher/windows/buffer/free";
+
+    #[cfg(not(windows))]
+    fake fs::windows_watcher_buffer_free(buffer: u64) -> void => "fs/watcher/windows/buffer/free";
+
+    #[cfg(windows)]
+    ported fs::watcher_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/event_get_size";
+
+    #[cfg(not(windows))]
+    fake fs::watcher_event_get_size(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/event_get_size";
+
+    #[cfg(windows)]
+    ported fs::watcher_event_is_modify(buffer: u64, offset: u32) -> i32 => "fs/watcher/windows/event_is_modify";
+
+    #[cfg(not(windows))]
+    fake fs::watcher_event_is_modify(buffer: u64, offset: u32) -> i32 => "fs/watcher/windows/event_is_modify";
+
+    // Returns the number of UTF-16 code units in the event path.
+    #[cfg(windows)]
+    helper fs::watcher_event_path_len(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/event_path_len";
+
+    #[cfg(not(windows))]
+    fake fs::watcher_event_path_len(buffer: u64, offset: u32) -> u32 => "fs/watcher/windows/event_path_len";
+
+    // Copies the event's raw UTF-16 code units into guest String storage.
+    #[cfg(windows)]
+    helper fs::watcher_event_path_copy(buffer: u64, offset: u32, out: u32, out_len: u32) -> void => "fs/watcher/windows/event_path_copy";
+
+    #[cfg(not(windows))]
+    fake fs::watcher_event_path_copy(buffer: u64, offset: u32, out: u32, out_len: u32) -> void => "fs/watcher/windows/event_path_copy";
+
+    // Extended notifications carry file IDs; basic notifications require a
+    // path lookup to recover the same information.
+    #[cfg(windows)]
+    helper fs::watcher_event_has_file_ids(buffer: u64) -> i32 => "fs/watcher/windows/event_has_file_ids";
+
+    #[cfg(not(windows))]
+    fake fs::watcher_event_has_file_ids(buffer: u64) -> i32 => "fs/watcher/windows/event_has_file_ids";
+
+    // Returns FileId for content changes and ParentFileId for entry changes.
+    #[cfg(windows)]
+    helper fs::watcher_event_dirty_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/windows/event_dirty_file_id";
+
+    #[cfg(not(windows))]
+    fake fs::watcher_event_dirty_file_id(buffer: u64, offset: u32) -> u64 => "fs/watcher/windows/event_dirty_file_id";
+
     // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
     // MoonBit String pointer plus UTF-16 code-unit length.
     compat thread_pool::make_open_job_legacy(
@@ -1062,6 +1217,22 @@ declare_async_imports! {
     ported thread_pool::make_rmdir_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_rmdir_job";
 
     ported thread_pool::make_readdir_job(dir: u64, buf: u64, len: u32, restart: i32) -> u64 => "thread_pool/make_readdir_job";
+
+    #[cfg(target_os = "linux")]
+    ported thread_pool::make_inotify_add_watch_job(
+        inotify: u64,
+        path_ptr: u32,
+        path_len: u32,
+        is_dir: i32,
+    ) -> u64 => "thread_pool/make_inotify_add_watch_job";
+
+    #[cfg(not(target_os = "linux"))]
+    fake thread_pool::make_inotify_add_watch_job(
+        inotify: u64,
+        path_ptr: u32,
+        path_len: u32,
+        is_dir: i32,
+    ) -> u64 => "thread_pool/make_inotify_add_watch_job";
 
     ported thread_pool::make_bind_job(socket: u64, addr: u32, addr_len: u32) -> u64 => "thread_pool/make_bind_job";
 

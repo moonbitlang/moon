@@ -28,6 +28,8 @@ mod stat;
 mod types;
 mod worker;
 
+#[cfg(target_os = "linux")]
+pub(crate) use jobs::make_inotify_add_watch_job;
 #[cfg(unix)]
 pub(crate) use jobs::make_sigwait_job;
 #[cfg(unix)]

@@ -147,6 +147,10 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
                 "moonbitlang_async_io_result_get_status",
             ),
             ported_windows_symbol("read_io_result", "moonbitlang_async_read"),
+            ported_windows_symbol(
+                "read_dir_changes_io_result",
+                "moonbitlang_async_read_dir_changes",
+            ),
             ported_windows_symbol("write_io_result", "moonbitlang_async_write"),
             ported_windows_symbol("connect_io_result", "moonbitlang_async_connect"),
             ported_windows_symbol(

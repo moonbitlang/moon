@@ -40,6 +40,8 @@ pub(crate) enum HostResourceKind {
     Poll,
     Worker,
     CBuffer,
+    #[cfg(windows)]
+    WindowsWatcherBuffer,
     #[cfg(unix)]
     ProcessArgv,
     ProcessEnv,

@@ -275,6 +275,34 @@ ported_fns! {
 
     #[ported(
         source = "src/internal/event_loop/fs.c",
+        original = "inotify_add_watch_job_worker"
+    )]
+    #[cfg(target_os = "linux")]
+    pub(super) fn run_inotify_add_watch_job(
+        inotify: &Resource,
+        path: OsString,
+        is_dir: bool,
+    ) -> AsyncHostResult<i64> {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = CString::new(path.into_vec()).map_err(|_| AsyncHostError::Inval)?;
+        let flags = if is_dir {
+            libc::IN_CREATE | libc::IN_MOVED_FROM | libc::IN_MOVED_TO | libc::IN_DELETE
+        } else {
+            libc::IN_MODIFY
+        };
+        let watch = unsafe {
+            libc::inotify_add_watch(inotify.as_file()?.as_raw_fd(), path.as_ptr(), flags)
+        };
+        if watch < 0 {
+            return Err(last_native_error());
+        }
+        Ok(i64::from(watch))
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/fs.c",
         original = "realpath_job_worker"
     )]
     pub(super) fn run_realpath_job(

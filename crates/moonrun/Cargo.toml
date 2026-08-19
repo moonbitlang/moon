@@ -61,6 +61,7 @@ features = [
     "Win32_System_IO",
     "Win32_System_Ioctl",
     "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
     "Win32_System_Pipes",
     "Win32_System_SystemServices",
     "Win32_System_Threading",

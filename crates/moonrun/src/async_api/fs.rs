@@ -22,6 +22,12 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
 use crate::async_policy::AsyncPolicy;
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
+#[cfg(target_os = "linux")]
+use crate::async_sys::fs::watch_inotify;
+#[cfg(target_os = "macos")]
+use crate::async_sys::fs::watch_kqueue;
+#[cfg(windows)]
+use crate::async_sys::fs::watch_windows;
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
@@ -128,6 +134,354 @@ pub(super) fn dir_entry_file_id(
 ) -> AsyncHostResult<u64> {
     context.host
         .with_c_buffer(buf, |buf| dir::entry_file_id(buf, 0, offset))
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_create"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_create(context: &mut ImportContext<'_, '_>) -> u64 {
+    match watch_inotify::create() {
+        Ok(fd) => context.host.insert_file_resource(fd),
+        Err(error) => {
+            context.host.record_error(error);
+            context.host.invalid_fd()
+        }
+    }
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_remove_file"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_remove_file(
+    context: &mut ImportContext<'_, '_>,
+    watcher: u64,
+    wd: u64,
+) -> i32 {
+    use std::os::fd::AsRawFd;
+
+    let result = (|| {
+        let wd = i32::try_from(wd).map_err(|_| AsyncHostError::Inval)?;
+        context.host.with_resource(watcher, |watcher| {
+            watch_inotify::remove_file(watcher.as_fd()?.as_raw_fd(), wd)
+        })
+    })();
+    zero_or_minus_one(context, result)
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_event_buffer_size"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_event_buffer_size(_context: &mut ImportContext<'_, '_>) -> u32 {
+    watch_inotify::event_buffer_size()
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_fetch_event"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_fetch_event(
+    context: &mut ImportContext<'_, '_>,
+    watcher: u64,
+    buffer: u64,
+    len: u32,
+) -> i32 {
+    use std::os::fd::AsRawFd;
+
+    let result = (|| {
+        let watcher = context.host.acquire_resource(watcher)?;
+        context.host.with_c_buffer_mut(buffer, |buffer| {
+            watch_inotify::fetch_event(watcher.as_fd()?.as_raw_fd(), buffer, len)
+        })
+    })();
+    match result {
+        Ok(n) => n,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_event_get_size"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_event_get_size(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<u32> {
+    context
+        .host
+        .with_c_buffer(buffer, |buffer| watch_inotify::event_get_size(buffer, offset))
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_event_get_wd"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_event_get_wd(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<u64> {
+    context.host.with_c_buffer(buffer, |buffer| {
+        let wd = watch_inotify::event_get_wd(buffer, offset)?;
+        Ok(i64::from(wd) as u64)
+    })
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_event_has_relevant_event"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_event_has_relevant_event(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<i32> {
+    context.host.with_c_buffer(buffer, |buffer| {
+        watch_inotify::event_has_relevant_event(buffer, offset).map(i32::from)
+    })
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_event_has_overflow"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_event_has_overflow(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<i32> {
+    context.host.with_c_buffer(buffer, |buffer| {
+        watch_inotify::event_has_overflow(buffer, offset).map(i32::from)
+    })
+}
+
+#[ported(
+    source = "src/fs/watch_inotify.c",
+    original = "moonbitlang_async_inotify_event_has_ignore"
+)]
+#[cfg(target_os = "linux")]
+pub(super) fn inotify_event_has_ignore(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<i32> {
+    context.host.with_c_buffer(buffer, |buffer| {
+        watch_inotify::event_has_ignore(buffer, offset).map(i32::from)
+    })
+}
+
+#[ported(
+    source = "src/fs/watch_kqueue.c",
+    original = "moonbitlang_async_kqueue_watcher_create"
+)]
+#[cfg(target_os = "macos")]
+pub(super) fn kqueue_watcher_create(context: &mut ImportContext<'_, '_>) -> u64 {
+    match watch_kqueue::create() {
+        Ok(fd) => context.host.insert_file_resource(fd),
+        Err(error) => {
+            context.host.record_error(error);
+            context.host.invalid_fd()
+        }
+    }
+}
+
+#[ported(
+    source = "src/fs/watch_kqueue.c",
+    original = "moonbitlang_async_kqueue_watcher_buffer_size"
+)]
+#[cfg(target_os = "macos")]
+pub(super) fn kqueue_watcher_buffer_size(_context: &mut ImportContext<'_, '_>) -> u32 {
+    watch_kqueue::buffer_size()
+}
+
+#[ported(
+    source = "src/fs/watch_kqueue.c",
+    original = "moonbitlang_async_kqueue_watcher_add_file"
+)]
+#[cfg(target_os = "macos")]
+pub(super) fn kqueue_watcher_add_file(
+    context: &mut ImportContext<'_, '_>,
+    kqueue: u64,
+    file: u64,
+    is_dir: i32,
+) -> i32 {
+    zero_or_minus_one(
+        context,
+        context
+            .host
+            .kqueue_watcher_add_file(kqueue, file, is_dir != 0),
+    )
+}
+
+#[ported(
+    source = "src/fs/watch_kqueue.c",
+    original = "moonbitlang_async_kqueue_watcher_fetch_event"
+)]
+#[cfg(target_os = "macos")]
+pub(super) fn kqueue_watcher_fetch_event(
+    context: &mut ImportContext<'_, '_>,
+    kqueue: u64,
+    buffer: u64,
+    len: u32,
+) -> i32 {
+    use std::os::fd::AsRawFd;
+
+    let result = (|| {
+        let kqueue = context.host.acquire_resource(kqueue)?;
+        context.host.with_c_buffer_mut(buffer, |buffer| {
+            watch_kqueue::fetch_event(kqueue.as_fd()?.as_raw_fd(), buffer, len)
+        })
+    })();
+    match result {
+        Ok(n) => n,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/fs/watch_kqueue.c",
+    original = "moonbitlang_async_kqueue_watcher_event_get_fd"
+)]
+#[cfg(target_os = "macos")]
+pub(super) fn kqueue_watcher_event_get_fd(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    index: u32,
+) -> AsyncHostResult<u64> {
+    context
+        .host
+        .with_c_buffer(buffer, |buffer| watch_kqueue::event_get_fd(buffer, index))
+}
+
+#[ported(
+    source = "src/fs/watch_kqueue.c",
+    original = "moonbitlang_async_kqueue_watcher_event_has_modify"
+)]
+#[cfg(target_os = "macos")]
+pub(super) fn kqueue_watcher_event_has_modify(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    index: u32,
+) -> AsyncHostResult<i32> {
+    context.host.with_c_buffer(buffer, |buffer| {
+        watch_kqueue::event_has_modify(buffer, index).map(i32::from)
+    })
+}
+
+#[cfg(windows)]
+pub(super) fn windows_watcher_buffer_new(context: &mut ImportContext<'_, '_>) -> u64 {
+    context.host.insert_windows_watcher_buffer()
+}
+
+#[cfg(windows)]
+pub(super) fn windows_watcher_buffer_free(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+) -> AsyncHostResult<()> {
+    context.host.free_windows_watcher_buffer(buffer)
+}
+
+#[ported(
+    source = "src/fs/watch_windows.c",
+    original = "moonbitlang_async_watcher_event_get_size"
+)]
+#[cfg(windows)]
+pub(super) fn watcher_event_get_size(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<u32> {
+    context
+        .host
+        .with_windows_watcher_buffer(buffer, |buffer| {
+            watch_windows::event_get_size(buffer, offset)
+        })
+}
+
+#[ported(
+    source = "src/fs/watch_windows.c",
+    original = "moonbitlang_async_watcher_event_is_modify_event"
+)]
+#[cfg(windows)]
+pub(super) fn watcher_event_is_modify(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<i32> {
+    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+        watch_windows::event_is_modify(buffer, offset).map(i32::from)
+    })
+}
+
+#[cfg(windows)]
+pub(super) fn watcher_event_path_len(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<u32> {
+    context
+        .host
+        .with_windows_watcher_buffer(buffer, |buffer| {
+            watch_windows::event_path_len(buffer, offset)
+        })
+}
+
+#[cfg(windows)]
+pub(super) fn watcher_event_path_copy(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+    out: u32,
+    out_len: u32,
+) -> AsyncHostResult<()> {
+    let path = context
+        .host
+        .with_windows_watcher_buffer(buffer, |buffer| {
+            watch_windows::event_path_units(buffer, offset)
+        })?;
+    if usize::try_from(out_len).map_err(|_| AsyncHostError::Fault)? != path.len() {
+        return Err(AsyncHostError::Inval);
+    }
+    context.with_memory_mut(|memory| write_u16(memory, out, &path))
+}
+
+#[cfg(windows)]
+pub(super) fn watcher_event_has_file_ids(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+) -> AsyncHostResult<i32> {
+    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+        watch_windows::event_has_file_ids(buffer).map(i32::from)
+    })
+}
+
+#[cfg(windows)]
+pub(super) fn watcher_event_dirty_file_id(
+    context: &mut ImportContext<'_, '_>,
+    buffer: u64,
+    offset: u32,
+) -> AsyncHostResult<u64> {
+    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+        watch_windows::event_dirty_file_id(buffer, offset)
+    })
 }
 
 fn tmp_path_utf16_units(policy: &AsyncPolicy) -> AsyncHostResult<Vec<u16>> {

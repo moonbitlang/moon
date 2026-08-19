@@ -444,6 +444,23 @@ ported_fns! {
     }
 
     #[ported(
+        source = "src/internal/event_loop/fs.c",
+        original = "moonbitlang_async_make_inotify_add_watch_job"
+    )]
+    #[cfg(target_os = "linux")]
+    pub(crate) fn make_inotify_add_watch_job(
+        inotify: ResourceRef,
+        path: OsString,
+        is_dir: bool,
+    ) -> Job {
+        Job::new(JobPayload::InotifyAddWatch {
+            inotify: Some(inotify),
+            path,
+            is_dir,
+        })
+    }
+
+    #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_bind_job"
     )]
