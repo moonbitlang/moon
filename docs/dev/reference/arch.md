@@ -366,7 +366,8 @@ Current registry configuration behavior today is:
   verifying HTTP package archives and prebuilt wasm assets. Resolver code sees
   only the narrower `Registry` capability.
 - One `RegistryClient` reuses one blocking HTTP client and its connection pool
-  across symbols, package archive, and prebuilt wasm downloads.
+  across symbols, package archive, and prebuilt wasm downloads. Connection
+  setup has a 30-second timeout, while response bodies have no total deadline.
 - The public `Registry` trait contains only metadata queries used by resolution.
   Package source acquisition remains on `RegistryClient`; dependency-source
   tests replace it through a crate-private seam.

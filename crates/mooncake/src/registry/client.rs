@@ -23,6 +23,7 @@ use std::{
     io::{BufRead, Read, Seek, Write},
     path::Path,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Context, bail};
@@ -44,6 +45,10 @@ use crate::{
     update::{RegistryIndexRecloneReason, RegistryIndexUpdate, UpdateOutcome},
     zip_util::extract_zip_to_dir,
 };
+
+// Preserve a bounded connection setup while allowing slow or large response
+// bodies to finish without reqwest's blocking-client total request deadline.
+const REGISTRY_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -123,6 +128,8 @@ impl RegistryClient {
             home,
             http: reqwest::blocking::Client::builder()
                 .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+                .timeout(None)
+                .connect_timeout(REGISTRY_CONNECT_TIMEOUT)
                 .build()
                 .expect("failed to create registry HTTP client"),
             cache: RefCell::new(HashMap::new()),
@@ -1240,6 +1247,31 @@ mod tests {
 
     #[test]
     fn sequential_archive_downloads_reuse_http_connection() {
+        fn serve_requests(mut stream: std::net::TcpStream, archive: &[u8], count: usize) {
+            for _ in 0..count {
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                loop {
+                    let read = stream.read(&mut buffer).unwrap();
+                    if read == 0 {
+                        return;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+                    archive.len()
+                )
+                .unwrap();
+                stream.write_all(archive).unwrap();
+            }
+        }
+
         let sandbox = tempfile::TempDir::new().unwrap();
         let (mut registry, name, first_version) = test_registry(&sandbox);
         let second_version = Version::new(1, 2, 4);
@@ -1249,49 +1281,42 @@ mod tests {
         registry.endpoints.packages = format!("http://{}", listener.local_addr().unwrap());
 
         let server = std::thread::spawn(move || {
-            let mut connections = 0;
-            let mut requests = 0;
-            while requests < 2 {
-                let (mut stream, _) = listener.accept().unwrap();
-                connections += 1;
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(1)))
-                    .unwrap();
-                while requests < 2 {
-                    let mut request = Vec::new();
-                    let mut buffer = [0_u8; 1024];
-                    loop {
-                        match stream.read(&mut buffer) {
-                            Ok(0) => break,
-                            Ok(read) => request.extend_from_slice(&buffer[..read]),
-                            Err(error)
-                                if matches!(
-                                    error.kind(),
-                                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                                ) =>
-                            {
-                                break;
-                            }
-                            Err(error) => panic!("registry test server failed: {error}"),
-                        }
-                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                            break;
-                        }
-                    }
-                    if request.is_empty() {
-                        break;
-                    }
+            let (first_stream, _) = listener.accept().unwrap();
+            let first_control = first_stream.try_clone().unwrap();
+            let archive = Arc::new(archive);
+            let (first_done_tx, first_done_rx) = std::sync::mpsc::channel();
+            let first_connection = {
+                let archive = Arc::clone(&archive);
+                std::thread::spawn(move || {
+                    serve_requests(first_stream, &archive, 2);
+                    let _ = first_done_tx.send(());
+                })
+            };
 
-                    requests += 1;
-                    write!(
-                        stream,
-                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
-                        archive.len()
-                    )
-                    .unwrap();
-                    stream.write_all(&archive).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let connections = loop {
+                match first_done_rx.try_recv() {
+                    Ok(()) => break 1,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        panic!("first registry test connection failed")
+                    }
                 }
+                match listener.accept() {
+                    Ok((second_stream, _)) => {
+                        serve_requests(second_stream, &archive, 1);
+                        break 2;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => panic!("registry test server failed: {error}"),
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            };
+
+            if connections != 1 {
+                let _ = first_control.shutdown(std::net::Shutdown::Both);
             }
+            first_connection.join().unwrap();
             connections
         });
 
