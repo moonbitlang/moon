@@ -82,3 +82,4 @@
 0089	guard_redundant_else	Redundant `else` on an exhaustive `guard`.
 0090	unused_lexcase	`lexmatch`/`lexscan` branch that can never be selected because other branches takes precedence or its pattern matches nothing.
 0091	unused_errdefer	unused `errdefer` statement
+0092	fragile_catch_all	fragile `catch` handler that can be converted to `defer` or `errdefer`

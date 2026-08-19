@@ -461,6 +461,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         description: "unused `errdefer` statement",
         id: 91,
     },
+    WarningEntry {
+        mnemonic: "fragile_catch_all",
+        description: "fragile `catch` handler that can be converted to `defer` or `errdefer`",
+        id: 92,
+    },
 ];
 
 pub(crate) fn get_warning_entry(id: u16) -> Option<&'static WarningEntry> {
