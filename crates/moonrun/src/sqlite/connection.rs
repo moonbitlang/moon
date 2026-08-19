@@ -108,6 +108,16 @@ impl SqliteHost {
         unsafe { utf16_message_length(message) }
     }
 
+    pub(crate) fn errcode(&self, database: u64) -> SqliteHostResult<i32> {
+        let database = self.database(database)?;
+        Ok(unsafe { ffi::sqlite3_errcode(database.pointer().as_ptr()) })
+    }
+
+    pub(crate) fn extended_errcode(&self, database: u64) -> SqliteHostResult<i32> {
+        let database = self.database(database)?;
+        Ok(unsafe { ffi::sqlite3_extended_errcode(database.pointer().as_ptr()) })
+    }
+
     /// Copy SQLite's current connection error while its pointer is valid.
     ///
     /// The returned length is measured in UTF-16 code units and excludes the
@@ -236,6 +246,8 @@ mod tests {
         let sql = utf16le("SELECT 不存在");
         let outcome = host.prepare16_v2(database, &sql).unwrap();
         assert_eq!(outcome.code, ffi::SQLITE_ERROR);
+        assert_eq!(host.errcode(database), Ok(ffi::SQLITE_ERROR));
+        assert_eq!(host.extended_errcode(database), Ok(ffi::SQLITE_ERROR));
 
         let length = host.errmsg16_length(database).unwrap();
         let mut complete = vec![0; length as usize + 1];

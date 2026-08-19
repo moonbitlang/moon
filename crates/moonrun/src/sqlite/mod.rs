@@ -20,6 +20,8 @@
 
 pub(crate) mod v8;
 
+mod bind;
+mod column;
 mod connection;
 mod policy;
 mod statement;
