@@ -126,6 +126,11 @@ impl SqliteHost {
     ) -> SqliteHostResult<Option<(*const u16, usize)>> {
         let statement = self.current_column(statement, column)?;
         let pointer = unsafe { sqlite3_column_text16(statement.pointer.as_ptr(), column) };
+        if pointer.is_null() {
+            // Do not make another SQLite call before the guest can inspect
+            // sqlite3_errcode() to distinguish SQL NULL from conversion OOM.
+            return Ok(None);
+        }
         // SQLite requires this order so conversion cannot invalidate the
         // pointer before its size is known.
         let byte_length = unsafe { sqlite3_column_bytes16(statement.pointer.as_ptr(), column) };
@@ -133,13 +138,6 @@ impl SqliteHost {
             return Err(SqliteHostError::InvalidInput);
         }
         let length = byte_length as usize / size_of::<u16>();
-        if pointer.is_null() {
-            return if length == 0 {
-                Ok(None)
-            } else {
-                Err(SqliteHostError::InvalidInput)
-            };
-        }
         Ok(Some((pointer.cast(), length)))
     }
 
@@ -150,16 +148,17 @@ impl SqliteHost {
     ) -> SqliteHostResult<(Option<*const u8>, usize)> {
         let statement = self.current_column(statement, column)?;
         let pointer = unsafe { ffi::sqlite3_column_blob(statement.pointer.as_ptr(), column) };
+        if pointer.is_null() {
+            // SQLite also uses NULL for SQL NULL, zero-length blobs, and OOM.
+            // Preserve the connection error until the guest inspects it.
+            return Ok((None, 0));
+        }
         // SQLite requires the value accessor before the matching byte count.
         let length = unsafe { ffi::sqlite3_column_bytes(statement.pointer.as_ptr(), column) };
         if length < 0 {
             return Err(SqliteHostError::InvalidInput);
         }
-        if pointer.is_null() && length != 0 {
-            return Err(SqliteHostError::InvalidInput);
-        }
-        let pointer = (!pointer.is_null()).then(|| pointer.cast());
-        Ok((pointer, length as usize))
+        Ok((Some(pointer.cast()), length as usize))
     }
 }
 
