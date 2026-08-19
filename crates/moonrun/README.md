@@ -167,6 +167,28 @@ connections to the IP addresses returned by that lookup on the configured port.
 Use `dns` only when a program needs standalone DNS lookup permission without
 also granting outbound connects.
 
+## Security Model and Known Limitations
+
+Moonrun Policy authorizes operations performed by supported moonrun-owned host
+interfaces. It is not an operating-system syscall sandbox or a complete
+resource-isolation mechanism. In particular:
+
+- SQLite currently exposes only private in-memory databases. File-backed
+  database access is planned, but its exact VFS and temporary-file integration
+  is not yet part of the interface contract. Guest-selected database paths will
+  be subject to Moonrun Policy when that support is added.
+- SQLite may use its native VFS to create internal temporary files in the
+  operating system's default temporary directory, even when the main database
+  is in memory. These internal paths are not selected by the guest and do not
+  currently pass through the filesystem policy.
+- Native SQLite CPU time, heap usage, database size, and temporary-disk usage
+  do not currently have per-run quotas.
+
+Deployments that require strict isolation for untrusted workloads should also
+use operating-system process isolation and resource limits. Security defects
+that violate the documented policy should be reported privately rather than
+added to this list with a public reproducer.
+
 # Contribution
 
 To contribute, please read the contribution guidelines at [docs/dev](./docs/dev/README.md).
