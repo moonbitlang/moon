@@ -179,6 +179,11 @@ resource-isolation mechanism. In particular:
   access to the database path and its parent directory; writable connections
   also require write access to that directory, where SQLite may use journal,
   WAL, and shared-memory files.
+- File-backed SQLite authorization is currently a pathname check performed
+  before the native VFS opens the database. If another guest filesystem
+  operation or external actor replaces that path or one of its parent symlinks
+  between those steps, SQLite can resolve a file outside the checked roots.
+  Moonrun does not yet bind this authorization to a stable filesystem identity.
 - SQLite may use its native VFS to create internal temporary files in the
   operating system's default temporary directory, even when the main database
   is in memory. These internal paths are not selected by the guest and do not
