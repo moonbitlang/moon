@@ -2573,6 +2573,26 @@ impl AsyncHost {
             .insert_resource(Resource::new(raw_fd))
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn kqueue_watcher_add_file(
+        &self,
+        kqueue_handle: HostHandle,
+        file_handle: HostHandle,
+        is_dir: bool,
+    ) -> AsyncHostResult<()> {
+        use std::os::fd::AsRawFd;
+
+        let kqueue = self.acquire_resource(kqueue_handle)?;
+        let file = self.acquire_resource(file_handle)?;
+        Self::check_file_metadata_policy(&self.policy, Some(file.as_ref()))?;
+        crate::async_sys::fs::watch_kqueue::add_file(
+            kqueue.as_fd()?.as_raw_fd(),
+            file.as_fd()?.as_raw_fd(),
+            is_dir,
+            file_handle,
+        )
+    }
+
     pub(crate) fn insert_failed_job(&self, error: AsyncHostError) -> AsyncHostResult<u64> {
         self.insert_job(thread_pool::make_failed_job(error.errno()))
     }
@@ -5994,6 +6014,42 @@ mod tests {
         host.free_job(time_job).unwrap();
         host.free_job(size_job).unwrap();
         host.close_fd(fd).unwrap();
+        host.free_job(open_job).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn kqueue_watcher_registration_requires_read_policy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let writable = tmp.path().join("writable");
+        std::fs::create_dir(&writable).unwrap();
+        let file = writable.join("data.txt");
+        std::fs::write(&file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"writable\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let open_job = host
+            .insert_job(thread_pool::make_open_job(
+                file.as_os_str().to_os_string(),
+                1,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+        host.run_job(open_job).unwrap();
+        let file_handle = host.open_job_get_fd(open_job).unwrap();
+        let kqueue_handle =
+            host.insert_file_resource(crate::async_sys::fs::watch_kqueue::create().unwrap());
+
+        assert_eq!(
+            host.kqueue_watcher_add_file(kqueue_handle, file_handle, false),
+            Err(AsyncHostError::PermissionDenied)
+        );
+
+        host.close_fd(kqueue_handle).unwrap();
+        host.close_fd(file_handle).unwrap();
         host.free_job(open_job).unwrap();
     }
 

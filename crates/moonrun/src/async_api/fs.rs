@@ -320,19 +320,12 @@ pub(super) fn kqueue_watcher_add_file(
     file: u64,
     is_dir: i32,
 ) -> i32 {
-    use std::os::fd::AsRawFd;
-
-    let result = (|| {
-        let kqueue_resource = context.host.acquire_resource(kqueue)?;
-        let file_resource = context.host.acquire_resource(file)?;
-        watch_kqueue::add_file(
-            kqueue_resource.as_fd()?.as_raw_fd(),
-            file_resource.as_fd()?.as_raw_fd(),
-            is_dir != 0,
-            file,
-        )
-    })();
-    zero_or_minus_one(context, result)
+    zero_or_minus_one(
+        context,
+        context
+            .host
+            .kqueue_watcher_add_file(kqueue, file, is_dir != 0),
+    )
 }
 
 #[ported(
