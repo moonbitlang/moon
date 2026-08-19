@@ -91,7 +91,7 @@ fn sqlite3_errmsg16_length(database : UInt64) -> Int = "moonbitlang/sqlite" "sql
 
 ///|
 /// Copies the current UTF-16 error and returns its content length, excluding
-/// NUL. The output is unchanged if it cannot also hold the terminator.
+/// NUL. The output is unchanged if it cannot hold the complete content.
 #unsafe_skip_stub_check
 #borrow(output)
 fn sqlite3_errmsg16(
@@ -260,7 +260,7 @@ fn main raise {
   )
 
   let denied = Ref(null_handle)
-  let denied_filename = b"denied/database.sqlite\x00"
+  let denied_filename = b"denied/database.sqlite"
   assert_true(
     sqlite3_open_v2(
       denied_filename,
@@ -278,7 +278,7 @@ fn main raise {
   )
 
   let file_database = Ref(null_handle)
-  let file_database_filename = b"allowed/database.sqlite\x00"
+  let file_database_filename = b"allowed/database.sqlite"
   assert_true(
     sqlite3_open_v2(
       file_database_filename,
@@ -330,7 +330,7 @@ fn main raise {
   )
 
   let custom_vfs = Ref(null_handle)
-  let memory_filename = b":memory:\x00"
+  let memory_filename = b":memory:"
   assert_true(
     sqlite3_open_v2(
       memory_filename,
@@ -420,17 +420,13 @@ fn main raise {
     msg="short output was partially overwritten",
   )
   let complete_error : FixedArray[UInt16] = FixedArray::make(
-    error_length + 1,
+    error_length,
     0xFFFF,
   )
   assert_true(
     sqlite3_errmsg16(database, complete_error, complete_error.length()) ==
     error_length,
     msg="error length changed while copying",
-  )
-  assert_true(
-    complete_error[error_length] == 0,
-    msg="complete error was not NUL-terminated",
   )
   assert_true(
     complete_error[error_length - 3] == 0x4E0D &&
@@ -531,10 +527,7 @@ fn main raise {
     short_text[0] == 0xFFFF && short_text[1] == 0xFFFF,
     msg="short UTF-16 output was partially overwritten",
   )
-  let text_output : FixedArray[UInt16] = FixedArray::make(
-    text_length + 1,
-    0xFFFF,
-  )
+  let text_output : FixedArray[UInt16] = FixedArray::make(text_length, 0xFFFF)
   assert_true(
     sqlite3_column_text16(bound, 2, text_output, text_output.length()) ==
     text_length,
@@ -543,8 +536,7 @@ fn main raise {
   assert_true(
     text_output[0] == 0x503C &&
     text_output[1] == 0xD83D &&
-    text_output[2] == 0xDE00 &&
-    text_output[3] == 0,
+    text_output[2] == 0xDE00,
     msg="UTF-16 column did not round-trip",
   )
 

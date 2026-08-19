@@ -44,7 +44,7 @@ fn sqlite3_open_v2(
 fn main {
   let null_handle = sqlite3_null_handle()
   let database = Ref(null_handle)
-  let filename = b":memory:\x00"
+  let filename = b":memory:"
   if sqlite3_open_v2(
       filename,
       filename.length(),

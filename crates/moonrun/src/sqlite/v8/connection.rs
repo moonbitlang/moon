@@ -40,23 +40,26 @@ pub(super) fn open_v2(
 
 /// Copy the current connection error into Guest Memory as UTF-16LE.
 ///
-/// Capacity and the return value are UTF-16 code units; the returned content
-/// length excludes NUL. Call `sqlite3_errmsg16_length` first and allocate one
-/// additional code unit for the terminator. If the current message does not
-/// fit, the output is left unchanged and its current content length is
-/// returned so the caller can retry.
+/// Capacity and the return value are UTF-16 content code units. SQLite's
+/// trailing NUL is not copied. If the current message does not fit, the output
+/// is left unchanged and its current content length is returned so the caller
+/// can retry.
 pub(super) fn errmsg16(
     context: &mut ImportContext,
     database: u64,
     output: u32,
     capacity: u32,
 ) -> SqliteResult<u32> {
-    if output == 0 || capacity == 0 {
-        return Err(SqliteError::Fault);
-    }
     let byte_capacity = capacity.checked_mul(2).ok_or(SqliteError::Overflow)?;
     let (host, memory) = context.host_and_memory();
-    let bytes = memory.read_exact_mut(output, byte_capacity)?;
+    let bytes = if capacity == 0 {
+        &mut []
+    } else {
+        if output == 0 {
+            return Err(SqliteError::Fault);
+        }
+        memory.read_exact_mut(output, byte_capacity)?
+    };
     // SAFETY: every bit pattern is a valid `u16`. The prefix/suffix check
     // rejects a runtime memory backing that does not satisfy this ABI's
     // alignment requirement.

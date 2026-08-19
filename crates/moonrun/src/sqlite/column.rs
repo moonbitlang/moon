@@ -62,11 +62,12 @@ impl SqliteHost {
         u32::try_from(length).map_err(|_| SqliteHostError::Overflow)
     }
 
-    /// Copy a UTF-16 column including its NUL terminator when it fits.
+    /// Copy a UTF-16 column when it fits.
     ///
-    /// The returned content length excludes NUL. A short output and a NULL or
-    /// failed conversion leave the output unchanged; `sqlite3_errcode` lets
-    /// the caller distinguish SQL NULL from a conversion allocation failure.
+    /// The returned content length excludes SQLite's trailing NUL. A short
+    /// output and a NULL or failed conversion leave the output unchanged;
+    /// `sqlite3_errcode` lets the caller distinguish SQL NULL from a conversion
+    /// allocation failure.
     pub(crate) fn copy_column_text16(
         &self,
         statement: u64,
@@ -76,13 +77,12 @@ impl SqliteHost {
         let Some((pointer, length)) = self.text16_column(statement, column)? else {
             return Ok(0);
         };
-        let required = length.checked_add(1).ok_or(SqliteHostError::Overflow)?;
-        if output.len() >= required {
-            // SAFETY: SQLite returned a UTF-16 string with `length` content
-            // units followed by a NUL, and no SQLite call can invalidate it
-            // before this synchronous copy completes.
-            let value = unsafe { std::slice::from_raw_parts(pointer, required) };
-            output[..required].copy_from_slice(value);
+        if output.len() >= length && length != 0 {
+            // SAFETY: SQLite reported `length` content units for this pointer,
+            // and no SQLite call can invalidate it before this synchronous
+            // copy completes.
+            let value = unsafe { std::slice::from_raw_parts(pointer, length) };
+            output[..length].copy_from_slice(value);
         }
         u32::try_from(length).map_err(|_| SqliteHostError::Overflow)
     }
@@ -210,13 +210,12 @@ mod tests {
             Ok(text.len() as u32)
         );
         assert_eq!(short_text, [0xffff; 2]);
-        let mut output_text = vec![0xffff; text.len() + 1];
+        let mut output_text = vec![0xffff; text.len()];
         assert_eq!(
             host.copy_column_text16(statement, 2, &mut output_text),
             Ok(text.len() as u32)
         );
-        assert_eq!(&output_text[..text.len()], text);
-        assert_eq!(output_text[text.len()], 0);
+        assert_eq!(output_text, text);
 
         assert_eq!(host.column_blob_length(statement, 3), Ok(blob.len() as u32));
         let mut short_blob = [0xaa; 2];
