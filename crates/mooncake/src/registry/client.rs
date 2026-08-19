@@ -102,6 +102,7 @@ pub struct RegistryClient {
     config: RegistryConfig,
     home: MoonHomeLayout,
     endpoints: RegistryEndpoints,
+    http: reqwest::blocking::Client,
     cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
 }
 
@@ -120,6 +121,10 @@ impl RegistryClient {
             endpoints: RegistryEndpoints::from_config(&config),
             config,
             home,
+            http: reqwest::blocking::Client::builder()
+                .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+                .build()
+                .expect("failed to create registry HTTP client"),
             cache: RefCell::new(HashMap::new()),
         }
     }
@@ -131,7 +136,7 @@ impl RegistryClient {
 
     /// Synchronize the Git index and symbols archive with the configured registry.
     pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
-        let outcome = crate::update::sync(&self.home, &self.config, user_log)?;
+        let outcome = crate::update::sync(&self.home, &self.config, &self.http, user_log)?;
         self.cache.borrow_mut().clear();
         log_sync_outcome(outcome, user_log);
         Ok(())
@@ -145,12 +150,8 @@ impl RegistryClient {
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
-        let http = reqwest::blocking::Client::builder()
-            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-            .build()
-            .context("failed to create registry asset HTTP client")?;
         self.acquire_wasm_asset_with(name, version, package_path, user_log, |url| {
-            download_registry_asset(&http, url, user_log)
+            download_registry_asset(&self.http, url, user_log)
         })
     }
 
@@ -550,8 +551,8 @@ impl RegistryClient {
         }
         user_log.status(format!("Downloading {name}@{version}"));
         let url = self.endpoints.package_archive(name, version);
-        let client = reqwest::blocking::Client::new();
-        let mut response = client
+        let mut response = self
+            .http
             .get(url)
             .header(
                 USER_AGENT,
@@ -1235,6 +1236,89 @@ mod tests {
             result.unwrap();
         }
         assert_eq!(request_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn sequential_archive_downloads_reuse_http_connection() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (mut registry, name, first_version) = test_registry(&sandbox);
+        let second_version = Version::new(1, 2, 4);
+        let archive = test_archive();
+        let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        registry.endpoints.packages = format!("http://{}", listener.local_addr().unwrap());
+
+        let server = std::thread::spawn(move || {
+            let mut connections = 0;
+            let mut requests = 0;
+            while requests < 2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                connections += 1;
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                while requests < 2 {
+                    let mut request = Vec::new();
+                    let mut buffer = [0_u8; 1024];
+                    loop {
+                        match stream.read(&mut buffer) {
+                            Ok(0) => break,
+                            Ok(read) => request.extend_from_slice(&buffer[..read]),
+                            Err(error)
+                                if matches!(
+                                    error.kind(),
+                                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                                ) =>
+                            {
+                                break;
+                            }
+                            Err(error) => panic!("registry test server failed: {error}"),
+                        }
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    if request.is_empty() {
+                        break;
+                    }
+
+                    requests += 1;
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+                        archive.len()
+                    )
+                    .unwrap();
+                    stream.write_all(&archive).unwrap();
+                }
+            }
+            connections
+        });
+
+        registry
+            .acquire_source_to(
+                &name,
+                &first_version,
+                &checksum,
+                &sandbox.path().join("source-first"),
+                &quiet_user_log(),
+            )
+            .unwrap();
+        registry
+            .acquire_source_to(
+                &name,
+                &second_version,
+                &checksum,
+                &sandbox.path().join("source-second"),
+                &quiet_user_log(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            server.join().unwrap(),
+            1,
+            "sequential registry downloads should share one HTTP connection"
+        );
     }
 
     #[test]

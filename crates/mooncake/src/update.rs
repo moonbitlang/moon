@@ -437,10 +437,10 @@ enum SymbolsDownload {
     fields(has_previous_etag = previous_etag.is_some())
 )]
 fn download_symbols_zip(
+    client: &reqwest::blocking::Client,
     symbols_url: &str,
     previous_etag: Option<&SymbolsEtag>,
 ) -> anyhow::Result<SymbolsDownload> {
-    let client = reqwest::blocking::Client::new();
     let conditional_etag = previous_etag.and_then(|etag| {
         (etag.url == symbols_url)
             .then(|| {
@@ -494,6 +494,7 @@ fn download_symbols_zip(
 }
 
 fn update_symbols_from_url(
+    client: &reqwest::blocking::Client,
     registry_dir: &Path,
     target_dir: &Path,
     symbols_url: &str,
@@ -503,16 +504,18 @@ fn update_symbols_from_url(
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
 
     let previous_etag = target_dir.is_dir().then_some(previous_etag).flatten();
-    let download = download_symbols_zip(symbols_url, previous_etag)?;
+    let download = download_symbols_zip(client, symbols_url, previous_etag)?;
     let (data, etag) = match download {
         SymbolsDownload::Modified { data, etag } => (data, etag),
         SymbolsDownload::NotModified { etag } if target_dir.is_dir() => return Ok(Some(etag)),
-        SymbolsDownload::NotModified { .. } => match download_symbols_zip(symbols_url, None)? {
-            SymbolsDownload::Modified { data, etag } => (data, etag),
-            SymbolsDownload::NotModified { .. } => {
-                anyhow::bail!("symbols.zip returned 304 but local symbols are missing")
+        SymbolsDownload::NotModified { .. } => {
+            match download_symbols_zip(client, symbols_url, None)? {
+                SymbolsDownload::Modified { data, etag } => (data, etag),
+                SymbolsDownload::NotModified { .. } => {
+                    anyhow::bail!("symbols.zip returned 304 but local symbols are missing")
+                }
             }
-        },
+        }
     };
 
     let tmp_dir = unique_sibling_dir(registry_dir, ".symbols.tmp")
@@ -673,6 +676,7 @@ fn run_registry_update_locked(
 pub(crate) fn sync(
     home: &MoonHomeLayout,
     registry_config: &RegistryConfig,
+    client: &reqwest::blocking::Client,
     user_log: &UserLog,
 ) -> anyhow::Result<UpdateOutcome> {
     let registry_dir = home.registry_dir();
@@ -692,6 +696,7 @@ pub(crate) fn sync(
         |previous_etag| {
             let registry_index = update_registry_index(&target_dir, registry_config, user_log)?;
             let (symbols_updated, symbols_etag) = match update_symbols_from_url(
+                client,
                 &registry_dir,
                 &symbols_dir,
                 symbols_url,
@@ -949,6 +954,7 @@ mod tests {
     fn symbols_update_reuses_an_etag_on_not_modified() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
+        let client = reqwest::blocking::Client::new();
         let (url, server) = serve_http(vec![
             TestHttpResponse {
                 status: "200 OK",
@@ -963,6 +969,7 @@ mod tests {
         ]);
 
         let etag = update_symbols_from_url(
+            &client,
             &home.registry_dir(),
             &home.registry_symbols_dir(),
             &url,
@@ -975,6 +982,7 @@ mod tests {
         std::fs::write(home.registry_symbols_dir().join("symbol.txt"), "local").unwrap();
 
         let reused = update_symbols_from_url(
+            &client,
             &home.registry_dir(),
             &home.registry_symbols_dir(),
             &url,
@@ -1001,6 +1009,7 @@ mod tests {
     fn symbols_update_ignores_an_etag_when_local_symbols_are_missing() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
+        let client = reqwest::blocking::Client::new();
         let (url, server) = serve_http(vec![TestHttpResponse {
             status: "200 OK",
             headers: vec![("ETag", "\"symbols-v2\"")],
@@ -1012,6 +1021,7 @@ mod tests {
         };
 
         let updated = update_symbols_from_url(
+            &client,
             &home.registry_dir(),
             &home.registry_symbols_dir(),
             &url,
@@ -1033,6 +1043,7 @@ mod tests {
     fn symbols_update_ignores_an_invalid_etag() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
+        let client = reqwest::blocking::Client::new();
         std::fs::create_dir(home.registry_symbols_dir()).unwrap();
         let (url, server) = serve_http(vec![TestHttpResponse {
             status: "200 OK",
@@ -1045,6 +1056,7 @@ mod tests {
         };
 
         let updated = update_symbols_from_url(
+            &client,
             &home.registry_dir(),
             &home.registry_symbols_dir(),
             &url,
