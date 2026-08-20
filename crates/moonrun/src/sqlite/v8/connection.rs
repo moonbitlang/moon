@@ -33,7 +33,7 @@ pub(super) fn open_v2(
     context.write_u64(database_out, null_handle())?;
 
     let filename = context.read_utf8_c_string(filename, filename_length)?;
-    let outcome = context.host.open_v2(filename, flags, vfs);
+    let outcome = context.host.open_v2(&filename, flags, vfs);
     context.write_u64(database_out, outcome.database.unwrap_or_else(null_handle))?;
     Ok(outcome.code)
 }
