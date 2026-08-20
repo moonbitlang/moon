@@ -65,6 +65,12 @@ fn test_single_file_mbtx_run() {
 }
 
 #[test]
+fn test_single_file_mbtx_check() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let _ = get_stdout(&dir, ["check", "import_ok.mbtx"]);
+}
+
+#[test]
 fn test_single_file_mbtx_run_does_not_warn_about_supported_targets() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stderr = get_stderr(&dir, ["run", "import_ok.mbtx"]);

@@ -43,6 +43,10 @@ pub(crate) struct MooncCheck<'a> {
     /// Whether to enable single file mode.
     pub single_file: bool,
 
+    /// Whether `moonc check` should accept the inline import declaration of an
+    /// already-resolved `.mbtx` single-file input.
+    pub ignore_import_declaration: bool,
+
     /// Extra flags to append at the end.
     pub extra_flags: &'a [String],
 }
@@ -65,6 +69,10 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
 
         // Doctest-only MBT files
         self.required.add_doctest_only_sources(args);
+
+        if self.ignore_import_declaration {
+            args.push("-ignore-import-declaration".to_string());
+        }
 
         // Include doctests for blackbox
         self.required.add_include_doctests_if_blackbox(args);
