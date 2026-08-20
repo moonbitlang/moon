@@ -103,4 +103,9 @@ impl SqliteHost {
             )
         })
     }
+
+    pub(crate) fn clear_bindings(&self, statement: u64) -> SqliteHostResult<i32> {
+        let statement = self.statement(statement)?;
+        Ok(unsafe { ffi::sqlite3_clear_bindings(statement.pointer.as_ptr()) })
+    }
 }

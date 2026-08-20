@@ -19,6 +19,18 @@
 use super::context::{ImportContext, SqliteError, SqliteResult};
 use crate::guest_memory::GuestMemory;
 
+pub(super) fn column_name16(
+    context: &mut ImportContext,
+    statement: u64,
+    column: i32,
+    output: u32,
+    capacity: u32,
+) -> SqliteResult<u32> {
+    context.with_utf16_output(output, capacity, |host, output| {
+        Ok(host.copy_column_name16(statement, column, output)?)
+    })
+}
+
 pub(super) fn column_text16(
     context: &mut ImportContext,
     statement: u64,
@@ -26,23 +38,9 @@ pub(super) fn column_text16(
     output: u32,
     capacity: u32,
 ) -> SqliteResult<u32> {
-    let byte_capacity = capacity.checked_mul(2).ok_or(SqliteError::Overflow)?;
-    let (host, memory) = context.host_and_memory();
-    let bytes = if capacity == 0 {
-        &mut []
-    } else {
-        if output == 0 {
-            return Err(SqliteError::Fault);
-        }
-        memory.read_exact_mut(output, byte_capacity)?
-    };
-    // SAFETY: every bit pattern is a valid `u16`; the alignment check rejects
-    // a Guest Memory range that does not satisfy this ABI's promise.
-    let (prefix, output, suffix) = unsafe { bytes.align_to_mut::<u16>() };
-    if !prefix.is_empty() || !suffix.is_empty() {
-        return Err(SqliteError::Fault);
-    }
-    Ok(host.copy_column_text16(statement, column, output)?)
+    context.with_utf16_output(output, capacity, |host, output| {
+        Ok(host.copy_column_text16(statement, column, output)?)
+    })
 }
 
 pub(super) fn column_blob(

@@ -107,6 +107,9 @@ fn sqlite3_errcode(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_err
 fn sqlite3_extended_errcode(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_extended_errcode"
 
 ///|
+fn sqlite3_changes64(database : UInt64) -> Int64 = "moonbitlang/sqlite" "sqlite3_changes64"
+
+///|
 fn sqlite3_close(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_close"
 
 ///|
@@ -156,10 +159,29 @@ fn sqlite3_bind_blob(
 fn sqlite3_step(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_step"
 
 ///|
+fn sqlite3_reset(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_reset"
+
+///|
+fn sqlite3_clear_bindings(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_clear_bindings"
+
+///|
 fn sqlite3_finalize(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_finalize"
 
 ///|
 fn sqlite3_column_count(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_column_count"
+
+///|
+fn sqlite3_column_name16_length(statement : UInt64, column : Int) -> Int = "moonbitlang/sqlite" "sqlite3_column_name16_length"
+
+///|
+#unsafe_skip_stub_check
+#borrow(output)
+fn sqlite3_column_name16(
+  statement : UInt64,
+  column : Int,
+  output : FixedArray[UInt16],
+  capacity : Int,
+) -> Int = "moonbitlang/sqlite" "sqlite3_column_name16"
 
 ///|
 fn sqlite3_column_type(statement : UInt64, column : Int) -> Int = "moonbitlang/sqlite" "sqlite3_column_type"
@@ -372,6 +394,10 @@ fn main raise {
 
   execute(database, "CREATE TABLE 项目(value INTEGER)", null_handle)
   execute(database, "INSERT INTO 项目 VALUES (5000000000)", null_handle)
+  assert_true(
+    sqlite3_changes64(database) == 1L,
+    msg="sqlite3_changes64 returned the wrong number of changed rows",
+  )
 
   let invalid_statement = Ref(null_handle)
   let invalid_tail = Ref(0)
@@ -447,7 +473,9 @@ fn main raise {
   )
   assert_true(sqlite3_finalize(query) == SQLITE_OK, msg="query finalize failed")
 
-  let bound = prepare(database, "SELECT ?1, ?2, ?3, ?4, ?5", null_handle)
+  let bound = prepare(
+    database, "SELECT ?1, ?2, ?3 AS [列😀], ?4, ?5", null_handle,
+  )
   let text_backing = "xx值😀yy"
   let text = text_backing.view(
     start_offset=2,
@@ -494,6 +522,30 @@ fn main raise {
   assert_true(
     sqlite3_column_count(bound) == 5,
     msg="bound query returned the wrong column count",
+  )
+  let name_length = sqlite3_column_name16_length(bound, 2)
+  assert_true(name_length == 3, msg="UTF-16 column name has the wrong length")
+  let short_name : FixedArray[UInt16] = FixedArray::make(2, 0xFFFF)
+  assert_true(
+    sqlite3_column_name16(bound, 2, short_name, short_name.length()) ==
+    name_length,
+    msg="short UTF-16 column-name copy returned the wrong length",
+  )
+  assert_true(
+    short_name[0] == 0xFFFF && short_name[1] == 0xFFFF,
+    msg="short UTF-16 column-name output was partially overwritten",
+  )
+  let name_output : FixedArray[UInt16] = FixedArray::make(name_length, 0xFFFF)
+  assert_true(
+    sqlite3_column_name16(bound, 2, name_output, name_output.length()) ==
+    name_length,
+    msg="UTF-16 column-name copy returned the wrong length",
+  )
+  assert_true(
+    name_output[0] == 0x5217 &&
+    name_output[1] == 0xD83D &&
+    name_output[2] == 0xDE00,
+    msg="UTF-16 column name was not copied",
   )
   assert_true(
     sqlite3_column_type(bound, 0) == SQLITE_INTEGER &&
@@ -561,6 +613,26 @@ fn main raise {
   assert_true(
     blob_output[0] == 0 && blob_output[1] == 0x7F && blob_output[2] == 0xFF,
     msg="blob column did not round-trip",
+  )
+  assert_true(sqlite3_reset(bound) == SQLITE_OK, msg="sqlite3_reset failed")
+  assert_true(
+    sqlite3_step(bound) == SQLITE_ROW &&
+    sqlite3_column_int64(bound, 0) == 5000000000L,
+    msg="sqlite3_reset did not preserve bindings",
+  )
+  assert_true(sqlite3_reset(bound) == SQLITE_OK, msg="second reset failed")
+  assert_true(
+    sqlite3_clear_bindings(bound) == SQLITE_OK,
+    msg="sqlite3_clear_bindings failed",
+  )
+  assert_true(
+    sqlite3_step(bound) == SQLITE_ROW &&
+    sqlite3_column_type(bound, 0) == SQLITE_NULL &&
+    sqlite3_column_type(bound, 1) == SQLITE_NULL &&
+    sqlite3_column_type(bound, 2) == SQLITE_NULL &&
+    sqlite3_column_type(bound, 3) == SQLITE_NULL &&
+    sqlite3_column_type(bound, 4) == SQLITE_NULL,
+    msg="sqlite3_clear_bindings did not clear every binding",
   )
   assert_true(
     sqlite3_finalize(bound) == SQLITE_OK,

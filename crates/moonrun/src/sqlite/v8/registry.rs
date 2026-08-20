@@ -47,6 +47,7 @@ declare_sqlite_imports! {
     SqliteHost::errcode(database: u64) -> i32 => "sqlite3_errcode";
     SqliteHost::extended_errcode(database: u64)
         -> i32 => "sqlite3_extended_errcode";
+    SqliteHost::changes64(database: u64) -> i64 => "sqlite3_changes64";
     SqliteHost::close(database: u64) -> i32 => "sqlite3_close";
 
     statement::prepare16_v2(
@@ -78,8 +79,19 @@ declare_sqlite_imports! {
         value_length: i32,
     ) -> i32 => "sqlite3_bind_blob";
     SqliteHost::step(statement: u64) -> i32 => "sqlite3_step";
+    SqliteHost::reset(statement: u64) -> i32 => "sqlite3_reset";
+    SqliteHost::clear_bindings(statement: u64)
+        -> i32 => "sqlite3_clear_bindings";
     SqliteHost::finalize(statement: u64) -> i32 => "sqlite3_finalize";
     SqliteHost::column_count(statement: u64) -> i32 => "sqlite3_column_count";
+    SqliteHost::column_name16_length(statement: u64, column: i32)
+        -> u32 => "sqlite3_column_name16_length";
+    column::column_name16(
+        statement: u64,
+        column: i32,
+        output: u32,
+        capacity: u32,
+    ) -> u32 => "sqlite3_column_name16";
     SqliteHost::column_type(statement: u64, column: i32)
         -> i32 => "sqlite3_column_type";
     SqliteHost::column_int64(statement: u64, column: i32)

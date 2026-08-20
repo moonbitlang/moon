@@ -20,12 +20,14 @@ use std::ffi::{c_int, c_void};
 
 use libsqlite3_sys as ffi;
 
+use super::connection::{copy_utf16_string, utf16_string_length};
 use super::statement::Statement;
 use super::{SqliteHost, SqliteHostError, SqliteHostResult};
 
 // `libsqlite3-sys` intentionally omits SQLite's UTF-16 convenience APIs from
 // its generated bindings. The bundled SQLite library still exports them.
 unsafe extern "C" {
+    fn sqlite3_column_name16(statement: *mut ffi::sqlite3_stmt, column: c_int) -> *const c_void;
     fn sqlite3_column_text16(statement: *mut ffi::sqlite3_stmt, column: c_int) -> *const c_void;
     fn sqlite3_column_bytes16(statement: *mut ffi::sqlite3_stmt, column: c_int) -> c_int;
 }
@@ -34,6 +36,35 @@ impl SqliteHost {
     pub(crate) fn column_count(&self, statement: u64) -> SqliteHostResult<i32> {
         let statement = self.statement(statement)?;
         Ok(unsafe { ffi::sqlite3_column_count(statement.pointer.as_ptr()) })
+    }
+
+    pub(crate) fn column_name16_length(
+        &self,
+        statement: u64,
+        column: i32,
+    ) -> SqliteHostResult<u32> {
+        let statement = self.statement(statement)?;
+        let name = unsafe { sqlite3_column_name16(statement.pointer.as_ptr(), column) };
+        // The scan completes before another SQLite call can invalidate the
+        // statement-owned pointer.
+        unsafe { utf16_string_length(name) }
+    }
+
+    /// Copy a UTF-16 column name when it fits.
+    ///
+    /// The returned content length excludes SQLite's trailing NUL. A short
+    /// output leaves the output unchanged.
+    pub(crate) fn copy_column_name16(
+        &self,
+        statement: u64,
+        column: i32,
+        output: &mut [u16],
+    ) -> SqliteHostResult<u32> {
+        let statement = self.statement(statement)?;
+        let name = unsafe { sqlite3_column_name16(statement.pointer.as_ptr(), column) };
+        // The copy completes before another SQLite call can invalidate the
+        // statement-owned pointer.
+        unsafe { copy_utf16_string(name, output) }
     }
 
     pub(crate) fn column_type(&self, statement: u64, column: i32) -> SqliteHostResult<i32> {

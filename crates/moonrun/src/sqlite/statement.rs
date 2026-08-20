@@ -105,6 +105,11 @@ impl SqliteHost {
         Ok(unsafe { ffi::sqlite3_step(statement.pointer.as_ptr()) })
     }
 
+    pub(crate) fn reset(&self, statement: u64) -> SqliteHostResult<i32> {
+        let statement = self.statement(statement)?;
+        Ok(unsafe { ffi::sqlite3_reset(statement.pointer.as_ptr()) })
+    }
+
     pub(crate) fn finalize(&self, statement: u64) -> SqliteHostResult<i32> {
         if statement == null_handle() {
             return Ok(ffi::SQLITE_OK);
