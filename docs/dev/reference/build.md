@@ -28,10 +28,10 @@ There are 4 kinds of source files within each package:
 
 Standalone inputs are represented as synthetic single-file packages. Their
 source format is recorded while resolving the input. In particular, an
-original `.mbtx` input is kept as a regular, unconditional source file, and
-`moonc build-package` receives `-ignore-import-declaration` when lowering that
-synthetic package. This does not make `.mbtx` a source extension discovered in
-ordinary packages.
+original `.mbtx` input is kept as a regular, unconditional source file. Both
+`moonc build-package` and `moonc check` receive `-ignore-import-declaration`
+when lowering that synthetic package. This does not make `.mbtx` a source
+extension discovered in ordinary packages.
 
 ### Build targets
 
