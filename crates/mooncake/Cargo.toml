@@ -34,7 +34,6 @@ anyhow.workspace = true
 zip.workspace = true
 colored.workspace = true
 reqwest.workspace = true
-bytes.workspace = true
 semver.workspace = true
 clap.workspace = true
 sha2.workspace = true

@@ -46,9 +46,10 @@ use crate::{
     zip_util::extract_zip_to_dir,
 };
 
-// Preserve a bounded connection setup while allowing slow or large response
-// bodies to finish without reqwest's blocking-client total request deadline.
+// Bound connection setup separately from stalled reads. Blocking response
+// bodies are streamed so the read timeout resets whenever data arrives.
 const REGISTRY_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const REGISTRY_READ_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -128,7 +129,7 @@ impl RegistryClient {
             home,
             http: reqwest::blocking::Client::builder()
                 .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-                .timeout(None)
+                .timeout(REGISTRY_READ_TIMEOUT)
                 .connect_timeout(REGISTRY_CONNECT_TIMEOUT)
                 .build()
                 .expect("failed to create registry HTTP client"),
@@ -265,12 +266,14 @@ fn download_registry_asset(
     if response.status() == StatusCode::NOT_FOUND {
         bail!("Prebuilt wasm asset does not exist");
     }
-    let data = response
+    let mut response = response
         .error_for_status()
-        .with_context(|| format!("registry asset download returned error status for {url}"))?
-        .bytes()
+        .with_context(|| format!("registry asset download returned error status for {url}"))?;
+    let mut data = Vec::new();
+    response
+        .read_to_end(&mut data)
         .with_context(|| format!("failed to read registry asset response from {url}"))?;
-    Ok(data.to_vec())
+    Ok(data)
 }
 
 fn ensure_cached_wasm(

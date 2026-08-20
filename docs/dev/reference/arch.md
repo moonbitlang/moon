@@ -367,7 +367,9 @@ Current registry configuration behavior today is:
   only the narrower `Registry` capability.
 - One `RegistryClient` reuses one blocking HTTP client and its connection pool
   across symbols, package archive, and prebuilt wasm downloads. Connection
-  setup has a 30-second timeout, while response bodies have no total deadline.
+  setup has a 30-second timeout. Once connected, two minutes without response
+  headers or body progress times out, while active downloads have no total
+  deadline.
 - The public `Registry` trait contains only metadata queries used by resolution.
   Package source acquisition remains on `RegistryClient`; dependency-source
   tests replace it through a crate-private seam.

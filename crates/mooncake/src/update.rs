@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -423,7 +424,7 @@ struct SymbolsEtag {
 #[derive(Debug)]
 enum SymbolsDownload {
     Modified {
-        data: bytes::Bytes,
+        data: Vec<u8>,
         etag: Option<SymbolsEtag>,
     },
     NotModified {
@@ -482,10 +483,12 @@ fn download_symbols_zip(
         return Ok(SymbolsDownload::NotModified { etag });
     }
 
-    let data = response
+    let mut response = response
         .error_for_status()
-        .context("symbols.zip download returned error status")?
-        .bytes()
+        .context("symbols.zip download returned error status")?;
+    let mut data = Vec::new();
+    response
+        .read_to_end(&mut data)
         .context("failed to read symbols.zip response body")?;
     Ok(SymbolsDownload::Modified {
         data,
