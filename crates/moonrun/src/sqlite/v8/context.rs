@@ -100,13 +100,15 @@ impl ImportContext<'_> {
 
     /// Borrow one NUL-terminated UTF-8 string from a MoonBit Bytes value.
     ///
-    /// Length includes the terminator. The explicit length bounds the Guest
-    /// Memory read; the remaining checks enforce SQLite's filename contract.
+    /// Length counts content bytes and excludes the terminator supplied by the
+    /// Bytes representation. The remaining checks enforce SQLite's filename
+    /// contract.
     pub(super) fn read_utf8_c_string(&self, pointer: u32, length: u32) -> SqliteResult<&CStr> {
-        if pointer == 0 || length == 0 {
+        if pointer == 0 {
             return Err(SqliteError::Fault);
         }
-        let bytes = self.memory.read_exact(pointer, length)?;
+        let terminated_length = length.checked_add(1).ok_or(SqliteError::Overflow)?;
+        let bytes = self.memory.read_exact(pointer, terminated_length)?;
         let value = CStr::from_bytes_with_nul(bytes).map_err(|_| SqliteError::Fault)?;
         value.to_str().map_err(|_| SqliteError::Fault)?;
         Ok(value)
@@ -208,12 +210,18 @@ mod tests {
 
         assert_eq!(
             context
-                .read_utf8_c_string(1, 9)
+                .read_utf8_c_string(1, 8)
                 .map(|value| value.to_bytes()),
             Ok(&b":memory:"[..])
         );
-        assert_eq!(context.read_utf8_c_string(1, 8), Err(SqliteError::Fault));
-        assert_eq!(context.read_utf8_c_string(1, 10), Err(SqliteError::Fault));
+        assert_eq!(
+            context
+                .read_utf8_c_string(9, 0)
+                .map(|value| value.to_bytes()),
+            Ok(&b""[..])
+        );
+        assert_eq!(context.read_utf8_c_string(1, 7), Err(SqliteError::Fault));
+        assert_eq!(context.read_utf8_c_string(1, 9), Err(SqliteError::Fault));
     }
 
     #[test]

@@ -26,12 +26,16 @@ pub(super) fn column_text16(
     output: u32,
     capacity: u32,
 ) -> SqliteResult<u32> {
-    if output == 0 || capacity == 0 {
-        return Err(SqliteError::Fault);
-    }
     let byte_capacity = capacity.checked_mul(2).ok_or(SqliteError::Overflow)?;
     let (host, memory) = context.host_and_memory();
-    let bytes = memory.read_exact_mut(output, byte_capacity)?;
+    let bytes = if capacity == 0 {
+        &mut []
+    } else {
+        if output == 0 {
+            return Err(SqliteError::Fault);
+        }
+        memory.read_exact_mut(output, byte_capacity)?
+    };
     // SAFETY: every bit pattern is a valid `u16`; the alignment check rejects
     // a Guest Memory range that does not satisfy this ABI's promise.
     let (prefix, output, suffix) = unsafe { bytes.align_to_mut::<u16>() };

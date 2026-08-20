@@ -120,10 +120,10 @@ impl SqliteHost {
 
     /// Copy SQLite's current connection error while its pointer is valid.
     ///
-    /// The returned length is measured in UTF-16 code units and excludes the
-    /// trailing NUL. If `output` cannot hold the complete message and its NUL,
-    /// it is left unchanged and the returned length tells the caller how much
-    /// content the current message contains.
+    /// The returned length and `output` are measured in UTF-16 content code
+    /// units; SQLite's trailing NUL is not copied. If `output` cannot hold the
+    /// complete message, it is left unchanged and the returned length tells
+    /// the caller how much space to allocate.
     pub(crate) fn copy_errmsg16(&self, database: u64, output: &mut [u16]) -> SqliteHostResult<u32> {
         let database = self.database(database)?;
         let message = unsafe { sqlite3_errmsg16(database.pointer().as_ptr()) };
@@ -216,20 +216,17 @@ unsafe fn utf16_message_length(message: *const c_void) -> SqliteHostResult<u32> 
 /// lifetime covers this call.
 unsafe fn copy_utf16_message(message: *const c_void, output: &mut [u16]) -> SqliteHostResult<u32> {
     if message.is_null() {
-        if let Some(first) = output.first_mut() {
-            *first = 0;
-        }
         return Ok(0);
     }
 
     // SAFETY: upheld by this function's caller.
     let length = unsafe { utf16_message_length(message) }?;
-    let required = length as usize + 1;
-    if output.len() >= required {
-        // SAFETY: the scan above proved that the slice contains `length`
-        // content code units followed by its NUL terminator.
-        let message = unsafe { std::slice::from_raw_parts(message.cast::<u16>(), required) };
-        output[..required].copy_from_slice(message);
+    let content_length = length as usize;
+    if output.len() >= content_length && content_length != 0 {
+        // SAFETY: the scan above proved that the slice contains at least
+        // `content_length` code units before its NUL terminator.
+        let message = unsafe { std::slice::from_raw_parts(message.cast::<u16>(), content_length) };
+        output[..content_length].copy_from_slice(message);
     }
     Ok(length)
 }
@@ -240,7 +237,7 @@ mod tests {
     use crate::sqlite::tests::{host, open_memory, utf16le};
 
     #[test]
-    fn error_messages_report_content_length_and_copy_with_termination() {
+    fn error_messages_report_and_copy_content_length() {
         let host = host();
         let database = open_memory(&host);
         let sql = utf16le("SELECT 不存在");
@@ -250,10 +247,9 @@ mod tests {
         assert_eq!(host.extended_errcode(database), Ok(ffi::SQLITE_ERROR));
 
         let length = host.errmsg16_length(database).unwrap();
-        let mut complete = vec![0; length as usize + 1];
+        let mut complete = vec![0xffff; length as usize];
         assert_eq!(host.copy_errmsg16(database, &mut complete), Ok(length));
-        assert_eq!(complete.last(), Some(&0));
-        let message = String::from_utf16(&complete[..length as usize]).unwrap();
+        let message = String::from_utf16(&complete).unwrap();
         assert!(message.starts_with("no such column"));
         assert!(message.ends_with("不存在"));
 
@@ -272,6 +268,6 @@ mod tests {
             unsafe { copy_utf16_message(ptr::null(), &mut output) },
             Ok(0)
         );
-        assert_eq!(output, [0]);
+        assert_eq!(output, [0xffff]);
     }
 }
