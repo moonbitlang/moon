@@ -230,13 +230,17 @@ fn test_moonrun_help_describes_policy_shape() {
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
     assert!(stdout.contains("Experimental: Sandbox wasm runtime host access"));
+    assert!(stdout.contains("JSON policy file"));
+    assert!(!stdout.contains("TOML"));
     assert!(stdout.contains("deny-by-default mode"));
     assert!(stdout.contains(r#""from_host": ["*"]"#));
     assert!(stdout.contains(r#""read": ["*"]"#));
     assert!(stdout.contains(r#""spawn": true"#));
     assert!(stdout.contains(r#"net.connect containing "api.deepseek.com:443""#));
-    assert!(!stdout.contains("TOML"));
     assert!(stdout.contains("Hostname connect rules also permit DNS lookup"));
+    assert!(stdout.contains("process.allow entries match the exact requested program"));
+    assert!(stdout.contains("Omitting args_prefix allows any arguments"));
+    assert!(stdout.contains("logical request, not the executable eventually selected"));
     assert!(stdout.contains("ambient filesystem, network, and process access"));
 }
 
@@ -843,6 +847,10 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
     let process_env_wasm = wasm_file("process_env");
     let policy_file = std::fs::canonicalize(dir.path().join("policy.toml")).unwrap();
     let deny_all_policy_file = std::fs::canonicalize(dir.path().join("deny-all.toml")).unwrap();
+    let process_any_args_policy_file =
+        std::fs::canonicalize(dir.path().join("process-any-args.toml")).unwrap();
+    let process_prefix_deny_policy_file =
+        std::fs::canonicalize(dir.path().join("process-prefix-deny.toml")).unwrap();
 
     #[cfg(not(windows))]
     let fs_deny_read_stdout = snapbox::str![[r#"
@@ -899,6 +907,20 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
+        .env("MOONRUN_HIDDEN_ENV", "host secret")
+        .arg("--policy")
+        .arg(&process_any_args_policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq(if cfg!(windows) {
+            "MOONRUN_POLICY_ENV=configured by policy\n"
+        } else {
+            "configured by policy|\n"
+        });
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
         .env("MOONRUN_POLICY_ENV", "host value")
         .arg("--policy")
         .arg(&deny_all_policy_file)
@@ -906,6 +928,15 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .assert()
         .success()
         .stdout_eq("missing\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&process_prefix_deny_policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq("spawn denied\n");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())

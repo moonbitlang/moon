@@ -3767,9 +3767,13 @@ impl AsyncHost {
             JobPayload::Mkdir { path, .. } => policy.mkdir_path(path),
             JobPayload::Rmdir { path } => policy.rmdir_path(path),
             #[cfg(unix)]
-            JobPayload::SpawnUnix { .. } => policy.spawn_process(),
+            JobPayload::SpawnUnix { path, args, .. } => {
+                policy.spawn_process_unix(path.as_os_str(), args)
+            }
             #[cfg(windows)]
-            JobPayload::SpawnWindows { .. } => policy.spawn_process(),
+            JobPayload::SpawnWindows { command_line, .. } => {
+                policy.spawn_process_windows(command_line.as_os_str())
+            }
             JobPayload::WaitForProcess {
                 handle,
                 tracked_pid,

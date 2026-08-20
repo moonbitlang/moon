@@ -25,6 +25,7 @@ mod config;
 mod env;
 mod fs;
 mod net;
+mod process;
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
@@ -36,13 +37,14 @@ use self::env::EnvPolicy;
 pub(crate) use self::fs::RuntimePathBase;
 use self::fs::{FsIntents, FsPolicy};
 use self::net::{NetOperation, NetPolicy};
+use self::process::ProcessPolicy;
 
 #[derive(Clone, Debug)]
 pub(crate) struct AsyncPolicy {
     fs: Option<FsPolicy>,
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
-    process: Option<bool>,
+    process: Option<ProcessPolicy>,
 }
 
 impl AsyncPolicy {
@@ -69,7 +71,9 @@ impl AsyncPolicy {
             )?),
             net: Some(NetPolicy::from_config(config.net.unwrap_or_default())?),
             env: Some(EnvPolicy::from_config(config.env.unwrap_or_default())?),
-            process: Some(config.process.unwrap_or_default().spawn),
+            process: Some(ProcessPolicy::from_config(
+                config.process.unwrap_or_default(),
+            )?),
         })
     }
 
@@ -252,11 +256,22 @@ impl AsyncPolicy {
         self.env_policy().is_some()
     }
 
-    pub(crate) fn spawn_process(&self) -> AsyncHostResult<()> {
-        match self.process {
-            None | Some(true) => Ok(()),
-            Some(false) => Err(crate::async_host::AsyncHostError::PermissionDenied),
-        }
+    #[cfg(unix)]
+    pub(crate) fn spawn_process_unix(
+        &self,
+        program: &OsStr,
+        argv: &[OsString],
+    ) -> AsyncHostResult<()> {
+        self.process
+            .as_ref()
+            .map_or(Ok(()), |process| process.allows_unix(program, argv))
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn spawn_process_windows(&self, command_line: &OsStr) -> AsyncHostResult<()> {
+        self.process
+            .as_ref()
+            .map_or(Ok(()), |process| process.allows_windows(command_line))
     }
 
     pub(crate) fn has_process_policy(&self) -> bool {
@@ -449,7 +464,15 @@ mod tests {
 
     #[test]
     fn no_policy_leaves_process_spawning_unrestricted() {
-        AsyncPolicy::allow_all().spawn_process().unwrap();
+        let policy = AsyncPolicy::allow_all();
+        #[cfg(unix)]
+        policy
+            .spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
+            .unwrap();
+        #[cfg(windows)]
+        policy
+            .spawn_process_windows(OsStr::new("program.exe"))
+            .unwrap();
     }
 
     #[test]
@@ -458,7 +481,16 @@ mod tests {
         let policy = AsyncPolicy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
 
         assert_eq!(
-            policy.spawn_process(),
+            {
+                #[cfg(unix)]
+                {
+                    policy.spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
+                }
+                #[cfg(windows)]
+                {
+                    policy.spawn_process_windows(OsStr::new("program.exe"))
+                }
+            },
             Err(AsyncHostError::PermissionDenied)
         );
     }
@@ -468,14 +500,24 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy = AsyncPolicy::from_config(
             PolicyConfig {
-                process: Some(config::ProcessConfig { spawn: true }),
+                process: Some(config::ProcessConfig {
+                    spawn: true,
+                    allow: Vec::new(),
+                }),
                 ..PolicyConfig::default()
             },
             tmp.path(),
         )
         .unwrap();
 
-        policy.spawn_process().unwrap();
+        #[cfg(unix)]
+        policy
+            .spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
+            .unwrap();
+        #[cfg(windows)]
+        policy
+            .spawn_process_windows(OsStr::new("program.exe"))
+            .unwrap();
     }
 
     fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {

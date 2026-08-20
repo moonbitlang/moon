@@ -19,14 +19,8 @@
 [env.set]
 MOONRUN_POLICY_ENV = "configured by policy"
 
-[fs]
-read = ["allowed"]
-write = ["allowed"]
-
 [[process.allow]]
 program = "/bin/sh"
-args_prefix = ["-c", "printf '%s|%s' \"$MOONRUN_POLICY_ENV\" \"$MOONRUN_HIDDEN_ENV\""]
 
 [[process.allow]]
 program = "cmd.exe"
-args_prefix = ["/D", "/C", "set", "MOONRUN_"]
