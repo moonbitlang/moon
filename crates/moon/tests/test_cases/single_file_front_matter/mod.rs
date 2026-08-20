@@ -65,6 +65,23 @@ fn test_single_file_mbtx_run() {
 }
 
 #[test]
+fn test_single_file_mbtx_check() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let _ = get_stdout(&dir, ["check", "import_ok.mbtx"]);
+}
+
+#[test]
+fn test_single_file_mbtx_run_does_not_warn_about_supported_targets() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stderr = get_stderr(&dir, ["run", "import_ok.mbtx"]);
+
+    assert!(
+        !stderr.contains("Package `moon/test/single` does not declare `supported_targets`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_standalone_mbt_run_rejects_relative_dependency_cache() {
     let dir = TestDir::new("moon_test_single_file.in");
 

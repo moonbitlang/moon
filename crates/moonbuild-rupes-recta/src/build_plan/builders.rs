@@ -303,7 +303,8 @@ impl<'a> BuildPlanConstructor<'a> {
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
-        if importer_pkg.supported_targets_decl == SupportedTargetsDeclKind::Omitted
+        if importer_pkg.single_file_source_kind.is_none()
+            && importer_pkg.supported_targets_decl == SupportedTargetsDeclKind::Omitted
             && importer_target.package != dep.package
             && dependency_pkg.supported_targets_decl != SupportedTargetsDeclKind::Omitted
             && self
