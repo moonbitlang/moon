@@ -67,7 +67,7 @@ By default, running `moonrun` without `--policy` preserves existing behavior.
 Supplying a JSON file with `--policy <path>` enables an experimental policy
 system and switches supported moonrun-owned host surfaces into sandbox mode.
 The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
-deny that surface, and process spawning is disabled unless explicitly enabled.
+deny that surface, and process spawning is disabled unless explicitly allowed.
 Add entries only for the access the program should have. The policy covers
 `moonbitlang/async` and moonrun's own `__moonbit_*_unstable` FFI surfaces. It
 does not apply to WASI
@@ -117,11 +117,40 @@ host variables, and `env.set` for literal values. `env.set` overrides values
 copied from the host. Do not put secrets directly in the policy file; pass them
 by name through `from_host` or `required_from_host`.
 
-Process spawning is disabled unless `process.spawn` is `true`. This is a coarse
-escape hatch: a native child receives the host user's ambient
-filesystem, network, and process access. The `fs` and `net` objects do not
-sandbox child processes. PID-based process operations are restricted to
-children spawned by the current moonrun instance while policy mode is active.
+Process spawning is disabled unless the request matches a `process.allow` rule
+or `process.spawn` is `true`. Rules match the requested program exactly and
+an optional `args_prefix` one complete argument at a time. Omitting
+`args_prefix` allows any arguments for that program; an empty array is
+equivalent. A non-empty prefix allows subsequent arguments. Multiple rules are
+alternatives.
+
+```json
+{
+  "process": {
+    "allow": [
+      { "program": "rustc" },
+      { "program": "git", "args_prefix": ["status"] },
+      { "program": "git", "args_prefix": ["diff", "--no-ext-diff"] }
+    ]
+  }
+}
+```
+
+`process.spawn` and `process.allow` cannot be used together. Set
+`process.spawn = true` only as a coarse allow-all escape hatch.
+
+These rules authorize the logical request, not the executable file eventually
+selected by the operating system. In particular, `PATH`, the working directory,
+and the child environment can affect executable lookup and behavior. On Windows,
+MoonBit appends `.exe` unless the requested program already ends in `.exe` or
+`.com`; policy matching applies the same normalization and command-line escaping.
+Allowing a shell, interpreter, package runner, or extensible tool can permit much
+more than the visible argument prefix suggests.
+
+A native child receives the host user's ambient filesystem, network, and process
+access. The `fs` and `net` objects do not sandbox child processes. PID-based
+process operations are restricted to children spawned by the current moonrun
+instance while policy mode is active.
 
 ```json
 {

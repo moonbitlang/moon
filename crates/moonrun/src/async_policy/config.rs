@@ -67,6 +67,16 @@ pub(super) struct EnvConfig {
 pub(super) struct ProcessConfig {
     #[serde(default)]
     pub(super) spawn: bool,
+    #[serde(default)]
+    pub(super) allow: Vec<ProcessRuleConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProcessRuleConfig {
+    pub(super) program: String,
+    #[serde(default)]
+    pub(super) args_prefix: Vec<String>,
 }
 
 impl PolicyConfig {
@@ -155,6 +165,50 @@ spawn = true
             Some("test")
         );
         assert!(config.process.unwrap().spawn);
+    }
+
+    #[test]
+    fn parses_process_prefix_rules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            r#"
+[[process.allow]]
+program = "git"
+args_prefix = ["status", "--short"]
+"#,
+        )
+        .unwrap();
+
+        let config = PolicyConfig::from_file(&policy_file).unwrap();
+        let process = config.process.unwrap();
+
+        assert!(!process.spawn);
+        assert_eq!(process.allow.len(), 1);
+        assert_eq!(process.allow[0].program, "git");
+        assert_eq!(process.allow[0].args_prefix, ["status", "--short"]);
+    }
+
+    #[test]
+    fn process_prefix_defaults_to_any_arguments_and_requires_an_array_when_present() {
+        let missing =
+            serde_json::from_str::<PolicyConfig>(r#"{"process":{"allow":[{"program":"git"}]}}"#)
+                .unwrap();
+        assert!(missing.process.unwrap().allow[0].args_prefix.is_empty());
+
+        let empty = serde_json::from_str::<PolicyConfig>(
+            r#"{"process":{"allow":[{"program":"git","args_prefix":[]}]}}"#,
+        )
+        .unwrap();
+        assert!(empty.process.unwrap().allow[0].args_prefix.is_empty());
+
+        let string = serde_json::from_str::<PolicyConfig>(
+            r#"{"process":{"allow":[{"program":"git","args_prefix":""}]}}"#,
+        )
+        .err()
+        .unwrap();
+        assert!(string.to_string().contains("expected a sequence"));
     }
 
     #[test]

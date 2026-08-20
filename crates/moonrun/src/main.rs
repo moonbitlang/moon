@@ -46,7 +46,7 @@ struct Commandline {
         value_name = "PATH",
         long_help = r#"Experimental: Sandbox wasm runtime host access using a JSON policy file. WASI is not covered.
 
-Supplying --policy enables deny-by-default mode: omitted or empty fs, net, and env objects deny that surface, and process spawning is disabled unless explicitly enabled.
+Supplying --policy enables deny-by-default mode: omitted or empty fs, net, and env objects deny that surface, and process spawning is disabled unless explicitly allowed.
 
 Common allow-all policy:
   {
@@ -69,7 +69,9 @@ Environment values default to empty in sandbox policy mode. Use env.from_host fo
 
 Network connect controls outbound sockets; bind controls local bind/listen addresses. Hostname connect rules also permit DNS lookup for those hostnames, so net.connect containing "api.deepseek.com:443" does not require a separate dns entry. Bind rules must use IP addresses or *.
 
-Process spawning is disabled by default. Setting process.spawn to true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes."#
+Process spawning is disabled by default. process.allow entries match the exact requested program and, when args_prefix is present, a prefix of complete argument tokens. Omitting args_prefix allows any arguments for that program. Multiple entries are alternatives. process.spawn and process.allow cannot be used together.
+
+Setting process.spawn to true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes. Scoped rules authorize the logical request, not the executable eventually selected through PATH or other OS lookup."#
     )]
     policy: Option<PathBuf>,
 }
