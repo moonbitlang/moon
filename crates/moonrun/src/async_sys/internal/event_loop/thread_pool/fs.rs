@@ -28,9 +28,10 @@ use std::os::windows::io::AsRawHandle;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
+use crate::resource::Resource;
 
 use super::stat::{StatRequest, run_fstatx_job};
-use super::{FileTimeResult, OpenJobResource, OpenJobResult, RealpathJobResult, Resource};
+use super::{FileTimeResult, OpenJobResource, OpenJobResult, RealpathJobResult};
 
 type RawFile = fd_util::stub::RawFd;
 

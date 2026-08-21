@@ -56,8 +56,8 @@ pub(crate) use jobs::{
 pub(crate) use runner::{get_file_time_result, get_read_result, get_stat_result, run_host_job};
 pub(crate) use stat::STAT_OPEN_IDENTITY;
 pub(crate) use types::{
-    FileRef, FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult,
-    RealpathJobResult, Resource, ResourceClass, ResourceRef, ResourceTable, SpawnOptions,
+    FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, RealpathJobResult,
+    ResourceTable, SpawnOptions,
 };
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,

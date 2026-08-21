@@ -24,11 +24,12 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
+use crate::resource::ResourceRef;
 
 use super::stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
 use super::types::{
-    HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, RealpathJobResult, ResourceRef,
-    SpawnOptions, platform,
+    HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, RealpathJobResult, SpawnOptions,
+    platform,
 };
 
 pub(crate) fn make_failed_job(errno: i32) -> Job {
@@ -771,7 +772,8 @@ pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<(&OsStr, &[Bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::{Resource, run_host_job};
+    use crate::async_sys::internal::event_loop::thread_pool::run_host_job;
+    use crate::resource::Resource;
     use std::sync::Arc;
 
     #[test]

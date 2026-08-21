@@ -17,8 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::{self, ResourceClass, ResourceRef};
+use crate::async_sys::internal::event_loop::thread_pool;
 use crate::guest_memory::GuestMemory;
+use crate::resource::{ResourceClass, ResourceRef};
 
 use super::context::ImportContext;
 use super::os_string::read_guest as read_guest_os_string;
@@ -564,10 +565,7 @@ pub(super) fn make_bind_job(
 ) -> AsyncHostResult<u64> {
     let socket = context.host.acquire_socket_resource(socket)?;
     let addr = context.with_memory_mut(|memory| Ok(memory.read_exact(addr, addr_len)?.to_vec()))?;
-    match context.host.policy().bind_socket(&addr) {
-        Ok(()) => context.host.insert_job(thread_pool::make_bind_job(socket, addr)),
-        Err(error) => context.host.insert_failed_job(error),
-    }
+    context.host.make_bind_job(socket, addr)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -577,10 +575,7 @@ pub(super) fn make_getaddrinfo_job(
     host_len: u32,
 ) -> AsyncHostResult<u64> {
     let host = read_guest_os_string(context, host, host_len)?;
-    match context.host.policy().resolve_dns(&host) {
-        Ok(()) => context.host.insert_job(thread_pool::make_getaddrinfo_job(host)),
-        Err(error) => context.host.insert_failed_job(error),
-    }
+    context.host.make_getaddrinfo_job(host)
 }
 
 #[compat(

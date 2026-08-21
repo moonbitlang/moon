@@ -103,7 +103,7 @@ impl NetPolicy {
         })
     }
 
-    pub(super) fn resolve_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
+    pub(super) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
         let target = quote_os_str(host);
         let host = host.to_string_lossy();
         let host = normalize_dns_name(&host);
@@ -145,11 +145,7 @@ impl NetPolicy {
         Ok(())
     }
 
-    pub(super) fn allows_socket(
-        &self,
-        operation: NetOperation,
-        addr: &[u8],
-    ) -> AsyncHostResult<()> {
+    pub(super) fn check_socket(&self, operation: NetOperation, addr: &[u8]) -> AsyncHostResult<()> {
         let addr = parse_socket_addr(addr)?;
         let target = quote_str(&addr.describe());
         let rules = match operation {
@@ -412,16 +408,16 @@ mod tests {
         let allowed_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
         let denied_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 80);
 
-        policy.resolve_dns(OsStr::new("API.DEEPSEEK.COM.")).unwrap();
+        policy.check_dns(OsStr::new("API.DEEPSEEK.COM.")).unwrap();
         policy
             .register_dns_result(OsStr::new("api.deepseek.com"), &[resolved_addr])
             .unwrap();
 
         policy
-            .allows_socket(NetOperation::Connect, &allowed_addr)
+            .check_socket(NetOperation::Connect, &allowed_addr)
             .unwrap();
         let error = policy
-            .allows_socket(NetOperation::Connect, &denied_addr)
+            .check_socket(NetOperation::Connect, &denied_addr)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -436,9 +432,9 @@ mod tests {
         .unwrap();
         let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
 
-        policy.resolve_dns(OsStr::new("api.deepseek.com")).unwrap();
+        policy.check_dns(OsStr::new("api.deepseek.com")).unwrap();
         let error = policy
-            .allows_socket(NetOperation::Connect, &addr)
+            .check_socket(NetOperation::Connect, &addr)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -454,15 +450,15 @@ mod tests {
         let resolved_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 0);
         let allowed_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
 
-        policy.resolve_dns(OsStr::new("api.example.com")).unwrap();
-        let error = policy.resolve_dns(OsStr::new("example.com")).unwrap_err();
+        policy.check_dns(OsStr::new("api.example.com")).unwrap();
+        let error = policy.check_dns(OsStr::new("example.com")).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
 
         policy
             .register_dns_result(OsStr::new("api.example.com"), &[resolved_addr])
             .unwrap();
         policy
-            .allows_socket(NetOperation::Connect, &allowed_addr)
+            .check_socket(NetOperation::Connect, &allowed_addr)
             .unwrap();
     }
 
@@ -476,8 +472,8 @@ mod tests {
         .unwrap();
         let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
 
-        policy.resolve_dns(OsStr::new("api.deepseek.com")).unwrap();
-        policy.allows_socket(NetOperation::Connect, &addr).unwrap();
+        policy.check_dns(OsStr::new("api.deepseek.com")).unwrap();
+        policy.check_socket(NetOperation::Connect, &addr).unwrap();
     }
 
     #[test]
@@ -490,9 +486,9 @@ mod tests {
         .unwrap();
         let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 8080);
 
-        policy.allows_socket(NetOperation::Bind, &addr).unwrap();
+        policy.check_socket(NetOperation::Bind, &addr).unwrap();
         let error = policy
-            .allows_socket(NetOperation::Connect, &addr)
+            .check_socket(NetOperation::Connect, &addr)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }

@@ -63,6 +63,14 @@ guest-visible error semantics; runtime adapters only convert values and expose
 imports. WASI does not pass through the Host Filesystem.
 _Avoid_: WASI filesystem, V8 filesystem
 
+**Host Network**:
+The per-Run, runtime-engine-neutral implementation of moonrun's
+permission-backed network operations. It creates TCP and UDP Resources and
+owns network authorization plus the policy-bearing socket operations extracted
+from runtime adapters. The Async Host owns the Host Network, Resource Handles,
+and asynchronous lifecycle.
+_Avoid_: V8 network, Async Host network
+
 **Handle**:
 An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, Completion Source, SQLite Database, or SQLite Statement.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
@@ -91,6 +99,7 @@ _Avoid_: Capability, Host Resource, Guest Resource, raw fd, pointer, id
 
 **Resource Class**:
 The host-side classification of a Resource used for operation checks and future policy decisions; the current classes are file, TCP socket, and UDP socket.
+A Resource Class is derived from the Resource payload rather than stored as an independent tag.
 A Resource Class is not a separate Handle namespace.
 _Avoid_: Handle type, fd type, raw OS type
 

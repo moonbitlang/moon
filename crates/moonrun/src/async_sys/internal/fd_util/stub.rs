@@ -17,8 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::{FileRef, HostHandle, ResourceTable};
+use crate::async_sys::internal::event_loop::thread_pool::{HostHandle, ResourceTable};
 use crate::async_sys::ported_fns;
+use crate::resource::FileRef;
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;

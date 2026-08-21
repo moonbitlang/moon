@@ -25,7 +25,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use super::ResourceRef;
+use crate::resource::ResourceRef;
 
 pub(super) fn spawn_with_command(
     path: OsString,
@@ -298,8 +298,8 @@ mod tests {
     use std::os::unix::fs::symlink;
     use std::sync::Arc;
 
-    use super::super::Resource;
     use super::*;
+    use crate::resource::Resource;
 
     #[test]
     fn uses_parent_path_for_lookup_and_honors_cwd() {

@@ -198,11 +198,11 @@ impl AsyncPolicy {
         fs.allows(base, path, FsIntents::write())
     }
 
-    pub(crate) fn resolve_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
+    pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
         let Some(net) = self.net_policy() else {
             return Ok(());
         };
-        net.resolve_dns(host)
+        net.check_dns(host)
     }
 
     pub(crate) fn register_dns_result(
@@ -216,18 +216,18 @@ impl AsyncPolicy {
         net.register_dns_result(host, addrs)
     }
 
-    pub(crate) fn connect_socket(&self, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn check_connect(&self, addr: &[u8]) -> AsyncHostResult<()> {
         let Some(net) = self.net_policy() else {
             return Ok(());
         };
-        net.allows_socket(NetOperation::Connect, addr)
+        net.check_socket(NetOperation::Connect, addr)
     }
 
-    pub(crate) fn bind_socket(&self, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn check_bind(&self, addr: &[u8]) -> AsyncHostResult<()> {
         let Some(net) = self.net_policy() else {
             return Ok(());
         };
-        net.allows_socket(NetOperation::Bind, addr)
+        net.check_socket(NetOperation::Bind, addr)
     }
 
     pub(crate) fn env_vars(&self) -> Vec<(String, String)> {
@@ -395,7 +395,7 @@ mod tests {
         let policy = AsyncPolicy::allow_all();
 
         policy
-            .connect_socket(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
+            .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
             .unwrap();
     }
 
@@ -419,7 +419,7 @@ mod tests {
         .unwrap();
 
         let error = policy
-            .connect_socket(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
+            .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -439,7 +439,7 @@ mod tests {
         .unwrap();
 
         let error = policy
-            .connect_socket(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
+            .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
