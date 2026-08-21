@@ -26,8 +26,8 @@ use std::os::windows::io::AsRawSocket;
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_policy::AsyncPolicy;
 use crate::async_sys::socket as sys;
+use crate::policy::Policy;
 use crate::resource::{Resource, ResourceClass};
 
 /// Permission-backed host networking shared by synchronous imports and Jobs.
@@ -38,11 +38,11 @@ use crate::resource::{Resource, ResourceClass};
 /// its guest-memory representation.
 #[derive(Debug)]
 pub(crate) struct HostNetwork {
-    policy: Arc<AsyncPolicy>,
+    policy: Arc<Policy>,
 }
 
 impl HostNetwork {
-    pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
+    pub(crate) fn new(policy: Arc<Policy>) -> Self {
         Self { policy }
     }
 
@@ -287,7 +287,7 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
 
-        let network = HostNetwork::new(Arc::new(AsyncPolicy::allow_all()));
+        let network = HostNetwork::new(Arc::new(Policy::allow_all()));
         let tcp = network.make_tcp_socket(4).unwrap();
         let udp = network.make_udp_socket(4, false).unwrap();
         let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
@@ -306,7 +306,7 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
 
-        let network = HostNetwork::new(Arc::new(AsyncPolicy::allow_all()));
+        let network = HostNetwork::new(Arc::new(Policy::allow_all()));
         let first = network.make_tcp_socket(4).unwrap();
         let second = network.make_tcp_socket(4).unwrap();
         let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
@@ -329,7 +329,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("deny-all.toml");
         std::fs::write(&policy_file, "").unwrap();
-        let network = HostNetwork::new(Arc::new(AsyncPolicy::from_file(&policy_file).unwrap()));
+        let network = HostNetwork::new(Arc::new(Policy::from_file(&policy_file).unwrap()));
         let socket = network.make_tcp_socket(4).unwrap();
 
         assert_eq!(

@@ -16,8 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_policy::AsyncPolicy;
 use crate::engine::{EngineConfig, RunOptions, RunOutcome};
+use crate::policy::Policy;
 use crate::run_termination::RunTermination;
 use crate::v8_builder::{ObjectExt, ScopeExt};
 use crate::{demangle_js_template, host_imports, memory_sanitizer_api};
@@ -117,7 +117,7 @@ pub(crate) fn run(
     module: &CompiledModule,
     source_map: Option<&str>,
     options: RunOptions,
-    async_policy: Arc<AsyncPolicy>,
+    policy: Arc<Policy>,
 ) -> anyhow::Result<RunOutcome> {
     initialize(config)?;
 
@@ -136,7 +136,7 @@ pub(crate) fn run(
 
     let mut dtors = Vec::new();
     let termination_request =
-        host_imports::install(&mut dtors, scope, module_name, &options.args, async_policy);
+        host_imports::install(&mut dtors, scope, module_name, &options.args, policy);
 
     let memory_sanitizer_imports =
         global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);

@@ -331,7 +331,7 @@ managed/system deny > lower-layer deny > allow > unmatched
 
 当前实现有一个 deny-by-default 的 policy mode：
 
-- 不传 `--policy` 时，`AsyncPolicy::allow_all()` 用 `None` 表示保留历史上的不受限行为。
+- 不传 `--policy` 时，`Policy::allow_all()` 用 `None` 表示保留历史上的不受限行为。
   传入 policy file 后，`fs`、`net`、`env` 和 `process` 即使省略也都会实例化为默认拒绝；
   `process` 支持粗粒度 `spawn: bool` 和 scoped `allow` entries。
 - `PolicyConfig` 使用 `deny_unknown_fields`，这是继续演进 schema 的好基础。parser 实际

@@ -22,8 +22,8 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use crate::async_policy::AsyncPolicy;
-use crate::host_fs::{FsOperationResults, HostFs};
+use crate::filesystem::{FsOperationResults, HostFs};
+use crate::policy::Policy;
 use crate::util::get_ref;
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
@@ -36,7 +36,7 @@ struct FsImports {
 }
 
 impl FsImports {
-    fn new(policy: Arc<AsyncPolicy>) -> Self {
+    fn new(policy: Arc<Policy>) -> Self {
         Self {
             filesystem: HostFs::new(policy),
             operation_results: RefCell::new(FsOperationResults::default()),
@@ -45,7 +45,7 @@ impl FsImports {
 }
 
 fn fs_imports<'a>(args: &v8::FunctionCallbackArguments<'a>) -> &'a FsImports {
-    // SAFETY: every callback using this helper is registered by `init_fs`
+    // SAFETY: every callback using this helper is registered by `register`
     // through `set_host_func` with a pointer to the same boxed `FsImports`.
     // `dtors` owns that box until after V8 can no longer invoke the callbacks.
     unsafe { get_ref::<FsImports>(args) }
@@ -357,10 +357,10 @@ fn copy_uint8_array(array: v8::Local<'_, v8::Uint8Array>) -> Vec<u8> {
     buffer
 }
 
-pub(crate) fn init_fs<'s>(
+pub(super) fn register<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-    policy: Arc<AsyncPolicy>,
+    policy: Arc<Policy>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     let imports = Box::new(FsImports::new(policy));

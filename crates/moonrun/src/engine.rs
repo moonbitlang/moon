@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{async_policy, source_map, v8_backend};
+use crate::{policy, source_map, v8_backend};
 use anyhow::Context;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -174,11 +174,11 @@ impl Engine {
 
     /// Execute one isolated run synchronously on the calling thread.
     pub fn run(&self, module: &Module, options: RunOptions) -> anyhow::Result<RunOutcome> {
-        let async_policy = Arc::new(match options.policy_file.as_ref() {
-            Some(path) => async_policy::AsyncPolicy::from_file(path).context(
+        let policy = Arc::new(match options.policy_file.as_ref() {
+            Some(path) => policy::Policy::from_file(path).context(
                 "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
             )?,
-            None => async_policy::AsyncPolicy::allow_all(),
+            None => policy::Policy::allow_all(),
         });
         v8_backend::run(
             &self.config,
@@ -186,7 +186,7 @@ impl Engine {
             module.compiled(),
             module.source_map(),
             options,
-            async_policy,
+            policy,
         )
     }
 

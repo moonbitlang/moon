@@ -33,8 +33,8 @@ use std::sync::Arc;
 use libsqlite3_sys as ffi;
 use slotmap::SecondaryMap;
 
-use crate::async_policy::AsyncPolicy;
 use crate::host::{HostKey, HostKeys};
+use crate::policy::Policy;
 
 use connection::Database;
 use statement::Statement;
@@ -62,14 +62,14 @@ pub(crate) type SqliteHostResult<T> = Result<T, SqliteHostError>;
 /// crossing this interface. The shared Host Key table supplies identity, while
 /// SQLite-owned pointers remain private payloads of this module.
 pub(crate) struct SqliteHost {
-    policy: Arc<AsyncPolicy>,
+    policy: Arc<Policy>,
     keys: Rc<RefCell<HostKeys>>,
     databases: RefCell<SecondaryMap<HostKey, Database>>,
     statements: RefCell<SecondaryMap<HostKey, Statement>>,
 }
 
 impl SqliteHost {
-    pub(crate) fn with_keys(policy: Arc<AsyncPolicy>, keys: Rc<RefCell<HostKeys>>) -> Self {
+    pub(crate) fn with_keys(policy: Arc<Policy>, keys: Rc<RefCell<HostKeys>>) -> Self {
         Self {
             policy,
             keys,
@@ -111,7 +111,7 @@ pub(super) mod tests {
 
     pub(super) fn host() -> SqliteHost {
         SqliteHost::with_keys(
-            Arc::new(AsyncPolicy::allow_all()),
+            Arc::new(Policy::allow_all()),
             Rc::new(RefCell::new(HostKeys::default())),
         )
     }

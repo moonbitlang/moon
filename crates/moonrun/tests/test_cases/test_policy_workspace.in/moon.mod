@@ -1,4 +1,4 @@
-name = "moon/async_policy_workspace"
+name = "moon/policy_workspace"
 
 version = "0.1.0"
 

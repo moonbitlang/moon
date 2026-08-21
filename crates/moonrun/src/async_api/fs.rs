@@ -19,7 +19,6 @@
 use std::ffi::OsString;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
-use crate::async_policy::AsyncPolicy;
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
 #[cfg(target_os = "linux")]
@@ -28,6 +27,7 @@ use crate::async_sys::fs::watch_inotify;
 use crate::async_sys::fs::watch_kqueue;
 #[cfg(windows)]
 use crate::async_sys::fs::watch_windows;
+use crate::policy::Policy;
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
@@ -484,11 +484,11 @@ pub(super) fn watcher_event_dirty_file_id(
     })
 }
 
-fn tmp_path_utf16_units(policy: &AsyncPolicy) -> AsyncHostResult<Vec<u16>> {
+fn tmp_path_utf16_units(policy: &Policy) -> AsyncHostResult<Vec<u16>> {
     os_string_to_utf16_units(tmp_path(policy)?)
 }
 
-fn tmp_path(policy: &AsyncPolicy) -> AsyncHostResult<OsString> {
+fn tmp_path(policy: &Policy) -> AsyncHostResult<OsString> {
     if !policy.has_env_policy() {
         return stub::get_tmp_path();
     }
@@ -496,12 +496,12 @@ fn tmp_path(policy: &AsyncPolicy) -> AsyncHostResult<OsString> {
 }
 
 #[cfg(unix)]
-fn tmp_path_from_policy_env(policy: &AsyncPolicy) -> AsyncHostResult<OsString> {
+fn tmp_path_from_policy_env(policy: &Policy) -> AsyncHostResult<OsString> {
     stub::get_tmp_path_from_env(policy.env_var_os("TMPDIR"))
 }
 
 #[cfg(windows)]
-fn tmp_path_from_policy_env(policy: &AsyncPolicy) -> AsyncHostResult<OsString> {
+fn tmp_path_from_policy_env(policy: &Policy) -> AsyncHostResult<OsString> {
     stub::get_tmp_path_from_env(policy.env_var_os("TMP"), policy.env_var_os("TEMP"))
 }
 
@@ -563,7 +563,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("policy.toml");
         std::fs::write(&policy_file, "[env.set]\nTMPDIR = \"/policy/tmp\"\n").unwrap();
-        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
 
         let path = tmp_path(&policy).unwrap();
 
@@ -578,7 +578,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("policy.toml");
         std::fs::write(&policy_file, "").unwrap();
-        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
 
         let path = tmp_path(&policy).unwrap();
 
@@ -591,12 +591,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("policy.toml");
         std::fs::write(&policy_file, "").unwrap();
-        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
 
         assert_eq!(tmp_path(&policy), Err(AsyncHostError::PermissionDenied));
 
         std::fs::write(&policy_file, "[env.set]\nTEMP = \"C:/Temp\"\n").unwrap();
-        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
         let path = tmp_path(&policy).unwrap();
 
         assert_eq!(path.to_string_lossy(), "C:/Temp\\");

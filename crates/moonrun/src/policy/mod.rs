@@ -40,14 +40,14 @@ use self::net::{NetOperation, NetPolicy};
 use self::process::ProcessPolicy;
 
 #[derive(Clone, Debug)]
-pub(crate) struct AsyncPolicy {
+pub(crate) struct Policy {
     fs: Option<FsPolicy>,
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
 }
 
-impl AsyncPolicy {
+impl Policy {
     pub(crate) fn allow_all() -> Self {
         Self {
             fs: None,
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn no_policy_leaves_fs_unrestricted() {
-        let policy = AsyncPolicy::allow_all();
+        let policy = Policy::allow_all();
 
         policy
             .open_path(
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn missing_fs_section_denies_fs_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = AsyncPolicy::from_config(
+        let policy = Policy::from_config(
             PolicyConfig {
                 fs: None,
                 net: Some(Default::default()),
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn empty_fs_section_denies_fs() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = AsyncPolicy::from_config(
+        let policy = Policy::from_config(
             PolicyConfig {
                 fs: Some(Default::default()),
                 net: None,
@@ -392,7 +392,7 @@ mod tests {
 
     #[test]
     fn no_policy_leaves_net_unrestricted() {
-        let policy = AsyncPolicy::allow_all();
+        let policy = Policy::allow_all();
 
         policy
             .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
@@ -404,7 +404,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         std::fs::create_dir(&allowed).unwrap();
-        let policy = AsyncPolicy::from_config(
+        let policy = Policy::from_config(
             PolicyConfig {
                 fs: Some(config::FsConfig {
                     read: vec![PathBuf::from("allowed")],
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn empty_net_section_denies_net() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = AsyncPolicy::from_config(
+        let policy = Policy::from_config(
             PolicyConfig {
                 fs: None,
                 net: Some(Default::default()),
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn missing_env_section_uses_empty_env_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = AsyncPolicy::from_config(
+        let policy = Policy::from_config(
             PolicyConfig {
                 fs: None,
                 net: None,
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn no_policy_leaves_process_spawning_unrestricted() {
-        let policy = AsyncPolicy::allow_all();
+        let policy = Policy::allow_all();
         #[cfg(unix)]
         policy
             .spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn missing_process_section_denies_spawning_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = AsyncPolicy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
+        let policy = Policy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
 
         assert_eq!(
             {
@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn process_section_can_allow_spawning() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = AsyncPolicy::from_config(
+        let policy = Policy::from_config(
             PolicyConfig {
                 process: Some(config::ProcessConfig {
                     spawn: true,
