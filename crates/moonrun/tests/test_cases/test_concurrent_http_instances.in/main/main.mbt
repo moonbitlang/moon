@@ -16,32 +16,29 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Embeddable execution support for MoonBit Wasm programs.
-//!
-//! The interface is experimental. It currently separates guest termination
-//! from host-process termination, while retaining Moonrun's existing V8 and
-//! process-scoped host integrations.
-
-mod async_api;
-mod async_host;
-mod async_policy;
-mod async_sys;
-mod demangle_js_template;
-mod engine;
-mod fs_api_temp;
-mod guest_memory;
-mod host;
-mod host_fs;
-mod host_imports;
-mod memory_sanitizer_api;
-mod run_termination;
-mod source_map;
-mod sqlite;
-mod sys_api;
-mod util;
-mod v8_backend;
-mod v8_builder;
-mod v8_import;
-mod wasi_api;
-
-pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
+///|
+async fn main {
+  let args = @env.args()
+  guard args.length() == 3 else {
+    abort("expected readiness port and response arguments")
+  }
+  let readiness_port = @string.parse_int(args[1])
+  let response = args[2]
+  let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
+  let readiness = @socket.Tcp::connect(
+    @socket.Addr::parse("127.0.0.1:\{readiness_port}"),
+  )
+  readiness.write("\{server.addr.port()}")
+  readiness.close()
+  let (conn, _) = server.accept()
+  defer conn.close()
+  defer server.close()
+  ignore(conn.read_request())
+  conn
+  ..send_response(200, "OK", extra_headers={
+    "Content-Type": "text/plain",
+    "Connection": "close",
+  })
+  ..write(response)
+  .end_response()
+}

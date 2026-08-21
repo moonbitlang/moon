@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use clap::Parser;
-use moonrun::{RunOptions, RunOutcome, Runtime, RuntimeConfig};
+use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome};
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Parser)]
@@ -38,7 +38,7 @@ struct Commandline {
     test_args: Option<String>,
 
     #[clap(long)]
-    stack_size: Option<String>,
+    stack_size: Option<usize>,
 
     /// Experimental: sandbox wasm runtime host access using a JSON policy file.
     #[clap(
@@ -87,9 +87,9 @@ fn get_moonrun_version() -> String {
 
 fn main() -> anyhow::Result<()> {
     let matches = Commandline::parse();
-    let runtime_config = match matches.stack_size {
-        Some(stack_size) => RuntimeConfig::default().with_stack_size(stack_size),
-        None => RuntimeConfig::default(),
+    let engine_config = match matches.stack_size {
+        Some(stack_size) => EngineConfig::default().with_stack_size(stack_size),
+        None => EngineConfig::default(),
     };
     let mut options = RunOptions::default().with_args(matches.args);
     if matches.no_stack_trace {
@@ -102,7 +102,7 @@ fn main() -> anyhow::Result<()> {
         options = options.with_policy_file(policy);
     }
 
-    match Runtime::new(runtime_config).run_file(matches.path, options)? {
+    match Engine::new(engine_config).run_file(matches.path, options)? {
         RunOutcome::Completed => Ok(()),
         RunOutcome::Exited(code) => std::process::exit(code),
         RunOutcome::KilledBySignal(signal) => {

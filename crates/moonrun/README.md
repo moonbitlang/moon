@@ -32,9 +32,9 @@ file with fresh per-run state and returns guest termination as data instead of
 terminating the embedding process:
 
 ```rust
-use moonrun::{RunOptions, RunOutcome, Runtime};
+use moonrun::{Engine, RunOptions, RunOutcome};
 
-let outcome = Runtime::default()
+let outcome = Engine::default()
     .run_file(
         "path/to/file.wasm",
         RunOptions::default().with_args(["arg"]),
@@ -48,10 +48,30 @@ match outcome {
 }
 ```
 
+An Engine can compile immutable Wasm Modules and execute them multiple times.
+Runs are synchronous, so an embedding application owns any threads used for
+concurrent execution.
+
+```rust
+let engine = Engine::default();
+let module = engine.load_file("path/to/server.wasm").unwrap();
+let outcome = engine.run(&module, RunOptions::default()).unwrap();
+```
+
+Embedders that already own the Wasm bytes can compile them directly and supply
+the stable program name used for guest arguments and diagnostics:
+
+```rust
+let module = engine.compile("server.wasm", wasm_bytes).unwrap();
+```
+
 The current implementation remains V8-backed and still inherits process stdio,
 environment, working directory, and signal compatibility behavior. These are
-not yet isolated embedding inputs. Concurrent runs are also not yet part of the
-interface contract.
+shared process dependencies rather than isolated embedding inputs. Compiled
+modules reuse their prepared representation while each run creates fresh guest
+execution state. Thread placement and lifecycle tracking remain the caller's
+responsibility. Moonrun does not yet expose an interruption mechanism for a
+running guest.
 
 ## Memory Leak Reporting
 
@@ -104,7 +124,7 @@ file during migration or debugging.
 
 The filesystem policy restricts native host paths. It does not create a virtual
 guest filesystem, mount table, or portable `/` namespace. Relative filesystem
-roots are resolved relative to the policy file. Runtime relative paths are
+roots are resolved relative to the policy file. Guest relative paths are
 resolved using the process current directory. Paths use the host platform's path
 syntax; Windows policies may use normal Windows paths such as `C:\work` or
 `C:/work`; JSON strings must escape backslashes as `C:\\work`. The filesystem

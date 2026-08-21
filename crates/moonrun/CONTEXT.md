@@ -117,6 +117,24 @@ _Avoid_: Conceptual parity, best-effort compatibility
 A per-Wasm-run outcome requested by guest code, either an exit code or termination by signal. A runtime adapter records Run Termination and interrupts guest execution without terminating its embedding process; only the outer CLI adapter applies the outcome after guest and host state have been torn down.
 _Avoid_: Host exit, import-side exit, process-global termination state
 
+**Loaded Module**:
+A shareable, immutable guest program prepared once by one Engine. Multiple Runs
+can execute one Loaded Module without preparing its source again. It carries
+the backend state needed to create fresh guest execution state for each Run.
+_Avoid_: Wasm bytes, Run, file path alias
+
+**Engine**:
+The shareable Moonrun execution interface that prepares reusable Loaded Modules
+and executes Runs. It neither chooses execution placement nor retains Run
+lifecycle state.
+_Avoid_: Run, execution thread, thread pool
+
+**Run**:
+One synchronous execution of a Loaded Module using execution placement chosen
+by the caller. A Run owns fresh guest and Host state and returns only after that
+state is torn down.
+_Avoid_: Engine, Worker, execution thread
+
 **Async API**:
 The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm ABI values, reacquires guest memory, sets return values, and reports traps.
 _Avoid_: Runtime state, native-stub implementation
