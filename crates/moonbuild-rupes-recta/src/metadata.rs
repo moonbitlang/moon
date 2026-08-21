@@ -16,7 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Legacy metadata JSON (`package.json`) conversion for IDE & tools usage.
+//! Legacy metadata JSON (`packages.json`) conversion for IDE and tools usage.
+//!
+//! TODO: Once consumers have migrated to the universal selector, project this
+//! document to its scoped backend/profile and remove redundant legacy fields.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -43,7 +46,7 @@ use crate::{
 /// of the active host/toolchain layout.
 pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 
-/// Generate `package.json`, which is a metadata file shared by IDE plugins and
+/// Generate the full legacy `packages.json` document shared by IDE plugins and
 /// other tools.
 pub fn gen_metadata_json(
     ctx: &ResolveOutput,

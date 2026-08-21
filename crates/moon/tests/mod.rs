@@ -52,6 +52,31 @@ impl AsRef<Path> for TestDir {
     }
 }
 
+fn packages_selector_path(dir: impl AsRef<Path>) -> PathBuf {
+    dir.as_ref().join("_build/packages.json")
+}
+
+fn scoped_packages_json_path(dir: impl AsRef<Path>, backend: &str, profile: &str) -> PathBuf {
+    dir.as_ref()
+        .join(format!("_build/{backend}/{profile}/check/packages.json"))
+}
+
+fn standalone_packages_selector_path(dir: impl AsRef<Path>, source_filename: &str) -> PathBuf {
+    dir.as_ref()
+        .join(format!("_build/{source_filename}.packages.json"))
+}
+
+fn standalone_scoped_packages_json_path(
+    dir: impl AsRef<Path>,
+    backend: &str,
+    profile: &str,
+    source_filename: &str,
+) -> PathBuf {
+    dir.as_ref().join(format!(
+        "_build/{backend}/{profile}/check/{source_filename}.packages.json"
+    ))
+}
+
 pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {
     snapbox::cmd::Command::new(moon_bin())
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())

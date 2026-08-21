@@ -611,13 +611,8 @@ fn run_check_for_single_file_rr(
         .file_name()
         .and_then(|n| n.to_str())
         .map(String::from);
-    rr_build::generate_metadata(
-        source_dir,
-        target_dir,
-        &build_meta,
-        &build_graph,
-        filename.as_deref(),
-    )?;
+    rr_build::generate_metadata(source_dir, &build_meta, &build_graph, filename.as_deref())?;
+    rr_build::generate_metadata_selector(&build_meta, filename.as_deref())?;
 
     let mut cfg = BuildConfig::from_flags(
         &cmd.build_flags,
@@ -836,8 +831,18 @@ fn run_check_normal_rr_from_resolved(
             // Generate all_pkgs.json for indirect dependency resolution
             rr_build::generate_all_pkgs_json(build_meta)?;
             if cmd.package_path.is_none() && cmd.path.is_empty() {
-                rr_build::generate_metadata(source_dir, target_dir, build_meta, build_input, None)?;
+                rr_build::generate_metadata(source_dir, build_meta, build_input, None)?;
             }
+        }
+        if cmd.package_path.is_none() && cmd.path.is_empty() {
+            // The compiler's universal format selects one active projection.
+            // Before the split, repeated publication made the final planned
+            // backend authoritative, so retain that deterministic behavior.
+            let selected = &planned_runs
+                .last()
+                .expect("non-empty planned runs were checked above")
+                .0;
+            rr_build::generate_metadata_selector(selected, None)?;
         }
 
         let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();

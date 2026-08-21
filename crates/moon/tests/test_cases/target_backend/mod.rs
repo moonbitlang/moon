@@ -472,9 +472,10 @@ fn test_packages_json_contains_computed_supported_targets() {
         .assert()
         .success();
 
-    let packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
-            .unwrap();
+    let packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap(),
+    )
+    .unwrap();
     let packages = packages_json["packages"].as_array().unwrap();
 
     let lib = packages.iter().find(|pkg| pkg["rel"] == "lib").unwrap();
@@ -785,21 +786,32 @@ fn test_check_publishes_backend_scoped_packages_json() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     get_stdout(&dir, ["check", "--sort-input"]);
-    let legacy_packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
+    let packages_selector: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_selector_path(&dir)).unwrap())
             .unwrap();
     let js_packages_json: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("_build/js/debug/check/packages.json")).unwrap(),
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "js", "debug")).unwrap(),
     )
     .unwrap();
     let native_packages_json: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("_build/native/debug/check/packages.json")).unwrap(),
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "native", "debug")).unwrap(),
     )
     .unwrap();
 
-    assert_eq!(legacy_packages_json["backend"], serde_json::json!("native"));
+    assert_eq!(
+        packages_selector,
+        serde_json::json!({
+            "backend": "native",
+            "opt_level": "debug"
+        })
+    );
     assert_eq!(js_packages_json["backend"], serde_json::json!("js"));
     assert_eq!(native_packages_json["backend"], serde_json::json!("native"));
+    assert_eq!(js_packages_json["opt_level"], serde_json::json!("debug"));
+    assert_eq!(
+        native_packages_json["opt_level"],
+        serde_json::json!("debug")
+    );
 }
 
 #[test]

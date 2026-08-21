@@ -29,6 +29,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    io::Write,
     path::{Path, PathBuf},
     rc::Rc,
     sync::mpsc,
@@ -866,7 +867,7 @@ pub fn plan_fmt(
     })
 }
 
-/// Generate `packages.json` at both its legacy and configuration-scoped paths.
+/// Generate the backend/profile/run-mode-scoped `packages.json` document.
 ///
 /// To ensure the correct paths are generated, `build_meta` should come from the
 /// same configuration used in [`plan_build`].
@@ -876,22 +877,16 @@ pub fn plan_fmt(
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_metadata(
     source_dir: &Path,
-    target_dir: &Path,
     build_meta: &BuildMeta,
     build_input: &BuildInput,
     single_file_filename: Option<&str>,
 ) -> anyhow::Result<()> {
-    let metadata_filename = if let Some(filename) = single_file_filename {
-        format!("{}.packages.json", filename)
+    let layout = build_meta.artifact_paths.target_layout();
+    let scoped_metadata_file = if let Some(filename) = single_file_filename {
+        layout.standalone_packages_json_path(build_meta.target_backend(), filename)
     } else {
-        "packages.json".to_string()
+        layout.packages_json_path(build_meta.target_backend())
     };
-    let scoped_metadata_file = build_meta
-        .artifact_paths
-        .target_layout()
-        .run_mode_dir(build_meta.target_backend())
-        .join(&metadata_filename);
-    let legacy_metadata_file = target_dir.join(&metadata_filename);
 
     let check_commands = collect_check_commands_by_output(build_input);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
@@ -903,27 +898,62 @@ pub fn generate_metadata(
         &check_commands,
     );
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
+    write_metadata_if_changed(&scoped_metadata_file, &meta)
+}
 
-    // Both paths are projections of the same metadata value. Preserve the
-    // existing behavior of leaving either file untouched when its bytes match.
-    for metadata_file in [scoped_metadata_file, legacy_metadata_file] {
-        let orig_meta = std::fs::read_to_string(&metadata_file);
-        if !orig_meta.is_ok_and(|o| o == meta) {
-            if let Some(parent) = metadata_file.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!(
-                        "Failed to create directory for build metadata at {}",
-                        parent.display()
-                    )
-                })?;
-            }
-            std::fs::write(&metadata_file, &meta).with_context(|| {
+/// Generate the universal `packages.json` selector for one scoped document.
+pub fn generate_metadata_selector(
+    build_meta: &BuildMeta,
+    single_file_filename: Option<&str>,
+) -> anyhow::Result<()> {
+    let selector = moonutil::manifest::PackagesSelectorJSON {
+        backend: build_meta.target_backend().to_string(),
+        opt_level: build_meta.opt_level.as_str().to_string(),
+    };
+    let selector = serde_json::to_string_pretty(&selector)
+        .context("Failed to serialize universal packages metadata")?;
+    let layout = build_meta.artifact_paths.target_layout();
+    let metadata_file = if let Some(filename) = single_file_filename {
+        layout.standalone_packages_selector_path(filename)
+    } else {
+        layout.packages_selector_path()
+    };
+    write_metadata_if_changed(&metadata_file, &selector)
+}
+
+fn write_metadata_if_changed(metadata_file: &Path, metadata: &str) -> anyhow::Result<()> {
+    let orig_meta = std::fs::read_to_string(metadata_file);
+    if !orig_meta.is_ok_and(|original| original == metadata) {
+        let parent = metadata_file
+            .parent()
+            .context("build metadata path must have a parent directory")?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to create directory for build metadata at {}",
+                parent.display()
+            )
+        })?;
+        let mut staged = tempfile::NamedTempFile::new_in(parent).with_context(|| {
+            format!(
+                "Failed to stage build metadata for {}",
+                metadata_file.display()
+            )
+        })?;
+        staged.write_all(metadata.as_bytes()).with_context(|| {
+            format!(
+                "Failed to write staged build metadata for {}",
+                metadata_file.display()
+            )
+        })?;
+        staged
+            .persist(metadata_file)
+            .map_err(|error| error.error)
+            .with_context(|| {
                 format!(
-                    "Failed to write build metadata to {}",
+                    "Failed to publish build metadata to {}",
                     metadata_file.display()
                 )
             })?;
-        }
     }
     Ok(())
 }
@@ -1931,6 +1961,25 @@ fn diagnostic_is_renderable(diag: &MooncDiagnostic, cfg: &BuildConfig) -> bool {
 mod tests {
     use super::*;
     use moonutil::render::{Loc, Position};
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_write_preserves_equal_files_and_replaces_changed_files() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("metadata");
+
+        write_metadata_if_changed(&path, "first").unwrap();
+        let first_inode = path.metadata().unwrap().ino();
+
+        write_metadata_if_changed(&path, "first").unwrap();
+        assert_eq!(path.metadata().unwrap().ino(), first_inode);
+
+        write_metadata_if_changed(&path, "second").unwrap();
+        assert_ne!(path.metadata().unwrap().ino(), first_inode);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "second");
+    }
 
     fn diagnostic(path: &str, level: &str) -> MooncDiagnostic {
         MooncDiagnostic {

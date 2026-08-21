@@ -355,7 +355,10 @@ impl<'a> super::LoweringContext<'a> {
             }
         };
 
-        let packages_json = self.artifact_paths.target_layout().packages_json_path();
+        let packages_json = self
+            .artifact_paths
+            .target_layout()
+            .packages_json_path(self.opt.target_backend());
         let cmd = MoondocCommand::new(
             path,
             self.artifact_paths.target_layout().doc_dir(),

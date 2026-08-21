@@ -1,6 +1,6 @@
 use crate::{
     TestDir, assert_success, get_err_stderr_with_envs, get_stderr, get_stdout,
-    get_stdout_with_envs,
+    get_stdout_with_envs, scoped_packages_json_path,
     util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
@@ -205,9 +205,10 @@ fn test_packages_json_includes_mbtp_files() {
 
     let _ = get_stderr(&dir, ["check"]);
 
-    let packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
-            .unwrap();
+    let packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap(),
+    )
+    .unwrap();
     let packages = packages_json["packages"].as_array().unwrap();
     let package = packages
         .iter()

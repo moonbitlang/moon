@@ -110,7 +110,7 @@ fn test_run_md_test() {
     #[cfg(unix)]
     {
         get_stdout(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
-        let p = dir.join("_build/packages.json");
+        let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
         check(
             replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"

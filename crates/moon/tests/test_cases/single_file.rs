@@ -621,13 +621,23 @@ fn test_single_file_commands_work_with_workspace_disabled() {
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
-    assert!(!dir.join("_build/packages.json").exists());
-    let legacy_pkg_json = dir.join("_build/hello.mbt.packages.json");
-    let scoped_pkg_json = dir.join("_build/wasm-gc/debug/check/hello.mbt.packages.json");
+    assert!(!packages_selector_path(dir).exists());
+    let packages_selector = standalone_packages_selector_path(dir, "hello.mbt");
+    let scoped_pkg_json =
+        standalone_scoped_packages_json_path(dir, "wasm-gc", "debug", "hello.mbt");
+    let packages_selector: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_selector).unwrap()).unwrap();
     assert_eq!(
-        std::fs::read_to_string(scoped_pkg_json).unwrap(),
-        std::fs::read_to_string(legacy_pkg_json).unwrap()
+        packages_selector,
+        serde_json::json!({
+            "backend": "wasm-gc",
+            "opt_level": "debug"
+        })
     );
+    let scoped_pkg_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(scoped_pkg_json).unwrap()).unwrap();
+    assert_eq!(scoped_pkg_json["backend"], serde_json::json!("wasm-gc"));
+    assert_eq!(scoped_pkg_json["opt_level"], serde_json::json!("debug"));
 
     check(
         get_stdout_with_envs(&dir, ["test", "test.mbt"], [(MOON_NO_WORKSPACE, "1")]),

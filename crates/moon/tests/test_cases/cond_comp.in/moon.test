@@ -78,7 +78,7 @@
   ───╯
   Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
   
-  $ xcat _build/packages.json
+  $ xcat _build/wasm-gc/debug/check/packages.json
   {
     "source_dir": "[WORK_DIR]",
     "name": "username/hello",

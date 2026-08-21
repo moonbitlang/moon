@@ -39,6 +39,13 @@ impl OptLevel {
     pub fn all() -> &'static [Self] {
         &[Self::Release, Self::Debug]
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Release => "release",
+            Self::Debug => "debug",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -123,19 +123,21 @@ fn test_indirect_dep_bundle() {
     let dir = TestDir::new("indirect_dep.in/indirect_dep2");
     // bundle
     let _ = get_stdout(&dir, ["clean"]);
+    std::fs::create_dir_all(dir.join("_build")).unwrap();
+    std::fs::write(packages_selector_path(&dir), "existing check selector").unwrap();
     check(
         get_stderr(&dir, ["bundle", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
-    let legacy_packages_json = std::fs::read_to_string(dir.join("_build/packages.json")).unwrap();
-    let packages_json: serde_json::Value = serde_json::from_str(&legacy_packages_json).unwrap();
-    assert_eq!(packages_json["backend"], serde_json::json!("wasm-gc"));
-    assert_eq!(packages_json["opt_level"], serde_json::json!("release"));
     assert_eq!(
-        std::fs::read_to_string(dir.join("_build/wasm-gc/release/bundle/packages.json")).unwrap(),
-        legacy_packages_json
+        std::fs::read_to_string(packages_selector_path(&dir)).unwrap(),
+        "existing check selector"
+    );
+    assert!(
+        !dir.join("_build/wasm-gc/release/bundle/packages.json")
+            .exists()
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/release/bundle/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);

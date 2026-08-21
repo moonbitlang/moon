@@ -597,21 +597,38 @@ vector. Physical outputs required only for execution, such as a companion dSYM
 directory, are not caller-requested results; the current n2 graph still executes
 their producer when the output is an unconsumed graph root.
 
-`packages.json` is the legacy metadata file shared with IDE tooling.
-Its top-level shape remains single-module-oriented for compatibility.
-When metadata is generated, the same serialized document is published both at
-the legacy path and beside the corresponding build artifacts:
+`packages.json` is metadata shared with IDE tooling. The universal file is a
+small selector containing the active Target Backend and build profile from the
+last full Check plan:
+
+```json
+{
+  "backend": "native",
+  "opt_level": "debug"
+}
+```
+
+The selector identifies a configuration-scoped Check document:
 
 ```text
 _build/packages.json
-_build/<backend>/<profile>/<run-mode>/packages.json
+_build/<backend>/<profile>/check/packages.json
 ```
+
+The scoped document retains the complete legacy single-module-oriented shape,
+including its top-level `backend` and `opt_level` fields, all resolved packages,
+and conditional metadata for all package files. This first migration step only
+relocates that document behind the selector; backend/profile projection and
+removal of redundant legacy fields are deferred to a follow-up change.
 
 Standalone-file checks similarly publish both
 `_build/<filename>.packages.json` and
 `_build/<backend>/<profile>/check/<filename>.packages.json`. Project checks
-without a selector publish metadata; focused project checks leave it untouched,
-and `moon bundle` continues to publish it for tooling compatibility. `moon doc`
-continues to consume the legacy path during migration. No metadata index is
-published; consumers choose the backend, profile, and run mode before reading
-the corresponding fixed path.
+without a package or path selector publish metadata; focused project checks
+leave it untouched. `moon bundle` does not publish either format. `moon doc`
+generates only its scoped Check document and passes that path directly to
+`moondoc`, without changing the universal selector used by the language server.
+
+Scoped documents are atomically replaced before the selector, so readers never
+follow a new selector to a partially written document. Byte-identical metadata
+is left untouched.
