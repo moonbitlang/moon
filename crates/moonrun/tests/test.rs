@@ -428,11 +428,10 @@ async fn moonrun_library_runs_multiple_modules_with_caller_owned_scheduling() {
         .assert()
         .success();
 
-    let first_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let second_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let first_port = first_listener.local_addr().unwrap().port();
-    let second_port = second_listener.local_addr().unwrap().port();
-    drop((first_listener, second_listener));
+    let first_readiness = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let second_readiness = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let first_readiness_port = first_readiness.local_addr().unwrap().port();
+    let second_readiness_port = second_readiness.local_addr().unwrap().port();
 
     let wasm_path = dir
         .path()
@@ -446,21 +445,23 @@ async fn moonrun_library_runs_multiple_modules_with_caller_owned_scheduling() {
     let first_run = tokio::task::spawn_blocking(move || {
         first_engine.run(
             &first_module,
-            moonrun::RunOptions::default().with_args([first_port.to_string(), "first".to_owned()]),
+            moonrun::RunOptions::default()
+                .with_args([first_readiness_port.to_string(), "first".to_owned()]),
         )
     });
     let second_run = tokio::task::spawn_blocking(move || {
         engine.run(
             &second_module,
             moonrun::RunOptions::default()
-                .with_args([second_port.to_string(), "second".to_owned()]),
+                .with_args([second_readiness_port.to_string(), "second".to_owned()]),
         )
     });
 
-    let (first_response, second_response) = tokio::join!(
-        request_when_ready(first_port),
-        request_when_ready(second_port)
+    let (first_port, second_port) = tokio::join!(
+        wait_for_guest_port(&first_readiness, "first module"),
+        wait_for_guest_port(&second_readiness, "second module")
     );
+    let (first_response, second_response) = tokio::join!(request(first_port), request(second_port));
     assert!(first_response.starts_with("HTTP/1.1 200"));
     assert!(first_response.contains("first"));
     assert!(second_response.starts_with("HTTP/1.1 200"));
@@ -476,14 +477,22 @@ async fn moonrun_library_runs_multiple_modules_with_caller_owned_scheduling() {
     );
 }
 
-async fn request_when_ready(port: u16) -> String {
+async fn wait_for_guest_port(listener: &TcpListener, module: &str) -> u16 {
     tokio::time::timeout(Duration::from_secs(10), async move {
-        let mut stream = loop {
-            match TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await {
-                Ok(stream) => break stream,
-                Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
-            }
-        };
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut port = String::new();
+        stream.read_to_string(&mut port).await.unwrap();
+        port.parse().unwrap()
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{module} did not report readiness"))
+}
+
+async fn request(port: u16) -> String {
+    tokio::time::timeout(Duration::from_secs(5), async move {
+        let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+            .await
+            .unwrap();
         stream
             .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
             .await

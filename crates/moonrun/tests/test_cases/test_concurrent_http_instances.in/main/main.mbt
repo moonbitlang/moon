@@ -20,11 +20,16 @@
 async fn main {
   let args = @env.args()
   guard args.length() == 3 else {
-    abort("expected port and response arguments")
+    abort("expected readiness port and response arguments")
   }
-  let port = @string.parse_int(args[1])
+  let readiness_port = @string.parse_int(args[1])
   let response = args[2]
-  let server = @http.Server(@socket.Addr::parse("127.0.0.1:\{port}"))
+  let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
+  let readiness = @socket.Tcp::connect(
+    @socket.Addr::parse("127.0.0.1:\{readiness_port}"),
+  )
+  readiness.write("\{server.addr.port()}")
+  readiness.close()
   let (conn, _) = server.accept()
   defer conn.close()
   defer server.close()
