@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Native-shaped worker operations for Network Jobs.
+
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -23,36 +25,22 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawSocket;
 
 use crate::async_host::AsyncHostResult;
-use crate::async_sys::ported_fns;
 use crate::resource::Resource;
 
-ported_fns! {
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "bind_job_worker"
-    )]
-    pub(super) fn run_bind_job(
-        socket: &Resource,
-        addr: &[u8],
-    ) -> AsyncHostResult<i64> {
-        #[cfg(unix)]
-        let socket = socket.as_fd()?.as_raw_fd();
-        #[cfg(windows)]
-        let socket = socket.as_socket()?.as_raw_socket();
-        crate::async_sys::socket::bind(socket, addr)?;
-        Ok(0)
-    }
+pub(super) fn bind(socket: &Resource, addr: &[u8]) -> AsyncHostResult<i64> {
+    #[cfg(unix)]
+    let socket = socket.as_fd()?.as_raw_fd();
+    #[cfg(windows)]
+    let socket = socket.as_socket()?.as_raw_socket();
+    crate::async_sys::socket::bind(socket, addr)?;
+    Ok(0)
+}
 
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "getaddrinfo_job_worker"
-    )]
-        pub(super) fn run_getaddrinfo_job(
-        host: OsString,
-        result: &mut Option<Vec<Box<[u8]>>>,
-    ) -> AsyncHostResult<i64> {
-        let (ret, addrs) = crate::async_sys::socket::copy_sockaddrs_from_getaddrinfo(host)?;
-        *result = Some(addrs);
-        Ok(i64::from(ret))
-    }
+pub(super) fn getaddrinfo(
+    host: OsString,
+    result: &mut Option<Vec<Box<[u8]>>>,
+) -> AsyncHostResult<i64> {
+    let (ret, addrs) = crate::async_sys::socket::copy_sockaddrs_from_getaddrinfo(host)?;
+    *result = Some(addrs);
+    Ok(i64::from(ret))
 }

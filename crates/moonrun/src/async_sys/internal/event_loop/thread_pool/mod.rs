@@ -23,7 +23,6 @@ mod runner;
 #[cfg(unix)]
 mod signal;
 mod sleep;
-mod socket;
 mod stat;
 mod types;
 mod worker;
@@ -43,15 +42,14 @@ pub(crate) use jobs::spawn_job_set_no_console_window;
 pub(crate) use jobs::{cancel_job_resource, job_cancel_resource};
 pub(crate) use jobs::{
     errno_is_cancelled, get_file_size_result, get_platform, get_spawn_job_result_handle,
-    getaddrinfo_job_result, job_get_err, job_get_ret, make_access_job, make_bind_job,
-    make_chmod_job, make_failed_job, make_file_kind_by_path_job, make_file_size_job,
-    make_file_time_by_path_job, make_file_time_job, make_flock_job, make_fstatx_job,
-    make_fsync_job, make_getaddrinfo_job, make_mkdir_job, make_open_job, make_open_stat_job,
-    make_read_job, make_readdir_job, make_realpath_job, make_remove_job, make_rename_job,
-    make_rmdir_job, make_sleep_job, make_statx_job, make_symlink_job, make_wait_for_process_job,
-    make_write_job, open_job_get_dev_id, open_job_get_fd, open_job_get_file_id, open_job_get_kind,
-    open_job_result, open_job_result_mut, publish_realpath_result, set_spawn_job_result,
-    take_spawn_job_result,
+    job_get_err, job_get_ret, make_access_job, make_chmod_job, make_failed_job,
+    make_file_kind_by_path_job, make_file_size_job, make_file_time_by_path_job, make_file_time_job,
+    make_flock_job, make_fstatx_job, make_fsync_job, make_mkdir_job, make_open_job,
+    make_open_stat_job, make_read_job, make_readdir_job, make_realpath_job, make_remove_job,
+    make_rename_job, make_rmdir_job, make_sleep_job, make_statx_job, make_symlink_job,
+    make_wait_for_process_job, make_write_job, open_job_get_dev_id, open_job_get_fd,
+    open_job_get_file_id, open_job_get_kind, open_job_result, open_job_result_mut,
+    publish_realpath_result, set_spawn_job_result, take_spawn_job_result,
 };
 pub(crate) use runner::{get_file_time_result, get_read_result, get_stat_result, run_host_job};
 pub(crate) use stat::STAT_OPEN_IDENTITY;
@@ -90,7 +88,6 @@ fn job_executor_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     #[cfg(unix)]
     symbols.extend_from_slice(signal::PORTED_SYMBOLS);
     symbols.extend_from_slice(sleep::PORTED_SYMBOLS);
-    symbols.extend_from_slice(socket::PORTED_SYMBOLS);
     symbols
 }
 

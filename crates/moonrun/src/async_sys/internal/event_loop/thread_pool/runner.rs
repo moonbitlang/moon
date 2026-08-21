@@ -36,7 +36,6 @@ use super::process::run_wait_for_process_job;
 #[cfg(unix)]
 use super::signal::run_sigwait_job;
 use super::sleep::run_sleep_job;
-use super::socket::{run_bind_job, run_getaddrinfo_job};
 use super::stat::{run_fstatx_job, run_statx_job};
 use super::types::{Job, JobPayload};
 
@@ -174,11 +173,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
             Some(inotify) => run_inotify_add_watch_job(&inotify, std::mem::take(path), *is_dir),
             None => Err(AsyncHostError::Badf),
         },
-        JobPayload::Bind { socket, addr } => match socket.take() {
-            Some(socket) => run_bind_job(&socket, addr),
-            None => Err(AsyncHostError::Badf),
-        },
-        JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
+        JobPayload::Network(job) => job.run(),
         JobPayload::Realpath { path, result, .. } => run_realpath_job(std::mem::take(path), result),
         #[cfg(unix)]
         JobPayload::SpawnUnix {
