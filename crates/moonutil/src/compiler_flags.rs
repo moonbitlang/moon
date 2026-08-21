@@ -289,6 +289,19 @@ pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
     resolve_native_toolchain_executables(discovered_windows_msvc_toolchain()?)
 }
 
+/// Returns true if an MSVC toolchain can be discovered on the current Windows host.
+/// Always returns false on non-Windows platforms.
+pub fn is_windows_msvc_discoverable() -> bool {
+    #[cfg(windows)]
+    {
+        resolve_windows_msvc_toolchain().is_ok()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
     if cc.is_msvc() {
         Ok(())
@@ -763,6 +776,12 @@ impl CC {
             .is_some_and(|target| target.contains("apple-darwin"))
     }
 
+    pub fn targets_mingw(&self) -> bool {
+        self.target_triple
+            .as_deref()
+            .is_some_and(|t| t.contains("mingw") || t.contains("w64-windows-gnu"))
+    }
+
     pub fn should_link_libm(&self) -> bool {
         self.is_full_featured_gcc_like() && !self.targets_msvc()
     }
@@ -883,6 +902,14 @@ fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     {
         if let Ok(toolchain) = discovered_windows_msvc_toolchain() {
             return Ok(toolchain);
+        }
+        // MSVC not found; try MinGW before the generic system cc probe.
+        // x86_64-w64-mingw32-gcc is the canonical MinGW cross-compiler name.
+        for name in ["x86_64-w64-mingw32-gcc", "i686-w64-mingw32-gcc"] {
+            let Ok(path) = which::which(name) else { continue };
+            if let Ok(cc) = CC::try_from_detected_path(&path, CCKind::Gcc) {
+                return Ok(Toolchain::from_path_probe(cc));
+            }
         }
     }
 

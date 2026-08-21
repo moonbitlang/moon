@@ -77,6 +77,16 @@ pub enum DirectNativeMode {
 impl NativeTarget {
     pub fn from_env_for_host() -> Option<Self> {
         let env_value = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
+        // On Windows, the direct-object backend requires MSVC (ABI compatibility).
+        // When MOONBIT_NEW_NATIVE=1 but MSVC is absent, fall back to GeneratedC so
+        // that MinGW/GCC can be used transparently via the generated-C path.
+        #[cfg(windows)]
+        if env_value.as_deref() == Some("1") {
+            if moonutil::compiler_flags::is_windows_msvc_discoverable() {
+                return Some(Self::X86_64PcWindowsMsvc);
+            }
+            return None;
+        }
         Self::from_host_with_new_native_env(
             std::env::consts::ARCH,
             std::env::consts::OS,
