@@ -16,32 +16,24 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Embeddable execution support for MoonBit Wasm programs.
-//!
-//! The interface is experimental. It currently separates guest termination
-//! from host-process termination, while retaining Moonrun's existing V8 and
-//! process-scoped host integrations.
+//! V8 adapter for MoonBit's unstable filesystem import object.
 
-mod async_api;
-mod async_host;
-mod async_sys;
-mod demangle_js_template;
-mod engine;
-mod filesystem;
-mod guest_memory;
-mod host;
-mod host_imports;
-mod memory_sanitizer_api;
-mod network;
-mod policy;
-mod resource;
-mod run_termination;
-mod source_map;
-mod sqlite;
-mod util;
-mod v8_backend;
-mod v8_builder;
-mod v8_import;
-mod wasi_api;
+mod runtime;
+mod whole_file;
 
-pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
+use std::any::Any;
+use std::sync::Arc;
+
+use crate::policy::Policy;
+
+pub(crate) fn init_env<'s>(
+    obj: v8::Local<'s, v8::Object>,
+    scope: &mut v8::HandleScope<'s>,
+    wasm_file_name: &str,
+    args: &[String],
+    policy: Arc<Policy>,
+    dtors: &mut Vec<Box<dyn Any>>,
+) {
+    runtime::register(obj, scope, wasm_file_name, args, Arc::clone(&policy), dtors);
+    whole_file::register(obj, scope, policy, dtors);
+}

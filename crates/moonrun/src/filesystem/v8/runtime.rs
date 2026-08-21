@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! V8 adapter for runtime values exposed through the unstable filesystem object.
+
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 use crate::{policy::Policy, util::get_ref};
 use std::any::Any;
@@ -116,7 +118,7 @@ fn get_env_vars(
     ret.set(result.into());
 }
 
-pub(crate) fn init_env<'s>(
+pub(super) fn register<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,

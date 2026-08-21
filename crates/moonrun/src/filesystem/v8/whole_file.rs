@@ -45,7 +45,7 @@ impl FsImports {
 }
 
 fn fs_imports<'a>(args: &v8::FunctionCallbackArguments<'a>) -> &'a FsImports {
-    // SAFETY: every callback using this helper is registered by `init_fs`
+    // SAFETY: every callback using this helper is registered by `register`
     // through `set_host_func` with a pointer to the same boxed `FsImports`.
     // `dtors` owns that box until after V8 can no longer invoke the callbacks.
     unsafe { get_ref::<FsImports>(args) }
@@ -357,7 +357,7 @@ fn copy_uint8_array(array: v8::Local<'_, v8::Uint8Array>) -> Vec<u8> {
     buffer
 }
 
-pub(crate) fn init_fs<'s>(
+pub(super) fn register<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     policy: Arc<Policy>,

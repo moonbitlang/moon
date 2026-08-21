@@ -4,7 +4,7 @@
 const __moonbit_fs_unstable =
     globalThis.__moonbit_fs_unstable ||
     (globalThis.__moonbit_fs_unstable = {});
-// Provided by Rust in `sys_api::init_env`; fallback keeps interactive tests safe.
+// Provided by the filesystem adapter; fallback keeps interactive tests safe.
 const __moonbit_run_env = globalThis.__moonbit_run_env || {
     env_vars: new Map(),
     args: [],
@@ -121,7 +121,7 @@ const __moonbit_run_env = globalThis.__moonbit_run_env || {
 })(__moonbit_fs_unstable);
 
 // Sys API wiring (env vars + args).
-(function init_sys_api(obj, run_env) {
+(function init_runtime_api(obj, run_env) {
     // Return the value of the environment variable
     function env_get_var(name) {
         return run_env.env_vars.get(name) || ""

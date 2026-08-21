@@ -23,6 +23,8 @@
 //! WASI has its own descriptor and preopen capability model and does not pass
 //! through this module.
 
+pub(crate) mod v8;
+
 use std::ffi::OsStr;
 use std::fmt;
 use std::path::Path;

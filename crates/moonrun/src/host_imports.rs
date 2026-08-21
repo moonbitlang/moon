@@ -19,7 +19,7 @@
 //! Host imports installed by Moonrun's current V8 backend.
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
-use crate::{async_api, fs_api_temp, policy, run_termination, sqlite, sys_api, util, wasi_api};
+use crate::{async_api, filesystem, policy, run_termination, sqlite, util, wasi_api};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -403,8 +403,7 @@ pub(crate) fn install(
     // API for the fs module
     {
         let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
-        sys_api::init_env(obj, scope, wasm_file_name, args, Arc::clone(&policy), dtors);
-        fs_api_temp::init_fs(obj, scope, Arc::clone(&policy), dtors);
+        filesystem::v8::init_env(obj, scope, wasm_file_name, args, Arc::clone(&policy), dtors);
     }
     {
         let io = global_proxy.child(scope, "__moonbit_io_unstable");
