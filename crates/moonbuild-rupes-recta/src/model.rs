@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::{
-    compiler_flags::CC,
+    compiler_flags::{CC, NativeAllocator},
     resolution::{ModuleId, ResolvedEnv},
     target::TargetBackend,
 };
@@ -37,11 +37,21 @@ slotmap::new_key_type! {
 /// Wasm build.
 #[derive(Clone, Debug)]
 pub enum BackendConfig {
-    Wasm { use_wat: bool, wasi_link: bool },
-    WasmGc { use_wat: bool },
+    Wasm {
+        use_wat: bool,
+        wasi_link: bool,
+    },
+    WasmGc {
+        use_wat: bool,
+    },
     Js,
-    Native(NativeBackendMode),
-    Llvm,
+    Native {
+        mode: NativeBackendMode,
+        allocator: NativeAllocator,
+    },
+    Llvm {
+        allocator: NativeAllocator,
+    },
 }
 
 pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
@@ -141,22 +151,29 @@ impl BackendConfig {
             Self::Wasm { .. } => TargetBackend::Wasm,
             Self::WasmGc { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
-            Self::Native(_) => TargetBackend::Native,
-            Self::Llvm => TargetBackend::LLVM,
+            Self::Native { .. } => TargetBackend::Native,
+            Self::Llvm { .. } => TargetBackend::LLVM,
         }
     }
 
     pub fn direct_native_target(&self) -> Option<NativeTarget> {
         match self {
-            Self::Native(mode) => mode.direct_target(),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
+            Self::Native { mode, .. } => mode.direct_target(),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => None,
         }
     }
 
     pub fn tcc_run(&self) -> Option<&TccRunConfig> {
         match self {
-            Self::Native(mode) => mode.tcc_run(),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
+            Self::Native { mode, .. } => mode.tcc_run(),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => None,
+        }
+    }
+
+    pub fn native_allocator(&self) -> Option<NativeAllocator> {
+        match self {
+            Self::Native { allocator, .. } | Self::Llvm { allocator } => Some(*allocator),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
         }
     }
 

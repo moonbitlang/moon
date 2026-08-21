@@ -38,11 +38,15 @@ impl<'a> From<&'a BackendConfig> for ExecutionMode<'a> {
         match backend {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } => Self::MoonRun,
             BackendConfig::Js => Self::Node,
-            BackendConfig::Native(NativeBackendMode::TccRun(config)) => Self::TccRun(config),
-            BackendConfig::Native(
-                NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_),
-            )
-            | BackendConfig::Llvm => Self::Native,
+            BackendConfig::Native {
+                mode: NativeBackendMode::TccRun(config),
+                ..
+            } => Self::TccRun(config),
+            BackendConfig::Native {
+                mode: NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_),
+                ..
+            }
+            | BackendConfig::Llvm { .. } => Self::Native,
         }
     }
 }

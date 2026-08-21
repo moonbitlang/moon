@@ -1100,9 +1100,9 @@ impl<'a> LoweringContext<'a> {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 unreachable!("non-native plans do not contain MakeExecutable actions")
             }
-            BackendConfig::Native(backend) => match backend.executable_realization() {
+            BackendConfig::Native { mode, .. } => match mode.executable_realization() {
                 CExecutableRealization::WriteTccRunResponseFile => {
-                    let tcc_run = backend
+                    let tcc_run = mode
                         .tcc_run()
                         .expect("tcc-run realization should carry tcc-run config");
                     let internal_tcc = tcc_run.internal_tcc().clone();
@@ -1115,7 +1115,7 @@ impl<'a> LoweringContext<'a> {
                     self.lower_build_exe_regular(artifacts, target, info)
                 }
             },
-            BackendConfig::Llvm => self.lower_build_exe_regular(artifacts, target, info),
+            BackendConfig::Llvm { .. } => self.lower_build_exe_regular(artifacts, target, info),
         }
     }
 
@@ -1204,6 +1204,7 @@ impl<'a> LoweringContext<'a> {
             .link_moonbitrun(true)
             .link_libbacktrace(true)
             .define_use_shared_runtime_macro(false)
+            .native_allocator(info.native_allocator)
             .build()
             .expect("Failed to build CC configuration for executable");
 
@@ -1258,6 +1259,7 @@ impl<'a> LoweringContext<'a> {
             .link_moonbitrun(true)
             .link_libbacktrace(true)
             .output_ty(CCOutputType::Executable)
+            .native_allocator(info.native_allocator)
             .build()
             .expect("Failed to build LinkerConfig for new native executable");
 

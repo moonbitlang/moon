@@ -2,7 +2,7 @@
 use std::process::Command;
 
 #[cfg(not(windows))]
-use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs};
+use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs, get_stdout_with_envs};
 #[cfg(windows)]
 use crate::{TestDir, get_stdout_with_envs};
 #[cfg(unix)]
@@ -216,6 +216,42 @@ fn test_moon_cc_override_warning_is_reported_per_package() {
             && message.contains("`link.native.cc`")
             && !message.contains("`link.native.stub-cc`")
     }));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_native_allocator_environment_controls_runtime() {
+    let dir = TestDir::new("native_backend/cc_flags");
+    let fake_path = dir.join("fake-toolchain/bin").display().to_string();
+    let args = ["build", "--target", "native", "--dry-run", "--sort-input"];
+    let output = get_stdout_with_envs(
+        &dir,
+        args,
+        [
+            ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+            ("MOONBIT_ALLOCATOR", "mimalloc"),
+            ("PATH", fake_path.as_str()),
+        ],
+    );
+
+    assert!(output.contains("MOONBIT_ALLOCATOR_MIMALLOC"));
+    assert!(output.contains("libmoonbitrun.o"));
+
+    let error = get_err_stderr_with_envs(
+        &dir,
+        args,
+        [
+            ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+            ("MOONBIT_ALLOCATOR", "jemalloc"),
+            ("PATH", fake_path.as_str()),
+        ],
+    );
+    assert!(
+        error.contains(
+            "invalid MOONBIT_ALLOCATOR value `jemalloc`; expected `mimalloc` or `system`"
+        ),
+        "unexpected allocator error: {error}"
+    );
 }
 
 #[test]
