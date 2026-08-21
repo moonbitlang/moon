@@ -364,7 +364,7 @@ mod tests {
 
     use indexmap::IndexSet;
     use moonutil::{
-        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain},
+        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, NativeAllocator, Toolchain},
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
@@ -835,6 +835,7 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
+            native_allocator: NativeAllocator::Default,
         });
 
         let (dependency_nodes, script_nodes) = partition_standalone_actions(&plan, script_package);
@@ -875,6 +876,7 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
+            native_allocator: NativeAllocator::Default,
         });
 
         let (dependency_actions, script_nodes) =
@@ -1019,6 +1021,7 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
+            native_allocator: NativeAllocator::Default,
         });
         plan.test_insert_make_executable_info(
             target,
@@ -1027,6 +1030,7 @@ mod tests {
                 c_flags: Vec::new(),
                 link_flags: vec!["dep.lib".to_string(), "/LIBPATH:pkg/lib".to_string()],
                 link_c_stubs: vec![target.package],
+                native_allocator: NativeAllocator::Default,
             },
         );
 
@@ -1266,6 +1270,7 @@ mod tests {
                 c_flags: Vec::new(),
                 link_flags: Vec::new(),
                 link_c_stubs: Vec::new(),
+                native_allocator: NativeAllocator::Default,
             },
         );
         plan.test_insert_dsymutil(dsymutil.clone());

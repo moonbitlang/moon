@@ -1170,7 +1170,7 @@ mod tests {
 
     use indexmap::IndexSet;
     use moonutil::{
-        compiler_flags::{ARKind, CC, CCKind, Toolchain},
+        compiler_flags::{ARKind, CC, CCKind, NativeAllocator, Toolchain},
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
         resolution::{DEFAULT_VERSION, ModuleName, ModuleSource},
@@ -1325,6 +1325,7 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
+            native_allocator: NativeAllocator::Default,
         }
     }
 

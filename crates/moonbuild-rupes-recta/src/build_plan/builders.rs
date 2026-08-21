@@ -1169,11 +1169,15 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
+        let native_allocator = compiler_flags::NativeAllocator::from_env()
+            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
+
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             effective_native_toolchain,
             c_flags,
             link_flags,
+            native_allocator,
         };
         self.res.backend.make_executable_info.insert(target, v);
 
@@ -1575,11 +1579,15 @@ impl<'a> BuildPlanConstructor<'a> {
                 .cc()
                 .archiver_updates_existing_archive())
         .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
+        let native_allocator = compiler_flags::NativeAllocator::from_env()
+            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
+
         self.res.backend.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
             source_files,
             simdutf_objects,
             static_archive_fingerprint,
+            native_allocator,
         });
 
         if builds_static_archive {

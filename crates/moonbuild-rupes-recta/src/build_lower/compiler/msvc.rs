@@ -20,7 +20,9 @@
 
 use std::path::Path;
 
-use moonutil::compiler_flags::{MsvcCrtPolicy, Toolchain, WINDOWS_MSVC_DEFAULT_LIBS};
+use moonutil::compiler_flags::{
+    MsvcCrtPolicy, NativeAllocator, Toolchain, WINDOWS_MSVC_DEFAULT_LIBS,
+};
 
 pub(crate) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
     toolchain
@@ -35,6 +37,7 @@ pub(crate) fn compile_runtime_command(
     dest: &Path,
     moon_include_path: &str,
     crt: MsvcCrtPolicy,
+    native_allocator: NativeAllocator,
 ) -> Vec<String> {
     let mut command = vec![
         toolchain.cc_command_path(),
@@ -48,6 +51,10 @@ pub(crate) fn compile_runtime_command(
         format!("/Fo{}", dest.display()),
         format!("/I{moon_include_path}"),
     ];
+    command.push(format!(
+        "/DMOONBIT_ALLOCATOR={}",
+        native_allocator.moonbit_allocator_macro_for_runtime(toolchain.cc(), false)
+    ));
     command.push(source.display().to_string());
     command
 }
@@ -109,6 +116,7 @@ mod tests {
             Path::new("runtime.obj"),
             "moon/include",
             MsvcCrtPolicy::StaticMt,
+            NativeAllocator::Default,
         );
 
         assert!(command.iter().any(|arg| arg == "/Imoon/include"));
@@ -116,6 +124,11 @@ mod tests {
             command
                 .iter()
                 .any(|arg| arg == MsvcCrtPolicy::StaticMt.compiler_flag())
+        );
+        assert!(
+            command
+                .iter()
+                .any(|arg| arg == "/DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
         );
     }
 

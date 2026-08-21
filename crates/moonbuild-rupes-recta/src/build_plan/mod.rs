@@ -56,7 +56,7 @@ use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{CompilerPaths, Toolchain},
+    compiler_flags::{CompilerPaths, NativeAllocator, Toolchain},
     cond_expr::OptLevel,
     resolution::ModuleId,
     target::TargetBackend,
@@ -490,6 +490,8 @@ pub struct MakeExecutableInfo {
     pub(crate) link_flags: Vec<String>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<PackageId>,
+    /// The allocator selected for the native runtime and executable link.
+    pub(crate) native_allocator: NativeAllocator,
 }
 
 #[derive(Debug)]
@@ -504,6 +506,8 @@ pub struct BuildRuntimeInfo {
     ///
     /// Shared-runtime builds do not create a static archive and leave this unset.
     pub(crate) static_archive_fingerprint: Option<String>,
+    /// The allocator selected for compiling the native runtime.
+    pub(crate) native_allocator: NativeAllocator,
 }
 
 fn runtime_archive_fingerprint(source_files: &[PathBuf], external_objects: &[PathBuf]) -> String {
@@ -714,6 +718,8 @@ pub enum BuildPlanConstructError {
     FailedToSetRuntimeCC(#[source] anyhow::Error),
     #[error("Failed to locate runtime C sources")]
     FailedToFindRuntimeSources(#[source] anyhow::Error),
+    #[error("Invalid native allocator configuration")]
+    InvalidNativeAllocator(#[source] anyhow::Error),
     #[error("Failed to resolve dsymutil when linking {1}")]
     FailedToResolveDsymutil(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Failed to set stub C compiler when compiling {1}")]
