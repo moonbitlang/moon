@@ -128,14 +128,11 @@ fn test_blackbox_success() {
         .assert()
         .success();
 
-    #[cfg(unix)]
-    {
-        use crate::util::replace_dir;
+    use crate::util::replace_dir;
 
-        let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
-        expect_file!["test_blackbox_success_packages.json.snap"]
-            .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir));
-    }
+    let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
+    expect_file!["test_blackbox_success_packages.json.snap"]
+        .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir));
 }
 
 #[test]

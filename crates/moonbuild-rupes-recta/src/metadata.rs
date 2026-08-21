@@ -173,14 +173,22 @@ fn gen_package_json(
             },
         );
     }
-    let mbt_md_files = file_metadatas(
-        &pkg.raw,
-        pkg.mbt_md_files.iter().map(|x| x.as_path()),
-        opt_level,
-        backend,
-    )
-    .map(|(path, _, cond)| (path.to_owned(), cond))
-    .collect();
+    // `.mbt.md` files are unconditional blackbox inputs in the Build Target
+    // Projection, so metadata must preserve them in every scoped projection.
+    let mbt_md_files = pkg
+        .mbt_md_files
+        .iter()
+        .cloned()
+        .map(|path| {
+            (
+                path,
+                CompileCondition {
+                    backend: TargetBackend::all().to_vec(),
+                    optlevel: OptLevel::all().to_vec(),
+                },
+            )
+        })
+        .collect();
 
     // Dependencies collection
     let mut deps: Vec<AliasJSON> = ctx
