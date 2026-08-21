@@ -80,6 +80,7 @@ declare_sqlite_imports! {
     ) -> i32 => "sqlite3_bind_blob";
     SqliteHost::step(statement: u64) -> i32 => "sqlite3_step";
     SqliteHost::reset(statement: u64) -> i32 => "sqlite3_reset";
+    SqliteHost::statement_busy(statement: u64) -> i32 => "sqlite3_stmt_busy";
     SqliteHost::clear_bindings(statement: u64)
         -> i32 => "sqlite3_clear_bindings";
     SqliteHost::finalize(statement: u64) -> i32 => "sqlite3_finalize";

@@ -29,6 +29,9 @@ const SQLITE_BUSY = 5
 const SQLITE_CONSTRAINT = 19
 
 ///|
+const SQLITE_MISUSE = 21
+
+///|
 const SQLITE_CANTOPEN = 14
 
 ///|
@@ -160,6 +163,9 @@ fn sqlite3_step(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_step"
 
 ///|
 fn sqlite3_reset(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_reset"
+
+///|
+fn sqlite3_stmt_busy(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_stmt_busy"
 
 ///|
 fn sqlite3_clear_bindings(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_clear_bindings"
@@ -516,8 +522,20 @@ fn main raise {
     msg="out-of-range bind did not return SQLITE_RANGE",
   )
   assert_true(
+    sqlite3_stmt_busy(bound) == 0,
+    msg="unstepped statement was reported busy",
+  )
+  assert_true(
     sqlite3_step(bound) == SQLITE_ROW,
     msg="bound query returned no row",
+  )
+  assert_true(
+    sqlite3_stmt_busy(bound) != 0,
+    msg="active result row was not reported busy",
+  )
+  assert_true(
+    sqlite3_clear_bindings(bound) == SQLITE_MISUSE,
+    msg="busy statement bindings were cleared",
   )
   assert_true(
     sqlite3_column_count(bound) == 5,
@@ -641,6 +659,10 @@ fn main raise {
     msg="blob column did not round-trip",
   )
   assert_true(sqlite3_reset(bound) == SQLITE_OK, msg="sqlite3_reset failed")
+  assert_true(
+    sqlite3_stmt_busy(bound) == 0,
+    msg="reset statement was reported busy",
+  )
   assert_true(
     sqlite3_step(bound) == SQLITE_ROW &&
     sqlite3_column_int64(bound, 0) == 5000000000L,
