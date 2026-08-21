@@ -2416,14 +2416,15 @@ impl AsyncHost {
     }
 
     pub(crate) fn get_getaddrinfo_result(&self, handle: u64) -> AsyncHostResult<u64> {
-        let (host, addrs) = {
+        let addrs = {
             let key = self.handles.borrow().job(handle)?;
             let jobs = self.jobs.borrow();
             let job = jobs.visible_job(key)?;
-            let (host, addrs) = thread_pool::getaddrinfo_job_result(job)?;
-            (host.to_os_string(), addrs.to_vec())
+            let JobPayload::Network(job) = job.payload() else {
+                return Err(AsyncHostError::Badf);
+            };
+            self.network.getaddrinfo_result(job)?
         };
-        self.network.register_dns_result(&host, &addrs)?;
         let (entries, next) = {
             let mut handles = self.handles.borrow_mut();
             let mut entries = Vec::new();
@@ -2623,18 +2624,20 @@ impl AsyncHost {
     }
 
     pub(crate) fn make_bind_job(&self, socket: ResourceRef, addr: Vec<u8>) -> AsyncHostResult<u64> {
-        let job = match self.network.check_bind(&addr) {
-            Ok(()) => thread_pool::make_bind_job(socket, addr),
-            Err(error) => thread_pool::make_failed_job(error.errno()),
-        };
+        let job = self
+            .network
+            .make_bind_job(socket, addr)
+            .map(thread_pool::Job::from)
+            .unwrap_or_else(|error| thread_pool::make_failed_job(error.errno()));
         self.insert_job(job)
     }
 
     pub(crate) fn make_getaddrinfo_job(&self, host: OsString) -> AsyncHostResult<u64> {
-        let job = match self.network.check_dns(&host) {
-            Ok(()) => thread_pool::make_getaddrinfo_job(host),
-            Err(error) => thread_pool::make_failed_job(error.errno()),
-        };
+        let job = self
+            .network
+            .make_getaddrinfo_job(host)
+            .map(thread_pool::Job::from)
+            .unwrap_or_else(|error| thread_pool::make_failed_job(error.errno()));
         self.insert_job(job)
     }
 

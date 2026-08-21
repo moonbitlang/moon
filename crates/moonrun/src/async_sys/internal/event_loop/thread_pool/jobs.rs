@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 #[cfg(any(unix, windows))]
 use std::sync::Arc;
 
@@ -462,25 +462,6 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_bind_job"
-    )]
-    pub(crate) fn make_bind_job(socket: ResourceRef, addr: Vec<u8>) -> Job {
-        Job::new(JobPayload::Bind {
-            socket: Some(socket),
-            addr,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_getaddrinfo_job"
-    )]
-    pub(crate) fn make_getaddrinfo_job(host: OsString) -> Job {
-        Job::new(JobPayload::GetAddrInfo { host, result: None })
-    }
-
-    #[ported(
         source = "src/internal/event_loop/fs.c",
         original = "moonbitlang_async_make_realpath_job"
     )]
@@ -754,17 +735,6 @@ pub(crate) fn set_spawn_job_result(
             *result = Some(resource);
             Ok(())
         }
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<(&OsStr, &[Box<[u8]>])> {
-    match job.payload() {
-        JobPayload::GetAddrInfo {
-            host,
-            result: Some(result),
-        } => Ok((host.as_os_str(), result)),
-        JobPayload::GetAddrInfo { .. } => Err(AsyncHostError::Inval),
         _ => Err(AsyncHostError::Badf),
     }
 }

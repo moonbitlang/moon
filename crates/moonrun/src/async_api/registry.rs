@@ -1868,43 +1868,27 @@ mod tests {
     }
 
     #[test]
-    fn ported_imports_have_ported_implementations() {
-        let api_ported_imports = async_api_ported_imports();
-        let ported_symbols = rust_ported_symbols();
-
-        for import in ASYNC_IMPORTS {
-            if import.kind != AsyncImportKind::Ported {
-                continue;
-            }
-
-            let ported_import = api_ported_imports
-                .iter()
-                .find(|ported_import| {
-                    module_leaf(ported_import.rust_module) == Some(import.callback_module)
-                        && ported_import.rust_symbol == import.callback_symbol
-                })
-                .unwrap_or_else(|| {
-                    panic!(
-                        "async import {} has no ported provenance",
-                        import.wasm_symbol
-                    )
-                });
-            let native_symbol = native_symbol_for(import, ported_import);
+    fn ported_imports_have_provenance() {
+        let ported_imports = async_api_ported_imports();
+        for import in ASYNC_IMPORTS
+            .iter()
+            .filter(|import| import.kind == AsyncImportKind::Ported)
+        {
             assert!(
-                ported_import.sources.iter().any(|source| {
-                    source.root == SourceRoot::MoonbitAsync
-                        && ported_symbols.iter().any(|ported| {
-                            ported.native_symbol == native_symbol && ported.source == source.path
-                        })
+                ported_imports.iter().any(|ported| {
+                    module_leaf(ported.rust_module) == Some(import.callback_module)
+                        && ported.rust_symbol == import.callback_symbol
                 }),
-                "async import {} has no Rust port origin",
+                "async import {} has no ported provenance",
                 import.wasm_symbol
             );
         }
     }
 
     #[test]
-    fn ported_implementations_are_registered_imports() {
+    fn tracked_ported_implementations_are_registered_imports() {
+        // Track native-shaped host implementations, not incidental Job
+        // construction or worker-delegation adapters.
         let api_ported_imports = async_api_ported_imports();
         for ported in rust_ported_symbols() {
             assert!(

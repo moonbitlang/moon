@@ -24,6 +24,7 @@ use crate::async_host::{AsyncHostResult, CBufferLease};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
+use crate::network::Job as NetworkJob;
 use crate::resource::{Resource, ResourceRef};
 
 use super::stat::{PackedStat, StatRequest};
@@ -112,6 +113,12 @@ impl Job {
     pub(crate) fn set_err(&mut self, err: i32) {
         self.ret = -1;
         self.err = err;
+    }
+}
+
+impl From<NetworkJob> for Job {
+    fn from(job: NetworkJob) -> Self {
+        Self::new(JobPayload::Network(job))
     }
 }
 
@@ -230,14 +237,7 @@ pub(crate) enum JobPayload {
         path: OsString,
         is_dir: bool,
     },
-    Bind {
-        socket: Option<ResourceRef>,
-        addr: Vec<u8>,
-    },
-    GetAddrInfo {
-        host: OsString,
-        result: Option<Vec<Box<[u8]>>>,
-    },
+    Network(NetworkJob),
     Realpath {
         path: OsString,
         result: Option<RealpathJobResult>,

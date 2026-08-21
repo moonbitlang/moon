@@ -18,7 +18,9 @@
 
 //! Runtime-engine-neutral network operations for one moonrun Host.
 
-use std::ffi::OsStr;
+mod job;
+
+use std::ffi::{OsStr, OsString};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
@@ -28,7 +30,9 @@ use std::sync::Arc;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::socket as sys;
 use crate::policy::Policy;
-use crate::resource::{Resource, ResourceClass};
+use crate::resource::{Resource, ResourceClass, ResourceRef};
+
+pub(crate) use job::Job;
 
 /// Permission-backed host networking shared by synchronous imports and Jobs.
 ///
@@ -127,7 +131,23 @@ impl HostNetwork {
         Ok(Resource::tcp_socket(accepted, family))
     }
 
-    pub(crate) fn check_bind(&self, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn make_bind_job(&self, socket: ResourceRef, addr: Vec<u8>) -> AsyncHostResult<Job> {
+        self.check_bind(&addr)?;
+        Ok(Job::bind(socket, addr))
+    }
+
+    pub(crate) fn make_getaddrinfo_job(&self, host: OsString) -> AsyncHostResult<Job> {
+        self.check_dns(&host)?;
+        Ok(Job::getaddrinfo(host))
+    }
+
+    pub(crate) fn getaddrinfo_result(&self, job: &Job) -> AsyncHostResult<Vec<Box<[u8]>>> {
+        let (host, addrs) = job.getaddrinfo_result()?;
+        self.policy.register_dns_result(host, addrs)?;
+        Ok(addrs.to_vec())
+    }
+
+    fn check_bind(&self, addr: &[u8]) -> AsyncHostResult<()> {
         self.policy.check_bind(addr)
     }
 
@@ -135,16 +155,8 @@ impl HostNetwork {
         self.policy.check_connect(addr)
     }
 
-    pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
+    fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
         self.policy.check_dns(host)
-    }
-
-    pub(crate) fn register_dns_result(
-        &self,
-        host: &OsStr,
-        addrs: &[Box<[u8]>],
-    ) -> AsyncHostResult<()> {
-        self.policy.register_dns_result(host, addrs)
     }
 }
 
@@ -340,5 +352,28 @@ mod tests {
         drop(socket);
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+    }
+
+    #[test]
+    fn job_preparation_checks_network_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let policy_file = dir.path().join("deny-all.toml");
+        std::fs::write(&policy_file, "").unwrap();
+        let network = HostNetwork::new(Arc::new(Policy::from_file(&policy_file).unwrap()));
+        let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
+        sys::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
+
+        assert_eq!(
+            network
+                .make_bind_job(Arc::new(Resource::invalid()), addr)
+                .unwrap_err(),
+            AsyncHostError::PermissionDenied
+        );
+        assert_eq!(
+            network
+                .make_getaddrinfo_job(OsString::from("localhost"))
+                .unwrap_err(),
+            AsyncHostError::PermissionDenied
+        );
     }
 }
