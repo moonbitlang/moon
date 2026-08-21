@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn wasm_u64_decoder_preserves_all_i64_bit_patterns() {
-        crate::v8_backend::initialize(&crate::runtime::RuntimeConfig::default()).unwrap();
+        crate::v8_backend::initialize(&crate::engine::EngineConfig::default()).unwrap();
         let isolate = &mut v8::Isolate::new(Default::default());
         let scope = &mut v8::HandleScope::new(isolate);
         let context = v8::Context::new(scope, Default::default());

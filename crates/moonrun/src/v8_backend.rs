@@ -17,42 +17,104 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_policy::AsyncPolicy;
+use crate::engine::{EngineConfig, RunOptions, RunOutcome};
 use crate::run_termination::RunTermination;
-use crate::runtime::{RunOptions, RunOutcome, RuntimeConfig};
 use crate::v8_builder::{ObjectExt, ScopeExt};
 use crate::{demangle_js_template, host_imports, memory_sanitizer_api};
 use anyhow::Context;
-use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
 
-pub(crate) fn initialize(config: &RuntimeConfig) -> anyhow::Result<()> {
-    static ACTIVE_CONFIG: OnceLock<RuntimeConfig> = OnceLock::new();
+pub(crate) struct CompiledModule(v8::CompiledWasmModule);
+
+pub(crate) fn initialize(config: &EngineConfig) -> anyhow::Result<()> {
+    static ACTIVE_CONFIG: OnceLock<EngineConfig> = OnceLock::new();
 
     let active = ACTIVE_CONFIG.get_or_init(|| {
         v8::V8::set_flags_from_string("--experimental-wasm-exnref");
         v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
-        if let Some(stack_size) = &config.stack_size {
+        if let Some(stack_size) = config.stack_size {
             v8::V8::set_flags_from_string(&format!("--stack-size={stack_size}"));
         }
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();
-        config.clone()
+        *config
     });
 
     if active != config {
         anyhow::bail!(
-            "Moonrun's V8 runtime is already initialized with a different process-wide configuration"
+            "Moonrun's V8 engine is already initialized with a different process-wide configuration"
         );
     }
     Ok(())
 }
 
+pub(crate) fn compile(config: &EngineConfig, bytes: &[u8]) -> anyhow::Result<CompiledModule> {
+    initialize(config)?;
+
+    let isolate = &mut v8::Isolate::new(Default::default());
+    let scope = &mut v8::HandleScope::new(isolate);
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let scope = &mut v8::TryCatch::new(scope);
+
+    // rusty_v8 0.106 does not expose V8's compile-time-import options through
+    // WasmModuleObject::compile. Invoke the JavaScript constructor through the
+    // V8 interface so loading preserves moonrun's historical string behavior,
+    // then retain only V8's shareable compiled module.
+    let backing_store = v8::ArrayBuffer::new_backing_store_from_bytes(bytes.to_vec()).make_shared();
+    let array_buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store);
+    let bytes = v8::Uint8Array::new(scope, array_buffer, 0, bytes.len())
+        .context("failed to create the WebAssembly compilation buffer")?;
+
+    let global_proxy = scope.get_current_context().global(scope);
+    let webassembly_key = scope.string("WebAssembly");
+    let webassembly = global_proxy
+        .get(scope, webassembly_key.into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .context("V8 did not provide WebAssembly")?;
+    let module_key = scope.string("Module");
+    let module_constructor = webassembly
+        .get(scope, module_key.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+        .context("V8 did not provide the WebAssembly.Module constructor")?;
+
+    let builtins = v8::Array::new(scope, 1);
+    let js_string = scope.string("js-string");
+    builtins
+        .set_index(scope, 0, js_string.into())
+        .context("failed to configure WebAssembly string builtins")?;
+    let options = v8::Object::new(scope);
+    let builtins_key = scope.string("builtins");
+    options
+        .set(scope, builtins_key.into(), builtins.into())
+        .context("failed to configure WebAssembly string builtins")?;
+    let constants_key = scope.string("importedStringConstants");
+    let constants_module = scope.string("_");
+    options
+        .set(scope, constants_key.into(), constants_module.into())
+        .context("failed to configure WebAssembly string constants")?;
+
+    let arguments = [bytes.into(), options.into()];
+    let module = module_constructor
+        .new_instance(scope, &arguments)
+        .and_then(|value| v8::Local::<v8::WasmModuleObject>::try_from(value).ok());
+    let Some(module) = module else {
+        let message = scope
+            .message()
+            .map(|message| message.get(scope).to_rust_string_lossy(scope))
+            .unwrap_or_else(|| "V8 rejected the WebAssembly module".to_owned());
+        anyhow::bail!(message);
+    };
+    Ok(CompiledModule(module.get_compiled_module()))
+}
+
 pub(crate) fn run(
-    config: &RuntimeConfig,
-    file: &Path,
+    config: &EngineConfig,
+    module_name: &str,
+    module: &CompiledModule,
     options: RunOptions,
     async_policy: Arc<AsyncPolicy>,
 ) -> anyhow::Result<RunOutcome> {
@@ -63,25 +125,17 @@ pub(crate) fn run(
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
 
-    let mut script =
+    let mut entrypoint_source =
         format!(r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{BUILTIN_SCRIPT_ORIGIN_PREFIX}";"#);
 
     let global_proxy = scope.get_current_context().global(scope);
-    let wasm_file_name = file.to_string_lossy().to_string();
-    let module_key = scope.string("module_name").into();
-    let module_name = scope.string(file.to_string_lossy().as_ref()).into();
-    global_proxy.set(scope, module_key, module_name);
-    script.push_str("let bytes;");
+    let wasm_module = v8::WasmModuleObject::from_compiled_module(scope, &module.0)
+        .context("failed to load compiled WebAssembly module into the run isolate")?;
     let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
 
     let mut dtors = Vec::new();
-    let termination_request = host_imports::install(
-        &mut dtors,
-        scope,
-        &wasm_file_name,
-        &options.args,
-        async_policy,
-    );
+    let termination_request =
+        host_imports::install(&mut dtors, scope, module_name, &options.args, async_policy);
 
     let memory_sanitizer_imports =
         global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
@@ -100,30 +154,42 @@ pub(crate) fn run(
                 }
             }
         }
-        script.push_str(&format!("const packageName = {:?};", test_args.package));
-        script.push_str(&format!("const testParams = {test_params:?};"));
+        entrypoint_source.push_str(&format!("const packageName = {:?};", test_args.package));
+        entrypoint_source.push_str(&format!("const testParams = {test_params:?};"));
     }
-    script.push_str(&format!(
+    entrypoint_source.push_str(&format!(
         "const no_stack_trace = {};",
         options.no_stack_trace
     ));
-    script.push_str(&format!(
+    entrypoint_source.push_str(&format!(
         "const test_mode = {};",
         options.test_args.is_some()
     ));
-    script.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
-    script.push('\n');
+    entrypoint_source.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
+    entrypoint_source.push('\n');
     let js_glue = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/template/js_glue.js"
     ));
-    script.push_str(js_glue);
+    entrypoint_source.push_str(js_glue);
 
-    let code = scope.string(&script);
+    let code = scope.string(&entrypoint_source);
     let script_origin = create_script_origin(scope, "wasm_mode_entry");
-    let script = v8::Script::compile(scope, code, Some(&script_origin)).unwrap();
-
-    script.run(scope);
+    let mut source = v8::script_compiler::Source::new(code, Some(&script_origin));
+    let module_argument = scope.string("module");
+    let module_name_argument = scope.string("module_name");
+    let entry = v8::script_compiler::compile_function(
+        scope,
+        &mut source,
+        &[module_argument, module_name_argument],
+        &[],
+        v8::script_compiler::CompileOptions::NoCompileOptions,
+        v8::script_compiler::NoCacheReason::BecauseCachingDisabled,
+    )
+    .context("failed to compile Moonrun's Wasm entrypoint")?;
+    let receiver = v8::undefined(scope).into();
+    let module_name = scope.string(module_name);
+    entry.call(scope, receiver, &[wasm_module.into(), module_name.into()]);
     let termination = termination_request.take();
     drop(dtors);
     if let Some(termination) = termination {

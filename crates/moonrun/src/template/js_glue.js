@@ -459,13 +459,9 @@ const spectest = {
 };
 
 try {
-    if (typeof bytes === 'undefined') {
-        bytes = read_file_to_bytes(module_name);
+    if (!(module instanceof WebAssembly.Module)) {
+        throw new Error(`failed to load compiled wasm module: ${module_name}`);
     }
-    if (!bytes) {
-        throw new Error(`failed to read wasm module: ${module_name}`);
-    }
-    let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
     let instance = new WebAssembly.Instance(module, spectest);
     const memory = instance.exports.memory;
     if (memory instanceof WebAssembly.Memory) {
