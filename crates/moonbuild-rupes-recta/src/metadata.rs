@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Legacy metadata JSON (`package.json`) conversion for IDE & tools usage.
+//! Scoped `packages.json` conversion for IDE and tools usage.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
@@ -43,8 +43,7 @@ use crate::{
 /// of the active host/toolchain layout.
 pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 
-/// Generate `package.json`, which is a metadata file shared by IDE plugins and
-/// other tools.
+/// Generate one backend/profile/run-mode-scoped `packages.json` document.
 pub fn gen_metadata_json(
     ctx: &ResolveOutput,
     source_dir: &Path,
@@ -78,10 +77,37 @@ pub fn gen_metadata_json(
         }
     };
 
+    let planned_packages: HashSet<_> = ctx
+        .pkg_dirs
+        .all_packages(true)
+        .filter(|(id, pkg)| {
+            pkg.effective_supported_targets.contains(&backend)
+                && check_commands.contains_key(&metadata_source_mi_path(
+                    ctx,
+                    artifact_paths,
+                    *id,
+                    backend,
+                ))
+        })
+        .map(|(id, _)| id)
+        .collect();
+    // A virtual contract is a required input to its implementation's check,
+    // but it is materialized by a dedicated action rather than `moonc check`.
+    let required_virtual_packages: HashSet<_> = planned_packages
+        .iter()
+        .filter_map(|id| ctx.pkg_rel.virt_impl.get(*id).copied())
+        .collect();
+
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
         .all_packages(true)
-        .map(|(id, _)| gen_package_json(ctx, artifact_paths, id, backend, check_commands))
+        .filter(|(id, pkg)| {
+            pkg.effective_supported_targets.contains(&backend)
+                && (planned_packages.contains(id) || required_virtual_packages.contains(id))
+        })
+        .map(|(id, _)| {
+            gen_package_json(ctx, artifact_paths, id, opt_level, backend, check_commands)
+        })
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
@@ -91,7 +117,6 @@ pub fn gen_metadata_json(
         name,
         deps,
         backend: backend.to_string(),
-        opt_level: format!("{:?}", opt_level).to_lowercase(),
         source,
     }
 }
@@ -100,6 +125,7 @@ fn gen_package_json(
     ctx: &ResolveOutput,
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
+    opt_level: OptLevel,
     backend: TargetBackend,
     check_commands: &CheckCommandMap,
 ) -> PackageJSON {
@@ -121,9 +147,12 @@ fn gen_package_json(
             );
         }
     } else {
-        for (path, test_kind, cond) in
-            file_metadatas(&pkg.raw, pkg.source_files.iter().map(|x| x.as_path()))
-        {
+        for (path, test_kind, cond) in file_metadatas(
+            &pkg.raw,
+            pkg.source_files.iter().map(|x| x.as_path()),
+            opt_level,
+            backend,
+        ) {
             match test_kind {
                 crate::cond_comp::FileTestKind::NoTest => files.insert(path.to_owned(), cond),
                 crate::cond_comp::FileTestKind::Whitebox => {
@@ -144,20 +173,14 @@ fn gen_package_json(
             },
         );
     }
-    let mbt_md_files = pkg
-        .mbt_md_files
-        .iter()
-        .cloned()
-        .map(|x| {
-            (
-                x,
-                CompileCondition {
-                    backend: TargetBackend::all().to_vec(),
-                    optlevel: OptLevel::all().to_vec(),
-                },
-            )
-        })
-        .collect();
+    let mbt_md_files = file_metadatas(
+        &pkg.raw,
+        pkg.mbt_md_files.iter().map(|x| x.as_path()),
+        opt_level,
+        backend,
+    )
+    .map(|(path, _, cond)| (path.to_owned(), cond))
+    .collect();
 
     // Dependencies collection
     let mut deps: Vec<AliasJSON> = ctx

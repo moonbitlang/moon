@@ -33,8 +33,23 @@ pub struct ModuleDBJSON {
     pub packages: Vec<PackageJSON>,
     pub deps: Vec<String>,
     pub backend: String,
-    pub opt_level: String,
     pub source: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PackagesSelectorJSON {
+    pub backend: String,
+    pub opt_level: String,
+}
+
+#[test]
+fn packages_selector_json_matches_compiler_contract() {
+    let value = serde_json_lenient::to_string(&PackagesSelectorJSON {
+        backend: "wasm-gc".to_string(),
+        opt_level: "debug".to_string(),
+    })
+    .unwrap();
+    assert_eq!(value, r#"{"backend":"wasm-gc","opt_level":"debug"}"#);
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

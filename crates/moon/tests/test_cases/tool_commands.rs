@@ -26,7 +26,7 @@ fn test_moon_doc_dry_run() {
         expect![[r#"
             moonc check ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./src/lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./src/main/main.mbt -o ./_build/wasm-gc/debug/check/main/main.mi -pkg username/hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./src/main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moondoc . -o ./_build/doc -std-path '$MOON_HOME/lib/core' -packages-json ./_build/packages.json
+            moondoc . -o ./_build/doc -std-path '$MOON_HOME/lib/core' -packages-json ./_build/wasm-gc/debug/check/packages.json
         "#]],
     );
 }
@@ -34,7 +34,13 @@ fn test_moon_doc_dry_run() {
 #[test]
 fn test_moon_doc() {
     let dir = TestDir::new("moon_doc.in");
+    std::fs::create_dir_all(dir.join("_build")).unwrap();
+    std::fs::write(packages_selector_path(&dir), "existing check selector").unwrap();
     let _ = get_stderr(&dir, ["doc"]);
+    assert_eq!(
+        read(packages_selector_path(&dir)),
+        "existing check selector"
+    );
     check(
         read(dir.join("_build/doc/username/hello/lib/members.md")),
         expect![[r#"

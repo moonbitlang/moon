@@ -51,6 +51,7 @@ const MI_EXTENSION: &str = ".mi";
 /// Implementation packages generate a dummy mi file so they are not rebuilt every time.
 const IMPL_MI_EXTENSION: &str = ".impl.mi";
 pub const GENERATED_TEST_DRIVER_PREFIX: &str = "__generated_driver_for";
+const PACKAGES_JSON: &str = "packages.json";
 
 #[derive(Clone, Copy, Debug)]
 pub enum ExecutableArtifact {
@@ -246,10 +247,7 @@ impl TargetLayout {
     fn push_opt_and_run_mode(&self, backend: TargetBackend, dir: &mut PathBuf) {
         push_backend(dir, backend);
 
-        match self.opt_level {
-            OptLevel::Release => dir.push("release"),
-            OptLevel::Debug => dir.push("debug"),
-        }
+        dir.push(self.opt_level.as_str());
         dir.push(self.run_mode.to_dir_name());
     }
 
@@ -632,12 +630,30 @@ impl TargetLayout {
         dir
     }
 
-    /// Returns the path of `packages.json`, the metadata file to be read by
-    /// IDE plugins and other tools.
-    pub fn packages_json_path(&self) -> PathBuf {
-        let mut path = self.target_base_dir.clone();
-        path.push("packages.json");
-        path
+    /// Returns the universal `packages.json` selector path.
+    pub fn packages_selector_path(&self) -> PathBuf {
+        packages_metadata_path(self.target_base_dir.clone(), None)
+    }
+
+    /// Returns the universal metadata selector path for a standalone source
+    /// file.
+    pub fn standalone_packages_selector_path(&self, source_filename: &str) -> PathBuf {
+        packages_metadata_path(self.target_base_dir.clone(), Some(source_filename))
+    }
+
+    /// Returns the backend/profile/run-mode-scoped `packages.json` path.
+    pub fn packages_json_path(&self, backend: TargetBackend) -> PathBuf {
+        packages_metadata_path(self.run_mode_dir(backend), None)
+    }
+
+    /// Returns the backend/profile/run-mode-scoped metadata path for a
+    /// standalone source file.
+    pub fn standalone_packages_json_path(
+        &self,
+        backend: TargetBackend,
+        source_filename: &str,
+    ) -> PathBuf {
+        packages_metadata_path(self.run_mode_dir(backend), Some(source_filename))
     }
 
     /// Returns the n2 database shared by executions in this target directory.
@@ -648,6 +664,14 @@ impl TargetLayout {
     pub fn n2_db_path(&self) -> PathBuf {
         self.target_base_dir.join(".moon_db")
     }
+}
+
+fn packages_metadata_path(mut dir: PathBuf, source_filename: Option<&str>) -> PathBuf {
+    match source_filename {
+        Some(source_filename) => dir.push(format!("{source_filename}.{PACKAGES_JSON}")),
+        None => dir.push(PACKAGES_JSON),
+    }
+    dir
 }
 
 #[derive(Clone, Debug)]
@@ -1771,6 +1795,33 @@ mod tests {
         );
 
         assert_eq!(layout.n2_db_path(), PathBuf::from("_build/.moon_db"));
+    }
+
+    #[test]
+    fn packages_metadata_paths_follow_the_compiler_contract() {
+        let layout = TargetLayout::new(
+            PathBuf::from("_build"),
+            TargetLayoutMode::Workspace,
+            OptLevel::Debug,
+            RunMode::Check,
+        );
+
+        assert_eq!(
+            layout.packages_selector_path(),
+            PathBuf::from("_build/packages.json")
+        );
+        assert_eq!(
+            layout.standalone_packages_selector_path("main.mbt"),
+            PathBuf::from("_build/main.mbt.packages.json")
+        );
+        assert_eq!(
+            layout.packages_json_path(TargetBackend::WasmGC),
+            PathBuf::from("_build/wasm-gc/debug/check/packages.json")
+        );
+        assert_eq!(
+            layout.standalone_packages_json_path(TargetBackend::WasmGC, "main.mbt"),
+            PathBuf::from("_build/wasm-gc/debug/check/main.mbt.packages.json")
+        );
     }
 
     #[test]

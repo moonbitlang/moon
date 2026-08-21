@@ -278,7 +278,8 @@ fn test_workspace_commands() {
     "#]]
     .assert_eq(&main_mi_out);
 
-    let metadata = std::fs::read_to_string(dir.join("_build/packages.json")).unwrap();
+    let metadata =
+        std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap();
     let metadata = replace_dir(&metadata, &dir);
     let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
 
@@ -286,7 +287,7 @@ fn test_workspace_commands() {
     assert_eq!(metadata["name"], "workspace");
     assert_eq!(metadata["deps"], serde_json::json!(["alice/liba"]));
     assert_eq!(metadata["backend"], "wasm-gc");
-    assert_eq!(metadata["opt_level"], "debug");
+    assert_eq!(metadata.get("opt_level"), None);
     assert_eq!(metadata["source"], serde_json::Value::Null);
     assert_eq!(metadata.get("workspace"), None);
 
@@ -1400,7 +1401,7 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
         "expected doc dry-run to use the app module as moondoc root, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("-packages-json ./_build/packages.json"),
+        stdout.contains("-packages-json ./_build/wasm/debug/check/packages.json"),
         "expected doc dry-run to pass workspace metadata to moondoc, got:\n{stdout}"
     );
     assert!(
@@ -1434,7 +1435,8 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
         "expected member docs to be generated under the app module"
     );
 
-    let metadata = std::fs::read_to_string(dir.join("_build/packages.json")).unwrap();
+    let metadata =
+        std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm", "debug")).unwrap();
     let metadata = replace_dir(&metadata, &dir);
     let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
 

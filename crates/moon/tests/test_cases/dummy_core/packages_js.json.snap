@@ -30,24 +30,6 @@
             "Release",
             "Debug"
           ]
-        },
-        "$ROOT/0/y.wasm-gc.mbt": {
-          "backend": [
-            "WasmGC"
-          ],
-          "optlevel": [
-            "Release",
-            "Debug"
-          ]
-        },
-        "$ROOT/0/y.wasm.mbt": {
-          "backend": [
-            "Wasm"
-          ],
-          "optlevel": [
-            "Release",
-            "Debug"
-          ]
         }
       },
       "wbtest-files": {
@@ -67,24 +49,6 @@
             "Js",
             "Native",
             "LLVM"
-          ],
-          "optlevel": [
-            "Release",
-            "Debug"
-          ]
-        },
-        "$ROOT/0/y_wbtest.wasm-gc.mbt": {
-          "backend": [
-            "WasmGC"
-          ],
-          "optlevel": [
-            "Release",
-            "Debug"
-          ]
-        },
-        "$ROOT/0/y_wbtest.wasm.mbt": {
-          "backend": [
-            "Wasm"
           ],
           "optlevel": [
             "Release",
@@ -214,37 +178,9 @@
             "Release",
             "Debug"
           ]
-        },
-        "$ROOT/1/x.wasm-gc.mbt": {
-          "backend": [
-            "WasmGC"
-          ],
-          "optlevel": [
-            "Release",
-            "Debug"
-          ]
-        },
-        "$ROOT/1/x.wasm.mbt": {
-          "backend": [
-            "Wasm"
-          ],
-          "optlevel": [
-            "Release",
-            "Debug"
-          ]
         }
       },
-      "wbtest-files": {
-        "$ROOT/1/x_wbtest.wasm-gc.mbt": {
-          "backend": [
-            "WasmGC"
-          ],
-          "optlevel": [
-            "Release",
-            "Debug"
-          ]
-        }
-      },
+      "wbtest-files": {},
       "test-files": {},
       "mbt-md-files": {},
       "deps": [],
@@ -750,6 +686,5 @@
   ],
   "deps": [],
   "backend": "js",
-  "opt_level": "debug",
   "source": null
 }

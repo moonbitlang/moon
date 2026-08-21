@@ -182,10 +182,8 @@ fn run_bundle_rr_from_resolved(
         Ok(0)
     } else {
         // Generate all_pkgs.json for indirect dependency resolution
-        for (build_meta, build_input) in &planned_runs {
+        for (build_meta, _) in &planned_runs {
             rr_build::generate_all_pkgs_json(build_meta)?;
-            // Generate legacy metadata for tooling compatibility
-            rr_build::generate_metadata(source_dir, target_dir, build_meta, build_input, None)?;
         }
         let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
         let build_input = rr_build::compose_build_inputs(build_inputs)?;

@@ -16,7 +16,7 @@ fn dummy_core_writes_packages_json_for_selected_target() {
 
     #[cfg(unix)]
     {
-        let p = dir.join("_build/packages.json");
+        let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
         expect_file!["./packages_wasm_gc.json.snap"]
             .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir))
     }
@@ -27,7 +27,7 @@ fn dummy_core_writes_packages_json_for_selected_target() {
 
     #[cfg(unix)]
     {
-        let p = dir.join("_build/packages.json");
+        let p = scoped_packages_json_path(&dir, "js", "debug");
         expect_file!["./packages_js.json.snap"]
             .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir))
     };

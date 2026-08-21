@@ -29,7 +29,7 @@
   
   Finished. moon: ran 4 tasks, now up to date
   
-  $ xcat _build/packages.json
+  $ xcat _build/wasm-gc/debug/check/packages.json
   {
     "source_dir": "[WORK_DIR]",
     "name": "username/hello",

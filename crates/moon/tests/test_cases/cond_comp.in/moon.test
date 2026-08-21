@@ -78,7 +78,7 @@
   ───╯
   Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
   
-  $ xcat _build/packages.json
+  $ xcat _build/wasm-gc/debug/check/packages.json
   {
     "source_dir": "[WORK_DIR]",
     "name": "username/hello",
@@ -113,43 +113,6 @@
               "Debug"
             ]
           },
-          "[WORK_DIR]/src/lib/js_and_release.mbt": {
-            "backend": [
-              "Js"
-            ],
-            "optlevel": [
-              "Release"
-            ]
-          },
-          "[WORK_DIR]/src/lib/js_or_wasm.mbt": {
-            "backend": [
-              "Wasm",
-              "Js"
-            ],
-            "optlevel": [
-              "Release",
-              "Debug"
-            ]
-          },
-          "[WORK_DIR]/src/lib/native_and_wasm.mbt": {
-            "backend": [
-              "Wasm",
-              "Native"
-            ],
-            "optlevel": [
-              "Release",
-              "Debug"
-            ]
-          },
-          "[WORK_DIR]/src/lib/native_only.mbt": {
-            "backend": [
-              "Native"
-            ],
-            "optlevel": [
-              "Release",
-              "Debug"
-            ]
-          },
           "[WORK_DIR]/src/lib/not_js.mbt": {
             "backend": [
               "Wasm",
@@ -174,37 +137,9 @@
               "Debug"
             ]
           },
-          "[WORK_DIR]/src/lib/only_js.mbt": {
-            "backend": [
-              "Js"
-            ],
-            "optlevel": [
-              "Release",
-              "Debug"
-            ]
-          },
-          "[WORK_DIR]/src/lib/only_wasm.mbt": {
-            "backend": [
-              "Wasm"
-            ],
-            "optlevel": [
-              "Release",
-              "Debug"
-            ]
-          },
           "[WORK_DIR]/src/lib/only_wasm_gc.mbt": {
             "backend": [
               "WasmGC"
-            ],
-            "optlevel": [
-              "Release",
-              "Debug"
-            ]
-          },
-          "[WORK_DIR]/src/lib/wasm_release_or_js_debug.mbt": {
-            "backend": [
-              "Wasm",
-              "Js"
             ],
             "optlevel": [
               "Release",
@@ -221,15 +156,6 @@
               "Js",
               "Native",
               "LLVM"
-            ],
-            "optlevel": [
-              "Release",
-              "Debug"
-            ]
-          },
-          "[WORK_DIR]/src/lib/js_only_test.mbt": {
-            "backend": [
-              "Js"
             ],
             "optlevel": [
               "Release",
@@ -455,6 +381,5 @@
     ],
     "deps": [],
     "backend": "wasm-gc",
-    "opt_level": "debug",
     "source": "src"
   }

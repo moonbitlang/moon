@@ -61,15 +61,15 @@ pub(crate) fn classify_files<'a, P: AsRef<Path> + 'a>(
     })
 }
 
-/// Get the test kind and compile condition metadata for each file, without
-/// actually filtering.
-///
-/// This function is used for generating metadata that feeds into other tools.
+/// Get the test kind and compile condition metadata for files selected by the
+/// current backend/profile projection.
 pub(crate) fn file_metadatas<'a>(
     pkg: &'a MoonPkg,
     files: impl Iterator<Item = &'a Path> + 'a,
+    optlevel: OptLevel,
+    target_backend: TargetBackend,
 ) -> impl Iterator<Item = (&'a Path, FileTestKind, MetadataCompileCondition)> + 'a {
-    files.map(|path| {
+    files.filter_map(move |path| {
         let filename = path
             .file_name()
             .expect("Input source file should have a filename");
@@ -85,23 +85,27 @@ pub(crate) fn file_metadatas<'a>(
             );
         };
 
-        let (cond, stem) = if let Some(expect_cond) = pkg
+        let (cond, stem, selected) = if let Some(expect_cond) = pkg
             .targets
             .as_ref()
             .and_then(|targets| targets.get(&*str_filename))
         {
-            (expect_cond.to_compile_condition(), without_mbt)
+            (
+                expect_cond.to_compile_condition(),
+                without_mbt,
+                expect_cond.eval(optlevel, target_backend),
+            )
         } else {
             let (backend, remaining) = get_file_target_backend(without_mbt);
             let cond = MetadataCompileCondition {
                 backend: backend.map_or_else(|| TargetBackend::all().into(), |x| vec![x]),
                 optlevel: OptLevel::all().to_vec(),
             };
-            (cond, remaining)
+            let selected = cond.eval(optlevel, target_backend);
+            (cond, remaining, selected)
         };
-        let test_info = get_file_test_kind(stem);
 
-        (path, test_info, cond)
+        selected.then(|| (path, get_file_test_kind(stem), cond))
     })
 }
 

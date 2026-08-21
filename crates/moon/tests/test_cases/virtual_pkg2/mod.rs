@@ -21,9 +21,10 @@ fn implement_third_party1() {
         "#]],
     );
 
-    let packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
-            .unwrap();
+    let packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap(),
+    )
+    .unwrap();
     let packages = packages_json["packages"].as_array().unwrap();
 
     let implementor = packages

@@ -3,7 +3,7 @@ use expect_test::{expect, expect_file};
 use crate::{
     TestDir,
     build_graph::compare_graphs,
-    get_err_stderr, get_stdout, snap_dry_run_graph,
+    get_err_stderr, get_stdout, scoped_packages_json_path, snap_dry_run_graph,
     util::{check, moon_bin},
 };
 
@@ -132,7 +132,7 @@ fn test_blackbox_success() {
     {
         use crate::util::replace_dir;
 
-        let p = dir.join("_build/packages.json");
+        let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
         expect_file!["test_blackbox_success_packages.json.snap"]
             .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir));
     }

@@ -26,7 +26,7 @@ fn test_specify_source_dir_001() {
     );
     #[cfg(unix)]
     {
-        let p = dir.join("_build/packages.json");
+        let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
         check(
             replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"
@@ -277,7 +277,6 @@ fn test_specify_source_dir_001() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
-                  "opt_level": "debug",
                   "source": "src"
                 }"#]],
         )
