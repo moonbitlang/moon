@@ -111,6 +111,9 @@ impl SqliteHost {
     }
 
     pub(crate) fn statement_busy(&self, statement: u64) -> SqliteHostResult<i32> {
+        if statement == null_handle() {
+            return Ok(0);
+        }
         let statement = self.statement(statement)?;
         Ok(unsafe { ffi::sqlite3_stmt_busy(statement.pointer.as_ptr()) })
     }

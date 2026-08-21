@@ -286,6 +286,10 @@ fn main raise {
     sqlite3_finalize(null_handle) == SQLITE_OK,
     msg="sqlite3_finalize(NULL) failed",
   )
+  assert_true(
+    sqlite3_stmt_busy(null_handle) == 0,
+    msg="sqlite3_stmt_busy(NULL) did not return false",
+  )
 
   let denied = Ref(null_handle)
   let denied_filename = b"denied/database.sqlite"
