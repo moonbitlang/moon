@@ -36,6 +36,13 @@ use std::os::windows::io::{
 
 pub(crate) type ResourceRef = Arc<Resource>;
 
+/// A Resource returned by a Job before or after it is exposed through a Handle.
+#[derive(Debug)]
+pub(crate) enum ResourcePublication {
+    Unpublished(Resource),
+    Published(u64),
+}
+
 #[cfg(unix)]
 type OwnedRawFile = OwnedFd;
 #[cfg(windows)]

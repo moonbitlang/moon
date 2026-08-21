@@ -18,12 +18,18 @@
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool;
+use crate::filesystem::Job as FilesystemJob;
 use crate::guest_memory::GuestMemory;
 use crate::resource::{ResourceClass, ResourceRef};
 
 use super::context::ImportContext;
 use super::os_string::read_guest as read_guest_os_string;
 use super::provenance::ported_imports;
+
+fn filesystem_job_or_failed(job: AsyncHostResult<FilesystemJob>) -> thread_pool::Job {
+    job.map(Into::into)
+        .unwrap_or_else(|error| thread_pool::make_failed_job(error.errno()))
+}
 
 ported_imports! {
 pub(super) fn free_job(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<()> {
@@ -119,7 +125,8 @@ pub(super) fn make_sleep_job(
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_make_open_job",
     upstream_pr = 527,
-    replacement = "thread_pool/make_open_stat_job"
+    replacement = "thread_pool/make_open_stat_job",
+    api_only = true
 )]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_open_job_legacy(
@@ -134,14 +141,9 @@ pub(super) fn make_open_job_legacy(
 ) -> AsyncHostResult<u64> {
     let filename = read_guest_os_string(context, path_ptr, path_len)?;
 
-    context.host.insert_job(thread_pool::make_open_job(
-        filename,
-        access,
-        create_mode,
-        append != 0,
-        sync,
-        mode,
-    ))
+    context.host.insert_job(
+        FilesystemJob::open_legacy(filename, access, create_mode, append != 0, sync, mode),
+    )
 }
 
 // Unlike the native ABI, the wasm maker does not receive the eventual output
@@ -165,7 +167,7 @@ pub(super) fn make_open_stat_job(
     stat_result_len: u32,
 ) -> AsyncHostResult<u64> {
     let filename = read_guest_os_string(context, path_ptr, path_len)?;
-    context.host.insert_job(thread_pool::make_open_stat_job(
+    context.host.insert_job(filesystem_job_or_failed(FilesystemJob::open(
         filename,
         access,
         create_mode,
@@ -174,7 +176,7 @@ pub(super) fn make_open_stat_job(
         mode,
         stat_request as u32,
         stat_result_len,
-    ))
+    )))
 }
 
 #[ported(
@@ -188,11 +190,13 @@ pub(super) fn make_fstatx_job(
     stat_result_len: u32,
 ) -> AsyncHostResult<u64> {
     let file = context.host.acquire_resource(fd)?;
-    context.host.insert_job(thread_pool::make_fstatx_job(
-        file,
-        stat_request as u32,
-        stat_result_len,
-    ))
+    context
+        .host
+        .insert_job(filesystem_job_or_failed(FilesystemJob::fstatx(
+            file,
+            stat_request as u32,
+            stat_result_len,
+        )))
 }
 
 #[ported(
@@ -219,13 +223,15 @@ pub(super) fn make_statx_job(
         )
     };
     let path = read_guest_os_string(context, path_ptr, path_len)?;
-    context.host.insert_job(thread_pool::make_statx_job(
-        parent,
-        path,
-        stat_request as u32,
-        stat_result_len,
-        follow_symlink != 0,
-    ))
+    context
+        .host
+        .insert_job(filesystem_job_or_failed(FilesystemJob::statx(
+            parent,
+            path,
+            stat_request as u32,
+            stat_result_len,
+            follow_symlink != 0,
+        )))
 }
 
 pub(super) fn get_stat_result(
@@ -249,8 +255,9 @@ pub(super) fn make_read_job(
     let file = context
         .host
         .acquire_resource_of_class(fd, ResourceClass::File)?;
-    context.host
-        .insert_job(thread_pool::make_read_job(file, len, position))
+    context
+        .host
+        .insert_job(FilesystemJob::read(file, len, position))
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -268,8 +275,9 @@ pub(super) fn make_write_job(
     let ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
     let data = context.with_memory_mut(|memory| Ok(memory.read_exact(ptr, len)?.to_vec()))?;
 
-    context.host
-        .insert_job(thread_pool::make_write_job(file, data, position))
+    context
+        .host
+        .insert_job(FilesystemJob::write(file, data, position))
 }
 
 pub(super) fn get_read_result(
@@ -288,7 +296,8 @@ pub(super) fn get_read_result(
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_make_file_kind_by_path_job",
     upstream_pr = 527,
-    replacement = "thread_pool/make_statx_job with STAT_FILE_KIND"
+    replacement = "thread_pool/make_statx_job with STAT_FILE_KIND",
+    api_only = true
 )]
 pub(super) fn make_file_kind_by_path_job(
     context: &mut ImportContext<'_, '_>,
@@ -308,32 +317,31 @@ pub(super) fn make_file_kind_by_path_job(
     };
     let path = read_guest_os_string(context, path_ptr, path_len)?;
 
-    context.host
-        .insert_job(thread_pool::make_file_kind_by_path_job(
-            parent,
-            path,
-            follow_symlink != 0,
-        ))
+    context.host.insert_job(
+        FilesystemJob::file_kind_by_path(parent, path, follow_symlink != 0),
+    )
 }
 
 #[compat(
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_make_file_size_job",
     upstream_pr = 527,
-    replacement = "thread_pool/make_fstatx_job with STAT_FILE_SIZE"
+    replacement = "thread_pool/make_fstatx_job with STAT_FILE_SIZE",
+    api_only = true
 )]
 pub(super) fn make_file_size_job(context: &mut ImportContext<'_, '_>, fd: u64) -> AsyncHostResult<u64> {
     let file = context
         .host
         .acquire_resource_of_class(fd, ResourceClass::File)?;
-    context.host.insert_job(thread_pool::make_file_size_job(file))
+    context.host.insert_job(FilesystemJob::file_size(file))
 }
 
 #[compat(
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_get_file_size_result",
     upstream_pr = 527,
-    replacement = "thread_pool/get_stat_result"
+    replacement = "thread_pool/get_stat_result",
+    api_only = true
 )]
 pub(super) fn get_file_size_result(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i64> {
     context.host.get_file_size_result(job)
@@ -343,7 +351,8 @@ pub(super) fn get_file_size_result(context: &mut ImportContext<'_, '_>, job: u64
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_make_file_time_job",
     upstream_pr = 527,
-    replacement = "thread_pool/make_fstatx_job with timestamp properties"
+    replacement = "thread_pool/make_fstatx_job with timestamp properties",
+    api_only = true
 )]
 pub(super) fn make_file_time_job(
     context: &mut ImportContext<'_, '_>,
@@ -352,15 +361,15 @@ pub(super) fn make_file_time_job(
     let file = context
         .host
         .acquire_resource_of_class(fd, ResourceClass::File)?;
-    context.host
-        .insert_job(thread_pool::make_file_time_job(file))
+    context.host.insert_job(FilesystemJob::file_time(file))
 }
 
 #[compat(
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_make_file_time_by_path_job",
     upstream_pr = 527,
-    replacement = "thread_pool/make_statx_job with timestamp properties"
+    replacement = "thread_pool/make_statx_job with timestamp properties",
+    api_only = true
 )]
 pub(super) fn make_file_time_by_path_job(
     context: &mut ImportContext<'_, '_>,
@@ -370,11 +379,9 @@ pub(super) fn make_file_time_by_path_job(
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
 
-    context.host
-        .insert_job(thread_pool::make_file_time_by_path_job(
-            path,
-            follow_symlink != 0,
-        ))
+    context.host.insert_job(
+        FilesystemJob::file_time_by_path(path, follow_symlink != 0),
+    )
 }
 
 pub(super) fn get_file_time_result(
@@ -396,8 +403,9 @@ pub(super) fn make_access_job(
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
 
-    context.host
-        .insert_job(thread_pool::make_access_job(path, access))
+    context
+        .host
+        .insert_job(FilesystemJob::access(path, access))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -409,8 +417,9 @@ pub(super) fn make_chmod_job(
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
 
-    context.host
-        .insert_job(thread_pool::make_chmod_job(path, mode))
+    context
+        .host
+        .insert_job(FilesystemJob::chmod(path, mode))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -422,8 +431,9 @@ pub(super) fn make_fsync_job(
     let file = context
         .host
         .acquire_resource_of_class(fd, ResourceClass::File)?;
-    context.host
-        .insert_job(thread_pool::make_fsync_job(file, only_data != 0))
+    context
+        .host
+        .insert_job(FilesystemJob::fsync(file, only_data != 0))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -435,8 +445,9 @@ pub(super) fn make_flock_job(
     let file = context
         .host
         .acquire_resource_of_class(fd, ResourceClass::File)?;
-    context.host
-        .insert_job(thread_pool::make_flock_job(file, exclusive != 0))
+    context
+        .host
+        .insert_job(FilesystemJob::flock(file, exclusive != 0))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -446,7 +457,7 @@ pub(super) fn make_remove_job(
     path_len: u32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
-    context.host.insert_job(thread_pool::make_remove_job(path))
+    context.host.insert_job(FilesystemJob::remove(path))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -461,11 +472,9 @@ pub(super) fn make_rename_job(
     let old_path = read_guest_os_string(context, old_path_ptr, old_path_len)?;
     let new_path = read_guest_os_string(context, new_path_ptr, new_path_len)?;
 
-    context.host.insert_job(thread_pool::make_rename_job(
-        old_path,
-        new_path,
-        replace != 0,
-    ))
+    context
+        .host
+        .insert_job(FilesystemJob::rename(old_path, new_path, replace != 0))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -480,11 +489,9 @@ pub(super) fn make_symlink_job(
     let target = read_guest_os_string(context, target_ptr, target_len)?;
     let path = read_guest_os_string(context, path_ptr, path_len)?;
 
-    context.host.insert_job(thread_pool::make_symlink_job(
-        target,
-        path,
-        force_symlink != 0,
-    ))
+    context.host.insert_job(
+        FilesystemJob::symlink(target, path, force_symlink != 0),
+    )
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -496,8 +503,9 @@ pub(super) fn make_mkdir_job(
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
 
-    context.host
-        .insert_job(thread_pool::make_mkdir_job(path, mode))
+    context
+        .host
+        .insert_job(FilesystemJob::mkdir(path, mode))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -507,7 +515,7 @@ pub(super) fn make_rmdir_job(
     path_len: u32,
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
-    context.host.insert_job(thread_pool::make_rmdir_job(path))
+    context.host.insert_job(FilesystemJob::rmdir(path))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -522,13 +530,9 @@ pub(super) fn make_readdir_job(
         .host
         .acquire_resource_of_class(dir, ResourceClass::File)?;
     let buffer = context.host.lease_c_buffer(buf)?;
-    context.host
-        .insert_job(thread_pool::make_readdir_job(
-            dir,
-            buffer,
-            len,
-            restart != 0,
-        ))
+    context.host.insert_job(
+        FilesystemJob::readdir(dir, buffer, len, restart != 0),
+    )
 }
 
 #[ported(
@@ -547,13 +551,9 @@ pub(super) fn make_inotify_add_watch_job(
         .host
         .acquire_resource_of_class(inotify, ResourceClass::File)?;
     let path = read_guest_os_string(context, path_ptr, path_len)?;
-    context
-        .host
-        .insert_job(thread_pool::make_inotify_add_watch_job(
-            inotify,
-            path,
-            is_dir != 0,
-        ))
+    context.host.insert_job(
+        FilesystemJob::inotify_add_watch(inotify, path, is_dir != 0),
+    )
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -881,7 +881,7 @@ pub(super) fn make_realpath_job(
     let path = read_guest_os_string(context, path_ptr, path_len)?;
     context
         .host
-        .insert_job(thread_pool::make_realpath_job(path))
+        .insert_job(FilesystemJob::realpath(path))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]
@@ -901,7 +901,8 @@ pub(super) fn open_job_get_fd(context: &mut ImportContext<'_, '_>, job: u64) -> 
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_open_job_get_kind",
     upstream_pr = 527,
-    replacement = "thread_pool/get_stat_result with STAT_FILE_KIND"
+    replacement = "thread_pool/get_stat_result with STAT_FILE_KIND",
+    api_only = true
 )]
 pub(super) fn open_job_get_kind(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
     context.host.open_job_get_kind(job)
@@ -911,7 +912,8 @@ pub(super) fn open_job_get_kind(context: &mut ImportContext<'_, '_>, job: u64) -
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_open_job_get_dev_id",
     upstream_pr = 527,
-    replacement = "thread_pool/get_stat_result with STAT_DEVICE_ID"
+    replacement = "thread_pool/get_stat_result with STAT_DEVICE_ID",
+    api_only = true
 )]
 pub(super) fn open_job_get_dev_id(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_dev_id(job)
@@ -921,7 +923,8 @@ pub(super) fn open_job_get_dev_id(context: &mut ImportContext<'_, '_>, job: u64)
     source = "src/internal/event_loop/thread_pool.c",
     original = "moonbitlang_async_open_job_get_file_id",
     upstream_pr = 527,
-    replacement = "thread_pool/get_stat_result with STAT_FILE_ID"
+    replacement = "thread_pool/get_stat_result with STAT_FILE_ID",
+    api_only = true
 )]
 pub(super) fn open_job_get_file_id(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_file_id(job)

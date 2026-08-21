@@ -44,8 +44,7 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
-        self, HostHandle, HostWorkerJob, Job, JobPayload, OpenJobResource, ResourceTable,
-        WorkerCompletionId,
+        self, HostHandle, HostWorkerJob, Job, JobPayload, ResourceTable, WorkerCompletionId,
     },
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -55,7 +54,7 @@ pub(crate) use crate::host::HostKey as HandleKey;
 use crate::host::{HostKeys, HostResourceKind as HandleKind};
 use crate::network::HostNetwork;
 use crate::policy::{Policy, RuntimePathBase};
-use crate::resource::{Resource, ResourceClass, ResourceRef};
+use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -1340,10 +1339,10 @@ impl AsyncHost {
     }
 
     fn restore_c_buffer_lease(&self, job: &mut Job) {
-        let JobPayload::Readdir { buffer, .. } = job.payload_mut() else {
+        let Ok(job) = job.filesystem_mut() else {
             return;
         };
-        let Some(buffer) = buffer.take() else {
+        let Some(buffer) = job.take_c_buffer_lease() else {
             return;
         };
         self.restore_c_buffer(buffer);
@@ -1378,11 +1377,11 @@ impl AsyncHost {
         let unclaimed = match job.payload() {
             #[cfg(unix)]
             JobPayload::SpawnUnix { result, .. } => {
-                !matches!(result, Some(OpenJobResource::Published(_)))
+                !matches!(result, Some(ResourcePublication::Published(_)))
             }
             #[cfg(windows)]
             JobPayload::SpawnWindows { result, .. } => {
-                !matches!(result, Some(OpenJobResource::Published(_)))
+                !matches!(result, Some(ResourcePublication::Published(_)))
             }
             _ => false,
         };
@@ -1401,24 +1400,24 @@ impl AsyncHost {
 
     fn publish_open_job_result(&self, key: HandleKey) -> AsyncHostResult<HostHandle> {
         let mut jobs = self.jobs.borrow_mut();
-        let placeholder = OpenJobResource::Published(self.invalid_fd());
+        let placeholder = ResourcePublication::Published(self.invalid_fd());
         let file = {
             let job = jobs.visible_job_mut(key)?;
-            let result = thread_pool::open_job_result_mut(job)?;
+            let result = job.filesystem_mut()?.open_result_mut()?;
             match std::mem::replace(&mut result.resource, placeholder) {
-                OpenJobResource::Published(fd) => {
-                    result.resource = OpenJobResource::Published(fd);
+                ResourcePublication::Published(fd) => {
+                    result.resource = ResourcePublication::Published(fd);
                     return Ok(fd);
                 }
-                OpenJobResource::Unpublished(file) => file,
+                ResourcePublication::Unpublished(file) => file,
             }
         };
 
         let fd = self.handles.borrow_mut().insert_resource(file);
         let job = jobs.visible_job_mut(key)?;
-        let result = thread_pool::open_job_result_mut(job)?;
-        result.resource = OpenJobResource::Published(fd);
-        thread_pool::open_job_get_fd(result)
+        let result = job.filesystem_mut()?.open_result_mut()?;
+        result.resource = ResourcePublication::Published(fd);
+        result.published_resource_handle()
     }
 
     /// Describe live async payloads without inspecting another domain's keys.
@@ -2334,9 +2333,9 @@ impl AsyncHost {
         self.handles.borrow().process_env(handle)
     }
 
-    pub(crate) fn insert_job(&self, job: Job) -> AsyncHostResult<u64> {
+    pub(crate) fn insert_job(&self, job: impl Into<Job>) -> AsyncHostResult<u64> {
         let key = self.handles.borrow_mut().insert(HandleKind::Job);
-        self.jobs.borrow_mut().insert_job(key, job);
+        self.jobs.borrow_mut().insert_job(key, job.into());
         Ok(handle_from_key(key))
     }
 
@@ -2355,12 +2354,10 @@ impl AsyncHost {
         // Native realpath frees its resolved path from the job finalizer.
         // After get_realpath_result exposes that path as a host c_buffer,
         // freeing the job must also release the c_buffer slot.
-        if let thread_pool::JobPayload::Realpath {
-            result: Some(thread_pool::RealpathJobResult::Published(buffer_handle)),
-            ..
-        } = job.payload()
+        if let Ok(job) = job.filesystem()
+            && let Some(buffer_handle) = job.published_realpath_handle()
         {
-            let _ = self.free_c_buffer(*buffer_handle);
+            let _ = self.free_c_buffer(buffer_handle);
         }
         Ok(())
     }
@@ -2388,31 +2385,28 @@ impl AsyncHost {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
-        let result = thread_pool::open_job_result(job)?;
-        thread_pool::open_job_get_kind(result)
+        job.filesystem()?.open_result()?.file_kind()
     }
 
     pub(crate) fn open_job_get_dev_id(&self, handle: u64) -> AsyncHostResult<u64> {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
-        let result = thread_pool::open_job_result(job)?;
-        thread_pool::open_job_get_dev_id(result)
+        job.filesystem()?.open_result()?.device_id()
     }
 
     pub(crate) fn open_job_get_file_id(&self, handle: u64) -> AsyncHostResult<u64> {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
-        let result = thread_pool::open_job_result(job)?;
-        thread_pool::open_job_get_file_id(result)
+        job.filesystem()?.open_result()?.file_id()
     }
 
     pub(crate) fn get_file_size_result(&self, handle: u64) -> AsyncHostResult<i64> {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
-        crate::async_sys::internal::event_loop::thread_pool::get_file_size_result(job)
+        job.filesystem()?.file_size_result()
     }
 
     pub(crate) fn get_getaddrinfo_result(&self, handle: u64) -> AsyncHostResult<u64> {
@@ -2450,22 +2444,22 @@ impl AsyncHost {
         let job = jobs.visible_job_mut(key)?;
         let Some(result) = thread_pool::take_spawn_job_result(job)? else {
             let fd = self.invalid_fd();
-            thread_pool::set_spawn_job_result(job, OpenJobResource::Published(fd))?;
+            thread_pool::set_spawn_job_result(job, ResourcePublication::Published(fd))?;
             return Ok(fd);
         };
         let resource = match result {
-            OpenJobResource::Published(fd) => {
-                thread_pool::set_spawn_job_result(job, OpenJobResource::Published(fd))?;
+            ResourcePublication::Published(fd) => {
+                thread_pool::set_spawn_job_result(job, ResourcePublication::Published(fd))?;
                 return Ok(fd);
             }
-            OpenJobResource::Unpublished(resource) => resource,
+            ResourcePublication::Unpublished(resource) => resource,
         };
         let process_pid = self.process_policy_state.as_ref().map(|_| job.ret() as i32);
         let fd = self.handles.borrow_mut().insert_resource(resource);
         if let Some(pid) = process_pid {
             self.track_process_handle(fd, pid);
         }
-        thread_pool::set_spawn_job_result(job, OpenJobResource::Published(fd))?;
+        thread_pool::set_spawn_job_result(job, ResourcePublication::Published(fd))?;
         thread_pool::get_spawn_job_result_handle(job)
     }
 
@@ -3761,82 +3755,7 @@ impl AsyncHost {
         job: &Job,
     ) -> AsyncHostResult<()> {
         match job.payload() {
-            JobPayload::Open {
-                filename,
-                access,
-                create_mode,
-                append,
-                request,
-                ..
-            } => {
-                policy.open_path(
-                    RuntimePathBase::CurrentDirectory,
-                    filename,
-                    *access,
-                    *create_mode,
-                    *append,
-                )?;
-                if request.mask() & !thread_pool::STAT_OPEN_IDENTITY != 0 {
-                    policy.stat_path(RuntimePathBase::CurrentDirectory, filename)?;
-                }
-                Ok(())
-            }
-            JobPayload::Fstatx { file, .. } => {
-                Self::check_file_metadata_policy(policy, file.as_deref())
-            }
-            JobPayload::Statx {
-                parent,
-                path,
-                follow_symlink,
-                ..
-            } => Self::check_path_metadata_policy(
-                policy,
-                Self::resource_path_base(parent.as_deref()),
-                path,
-                *follow_symlink,
-            ),
-            JobPayload::FileKindByPath {
-                parent,
-                path,
-                follow_symlink,
-            } => Self::check_path_metadata_policy(
-                policy,
-                Self::resource_path_base(parent.as_deref()),
-                path,
-                *follow_symlink,
-            ),
-            JobPayload::FileSize { file, .. } | JobPayload::FileTime { file, .. } => {
-                Self::check_file_metadata_policy(policy, file.as_deref())
-            }
-            JobPayload::FileTimeByPath {
-                path,
-                follow_symlink,
-                ..
-            } => Self::check_path_metadata_policy(
-                policy,
-                RuntimePathBase::CurrentDirectory,
-                path,
-                *follow_symlink,
-            ),
-            JobPayload::Realpath { path, .. } => {
-                policy.stat_path(RuntimePathBase::CurrentDirectory, path)
-            }
-            #[cfg(target_os = "linux")]
-            JobPayload::InotifyAddWatch { path, .. } => {
-                policy.stat_path(RuntimePathBase::CurrentDirectory, path)
-            }
-            JobPayload::Access { path, access } => policy.access_path(path, *access),
-            JobPayload::Chmod { path, .. } => policy.chmod_path(path),
-            JobPayload::Flock { file, exclusive } => {
-                Self::check_file_lock_policy(policy, file.as_deref(), *exclusive)
-            }
-            JobPayload::Remove { path } => policy.remove_path(path),
-            JobPayload::Rename {
-                old_path, new_path, ..
-            } => policy.rename_path(old_path, new_path),
-            JobPayload::Symlink { path, .. } => policy.symlink_path(path),
-            JobPayload::Mkdir { path, .. } => policy.mkdir_path(path),
-            JobPayload::Rmdir { path } => policy.rmdir_path(path),
+            JobPayload::Filesystem(job) => job.check_policy(policy),
             #[cfg(unix)]
             JobPayload::SpawnUnix { path, args, .. } => {
                 policy.spawn_process_unix(path.as_os_str(), args)
@@ -3946,19 +3865,6 @@ impl AsyncHost {
         }
     }
 
-    fn check_path_metadata_policy(
-        policy: &Policy,
-        base: RuntimePathBase<'_>,
-        path: &std::ffi::OsStr,
-        follow_symlink: bool,
-    ) -> AsyncHostResult<()> {
-        if follow_symlink {
-            policy.stat_path(base, path)
-        } else {
-            policy.stat_entry_path(base, path)
-        }
-    }
-
     fn check_file_lock_policy(
         policy: &Policy,
         file: Option<&Resource>,
@@ -3976,16 +3882,6 @@ impl AsyncHost {
                 std::ffi::OsStr::new(""),
                 exclusive,
             ),
-        }
-    }
-
-    fn resource_path_base(parent: Option<&Resource>) -> RuntimePathBase<'_> {
-        match parent {
-            None => RuntimePathBase::CurrentDirectory,
-            Some(parent) => parent
-                .policy_path()
-                .map(RuntimePathBase::PolicyPath)
-                .unwrap_or(RuntimePathBase::Untracked),
         }
     }
 
@@ -4100,7 +3996,8 @@ impl AsyncHost {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
-        thread_pool::get_read_result(job, memory, dst, offset, len)
+        let filesystem_job = job.filesystem()?;
+        filesystem_job.copy_read_result(job.err(), memory, dst, offset, len)
     }
 
     pub(crate) fn get_file_time_result(
@@ -4112,7 +4009,8 @@ impl AsyncHost {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
-        thread_pool::get_file_time_result(job, memory, dst)
+        let filesystem_job = job.filesystem()?;
+        filesystem_job.copy_file_time_result(job.err(), memory, dst)
     }
 
     pub(crate) fn get_stat_result(
@@ -4125,7 +4023,8 @@ impl AsyncHost {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
-        thread_pool::get_stat_result(job, memory, dst, dst_len)
+        let filesystem_job = job.filesystem()?;
+        filesystem_job.copy_stat_result(job.err(), memory, dst, dst_len)
     }
 
     pub(crate) fn get_realpath_result(&self, handle: u64) -> AsyncHostResult<u64> {
@@ -4134,7 +4033,8 @@ impl AsyncHost {
         let job = jobs.visible_job_mut(key)?;
         // Keep the mutable job borrow through publication so its ownership of
         // the resulting c_buffer changes atomically on the V8 thread.
-        thread_pool::publish_realpath_result(job, |buffer| {
+        let job = job.filesystem_mut()?;
+        job.publish_realpath_result(|buffer| {
             let buffer_key = self.handles.borrow_mut().insert(HandleKind::CBuffer);
             self.c_buffers
                 .borrow_mut()
@@ -4661,6 +4561,7 @@ mod tests {
     use std::ffi::OsString;
 
     use super::*;
+    use crate::filesystem::Job as FilesystemJob;
 
     #[repr(align(2))]
     struct AlignedBytes<const N: usize>([u8; N]);
@@ -5435,15 +5336,13 @@ mod tests {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
-        let job = thread_pool::make_read_job(Arc::new(Resource::invalid()), 3, -1);
+        let job = FilesystemJob::read(Arc::new(Resource::invalid()), 3, -1);
         let job_handle = host.insert_job(job).unwrap();
         {
             let mut jobs = host.jobs.borrow_mut();
             let job = jobs.visible_job_mut(job_key(&host, job_handle)).unwrap();
-            let thread_pool::JobPayload::Read { result, .. } = job.payload_mut() else {
-                panic!("expected read job");
-            };
-            *result = Some(b"abc".to_vec());
+            let job = job.filesystem_mut().unwrap();
+            job.set_read_result(b"abc".to_vec()).unwrap();
             host.thread_pool_completions
                 .borrow()
                 .notifier
@@ -5515,7 +5414,7 @@ mod tests {
             AsyncHostError::Badf
         );
 
-        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 4, false);
+        let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
         let job = host.insert_job(job).unwrap();
         host.run_job(job).unwrap();
 
@@ -5535,7 +5434,7 @@ mod tests {
         let host = AsyncHost::default();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
         let lease = host.lease_c_buffer(handle).unwrap();
-        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 4, false);
+        let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
         let job = host.insert_job(job).unwrap();
 
         host.free_job(job).unwrap();
@@ -5552,7 +5451,7 @@ mod tests {
         let host = AsyncHost::default();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
         let lease = host.lease_c_buffer(handle).unwrap();
-        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 4, false);
+        let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
         let job = host.insert_job(job).unwrap();
         let worker_job = host
             .take_worker_job(WorkerCompletionId::from_abi(1), job_key(&host, job))
@@ -5577,7 +5476,7 @@ mod tests {
         let host = AsyncHost::default();
         let handle = host.insert_c_buffer(b"old".to_vec().into_boxed_slice());
         let lease = host.lease_c_buffer(handle).unwrap();
-        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 3, false);
+        let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 3, false);
         let job = host.insert_job(job).unwrap();
 
         host.free_c_buffer(handle).unwrap();
@@ -5600,19 +5499,16 @@ mod tests {
     fn realpath_result_is_registered_c_buffer_cleaned_up_with_job() {
         let host = AsyncHost::default();
         let job_handle = host
-            .insert_job(thread_pool::make_realpath_job(std::ffi::OsString::from(
+            .insert_job(FilesystemJob::realpath(std::ffi::OsString::from(
                 "/tmp/example",
             )))
             .unwrap();
         {
             let mut jobs = host.jobs.borrow_mut();
             let job = jobs.visible_job_mut(job_key(&host, job_handle)).unwrap();
-            let thread_pool::JobPayload::Realpath { result, .. } = job.payload_mut() else {
-                panic!("expected realpath job");
-            };
-            *result = Some(thread_pool::RealpathJobResult::Unpublished(
-                b"/tmp/example\0".to_vec().into_boxed_slice(),
-            ));
+            let job = job.filesystem_mut().unwrap();
+            job.set_realpath_result(b"/tmp/example\0".to_vec().into_boxed_slice())
+                .unwrap();
         }
 
         let buffer_handle = host.get_realpath_result(job_handle).unwrap();
@@ -5680,7 +5576,7 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("moonrun-published-open-job-{}", std::process::id()));
         let job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 path.as_os_str().to_os_string(),
                 2,
                 3,
@@ -5720,7 +5616,7 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 denied_file.as_os_str().to_os_string(),
                 0,
                 0,
@@ -5753,7 +5649,7 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let job = host
-            .insert_job(thread_pool::make_realpath_job(
+            .insert_job(FilesystemJob::realpath(
                 denied_file.as_os_str().to_os_string(),
             ))
             .unwrap();
@@ -5783,7 +5679,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_source = host.init_thread_pool(poll).unwrap();
         let job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 denied_file.as_os_str().to_os_string(),
                 0,
                 0,
@@ -5847,7 +5743,7 @@ mod tests {
             )
             .unwrap();
         let job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 link.as_os_str().to_os_string(),
                 0,
                 0,
@@ -5887,12 +5783,12 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let remove_job = host
-            .insert_job(thread_pool::make_remove_job(
+            .insert_job(FilesystemJob::remove(
                 denied_link.as_os_str().to_os_string(),
             ))
             .unwrap();
         let rename_job = host
-            .insert_job(thread_pool::make_rename_job(
+            .insert_job(FilesystemJob::rename(
                 allowed_source.as_os_str().to_os_string(),
                 denied_link.as_os_str().to_os_string(),
                 true,
@@ -5938,14 +5834,14 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let kind_job = host
-            .insert_job(thread_pool::make_file_kind_by_path_job(
+            .insert_job(FilesystemJob::file_kind_by_path(
                 None,
                 denied_link.as_os_str().to_os_string(),
                 false,
             ))
             .unwrap();
         let time_job = host
-            .insert_job(thread_pool::make_file_time_by_path_job(
+            .insert_job(FilesystemJob::file_time_by_path(
                 denied_link.as_os_str().to_os_string(),
                 false,
             ))
@@ -5988,7 +5884,7 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let parent_open_job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 allowed.as_os_str().to_os_string(),
                 0,
                 0,
@@ -6002,14 +5898,14 @@ mod tests {
         let parent_fd = host.open_job_get_fd(parent_open_job).unwrap();
         let parent = host.acquire_resource(parent_fd).unwrap();
         let allowed_link_job = host
-            .insert_job(thread_pool::make_file_kind_by_path_job(
+            .insert_job(FilesystemJob::file_kind_by_path(
                 Some(Arc::clone(&parent)),
                 std::ffi::OsString::from("link.txt"),
                 false,
             ))
             .unwrap();
         let denied_link_job = host
-            .insert_job(thread_pool::make_file_kind_by_path_job(
+            .insert_job(FilesystemJob::file_kind_by_path(
                 None,
                 denied_link.as_os_str().to_os_string(),
                 false,
@@ -6042,7 +5938,7 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nwrite = [\"writable\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let open_job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 file.as_os_str().to_os_string(),
                 1,
                 0,
@@ -6056,10 +5952,10 @@ mod tests {
         let fd = host.open_job_get_fd(open_job).unwrap();
         let resource = host.acquire_resource(fd).unwrap();
         let size_job = host
-            .insert_job(thread_pool::make_file_size_job(Arc::clone(&resource)))
+            .insert_job(FilesystemJob::file_size(Arc::clone(&resource)))
             .unwrap();
         let time_job = host
-            .insert_job(thread_pool::make_file_time_job(Arc::clone(&resource)))
+            .insert_job(FilesystemJob::file_time(Arc::clone(&resource)))
             .unwrap();
 
         host.run_job(size_job).unwrap();
@@ -6093,7 +5989,7 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nwrite = [\"writable\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let open_job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 file.as_os_str().to_os_string(),
                 1,
                 0,
@@ -6128,28 +6024,34 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nwrite = [\"writable\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let identity_job = host
-            .insert_job(thread_pool::make_open_stat_job(
-                file.as_os_str().to_os_string(),
-                1,
-                0,
-                false,
-                0,
-                0,
-                thread_pool::STAT_OPEN_IDENTITY,
-                32,
-            ))
+            .insert_job(
+                FilesystemJob::open(
+                    file.as_os_str().to_os_string(),
+                    1,
+                    0,
+                    false,
+                    0,
+                    0,
+                    crate::filesystem::STAT_OPEN_IDENTITY,
+                    32,
+                )
+                .unwrap(),
+            )
             .unwrap();
         let metadata_job = host
-            .insert_job(thread_pool::make_open_stat_job(
-                file.as_os_str().to_os_string(),
-                1,
-                0,
-                false,
-                0,
-                0,
-                thread_pool::STAT_OPEN_IDENTITY | 0x0002,
-                40,
-            ))
+            .insert_job(
+                FilesystemJob::open(
+                    file.as_os_str().to_os_string(),
+                    1,
+                    0,
+                    false,
+                    0,
+                    0,
+                    crate::filesystem::STAT_OPEN_IDENTITY | 0x0002,
+                    40,
+                )
+                .unwrap(),
+            )
             .unwrap();
 
         host.run_job(identity_job).unwrap();
@@ -6177,7 +6079,7 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nread = [\"readable\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let open_job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 file.as_os_str().to_os_string(),
                 0,
                 0,
@@ -6210,7 +6112,7 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nread = [\"readable\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
         let open_job = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 file.as_os_str().to_os_string(),
                 0,
                 0,
@@ -6224,7 +6126,7 @@ mod tests {
         let fd = host.open_job_get_fd(open_job).unwrap();
         let resource = host.acquire_resource(fd).unwrap();
         let flock_job = host
-            .insert_job(thread_pool::make_flock_job(Arc::clone(&resource), true))
+            .insert_job(FilesystemJob::flock(Arc::clone(&resource), true))
             .unwrap();
 
         host.run_job(flock_job).unwrap();
@@ -6285,7 +6187,7 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("moonrun-discarded-open-job-{}", std::process::id()));
         let job_handle = host
-            .insert_job(thread_pool::make_open_job(
+            .insert_job(FilesystemJob::open_legacy(
                 path.as_os_str().to_os_string(),
                 2,
                 3,
@@ -6301,8 +6203,8 @@ mod tests {
 
         assert_eq!(job.err(), 0);
         assert!(matches!(
-            thread_pool::open_job_result(&job).unwrap().resource,
-            OpenJobResource::Unpublished(_)
+            job.filesystem().unwrap().open_result().unwrap().resource,
+            ResourcePublication::Unpublished(_)
         ));
         assert_eq!(resource_count(&host), 0);
         host.jobs.borrow_mut().jobs.remove(key);
@@ -6460,7 +6362,7 @@ mod tests {
         ));
         std::fs::write(&displaced_path, b"displaced").unwrap();
         let displaced_job = host
-            .insert_job(thread_pool::make_remove_job(
+            .insert_job(FilesystemJob::remove(
                 displaced_path.as_os_str().to_os_string(),
             ))
             .unwrap();
@@ -6470,7 +6372,7 @@ mod tests {
         ));
         std::fs::write(&queued_path, b"queued").unwrap();
         let queued_job = host
-            .insert_job(thread_pool::make_remove_job(
+            .insert_job(FilesystemJob::remove(
                 queued_path.as_os_str().to_os_string(),
             ))
             .unwrap();
@@ -6512,11 +6414,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let first_job = host
-            .insert_job(thread_pool::make_read_job(
-                Arc::new(Resource::invalid()),
-                1,
-                -1,
-            ))
+            .insert_job(FilesystemJob::read(Arc::new(Resource::invalid()), 1, -1))
             .unwrap();
         let old_worker = host.spawn_worker(42, first_job).unwrap();
         host.poll_wait(poll, 1000).unwrap();
@@ -6537,11 +6435,7 @@ mod tests {
 
         host.init_thread_pool(poll).unwrap();
         let second_job = host
-            .insert_job(thread_pool::make_read_job(
-                Arc::new(Resource::invalid()),
-                1,
-                -1,
-            ))
+            .insert_job(FilesystemJob::read(Arc::new(Resource::invalid()), 1, -1))
             .unwrap();
         let new_worker = host.spawn_worker(43, second_job).unwrap();
         let wake_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
@@ -6601,11 +6495,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let job = host
-            .insert_job(thread_pool::make_read_job(
-                Arc::new(Resource::invalid()),
-                1,
-                -1,
-            ))
+            .insert_job(FilesystemJob::read(Arc::new(Resource::invalid()), 1, -1))
             .unwrap();
         let worker = host.spawn_worker(42, job).unwrap();
         host.poll_wait(poll, 1000).unwrap();
@@ -6660,7 +6550,7 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
         let job = host
-            .insert_job(thread_pool::make_read_job(
+            .insert_job(FilesystemJob::read(
                 host.acquire_resource(read).unwrap(),
                 1,
                 -1,

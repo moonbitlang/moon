@@ -20,14 +20,13 @@ use std::ffi::OsString;
 #[cfg(unix)]
 use std::sync::Arc;
 
-use crate::async_host::{AsyncHostResult, CBufferLease};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
+use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
-use crate::resource::{Resource, ResourceRef};
-
-use super::stat::{PackedStat, StatRequest};
+use crate::resource::{ResourcePublication, ResourceRef};
 
 pub(crate) type ResourceHandle = u64;
 pub(crate) type HostHandle = ResourceHandle;
@@ -42,37 +41,12 @@ pub(crate) struct SpawnOptions {
     pub(crate) is_orphan: bool,
 }
 
-#[derive(Debug)]
-pub(crate) struct OpenJobResult {
-    pub(crate) resource: OpenJobResource,
-    pub(super) stat: PackedStat,
-}
-
-#[derive(Debug)]
-pub(crate) enum OpenJobResource {
-    Unpublished(Resource),
-    Published(HostHandle),
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct FileTimeResult(fd_util::stub::FileTime);
-
-impl FileTimeResult {
-    pub(crate) fn new(file_time: fd_util::stub::FileTime) -> Self {
-        Self(file_time)
-    }
-
-    pub(crate) fn as_native(&self) -> &fd_util::stub::FileTime {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for FileTimeResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("FileTimeResult").finish_non_exhaustive()
-    }
-}
-
+/// A host operation following the `moonbitlang/async` native Job contract.
+///
+/// `err` is reserved for host and system errors handled uniformly by the
+/// MoonBit worker loop. When `err` is zero, `ret` is defined by the payload: it
+/// may be a value, a success sentinel, or a domain-specific status code.
+/// Structured results and domain-specific diagnostics remain in the payload.
 #[derive(Debug)]
 pub(crate) struct Job {
     ret: i64,
@@ -95,6 +69,20 @@ impl Job {
 
     pub(crate) fn payload_mut(&mut self) -> &mut JobPayload {
         &mut self.payload
+    }
+
+    pub(crate) fn filesystem(&self) -> AsyncHostResult<&FilesystemJob> {
+        match &self.payload {
+            JobPayload::Filesystem(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    pub(crate) fn filesystem_mut(&mut self) -> AsyncHostResult<&mut FilesystemJob> {
+        match &mut self.payload {
+            JobPayload::Filesystem(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
     }
 
     pub(crate) fn ret(&self) -> i64 {
@@ -122,12 +110,10 @@ impl From<NetworkJob> for Job {
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum RealpathJobResult {
-    // The completed job owns the native path until the guest requests it.
-    Unpublished(Box<[u8]>),
-    // The host c_buffer table owns the path and the job finalizer releases it.
-    Published(HostHandle),
+impl From<FilesystemJob> for Job {
+    fn from(job: FilesystemJob) -> Self {
+        Self::new(JobPayload::Filesystem(job))
+    }
 }
 
 #[derive(Debug)]
@@ -138,110 +124,8 @@ pub(crate) enum JobPayload {
     Sleep {
         duration_ms: i32,
     },
-    Read {
-        file: Option<ResourceRef>,
-        len: u32,
-        position: i64,
-        result: Option<Vec<u8>>,
-    },
-    Write {
-        file: Option<ResourceRef>,
-        data: Vec<u8>,
-        position: i64,
-    },
-    Open {
-        filename: OsString,
-        access: i32,
-        create_mode: i32,
-        append: bool,
-        sync: i32,
-        mode: i32,
-        request: StatRequest,
-        result: Option<OpenJobResult>,
-    },
-    Fstatx {
-        file: Option<ResourceRef>,
-        request: StatRequest,
-        result: Option<PackedStat>,
-    },
-    Statx {
-        parent: Option<ResourceRef>,
-        path: OsString,
-        request: StatRequest,
-        follow_symlink: bool,
-        result: Option<PackedStat>,
-    },
-    FileKindByPath {
-        parent: Option<ResourceRef>,
-        path: OsString,
-        follow_symlink: bool,
-    },
-    FileSize {
-        file: Option<ResourceRef>,
-        result: i64,
-    },
-    FileTime {
-        file: Option<ResourceRef>,
-        result: Option<FileTimeResult>,
-    },
-    FileTimeByPath {
-        path: OsString,
-        follow_symlink: bool,
-        result: Option<FileTimeResult>,
-    },
-    Access {
-        path: OsString,
-        access: i32,
-    },
-    Chmod {
-        path: OsString,
-        mode: i32,
-    },
-    Fsync {
-        file: Option<ResourceRef>,
-        only_data: bool,
-    },
-    Flock {
-        file: Option<ResourceRef>,
-        exclusive: bool,
-    },
-    Remove {
-        path: OsString,
-    },
-    Rename {
-        old_path: OsString,
-        new_path: OsString,
-        replace: bool,
-    },
-    Symlink {
-        target: OsString,
-        path: OsString,
-        force_symlink: bool,
-    },
-    Mkdir {
-        path: OsString,
-        mode: i32,
-    },
-    Rmdir {
-        path: OsString,
-    },
-    Readdir {
-        dir: Option<ResourceRef>,
-        buffer: Option<CBufferLease>,
-        len: u32,
-        restart: bool,
-    },
-    #[cfg(target_os = "linux")]
-    InotifyAddWatch {
-        inotify: Option<ResourceRef>,
-        path: OsString,
-        is_dir: bool,
-    },
+    Filesystem(FilesystemJob),
     Network(NetworkJob),
-    Realpath {
-        path: OsString,
-        result: Option<RealpathJobResult>,
-    },
     #[cfg(unix)]
     SpawnUnix {
         path: OsString,
@@ -250,7 +134,7 @@ pub(crate) enum JobPayload {
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
-        result: Option<OpenJobResource>,
+        result: Option<ResourcePublication>,
     },
     #[cfg(windows)]
     SpawnWindows {
@@ -259,7 +143,7 @@ pub(crate) enum JobPayload {
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
-        result: Option<OpenJobResource>,
+        result: Option<ResourcePublication>,
     },
     WaitForProcess {
         handle: Option<ResourceRef>,

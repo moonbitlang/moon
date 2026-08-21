@@ -185,7 +185,7 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
 #[cfg(test)]
 pub(crate) fn compat_symbols() -> Vec<CompatSymbol> {
     let mut symbols = Vec::new();
+    symbols.extend(crate::filesystem::compat_symbols());
     symbols.extend_from_slice(internal::fd_util::stub::COMPAT_SYMBOLS);
-    symbols.extend(internal::event_loop::thread_pool::compat_symbols());
     symbols
 }

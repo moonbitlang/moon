@@ -16,8 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Concrete filesystem job executors ported from
-//! `moonbitlang/async/src/internal/event_loop/thread_pool.c`.
+//! Blocking filesystem operations executed by Filesystem Jobs.
 
 use std::ffi::OsString;
 #[cfg(unix)]
@@ -28,10 +27,10 @@ use std::os::windows::io::AsRawHandle;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
-use crate::resource::Resource;
+use crate::resource::{Resource, ResourcePublication};
 
 use super::stat::{StatRequest, run_fstatx_job};
-use super::{FileTimeResult, OpenJobResource, OpenJobResult, RealpathJobResult};
+use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -67,7 +66,7 @@ ported_fns! {
         let mut stat = None;
         run_fstatx_job(&resource, request, &mut stat)?;
         *result = Some(OpenJobResult {
-            resource: OpenJobResource::Unpublished(resource),
+            resource: ResourcePublication::Unpublished(resource),
             stat: stat.ok_or(AsyncHostError::Io)?,
         });
         Ok(0)

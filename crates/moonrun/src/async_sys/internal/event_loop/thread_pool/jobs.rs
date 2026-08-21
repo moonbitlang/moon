@@ -24,27 +24,19 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
-use crate::resource::ResourceRef;
+use crate::resource::{ResourcePublication, ResourceRef};
 
-use super::stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
-use super::types::{
-    HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, RealpathJobResult, SpawnOptions,
-    platform,
-};
+use super::types::{HostHandle, Job, JobPayload, SpawnOptions, platform};
 
 pub(crate) fn make_failed_job(errno: i32) -> Job {
     Job::new(JobPayload::Failed { errno })
 }
 
-ported_fns! {
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_get_platform"
-    )]
-    pub(crate) fn get_platform() -> i32 {
-        platform()
-    }
+pub(crate) fn get_platform() -> i32 {
+    platform()
+}
 
+ported_fns! {
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_job_get_ret"
@@ -76,579 +68,136 @@ ported_fns! {
             errno == libc::EINTR
         }
     }
+}
 
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_sleep_job"
-    )]
-    pub(crate) fn make_sleep_job(ms: i32) -> Job {
-        Job::new(JobPayload::Sleep { duration_ms: ms })
-    }
+pub(crate) fn make_sleep_job(ms: i32) -> Job {
+    Job::new(JobPayload::Sleep { duration_ms: ms })
+}
 
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_read_job"
-    )]
-    pub(crate) fn make_read_job(
-        file: ResourceRef,
-        len: u32,
-        position: i64,
-    ) -> Job {
-        Job::new(JobPayload::Read {
-            file: Some(file),
-            len,
-            position,
-            result: None,
-        })
-    }
+#[allow(clippy::too_many_arguments)]
+#[cfg(unix)]
+pub(crate) fn make_spawn_job_unix(
+    path: OsString,
+    args: Vec<OsString>,
+    env: Vec<OsString>,
+    stdin: Option<ResourceRef>,
+    stdout: Option<ResourceRef>,
+    stderr: Option<ResourceRef>,
+    cwd: Option<OsString>,
+    options: SpawnOptions,
+) -> Job {
+    Job::new(JobPayload::SpawnUnix {
+        path,
+        args,
+        env,
+        options,
+        stdio: [stdin, stdout, stderr],
+        cwd,
+        result: None,
+    })
+}
 
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_write_job"
-    )]
-    pub(crate) fn make_write_job(file: ResourceRef, data: Vec<u8>, position: i64) -> Job {
-        Job::new(JobPayload::Write {
-            file: Some(file),
-            data,
-            position,
-        })
-    }
+#[allow(clippy::too_many_arguments)]
+#[cfg(windows)]
+pub(crate) fn make_spawn_job_windows(
+    command_line: OsString,
+    env: Vec<u16>,
+    stdin: Option<ResourceRef>,
+    stdout: Option<ResourceRef>,
+    stderr: Option<ResourceRef>,
+    cwd: Option<OsString>,
+    options: SpawnOptions,
+) -> Job {
+    Job::new(JobPayload::SpawnWindows {
+        command_line,
+        env,
+        options,
+        stdio: [stdin, stdout, stderr],
+        cwd,
+        result: None,
+    })
+}
 
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_open_job",
-        upstream_pr = 527,
-        replacement = "make_open_stat_job"
-    )]
-    pub(crate) fn make_open_job(
-        filename: OsString,
-        access: i32,
-        create_mode: i32,
-        append: bool,
-        sync: i32,
-        mode: i32,
-    ) -> Job {
-        Job::new(JobPayload::Open {
-            filename,
-            access,
-            create_mode,
-            append,
-            sync,
-            mode,
-            request: StatRequest::open_identity(),
-            result: None,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_open_job"
-    )]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn make_open_stat_job(
-        filename: OsString,
-        access: i32,
-        create_mode: i32,
-        append: bool,
-        sync: i32,
-        mode: i32,
-        stat_request: u32,
-        stat_result_len: u32,
-    ) -> Job {
-        let request = match StatRequest::new(stat_request, stat_result_len) {
-            Ok(request) => request,
-            Err(error) => return make_failed_job(error.errno()),
-        };
-        Job::new(JobPayload::Open {
-            filename,
-            access,
-            create_mode,
-            append,
-            sync,
-            mode,
-            request,
-            result: None,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_fstatx_job"
-    )]
-    pub(crate) fn make_fstatx_job(
-        file: ResourceRef,
-        stat_request: u32,
-        stat_result_len: u32,
-    ) -> Job {
-        let request = match StatRequest::new(stat_request, stat_result_len) {
-            Ok(request) => request,
-            Err(error) => return make_failed_job(error.errno()),
-        };
-        Job::new(JobPayload::Fstatx {
-            file: Some(file),
-            request,
-            result: None,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_statx_job"
-    )]
-    pub(crate) fn make_statx_job(
-        parent: Option<ResourceRef>,
-        path: OsString,
-        stat_request: u32,
-        stat_result_len: u32,
-        follow_symlink: bool,
-    ) -> Job {
-        let request = match StatRequest::new(stat_request, stat_result_len) {
-            Ok(request) => request,
-            Err(error) => return make_failed_job(error.errno()),
-        };
-        Job::new(JobPayload::Statx {
-            parent,
-            path,
-            request,
-            follow_symlink,
-            result: None,
-        })
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_file_kind_by_path_job",
-        upstream_pr = 527,
-        replacement = "make_statx_job with STAT_FILE_KIND"
-    )]
-    pub(crate) fn make_file_kind_by_path_job(
-        parent: Option<ResourceRef>,
-        path: OsString,
-        follow_symlink: bool,
-    ) -> Job {
-        Job::new(JobPayload::FileKindByPath {
-            parent,
-            path,
-            follow_symlink,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_open_job_get_fd"
-    )]
-    pub(crate) fn open_job_get_fd(result: &OpenJobResult) -> AsyncHostResult<HostHandle> {
-        match &result.resource {
-            OpenJobResource::Published(fd) => Ok(*fd),
-            OpenJobResource::Unpublished(_) => Err(AsyncHostError::Inval),
+pub(crate) fn spawn_job_set_cwd(job: &mut Job, cwd: OsString) -> AsyncHostResult<()> {
+    match job.payload_mut() {
+        #[cfg(unix)]
+        JobPayload::SpawnUnix { cwd: job_cwd, .. } => {
+            *job_cwd = Some(cwd);
+            Ok(())
         }
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_open_job_get_kind",
-        upstream_pr = 527,
-        replacement = "get_stat_result with STAT_FILE_KIND"
-    )]
-    pub(crate) fn open_job_get_kind(result: &OpenJobResult) -> AsyncHostResult<i32> {
-        result
-            .stat
-            .scalar(STAT_FILE_KIND)
-            .map(|value| value as i32)
-            .ok_or(AsyncHostError::Inval)
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_open_job_get_dev_id",
-        upstream_pr = 527,
-        replacement = "get_stat_result with STAT_DEVICE_ID"
-    )]
-    pub(crate) fn open_job_get_dev_id(result: &OpenJobResult) -> AsyncHostResult<u64> {
-        result
-            .stat
-            .scalar(STAT_DEVICE_ID)
-            .ok_or(AsyncHostError::Inval)
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_open_job_get_file_id",
-        upstream_pr = 527,
-        replacement = "get_stat_result with STAT_FILE_ID"
-    )]
-    pub(crate) fn open_job_get_file_id(result: &OpenJobResult) -> AsyncHostResult<u64> {
-        result
-            .stat
-            .scalar(STAT_FILE_ID)
-            .ok_or(AsyncHostError::Inval)
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_file_size_job",
-        upstream_pr = 527,
-        replacement = "make_fstatx_job with STAT_FILE_SIZE"
-    )]
-    pub(crate) fn make_file_size_job(file: ResourceRef) -> Job {
-        Job::new(JobPayload::FileSize {
-            file: Some(file),
-            result: 0,
-        })
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_file_time_job",
-        upstream_pr = 527,
-        replacement = "make_fstatx_job with timestamp properties"
-    )]
-    pub(crate) fn make_file_time_job(file: ResourceRef) -> Job {
-        Job::new(JobPayload::FileTime {
-            file: Some(file),
-            result: None,
-        })
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_file_time_by_path_job",
-        upstream_pr = 527,
-        replacement = "make_statx_job with timestamp properties"
-    )]
-    pub(crate) fn make_file_time_by_path_job(
-        path: OsString,
-        follow_symlink: bool,
-    ) -> Job {
-        Job::new(JobPayload::FileTimeByPath {
-            path,
-            follow_symlink,
-            result: None,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_access_job"
-    )]
-    pub(crate) fn make_access_job(path: OsString, access: i32) -> Job {
-        Job::new(JobPayload::Access { path, access })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_chmod_job"
-    )]
-    pub(crate) fn make_chmod_job(path: OsString, mode: i32) -> Job {
-        Job::new(JobPayload::Chmod { path, mode })
-    }
-
-    #[compat(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_get_file_size_result",
-        upstream_pr = 527,
-        replacement = "get_stat_result"
-    )]
-    pub(crate) fn get_file_size_result(job: &Job) -> AsyncHostResult<i64> {
-        match job.payload() {
-            JobPayload::FileSize { result, .. } => Ok(*result),
-            _ => Err(AsyncHostError::Badf),
+        #[cfg(windows)]
+        JobPayload::SpawnWindows { cwd: job_cwd, .. } => {
+            *job_cwd = Some(cwd);
+            Ok(())
         }
+        _ => Err(AsyncHostError::Badf),
     }
+}
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_fsync_job"
-    )]
-    pub(crate) fn make_fsync_job(file: ResourceRef, only_data: bool) -> Job {
-        Job::new(JobPayload::Fsync {
-            file: Some(file),
-            only_data,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_flock_job"
-    )]
-    pub(crate) fn make_flock_job(file: ResourceRef, exclusive: bool) -> Job {
-        Job::new(JobPayload::Flock {
-            file: Some(file),
-            exclusive,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_remove_job"
-    )]
-    pub(crate) fn make_remove_job(path: OsString) -> Job {
-        Job::new(JobPayload::Remove { path })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_rename_job"
-    )]
-    pub(crate) fn make_rename_job(old_path: OsString, new_path: OsString, replace: bool) -> Job {
-        Job::new(JobPayload::Rename {
-            old_path,
-            new_path,
-            replace,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_symlink_job"
-    )]
-    pub(crate) fn make_symlink_job(target: OsString, path: OsString, force_symlink: bool) -> Job {
-        Job::new(JobPayload::Symlink {
-            target,
-            path,
-            force_symlink,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_mkdir_job"
-    )]
-    pub(crate) fn make_mkdir_job(path: OsString, mode: i32) -> Job {
-        Job::new(JobPayload::Mkdir { path, mode })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_rmdir_job"
-    )]
-    pub(crate) fn make_rmdir_job(path: OsString) -> Job {
-        Job::new(JobPayload::Rmdir { path })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_readdir_job"
-    )]
-    pub(crate) fn make_readdir_job(
-        dir: ResourceRef,
-        buffer: crate::async_host::CBufferLease,
-        len: u32,
-        restart: bool,
-    ) -> Job {
-        Job::new(JobPayload::Readdir {
-            dir: Some(dir),
-            buffer: Some(buffer),
-            len,
-            restart,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_inotify_add_watch_job"
-    )]
-    #[cfg(target_os = "linux")]
-    pub(crate) fn make_inotify_add_watch_job(
-        inotify: ResourceRef,
-        path: OsString,
-        is_dir: bool,
-    ) -> Job {
-        Job::new(JobPayload::InotifyAddWatch {
-            inotify: Some(inotify),
-            path,
-            is_dir,
-        })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_make_realpath_job"
-    )]
-    pub(crate) fn make_realpath_job(path: OsString) -> Job {
-        Job::new(JobPayload::Realpath { path, result: None })
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "moonbitlang_async_get_realpath_result"
-    )]
-    pub(crate) fn publish_realpath_result(
-        job: &mut Job,
-        publish: impl FnOnce(Box<[u8]>) -> HostHandle,
-    ) -> AsyncHostResult<HostHandle> {
-        match job.payload_mut() {
-            JobPayload::Realpath {
-                result: Some(RealpathJobResult::Published(handle)),
-                ..
-            } => Ok(*handle),
-            JobPayload::Realpath { result, .. } => {
-                let Some(RealpathJobResult::Unpublished(buffer)) = result.take() else {
-                    return Err(AsyncHostError::Inval);
-                };
-                let handle = publish(buffer);
-                *result = Some(RealpathJobResult::Published(handle));
-                Ok(handle)
-            }
-            _ => Err(AsyncHostError::Badf),
+#[cfg(windows)]
+pub(crate) fn spawn_job_set_no_console_window(job: &mut Job) -> AsyncHostResult<()> {
+    match job.payload_mut() {
+        JobPayload::SpawnWindows { options, .. } => {
+            options.no_console_window = true;
+            Ok(())
         }
+        _ => Err(AsyncHostError::Badf),
     }
+}
 
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_spawn_job"
-    )]
-    #[allow(clippy::too_many_arguments)]
-    #[cfg(unix)]
-    pub(crate) fn make_spawn_job_unix(
-        path: OsString,
-        args: Vec<OsString>,
-        env: Vec<OsString>,
-        stdin: Option<ResourceRef>,
-        stdout: Option<ResourceRef>,
-        stderr: Option<ResourceRef>,
-        cwd: Option<OsString>,
-        options: SpawnOptions,
-    ) -> Job {
-        Job::new(JobPayload::SpawnUnix {
-            path,
-            args,
-            env,
-            options,
-            stdio: [stdin, stdout, stderr],
-            cwd,
-            result: None,
-        })
+pub(crate) fn get_spawn_job_result_handle(job: &Job) -> AsyncHostResult<HostHandle> {
+    match job.payload() {
+        #[cfg(unix)]
+        JobPayload::SpawnUnix {
+            result: Some(ResourcePublication::Published(handle)),
+            ..
+        } => Ok(*handle),
+        #[cfg(windows)]
+        JobPayload::SpawnWindows {
+            result: Some(ResourcePublication::Published(handle)),
+            ..
+        } => Ok(*handle),
+        #[cfg(unix)]
+        JobPayload::SpawnUnix {
+            result: Some(ResourcePublication::Unpublished(_)),
+            ..
+        } => Err(AsyncHostError::Inval),
+        #[cfg(windows)]
+        JobPayload::SpawnWindows {
+            result: Some(ResourcePublication::Unpublished(_)),
+            ..
+        } => Err(AsyncHostError::Inval),
+        #[cfg(unix)]
+        JobPayload::SpawnUnix { result: None, .. } => Ok(crate::async_host::INVALID_HOST_HANDLE),
+        #[cfg(windows)]
+        JobPayload::SpawnWindows { result: None, .. } => Ok(crate::async_host::INVALID_HOST_HANDLE),
+        _ => Err(AsyncHostError::Badf),
     }
+}
 
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_spawn_job"
-    )]
-    #[allow(clippy::too_many_arguments)]
-    #[cfg(windows)]
-    pub(crate) fn make_spawn_job_windows(
-        command_line: OsString,
-        env: Vec<u16>,
-        stdin: Option<ResourceRef>,
-        stdout: Option<ResourceRef>,
-        stderr: Option<ResourceRef>,
-        cwd: Option<OsString>,
-        options: SpawnOptions,
-    ) -> Job {
-        Job::new(JobPayload::SpawnWindows {
-            command_line,
-            env,
-            options,
-            stdio: [stdin, stdout, stderr],
-            cwd,
-            result: None,
-        })
-    }
+pub(crate) fn make_wait_for_process_job(
+    handle: Option<ResourceRef>,
+    tracked_pid: Option<i32>,
+    pid: i32,
+    #[cfg(unix)] defer_reap: bool,
+) -> AsyncHostResult<Job> {
+    Ok(Job::new(JobPayload::WaitForProcess {
+        handle,
+        tracked_pid,
+        pid,
+        #[cfg(unix)]
+        defer_reap,
+        #[cfg(windows)]
+        cancel: Some(Arc::new(super::process::make_wait_for_process_cancel()?)),
+    }))
+}
 
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_spawn_job_set_cwd"
-    )]
-    pub(crate) fn spawn_job_set_cwd(job: &mut Job, cwd: OsString) -> AsyncHostResult<()> {
-        match job.payload_mut() {
-            #[cfg(unix)]
-            JobPayload::SpawnUnix { cwd: job_cwd, .. } => {
-                *job_cwd = Some(cwd);
-                Ok(())
-            }
-            #[cfg(windows)]
-            JobPayload::SpawnWindows { cwd: job_cwd, .. } => {
-                *job_cwd = Some(cwd);
-                Ok(())
-            }
-            _ => Err(AsyncHostError::Badf),
-        }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_spawn_job_set_no_console_window"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn spawn_job_set_no_console_window(job: &mut Job) -> AsyncHostResult<()> {
-        match job.payload_mut() {
-            JobPayload::SpawnWindows { options, .. } => {
-                options.no_console_window = true;
-                Ok(())
-            }
-            _ => Err(AsyncHostError::Badf),
-        }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_get_spawn_job_result_handle"
-    )]
-    pub(crate) fn get_spawn_job_result_handle(job: &Job) -> AsyncHostResult<HostHandle> {
-        match job.payload() {
-            #[cfg(unix)]
-            JobPayload::SpawnUnix {
-                result: Some(OpenJobResource::Published(handle)),
-                ..
-            } => Ok(*handle),
-            #[cfg(windows)]
-            JobPayload::SpawnWindows {
-                result: Some(OpenJobResource::Published(handle)),
-                ..
-            } => Ok(*handle),
-            #[cfg(unix)]
-            JobPayload::SpawnUnix {
-                result: Some(OpenJobResource::Unpublished(_)),
-                ..
-            } => Err(AsyncHostError::Inval),
-            #[cfg(windows)]
-            JobPayload::SpawnWindows {
-                result: Some(OpenJobResource::Unpublished(_)),
-                ..
-            } => Err(AsyncHostError::Inval),
-            #[cfg(unix)]
-            JobPayload::SpawnUnix { result: None, .. } => Ok(crate::async_host::INVALID_HOST_HANDLE),
-            #[cfg(windows)]
-            JobPayload::SpawnWindows { result: None, .. } => {
-                Ok(crate::async_host::INVALID_HOST_HANDLE)
-            }
-            _ => Err(AsyncHostError::Badf),
-        }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_wait_for_process_job"
-    )]
-    pub(crate) fn make_wait_for_process_job(
-        handle: Option<ResourceRef>,
-        tracked_pid: Option<i32>,
-        pid: i32,
-        #[cfg(unix)] defer_reap: bool,
-    ) -> AsyncHostResult<Job> {
-        Ok(Job::new(JobPayload::WaitForProcess {
-            handle,
-            tracked_pid,
-            pid,
-            #[cfg(unix)]
-            defer_reap,
-            #[cfg(windows)]
-            cancel: Some(Arc::new(super::process::make_wait_for_process_cancel()?)),
-        }))
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_make_sigwait_job"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn make_sigwait_job(
-        signals: Vec<i32>,
-        notifier: Arc<ThreadPoolCompletionNotifier>,
-    ) -> Job {
-        Job::new(JobPayload::Sigwait { signals, notifier })
-    }
+#[cfg(unix)]
+pub(crate) fn make_sigwait_job(
+    signals: Vec<i32>,
+    notifier: Arc<ThreadPoolCompletionNotifier>,
+) -> Job {
+    Job::new(JobPayload::Sigwait { signals, notifier })
 }
 
 #[cfg(windows)]
@@ -667,50 +216,7 @@ pub(crate) fn cancel_job_resource(cancel: &ResourceRef) -> AsyncHostResult<()> {
     super::process::cancel_wait_for_process(cancel)
 }
 
-pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
-    match job.payload() {
-        JobPayload::Open {
-            result: Some(result),
-            ..
-        } => Ok(result),
-        JobPayload::Open { .. } => Err(AsyncHostError::Inval),
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-pub(crate) fn open_job_result_mut(job: &mut Job) -> AsyncHostResult<&mut OpenJobResult> {
-    match job.payload_mut() {
-        JobPayload::Open {
-            result: Some(result),
-            ..
-        } => Ok(result),
-        JobPayload::Open { .. } => Err(AsyncHostError::Inval),
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-pub(crate) fn stat_job_result(job: &Job) -> AsyncHostResult<&PackedStat> {
-    match job.payload() {
-        JobPayload::Open {
-            result: Some(OpenJobResult { stat: result, .. }),
-            ..
-        }
-        | JobPayload::Fstatx {
-            result: Some(result),
-            ..
-        }
-        | JobPayload::Statx {
-            result: Some(result),
-            ..
-        } => Ok(result),
-        JobPayload::Open { .. } | JobPayload::Fstatx { .. } | JobPayload::Statx { .. } => {
-            Err(AsyncHostError::Inval)
-        }
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-pub(crate) fn take_spawn_job_result(job: &mut Job) -> AsyncHostResult<Option<OpenJobResource>> {
+pub(crate) fn take_spawn_job_result(job: &mut Job) -> AsyncHostResult<Option<ResourcePublication>> {
     match job.payload_mut() {
         #[cfg(unix)]
         JobPayload::SpawnUnix { result, .. } => Ok(result.take()),
@@ -722,7 +228,7 @@ pub(crate) fn take_spawn_job_result(job: &mut Job) -> AsyncHostResult<Option<Ope
 
 pub(crate) fn set_spawn_job_result(
     job: &mut Job,
-    resource: OpenJobResource,
+    resource: ResourcePublication,
 ) -> AsyncHostResult<()> {
     match job.payload_mut() {
         #[cfg(unix)]
@@ -743,8 +249,6 @@ pub(crate) fn set_spawn_job_result(
 mod tests {
     use super::*;
     use crate::async_sys::internal::event_loop::thread_pool::run_host_job;
-    use crate::resource::Resource;
-    use std::sync::Arc;
 
     #[test]
     fn sleep_job_initial_result_matches_native_job_header() {
@@ -755,118 +259,6 @@ mod tests {
     }
 
     #[test]
-    fn read_job_carries_resource_and_length_payload() {
-        let file = Arc::new(Resource::invalid());
-        let job = make_read_job(Arc::clone(&file), 8, -1);
-
-        match job.payload() {
-            JobPayload::Read {
-                file: Some(actual_file),
-                len,
-                position,
-                result: None,
-            } => {
-                assert!(Arc::ptr_eq(actual_file, &file));
-                assert_eq!(*len, 8);
-                assert_eq!(*position, -1);
-            }
-            other => panic!("unexpected payload: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn open_job_carries_owned_path_and_open_flags() {
-        let job = make_open_job(OsString::from("/tmp/example"), 2, 3, true, 1, 0o644);
-
-        match job.payload() {
-            JobPayload::Open {
-                filename,
-                access,
-                create_mode,
-                append,
-                sync,
-                mode,
-                request,
-                result: None,
-            } => {
-                assert_eq!(filename, &OsString::from("/tmp/example"));
-                assert_eq!(*access, 2);
-                assert_eq!(*create_mode, 3);
-                assert!(*append);
-                assert_eq!(*sync, 1);
-                assert_eq!(*mode, 0o644);
-                assert_eq!(request.mask(), super::super::stat::STAT_OPEN_IDENTITY);
-            }
-            other => panic!("unexpected payload: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn realpath_job_carries_owned_path() {
-        let job = make_realpath_job(OsString::from("/tmp/example"));
-
-        match job.payload() {
-            JobPayload::Realpath { path, result: None } => {
-                assert_eq!(path, &OsString::from("/tmp/example"));
-            }
-            other => panic!("unexpected payload: {other:?}"),
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn realpath_job_resolves_to_nul_terminated_c_buffer() {
-        use std::os::unix::ffi::OsStrExt;
-
-        let tmp = tempfile::tempdir().unwrap();
-        let target = tmp.path().join("target");
-        let link = tmp.path().join("link");
-        std::fs::create_dir(&target).unwrap();
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-
-        let mut job = make_realpath_job(link.into_os_string());
-
-        run_host_job(&mut job);
-
-        assert_eq!(job_get_ret(&job), 0);
-        assert_eq!(job_get_err(&job), 0);
-        let JobPayload::Realpath {
-            result: Some(RealpathJobResult::Unpublished(buffer)),
-            ..
-        } = job.payload()
-        else {
-            panic!("expected completed realpath job");
-        };
-        let realpath = std::ffi::CStr::from_bytes_with_nul(buffer.as_ref()).unwrap();
-        let expected = std::fs::canonicalize(target).unwrap();
-        assert_eq!(realpath.to_bytes(), expected.as_os_str().as_bytes());
-    }
-
-    #[test]
-    fn realpath_result_is_published_once() {
-        let mut job = make_realpath_job(OsString::from("unused"));
-        let JobPayload::Realpath { result, .. } = job.payload_mut() else {
-            unreachable!();
-        };
-        *result = Some(RealpathJobResult::Unpublished(
-            b"resolved\0".to_vec().into_boxed_slice(),
-        ));
-
-        let handle = publish_realpath_result(&mut job, |buffer| {
-            assert_eq!(&*buffer, b"resolved\0");
-            42
-        })
-        .unwrap();
-        let same_handle = publish_realpath_result(&mut job, |_| {
-            panic!("a published realpath result must not be published again")
-        })
-        .unwrap();
-
-        assert_eq!(handle, 42);
-        assert_eq!(same_handle, handle);
-    }
-
-    #[test]
     fn sleep_job_runs_without_error() {
         let mut job = make_sleep_job(0);
 
@@ -874,18 +266,6 @@ mod tests {
 
         assert_eq!(job_get_ret(&job), 0);
         assert_eq!(job_get_err(&job), 0);
-    }
-
-    #[test]
-    fn resource_job_releases_file_when_worker_finishes() {
-        let file = Arc::new(Resource::invalid());
-        let file_ref = Arc::downgrade(&file);
-        let mut job = make_flock_job(Arc::clone(&file), true);
-        drop(file);
-
-        run_host_job(&mut job);
-
-        assert!(file_ref.upgrade().is_none());
     }
 
     #[cfg(unix)]
