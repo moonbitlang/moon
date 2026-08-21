@@ -106,6 +106,46 @@ impl SqliteHost {
 
     pub(crate) fn clear_bindings(&self, statement: u64) -> SqliteHostResult<i32> {
         let statement = self.statement(statement)?;
+        // A busy VM's result registers may hold static references to bound
+        // text or blobs. Require a reset before releasing those bindings.
+        if unsafe { ffi::sqlite3_stmt_busy(statement.pointer.as_ptr()) } != 0 {
+            return Ok(ffi::SQLITE_MISUSE);
+        }
         Ok(unsafe { ffi::sqlite3_clear_bindings(statement.pointer.as_ptr()) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sqlite::tests::{host, open_memory, utf16le};
+
+    #[test]
+    fn clear_bindings_rejects_a_busy_statement_and_preserves_its_row() {
+        let host = host();
+        let database = open_memory(&host);
+        let sql = utf16le("SELECT ?1");
+        let statement = host
+            .prepare16_v2(database, &sql)
+            .unwrap()
+            .statement
+            .unwrap();
+        let text = utf16le("bound text long enough to require allocation");
+
+        assert_eq!(host.bind_text16(statement, 1, &text), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.step(statement), Ok(ffi::SQLITE_ROW));
+        assert_eq!(host.clear_bindings(statement), Ok(ffi::SQLITE_MISUSE));
+
+        let mut output = vec![0xffff; text.len()];
+        assert_eq!(
+            host.copy_column_text16(statement, 0, &mut output),
+            Ok(text.len() as u32)
+        );
+        assert_eq!(output, text);
+
+        assert_eq!(host.reset(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.clear_bindings(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
     }
 }

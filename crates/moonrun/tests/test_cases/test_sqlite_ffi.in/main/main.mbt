@@ -280,7 +280,6 @@ fn main raise {
     sqlite3_finalize(null_handle) == SQLITE_OK,
     msg="sqlite3_finalize(NULL) failed",
   )
-
   let denied = Ref(null_handle)
   let denied_filename = b"denied/database.sqlite"
   assert_true(
@@ -639,26 +638,6 @@ fn main raise {
   assert_true(
     blob_output[0] == 0 && blob_output[1] == 0x7F && blob_output[2] == 0xFF,
     msg="blob column did not round-trip",
-  )
-  assert_true(sqlite3_reset(bound) == SQLITE_OK, msg="sqlite3_reset failed")
-  assert_true(
-    sqlite3_step(bound) == SQLITE_ROW &&
-    sqlite3_column_int64(bound, 0) == 5000000000L,
-    msg="sqlite3_reset did not preserve bindings",
-  )
-  assert_true(sqlite3_reset(bound) == SQLITE_OK, msg="second reset failed")
-  assert_true(
-    sqlite3_clear_bindings(bound) == SQLITE_OK,
-    msg="sqlite3_clear_bindings failed",
-  )
-  assert_true(
-    sqlite3_step(bound) == SQLITE_ROW &&
-    sqlite3_column_type(bound, 0) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 1) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 2) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 3) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 4) == SQLITE_NULL,
-    msg="sqlite3_clear_bindings did not clear every binding",
   )
   assert_true(
     sqlite3_finalize(bound) == SQLITE_OK,

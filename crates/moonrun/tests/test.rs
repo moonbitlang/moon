@@ -691,6 +691,19 @@ Error: moonbitlang/sqlite.sqlite3_close failed: InvalidHandle
 }
 
 #[test]
+fn test_sqlite_binding_order() {
+    let dir = TestDir::new("test_sqlite_ffi.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .args(["test", "main", "--target", "wasm"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 3, passed: 3, failed: 0.\n");
+}
+
+#[test]
 fn test_moon_run_with_async_stdio_imports() {
     let dir = TestDir::new("test_async_stdio.in");
 
