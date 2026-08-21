@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::OsString;
+#[cfg(unix)]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostResult, CBufferLease};
