@@ -525,11 +525,13 @@ fn main raise {
   )
   let name_length = sqlite3_column_name16_length(bound, 2)
   assert_true(name_length == 3, msg="UTF-16 column name has the wrong length")
+  // A short output is a sizing probe: report the required length without
+  // partially overwriting the destination.
   let short_name : FixedArray[UInt16] = FixedArray::make(2, 0xFFFF)
   assert_true(
     sqlite3_column_name16(bound, 2, short_name, short_name.length()) ==
     name_length,
-    msg="short UTF-16 column-name copy returned the wrong length",
+    msg="short UTF-16 column-name copy did not report the required length",
   )
   assert_true(
     short_name[0] == 0xFFFF && short_name[1] == 0xFFFF,

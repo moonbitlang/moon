@@ -43,7 +43,7 @@ impl SqliteHost {
         statement: u64,
         column: i32,
     ) -> SqliteHostResult<u32> {
-        let statement = self.statement(statement)?;
+        let statement = self.result_column(statement, column)?;
         let name = unsafe { sqlite3_column_name16(statement.pointer.as_ptr(), column) };
         // The scan completes before another SQLite call can invalidate the
         // statement-owned pointer.
@@ -60,7 +60,7 @@ impl SqliteHost {
         column: i32,
         output: &mut [u16],
     ) -> SqliteHostResult<u32> {
-        let statement = self.statement(statement)?;
+        let statement = self.result_column(statement, column)?;
         let name = unsafe { sqlite3_column_name16(statement.pointer.as_ptr(), column) };
         // The copy completes before another SQLite call can invalidate the
         // statement-owned pointer.
@@ -139,6 +139,16 @@ impl SqliteHost {
             output[..length].copy_from_slice(value);
         }
         u32::try_from(length).map_err(|_| SqliteHostError::Overflow)
+    }
+
+    /// Validate metadata access, which is available without a current row.
+    fn result_column(&self, statement: u64, column: i32) -> SqliteHostResult<Statement> {
+        let statement = self.statement(statement)?;
+        let columns = unsafe { ffi::sqlite3_column_count(statement.pointer.as_ptr()) };
+        if !(0..columns).contains(&column) {
+            return Err(SqliteHostError::InvalidInput);
+        }
+        Ok(statement)
     }
 
     fn current_column(&self, statement: u64, column: i32) -> SqliteHostResult<Statement> {
@@ -296,6 +306,40 @@ mod tests {
             host.column_type(statement, 0),
             Err(SqliteHostError::InvalidInput)
         );
+        assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
+    }
+
+    #[test]
+    fn column_name_access_requires_a_valid_result_index() {
+        let host = host();
+        let database = open_memory(&host);
+        let sql = utf16le("SELECT 42 AS value");
+        let statement = host
+            .prepare16_v2(database, &sql)
+            .unwrap()
+            .statement
+            .unwrap();
+
+        assert_eq!(
+            host.column_name16_length(statement, -1),
+            Err(SqliteHostError::InvalidInput)
+        );
+        assert_eq!(
+            host.column_name16_length(statement, 1),
+            Err(SqliteHostError::InvalidInput)
+        );
+        let mut output = [0xffff; 5];
+        assert_eq!(
+            host.copy_column_name16(statement, -1, &mut output),
+            Err(SqliteHostError::InvalidInput)
+        );
+        assert_eq!(
+            host.copy_column_name16(statement, 1, &mut output),
+            Err(SqliteHostError::InvalidInput)
+        );
+        assert_eq!(output, [0xffff; 5]);
+
         assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
         assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
     }
