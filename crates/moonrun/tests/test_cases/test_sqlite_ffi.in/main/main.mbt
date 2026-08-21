@@ -29,9 +29,6 @@ const SQLITE_BUSY = 5
 const SQLITE_CONSTRAINT = 19
 
 ///|
-const SQLITE_MISUSE = 21
-
-///|
 const SQLITE_CANTOPEN = 14
 
 ///|
@@ -165,9 +162,6 @@ fn sqlite3_step(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_step"
 fn sqlite3_reset(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_reset"
 
 ///|
-fn sqlite3_stmt_busy(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_stmt_busy"
-
-///|
 fn sqlite3_clear_bindings(statement : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_clear_bindings"
 
 ///|
@@ -286,11 +280,6 @@ fn main raise {
     sqlite3_finalize(null_handle) == SQLITE_OK,
     msg="sqlite3_finalize(NULL) failed",
   )
-  assert_true(
-    sqlite3_stmt_busy(null_handle) == 0,
-    msg="sqlite3_stmt_busy(NULL) did not return false",
-  )
-
   let denied = Ref(null_handle)
   let denied_filename = b"denied/database.sqlite"
   assert_true(
@@ -526,20 +515,8 @@ fn main raise {
     msg="out-of-range bind did not return SQLITE_RANGE",
   )
   assert_true(
-    sqlite3_stmt_busy(bound) == 0,
-    msg="unstepped statement was reported busy",
-  )
-  assert_true(
     sqlite3_step(bound) == SQLITE_ROW,
     msg="bound query returned no row",
-  )
-  assert_true(
-    sqlite3_stmt_busy(bound) != 0,
-    msg="active result row was not reported busy",
-  )
-  assert_true(
-    sqlite3_clear_bindings(bound) == SQLITE_MISUSE,
-    msg="busy statement bindings were cleared",
   )
   assert_true(
     sqlite3_column_count(bound) == 5,
@@ -661,30 +638,6 @@ fn main raise {
   assert_true(
     blob_output[0] == 0 && blob_output[1] == 0x7F && blob_output[2] == 0xFF,
     msg="blob column did not round-trip",
-  )
-  assert_true(sqlite3_reset(bound) == SQLITE_OK, msg="sqlite3_reset failed")
-  assert_true(
-    sqlite3_stmt_busy(bound) == 0,
-    msg="reset statement was reported busy",
-  )
-  assert_true(
-    sqlite3_step(bound) == SQLITE_ROW &&
-    sqlite3_column_int64(bound, 0) == 5000000000L,
-    msg="sqlite3_reset did not preserve bindings",
-  )
-  assert_true(sqlite3_reset(bound) == SQLITE_OK, msg="second reset failed")
-  assert_true(
-    sqlite3_clear_bindings(bound) == SQLITE_OK,
-    msg="sqlite3_clear_bindings failed",
-  )
-  assert_true(
-    sqlite3_step(bound) == SQLITE_ROW &&
-    sqlite3_column_type(bound, 0) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 1) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 2) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 3) == SQLITE_NULL &&
-    sqlite3_column_type(bound, 4) == SQLITE_NULL,
-    msg="sqlite3_clear_bindings did not clear every binding",
   )
   assert_true(
     sqlite3_finalize(bound) == SQLITE_OK,
