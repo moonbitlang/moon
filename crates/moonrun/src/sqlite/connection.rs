@@ -120,6 +120,9 @@ impl SqliteHost {
 
     pub(crate) fn changes64(&self, database: u64) -> SqliteHostResult<i64> {
         let database = self.database(database)?;
+        if !database.is_ready() {
+            return Err(SqliteHostError::InvalidInput);
+        }
         Ok(unsafe { ffi::sqlite3_changes64(database.pointer().as_ptr()) })
     }
 
@@ -277,5 +280,16 @@ mod tests {
             Ok(0)
         );
         assert_eq!(output, [0xffff]);
+    }
+
+    #[test]
+    fn changes64_rejects_a_failed_connection() {
+        let host = host();
+        let outcome = host.open_v2(c":memory:", 0, null_handle());
+        assert_eq!(outcome.code, ffi::SQLITE_MISUSE);
+        let database = outcome.database.unwrap();
+
+        assert_eq!(host.changes64(database), Err(SqliteHostError::InvalidInput));
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
     }
 }
