@@ -105,7 +105,7 @@ impl SqliteHost {
         let message = unsafe { sqlite3_errmsg16(database.pointer().as_ptr()) };
         // No other thread can access this run-local connection, and the scan
         // finishes before another SQLite call can invalidate the pointer.
-        unsafe { utf16_message_length(message) }
+        unsafe { utf16_string_length(message) }
     }
 
     pub(crate) fn errcode(&self, database: u64) -> SqliteHostResult<i32> {
@@ -116,6 +116,14 @@ impl SqliteHost {
     pub(crate) fn extended_errcode(&self, database: u64) -> SqliteHostResult<i32> {
         let database = self.database(database)?;
         Ok(unsafe { ffi::sqlite3_extended_errcode(database.pointer().as_ptr()) })
+    }
+
+    pub(crate) fn changes64(&self, database: u64) -> SqliteHostResult<i64> {
+        let database = self.database(database)?;
+        if !database.is_ready() {
+            return Err(SqliteHostError::InvalidInput);
+        }
+        Ok(unsafe { ffi::sqlite3_changes64(database.pointer().as_ptr()) })
     }
 
     /// Copy SQLite's current connection error while its pointer is valid.
@@ -129,7 +137,7 @@ impl SqliteHost {
         let message = unsafe { sqlite3_errmsg16(database.pointer().as_ptr()) };
         // No other thread can access this run-local connection, and copying
         // finishes before another SQLite call can invalidate the pointer.
-        unsafe { copy_utf16_message(message, output) }
+        unsafe { copy_utf16_string(message, output) }
     }
 
     pub(crate) fn close(&self, database: u64) -> SqliteHostResult<i32> {
@@ -191,18 +199,18 @@ impl SqliteHost {
 ///
 /// # Safety
 ///
-/// A non-NULL `message` must point to a valid SQLite-owned UTF-16 string whose
+/// A non-NULL `value` must point to a valid SQLite-owned UTF-16 string whose
 /// lifetime covers this call.
-unsafe fn utf16_message_length(message: *const c_void) -> SqliteHostResult<u32> {
-    if message.is_null() {
+pub(super) unsafe fn utf16_string_length(value: *const c_void) -> SqliteHostResult<u32> {
+    if value.is_null() {
         return Ok(0);
     }
 
-    let message = message.cast::<u16>();
+    let value = value.cast::<u16>();
     let mut length = 0_usize;
     // SAFETY: SQLite guarantees a NUL-terminated UTF-16 string for every
     // non-NULL result, and the caller guarantees its lifetime for this scan.
-    while unsafe { *message.add(length) } != 0 {
+    while unsafe { *value.add(length) } != 0 {
         length += 1;
     }
     u32::try_from(length).map_err(|_| SqliteHostError::Overflow)
@@ -212,21 +220,24 @@ unsafe fn utf16_message_length(message: *const c_void) -> SqliteHostResult<u32> 
 ///
 /// # Safety
 ///
-/// A non-NULL `message` must point to a valid SQLite-owned UTF-16 string whose
+/// A non-NULL `value` must point to a valid SQLite-owned UTF-16 string whose
 /// lifetime covers this call.
-unsafe fn copy_utf16_message(message: *const c_void, output: &mut [u16]) -> SqliteHostResult<u32> {
-    if message.is_null() {
+pub(super) unsafe fn copy_utf16_string(
+    value: *const c_void,
+    output: &mut [u16],
+) -> SqliteHostResult<u32> {
+    if value.is_null() {
         return Ok(0);
     }
 
     // SAFETY: upheld by this function's caller.
-    let length = unsafe { utf16_message_length(message) }?;
+    let length = unsafe { utf16_string_length(value) }?;
     let content_length = length as usize;
     if output.len() >= content_length && content_length != 0 {
         // SAFETY: the scan above proved that the slice contains at least
         // `content_length` code units before its NUL terminator.
-        let message = unsafe { std::slice::from_raw_parts(message.cast::<u16>(), content_length) };
-        output[..content_length].copy_from_slice(message);
+        let value = unsafe { std::slice::from_raw_parts(value.cast::<u16>(), content_length) };
+        output[..content_length].copy_from_slice(value);
     }
     Ok(length)
 }
@@ -263,11 +274,22 @@ mod tests {
     fn unavailable_utf16_error_preserves_sqlite_null() {
         let mut output = [0xffff];
 
-        assert_eq!(unsafe { utf16_message_length(ptr::null()) }, Ok(0));
+        assert_eq!(unsafe { utf16_string_length(ptr::null()) }, Ok(0));
         assert_eq!(
-            unsafe { copy_utf16_message(ptr::null(), &mut output) },
+            unsafe { copy_utf16_string(ptr::null(), &mut output) },
             Ok(0)
         );
         assert_eq!(output, [0xffff]);
+    }
+
+    #[test]
+    fn changes64_rejects_a_failed_connection() {
+        let host = host();
+        let outcome = host.open_v2(c":memory:", 0, null_handle());
+        assert_eq!(outcome.code, ffi::SQLITE_MISUSE);
+        let database = outcome.database.unwrap();
+
+        assert_eq!(host.changes64(database), Err(SqliteHostError::InvalidInput));
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
     }
 }

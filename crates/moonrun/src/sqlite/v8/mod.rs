@@ -31,8 +31,9 @@
 //! exposing a runtime-specific address. UTF-16 and blob bindings are copied by
 //! SQLite before the Guest Memory borrow ends. Error messages and variable-size
 //! columns use length-and-copy pairs instead of exposing borrowed native
-//! pointers. SQLite behavior and policy belong to the parent `sqlite` module;
-//! this adapter only lowers V8 values and Guest Memory.
+//! pointers. Column names follow the same length-and-copy convention. SQLite
+//! behavior and policy belong to the parent `sqlite` module; this adapter only
+//! lowers V8 values and Guest Memory.
 //! Callback-bearing extension APIs, varargs, process-global configuration,
 //! custom VFSes, and file-backed databases are outside the MVP.
 

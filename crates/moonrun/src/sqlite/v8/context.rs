@@ -54,6 +54,32 @@ impl ImportContext<'_> {
         (self.host, self.memory)
     }
 
+    /// Borrow a UTF-16 output buffer after validating the Guest Memory range.
+    pub(super) fn with_utf16_output<T>(
+        &mut self,
+        pointer: u32,
+        capacity: u32,
+        f: impl FnOnce(&SqliteHost, &mut [u16]) -> SqliteResult<T>,
+    ) -> SqliteResult<T> {
+        let byte_capacity = capacity.checked_mul(2).ok_or(SqliteError::Overflow)?;
+        let bytes = if capacity == 0 {
+            &mut []
+        } else {
+            if pointer == 0 {
+                return Err(SqliteError::Fault);
+            }
+            self.memory.read_exact_mut(pointer, byte_capacity)?
+        };
+        // SAFETY: every bit pattern is a valid `u16`; the alignment check
+        // rejects a Guest Memory range that does not satisfy this ABI's
+        // promise.
+        let (prefix, output, suffix) = unsafe { bytes.align_to_mut::<u16>() };
+        if !prefix.is_empty() || !suffix.is_empty() {
+            return Err(SqliteError::Fault);
+        }
+        f(self.host, output)
+    }
+
     /// Borrow one UTF-16 view from a MoonBit backing String.
     ///
     /// Offset and length are UTF-16 code units, not bytes. The caller lowers
