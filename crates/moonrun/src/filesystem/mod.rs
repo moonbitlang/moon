@@ -29,7 +29,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
-use crate::async_policy::{AsyncPolicy, RuntimePathBase};
+use crate::policy::{Policy, RuntimePathBase};
 
 #[derive(Debug)]
 pub(crate) struct HostFsError {
@@ -79,11 +79,11 @@ impl FsOperationResults {
 /// Engine-neutral filesystem operations that enforce the runtime policy
 /// before accessing the operating system's filesystem.
 pub(crate) struct HostFs {
-    policy: Arc<AsyncPolicy>,
+    policy: Arc<Policy>,
 }
 
 impl HostFs {
-    pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
+    pub(crate) fn new(policy: Arc<Policy>) -> Self {
         Self { policy }
     }
 
@@ -280,11 +280,11 @@ impl HostFs {
     }
 }
 
-fn ensure_read_policy(policy: &AsyncPolicy, path: &str) -> AsyncHostResult<()> {
+fn ensure_read_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
     policy.stat_path(RuntimePathBase::CurrentDirectory, OsStr::new(path))
 }
 
-fn ensure_write_policy(policy: &AsyncPolicy, path: &str) -> AsyncHostResult<()> {
+fn ensure_write_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
     policy.open_path(
         RuntimePathBase::CurrentDirectory,
         OsStr::new(path),
@@ -294,7 +294,7 @@ fn ensure_write_policy(policy: &AsyncPolicy, path: &str) -> AsyncHostResult<()> 
     )
 }
 
-fn ensure_remove_policy(policy: &AsyncPolicy, path: &str) -> AsyncHostResult<()> {
+fn ensure_remove_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
     policy.remove_path(OsStr::new(path))
 }
 
@@ -332,7 +332,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("input.bin");
         std::fs::write(&path, [1, 2, 3]).unwrap();
-        let host = HostFs::new(Arc::new(AsyncPolicy::allow_all()));
+        let host = HostFs::new(Arc::new(Policy::allow_all()));
         let mut first = FsOperationResults::default();
         let second = FsOperationResults::default();
 
@@ -349,7 +349,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = HostFs::new(Arc::new(AsyncPolicy::from_file(&policy_file).unwrap()));
+        let host = HostFs::new(Arc::new(Policy::from_file(&policy_file).unwrap()));
         let mut results = FsOperationResults::default();
 
         assert_eq!(host.read_file_to_bytes_new(&mut results, "denied.bin"), -1);
@@ -361,7 +361,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = HostFs::new(Arc::new(AsyncPolicy::from_file(&policy_file).unwrap()));
+        let host = HostFs::new(Arc::new(Policy::from_file(&policy_file).unwrap()));
         let mut results = FsOperationResults::default();
         let converted = Cell::new(false);
 
@@ -391,7 +391,7 @@ mod tests {
         std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
-        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
 
         assert_eq!(
             ensure_remove_policy(&policy, denied_link.to_str().unwrap()),

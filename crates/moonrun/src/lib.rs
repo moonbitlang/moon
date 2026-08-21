@@ -24,17 +24,17 @@
 
 mod async_api;
 mod async_host;
-mod async_policy;
 mod async_sys;
 mod demangle_js_template;
 mod engine;
+mod filesystem;
 mod fs_api_temp;
 mod guest_memory;
 mod host;
-mod host_fs;
 mod host_imports;
-mod host_network;
 mod memory_sanitizer_api;
+mod network;
+mod policy;
 mod resource;
 mod run_termination;
 mod source_map;

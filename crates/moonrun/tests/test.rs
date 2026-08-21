@@ -942,11 +942,11 @@ allocation stack:
 }
 
 #[test]
-fn test_moon_run_async_policy_with_workspace_async_fs() {
+fn test_moon_run_policy_with_workspace_async_fs() {
     let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
-    let case_dir = case_root.join("test_async_policy_workspace.in");
+    let case_dir = case_root.join("test_policy_workspace.in");
     let dir = tempfile::Builder::new()
-        .prefix("test_async_policy_workspace.")
+        .prefix("test_policy_workspace.")
         .tempdir_in(&case_root)
         .expect("create temp fixture");
     moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
@@ -959,7 +959,7 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
 
     let wasm_file = |package: &str| {
         std::fs::canonicalize(dir.path().join(format!(
-            "_build/wasm/debug/build/moon/async_policy_workspace/{package}/{package}.wasm"
+            "_build/wasm/debug/build/moon/policy_workspace/{package}/{package}.wasm"
         )))
         .unwrap()
     };

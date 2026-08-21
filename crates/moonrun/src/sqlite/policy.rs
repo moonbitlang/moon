@@ -22,8 +22,8 @@ use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
 
-use crate::async_policy::{AsyncPolicy, RuntimePathBase};
 use crate::host::null_handle;
+use crate::policy::{Policy, RuntimePathBase};
 
 /// Ensure the requested database and VFS are available in the MVP.
 ///
@@ -32,7 +32,7 @@ use crate::host::null_handle;
 /// may read journal, WAL, and shared-memory files beside it. Writable
 /// connections also require write access to that directory.
 pub(super) fn ensure_valid_database(
-    policy: &AsyncPolicy,
+    policy: &Policy,
     filename: &CStr,
     flags: i32,
     vfs: u64,
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn database_policy_accepts_memory_and_files_with_the_default_vfs() {
-        let policy = AsyncPolicy::allow_all();
+        let policy = Policy::allow_all();
         assert_eq!(
             ensure_valid_database(
                 &policy,
@@ -182,7 +182,7 @@ mod tests {
             "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
         )
         .unwrap();
-        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
         let allowed_database = c_path(&allowed.join("database.sqlite"));
         let denied_database = c_path(&denied.join("database.sqlite"));
 
@@ -217,7 +217,7 @@ mod tests {
             "[fs]\nread = [\"database.sqlite\"]\nwrite = [\"database.sqlite\"]\n",
         )
         .unwrap();
-        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
         let database = c_path(&database);
 
         assert_eq!(

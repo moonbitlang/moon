@@ -19,9 +19,7 @@
 //! Host imports installed by Moonrun's current V8 backend.
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
-use crate::{
-    async_api, async_policy, fs_api_temp, run_termination, sqlite, sys_api, util, wasi_api,
-};
+use crate::{async_api, fs_api_temp, policy, run_termination, sqlite, sys_api, util, wasi_api};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -326,12 +324,12 @@ pub(crate) fn install(
     scope: &mut v8::HandleScope,
     wasm_file_name: &str,
     args: &[String],
-    async_policy: Arc<async_policy::AsyncPolicy>,
+    policy: Arc<policy::Policy>,
 ) -> run_termination::TerminationRequest {
     let global_proxy = scope.get_current_context().global(scope);
     let termination_request = run_termination::TerminationRequest::default();
     let v8_context = Box::new(crate::v8_import::V8RunContext::new(
-        crate::host::Host::new(Arc::clone(&async_policy)),
+        crate::host::Host::new(Arc::clone(&policy)),
         termination_request.clone(),
     ));
     let v8_context_ptr = &*v8_context as *const crate::v8_import::V8RunContext;
@@ -405,15 +403,8 @@ pub(crate) fn install(
     // API for the fs module
     {
         let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
-        sys_api::init_env(
-            obj,
-            scope,
-            wasm_file_name,
-            args,
-            Arc::clone(&async_policy),
-            dtors,
-        );
-        fs_api_temp::init_fs(obj, scope, Arc::clone(&async_policy), dtors);
+        sys_api::init_env(obj, scope, wasm_file_name, args, Arc::clone(&policy), dtors);
+        fs_api_temp::init_fs(obj, scope, Arc::clone(&policy), dtors);
     }
     {
         let io = global_proxy.child(scope, "__moonbit_io_unstable");

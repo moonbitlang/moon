@@ -39,7 +39,6 @@ use std::sync::{Arc, Mutex};
 
 use slotmap::{Key, SecondaryMap};
 
-use crate::async_policy::{AsyncPolicy, RuntimePathBase};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
@@ -54,7 +53,8 @@ use crate::async_sys::socket::RawSocket;
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 pub(crate) use crate::host::HostKey as HandleKey;
 use crate::host::{HostKeys, HostResourceKind as HandleKind};
-use crate::host_network::HostNetwork;
+use crate::network::HostNetwork;
+use crate::policy::{Policy, RuntimePathBase};
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -1207,7 +1207,7 @@ pub(crate) struct AsyncHost {
     // V8 enters this host synchronously on one thread. Cell and RefCell encode
     // that ownership; worker threads own their Jobs and return them through the
     // completion channel instead of sharing the host's tables.
-    policy: Arc<AsyncPolicy>,
+    policy: Arc<Policy>,
     network: HostNetwork,
     errno: Cell<i32>,
     addr_infos: RefCell<SecondaryMap<HandleKey, HostAddrInfo>>,
@@ -1233,16 +1233,16 @@ pub(crate) struct AsyncHost {
 
 impl Default for AsyncHost {
     fn default() -> Self {
-        Self::new(Arc::new(AsyncPolicy::allow_all()))
+        Self::new(Arc::new(Policy::allow_all()))
     }
 }
 
 impl AsyncHost {
-    pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
+    pub(crate) fn new(policy: Arc<Policy>) -> Self {
         Self::with_keys(policy, Rc::new(RefCell::new(HostKeys::default())))
     }
 
-    pub(crate) fn with_keys(policy: Arc<AsyncPolicy>, keys: Rc<RefCell<HostKeys>>) -> Self {
+    pub(crate) fn with_keys(policy: Arc<Policy>, keys: Rc<RefCell<HostKeys>>) -> Self {
         let process_policy_state = policy
             .has_process_policy()
             .then(|| Arc::new(ProcessPolicyState::default()));
@@ -2665,7 +2665,7 @@ impl AsyncHost {
         )
     }
 
-    pub(crate) fn policy(&self) -> &AsyncPolicy {
+    pub(crate) fn policy(&self) -> &Policy {
         &self.policy
     }
 
@@ -3738,7 +3738,7 @@ impl AsyncHost {
     }
 
     fn run_policy_checked_job(
-        policy: &AsyncPolicy,
+        policy: &Policy,
         process_policy_state: Option<&ProcessPolicyState>,
         job: &mut Job,
     ) {
@@ -3753,7 +3753,7 @@ impl AsyncHost {
     }
 
     fn check_job_policy(
-        policy: &AsyncPolicy,
+        policy: &Policy,
         process_policy_state: Option<&ProcessPolicyState>,
         job: &Job,
     ) -> AsyncHostResult<()> {
@@ -3935,10 +3935,7 @@ impl AsyncHost {
         Ok(())
     }
 
-    fn check_file_metadata_policy(
-        policy: &AsyncPolicy,
-        file: Option<&Resource>,
-    ) -> AsyncHostResult<()> {
+    fn check_file_metadata_policy(policy: &Policy, file: Option<&Resource>) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
         match file.policy_path() {
             Some(path) => policy.stat_path(RuntimePathBase::CurrentDirectory, path.as_os_str()),
@@ -3947,7 +3944,7 @@ impl AsyncHost {
     }
 
     fn check_path_metadata_policy(
-        policy: &AsyncPolicy,
+        policy: &Policy,
         base: RuntimePathBase<'_>,
         path: &std::ffi::OsStr,
         follow_symlink: bool,
@@ -3960,7 +3957,7 @@ impl AsyncHost {
     }
 
     fn check_file_lock_policy(
-        policy: &AsyncPolicy,
+        policy: &Policy,
         file: Option<&Resource>,
         exclusive: bool,
     ) -> AsyncHostResult<()> {
@@ -4678,7 +4675,7 @@ mod tests {
     }
 
     fn host_with_policy(path: &std::path::Path) -> AsyncHost {
-        AsyncHost::new(Arc::new(AsyncPolicy::from_file(path).unwrap()))
+        AsyncHost::new(Arc::new(Policy::from_file(path).unwrap()))
     }
 
     #[cfg(unix)]
@@ -6317,7 +6314,7 @@ mod tests {
 
     #[test]
     fn drop_destroys_pool_even_when_worker_holds_state() {
-        let policy = Arc::new(AsyncPolicy::allow_all());
+        let policy = Arc::new(Policy::allow_all());
         let policy_weak = Arc::downgrade(&policy);
         let host = AsyncHost::new(policy);
         let poll = host.poll_create().unwrap();

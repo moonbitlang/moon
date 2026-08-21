@@ -194,12 +194,12 @@ mod tests {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    use crate::async_policy::AsyncPolicy;
     use crate::host::HostKeys;
+    use crate::policy::Policy;
 
     fn host() -> SqliteHost {
         SqliteHost::with_keys(
-            Arc::new(AsyncPolicy::allow_all()),
+            Arc::new(Policy::allow_all()),
             Rc::new(RefCell::new(HostKeys::default())),
         )
     }

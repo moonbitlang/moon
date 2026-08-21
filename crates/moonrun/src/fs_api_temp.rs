@@ -22,8 +22,8 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use crate::async_policy::AsyncPolicy;
-use crate::host_fs::{FsOperationResults, HostFs};
+use crate::filesystem::{FsOperationResults, HostFs};
+use crate::policy::Policy;
 use crate::util::get_ref;
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
@@ -36,7 +36,7 @@ struct FsImports {
 }
 
 impl FsImports {
-    fn new(policy: Arc<AsyncPolicy>) -> Self {
+    fn new(policy: Arc<Policy>) -> Self {
         Self {
             filesystem: HostFs::new(policy),
             operation_results: RefCell::new(FsOperationResults::default()),
@@ -360,7 +360,7 @@ fn copy_uint8_array(array: v8::Local<'_, v8::Uint8Array>) -> Vec<u8> {
 pub(crate) fn init_fs<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-    policy: Arc<AsyncPolicy>,
+    policy: Arc<Policy>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     let imports = Box::new(FsImports::new(policy));
