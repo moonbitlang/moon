@@ -38,33 +38,36 @@ impl SqliteHost {
         Ok(unsafe { ffi::sqlite3_column_count(statement.pointer.as_ptr()) })
     }
 
+    /// Return the UTF-16 column-name length, or `-1` when SQLite could not
+    /// allocate the converted name.
     pub(crate) fn column_name16_length(
         &self,
         statement: u64,
         column: i32,
-    ) -> SqliteHostResult<u32> {
+    ) -> SqliteHostResult<i32> {
         let statement = self.result_column(statement, column)?;
         let name = unsafe { sqlite3_column_name16(statement.pointer.as_ptr(), column) };
         // The scan completes before another SQLite call can invalidate the
         // statement-owned pointer.
-        unsafe { utf16_string_length(name) }
+        column_name_length(unsafe { utf16_string_length(name) }?)
     }
 
     /// Copy a UTF-16 column name when it fits.
     ///
     /// The returned content length excludes SQLite's trailing NUL. A short
-    /// output leaves the output unchanged.
+    /// output leaves the output unchanged. `-1` reports that SQLite could not
+    /// allocate the UTF-16 column name.
     pub(crate) fn copy_column_name16(
         &self,
         statement: u64,
         column: i32,
         output: &mut [u16],
-    ) -> SqliteHostResult<u32> {
+    ) -> SqliteHostResult<i32> {
         let statement = self.result_column(statement, column)?;
         let name = unsafe { sqlite3_column_name16(statement.pointer.as_ptr(), column) };
         // The copy completes before another SQLite call can invalidate the
         // statement-owned pointer.
-        unsafe { copy_utf16_string(name, output) }
+        column_name_length(unsafe { copy_utf16_string(name, output) }?)
     }
 
     pub(crate) fn column_type(&self, statement: u64, column: i32) -> SqliteHostResult<i32> {
@@ -203,6 +206,15 @@ impl SqliteHost {
     }
 }
 
+// Column indexes are validated before SQLite is called, so an unavailable
+// column name is specifically the allocation failure documented by SQLite.
+fn column_name_length(length: Option<u32>) -> SqliteHostResult<i32> {
+    let Some(length) = length else {
+        return Ok(-1);
+    };
+    i32::try_from(length).map_err(|_| SqliteHostError::Overflow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,6 +351,30 @@ mod tests {
             Err(SqliteHostError::InvalidInput)
         );
         assert_eq!(output, [0xffff; 5]);
+
+        assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
+    }
+
+    #[test]
+    fn column_names_distinguish_empty_strings_from_unavailable_names() {
+        let host = host();
+        let database = open_memory(&host);
+        let sql = utf16le("SELECT 42 AS \"\"");
+        let statement = host
+            .prepare16_v2(database, &sql)
+            .unwrap()
+            .statement
+            .unwrap();
+
+        assert_eq!(host.column_name16_length(statement, 0), Ok(0));
+        let mut output = [0xffff];
+        assert_eq!(host.copy_column_name16(statement, 0, &mut output), Ok(0));
+        assert_eq!(output, [0xffff]);
+        assert_eq!(
+            unsafe { utf16_string_length(std::ptr::null()) }.and_then(column_name_length),
+            Ok(-1)
+        );
 
         assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
         assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
