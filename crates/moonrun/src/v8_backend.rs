@@ -115,6 +115,7 @@ pub(crate) fn run(
     config: &EngineConfig,
     module_name: &str,
     module: &CompiledModule,
+    source_map: Option<&str>,
     options: RunOptions,
     async_policy: Arc<AsyncPolicy>,
 ) -> anyhow::Result<RunOutcome> {
@@ -178,10 +179,11 @@ pub(crate) fn run(
     let mut source = v8::script_compiler::Source::new(code, Some(&script_origin));
     let module_argument = scope.string("module");
     let module_name_argument = scope.string("module_name");
+    let source_map_argument = scope.string("source_map");
     let entry = v8::script_compiler::compile_function(
         scope,
         &mut source,
-        &[module_argument, module_name_argument],
+        &[module_argument, module_name_argument, source_map_argument],
         &[],
         v8::script_compiler::CompileOptions::NoCompileOptions,
         v8::script_compiler::NoCacheReason::BecauseCachingDisabled,
@@ -189,7 +191,14 @@ pub(crate) fn run(
     .context("failed to compile Moonrun's Wasm entrypoint")?;
     let receiver = v8::undefined(scope).into();
     let module_name = scope.string(module_name);
-    entry.call(scope, receiver, &[wasm_module.into(), module_name.into()]);
+    let source_map = source_map
+        .map(|source_map| scope.string(source_map).into())
+        .unwrap_or_else(|| v8::undefined(scope).into());
+    entry.call(
+        scope,
+        receiver,
+        &[wasm_module.into(), module_name.into(), source_map],
+    );
     let termination = termination_request.take();
     drop(dtors);
     if let Some(termination) = termination {

@@ -20,8 +20,7 @@
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 use crate::{
-    async_api, async_policy, backtrace_api, fs_api_temp, run_termination, sqlite, sys_api, util,
-    wasi_api,
+    async_api, async_policy, fs_api_temp, run_termination, sqlite, sys_api, util, wasi_api,
 };
 use rand::Rng;
 use rand::SeedableRng;
@@ -30,7 +29,7 @@ use std::any::Any;
 use std::io::{self, Write};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
+use std::{cell::Cell, io::Read, time::Instant};
 
 #[derive(Default)]
 struct PrintEnv {
@@ -230,29 +229,6 @@ fn read_bytes_from_stdin(
     }
 }
 
-fn read_file_to_bytes(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let path = PathBuf::from(args.string_lossy(scope, 0));
-    let Ok(bytes) = std::fs::read(path) else {
-        ret.set_undefined();
-        return;
-    };
-    let buffer = v8::ArrayBuffer::new(scope, bytes.len());
-    let Some(ab) = v8::Uint8Array::new(scope, buffer, 0, bytes.len()) else {
-        ret.set_undefined();
-        return;
-    };
-
-    unsafe {
-        std::ptr::copy(bytes.as_ptr(), get_array_buffer_ptr(buffer), bytes.len());
-    }
-
-    ret.set(ab.into());
-}
-
 fn write_char(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -439,12 +415,6 @@ pub(crate) fn install(
         );
         fs_api_temp::init_fs(obj, scope, Arc::clone(&async_policy), dtors);
     }
-    backtrace_api::init(scope);
-
-    {
-        global_proxy.set_func(scope, "read_file_to_bytes", read_file_to_bytes);
-    }
-
     {
         let io = global_proxy.child(scope, "__moonbit_io_unstable");
         io.set_func(scope, "read_bytes_from_stdin", read_bytes_from_stdin);

@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{async_policy, v8_backend};
+use crate::{async_policy, source_map, v8_backend};
 use anyhow::Context;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -84,6 +84,7 @@ pub enum RunOutcome {
 struct ModuleData {
     name: String,
     compiled: v8_backend::CompiledModule,
+    source_map: Option<String>,
 }
 
 /// An immutable Wasm module compiled by an [`Engine`].
@@ -101,6 +102,10 @@ impl Module {
 
     pub(crate) fn compiled(&self) -> &v8_backend::CompiledModule {
         &self.0.compiled
+    }
+
+    pub(crate) fn source_map(&self) -> Option<&str> {
+        self.0.source_map.as_deref()
     }
 }
 
@@ -140,7 +145,11 @@ impl Engine {
         let name = name.into();
         let compiled = v8_backend::compile(&self.config, bytes.as_ref())
             .with_context(|| format!("failed to compile `{name}`"))?;
-        Ok(Module(Arc::new(ModuleData { name, compiled })))
+        Ok(Module(Arc::new(ModuleData {
+            name,
+            compiled,
+            source_map: None,
+        })))
     }
 
     /// Compile a Wasm file into a reusable immutable Module.
@@ -153,7 +162,14 @@ impl Engine {
             anyhow::bail!("Unsupported file type");
         }
         let bytes = std::fs::read(file).context("failed to read Wasm file")?;
-        self.compile(file.to_string_lossy(), bytes)
+        let name = file.to_string_lossy().into_owned();
+        let compiled = v8_backend::compile(&self.config, &bytes)
+            .with_context(|| format!("failed to compile `{name}`"))?;
+        Ok(Module(Arc::new(ModuleData {
+            name,
+            compiled,
+            source_map: source_map::load(file, &bytes),
+        })))
     }
 
     /// Execute one isolated run synchronously on the calling thread.
@@ -168,6 +184,7 @@ impl Engine {
             &self.config,
             module.name(),
             module.compiled(),
+            module.source_map(),
             options,
             async_policy,
         )
@@ -187,5 +204,40 @@ impl Engine {
 impl Default for Engine {
     fn default() -> Self {
         Self::new(EngineConfig::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loaded_module_keeps_source_map_after_files_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let wasm_path = dir.path().join("main.wasm");
+        let map_dir = dir.path().join("maps");
+        let map_path = map_dir.join("original.map");
+        let source_map = r#"{"version":3,"sources":["main.mbt"],"mappings":"AAAA"}"#;
+        let section_name = b"sourceMappingURL";
+        let map_name = b"maps/original.map";
+        let section_len = 1 + section_name.len() + 1 + map_name.len();
+        let wasm = [
+            b"\0asm\x01\0\0\0".as_slice(),
+            &[0, section_len as u8],
+            &[section_name.len() as u8],
+            section_name,
+            &[map_name.len() as u8],
+            map_name,
+        ]
+        .concat();
+        std::fs::create_dir(map_dir).unwrap();
+        std::fs::write(&wasm_path, wasm).unwrap();
+        std::fs::write(&map_path, source_map).unwrap();
+
+        let module = Engine::default().load_file(&wasm_path).unwrap();
+        std::fs::remove_file(wasm_path).unwrap();
+        std::fs::remove_file(map_path).unwrap();
+
+        assert_eq!(module.source_map(), Some(source_map));
     }
 }

@@ -10,12 +10,6 @@ const __moonbit_run_env = globalThis.__moonbit_run_env || {
     args: [],
     stderr_is_tty: false,
 };
-// Provided by Rust in `backtrace_api::init`; fallback keeps interactive tests safe.
-const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
-    resolve_source_map_path: (_wasmPath, sourceMapPath) =>
-        typeof sourceMapPath === "string" ? sourceMapPath : "",
-};
-
 // JS helper API attached to __moonbit_fs_unstable.
 (function init_js_api(obj) {
     // String ops
@@ -150,7 +144,6 @@ const moonbit_ffi_memory_sanitizer =
     globalThis["moonbit:ffi/memory-sanitizer"] || {};
 
 delete globalThis.__moonbit_run_env;
-delete globalThis.__moonbit_backtrace_runtime;
 
 function demangleMangledFunctionName(funcName) {
     if (typeof __moonbit_demangle_mangled_function_name === "function") {
@@ -167,8 +160,6 @@ const BASE64_INDEX = (() => {
     }
     return map;
 })();
-
-const SOURCE_MAP_CACHE = new Map();
 
 function decodeVLQSegment(seg) {
     let i = 0;
@@ -191,70 +182,6 @@ function decodeVLQSegment(seg) {
         out.push(neg ? -value : value);
     }
     return out;
-}
-
-function bytesToString(bytes) {
-    if (typeof TextDecoder !== "undefined") {
-        return new TextDecoder("utf-8").decode(bytes);
-    }
-    let s = "";
-    for (let i = 0; i < bytes.length; i++) {
-        s += String.fromCharCode(bytes[i]);
-    }
-    return s;
-}
-
-function readULEB128(buf, start) {
-    let i = start;
-    let n = 0;
-    let shift = 0;
-    while (i < buf.length) {
-        const b = buf[i];
-        i += 1;
-        n |= (b & 0x7f) << shift;
-        if ((b & 0x80) === 0) {
-            return [n, i];
-        }
-        shift += 7;
-    }
-    return null;
-}
-
-function extractSourceMapURLFromWasm(buf) {
-    const name = "sourceMappingURL";
-    let pos = 8; // skip wasm magic and version
-    while (pos < buf.length) {
-        const idRead = readULEB128(buf, pos);
-        if (!idRead) return null;
-        const secId = idRead[0];
-        const sizeRead = readULEB128(buf, idRead[1]);
-        if (!sizeRead) return null;
-        const secSize = sizeRead[0];
-        const bodyPos = sizeRead[1];
-        const secEnd = bodyPos + secSize;
-        if (secEnd > buf.length) return null;
-
-        if (secId === 0) {
-            const nameLenRead = readULEB128(buf, bodyPos);
-            if (!nameLenRead) return null;
-            const secNameLen = nameLenRead[0];
-            const secNamePos = nameLenRead[1];
-            const secNameEnd = secNamePos + secNameLen;
-            if (secNameEnd > secEnd) return null;
-            const secName = bytesToString(buf.slice(secNamePos, secNameEnd));
-            if (secName === name) {
-                const valLenRead = readULEB128(buf, secNameEnd);
-                if (!valLenRead) return null;
-                const valLen = valLenRead[0];
-                const valPos = valLenRead[1];
-                const valEnd = valPos + valLen;
-                if (valEnd > secEnd) return null;
-                return bytesToString(buf.slice(valPos, valEnd));
-            }
-        }
-        pos = secEnd;
-    }
-    return null;
 }
 
 function parseWasmSourceMap(rawMap) {
@@ -310,51 +237,17 @@ function parseWasmSourceMap(rawMap) {
     return { sources: rawMap.sources, mappings };
 }
 
-function loadSourceMapForModule(wasmPath) {
-    if (!wasmPath) return null;
-    if (SOURCE_MAP_CACHE.has(wasmPath)) {
-        return SOURCE_MAP_CACHE.get(wasmPath);
+let parsedSourceMap = null;
+try {
+    if (typeof source_map === "string") {
+        parsedSourceMap = parseWasmSourceMap(JSON.parse(source_map));
     }
-
-    let parsed = null;
-    try {
-        const wasmBytes = read_file_to_bytes(wasmPath);
-        if (!wasmBytes) {
-            SOURCE_MAP_CACHE.set(wasmPath, null);
-            return null;
-        }
-        let mapPath = null;
-        const embedded = extractSourceMapURLFromWasm(wasmBytes);
-        if (
-            embedded &&
-            !embedded.startsWith("data:") &&
-            !embedded.startsWith("http://") &&
-            !embedded.startsWith("https://")
-        ) {
-            mapPath = __moonbit_backtrace_runtime.resolve_source_map_path(wasmPath, embedded);
-        }
-        if (!mapPath) {
-            mapPath = `${wasmPath}.map`;
-        }
-        const mapBytes = read_file_to_bytes(mapPath);
-        if (!mapBytes) {
-            SOURCE_MAP_CACHE.set(wasmPath, null);
-            return null;
-        }
-        const rawMap = JSON.parse(bytesToString(mapBytes));
-        parsed = parseWasmSourceMap(rawMap);
-    } catch (_) {
-        parsed = null;
-    }
-    SOURCE_MAP_CACHE.set(wasmPath, parsed);
-    return parsed;
+} catch (_) {
+    parsedSourceMap = null;
 }
 
 function sourcePosForOffset(offset) {
-    if (typeof module_name !== "string" || !module_name) {
-        return null;
-    }
-    const sm = loadSourceMapForModule(module_name);
+    const sm = parsedSourceMap;
     if (!sm || !Array.isArray(sm.mappings) || sm.mappings.length === 0) {
         return null;
     }
