@@ -25,7 +25,7 @@ pub(super) fn column_name16(
     column: i32,
     output: u32,
     capacity: u32,
-) -> SqliteResult<u32> {
+) -> SqliteResult<i32> {
     context.with_utf16_output(output, capacity, |host, output| {
         Ok(host.copy_column_name16(statement, column, output)?)
     })

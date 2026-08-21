@@ -549,6 +549,30 @@ fn main raise {
     name_output[2] == 0xDE00,
     msg="UTF-16 column name was not copied",
   )
+  let empty_name = prepare(database, "SELECT 1 AS \"\"", null_handle)
+  assert_true(
+    sqlite3_column_name16_length(empty_name, 0) == 0,
+    msg="empty UTF-16 column name did not report zero length",
+  )
+  let empty_name_output : FixedArray[UInt16] = FixedArray::make(1, 0xFFFF)
+  assert_true(
+    sqlite3_column_name16(
+      empty_name,
+      0,
+      empty_name_output,
+      empty_name_output.length(),
+    ) ==
+    0,
+    msg="empty UTF-16 column-name copy did not report zero length",
+  )
+  assert_true(
+    empty_name_output[0] == 0xFFFF,
+    msg="empty UTF-16 column name overwrote the output",
+  )
+  assert_true(
+    sqlite3_finalize(empty_name) == SQLITE_OK,
+    msg="empty column-name query finalize failed",
+  )
   assert_true(
     sqlite3_column_type(bound, 0) == SQLITE_INTEGER &&
     sqlite3_column_type(bound, 1) == SQLITE_FLOAT &&

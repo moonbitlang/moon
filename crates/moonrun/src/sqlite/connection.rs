@@ -105,7 +105,7 @@ impl SqliteHost {
         let message = unsafe { sqlite3_errmsg16(database.pointer().as_ptr()) };
         // No other thread can access this run-local connection, and the scan
         // finishes before another SQLite call can invalidate the pointer.
-        unsafe { utf16_string_length(message) }
+        Ok(unsafe { utf16_string_length(message) }?.unwrap_or(0))
     }
 
     pub(crate) fn errcode(&self, database: u64) -> SqliteHostResult<i32> {
@@ -137,7 +137,7 @@ impl SqliteHost {
         let message = unsafe { sqlite3_errmsg16(database.pointer().as_ptr()) };
         // No other thread can access this run-local connection, and copying
         // finishes before another SQLite call can invalidate the pointer.
-        unsafe { copy_utf16_string(message, output) }
+        Ok(unsafe { copy_utf16_string(message, output) }?.unwrap_or(0))
     }
 
     pub(crate) fn close(&self, database: u64) -> SqliteHostResult<i32> {
@@ -196,14 +196,15 @@ impl SqliteHost {
 }
 
 /// Measure a native-endian, NUL-terminated SQLite UTF-16 string, excluding NUL.
+/// Return `None` when SQLite supplied a NULL pointer.
 ///
 /// # Safety
 ///
 /// A non-NULL `value` must point to a valid SQLite-owned UTF-16 string whose
 /// lifetime covers this call.
-pub(super) unsafe fn utf16_string_length(value: *const c_void) -> SqliteHostResult<u32> {
+pub(super) unsafe fn utf16_string_length(value: *const c_void) -> SqliteHostResult<Option<u32>> {
     if value.is_null() {
-        return Ok(0);
+        return Ok(None);
     }
 
     let value = value.cast::<u16>();
@@ -213,10 +214,13 @@ pub(super) unsafe fn utf16_string_length(value: *const c_void) -> SqliteHostResu
     while unsafe { *value.add(length) } != 0 {
         length += 1;
     }
-    u32::try_from(length).map_err(|_| SqliteHostError::Overflow)
+    u32::try_from(length)
+        .map(Some)
+        .map_err(|_| SqliteHostError::Overflow)
 }
 
 /// Copy a native-endian, NUL-terminated SQLite UTF-16 string.
+/// Return `None` when SQLite supplied a NULL pointer.
 ///
 /// # Safety
 ///
@@ -225,13 +229,15 @@ pub(super) unsafe fn utf16_string_length(value: *const c_void) -> SqliteHostResu
 pub(super) unsafe fn copy_utf16_string(
     value: *const c_void,
     output: &mut [u16],
-) -> SqliteHostResult<u32> {
+) -> SqliteHostResult<Option<u32>> {
     if value.is_null() {
-        return Ok(0);
+        return Ok(None);
     }
 
     // SAFETY: upheld by this function's caller.
-    let length = unsafe { utf16_string_length(value) }?;
+    let Some(length) = unsafe { utf16_string_length(value) }? else {
+        return Ok(None);
+    };
     let content_length = length as usize;
     if output.len() >= content_length && content_length != 0 {
         // SAFETY: the scan above proved that the slice contains at least
@@ -239,7 +245,7 @@ pub(super) unsafe fn copy_utf16_string(
         let value = unsafe { std::slice::from_raw_parts(value.cast::<u16>(), content_length) };
         output[..content_length].copy_from_slice(value);
     }
-    Ok(length)
+    Ok(Some(length))
 }
 
 #[cfg(test)]
@@ -271,13 +277,22 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_utf16_error_preserves_sqlite_null() {
+    fn utf16_helpers_distinguish_unavailable_and_empty_strings() {
+        let empty = [0_u16];
         let mut output = [0xffff];
 
-        assert_eq!(unsafe { utf16_string_length(ptr::null()) }, Ok(0));
+        assert_eq!(unsafe { utf16_string_length(ptr::null()) }, Ok(None));
+        assert_eq!(
+            unsafe { utf16_string_length(empty.as_ptr().cast()) },
+            Ok(Some(0))
+        );
         assert_eq!(
             unsafe { copy_utf16_string(ptr::null(), &mut output) },
-            Ok(0)
+            Ok(None)
+        );
+        assert_eq!(
+            unsafe { copy_utf16_string(empty.as_ptr().cast(), &mut output) },
+            Ok(Some(0))
         );
         assert_eq!(output, [0xffff]);
     }
