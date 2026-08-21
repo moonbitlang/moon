@@ -1204,6 +1204,7 @@ impl<'a> LoweringContext<'a> {
             .link_moonbitrun(true)
             .link_libbacktrace(true)
             .define_use_shared_runtime_macro(false)
+            .native_allocator(info.native_allocator)
             .build()
             .expect("Failed to build CC configuration for executable");
 
@@ -1258,6 +1259,7 @@ impl<'a> LoweringContext<'a> {
             .link_moonbitrun(true)
             .link_libbacktrace(true)
             .output_ty(CCOutputType::Executable)
+            .native_allocator(info.native_allocator)
             .build()
             .expect("Failed to build LinkerConfig for new native executable");
 

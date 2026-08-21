@@ -31,6 +31,7 @@ use std::{
 
 const ENV_MOON_CC: &str = "MOON_CC";
 const ENV_MOON_AR: &str = "MOON_AR";
+const ENV_MOONBIT_ALLOCATOR: &str = "MOONBIT_ALLOCATOR";
 #[derive(Copy, Clone, Debug)]
 pub enum CCKind {
     Msvc,     // cl-compatible driver, such as cl.exe or clang-cl.exe
@@ -104,6 +105,60 @@ impl MsvcCrtPolicy {
 pub enum NativeAbiFamily {
     Msvc,
     Other,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NativeAllocator {
+    #[default]
+    Default,
+    Mimalloc,
+    System,
+}
+
+impl NativeAllocator {
+    pub fn from_env() -> anyhow::Result<Self> {
+        match env::var(ENV_MOONBIT_ALLOCATOR) {
+            Ok(value) => Self::parse(&value),
+            Err(env::VarError::NotPresent) => Ok(Self::Default),
+            Err(env::VarError::NotUnicode(value)) => anyhow::bail!(
+                "{ENV_MOONBIT_ALLOCATOR} must be valid Unicode, got `{}`",
+                value.to_string_lossy()
+            ),
+        }
+    }
+
+    fn parse(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "mimalloc" => Ok(Self::Mimalloc),
+            "system" => Ok(Self::System),
+            _ => anyhow::bail!(
+                "invalid {ENV_MOONBIT_ALLOCATOR} value `{value}`; expected `mimalloc` or `system`"
+            ),
+        }
+    }
+
+    pub fn moonbit_allocator_macro_for_runtime(
+        self,
+        cc: &CC,
+        link_moonbitrun: bool,
+    ) -> &'static str {
+        match self {
+            Self::Default if link_moonbitrun && self.should_link_moonbitrun(cc) && !cc.is_tcc() => {
+                "MOONBIT_ALLOCATOR_MIMALLOC"
+            }
+            Self::Default => "MOONBIT_ALLOCATOR_SYSTEM",
+            Self::Mimalloc => "MOONBIT_ALLOCATOR_MIMALLOC",
+            Self::System => "MOONBIT_ALLOCATOR_SYSTEM",
+        }
+    }
+
+    fn should_link_moonbitrun(self, cc: &CC) -> bool {
+        match self {
+            Self::Default => cc.is_libmoonbitrun_o_available(),
+            Self::Mimalloc => cc.can_link_libmoonbitrun_o(),
+            Self::System => false,
+        }
+    }
 }
 
 impl Toolchain {
@@ -771,10 +826,14 @@ impl CC {
         CAN_USE_SIMDUTF && !self.is_tcc() && !self.is_msvc() && !self.targets_msvc()
     }
 
+    pub fn can_link_libmoonbitrun_o(&self) -> bool {
+        CAN_USE_MOONBITRUN && !self.is_msvc()
+    }
+
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
         // If users set MOON_CC, we believe they know what they are doing
         // And we conservatively disable libmoonbitrun.o
-        CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_env_override
+        self.can_link_libmoonbitrun_o() && !self.is_env_override
     }
 
     // Constructors for TCC toolchain
@@ -976,6 +1035,10 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Define MOONBIT_USE_SIMDUTF.
     pub use_simdutf: bool,
+    #[builder(default)]
+    // Select native runtime allocator when this command participates in
+    // runtime compilation or native executable linking.
+    pub native_allocator: Option<NativeAllocator>,
 }
 
 #[derive(Clone, Builder)]
@@ -991,6 +1054,8 @@ pub struct LinkerConfig<P: AsRef<Path>> {
     #[builder(default = None)]
     // This is the parent directory to the shared runtime library
     pub link_shared_runtime: Option<P>,
+    #[builder(default)]
+    pub native_allocator: NativeAllocator,
 }
 
 #[derive(Clone, Builder)]
@@ -998,6 +1063,8 @@ pub struct LinkerConfig<P: AsRef<Path>> {
 pub struct ArchiverConfig {
     #[builder(default = false)]
     pub archive_moonbitrun: bool,
+    #[builder(default)]
+    pub native_allocator: NativeAllocator,
 }
 
 /// Resolve the C compiler to use from global state
@@ -1070,7 +1137,7 @@ fn add_archiver_moonbitrun_with_warnings(
     config: &ArchiverConfig,
     paths: &CompilerPaths,
 ) {
-    if cc.is_libmoonbitrun_o_available() && config.archive_moonbitrun {
+    if config.archive_moonbitrun && config.native_allocator.should_link_moonbitrun(cc) {
         if cc.is_tcc() {
             eprintln!(
                 "{}: Cannot archive libmoonbitrun.o when using tcc",
@@ -1197,7 +1264,7 @@ fn add_linker_moonbitrun_with_warnings(
     config: &LinkerConfig<impl AsRef<Path>>,
     lpath: &str,
 ) {
-    if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
+    if config.link_moonbitrun && config.native_allocator.should_link_moonbitrun(cc) {
         if cc.is_tcc() {
             eprintln!(
                 "{}: Cannot link libmoonbitrun.o when using tcc",
@@ -1580,6 +1647,25 @@ fn add_cc_simdutf_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     }
 }
 
+fn add_cc_allocator_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
+    if config.output_ty == OutputType::Executable {
+        return;
+    }
+
+    let Some(native_allocator) = config.native_allocator else {
+        return;
+    };
+
+    let allocator_macro =
+        native_allocator.moonbit_allocator_macro_for_runtime(cc, config.link_moonbitrun);
+
+    if cc.is_msvc() {
+        buf.push(format!("/DMOONBIT_ALLOCATOR={allocator_macro}"));
+    } else if cc.is_gcc_like() {
+        buf.push(format!("-DMOONBIT_ALLOCATOR={allocator_macro}"));
+    }
+}
+
 // CC compiler-specific handling for moonbitrun
 fn add_cc_moonbitrun_with_warnings(
     cc: &CC,
@@ -1589,7 +1675,10 @@ fn add_cc_moonbitrun_with_warnings(
 ) {
     if config.output_ty != OutputType::Object
         && config.link_moonbitrun
-        && cc.is_libmoonbitrun_o_available()
+        && config
+            .native_allocator
+            .unwrap_or_default()
+            .should_link_moonbitrun(cc)
     {
         if cc.is_tcc() {
             eprintln!(
@@ -1784,6 +1873,7 @@ where
     add_cc_build_system_flags(&cc, &mut buf, &config);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
     add_cc_simdutf_flags(&cc, &mut buf, &config);
+    add_cc_allocator_flags(&cc, &mut buf, &config);
     add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
 
     buf.extend(src.into_iter().map(|s| s.into()));
@@ -1856,7 +1946,160 @@ mod tests {
             preserve_frame_pointer: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
+            native_allocator: None,
         }
+    }
+
+    #[test]
+    fn native_allocator_parses_environment_values() {
+        assert_eq!(
+            NativeAllocator::parse("mimalloc").unwrap(),
+            NativeAllocator::Mimalloc
+        );
+        assert_eq!(
+            NativeAllocator::parse("system").unwrap(),
+            NativeAllocator::System
+        );
+        assert!(NativeAllocator::parse("malloc").is_err());
+    }
+
+    #[test]
+    fn runtime_allocator_flag_is_emitted_for_gcc_like_runtime_compile() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.output_ty = OutputType::Object;
+        config.native_allocator = Some(NativeAllocator::Mimalloc);
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["runtime.c"],
+            "build/runtime",
+            Some("build/runtime/runtime.o"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC")
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn default_allocator_runtime_macro_follows_moonbitrun_fallback() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.output_ty = OutputType::Object;
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::Default);
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["runtime.c"],
+            "build/runtime",
+            Some("build/runtime/runtime.o"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC")
+        );
+    }
+
+    #[test]
+    fn default_allocator_runtime_macro_uses_system_when_moonbitrun_is_suppressed() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.output_ty = OutputType::Object;
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::Default);
+        let mut cc = fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu"));
+        cc.is_env_override = true;
+
+        let command = make_cc_command_resolved_with_link_flags(
+            cc,
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["runtime.c"],
+            "build/runtime",
+            Some("build/runtime/runtime.o"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
+        );
+    }
+
+    #[test]
+    fn system_allocator_suppresses_moonbitrun_link_input() {
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            LinkerConfig::<&Path> {
+                link_moonbitrun: true,
+                link_libbacktrace: false,
+                output_ty: OutputType::Executable,
+                link_shared_runtime: None,
+                native_allocator: NativeAllocator::System,
+            },
+            &[] as &[&str],
+            &["main.o"],
+            "build/main",
+            "build/main/main",
+            "custom-lib",
+        );
+
+        assert!(!command.iter().any(|flag| flag.contains("libmoonbitrun.o")));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn explicit_mimalloc_links_moonbitrun_for_env_compiler() {
+        let mut cc = fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu"));
+        cc.is_env_override = true;
+
+        let command = make_linker_command_resolved(
+            cc,
+            LinkerConfig::<&Path> {
+                link_moonbitrun: true,
+                link_libbacktrace: false,
+                output_ty: OutputType::Executable,
+                link_shared_runtime: None,
+                native_allocator: NativeAllocator::Mimalloc,
+            },
+            &[] as &[&str],
+            &["main.o"],
+            "build/main",
+            "build/main/main",
+            "custom-lib",
+        );
+
+        let libmoonbitrun_arg = Path::new("custom-lib")
+            .join("libmoonbitrun.o")
+            .display()
+            .to_string();
+        assert!(command.iter().any(|arg| arg == &libmoonbitrun_arg));
     }
 
     #[test]
@@ -2183,6 +2426,7 @@ mod tests {
                 apple_cc,
                 ArchiverConfig {
                     archive_moonbitrun: false,
+                    native_allocator: NativeAllocator::Default,
                 },
                 &["runtime.o"],
                 "runtime.a",
@@ -2199,6 +2443,7 @@ mod tests {
                 clang_msvc,
                 ArchiverConfig {
                     archive_moonbitrun: false,
+                    native_allocator: NativeAllocator::Default,
                 },
                 &["runtime.obj"],
                 "runtime.lib",
@@ -2280,6 +2525,7 @@ mod tests {
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,
                 link_shared_runtime: None,
+                native_allocator: NativeAllocator::Default,
             },
             &[] as &[&str],
             &["main.o"],
@@ -2303,6 +2549,7 @@ mod tests {
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             ArchiverConfig {
                 archive_moonbitrun: true,
+                native_allocator: NativeAllocator::Default,
             },
             &["stub.o"],
             "libstub.a",
@@ -2329,6 +2576,7 @@ mod tests {
             link_libbacktrace: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
+            native_allocator: NativeAllocator::Default,
         };
         let mut linker_flags = vec![];
         add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
@@ -2348,6 +2596,7 @@ mod tests {
             link_libbacktrace: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
+            native_allocator: NativeAllocator::Default,
         };
         let mut linker_flags = vec![];
         add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
@@ -2420,6 +2669,7 @@ mod tests {
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,
                 link_shared_runtime: None,
+                native_allocator: NativeAllocator::Default,
             },
             &["/DEBUG"],
             &["main.obj"],

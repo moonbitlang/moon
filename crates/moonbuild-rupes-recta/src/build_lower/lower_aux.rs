@@ -22,8 +22,8 @@ use std::path::Path;
 
 use moonutil::{
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_archiver_command_resolved, make_cc_command_resolved,
+        ArchiverConfigBuilder, CCConfigBuilder, NativeAllocator, OptLevel as CCOptLevel,
+        OutputType as CCOutputType, make_archiver_command_resolved, make_cc_command_resolved,
     },
     resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
@@ -173,6 +173,7 @@ impl<'a> super::LoweringContext<'a> {
                     &artifact_path,
                     &self.opt.compiler_paths().include_path,
                     crt,
+                    info.native_allocator,
                 )
                 .into(),
                 compiler::msvc::command_env(runtime_toolchain),
@@ -192,6 +193,7 @@ impl<'a> super::LoweringContext<'a> {
                         .link_moonbitrun(true)
                         .define_use_shared_runtime_macro(false)
                         .use_simdutf(!info.simdutf_objects.is_empty())
+                        .native_allocator(info.native_allocator)
                         .build()
                         .expect("Failed to build CC configuration for runtime"),
                     &[] as &[&str],
@@ -246,9 +248,10 @@ impl<'a> super::LoweringContext<'a> {
                     )
                     .define_tinyc_macro(true)
                     .preserve_frame_pointer(true)
-                    .link_moonbitrun(false)
+                    .link_moonbitrun(matches!(info.native_allocator, NativeAllocator::Mimalloc))
                     .link_libbacktrace(true)
                     .define_use_shared_runtime_macro(false)
+                    .native_allocator(info.native_allocator)
                     .build()
                     .expect("Failed to build CC configuration for shared runtime"),
                 &[] as &[&str],

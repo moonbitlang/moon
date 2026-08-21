@@ -50,6 +50,7 @@ For native-oriented backends, the final artifact may involve multiple inputs:
 
 - the output of `moonc link-core`
 - the runtime implementation built from the C translation units under `lib/runtime/`
+- the selected native allocator support object, when required
 - package-level C stubs declared in `moon.pkg.json`
 
 The high-level build flow is documented in `build.md`:
@@ -79,6 +80,22 @@ The runtime uses the same explicit multi-step shape for ordinary native builds:
 2. for release builds, supported prebuilt SIMDUTF objects are enabled and
    archived with the runtime objects into one static library
 3. the final executable links against that runtime library
+
+`MOONBIT_ALLOCATOR` may override the native runtime allocator:
+
+- unset on Linux and macOS with a non-MSVC, non-TCC compiler that was not selected through
+  `MOON_CC`: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC` and link `libmoonbitrun.o`
+- unset on other native toolchains: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
+- `mimalloc`: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC` and link `libmoonbitrun.o`
+- `system`: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
+
+The `MOONBIT_ALLOCATOR` macro is a runtime compile setting. Moon passes it only
+when compiling the shipped runtime sources or fused shared runtime, not when
+compiling package C stubs or the C file emitted by `moonc link-core`.
 
 During the toolchain transition, Moon falls back to the legacy `lib/runtime.c` when the split
 runtime directory is absent. `NativeTccRun` remains a fused exception: one TCC invocation compiles
