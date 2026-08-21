@@ -637,7 +637,7 @@ fn test_single_file_commands_work_with_workspace_disabled() {
     let scoped_pkg_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(scoped_pkg_json).unwrap()).unwrap();
     assert_eq!(scoped_pkg_json["backend"], serde_json::json!("wasm-gc"));
-    assert_eq!(scoped_pkg_json.get("opt_level"), None);
+    assert_eq!(scoped_pkg_json["opt_level"], serde_json::json!("debug"));
 
     check(
         get_stdout_with_envs(&dir, ["test", "test.mbt"], [(MOON_NO_WORKSPACE, "1")]),

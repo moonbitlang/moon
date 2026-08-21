@@ -161,7 +161,7 @@ fn test_packages_json_full_check_and_focused_check_behavior() {
     let scoped_metadata: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&scoped_pkg_json).unwrap()).unwrap();
     assert_eq!(scoped_metadata["backend"], serde_json::json!("wasm-gc"));
-    assert_eq!(scoped_metadata.get("opt_level"), None);
+    assert_eq!(scoped_metadata["opt_level"], serde_json::json!("release"));
 
     std::fs::write(&pkg_json, "existing metadata").unwrap();
     std::fs::write(&scoped_pkg_json, "existing scoped metadata").unwrap();

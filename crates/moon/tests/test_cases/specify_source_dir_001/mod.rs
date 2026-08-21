@@ -277,6 +277,7 @@ fn test_specify_source_dir_001() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
+                  "opt_level": "debug",
                   "source": "src"
                 }"#]],
         )

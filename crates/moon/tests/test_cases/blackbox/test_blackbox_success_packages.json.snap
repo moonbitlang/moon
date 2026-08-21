@@ -624,5 +624,6 @@
   ],
   "deps": [],
   "backend": "wasm-gc",
+  "opt_level": "debug",
   "source": null
 }

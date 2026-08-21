@@ -107,6 +107,7 @@ fn test_run_md_test() {
         "#]],
     );
 
+    #[cfg(unix)]
     {
         get_stdout(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
         let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
@@ -180,32 +181,6 @@ fn test_run_md_test() {
                             "Release",
                             "Debug"
                           ]
-                        },
-                        "$ROOT/src/lib/3.mbt.md": {
-                          "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js",
-                            "Native",
-                            "LLVM"
-                          ],
-                          "optlevel": [
-                            "Release",
-                            "Debug"
-                          ]
-                        },
-                        "$ROOT/src/lib/guide.js.mbt.md": {
-                          "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js",
-                            "Native",
-                            "LLVM"
-                          ],
-                          "optlevel": [
-                            "Release",
-                            "Debug"
-                          ]
                         }
                       },
                       "deps": [
@@ -261,8 +236,6 @@ fn test_run_md_test() {
                         "json",
                         "$ROOT/src/lib/1.mbt.md",
                         "$ROOT/src/lib/2.mbt.md",
-                        "$ROOT/src/lib/3.mbt.md",
-                        "$ROOT/src/lib/guide.js.mbt.md",
                         "$ROOT/src/lib/hello_test.mbt",
                         "-doctest-only",
                         "$ROOT/src/lib/hello.mbt",
@@ -417,6 +390,7 @@ fn test_run_md_test() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
+                  "opt_level": "debug",
                   "source": "src"
                 }"#]],
         );

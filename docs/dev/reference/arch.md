@@ -615,13 +615,11 @@ _build/packages.json
 _build/<backend>/<profile>/check/packages.json
 ```
 
-The scoped document retains the legacy single-module-oriented package shape and
-its top-level `backend` field, but omits `opt_level` because the universal
-selector and scoped path already identify the profile. Package and file entries
-are projected for that backend and profile; consumers do not need to evaluate
-the legacy conditional metadata to determine membership. The projection keeps
-checked transitive dependencies and any virtual interface required by a
-participating implementation.
+The scoped document retains the complete legacy single-module-oriented shape,
+including its top-level `backend` and `opt_level` fields, all resolved packages,
+and conditional metadata for all package files. This first migration step only
+relocates that document behind the selector; backend/profile projection and
+removal of redundant legacy fields are deferred to a follow-up change.
 
 Standalone-file checks similarly publish both
 `_build/<filename>.packages.json` and

@@ -287,7 +287,7 @@ fn test_workspace_commands() {
     assert_eq!(metadata["name"], "workspace");
     assert_eq!(metadata["deps"], serde_json::json!(["alice/liba"]));
     assert_eq!(metadata["backend"], "wasm-gc");
-    assert_eq!(metadata.get("opt_level"), None);
+    assert_eq!(metadata["opt_level"], "debug");
     assert_eq!(metadata["source"], serde_json::Value::Null);
     assert_eq!(metadata.get("workspace"), None);
 

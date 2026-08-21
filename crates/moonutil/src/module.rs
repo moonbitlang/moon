@@ -33,6 +33,7 @@ pub struct ModuleDBJSON {
     pub packages: Vec<PackageJSON>,
     pub deps: Vec<String>,
     pub backend: String,
+    pub opt_level: String,
     pub source: Option<String>,
 }
 

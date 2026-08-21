@@ -807,21 +807,10 @@ fn test_check_publishes_backend_scoped_packages_json() {
     );
     assert_eq!(js_packages_json["backend"], serde_json::json!("js"));
     assert_eq!(native_packages_json["backend"], serde_json::json!("native"));
-    assert_eq!(js_packages_json.get("opt_level"), None);
-    assert_eq!(native_packages_json.get("opt_level"), None);
-
-    let package_names = |metadata: &serde_json::Value| {
-        metadata["packages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|package| package["root"].as_str().unwrap().to_string())
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(package_names(&js_packages_json), ["workspace/js_preferred"]);
+    assert_eq!(js_packages_json["opt_level"], serde_json::json!("debug"));
     assert_eq!(
-        package_names(&native_packages_json),
-        ["workspace/native_preferred"]
+        native_packages_json["opt_level"],
+        serde_json::json!("debug")
     );
 }
 
