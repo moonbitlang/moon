@@ -29,10 +29,11 @@ use std::os::windows::io::{AsRawHandle, AsRawSocket};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
-
 #[cfg(any(windows, target_os = "linux"))]
-use super::Resource;
-use super::{OpenJobResource, ResourceRef, SpawnOptions};
+use crate::resource::Resource;
+use crate::resource::ResourceRef;
+
+use super::{OpenJobResource, SpawnOptions};
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 mod glibc_compat;
@@ -942,14 +943,13 @@ mod tests {
 
 #[cfg(all(test, windows))]
 mod windows_tests {
-    use super::super::ResourceClass;
     use super::*;
 
     #[test]
     fn spawn_stdio_accepts_socket_resource() {
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
         let raw_socket = crate::async_sys::socket::make_tcp_socket(4).unwrap();
-        let resource = Resource::new_socket(raw_socket, ResourceClass::TcpSocket, 4);
+        let resource = Resource::tcp_socket(raw_socket, 4);
 
         assert_eq!(
             spawn_stdio_handle(&resource).unwrap() as usize,

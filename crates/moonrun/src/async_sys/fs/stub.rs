@@ -23,8 +23,8 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::Resource;
 use crate::async_sys::ported_fns;
+use crate::resource::Resource;
 
 #[cfg(unix)]
 pub(crate) type RawFileHandle = std::os::fd::RawFd;

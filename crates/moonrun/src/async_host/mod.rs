@@ -45,8 +45,8 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
-        self, HostHandle, HostWorkerJob, Job, JobPayload, OpenJobResource, Resource, ResourceClass,
-        ResourceRef, ResourceTable, WorkerCompletionId,
+        self, HostHandle, HostWorkerJob, Job, JobPayload, OpenJobResource, ResourceTable,
+        WorkerCompletionId,
     },
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -54,6 +54,8 @@ use crate::async_sys::socket::RawSocket;
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 pub(crate) use crate::host::HostKey as HandleKey;
 use crate::host::{HostKeys, HostResourceKind as HandleKind};
+use crate::host_network::HostNetwork;
+use crate::resource::{Resource, ResourceClass, ResourceRef};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -1206,6 +1208,7 @@ pub(crate) struct AsyncHost {
     // that ownership; worker threads own their Jobs and return them through the
     // completion channel instead of sharing the host's tables.
     policy: Arc<AsyncPolicy>,
+    network: HostNetwork,
     errno: Cell<i32>,
     addr_infos: RefCell<SecondaryMap<HandleKey, HostAddrInfo>>,
     c_buffers: RefCell<SecondaryMap<HandleKey, HostCBuffer>>,
@@ -1243,8 +1246,10 @@ impl AsyncHost {
         let process_policy_state = policy
             .has_process_policy()
             .then(|| Arc::new(ProcessPolicyState::default()));
+        let network = HostNetwork::new(Arc::clone(&policy));
         Self {
             policy,
+            network,
             errno: Cell::new(0),
             addr_infos: RefCell::new(SecondaryMap::new()),
             c_buffers: RefCell::new(SecondaryMap::new()),
@@ -2418,7 +2423,7 @@ impl AsyncHost {
             let (host, addrs) = thread_pool::getaddrinfo_job_result(job)?;
             (host.to_os_string(), addrs.to_vec())
         };
-        self.policy.register_dns_result(&host, &addrs)?;
+        self.network.register_dns_result(&host, &addrs)?;
         let (entries, next) = {
             let mut handles = self.handles.borrow_mut();
             let mut entries = Vec::new();
@@ -2556,14 +2561,81 @@ impl AsyncHost {
         Ok(())
     }
 
-    pub(crate) fn insert_socket_resource(
+    pub(crate) fn make_tcp_socket(&self, family: i32) -> AsyncHostResult<HostHandle> {
+        let socket = self.network.make_tcp_socket(family)?;
+        Ok(self.handles.borrow_mut().insert_resource(socket))
+    }
+
+    pub(crate) fn make_udp_socket(
         &self,
-        raw_socket: RawSocket,
-        class: ResourceClass,
         family: i32,
-    ) -> HostHandle {
-        let file = Resource::new_socket(raw_socket, class, family);
-        self.handles.borrow_mut().insert_resource(file)
+        multicast: bool,
+    ) -> AsyncHostResult<HostHandle> {
+        let socket = self.network.make_udp_socket(family, multicast)?;
+        Ok(self.handles.borrow_mut().insert_resource(socket))
+    }
+
+    pub(crate) fn bind(&self, handle: HostHandle, addr: &[u8]) -> AsyncHostResult<()> {
+        self.with_resource(handle, |socket| self.network.bind(socket, addr))
+    }
+
+    pub(crate) fn listen(&self, handle: HostHandle) -> AsyncHostResult<()> {
+        self.with_resource(handle, |socket| self.network.listen(socket))
+    }
+
+    pub(crate) fn connect_udp(&self, handle: HostHandle, addr: &[u8]) -> AsyncHostResult<()> {
+        self.with_resource(handle, |socket| self.network.connect_udp(socket, addr))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn connect_tcp(&self, handle: HostHandle, addr: &[u8]) -> AsyncHostResult<()> {
+        self.with_resource(handle, |socket| self.network.connect_tcp(socket, addr))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn recv_from(
+        &self,
+        handle: HostHandle,
+        data: &mut [u8],
+        addr: &mut [u8],
+    ) -> AsyncHostResult<usize> {
+        self.with_resource(handle, |socket| self.network.recv_from(socket, data, addr))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn send_to(
+        &self,
+        handle: HostHandle,
+        data: &[u8],
+        addr: &[u8],
+    ) -> AsyncHostResult<usize> {
+        self.with_resource(handle, |socket| self.network.send_to(socket, data, addr))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn accept(
+        &self,
+        handle: HostHandle,
+        addr: &mut [u8],
+    ) -> AsyncHostResult<HostHandle> {
+        let socket = self.with_resource(handle, |socket| self.network.accept(socket, addr))?;
+        Ok(self.handles.borrow_mut().insert_resource(socket))
+    }
+
+    pub(crate) fn make_bind_job(&self, socket: ResourceRef, addr: Vec<u8>) -> AsyncHostResult<u64> {
+        let job = match self.network.check_bind(&addr) {
+            Ok(()) => thread_pool::make_bind_job(socket, addr),
+            Err(error) => thread_pool::make_failed_job(error.errno()),
+        };
+        self.insert_job(job)
+    }
+
+    pub(crate) fn make_getaddrinfo_job(&self, host: OsString) -> AsyncHostResult<u64> {
+        let job = match self.network.check_dns(&host) {
+            Ok(()) => thread_pool::make_getaddrinfo_job(host),
+            Err(error) => thread_pool::make_failed_job(error.errno()),
+        };
+        self.insert_job(job)
     }
 
     #[cfg(unix)]
@@ -2591,10 +2663,6 @@ impl AsyncHost {
             is_dir,
             file_handle,
         )
-    }
-
-    pub(crate) fn insert_failed_job(&self, error: AsyncHostError) -> AsyncHostResult<u64> {
-        self.insert_job(thread_pool::make_failed_job(error.errno()))
     }
 
     pub(crate) fn policy(&self) -> &AsyncPolicy {
@@ -3399,7 +3467,7 @@ impl AsyncHost {
         }
         let file = result.kind.resource_ref(&handles, fd_handle)?;
         if result.kind == HostIoKind::SocketWithAddr {
-            self.policy.connect_socket(&result.addr_buffer)?;
+            self.network.check_connect(&result.addr_buffer)?;
         }
         let mut bytes_transferred = 0;
         let success = match result.kind {
@@ -3488,7 +3556,7 @@ impl AsyncHost {
         if result.kind != HostIoKind::Connect || result.is_pending() {
             return Err(AsyncHostError::Inval);
         }
-        self.policy.connect_socket(&result.addr_buffer)?;
+        self.network.check_connect(&result.addr_buffer)?;
 
         bind_any_for_connect(raw_socket, &result.addr_buffer)?;
         let connect_ex = get_wsa_extension::<ws::LPFN_CONNECTEX>(raw_socket, &ws::WSAID_CONNECTEX)?
@@ -5298,16 +5366,8 @@ mod tests {
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
 
         let host = AsyncHost::default();
-        let tcp = host.insert_socket_resource(
-            crate::async_sys::socket::make_tcp_socket(4).unwrap(),
-            ResourceClass::TcpSocket,
-            4,
-        );
-        let udp = host.insert_socket_resource(
-            crate::async_sys::socket::make_udp_socket(4, false).unwrap(),
-            ResourceClass::UdpSocket,
-            4,
-        );
+        let tcp = host.make_tcp_socket(4).unwrap();
+        let udp = host.make_udp_socket(4, false).unwrap();
 
         assert!(
             host.with_raw_resource_class(tcp, ResourceClass::TcpSocket, |_| Ok(()))

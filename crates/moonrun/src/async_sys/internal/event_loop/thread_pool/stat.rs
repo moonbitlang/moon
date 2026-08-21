@@ -26,8 +26,7 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-
-use super::Resource;
+use crate::resource::Resource;
 
 pub(super) const STAT_FILE_KIND: u32 = 0x0001;
 pub(super) const STAT_FILE_SIZE: u32 = 0x0002;
@@ -1000,9 +999,11 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use crate::async_sys::internal::event_loop::thread_pool::{
-        JobPayload, Resource, get_stat_result, make_fstatx_job,
+        JobPayload, get_stat_result, make_fstatx_job,
     };
     use crate::async_sys::internal::event_loop::thread_pool::{make_open_stat_job, run_host_job};
+    #[cfg(unix)]
+    use crate::resource::Resource;
 
     #[test]
     fn request_layout_is_stable_for_every_supported_mask() {
@@ -1209,11 +1210,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_fstatx_reports_socket_kind_before_get_file_type_error() {
-        use crate::async_sys::internal::event_loop::thread_pool::ResourceClass;
-
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
         let raw_socket = crate::async_sys::socket::make_tcp_socket(4).unwrap();
-        let resource = Resource::new_socket(raw_socket, ResourceClass::TcpSocket, 4);
+        let resource = Resource::tcp_socket(raw_socket, 4);
         let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
         let mut result = None;
 

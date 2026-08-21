@@ -23,6 +23,8 @@ use std::thread::JoinHandle;
 use crate::async_host::AsyncHostError;
 use crate::async_host::{AsyncHostResult, HandleKey};
 use crate::async_sys::ported_fns;
+#[cfg(windows)]
+use crate::resource::ResourceRef;
 #[cfg(unix)]
 use std::os::unix::thread::JoinHandleExt;
 
@@ -47,7 +49,7 @@ pub(crate) struct HostWorkerJob {
     pub(crate) job_key: HandleKey,
     pub(crate) job: Job,
     #[cfg(windows)]
-    cancel: Option<super::ResourceRef>,
+    cancel: Option<ResourceRef>,
 }
 
 impl HostWorkerJob {
@@ -79,13 +81,13 @@ pub(crate) struct HostWorkerJobResult {
 // the job's dedicated cancellation event until that operation returns.
 enum RunningCancellation {
     Idle,
-    Active(Option<super::ResourceRef>),
+    Active(Option<ResourceRef>),
 }
 
 #[cfg(windows)]
 pub(crate) enum WorkerCancellationTarget {
     Thread,
-    Resource(super::ResourceRef),
+    Resource(ResourceRef),
 }
 
 #[derive(Debug)]

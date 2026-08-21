@@ -24,15 +24,14 @@ use std::os::windows::io::AsRawSocket;
 
 use crate::async_host::AsyncHostResult;
 use crate::async_sys::ported_fns;
-
-use super::Resource;
+use crate::resource::Resource;
 
 ported_fns! {
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "bind_job_worker"
     )]
-        pub(super) fn run_bind_job(
+    pub(super) fn run_bind_job(
         socket: &Resource,
         addr: &[u8],
     ) -> AsyncHostResult<i64> {
