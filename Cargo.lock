@@ -1814,7 +1814,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arcstr",
- "bytes",
  "clap",
  "colored",
  "dialoguer",
