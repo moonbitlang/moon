@@ -25,6 +25,13 @@
 
 pub(crate) mod v8;
 
+mod job;
+
+pub(crate) use job::Job;
+
+#[cfg(test)]
+pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
+
 use std::ffi::OsStr;
 use std::fmt;
 use std::path::Path;

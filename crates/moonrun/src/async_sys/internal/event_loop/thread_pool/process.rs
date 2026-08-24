@@ -33,7 +33,8 @@ use crate::async_sys::ported_fns;
 use crate::resource::Resource;
 use crate::resource::ResourceRef;
 
-use super::{OpenJobResource, SpawnOptions};
+use super::SpawnOptions;
+use crate::resource::ResourcePublication;
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 mod glibc_compat;
@@ -54,7 +55,7 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        result: &mut Option<OpenJobResource>,
+        result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_unix(
             path,
@@ -79,7 +80,7 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        result: &mut Option<OpenJobResource>,
+        result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_windows(
             command_line,
@@ -121,7 +122,7 @@ fn spawn_process_unix(
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
     options: SpawnOptions,
-    result: &mut Option<OpenJobResource>,
+    result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     #[cfg(not(target_os = "linux"))]
     let _ = result;
@@ -147,7 +148,7 @@ fn spawn_process_unix(
         )
         .map_err(AsyncHostError::Native)?;
         if let Ok(pidfd) = crate::async_sys::process::open_pid_handle(pid) {
-            *result = Some(OpenJobResource::Unpublished(Resource::new(pidfd)));
+            *result = Some(ResourcePublication::Unpublished(Resource::new(pidfd)));
         }
         return Ok(i64::from(pid));
     }
@@ -264,7 +265,7 @@ fn spawn_process_unix(
         Ok(pid) => {
             #[cfg(target_os = "linux")]
             if let Ok(pidfd) = crate::async_sys::process::open_pid_handle(pid) {
-                *result = Some(OpenJobResource::Unpublished(Resource::new(pidfd)));
+                *result = Some(ResourcePublication::Unpublished(Resource::new(pidfd)));
             }
             Ok(i64::from(pid))
         }
@@ -414,7 +415,7 @@ fn spawn_process_windows(
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
     options: SpawnOptions,
-    result: &mut Option<OpenJobResource>,
+    result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -602,7 +603,7 @@ fn spawn_process_windows(
     unsafe {
         CloseHandle(process_info.hThread);
     }
-    *result = Some(OpenJobResource::Unpublished(Resource::new(
+    *result = Some(ResourcePublication::Unpublished(Resource::new(
         process_info.hProcess,
     )));
     Ok(i64::from(process_info.dwProcessId))

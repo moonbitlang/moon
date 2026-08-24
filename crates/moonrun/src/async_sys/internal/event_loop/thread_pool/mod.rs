@@ -16,19 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod fs;
 mod jobs;
 mod process;
 mod runner;
 #[cfg(unix)]
 mod signal;
 mod sleep;
-mod stat;
 mod types;
 mod worker;
 
-#[cfg(target_os = "linux")]
-pub(crate) use jobs::make_inotify_add_watch_job;
 #[cfg(unix)]
 pub(crate) use jobs::make_sigwait_job;
 #[cfg(unix)]
@@ -41,22 +37,12 @@ pub(crate) use jobs::spawn_job_set_no_console_window;
 #[cfg(windows)]
 pub(crate) use jobs::{cancel_job_resource, job_cancel_resource};
 pub(crate) use jobs::{
-    errno_is_cancelled, get_file_size_result, get_platform, get_spawn_job_result_handle,
-    job_get_err, job_get_ret, make_access_job, make_chmod_job, make_failed_job,
-    make_file_kind_by_path_job, make_file_size_job, make_file_time_by_path_job, make_file_time_job,
-    make_flock_job, make_fstatx_job, make_fsync_job, make_mkdir_job, make_open_job,
-    make_open_stat_job, make_read_job, make_readdir_job, make_realpath_job, make_remove_job,
-    make_rename_job, make_rmdir_job, make_sleep_job, make_statx_job, make_symlink_job,
-    make_wait_for_process_job, make_write_job, open_job_get_dev_id, open_job_get_fd,
-    open_job_get_file_id, open_job_get_kind, open_job_result, open_job_result_mut,
-    publish_realpath_result, set_spawn_job_result, take_spawn_job_result,
+    errno_is_cancelled, get_platform, get_spawn_job_result_handle, job_get_err, job_get_ret,
+    make_failed_job, make_sleep_job, make_wait_for_process_job, set_spawn_job_result,
+    take_spawn_job_result,
 };
-pub(crate) use runner::{get_file_time_result, get_read_result, get_stat_result, run_host_job};
-pub(crate) use stat::STAT_OPEN_IDENTITY;
-pub(crate) use types::{
-    FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, RealpathJobResult,
-    ResourceTable, SpawnOptions,
-};
+pub(crate) use runner::run_host_job;
+pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable, SpawnOptions};
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
     free_worker, spawn_worker, wake_worker, worker_enter_idle,
@@ -66,24 +52,14 @@ pub(crate) use worker::{WorkerCancellationTarget, worker_cancellation_target};
 
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    let mut symbols = Vec::new();
-    symbols.extend_from_slice(jobs::PORTED_SYMBOLS);
+    let mut symbols = jobs::PORTED_SYMBOLS.to_vec();
     symbols.extend_from_slice(worker::PORTED_SYMBOLS);
-    symbols
-}
-
-#[cfg(test)]
-pub(crate) fn compat_symbols() -> Vec<crate::async_sys::CompatSymbol> {
-    let mut symbols = Vec::new();
-    symbols.extend_from_slice(jobs::COMPAT_SYMBOLS);
-    symbols.extend_from_slice(fs::COMPAT_SYMBOLS);
     symbols
 }
 
 #[cfg(test)]
 fn job_executor_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     let mut symbols = Vec::new();
-    symbols.extend_from_slice(fs::PORTED_SYMBOLS);
     symbols.extend_from_slice(process::PORTED_SYMBOLS);
     #[cfg(unix)]
     symbols.extend_from_slice(signal::PORTED_SYMBOLS);

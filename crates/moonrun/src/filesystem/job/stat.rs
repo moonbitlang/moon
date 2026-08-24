@@ -761,7 +761,7 @@ mod platform {
         INVALID_FILE_SIZE, OPEN_EXISTING,
     };
 
-    use super::super::fs::{handle_is_socket, resolve_windows_path_for_parent};
+    use super::super::runner::{handle_is_socket, resolve_windows_path_for_parent};
     use super::*;
 
     #[derive(Default)]
@@ -998,11 +998,6 @@ mod platform {
 mod tests {
     use super::*;
     #[cfg(unix)]
-    use crate::async_sys::internal::event_loop::thread_pool::{
-        JobPayload, get_stat_result, make_fstatx_job,
-    };
-    use crate::async_sys::internal::event_loop::thread_pool::{make_open_stat_job, run_host_job};
-    #[cfg(unix)]
     use crate::resource::Resource;
 
     #[test]
@@ -1075,26 +1070,20 @@ mod tests {
         let raw = unsafe { libc::dup(temp.as_file().as_raw_fd()) };
         assert!(raw >= 0);
         let request = STAT_FILE_KIND | STAT_FILE_SIZE | STAT_DEVICE_ID | STAT_FILE_ID;
-        let mut job = make_fstatx_job(
+        let mut job = crate::filesystem::Job::fstatx(
             std::sync::Arc::new(Resource::new(raw)),
             request,
             u32::try_from(StatRequest::new(request, 40).unwrap().encoded_len()).unwrap(),
-        );
+        )
+        .unwrap();
 
-        run_host_job(&mut job);
+        assert_eq!(job.run(), Ok(0));
 
-        assert_eq!(job.err(), 0);
-        let JobPayload::Fstatx {
-            result: Some(result),
-            ..
-        } = job.payload()
-        else {
-            panic!("expected a host-owned packed result");
-        };
+        let result = job.stat_result().unwrap();
         assert_eq!(result.as_bytes()[0..4], 40_u32.to_le_bytes());
 
         let mut guest = [0_u8; 48];
-        get_stat_result(&job, &mut guest[..], 4, 40).unwrap();
+        job.copy_stat_result(0, &mut guest[..], 4, 40).unwrap();
         assert_eq!(guest[0..4], [0; 4]);
         assert_eq!(guest[4..8], 40_u32.to_le_bytes());
         assert_eq!(guest[8..12], request.to_le_bytes());
@@ -1102,10 +1091,10 @@ mod tests {
     }
 
     #[test]
-    fn invalid_open_stat_request_fails_before_opening_the_path() {
+    fn invalid_open_stat_request_is_rejected_before_opening_the_path() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("must-not-be-created");
-        let mut job = make_open_stat_job(
+        let error = crate::filesystem::Job::open(
             path.clone().into_os_string(),
             1,
             3,
@@ -1114,12 +1103,10 @@ mod tests {
             0o600,
             0x0100,
             8,
-        );
+        )
+        .unwrap_err();
 
-        run_host_job(&mut job);
-
-        assert_eq!(job.ret(), -1);
-        assert_eq!(job.err(), AsyncHostError::Inval.errno());
+        assert_eq!(error, AsyncHostError::Inval);
         assert!(!path.exists());
     }
 

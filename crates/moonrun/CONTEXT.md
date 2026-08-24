@@ -5,7 +5,11 @@ Moonrun executes MoonBit wasm programs and provides host services that wasm code
 ## Language
 
 **Job**:
-A host operation requested by guest code whose result is observed later by the guest coroutine.
+A host operation requested by guest code whose result is observed later by the
+guest coroutine. Its `err` field carries host or system errors handled uniformly
+by the MoonBit worker loop. When `err` is zero, its `ret` field is defined by the
+operation and may be a value, a success sentinel, or a domain-specific status;
+structured results and domain-specific diagnostics remain in its payload.
 _Avoid_: Task, request
 
 **Worker**:
@@ -57,10 +61,12 @@ other.
 _Avoid_: Moonrun Policy, FFI permissions
 
 **Host Filesystem**:
-The runtime-engine-neutral implementation of moonrun's permission-backed
-filesystem imports. It owns authorization, host filesystem operations, and
-guest-visible error semantics; runtime adapters only convert values and expose
-imports. WASI does not pass through the Host Filesystem.
+The per-Run, runtime-engine-neutral implementation of moonrun's
+permission-backed filesystem operations. It owns filesystem authorization,
+Filesystem Job payloads, execution, and result interpretation. Runtime adapters
+only convert values and expose imports; the thread pool only schedules
+Filesystem Jobs and delivers their Completions. WASI does not pass through the
+Host Filesystem.
 _Avoid_: WASI filesystem, V8 filesystem
 
 **Host Network**:
@@ -162,8 +168,18 @@ The engine-neutral SQLite implementation for one run. It owns SQLite policy and 
 _Avoid_: SQLite API, Async Host, V8 SQLite
 
 **Async Sys**:
-The V8-free native-stub port layer. Implemented files follow the `moonbitlang/async` source layout and carry provenance for the native source path and symbol they track. Poller files are direct ports behind the wasm `poll/*` imports.
+The V8-free native-stub port layer. Ports carry provenance for the native source
+path and symbol they track. Reusable operating-system operations remain here;
+Job implementations live with their owning domain. Poller files are direct
+ports behind the wasm `poll/*` imports.
 _Avoid_: V8 adapter, placeholder unsupported imports
+
+**Thread Pool**:
+The shared host facility that schedules Jobs outside the guest coroutine loop.
+It owns the common Job result envelope, Workers, and Completion delivery. It
+does not interpret Filesystem or Network Job semantics, which remain in their
+owning domain modules.
+_Avoid_: Filesystem executor, Network executor, SQLite executor
 
 **Host Poller**:
 The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`. Resource registrations store their Resource Handle directly in the poller's opaque user-data field. The event accessor returns the native field unchanged, including platform-specific non-Resource values; later Resource operations—not the accessor—validate any returned Handle.

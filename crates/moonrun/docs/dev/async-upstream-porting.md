@@ -110,6 +110,15 @@ currently pinned wasm wrapper still calls it during a staged migration.
 The annotations must continue to expose unported upstream work. A passing
 substring check is not proof that two symbols are equivalent.
 
+Do not record a thread-pool adapter as a ported implementation merely because
+upstream submits an operation to its thread pool. Job construction and domain
+payload and result adapters are not separate implementations to track. Record
+provenance on the domain implementation that performs the operation, retaining
+its actual upstream source path even when upstream currently places that worker
+in `thread_pool.c`. Within the thread-pool module, record implementation
+provenance only for the thread pool itself, such as worker scheduling,
+cancellation, and completion delivery.
+
 ## Wasm ABI discipline
 
 Treat every wasm import as an exact typed interface. The current V8 adapter
