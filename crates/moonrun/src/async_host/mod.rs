@@ -4023,8 +4023,12 @@ impl AsyncHost {
         let key = self.handles.borrow().job(handle)?;
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
+        let job_error = job.err();
+        if job_error != 0 {
+            return Ok(());
+        }
         let filesystem_job = job.filesystem()?;
-        filesystem_job.copy_stat_result(job.err(), memory, dst, dst_len)
+        filesystem_job.copy_stat_result(job_error, memory, dst, dst_len)
     }
 
     pub(crate) fn get_realpath_result(&self, handle: u64) -> AsyncHostResult<u64> {
@@ -5365,6 +5369,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(&memory[8..11], b"abc");
+    }
+
+    #[test]
+    fn failed_stat_job_does_not_require_a_filesystem_payload() {
+        let host = AsyncHost::default();
+        let error = AsyncHostError::Inval.errno();
+        let job = host
+            .insert_job(thread_pool::make_failed_job(error))
+            .unwrap();
+        let mut memory = [0xaa; 8];
+
+        host.run_job(job).unwrap();
+        assert_eq!(host.job_get_err(job).unwrap(), error);
+        host.get_stat_result(memory.as_mut_slice(), job, 0, 8)
+            .unwrap();
+
+        assert_eq!(memory, [0xaa; 8]);
     }
 
     #[test]
