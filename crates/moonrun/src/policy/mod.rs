@@ -30,7 +30,7 @@ mod process;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
-use crate::async_host::AsyncHostResult;
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 
 use self::config::PolicyConfig;
 use self::env::EnvPolicy;
@@ -45,6 +45,15 @@ pub(crate) struct Policy {
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
+}
+
+fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
+    if let Some(target) = target {
+        eprintln!("Sandbox policy blocked {action}: {target}");
+    } else {
+        eprintln!("Sandbox policy blocked {action}");
+    }
+    Err(AsyncHostError::PermissionDenied)
 }
 
 impl Policy {

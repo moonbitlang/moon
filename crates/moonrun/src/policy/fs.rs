@@ -23,7 +23,7 @@ use anyhow::Context;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 
-use super::config::FsConfig;
+use super::{config::FsConfig, sandbox_denied};
 
 /// Restricts async filesystem operations to native host roots.
 ///
@@ -76,7 +76,7 @@ impl FsPolicy {
         {
             Ok(path) => path,
             Err(AsyncHostError::PermissionDenied) => {
-                return sandbox_denied(intents.sandbox_action(), &target);
+                return sandbox_denied(intents.sandbox_action(), Some(&target));
             }
             Err(error) => return Err(error),
         };
@@ -97,7 +97,7 @@ impl FsPolicy {
         {
             Ok(path) => path,
             Err(AsyncHostError::PermissionDenied) => {
-                return sandbox_denied(intents.sandbox_action(), &target);
+                return sandbox_denied(intents.sandbox_action(), Some(&target));
             }
             Err(error) => return Err(error),
         };
@@ -112,10 +112,10 @@ impl FsPolicy {
         target: &str,
     ) -> AsyncHostResult<()> {
         if intents.read && !self.allows_read(path) {
-            return sandbox_denied("file read", target);
+            return sandbox_denied("file read", Some(target));
         }
         if intents.write && !self.allows_write(path) {
-            return sandbox_denied("file write", target);
+            return sandbox_denied("file write", Some(target));
         }
         Ok(())
     }
@@ -261,11 +261,6 @@ fn normalize_path(path: PathBuf) -> PathBuf {
         }
     }
     normalized
-}
-
-fn sandbox_denied(action: &str, target: &str) -> AsyncHostResult<()> {
-    eprintln!("Sandbox policy blocked {action}: {target}");
-    Err(AsyncHostError::PermissionDenied)
 }
 
 fn sandbox_path_target(base: RuntimePathBase<'_>, path: &OsStr) -> String {

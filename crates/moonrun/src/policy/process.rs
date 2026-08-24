@@ -22,9 +22,12 @@ use std::ffi::OsString;
 
 use anyhow::{bail, ensure};
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_host::AsyncHostResult;
 
-use super::config::{ProcessConfig, ProcessRuleConfig};
+use super::{
+    config::{ProcessConfig, ProcessRuleConfig},
+    sandbox_denied,
+};
 
 #[derive(Clone, Debug)]
 pub(super) enum ProcessPolicy {
@@ -70,7 +73,7 @@ impl ProcessPolicy {
             Self::Scoped(rules) if rules.iter().any(|rule| rule.matches_unix(program, argv)) => {
                 Ok(())
             }
-            Self::Scoped(_) => Err(AsyncHostError::PermissionDenied),
+            Self::Scoped(_) => sandbox_denied("process spawn", None),
         }
     }
 
@@ -90,7 +93,7 @@ impl ProcessPolicy {
                 }) {
                     Ok(())
                 } else {
-                    Err(AsyncHostError::PermissionDenied)
+                    sandbox_denied("process spawn", None)
                 }
             }
         }
@@ -205,6 +208,8 @@ fn matches_windows_command_line_prefix(command_line: &[u16], prefix: &[u16]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use crate::async_host::AsyncHostError;
 
     #[cfg(unix)]
     fn scoped_rule(program: &str, args_prefix: &[&str]) -> ProcessPolicy {

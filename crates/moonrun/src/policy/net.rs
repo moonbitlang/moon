@@ -24,7 +24,7 @@ use anyhow::Context;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 
-use super::config::NetConfig;
+use super::{config::NetConfig, sandbox_denied};
 
 #[derive(Clone, Debug)]
 pub(super) struct NetPolicy {
@@ -112,7 +112,7 @@ impl NetPolicy {
         {
             Ok(())
         } else {
-            sandbox_denied("DNS lookup", &target)
+            sandbox_denied("DNS lookup", Some(&target))
         }
     }
 
@@ -159,7 +159,7 @@ impl NetPolicy {
         {
             Ok(())
         } else {
-            sandbox_denied(operation.sandbox_action(), &target)
+            sandbox_denied(operation.sandbox_action(), Some(&target))
         }
     }
 }
@@ -288,11 +288,6 @@ fn split_host_port(value: &str) -> anyhow::Result<(&str, &str)> {
 
 fn normalize_dns_name(name: &str) -> String {
     name.trim().trim_end_matches('.').to_ascii_lowercase()
-}
-
-fn sandbox_denied(action: &str, target: &str) -> AsyncHostResult<()> {
-    eprintln!("Sandbox policy blocked {action}: {target}");
-    Err(AsyncHostError::PermissionDenied)
 }
 
 fn quote_os_str(value: &OsStr) -> String {
