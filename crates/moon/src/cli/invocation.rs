@@ -169,10 +169,19 @@ pub(crate) fn select(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap
             DelegatedInvocation::Register { current_dir },
         ),
         command => {
-            let output = match &command {
-                MoonBuildSubcommands::Check(command) if command.json => OutputFormat::Json,
-                MoonBuildSubcommands::Search(command) if command.json => OutputFormat::Json,
-                _ => OutputFormat::Human,
+            let output = if matches!(
+                &command,
+                MoonBuildSubcommands::Check(cmd) if cmd.json
+            ) || matches!(
+                &command,
+                MoonBuildSubcommands::Search(cmd) if cmd.json
+            ) || matches!(
+                &command,
+                MoonBuildSubcommands::Tree(cmd) if cmd.json
+            ) {
+                OutputFormat::Json
+            } else {
+                OutputFormat::Human
             };
             Ok(SelectedInvocation::Moon(Box::new(MoonInvocation {
                 flags,
@@ -359,6 +368,17 @@ mod tests {
             panic!("JSON search should select a Moon invocation")
         };
         assert_eq!(search.output, OutputFormat::Json);
+
+        let SelectedInvocation::Moon(tree) = select(args(&["moon", "tree"])).unwrap() else {
+            panic!("tree should select a Moon invocation")
+        };
+        assert_eq!(tree.output, OutputFormat::Human);
+
+        let SelectedInvocation::Moon(tree) = select(args(&["moon", "tree", "--json"])).unwrap()
+        else {
+            panic!("JSON tree should select a Moon invocation")
+        };
+        assert_eq!(tree.output, OutputFormat::Json);
     }
 
     #[test]

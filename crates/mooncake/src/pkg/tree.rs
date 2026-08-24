@@ -31,7 +31,11 @@ use crate::resolver::{ResolveConfig, resolve_with_default_env_and_resolver};
 
 /// Display the dependency tree
 #[derive(Debug, clap::Parser)]
-pub struct TreeSubcommand {}
+pub struct TreeSubcommand {
+    /// Output one complete JSON result to stdout
+    #[clap(long)]
+    pub json: bool,
+}
 
 /// The resolved dependency graph of the selected module, together with the
 /// module the tree is rooted at.

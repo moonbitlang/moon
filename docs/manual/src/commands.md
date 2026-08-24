@@ -562,7 +562,11 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 Display the dependency tree
 
-**Usage:** `moon tree`
+**Usage:** `moon tree [OPTIONS]`
+
+###### **Options:**
+
+* `--json` — Output one complete JSON result to stdout
 
 
 
