@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 mod jobs;
-mod process;
 mod runner;
 #[cfg(unix)]
 mod signal;
@@ -27,22 +26,11 @@ mod worker;
 
 #[cfg(unix)]
 pub(crate) use jobs::make_sigwait_job;
-#[cfg(unix)]
-pub(crate) use jobs::make_spawn_job_unix;
-#[cfg(windows)]
-pub(crate) use jobs::make_spawn_job_windows;
-pub(crate) use jobs::spawn_job_set_cwd;
-#[cfg(windows)]
-pub(crate) use jobs::spawn_job_set_no_console_window;
-#[cfg(windows)]
-pub(crate) use jobs::{cancel_job_resource, job_cancel_resource};
 pub(crate) use jobs::{
-    errno_is_cancelled, get_platform, get_spawn_job_result_handle, job_get_err, job_get_ret,
-    make_failed_job, make_sleep_job, make_wait_for_process_job, set_spawn_job_result,
-    take_spawn_job_result,
+    errno_is_cancelled, get_platform, job_get_err, job_get_ret, make_failed_job, make_sleep_job,
 };
 pub(crate) use runner::run_host_job;
-pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable, SpawnOptions};
+pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable};
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
     free_worker, spawn_worker, wake_worker, worker_enter_idle,
@@ -60,7 +48,6 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
 #[cfg(test)]
 fn job_executor_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     let mut symbols = Vec::new();
-    symbols.extend_from_slice(process::PORTED_SYMBOLS);
     #[cfg(unix)]
     symbols.extend_from_slice(signal::PORTED_SYMBOLS);
     symbols.extend_from_slice(sleep::PORTED_SYMBOLS);

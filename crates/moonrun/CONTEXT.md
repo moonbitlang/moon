@@ -78,6 +78,14 @@ Resource Handles, and asynchronous lifecycle; the thread pool only schedules
 Network Jobs and delivers their Completions.
 _Avoid_: V8 network, Async Host network
 
+**Host Process**:
+The per-Run, runtime-engine-neutral implementation of moonrun's
+permission-backed process operations. It owns Process Job payloads,
+authorization, blocking execution, result interpretation, and child-process
+authority. The Async Host owns guest Handles and worker lifecycle; the thread
+pool only schedules Process Jobs and delivers their Completions.
+_Avoid_: V8 process, thread-pool process
+
 **Handle**:
 An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, Completion Source, SQLite Database, or SQLite Statement.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
@@ -177,9 +185,9 @@ _Avoid_: V8 adapter, placeholder unsupported imports
 **Thread Pool**:
 The shared host facility that schedules Jobs outside the guest coroutine loop.
 It owns the common Job result envelope, Workers, and Completion delivery. It
-does not interpret Filesystem or Network Job semantics, which remain in their
-owning domain modules.
-_Avoid_: Filesystem executor, Network executor, SQLite executor
+does not interpret Filesystem, Network, or Process Job semantics, which remain
+in their owning domain modules.
+_Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:
 The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`. Resource registrations store their Resource Handle directly in the poller's opaque user-data field. The event accessor returns the native field unchanged, including platform-specific non-Resource values; later Resource operations—not the accessor—validate any returned Handle.

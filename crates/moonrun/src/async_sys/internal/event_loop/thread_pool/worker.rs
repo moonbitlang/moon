@@ -55,7 +55,7 @@ pub(crate) struct HostWorkerJob {
 impl HostWorkerJob {
     pub(crate) fn new(completion_id: WorkerCompletionId, job_key: HandleKey, job: Job) -> Self {
         #[cfg(windows)]
-        let cancel = super::job_cancel_resource(&job);
+        let cancel = job.cancellation_resource();
         Self {
             completion_id,
             job_key,
@@ -376,7 +376,7 @@ mod tests {
     use super::*;
     use crate::async_sys::internal::event_loop::thread_pool::make_sleep_job;
     #[cfg(windows)]
-    use crate::async_sys::internal::event_loop::thread_pool::make_wait_for_process_job;
+    use crate::process::Job as ProcessJob;
     use slotmap::KeyData;
     use std::sync::mpsc;
 
@@ -530,7 +530,7 @@ mod tests {
         let queued_job = HostWorkerJob::new(
             WorkerCompletionId::from_abi(3),
             make_job_key(4),
-            make_wait_for_process_job(None, None, 0).unwrap(),
+            ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
         assert!(queued_job.cancel.is_some());
         assert!(wake_worker(&worker, queued_job).is_none());
@@ -701,7 +701,7 @@ mod tests {
         let queued_job = HostWorkerJob::new(
             WorkerCompletionId::from_abi(3),
             make_job_key(4),
-            make_wait_for_process_job(None, None, 0).unwrap(),
+            ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
         assert!(queued_job.cancel.is_some());
         let worker = HostWorkerHandle {
