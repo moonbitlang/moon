@@ -166,7 +166,7 @@ fn cancel_host_worker(worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
     {
         match thread_pool::worker_cancellation_target(worker) {
             thread_pool::WorkerCancellationTarget::Resource(cancel) => {
-                thread_pool::cancel_job_resource(&cancel)?;
+                crate::process::cancel_wait(&cancel)?;
                 return Ok(1);
             }
             thread_pool::WorkerCancellationTarget::Thread => {}

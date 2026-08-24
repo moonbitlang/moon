@@ -20,6 +20,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool;
 use crate::filesystem::Job as FilesystemJob;
 use crate::guest_memory::GuestMemory;
+use crate::process::{Job as ProcessJob, SpawnOptions};
 use crate::resource::{ResourceClass, ResourceRef};
 
 use super::context::ImportContext;
@@ -615,12 +616,12 @@ pub(super) fn make_spawn_job_unix(
     let stdin = optional_resource(context, stdin)?;
     let stdout = optional_resource(context, stdout)?;
     let stderr = optional_resource(context, stderr)?;
-    let options = thread_pool::SpawnOptions {
+    let options = SpawnOptions {
         child_signal_mask: context.host.thread_pool_child_signal_mask()?,
     };
     context
         .host
-        .insert_job(thread_pool::make_spawn_job_unix(
+        .insert_job(ProcessJob::spawn_unix(
             path, args, env, stdin, stdout, stderr, cwd, options,
         ))
 }
@@ -648,12 +649,12 @@ pub(super) fn spawn_job_unix(
     let stdin = optional_resource(context, stdin)?;
     let stdout = optional_resource(context, stdout)?;
     let stderr = optional_resource(context, stderr)?;
-    let options = thread_pool::SpawnOptions {
+    let options = SpawnOptions {
         child_signal_mask: context.host.thread_pool_child_signal_mask()?,
     };
     context
         .host
-        .insert_job(thread_pool::make_spawn_job_unix(
+        .insert_job(ProcessJob::spawn_unix(
             path, args, env, stdin, stdout, stderr, None, options,
         ))
 }
@@ -705,13 +706,13 @@ pub(super) fn make_spawn_job_windows(
     let stdin = optional_resource(context, stdin)?;
     let stdout = optional_resource(context, stdout)?;
     let stderr = optional_resource(context, stderr)?;
-    let options = thread_pool::SpawnOptions {
+    let options = SpawnOptions {
         no_console_window: no_console_window != 0,
         is_orphan: is_orphan != 0,
     };
     context
         .host
-        .insert_job(thread_pool::make_spawn_job_windows(
+        .insert_job(ProcessJob::spawn_windows(
             command_line,
             env,
             stdin,
@@ -743,13 +744,13 @@ pub(super) fn spawn_job_windows(
     let stdin = optional_resource(context, stdin)?;
     let stdout = optional_resource(context, stdout)?;
     let stderr = optional_resource(context, stderr)?;
-    let options = thread_pool::SpawnOptions {
+    let options = SpawnOptions {
         no_console_window: false,
         is_orphan: is_orphan != 0,
     };
     context
         .host
-        .insert_job(thread_pool::make_spawn_job_windows(
+        .insert_job(ProcessJob::spawn_windows(
             command_line,
             env,
             stdin,
@@ -810,7 +811,7 @@ pub(super) fn make_wait_for_process_job(
     let defer_reap = context.host.policy().has_process_policy();
     context
         .host
-        .insert_job(thread_pool::make_wait_for_process_job(
+        .insert_job(ProcessJob::wait_for_process(
             handle,
             tracked_pid,
             pid,

@@ -16,17 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 use std::sync::Arc;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
-use crate::resource::{ResourcePublication, ResourceRef};
 
-use super::types::{HostHandle, Job, JobPayload, SpawnOptions, platform};
+use super::types::{Job, JobPayload, platform};
 
 pub(crate) fn make_failed_job(errno: i32) -> Job {
     Job::new(JobPayload::Failed { errno })
@@ -74,175 +71,12 @@ pub(crate) fn make_sleep_job(ms: i32) -> Job {
     Job::new(JobPayload::Sleep { duration_ms: ms })
 }
 
-#[allow(clippy::too_many_arguments)]
-#[cfg(unix)]
-pub(crate) fn make_spawn_job_unix(
-    path: OsString,
-    args: Vec<OsString>,
-    env: Vec<OsString>,
-    stdin: Option<ResourceRef>,
-    stdout: Option<ResourceRef>,
-    stderr: Option<ResourceRef>,
-    cwd: Option<OsString>,
-    options: SpawnOptions,
-) -> Job {
-    Job::new(JobPayload::SpawnUnix {
-        path,
-        args,
-        env,
-        options,
-        stdio: [stdin, stdout, stderr],
-        cwd,
-        result: None,
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-#[cfg(windows)]
-pub(crate) fn make_spawn_job_windows(
-    command_line: OsString,
-    env: Vec<u16>,
-    stdin: Option<ResourceRef>,
-    stdout: Option<ResourceRef>,
-    stderr: Option<ResourceRef>,
-    cwd: Option<OsString>,
-    options: SpawnOptions,
-) -> Job {
-    Job::new(JobPayload::SpawnWindows {
-        command_line,
-        env,
-        options,
-        stdio: [stdin, stdout, stderr],
-        cwd,
-        result: None,
-    })
-}
-
-pub(crate) fn spawn_job_set_cwd(job: &mut Job, cwd: OsString) -> AsyncHostResult<()> {
-    match job.payload_mut() {
-        #[cfg(unix)]
-        JobPayload::SpawnUnix { cwd: job_cwd, .. } => {
-            *job_cwd = Some(cwd);
-            Ok(())
-        }
-        #[cfg(windows)]
-        JobPayload::SpawnWindows { cwd: job_cwd, .. } => {
-            *job_cwd = Some(cwd);
-            Ok(())
-        }
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-#[cfg(windows)]
-pub(crate) fn spawn_job_set_no_console_window(job: &mut Job) -> AsyncHostResult<()> {
-    match job.payload_mut() {
-        JobPayload::SpawnWindows { options, .. } => {
-            options.no_console_window = true;
-            Ok(())
-        }
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-pub(crate) fn get_spawn_job_result_handle(job: &Job) -> AsyncHostResult<HostHandle> {
-    match job.payload() {
-        #[cfg(unix)]
-        JobPayload::SpawnUnix {
-            result: Some(ResourcePublication::Published(handle)),
-            ..
-        } => Ok(*handle),
-        #[cfg(windows)]
-        JobPayload::SpawnWindows {
-            result: Some(ResourcePublication::Published(handle)),
-            ..
-        } => Ok(*handle),
-        #[cfg(unix)]
-        JobPayload::SpawnUnix {
-            result: Some(ResourcePublication::Unpublished(_)),
-            ..
-        } => Err(AsyncHostError::Inval),
-        #[cfg(windows)]
-        JobPayload::SpawnWindows {
-            result: Some(ResourcePublication::Unpublished(_)),
-            ..
-        } => Err(AsyncHostError::Inval),
-        #[cfg(unix)]
-        JobPayload::SpawnUnix { result: None, .. } => Ok(crate::async_host::INVALID_HOST_HANDLE),
-        #[cfg(windows)]
-        JobPayload::SpawnWindows { result: None, .. } => Ok(crate::async_host::INVALID_HOST_HANDLE),
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-pub(crate) fn make_wait_for_process_job(
-    handle: Option<ResourceRef>,
-    tracked_pid: Option<i32>,
-    pid: i32,
-    #[cfg(unix)] defer_reap: bool,
-) -> AsyncHostResult<Job> {
-    Ok(Job::new(JobPayload::WaitForProcess {
-        handle,
-        tracked_pid,
-        pid,
-        #[cfg(unix)]
-        defer_reap,
-        #[cfg(windows)]
-        cancel: Some(Arc::new(super::process::make_wait_for_process_cancel()?)),
-    }))
-}
-
 #[cfg(unix)]
 pub(crate) fn make_sigwait_job(
     signals: Vec<i32>,
     notifier: Arc<ThreadPoolCompletionNotifier>,
 ) -> Job {
     Job::new(JobPayload::Sigwait { signals, notifier })
-}
-
-#[cfg(windows)]
-pub(crate) fn job_cancel_resource(job: &Job) -> Option<ResourceRef> {
-    match job.payload() {
-        JobPayload::WaitForProcess {
-            cancel: Some(cancel),
-            ..
-        } => Some(Arc::clone(cancel)),
-        _ => None,
-    }
-}
-
-#[cfg(windows)]
-pub(crate) fn cancel_job_resource(cancel: &ResourceRef) -> AsyncHostResult<()> {
-    super::process::cancel_wait_for_process(cancel)
-}
-
-pub(crate) fn take_spawn_job_result(job: &mut Job) -> AsyncHostResult<Option<ResourcePublication>> {
-    match job.payload_mut() {
-        #[cfg(unix)]
-        JobPayload::SpawnUnix { result, .. } => Ok(result.take()),
-        #[cfg(windows)]
-        JobPayload::SpawnWindows { result, .. } => Ok(result.take()),
-        _ => Err(AsyncHostError::Badf),
-    }
-}
-
-pub(crate) fn set_spawn_job_result(
-    job: &mut Job,
-    resource: ResourcePublication,
-) -> AsyncHostResult<()> {
-    match job.payload_mut() {
-        #[cfg(unix)]
-        JobPayload::SpawnUnix { result, .. } => {
-            *result = Some(resource);
-            Ok(())
-        }
-        #[cfg(windows)]
-        JobPayload::SpawnWindows { result, .. } => {
-            *result = Some(resource);
-            Ok(())
-        }
-        _ => Err(AsyncHostError::Badf),
-    }
 }
 
 #[cfg(test)]

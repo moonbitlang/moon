@@ -34,6 +34,7 @@ mod host_imports;
 mod memory_sanitizer_api;
 mod network;
 mod policy;
+mod process;
 mod resource;
 mod run_termination;
 mod source_map;

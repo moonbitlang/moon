@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
 #[cfg(unix)]
 use std::sync::Arc;
 
@@ -26,20 +25,10 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
 use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
-use crate::resource::{ResourcePublication, ResourceRef};
+use crate::process::Job as ProcessJob;
 
 pub(crate) type ResourceHandle = u64;
 pub(crate) type HostHandle = ResourceHandle;
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SpawnOptions {
-    #[cfg(unix)]
-    pub(crate) child_signal_mask: libc::sigset_t,
-    #[cfg(windows)]
-    pub(crate) no_console_window: bool,
-    #[cfg(windows)]
-    pub(crate) is_orphan: bool,
-}
 
 /// A host operation following the `moonbitlang/async` native Job contract.
 ///
@@ -85,6 +74,28 @@ impl Job {
         }
     }
 
+    pub(crate) fn process(&self) -> AsyncHostResult<&ProcessJob> {
+        match &self.payload {
+            JobPayload::Process(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    pub(crate) fn process_mut(&mut self) -> AsyncHostResult<&mut ProcessJob> {
+        match &mut self.payload {
+            JobPayload::Process(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn cancellation_resource(&self) -> Option<crate::resource::ResourceRef> {
+        match &self.payload {
+            JobPayload::Process(job) => job.cancellation_resource(),
+            _ => None,
+        }
+    }
+
     pub(crate) fn ret(&self) -> i64 {
         self.ret
     }
@@ -116,6 +127,12 @@ impl From<FilesystemJob> for Job {
     }
 }
 
+impl From<ProcessJob> for Job {
+    fn from(job: ProcessJob) -> Self {
+        Self::new(JobPayload::Process(job))
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum JobPayload {
     Failed {
@@ -126,35 +143,7 @@ pub(crate) enum JobPayload {
     },
     Filesystem(FilesystemJob),
     Network(NetworkJob),
-    #[cfg(unix)]
-    SpawnUnix {
-        path: OsString,
-        args: Vec<OsString>,
-        env: Vec<OsString>,
-        options: SpawnOptions,
-        stdio: [Option<ResourceRef>; 3],
-        cwd: Option<OsString>,
-        result: Option<ResourcePublication>,
-    },
-    #[cfg(windows)]
-    SpawnWindows {
-        command_line: OsString,
-        env: Vec<u16>,
-        options: SpawnOptions,
-        stdio: [Option<ResourceRef>; 3],
-        cwd: Option<OsString>,
-        result: Option<ResourcePublication>,
-    },
-    WaitForProcess {
-        handle: Option<ResourceRef>,
-        // Host-derived identity for policy checks; never supplied by the guest.
-        tracked_pid: Option<i32>,
-        pid: i32,
-        #[cfg(unix)]
-        defer_reap: bool,
-        #[cfg(windows)]
-        cancel: Option<ResourceRef>,
-    },
+    Process(ProcessJob),
     #[cfg(unix)]
     Sigwait {
         signals: Vec<i32>,
