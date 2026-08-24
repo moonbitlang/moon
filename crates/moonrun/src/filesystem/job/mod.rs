@@ -799,7 +799,7 @@ impl Job {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn set_read_result(&mut self, bytes: Vec<u8>) -> AsyncHostResult<()> {
         match &mut self.kind {
             Kind::Read { result, .. } => {
@@ -810,7 +810,7 @@ impl Job {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn set_realpath_result(&mut self, path: Box<[u8]>) -> AsyncHostResult<()> {
         match &mut self.kind {
             Kind::Realpath { result, .. } => {

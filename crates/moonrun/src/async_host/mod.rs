@@ -3857,6 +3857,7 @@ impl AsyncHost {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
     fn check_file_metadata_policy(policy: &Policy, file: Option<&Resource>) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
         match file.policy_path() {
