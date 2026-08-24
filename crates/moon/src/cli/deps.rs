@@ -20,7 +20,7 @@ use anyhow::bail;
 use mooncake::{
     pkg::{
         add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand,
-        sync::SyncOutputOptions, tree::TreeSubcommand,
+        sync::SyncOutputOptions,
     },
     registry::RegistryClient,
 };
@@ -34,7 +34,10 @@ use std::path::{Path, PathBuf};
 
 use super::UniversalFlags;
 
-fn require_selected_module(project: &ProjectContext, command: &str) -> anyhow::Result<PathBuf> {
+pub(crate) fn require_selected_module(
+    project: &ProjectContext,
+    command: &str,
+) -> anyhow::Result<PathBuf> {
     project
         .selected_module()
         .map(|module| module.root.clone())
@@ -279,22 +282,6 @@ pub(crate) fn add_cli(
             user_log,
         )
     }
-}
-
-pub(crate) fn tree_cli(
-    cli: UniversalFlags,
-    _cmd: TreeSubcommand,
-    user_log: &UserLog,
-) -> anyhow::Result<i32> {
-    let project = cli
-        .source_tgt_dir
-        .query(cli.workspace_env.clone())?
-        .select(user_log)?;
-    let module_dir = require_selected_module(project.context(), "tree")?;
-    let PackageDirs {
-        project_manifest, ..
-    } = project.package_dirs()?;
-    mooncake::pkg::tree::tree(&module_dir, &project_manifest, user_log)
 }
 
 #[cfg(test)]
