@@ -1060,7 +1060,8 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .arg(&process_env_wasm)
         .assert()
         .success()
-        .stdout_eq("spawn denied\n");
+        .stdout_eq("spawn denied\n")
+        .stderr_eq("Sandbox policy blocked process spawn\n");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
@@ -1083,7 +1084,8 @@ Sandbox policy blocked network bind: "0.0.0.0:0"
         .arg(&process_env_wasm)
         .assert()
         .success()
-        .stdout_eq("spawn denied\n");
+        .stdout_eq("spawn denied\n")
+        .stderr_eq("Sandbox policy blocked process spawn\n");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
