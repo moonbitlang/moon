@@ -27,7 +27,7 @@ fn main {
 
 ///|
 #cfg(target="js")
-extern "js" fn moonbit_test_driver_js_parse_args() -> Array[
+extern "js" fn moonbit_test_driver_js_parse_args() -> FixedArray[
   MoonBitTestDriverInternalTestEntry,
 ] =
   #|() => {
@@ -57,7 +57,7 @@ extern "js" fn moonbit_test_driver_js_parse_args() -> Array[
 /// Executes selected JavaScript tests from parsed test entries.
 #cfg(target="js")
 pub fn moonbit_test_driver_internal_execute(
-  tests : Array[MoonBitTestDriverInternalTestEntry],
+  tests : FixedArray[MoonBitTestDriverInternalTestEntry],
 ) -> Unit {
   let async_tests = []
   for i in 0..<tests.length() {
