@@ -39,7 +39,7 @@ fn MoonBitTestDriverInternalOsString::to_string(
   self : MoonBitTestDriverInternalOsString,
 ) -> String {
   let bytes = self.0
-  let res = @moonbitlang/core/prelude.StringBuilder::new()
+  let res = @moonbitlang/core/prelude.StringBuilder()
   let len = bytes.length()
   let mut i = 0
   while i < len {
