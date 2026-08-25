@@ -44,6 +44,7 @@ pub(crate) mod registry_runner;
 pub(crate) mod run;
 pub(crate) mod runtime;
 pub(crate) mod runwasm;
+pub(crate) mod search;
 pub(crate) mod shell_completion;
 pub(crate) mod test;
 pub(crate) mod tool;
@@ -79,6 +80,7 @@ pub(crate) use new::*;
 pub(crate) use prove::*;
 pub(crate) use run::*;
 pub(crate) use runwasm::*;
+pub(crate) use search::*;
 pub(crate) use shell_completion::*;
 pub(crate) use test::*;
 pub(crate) use tool::*;
@@ -136,6 +138,7 @@ pub(crate) enum MoonBuildSubcommands {
     Install(InstallSubcommand),
     Tree(TreeSubcommand),
     Fetch(FetchSubcommand),
+    Search(SearchSubcommand),
     Work(WorkSubcommand),
 
     // Mooncake

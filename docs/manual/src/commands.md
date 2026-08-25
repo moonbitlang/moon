@@ -23,6 +23,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon install`↴](#moon-install)
 * [`moon tree`↴](#moon-tree)
 * [`moon fetch`↴](#moon-fetch)
+* [`moon search`↴](#moon-search)
 * [`moon work`↴](#moon-work)
 * [`moon work init`↴](#moon-work-init)
 * [`moon work use`↴](#moon-work-use)
@@ -66,6 +67,7 @@ This document contains the help content for the `moon` command-line program.
 * `install` — Install a binary package globally or install project dependencies (deprecated without args)
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
+* `search` — Search for modules in the package registry
 * `work` — Workspace maintenance commands
 * `login` — Log in to your account
 * `whoami` — Show login status and username
@@ -578,6 +580,24 @@ Note: This is an unstable command and may change or be removed in future version
 ###### **Options:**
 
 * `--no-update` — Do not update the registry index before fetching
+
+
+
+## `moon search`
+
+Search for modules in the package registry
+
+**Usage:** `moon search [OPTIONS] <KEYWORD>`
+
+###### **Arguments:**
+
+* `<KEYWORD>` — The keyword to search for
+
+###### **Options:**
+
+* `-l`, `--limit <LIMIT>` — Limit the number of search results
+
+  Default value: `20`
 
 
 

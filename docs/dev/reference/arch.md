@@ -361,18 +361,19 @@ See details in [Modules and packages][mod-pkg].
 
 Current registry configuration behavior today is:
 
-- `RegistryClient` owns the physical registry lifecycle: synchronizing the Git
-  index and HTTP symbols archive, reading the local index, and downloading and
-  verifying HTTP package archives and prebuilt wasm assets. Resolver code sees
-  only the narrower `Registry` capability.
+- `RegistryClient` owns the physical registry lifecycle: searching the remote
+  service, synchronizing the Git index and HTTP symbols archive, reading the
+  local index, and downloading and verifying HTTP package archives and
+  prebuilt wasm assets. Resolver code sees only the narrower `Registry`
+  capability.
 - The public `Registry` trait contains only metadata queries used by resolution.
   Package source acquisition remains on `RegistryClient`; dependency-source
   tests replace it through a crate-private seam.
 - `RegistryConfig.index` controls how `moon update` populates the local
   registry index over Git.
-- `RegistryClient` derives the package archive endpoint internally from the
-  loaded registry configuration; callers do not construct or depend on its
-  transport URLs.
+- `RegistryClient` derives the search and package archive endpoints internally
+  from the loaded registry configuration; callers do not construct or depend
+  on its transport URLs.
 - The optional `RegistryConfig.symbols` URL overrides the default Mooncakes
   symbols archive used by `moon update`. `MOONCAKES_REGISTRY` derives the
   index and symbols URLs from the configured registry base.
