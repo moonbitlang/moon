@@ -567,6 +567,7 @@ Display the dependency tree
 ###### **Options:**
 
 * `--json` — Output one complete JSON result to stdout
+* `--package` — Show the package-level dependency graph instead of the module-level tree
 
 
 

@@ -930,6 +930,24 @@ fn test_member_dir_tree_json_output() {
 }
 
 #[test]
+fn test_member_dir_tree_package_json_output() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(
+        get_stdout(&dir, ["-C", "app", "tree", "--package", "--json"]),
+        expect![[r#"
+            {"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"alice/app","version":"0.1.0","source":{"kind":"local","path":"$ROOT/app"},"rel":"main"},{"module":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"$ROOT/liba"},"rel":"lib"}],"edges":[{"from":0,"to":1,"alias":"lib","kinds":["source"]}],"logs":[]}
+        "#]],
+    );
+
+    assert_eq!(
+        get_stderr(&dir, ["-C", "app", "tree", "--package", "--json"]),
+        "",
+        "machine-readable mode must keep stderr empty"
+    );
+}
+
+#[test]
 fn test_member_dir_can_disable_implicit_workspace_mode() {
     let dir = TestDir::new("workspace_basic.in");
 

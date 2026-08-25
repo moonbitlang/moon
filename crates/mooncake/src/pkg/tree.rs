@@ -35,6 +35,10 @@ pub struct TreeSubcommand {
     /// Output one complete JSON result to stdout
     #[clap(long)]
     pub json: bool,
+
+    /// Show the package-level dependency graph instead of the module-level tree
+    #[clap(long, requires = "json")]
+    pub package: bool,
 }
 
 /// The resolved dependency graph of the selected module, together with the
