@@ -19,8 +19,6 @@
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::Context;
-
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 
 use super::{config::FsConfig, sandbox_denied};
@@ -56,11 +54,12 @@ pub(crate) enum RuntimePathBase<'a> {
 }
 
 impl FsPolicy {
-    pub(super) fn from_config(config: FsConfig, config_dir: &Path) -> anyhow::Result<Self> {
-        Ok(Self {
-            read_roots: resolve_roots(config.read, config_dir)?,
-            write_roots: resolve_roots(config.write, config_dir)?,
-        })
+    /// Construct runtime enforcement from roots canonicalized by `policy`.
+    pub(super) fn from_canonical_config(config: FsConfig) -> Self {
+        Self {
+            read_roots: roots_from_config(config.read),
+            write_roots: roots_from_config(config.write),
+        }
     }
 
     pub(super) fn allows(
@@ -190,25 +189,15 @@ impl FsIntents {
     }
 }
 
-fn resolve_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<Vec<FsRoot>> {
+fn roots_from_config(roots: Vec<PathBuf>) -> Vec<FsRoot> {
     roots
         .into_iter()
         .map(|root| {
             if root.as_os_str() == OsStr::new("*") {
-                return Ok(FsRoot::Any);
-            }
-            let path = if root.is_absolute() {
-                root
+                FsRoot::Any
             } else {
-                config_dir.join(root)
-            };
-            let path = std::fs::canonicalize(&path).with_context(|| {
-                format!(
-                    "failed to resolve sandbox filesystem root {}",
-                    path.display()
-                )
-            })?;
-            Ok(FsRoot::Path(path))
+                FsRoot::Path(root)
+            }
         })
         .collect()
 }
@@ -284,7 +273,15 @@ mod tests {
     use super::*;
 
     fn policy(read: Vec<PathBuf>, write: Vec<PathBuf>, config_dir: &Path) -> FsPolicy {
-        FsPolicy::from_config(FsConfig { read, write }, config_dir).unwrap()
+        let config = crate::policy::canonicalize(
+            super::super::config::PolicyConfig {
+                fs: Some(FsConfig { read, write }),
+                ..Default::default()
+            },
+            config_dir,
+        )
+        .unwrap();
+        FsPolicy::from_canonical_config(config.fs.unwrap())
     }
 
     #[test]
