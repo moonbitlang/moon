@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 mod client;
+mod executable;
 #[cfg(test)]
 pub(crate) mod mock;
 pub mod path;
@@ -24,6 +25,7 @@ pub mod path;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 pub use client::RegistryClient;
+pub use executable::ResolvedExecutablePackage;
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
 use moonutil::resolution::ModuleName;
