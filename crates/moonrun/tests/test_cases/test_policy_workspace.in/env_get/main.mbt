@@ -17,10 +17,32 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 ///|
+#unsafe_skip_stub_check
+#borrow(count, size)
+fn wasi_environ_sizes_get(
+  count : Ref[Int],
+  size : Ref[Int],
+) -> Int = "wasi_snapshot_preview1" "environ_sizes_get"
+
+///|
+fn assert_wasi_environment_count(expected : Int) -> Unit {
+  let count = Ref(-1)
+  let size = Ref(-1)
+  if wasi_environ_sizes_get(count, size) != 0 {
+    abort("WASI environ_sizes_get failed")
+  }
+  if count.val != expected {
+    abort("WASI environment bypassed the Run environment")
+  }
+}
+
+///|
 fn main {
   if @env.get_env_var("MOONRUN_POLICY_ENV") is Some(value) {
     println(value)
+    assert_wasi_environment_count(1)
   } else {
     println("missing")
+    assert_wasi_environment_count(0)
   }
 }
