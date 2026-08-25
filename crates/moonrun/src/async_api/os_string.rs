@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, read_u16, write_u16};
 
@@ -34,6 +34,19 @@ pub(super) fn read_guest(
         let units = read_u16(memory, ptr, len)?;
         guest_os_string_from_utf16(&units)
     })
+}
+
+#[cfg(unix)]
+pub(super) fn encode_guest_units(value: &OsStr) -> AsyncHostResult<Vec<u16>> {
+    let value = value.to_str().ok_or(AsyncHostError::Inval)?;
+    Ok(value.encode_utf16().collect())
+}
+
+#[cfg(windows)]
+pub(super) fn encode_guest_units(value: &OsStr) -> AsyncHostResult<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+
+    Ok(value.encode_wide().collect())
 }
 
 #[cfg(unix)]
@@ -151,6 +164,30 @@ mod tests {
         assert_eq!(
             guest_os_string_from_utf16(&[0xd800]),
             Err(AsyncHostError::Inval)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_guest_encoding_rejects_non_utf8_os_string() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let value = OsString::from_vec(b"/tmp/\xff".to_vec());
+
+        assert_eq!(
+            encode_guest_units(value.as_os_str()),
+            Err(AsyncHostError::Inval)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_guest_encoding_preserves_wide_units() {
+        let value = OsString::from("A\u{10000}");
+
+        assert_eq!(
+            encode_guest_units(value.as_os_str()).unwrap(),
+            vec![0x0041, 0xd800, 0xdc00]
         );
     }
 

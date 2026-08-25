@@ -169,8 +169,8 @@ pub(crate) fn get_tmp_path_from_env(
     tmp: Option<OsString>,
     temp: Option<OsString>,
 ) -> AsyncHostResult<OsString> {
-    tmp.or(temp)
-        .and_then(separator_terminated_windows_path)
+    tmp.and_then(separator_terminated_windows_path)
+        .or_else(|| temp.and_then(separator_terminated_windows_path))
         .ok_or(AsyncHostError::PermissionDenied)
 }
 

@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
-
 use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
@@ -27,14 +25,17 @@ use crate::async_sys::fs::watch_inotify;
 use crate::async_sys::fs::watch_kqueue;
 #[cfg(windows)]
 use crate::async_sys::fs::watch_windows;
-use crate::policy::Policy;
 
 use super::context::ImportContext;
+use super::os_string::encode_guest_units;
 use super::provenance::ported_imports;
 
 ported_imports! {
 pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
-    match tmp_path_utf16_units(context.host.policy())
+    match context
+        .host
+        .temp_dir()
+        .and_then(encode_guest_units)
         .and_then(|units| i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault))
     {
         Ok(len) => len,
@@ -48,7 +49,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
 #[ported(source = "src/fs/stub.c")]
 pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: u32, len: u32) -> i32 {
     let result = (|| {
-        let units = tmp_path_utf16_units(context.host.policy())?;
+        let units = encode_guest_units(context.host.temp_dir()?)?;
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         if len != units.len() {
             return Err(AsyncHostError::Inval);
@@ -59,10 +60,10 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: u32, len: u
 }
 
 pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
-    let path = tmp_path(context.host.policy())?;
+    let path = context.host.temp_dir()?;
     Ok(context
         .host
-        .insert_c_buffer(stub::tmp_path_buffer(path.as_os_str())?))
+        .insert_c_buffer(stub::tmp_path_buffer(path)?))
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
@@ -484,42 +485,6 @@ pub(super) fn watcher_event_dirty_file_id(
     })
 }
 
-fn tmp_path_utf16_units(policy: &Policy) -> AsyncHostResult<Vec<u16>> {
-    os_string_to_utf16_units(tmp_path(policy)?)
-}
-
-fn tmp_path(policy: &Policy) -> AsyncHostResult<OsString> {
-    if !policy.has_env_policy() {
-        return stub::get_tmp_path();
-    }
-    tmp_path_from_policy_env(policy)
-}
-
-#[cfg(unix)]
-fn tmp_path_from_policy_env(policy: &Policy) -> AsyncHostResult<OsString> {
-    stub::get_tmp_path_from_env(policy.env_var_os("TMPDIR"))
-}
-
-#[cfg(windows)]
-fn tmp_path_from_policy_env(policy: &Policy) -> AsyncHostResult<OsString> {
-    stub::get_tmp_path_from_env(policy.env_var_os("TMP"), policy.env_var_os("TEMP"))
-}
-
-#[cfg(unix)]
-fn os_string_to_utf16_units(path: std::ffi::OsString) -> AsyncHostResult<Vec<u16>> {
-    use std::os::unix::ffi::OsStringExt;
-
-    let path = String::from_utf8(path.into_vec()).map_err(|_| AsyncHostError::Inval)?;
-    Ok(path.encode_utf16().collect())
-}
-
-#[cfg(windows)]
-fn os_string_to_utf16_units(path: std::ffi::OsString) -> AsyncHostResult<Vec<u16>> {
-    use std::os::windows::ffi::OsStrExt;
-
-    Ok(path.as_os_str().encode_wide().collect())
-}
-
 #[ported(source = "src/fs/stub.c")]
 pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::errno_is_lock_violation(errno) {
@@ -549,86 +514,4 @@ fn zero_or_minus_one(context: &ImportContext<'_, '_>, result: AsyncHostResult<()
     }
 }
 
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(unix)]
-    #[test]
-    fn policy_tmp_path_uses_policy_tmpdir() {
-        use std::os::unix::ffi::OsStrExt;
-
-        let dir = tempfile::tempdir().unwrap();
-        let policy_file = dir.path().join("policy.toml");
-        std::fs::write(&policy_file, "[env.set]\nTMPDIR = \"/policy/tmp\"\n").unwrap();
-        let policy = Policy::from_file(&policy_file).unwrap();
-
-        let path = tmp_path(&policy).unwrap();
-
-        assert_eq!(path.as_os_str().as_bytes(), b"/policy/tmp/");
-    }
-
-    #[cfg(all(unix, not(target_os = "android")))]
-    #[test]
-    fn policy_tmp_path_ignores_denied_host_tmpdir() {
-        use std::os::unix::ffi::OsStrExt;
-
-        let dir = tempfile::tempdir().unwrap();
-        let policy_file = dir.path().join("policy.toml");
-        std::fs::write(&policy_file, "").unwrap();
-        let policy = Policy::from_file(&policy_file).unwrap();
-
-        let path = tmp_path(&policy).unwrap();
-
-        assert_eq!(path.as_os_str().as_bytes(), b"/tmp/");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn policy_tmp_path_requires_configured_windows_temp_env() {
-        let dir = tempfile::tempdir().unwrap();
-        let policy_file = dir.path().join("policy.toml");
-        std::fs::write(&policy_file, "").unwrap();
-        let policy = Policy::from_file(&policy_file).unwrap();
-
-        assert_eq!(tmp_path(&policy), Err(AsyncHostError::PermissionDenied));
-
-        std::fs::write(&policy_file, "[env.set]\nTEMP = \"C:/Temp\"\n").unwrap();
-        let policy = Policy::from_file(&policy_file).unwrap();
-        let path = tmp_path(&policy).unwrap();
-
-        assert_eq!(path.to_string_lossy(), "C:/Temp\\");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn tmp_path_encodes_unix_path_as_utf16_units() {
-        let path = std::ffi::OsString::from("/tmp/\u{6587}");
-
-        let units = os_string_to_utf16_units(path).unwrap();
-
-        assert_eq!(units, "/tmp/\u{6587}".encode_utf16().collect::<Vec<_>>());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn tmp_path_rejects_non_utf8_unix_os_string() {
-        use std::os::unix::ffi::OsStringExt;
-
-        let path = std::ffi::OsString::from_vec(b"/tmp/\xff".to_vec());
-
-        assert_eq!(os_string_to_utf16_units(path), Err(AsyncHostError::Inval));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn tmp_path_preserves_windows_wide_units() {
-        let path = std::ffi::OsString::from("A\u{10000}");
-
-        let units = os_string_to_utf16_units(path).unwrap();
-
-        assert_eq!(units, vec![0x0041, 0xd800, 0xdc00]);
-    }
 }

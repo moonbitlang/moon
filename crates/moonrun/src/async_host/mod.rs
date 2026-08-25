@@ -32,7 +32,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::collections::HashSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
@@ -59,6 +59,7 @@ use crate::network::HostNetwork;
 use crate::policy::{Policy, RuntimePathBase};
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
+use crate::temp_dir::TempDir;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -1199,6 +1200,7 @@ pub(crate) struct AsyncHost {
     // that ownership; worker threads own their Jobs and return them through the
     // completion channel instead of sharing the host's tables.
     policy: Arc<Policy>,
+    temp_dir: TempDir,
     network: HostNetwork,
     errno: Cell<i32>,
     addr_infos: RefCell<SecondaryMap<HandleKey, HostAddrInfo>>,
@@ -1235,8 +1237,10 @@ impl AsyncHost {
     pub(crate) fn with_keys(policy: Arc<Policy>, keys: Rc<RefCell<HostKeys>>) -> Self {
         let process = HostProcess::new(Arc::clone(&policy));
         let network = HostNetwork::new(Arc::clone(&policy));
+        let temp_dir = TempDir::new(Arc::clone(&policy));
         Self {
             policy,
+            temp_dir,
             network,
             errno: Cell::new(0),
             addr_infos: RefCell::new(SecondaryMap::new()),
@@ -2631,6 +2635,10 @@ impl AsyncHost {
 
     pub(crate) fn policy(&self) -> &Policy {
         &self.policy
+    }
+
+    pub(crate) fn temp_dir(&self) -> AsyncHostResult<&OsStr> {
+        self.temp_dir.path()
     }
 
     #[cfg(test)]
