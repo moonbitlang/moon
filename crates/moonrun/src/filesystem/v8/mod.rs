@@ -24,6 +24,7 @@ mod whole_file;
 use std::any::Any;
 use std::sync::Arc;
 
+use crate::env::Env;
 use crate::policy::Policy;
 
 pub(crate) fn init_env<'s>(
@@ -32,8 +33,9 @@ pub(crate) fn init_env<'s>(
     wasm_file_name: &str,
     args: &[String],
     policy: Arc<Policy>,
+    environment: Arc<Env>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
-    runtime::register(obj, scope, wasm_file_name, args, Arc::clone(&policy), dtors);
+    runtime::register(obj, scope, wasm_file_name, args, environment, dtors);
     whole_file::register(obj, scope, policy, dtors);
 }

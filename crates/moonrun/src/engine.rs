@@ -125,7 +125,9 @@ impl fmt::Debug for Module {
 ///
 /// The current implementation still uses process stdio, environment, working
 /// directory, and signal compatibility behavior. Those remain shared,
-/// process-scoped dependencies to extract in later changes.
+/// process-scoped dependencies to extract in later changes. In particular,
+/// unrestricted guest environment mutations write through to the process and
+/// must not race other process-environment access.
 #[derive(Clone, Debug)]
 pub struct Engine {
     config: EngineConfig,
@@ -180,6 +182,11 @@ impl Engine {
             )?,
             None => policy::Policy::allow_all(),
         });
+        let environment = Arc::new(
+            policy
+                .realize_env()
+                .context("failed to construct the Run environment")?,
+        );
         v8_backend::run(
             &self.config,
             module.name(),
@@ -187,6 +194,7 @@ impl Engine {
             module.source_map(),
             options,
             policy,
+            environment,
         )
     }
 

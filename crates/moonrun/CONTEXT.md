@@ -52,6 +52,14 @@ operations before moonrun performs them. It does not implicitly configure or
 restrict WASI descriptors.
 _Avoid_: WASI sandbox, virtual filesystem
 
+**Env**:
+The environment interface selected for one Run. Moonrun Policy contributes
+only its startup selection; runtime reads and mutations go through Env instead
+of treating Policy as mutable state. The current unrestricted mode retains its
+legacy process-environment write-through behavior; Run-owned isolation is a
+separate behavior change.
+_Avoid_: Mutable policy, per-import environment map
+
 **WASI Capability Surface**:
 The files and directories reachable through WASI descriptors and preopens.
 WASI access is configured separately from Moonrun Policy, even when both

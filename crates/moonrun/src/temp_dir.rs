@@ -22,39 +22,52 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
-use crate::async_sys::fs::stub;
+use crate::env::Env;
 use crate::policy::Policy;
 
 /// Selects the temporary-directory base observed by one Run.
 pub(crate) struct TempDir {
-    policy: Arc<Policy>,
+    environment: Arc<Env>,
+    source: TempDirSource,
+}
+
+#[derive(Clone, Copy)]
+enum TempDirSource {
+    Native,
+    RunEnvironment,
 }
 
 impl TempDir {
-    pub(crate) fn new(policy: Arc<Policy>) -> Self {
-        Self { policy }
+    pub(crate) fn new(environment: Arc<Env>, policy: &Policy) -> Self {
+        Self {
+            environment,
+            source: if policy.has_env_policy() {
+                TempDirSource::RunEnvironment
+            } else {
+                TempDirSource::Native
+            },
+        }
     }
 
     pub(crate) fn path(&self) -> AsyncHostResult<OsString> {
-        resolve(&self.policy)
+        match self.source {
+            TempDirSource::Native => crate::async_sys::fs::stub::get_tmp_path(),
+            TempDirSource::RunEnvironment => resolve_from_run_environment(&self.environment),
+        }
     }
-}
-
-fn resolve(policy: &Policy) -> AsyncHostResult<OsString> {
-    if !policy.has_env_policy() {
-        return stub::get_tmp_path();
-    }
-    resolve_from_policy_env(policy)
 }
 
 #[cfg(unix)]
-fn resolve_from_policy_env(policy: &Policy) -> AsyncHostResult<OsString> {
-    stub::get_tmp_path_from_env(policy.env_var_os("TMPDIR"))
+fn resolve_from_run_environment(environment: &Env) -> AsyncHostResult<OsString> {
+    crate::async_sys::fs::stub::get_tmp_path_from_env(environment.get("TMPDIR".as_ref()))
 }
 
 #[cfg(windows)]
-fn resolve_from_policy_env(policy: &Policy) -> AsyncHostResult<OsString> {
-    stub::get_tmp_path_from_env(policy.env_var_os("TMP"), policy.env_var_os("TEMP"))
+fn resolve_from_run_environment(environment: &Env) -> AsyncHostResult<OsString> {
+    crate::async_sys::fs::stub::get_tmp_path_from_env(
+        environment.get("TMP".as_ref()),
+        environment.get("TEMP".as_ref()),
+    )
 }
 
 #[cfg(test)]
@@ -62,12 +75,17 @@ mod tests {
     use super::*;
     #[cfg(windows)]
     use crate::async_host::AsyncHostError;
+    #[cfg(unix)]
+    use crate::async_sys::fs::stub;
 
-    fn load_policy(contents: &str) -> Arc<Policy> {
+    fn load_temp_dir(contents: &str) -> (Arc<Env>, TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("policy.toml");
         std::fs::write(&policy_file, contents).unwrap();
-        Arc::new(Policy::from_file(&policy_file).unwrap())
+        let policy = Policy::from_file(&policy_file).unwrap();
+        let environment = Arc::new(policy.realize_env().unwrap());
+        let temp_dir = TempDir::new(Arc::clone(&environment), &policy);
+        (environment, temp_dir)
     }
 
     #[cfg(unix)]
@@ -75,7 +93,7 @@ mod tests {
     fn policy_tmp_path_uses_policy_tmpdir() {
         use std::os::unix::ffi::OsStrExt;
 
-        let temp_dir = TempDir::new(load_policy("[env.set]\nTMPDIR = \"/policy/tmp\"\n"));
+        let (_, temp_dir) = load_temp_dir("[env.set]\nTMPDIR = \"/policy/tmp\"\n");
 
         assert_eq!(temp_dir.path().unwrap().as_bytes(), b"/policy/tmp/");
     }
@@ -85,13 +103,12 @@ mod tests {
     fn tmp_path_reflects_policy_env_changes() {
         use std::os::unix::ffi::OsStrExt;
 
-        let policy = load_policy("[env.set]\nTMPDIR = \"/first\"\n");
-        let temp_dir = TempDir::new(Arc::clone(&policy));
+        let (environment, temp_dir) = load_temp_dir("[env.set]\nTMPDIR = \"/first\"\n");
 
         assert_eq!(temp_dir.path().unwrap().as_bytes(), b"/first/");
-        policy.set_env_var("TMPDIR".to_owned(), "/second".to_owned());
+        environment.set("TMPDIR".into(), "/second".into()).unwrap();
         assert_eq!(temp_dir.path().unwrap().as_bytes(), b"/second/");
-        policy.unset_env_var("TMPDIR");
+        environment.unset("TMPDIR".as_ref()).unwrap();
         assert_eq!(
             temp_dir.path().unwrap(),
             stub::get_tmp_path_from_env(None).unwrap()
@@ -103,7 +120,7 @@ mod tests {
     fn policy_tmp_path_ignores_denied_host_tmpdir() {
         use std::os::unix::ffi::OsStrExt;
 
-        let temp_dir = TempDir::new(load_policy(""));
+        let (_, temp_dir) = load_temp_dir("");
 
         assert_eq!(temp_dir.path().unwrap().as_bytes(), b"/tmp/");
     }
@@ -111,22 +128,19 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn policy_tmp_path_requires_configured_windows_temp_env() {
-        let policy = load_policy("");
-        let temp_dir = TempDir::new(Arc::clone(&policy));
+        let (environment, temp_dir) = load_temp_dir("");
 
         assert_eq!(temp_dir.path(), Err(AsyncHostError::PermissionDenied));
-        policy.set_env_var("TEMP".to_owned(), "C:/Temp".to_owned());
+        environment.set("TEMP".into(), "C:/Temp".into()).unwrap();
         assert_eq!(temp_dir.path().unwrap().to_string_lossy(), "C:/Temp\\");
-        policy.unset_env_var("TEMP");
+        environment.unset("TEMP".as_ref()).unwrap();
         assert_eq!(temp_dir.path(), Err(AsyncHostError::PermissionDenied));
     }
 
     #[cfg(windows)]
     #[test]
     fn empty_policy_tmp_falls_back_to_temp() {
-        let temp_dir = TempDir::new(load_policy(
-            "[env.set]\nTMP = \"\"\nTEMP = \"C:/Fallback\"\n",
-        ));
+        let (_, temp_dir) = load_temp_dir("[env.set]\nTMP = \"\"\nTEMP = \"C:/Fallback\"\n");
 
         assert_eq!(temp_dir.path().unwrap().to_string_lossy(), "C:/Fallback\\");
     }

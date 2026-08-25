@@ -26,6 +26,7 @@ use slotmap::Key;
 use slotmap::{KeyData, SlotMap, new_key_type};
 
 use crate::async_host::AsyncHost;
+use crate::env::Env;
 use crate::policy::Policy;
 use crate::sqlite::SqliteHost;
 
@@ -98,10 +99,10 @@ pub(crate) struct Host {
 }
 
 impl Host {
-    pub(crate) fn new(policy: Arc<Policy>) -> Self {
+    pub(crate) fn new(policy: Arc<Policy>, environment: Arc<Env>) -> Self {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         Self {
-            async_state: AsyncHost::with_keys(Arc::clone(&policy), Rc::clone(&keys)),
+            async_state: AsyncHost::with_keys(Arc::clone(&policy), environment, Rc::clone(&keys)),
             sqlite: SqliteHost::with_keys(policy, keys),
         }
     }
