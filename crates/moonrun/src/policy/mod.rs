@@ -27,7 +27,9 @@ mod fs;
 mod net;
 mod process;
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
