@@ -19,14 +19,13 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::bail;
-use mooncake::registry::RegistryClient;
 use moonutil::{
     cli_support::AutoSyncFlags, cli_support::UniversalFlags, command_output::CommandOutput,
-    constants::is_moon_pkg_exist, target::SurfaceTarget, user_log::UserLog,
+    constants::is_moon_pkg_exist, target::SurfaceTarget,
 };
 use tracing::instrument;
 
-use super::{BuildFlags, RunSubcommand, registry_runner::ResolvedExecutablePackage};
+use super::{BuildFlags, RunSubcommand};
 use crate::cli::process::ProcessAction;
 
 /// Run a local package as WebAssembly or a prebuilt WebAssembly binary
@@ -94,18 +93,6 @@ pub(crate) fn run_runwasm(
         output.user_log(),
     )
     .map(ProcessAction::Delegate)
-}
-
-pub(super) fn cached_wasm_path(
-    package: &ResolvedExecutablePackage,
-    user_log: &UserLog,
-) -> anyhow::Result<PathBuf> {
-    RegistryClient::configured().acquire_wasm_asset(
-        &package.module_name,
-        &package.version,
-        &package.package_path,
-        user_log,
-    )
 }
 
 fn should_run_as_local_package(input: &str) -> anyhow::Result<bool> {
