@@ -453,14 +453,9 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn ambient_os_failures_are_reported_instead_of_panicking() {
-        let environment = Env::ambient();
-        let oversized_name = "A".repeat(32_767);
+    fn windows_environment_adapter_reports_os_errors() {
+        let result = unsafe { os::set("BAD=NAME".as_ref(), "value".as_ref()) };
 
-        assert!(
-            environment
-                .set(oversized_name.into(), "value".into())
-                .is_err()
-        );
+        assert!(result.is_err());
     }
 }
