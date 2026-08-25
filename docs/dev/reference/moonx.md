@@ -36,6 +36,17 @@ required. `moonx` options therefore precede the package coordinate.
 The child process inherits the caller's working directory, environment,
 standard streams, and signal behavior. `moonx` returns the child's exit code.
 
+When a policy-bearing `moonrun` directly spawns `moonx`, the host replaces a
+reserved environment entry with an opaque reference to that Run's canonical
+policy copy. At its process entry, `moonx` removes the entry from its ambient
+environment before registry work and applies it explicitly only to the final
+`moonrun` command. That `moonrun` consumes it before constructing the Run
+environment, so neither registry subprocesses nor processes spawned by the
+resolved program inherit it. The inherited policy takes precedence over an
+explicit `--experimental-policy`; the child may not replace or widen it. An
+inherited invocation rejects `--target native` because native execution does
+not pass through `moonrun`.
+
 ## Executable package coordinates
 
 An Executable Package Coordinate selects exactly one main package. A module-only

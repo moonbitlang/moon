@@ -81,14 +81,7 @@ pub(crate) struct MoonxInvocation {
 pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
     raw_args
         .first()
-        .and_then(|arg| std::path::Path::new(arg).file_name())
-        .is_some_and(|name| {
-            if cfg!(windows) {
-                name.eq_ignore_ascii_case("moonx") || name.eq_ignore_ascii_case("moonx.exe")
-            } else {
-                name == "moonx" || name == "moonx.exe"
-            }
-        })
+        .is_some_and(|arg| moonutil::constants::is_moonx_executable(arg))
 }
 
 pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
@@ -113,13 +106,18 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
 
 pub(crate) fn prepare(
     invocation: MoonxInvocation,
+    inherited_policy_token: Option<OsString>,
     user_log: &UserLog,
 ) -> anyhow::Result<std::process::Command> {
     let quiet = !invocation.verbose;
     let target = match invocation.target {
         MoonxTarget::Wasm => RegistryRunTarget::Wasm {
             experimental_policy: invocation.experimental_policy,
+            inherited_policy_token,
         },
+        MoonxTarget::Native if inherited_policy_token.is_some() => {
+            anyhow::bail!("an inherited moonrun policy cannot be used with `--target native`")
+        }
         MoonxTarget::Native if invocation.experimental_policy.is_some() => {
             anyhow::bail!("--experimental-policy is only valid with `--target wasm`")
         }

@@ -86,6 +86,14 @@ fn get_moonrun_version() -> String {
 }
 
 fn main() -> anyhow::Result<()> {
+    let inherited_policy = std::env::var_os(moonutil::constants::MOONRUN_INHERITED_POLICY);
+    if inherited_policy.is_some() {
+        // This is the process entry point and no other threads exist yet. The
+        // reserved transport value must not become part of env.from_host="*".
+        unsafe {
+            std::env::remove_var(moonutil::constants::MOONRUN_INHERITED_POLICY);
+        }
+    }
     let matches = Commandline::parse();
     let engine_config = match matches.stack_size {
         Some(stack_size) => EngineConfig::default().with_stack_size(stack_size),
@@ -98,7 +106,9 @@ fn main() -> anyhow::Result<()> {
     if let Some(test_args) = matches.test_args {
         options = options.with_test_args(test_args);
     }
-    if let Some(policy) = matches.policy {
+    // An inherited policy is host-owned and cannot be replaced by a child CLI
+    // argument. Policy::from_file publishes this Run's own canonical copy.
+    if let Some(policy) = inherited_policy.map(PathBuf::from).or(matches.policy) {
         options = options.with_policy_file(policy);
     }
 

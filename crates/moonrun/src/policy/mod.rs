@@ -51,9 +51,7 @@ pub(crate) struct Policy {
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
-    // TODO(policy-inheritance): lease this copy to a directly spawned moonx
-    // Job when the process-boundary wiring lands.
-    _policy_copy: Option<PolicyCopy>,
+    policy_copy: Option<PolicyCopy>,
 }
 
 fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
@@ -72,7 +70,7 @@ impl Policy {
             net: None,
             env: None,
             process: None,
-            _policy_copy: None,
+            policy_copy: None,
         }
     }
 
@@ -104,8 +102,12 @@ impl Policy {
             process: Some(ProcessPolicy::from_config(
                 config.process.unwrap_or_default(),
             )?),
-            _policy_copy: Some(policy_copy),
+            policy_copy: Some(policy_copy),
         })
+    }
+
+    pub(crate) fn inherited_copy_token(&self) -> Option<&OsStr> {
+        self.policy_copy.as_ref().map(PolicyCopy::token)
     }
 
     pub(crate) fn open_path(
@@ -554,7 +556,7 @@ mod tests {
             tmp.path(),
         )
         .unwrap();
-        let copy = policy._policy_copy.as_ref().unwrap();
+        let copy = policy.policy_copy.as_ref().unwrap();
 
         assert!(
             !std::fs::read_to_string(copy.path())
@@ -577,10 +579,10 @@ mod tests {
     fn each_policy_run_publishes_its_own_copy() {
         let tmp = tempfile::tempdir().unwrap();
         let parent = Policy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
-        let parent_copy = parent._policy_copy.as_ref().unwrap();
+        let parent_copy = parent.policy_copy.as_ref().unwrap();
 
         let child = Policy::from_file(parent_copy.path()).unwrap();
-        let child_copy = child._policy_copy.as_ref().unwrap();
+        let child_copy = child.policy_copy.as_ref().unwrap();
 
         assert_ne!(parent_copy.path(), child_copy.path());
     }
@@ -591,7 +593,7 @@ mod tests {
         let source = tmp.path().join("policy.json");
         std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
         let parent = Policy::from_file(&source).unwrap();
-        let parent_copy = parent._policy_copy.as_ref().unwrap();
+        let parent_copy = parent.policy_copy.as_ref().unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
         let inherited = Policy::from_file(parent_copy.path()).unwrap();
@@ -616,7 +618,7 @@ mod tests {
             tmp.path(),
         )
         .unwrap();
-        let copy_path = policy._policy_copy.as_ref().unwrap().path();
+        let copy_path = policy.policy_copy.as_ref().unwrap().path();
 
         assert_eq!(
             policy.read_path(RuntimePathBase::CurrentDirectory, copy_path.as_os_str()),
@@ -647,7 +649,7 @@ mod tests {
             tmp.path(),
         )
         .unwrap();
-        let copy_path = policy._policy_copy.as_ref().unwrap().path();
+        let copy_path = policy.policy_copy.as_ref().unwrap().path();
         let alias = tmp.path().join("policy-copy-alias");
         std::os::unix::fs::symlink(copy_path, &alias).unwrap();
 

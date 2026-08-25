@@ -1028,6 +1028,10 @@ fn test_moon_run_policy_with_workspace_async_fs() {
     let fs_allow_wasm = wasm_file("fs_allow");
     let fs_deny_read_wasm = wasm_file("fs_deny_read");
     let env_get_wasm = wasm_file("env_get");
+    // Moonx runs cached artifacts as ordinary programs. This probe cannot be a
+    // test executable because a MoonBit test driver does nothing without
+    // moonrun's --test-args selection.
+    let env_marker_wasm = wasm_file("env_marker");
     let env_mutate_wasm = wasm_file("env_mutate");
     let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
     let process_env_wasm = wasm_file("process_env");
@@ -1118,6 +1122,60 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .assert()
         .success()
         .stdout_eq("missing\n");
+
+    let moon_home = tempfile::TempDir::new().expect("create inherited-policy MOON_HOME");
+    let cached_wasm = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cached_wasm.parent().unwrap()).unwrap();
+    std::fs::copy(&env_marker_wasm, &cached_wasm).unwrap();
+
+    let bin_dir = tempfile::TempDir::new().expect("create inherited-policy bin directory");
+    let moonx = bin_dir
+        .path()
+        .join(if cfg!(windows) { "moonx.exe" } else { "moonx" });
+    std::fs::hard_link(moon_bin(), &moonx).unwrap_or_else(|_| {
+        std::fs::copy(moon_bin(), &moonx).expect("copy moon binary as moonx");
+    });
+    let path = std::env::join_paths(std::iter::once(bin_dir.path().to_path_buf()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .expect("put moonx on PATH");
+    let inherited_policy = dir.path().join("inherited-policy.toml");
+    std::fs::write(
+        &inherited_policy,
+        r#"
+[env]
+from_host = ["*"]
+
+[env.set]
+MOONRUN_INHERITED_POLICY = "guest"
+MOONRUN_POLICY_ENV = "inherited"
+
+[process]
+spawn = true
+"#,
+    )
+    .unwrap();
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .env("PATH", path)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env(
+            moonutil::constants::MOONRUN_INHERITED_POLICY,
+            &inherited_policy,
+        )
+        .args([
+            "test",
+            "--package",
+            "moon/policy_workspace/spawn_moonx",
+            "--target",
+            "wasm",
+        ])
+        .assert()
+        .success();
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())

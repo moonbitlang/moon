@@ -19,7 +19,7 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 
 #[cfg(unix)]
 #[derive(Debug, PartialEq, Eq)]
@@ -73,6 +73,27 @@ impl ProcessEnvBuilder {
                 .collect(),
         }
     }
+}
+
+#[cfg(unix)]
+pub(crate) fn overwrite_process_env_var(env: &mut Vec<OsString>, key: &OsStr, value: &OsStr) {
+    let mut builder = ProcessEnvBuilder::new(std::mem::take(env));
+    process_env_builder_add_entry(&mut builder, key.to_owned(), value.to_owned());
+    *env = finish_process_env_builder(builder);
+}
+
+#[cfg(windows)]
+pub(crate) fn overwrite_process_env_var(env: &mut Vec<u16>, key: &OsStr, value: &OsStr) {
+    use std::os::windows::ffi::OsStringExt;
+
+    let inherited = env
+        .split(|unit| *unit == 0)
+        .take_while(|entry| !entry.is_empty())
+        .map(OsString::from_wide)
+        .collect();
+    let mut builder = ProcessEnvBuilder::new(inherited);
+    process_env_builder_add_entry(&mut builder, key.to_owned(), value.to_owned());
+    *env = finish_process_env_builder(builder);
 }
 
 #[cfg(unix)]
@@ -479,6 +500,7 @@ fn last_native_error() -> AsyncHostError {
 #[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
 
     use super::*;
 
@@ -499,6 +521,25 @@ mod tests {
         assert_eq!(
             finish_process_env_builder(builder),
             vec![OsString::from("GOOD=before")]
+        );
+    }
+
+    #[test]
+    fn unix_process_env_overwrite_replaces_guest_value_and_preserves_bytes() {
+        let mut env = vec![
+            OsString::from("MOONRUN_INHERITED_POLICY=guest"),
+            OsString::from("KEEP=value"),
+        ];
+        let value = OsString::from_vec(b"/tmp/policy-\xFF.json".to_vec());
+
+        overwrite_process_env_var(&mut env, OsStr::new("MOONRUN_INHERITED_POLICY"), &value);
+
+        assert_eq!(
+            env,
+            vec![
+                OsString::from_vec(b"MOONRUN_INHERITED_POLICY=/tmp/policy-\xFF.json".to_vec()),
+                OsString::from("KEEP=value"),
+            ]
         );
     }
 
@@ -530,7 +571,7 @@ fn last_native_errno() -> i32 {
 
 #[cfg(all(test, windows))]
 mod windows_tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::os::windows::io::AsRawHandle;
     use std::process::Command;
 
@@ -553,6 +594,26 @@ mod windows_tests {
         assert_eq!(
             finish_process_env_builder(builder),
             "GOOD=before\0\0".encode_utf16().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn windows_process_env_overwrite_replaces_guest_value_case_insensitively() {
+        let mut env = "moonrun_inherited_policy=guest\0KEEP=\u{6708}\0\0"
+            .encode_utf16()
+            .collect();
+
+        overwrite_process_env_var(
+            &mut env,
+            OsStr::new("MOONRUN_INHERITED_POLICY"),
+            OsStr::new("C:\\\u{6708}\\policy.json"),
+        );
+
+        assert_eq!(
+            env,
+            "MOONRUN_INHERITED_POLICY=C:\\\u{6708}\\policy.json\0KEEP=\u{6708}\0\0"
+                .encode_utf16()
+                .collect::<Vec<_>>()
         );
     }
 

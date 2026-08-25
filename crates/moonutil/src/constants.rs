@@ -26,6 +26,9 @@ pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_WORK: &str = "moon.work";
 pub const MOON_WORK_ENV: &str = "MOON_WORK";
 pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
+/// Carries an opaque policy-copy token from a policy-bearing moonrun through
+/// moonx to the moonrun that executes the resolved Wasm artifact.
+pub const MOONRUN_INHERITED_POLICY: &str = "MOONRUN_INHERITED_POLICY";
 pub const MOON_PKG: &str = "moon.pkg";
 pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
 pub const MBTI_USER_WRITTEN: &str = "pkg.mbti";
@@ -57,6 +60,16 @@ pub const IGNORE_DIRS: &[&str] = &[BUILD_DIR, ".git", "node_modules", DEP_PATH];
 pub fn is_ignored_directory_name(name: &OsStr) -> bool {
     name.as_encoded_bytes().starts_with(b".")
         || IGNORE_DIRS.iter().any(|ignored_name| name == *ignored_name)
+}
+
+pub fn is_moonx_executable(path: &OsStr) -> bool {
+    Path::new(path).file_name().is_some_and(|name| {
+        if cfg!(windows) {
+            name.eq_ignore_ascii_case("moonx") || name.eq_ignore_ascii_case("moonx.exe")
+        } else {
+            name == "moonx" || name == "moonx.exe"
+        }
+    })
 }
 
 pub const WATCH_MODE_DIR: &str = "watch";

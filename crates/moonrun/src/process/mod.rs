@@ -73,6 +73,12 @@ impl HostProcess {
         job.configure_working_directory(&self.working_directory);
     }
 
+    pub(crate) fn inherit_policy_for_moonx(&self, job: &mut Job) {
+        if let Some(token) = self.policy.inherited_copy_token() {
+            job.inherit_policy_for_moonx(token);
+        }
+    }
+
     pub(crate) fn finish_job(&self, job: &Job, ret: i64, err: i32) -> AsyncHostResult<()> {
         job.finish(self, ret, err)
     }

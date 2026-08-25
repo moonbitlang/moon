@@ -22,6 +22,7 @@
 //! stored. The current implementation uses a temporary JSON file; a future
 //! transport can replace that storage without changing policy serialization.
 
+use std::ffi::OsStr;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -82,6 +83,10 @@ impl PolicyCopy {
 
     pub(super) fn path(&self) -> &Path {
         &self.inner.path
+    }
+
+    pub(super) fn token(&self) -> &OsStr {
+        self.inner.path.as_os_str()
     }
 }
 
