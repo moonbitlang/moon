@@ -211,7 +211,9 @@ fn json_outcome_from_error(command: &MoonBuildSubcommands, message: String) -> J
                 message,
             ))
         }
-        MoonBuildSubcommands::Tree(_) => JsonOutcome::Tree(TreeJsonOutcome::from_error(message)),
+        MoonBuildSubcommands::Tree(command) => {
+            JsonOutcome::Tree(TreeJsonOutcome::from_error(message, command.package))
+        }
         _ => unreachable!("command does not select JSON output"),
     }
 }

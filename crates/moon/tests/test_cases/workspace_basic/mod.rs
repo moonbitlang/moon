@@ -960,6 +960,48 @@ fn test_member_dir_can_disable_implicit_workspace_mode() {
 }
 
 #[test]
+fn test_member_dir_tree_package_text_output() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(
+        get_stdout(&dir, ["-C", "app", "tree", "--package"]),
+        expect![[r#"
+            alice/app@0.1.0 (local $ROOT/app) [main]:
+            └─ lib -> alice/liba@0.1.1 (local $ROOT/liba) [lib]
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["-C", "liba", "tree", "--package"]),
+        expect![[r#"
+            alice/liba@0.1.1 (local $ROOT/liba) [lib]:
+              (no dependencies)
+        "#]],
+    );
+}
+
+#[test]
+fn test_tree_package_json_bootstrap_error_keeps_package_schema() {
+    let dir = TestDir::new("workspace_basic.in");
+    let output = get_err_stdout(&dir, ["-C", "missing", "tree", "--package", "--json"]);
+    let report: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    assert_eq!(report["status"], "failure");
+    assert!(
+        report.get("nodes").is_some(),
+        "package schema must contain nodes"
+    );
+    assert!(
+        report.get("modules").is_none(),
+        "package schema must not contain modules"
+    );
+    assert_eq!(
+        get_err_stderr(&dir, ["-C", "missing", "tree", "--package", "--json"]),
+        ""
+    );
+}
+
+#[test]
 fn test_workspace_maintenance_uses_local_manifest_when_workspace_mode_is_off() {
     let dir = same_root_workspace_dir();
 

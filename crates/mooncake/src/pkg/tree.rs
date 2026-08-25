@@ -37,7 +37,7 @@ pub struct TreeSubcommand {
     pub json: bool,
 
     /// Show the package-level dependency graph instead of the module-level tree
-    #[clap(long, requires = "json")]
+    #[clap(long)]
     pub package: bool,
 }
 

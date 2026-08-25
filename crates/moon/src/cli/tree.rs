@@ -21,7 +21,8 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{
-    model::{PackageId, TargetKind},
+    discover::DiscoverResult,
+    model::{BuildTarget, PackageId, TargetKind},
     resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies},
 };
 use mooncake::pkg::tree::TreeSubcommand;
@@ -43,12 +44,18 @@ const PACKAGE_TREE_JSON_VERSION: u32 = 2;
 
 pub(crate) fn tree_cli(
     cli: UniversalFlags,
-    _cmd: TreeSubcommand,
+    cmd: TreeSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let (env, root) = resolve_selected_tree(&cli, output.user_log())?;
+    let rendered = if cmd.package {
+        let (resolve_output, selected) = resolve_selected_package_graph(&cli, output.user_log())?;
+        render_package_tree(&resolve_output, selected)
+    } else {
+        let (env, root) = resolve_selected_tree(&cli, output.user_log())?;
+        render_tree(&env, root)
+    };
     output.write_result(|writer| -> anyhow::Result<()> {
-        writer.write_all(render_tree(&env, root).as_bytes())?;
+        writer.write_all(rendered.as_bytes())?;
         Ok(())
     })?;
     Ok(0)
@@ -106,32 +113,28 @@ pub(crate) fn run_tree_json(
     output: &CommandOutput,
 ) -> TreeJsonOutcome {
     let user_log = output.user_log();
-    let data = if cmd.package {
+    if cmd.package {
         match resolve_selected_package_graph(cli, user_log) {
             Ok((resolve_output, selected)) => {
-                TreeJsonData::Package(Box::new(resolve_output), selected)
+                TreeJsonOutcome::success(TreeJsonData::Package(Box::new(resolve_output), selected))
             }
-            Err(error) => return TreeJsonOutcome::from_error(format!("{error:#}")).with_package(),
+            Err(error) => TreeJsonOutcome::from_error(format!("{error:#}"), true),
         }
     } else {
         match resolve_selected_tree(cli, user_log) {
-            Ok((env, root)) => TreeJsonData::Module(Box::new(env), root),
-            Err(error) => return TreeJsonOutcome::from_error(format!("{error:#}")),
+            Ok((env, root)) => TreeJsonOutcome::success(TreeJsonData::Module(Box::new(env), root)),
+            Err(error) => TreeJsonOutcome::from_error(format!("{error:#}"), false),
         }
-    };
-    TreeJsonOutcome {
-        exit_code: 0,
-        accumulator: TreeJsonAccumulator {
-            data: Some(data),
-            error: None,
-            package_mode: cmd.package,
-        },
     }
 }
 
 pub(crate) struct TreeJsonOutcome {
-    exit_code: i32,
-    accumulator: TreeJsonAccumulator,
+    kind: TreeJsonOutcomeKind,
+}
+
+enum TreeJsonOutcomeKind {
+    Success(TreeJsonData),
+    Failure { error: String, package_mode: bool },
 }
 
 #[derive(Debug)]
@@ -140,32 +143,27 @@ enum TreeJsonData {
     Package(Box<ResolveOutput>, ModuleId),
 }
 
-#[derive(Debug, Default)]
-struct TreeJsonAccumulator {
-    data: Option<TreeJsonData>,
-    error: Option<String>,
-    package_mode: bool,
-}
-
 impl TreeJsonOutcome {
-    pub(crate) fn from_error(error: impl std::fmt::Display) -> Self {
+    fn success(data: TreeJsonData) -> Self {
         Self {
-            exit_code: INTERNAL_ERROR_EXIT_CODE,
-            accumulator: TreeJsonAccumulator {
-                data: None,
-                error: Some(error.to_string()),
-                package_mode: false,
+            kind: TreeJsonOutcomeKind::Success(data),
+        }
+    }
+
+    pub(crate) fn from_error(error: impl std::fmt::Display, package_mode: bool) -> Self {
+        Self {
+            kind: TreeJsonOutcomeKind::Failure {
+                error: error.to_string(),
+                package_mode,
             },
         }
     }
 
-    fn with_package(mut self) -> Self {
-        self.accumulator.package_mode = true;
-        self
-    }
-
     pub(crate) fn exit_code(&self) -> i32 {
-        self.exit_code
+        match self.kind {
+            TreeJsonOutcomeKind::Success(_) => 0,
+            TreeJsonOutcomeKind::Failure { .. } => INTERNAL_ERROR_EXIT_CODE,
+        }
     }
 }
 
@@ -174,25 +172,20 @@ pub(crate) fn write_tree_json(
     capture: &UserLogCapture,
     outcome: TreeJsonOutcome,
 ) -> anyhow::Result<()> {
-    let TreeJsonOutcome {
-        exit_code,
-        accumulator,
-    } = outcome;
-    let TreeJsonAccumulator {
-        data,
-        error,
-        package_mode,
-    } = accumulator;
-    let status = if exit_code == 0 { "success" } else { "failure" };
+    let status = if outcome.exit_code() == 0 {
+        "success"
+    } else {
+        "failure"
+    };
     let logs = capture.take();
     output.write_result(|writer| -> anyhow::Result<()> {
-        match data {
-            Some(TreeJsonData::Module(env, root)) => {
+        match outcome.kind {
+            TreeJsonOutcomeKind::Success(TreeJsonData::Module(env, root)) => {
                 let graph = render_graph_json(&env, root);
                 let report = TreeJsonReport {
                     version: MODULE_TREE_JSON_VERSION,
                     status,
-                    error,
+                    error: None,
                     root: Some(graph.root),
                     modules: graph.modules,
                     edges: graph.edges,
@@ -200,16 +193,18 @@ pub(crate) fn write_tree_json(
                 };
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            Some(TreeJsonData::Package(resolve_output, selected)) => {
-                let report =
-                    render_package_json_report(&resolve_output, selected, status, error, logs);
+            TreeJsonOutcomeKind::Success(TreeJsonData::Package(resolve_output, selected)) => {
+                let report = render_package_json_report(&resolve_output, selected, status, logs);
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            None if package_mode => {
+            TreeJsonOutcomeKind::Failure {
+                error,
+                package_mode: true,
+            } => {
                 let report = PackageJsonReport {
                     version: PACKAGE_TREE_JSON_VERSION,
                     status,
-                    error,
+                    error: Some(error),
                     root: vec![],
                     nodes: vec![],
                     edges: vec![],
@@ -217,11 +212,14 @@ pub(crate) fn write_tree_json(
                 };
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            None => {
+            TreeJsonOutcomeKind::Failure {
+                error,
+                package_mode: false,
+            } => {
                 let report = TreeJsonReport {
                     version: MODULE_TREE_JSON_VERSION,
                     status,
-                    error,
+                    error: Some(error),
                     root: None,
                     modules: vec![],
                     edges: vec![],
@@ -376,14 +374,13 @@ fn render_package_json_report(
     resolve_output: &ResolveOutput,
     selected_module: ModuleId,
     status: &'static str,
-    error: Option<String>,
     logs: Vec<UserLogEntry>,
 ) -> PackageJsonReport {
     let graph = render_package_graph_json(resolve_output, selected_module);
     PackageJsonReport {
         version: PACKAGE_TREE_JSON_VERSION,
         status,
-        error,
+        error: None,
         root: graph.root,
         nodes: graph.nodes,
         edges: graph.edges,
@@ -478,6 +475,45 @@ fn render_package_graph_json(
     }
 }
 
+fn target_kind_str(kind: TargetKind) -> &'static str {
+    match kind {
+        TargetKind::Source => "source",
+        TargetKind::WhiteboxTest => "whitebox-test",
+        TargetKind::BlackboxTest => "blackbox-test",
+        TargetKind::InlineTest => "inline-test",
+        TargetKind::SubPackage => "sub-package",
+    }
+}
+
+/// Render the package-level dependency graph as a text tree, rooted at the
+/// source packages of the selected module.
+///
+/// Source targets form the roots; expansion follows all non-stdlib dependency
+/// edges, mirroring the module-level text tree's treatment of stdlib modules.
+fn render_package_tree(resolve_output: &ResolveOutput, selected_module: ModuleId) -> String {
+    let pkg_dirs = &resolve_output.pkg_dirs;
+    let source_packages = selected_source_packages(resolve_output, selected_module);
+
+    let mut out = String::new();
+    for (root_idx, package_id) in source_packages.iter().enumerate() {
+        if root_idx > 0 {
+            out.push('\n');
+        }
+        let target = package_id.build_target(TargetKind::Source);
+        out.push_str(&format_package_label(pkg_dirs, target));
+        out.push_str(":\n");
+
+        let mut stack = HashSet::new();
+        stack.insert(target);
+        let direct_dep_count =
+            render_package_tree_edges(resolve_output, target, "", &mut stack, &mut out);
+        if direct_dep_count == 0 {
+            out.push_str("  (no dependencies)\n");
+        }
+    }
+    out
+}
+
 fn selected_source_packages(resolve_output: &ResolveOutput, module: ModuleId) -> Vec<PackageId> {
     resolve_output
         .pkg_dirs
@@ -487,14 +523,68 @@ fn selected_source_packages(resolve_output: &ResolveOutput, module: ModuleId) ->
         .collect()
 }
 
-fn target_kind_str(kind: TargetKind) -> &'static str {
-    match kind {
-        TargetKind::Source => "source",
-        TargetKind::WhiteboxTest => "whitebox-test",
-        TargetKind::BlackboxTest => "blackbox-test",
-        TargetKind::InlineTest => "inline-test",
-        TargetKind::SubPackage => "sub-package",
+fn render_package_tree_edges(
+    resolve_output: &ResolveOutput,
+    source: BuildTarget,
+    indent: &str,
+    stack: &mut HashSet<BuildTarget>,
+    out: &mut String,
+) -> usize {
+    let pkg_dirs = &resolve_output.pkg_dirs;
+    let dep_graph = &resolve_output.pkg_rel.dep_graph;
+
+    let mut deps = dep_graph
+        .edges_directed(source, petgraph::Direction::Outgoing)
+        .filter(|(_, to, _)| !pkg_dirs.is_stdlib_package(to.package))
+        .map(|(_, to, edge)| {
+            (
+                to,
+                edge.short_alias.to_string(),
+                format_package_label(pkg_dirs, to),
+            )
+        })
+        .collect::<Vec<_>>();
+    deps.sort_by(
+        |(lhs_to, lhs_alias, lhs_label), (rhs_to, rhs_alias, rhs_label)| {
+            lhs_alias
+                .cmp(rhs_alias)
+                .then_with(|| lhs_label.cmp(rhs_label))
+                .then_with(|| lhs_to.cmp(rhs_to))
+        },
+    );
+
+    for (idx, (dep_id, alias, label)) in deps.iter().enumerate() {
+        let is_last = idx + 1 == deps.len();
+        let branch = if is_last { "└─" } else { "├─" };
+        out.push_str(indent);
+        out.push_str(branch);
+        out.push(' ');
+        out.push_str(&format!("{alias} -> {label}"));
+        out.push('\n');
+
+        let next_indent = format!("{indent}{}", if is_last { "   " } else { "│  " });
+        if stack.contains(dep_id) {
+            out.push_str(&next_indent);
+            out.push_str("└─ (cycle)\n");
+            continue;
+        }
+        stack.insert(*dep_id);
+        render_package_tree_edges(resolve_output, *dep_id, &next_indent, stack, out);
+        stack.remove(dep_id);
     }
+
+    deps.len()
+}
+
+fn format_package_label(pkg_dirs: &DiscoverResult, target: BuildTarget) -> String {
+    let fqn = pkg_dirs.fqn(target.package);
+    let module_source = fqn.module();
+    let mut label = module_source.to_string();
+    let rel = fqn.package().to_string();
+    if !rel.is_empty() {
+        label.push_str(&format!(" [{rel}]"));
+    }
+    label
 }
 
 fn source_json(source: &ModuleSourceKind) -> SourceJSON {
