@@ -32,7 +32,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::collections::HashSet;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
@@ -2637,7 +2637,7 @@ impl AsyncHost {
         &self.policy
     }
 
-    pub(crate) fn temp_dir(&self) -> AsyncHostResult<&OsStr> {
+    pub(crate) fn temp_dir(&self) -> AsyncHostResult<OsString> {
         self.temp_dir.path()
     }
 
