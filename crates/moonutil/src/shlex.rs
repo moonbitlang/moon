@@ -99,20 +99,18 @@ pub fn split_argv0_windows(args: &str) -> (String, &str) {
 }
 
 fn parse_windows_argv0(args: &str) -> (String, &str) {
-    let (quoted, rest) = if let Some(rest) = args.strip_prefix('"') {
-        (true, rest)
-    } else {
-        (false, args)
-    };
-    for (i, c) in rest.char_indices() {
-        // Exit condition
-        if quoted && c == '"' {
-            return (rest[..i].to_string(), &rest[i + 1..]);
-        } else if !quoted && c.is_whitespace() {
-            return (rest[..i].to_string(), &rest[i..]);
+    let mut argv0 = String::new();
+    let mut in_quotes = false;
+    for (index, c) in args.char_indices() {
+        if c == '"' {
+            in_quotes = !in_quotes;
+        } else if !in_quotes && c.is_whitespace() {
+            return (argv0, &args[index..]);
+        } else {
+            argv0.push(c);
         }
     }
-    (rest.to_string(), "")
+    (argv0, "")
 }
 
 fn next_windows_arg(mut args: &str) -> Option<(String, &str)> {

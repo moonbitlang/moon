@@ -79,6 +79,10 @@ fn argv0_parsing() {
     let (argv0, rest) = parse_windows_argv0(r#"C:\app.exe"#);
     assert_eq!(argv0, r#"C:\app.exe"#);
     assert_eq!(rest, "");
+
+    let (argv0, rest) = parse_windows_argv0(r#""moon"x user/module"#);
+    assert_eq!(argv0, "moonx");
+    assert_eq!(rest, " user/module");
 }
 
 #[test]

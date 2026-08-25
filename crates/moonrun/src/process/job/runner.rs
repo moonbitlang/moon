@@ -54,6 +54,7 @@ ported_fns! {
         env: Vec<OsString>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
+        inherited_policy: Option<crate::policy::PolicySnapshot>,
         options: SpawnOptions,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
@@ -63,6 +64,7 @@ ported_fns! {
             env,
             stdio,
             cwd,
+            inherited_policy,
             options,
             result,
         )
@@ -79,6 +81,7 @@ ported_fns! {
         env: Vec<u16>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
+        inherited_policy: Option<crate::policy::PolicySnapshot>,
         options: SpawnOptions,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
@@ -87,6 +90,7 @@ ported_fns! {
             env,
             stdio,
             cwd,
+            inherited_policy,
             options,
             result,
         )
@@ -121,11 +125,21 @@ fn spawn_process_unix(
     env: Vec<OsString>,
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
+    inherited_policy: Option<crate::policy::PolicySnapshot>,
     options: SpawnOptions,
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     #[cfg(not(target_os = "linux"))]
     let _ = result;
+
+    let mut env = env;
+    crate::async_sys::process::set_process_env_var(
+        &mut env,
+        std::ffi::OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+        inherited_policy
+            .as_ref()
+            .map(crate::policy::PolicySnapshot::transport_token),
+    );
 
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     let posix_spawn_addchdir = match cwd.as_ref() {
@@ -147,6 +161,9 @@ fn spawn_process_unix(
             std::env::var_os("PATH"),
         )
         .map_err(AsyncHostError::Native)?;
+        if let Some(snapshot) = inherited_policy {
+            snapshot.handoff();
+        }
         if let Ok(pidfd) = crate::async_sys::process::open_pid_handle(pid) {
             *result = Some(ResourcePublication::Unpublished(Resource::new(pidfd)));
         }
@@ -263,6 +280,9 @@ fn spawn_process_unix(
 
     match spawn_result {
         Ok(pid) => {
+            if let Some(snapshot) = inherited_policy {
+                snapshot.handoff();
+            }
             #[cfg(target_os = "linux")]
             if let Ok(pidfd) = crate::async_sys::process::open_pid_handle(pid) {
                 *result = Some(ResourcePublication::Unpublished(Resource::new(pidfd)));
@@ -411,9 +431,10 @@ fn add_chdir_file_action(
 #[allow(clippy::too_many_arguments)]
 fn spawn_process_windows(
     command_line: OsString,
-    env_block: Vec<u16>,
+    mut env_block: Vec<u16>,
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
+    inherited_policy: Option<crate::policy::PolicySnapshot>,
     options: SpawnOptions,
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
@@ -430,8 +451,6 @@ fn spawn_process_windows(
         STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
     };
 
-    let mut command_line = command_line.encode_wide().collect::<Vec<_>>();
-    command_line.push(0);
     let cwd = cwd.map(|cwd| {
         let mut cwd = cwd.encode_wide().collect::<Vec<_>>();
         cwd.push(0);
@@ -471,6 +490,15 @@ fn spawn_process_windows(
             }
         }
     }
+    crate::async_sys::process::set_process_env_var(
+        &mut env_block,
+        std::ffi::OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+        inherited_policy
+            .as_ref()
+            .map(crate::policy::PolicySnapshot::transport_token),
+    );
+    let mut command_line = command_line.encode_wide().collect::<Vec<_>>();
+    command_line.push(0);
 
     let mut startup_info = unsafe { std::mem::zeroed::<STARTUPINFOEXW>() };
     startup_info.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
@@ -606,6 +634,9 @@ fn spawn_process_windows(
     *result = Some(ResourcePublication::Unpublished(Resource::new(
         process_info.hProcess,
     )));
+    if let Some(snapshot) = inherited_policy {
+        snapshot.handoff();
+    }
     Ok(i64::from(process_info.dwProcessId))
 }
 
@@ -905,6 +936,12 @@ fn last_native_errno() -> i32 {
 mod tests {
     use super::*;
 
+    fn empty_signal_mask() -> libc::sigset_t {
+        let mut mask = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
+        mask
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn missing_addchdir_api_reports_enosys() {
@@ -939,6 +976,52 @@ mod tests {
             run_wait_for_process_job(None, pid, false),
             Ok(-i64::from(libc::SIGTERM))
         );
+    }
+
+    #[test]
+    fn inherited_policy_token_overrides_guest_env_and_is_readable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            r#"
+[env.set]
+SECRET = "策略-🌙"
+
+[process]
+spawn = true
+"#,
+        )
+        .unwrap();
+        let policy = crate::policy::Policy::from_file(&policy_file).unwrap();
+        let snapshot = policy.snapshot_for_child().unwrap().unwrap();
+        let mut result = None;
+
+        let pid = run_spawn_job_unix(
+            OsString::from("/bin/sh"),
+            vec![
+                OsString::from("sh"),
+                OsString::from("-c"),
+                OsString::from(concat!(
+                    "test \"$MOONRUN_INHERITED_POLICY\" != guest && ",
+                    "test -r \"$MOONRUN_INHERITED_POLICY\" && ",
+                    "{ IFS= read -r first < \"$MOONRUN_INHERITED_POLICY\" || ",
+                    "test -n \"$first\"; } && ",
+                    "rm -f \"$MOONRUN_INHERITED_POLICY\""
+                )),
+            ],
+            vec![OsString::from("MOONRUN_INHERITED_POLICY=guest")],
+            [None, None, None],
+            None,
+            Some(snapshot),
+            SpawnOptions {
+                child_signal_mask: empty_signal_mask(),
+            },
+            &mut result,
+        )
+        .unwrap();
+
+        assert_eq!(run_wait_for_process_job(None, pid as i32, false), Ok(0));
     }
 }
 

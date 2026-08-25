@@ -86,6 +86,7 @@ pub(crate) fn run_runwasm(
         cmd.package,
         super::registry_runner::RegistryRunTarget::Wasm {
             experimental_policy: cmd.experimental_policy,
+            inherited_policy: None,
         },
         cmd.args,
         cli.quiet,

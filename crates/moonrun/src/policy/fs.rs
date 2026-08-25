@@ -16,8 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 
@@ -34,6 +36,7 @@ use super::{config::FsConfig, sandbox_denied};
 pub(super) struct FsPolicy {
     read_roots: Vec<FsRoot>,
     write_roots: Vec<FsRoot>,
+    protected_paths: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +63,27 @@ impl FsPolicy {
         Ok(Self {
             read_roots: resolve_roots(config.read, config_dir)?,
             write_roots: resolve_roots(config.write, config_dir)?,
+            protected_paths: Arc::default(),
         })
+    }
+
+    /// Protect host-owned runtime state from Moonrun Policy filesystem imports.
+    ///
+    /// Ancestors are protected from writes as well because directory rename or
+    /// recursive removal would otherwise mutate a protected descendant.
+    pub(super) fn protect_path(&self, path: PathBuf) {
+        self.protected_paths.lock().unwrap().insert(path);
+    }
+
+    pub(super) fn unprotect_path(&self, path: &Path) {
+        self.protected_paths.lock().unwrap().remove(path);
+    }
+
+    pub(super) fn config_for_snapshot(&self) -> FsConfig {
+        FsConfig {
+            read: roots_for_snapshot(&self.read_roots),
+            write: roots_for_snapshot(&self.write_roots),
+        }
     }
 
     pub(super) fn allows(
@@ -111,6 +134,15 @@ impl FsPolicy {
         intents: FsIntents,
         target: &str,
     ) -> AsyncHostResult<()> {
+        let protected_paths = self.protected_paths.lock().unwrap();
+        if protected_paths.contains(path)
+            || (intents.write
+                && protected_paths
+                    .iter()
+                    .any(|protected| protected.starts_with(path)))
+        {
+            return sandbox_denied(intents.sandbox_action(), Some(target));
+        }
         if intents.read && !self.allows_read(path) {
             return sandbox_denied("file read", Some(target));
         }
@@ -209,6 +241,16 @@ fn resolve_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<Vec<F
                 )
             })?;
             Ok(FsRoot::Path(path))
+        })
+        .collect()
+}
+
+fn roots_for_snapshot(roots: &[FsRoot]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .map(|root| match root {
+            FsRoot::Any => PathBuf::from("*"),
+            FsRoot::Path(path) => path.clone(),
         })
         .collect()
 }

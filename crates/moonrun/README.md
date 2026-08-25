@@ -172,6 +172,19 @@ access. The `fs` and `net` objects do not sandbox child processes. PID-based
 process operations are restricted to children spawned by the current moonrun
 instance while policy mode is active.
 
+A `moonx` request is handled specially. After the logical spawn request passes
+the process policy, moonrun snapshots the current policy. Moonx relays the
+opaque transport token to the child moonrun that executes the registry Wasm,
+and that child applies the snapshot to its Run.
+The snapshot contains current environment values and resolved network authority;
+it does not reopen the original policy file. Moonrun passes the snapshot through
+an internal transport whose current backend is a protected, read-only temporary
+file outside the WASI preopen. The child opens and unlinks the file immediately;
+the transport token is opaque to policy, moonx, and process-dispatch callers so
+the backend can be replaced independently. A sandboxed `moonx --target native` request is rejected because
+native code cannot inherit Moonrun Policy. The inherited snapshot is
+authoritative; a nested `--experimental-policy` cannot replace it.
+
 ```json
 {
   "env": {

@@ -26,6 +26,18 @@ pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_WORK: &str = "moon.work";
 pub const MOON_WORK_ENV: &str = "MOON_WORK";
 pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
+/// Host-only token used to hand an effective policy snapshot to a moonrun child.
+pub const MOONRUN_INHERITED_POLICY: &str = "MOONRUN_INHERITED_POLICY";
+
+pub fn is_moonx_executable(path: &std::ffi::OsStr) -> bool {
+    std::path::Path::new(path).file_name().is_some_and(|name| {
+        if cfg!(windows) {
+            name.eq_ignore_ascii_case("moonx") || name.eq_ignore_ascii_case("moonx.exe")
+        } else {
+            name == "moonx" || name == "moonx.exe"
+        }
+    })
+}
 pub const MOON_PKG: &str = "moon.pkg";
 pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
 pub const MBTI_USER_WRITTEN: &str = "pkg.mbti";

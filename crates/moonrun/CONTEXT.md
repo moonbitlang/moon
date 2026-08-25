@@ -52,6 +52,25 @@ operations before moonrun performs them. It does not implicitly configure or
 restrict WASI descriptors.
 _Avoid_: WASI sandbox, virtual filesystem
 
+**Policy Snapshot**:
+A host-owned, temporary serialization of the effective Moonrun Policy for a
+future child Run. It stores canonical filesystem roots, already materialized
+environment values, and resolved network authority instead of referring back
+to the user policy file. Its format is an internal process-boundary protocol,
+not a user policy format.
+_Avoid_: Policy source copy, inherited policy path, public policy format
+
+**Snapshot Transport**:
+The internal ownership seam that publishes a Policy Snapshot, supplies an
+opaque token at the trusted spawn boundary, and consumes that token before the
+child runs untrusted code. The current backend uses a protected, read-only
+temporary file outside the WASI preopen: the originating Policy retains a
+cleanup lease, while the child opens and unlinks the file immediately after a
+successful handoff. Callers do not interpret the token, so another transport
+can replace this backend without changing policy serialization or process
+dispatch.
+_Avoid_: Snapshot path ABI, fixed snapshot descriptor
+
 **WASI Capability Surface**:
 The files and directories reachable through WASI descriptors and preopens.
 WASI access is configured separately from Moonrun Policy, even when both

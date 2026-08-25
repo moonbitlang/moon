@@ -98,6 +98,12 @@ fn main() -> anyhow::Result<()> {
     if let Some(test_args) = matches.test_args {
         options = options.with_test_args(test_args);
     }
+    if let Some(token) = std::env::var_os(moonutil::constants::MOONRUN_INHERITED_POLICY) {
+        unsafe {
+            std::env::remove_var(moonutil::constants::MOONRUN_INHERITED_POLICY);
+        }
+        options = options.with_inherited_policy(token)?;
+    }
     if let Some(policy) = matches.policy {
         options = options.with_policy_file(policy);
     }

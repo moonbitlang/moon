@@ -74,6 +74,7 @@ pub(crate) struct MoonxInvocation {
     pub(crate) target: MoonxTarget,
     pub(crate) experimental_policy: Option<PathBuf>,
     pub(crate) verbose: bool,
+    inherited_policy: Option<OsString>,
     package: String,
     args: Vec<String>,
 }
@@ -81,14 +82,7 @@ pub(crate) struct MoonxInvocation {
 pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
     raw_args
         .first()
-        .and_then(|arg| std::path::Path::new(arg).file_name())
-        .is_some_and(|name| {
-            if cfg!(windows) {
-                name.eq_ignore_ascii_case("moonx") || name.eq_ignore_ascii_case("moonx.exe")
-            } else {
-                name == "moonx" || name == "moonx.exe"
-            }
-        })
+        .is_some_and(|arg| moonutil::constants::is_moonx_executable(arg))
 }
 
 pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
@@ -102,10 +96,20 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
         [separator, args @ ..] if separator == "--" => args,
         _ => args,
     };
+    let inherited_policy = std::env::var_os(moonutil::constants::MOONRUN_INHERITED_POLICY);
+    // Moonx is only an intermediary. Remove the reserved value before
+    // registry/cache work can start subprocesses; the prepared moonrun command
+    // receives it explicitly below.
+    if inherited_policy.is_some() {
+        unsafe {
+            std::env::remove_var(moonutil::constants::MOONRUN_INHERITED_POLICY);
+        }
+    }
     Ok(MoonxInvocation {
         target: cli.target,
         experimental_policy: cli.experimental_policy,
         verbose: cli.verbose,
+        inherited_policy,
         package: package.clone(),
         args: args.to_vec(),
     })
@@ -116,14 +120,23 @@ pub(crate) fn prepare(
     user_log: &UserLog,
 ) -> anyhow::Result<std::process::Command> {
     let quiet = !invocation.verbose;
-    let target = match invocation.target {
-        MoonxTarget::Wasm => RegistryRunTarget::Wasm {
-            experimental_policy: invocation.experimental_policy,
+    let target = match (invocation.target, invocation.inherited_policy) {
+        (MoonxTarget::Native, Some(_)) => {
+            anyhow::bail!("a sandboxed moonx invocation cannot use --target native")
+        }
+        (MoonxTarget::Wasm, inherited_policy) => RegistryRunTarget::Wasm {
+            // The parent snapshot is authoritative. A child policy option may
+            // not replace it, but remains valid for ordinary top-level moonx.
+            experimental_policy: inherited_policy
+                .is_none()
+                .then_some(invocation.experimental_policy)
+                .flatten(),
+            inherited_policy,
         },
-        MoonxTarget::Native if invocation.experimental_policy.is_some() => {
+        (MoonxTarget::Native, None) if invocation.experimental_policy.is_some() => {
             anyhow::bail!("--experimental-policy is only valid with `--target wasm`")
         }
-        MoonxTarget::Native => RegistryRunTarget::Native,
+        (MoonxTarget::Native, None) => RegistryRunTarget::Native,
     };
     registry_runner::prepare(
         invocation.package,
@@ -185,5 +198,26 @@ mod tests {
             let MoonxPackage::External(package_and_args) = cli.package;
             assert_eq!(package_and_args, ["user/module", flag]);
         }
+    }
+
+    #[test]
+    fn inherited_policy_rejects_native_execution_before_registry_work() {
+        let error = prepare(
+            MoonxInvocation {
+                target: MoonxTarget::Native,
+                experimental_policy: None,
+                verbose: false,
+                inherited_policy: Some(OsString::from("opaque-token")),
+                package: "user/module".to_owned(),
+                args: Vec::new(),
+            },
+            &UserLog::new(log::LevelFilter::Warn),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "a sandboxed moonx invocation cannot use --target native"
+        );
     }
 }

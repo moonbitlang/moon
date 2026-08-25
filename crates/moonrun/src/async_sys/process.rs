@@ -95,6 +95,66 @@ fn unix_process_env_entry(key: OsString, value: OsString) -> Option<OsString> {
     Some(OsString::from_vec(entry))
 }
 
+#[cfg(unix)]
+pub(crate) fn set_process_env_var(
+    env: &mut Vec<OsString>,
+    key: &std::ffi::OsStr,
+    value: Option<&std::ffi::OsStr>,
+) {
+    use std::os::unix::ffi::OsStrExt;
+
+    let key_bytes = key.as_bytes();
+    env.retain(|entry| {
+        let entry = entry.as_os_str().as_bytes();
+        entry
+            .iter()
+            .position(|byte| *byte == b'=')
+            .is_none_or(|separator| &entry[..separator] != key_bytes)
+    });
+    if let Some(value) = value
+        && let Some(entry) = unix_process_env_entry(key.to_owned(), value.to_owned())
+    {
+        env.push(entry);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn set_process_env_var(
+    env: &mut Vec<u16>,
+    key: &std::ffi::OsStr,
+    value: Option<&std::ffi::OsStr>,
+) {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
+
+    let key = key.encode_wide().collect::<Vec<_>>();
+    let inherited = env
+        .split(|unit| *unit == 0)
+        .filter(|entry| !entry.is_empty())
+        .filter(|entry| {
+            let Some(separator) = entry.iter().position(|unit| *unit == b'=' as u16) else {
+                return false;
+            };
+            separator != key.len()
+                || unsafe {
+                    CompareStringOrdinal(
+                        entry.as_ptr(),
+                        separator as i32,
+                        key.as_ptr(),
+                        key.len() as i32,
+                        1,
+                    )
+                } != CSTR_EQUAL
+        })
+        .map(OsString::from_wide)
+        .collect();
+    let mut builder = ProcessEnvBuilder::new(inherited);
+    if let Some(value) = value {
+        process_env_builder_add_entry(&mut builder, OsString::from_wide(&key), value.to_owned());
+    }
+    *env = finish_process_env_builder(builder);
+}
+
 ported_fns! {
     #[ported(
         source = "src/process/unix.c",
@@ -503,6 +563,28 @@ mod tests {
     }
 
     #[test]
+    fn unix_host_env_override_replaces_guest_value_without_losing_unicode() {
+        let mut env = vec![
+            OsString::from("MOONRUN_INHERITED_POLICY=guest"),
+            OsString::from("UNICODE=策略-🌙"),
+        ];
+
+        set_process_env_var(
+            &mut env,
+            std::ffi::OsStr::new("MOONRUN_INHERITED_POLICY"),
+            Some(std::ffi::OsStr::new("/tmp/策略-🌙")),
+        );
+
+        assert_eq!(
+            env,
+            [
+                OsString::from("UNICODE=策略-🌙"),
+                OsString::from("MOONRUN_INHERITED_POLICY=/tmp/策略-🌙"),
+            ]
+        );
+    }
+
+    #[test]
     fn unix_wait_status_distinguishes_exit_from_signal() {
         assert_eq!(unix_wait_status_exit_code(7 << 8), 7);
         assert_eq!(unix_wait_status_exit_code(libc::SIGTERM), -libc::SIGTERM);
@@ -553,6 +635,24 @@ mod windows_tests {
         assert_eq!(
             finish_process_env_builder(builder),
             "GOOD=before\0\0".encode_utf16().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn windows_host_env_override_is_case_insensitive_and_preserves_unicode() {
+        let mut env = "moonrun_inherited_policy=guest\0UNICODE=策略-🌙\0\0"
+            .encode_utf16()
+            .collect();
+
+        set_process_env_var(
+            &mut env,
+            std::ffi::OsStr::new("MOONRUN_INHERITED_POLICY"),
+            Some(std::ffi::OsStr::new(r"C:\策略-🌙")),
+        );
+
+        assert_eq!(
+            String::from_utf16(&env).unwrap(),
+            "UNICODE=策略-🌙\0MOONRUN_INHERITED_POLICY=C:\\策略-🌙\0\0"
         );
     }
 

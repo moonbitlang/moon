@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -27,6 +28,7 @@ use crate::rr_build;
 pub(crate) enum RegistryRunTarget {
     Wasm {
         experimental_policy: Option<PathBuf>,
+        inherited_policy: Option<OsString>,
     },
     Native,
 }
@@ -86,12 +88,14 @@ pub(crate) fn prepare(
     match target {
         RegistryRunTarget::Wasm {
             experimental_policy,
+            inherited_policy,
         } => {
             let wasm_path = registry.acquire_executable_wasm(&package, user_log)?;
             prepare_artifact(
                 crate::run::ExecutionMode::MoonRun,
                 &wasm_path,
                 experimental_policy.as_deref(),
+                inherited_policy.as_deref(),
                 &args,
                 user_log,
             )
@@ -102,6 +106,7 @@ pub(crate) fn prepare(
             prepare_artifact(
                 crate::run::ExecutionMode::Native,
                 &executable,
+                None,
                 None,
                 &args,
                 user_log,
@@ -140,6 +145,7 @@ fn prepare_artifact(
     mode: crate::run::ExecutionMode<'_>,
     artifact: &Path,
     experimental_policy: Option<&Path>,
+    inherited_policy: Option<&std::ffi::OsStr>,
     args: &[String],
     user_log: &UserLog,
 ) -> anyhow::Result<std::process::Command> {
@@ -151,11 +157,18 @@ fn prepare_artifact(
         user_log.info(rr_build::format_dry_run_command(&run_cmd, Path::new(".")));
     }
 
+    if let Some(token) = inherited_policy {
+        run_cmd.env(moonutil::constants::MOONRUN_INHERITED_POLICY, token);
+    } else {
+        run_cmd.env_remove(moonutil::constants::MOONRUN_INHERITED_POLICY);
+    }
+
     Ok(run_cmd)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
     use std::sync::{
         Arc, Barrier,
         atomic::{AtomicUsize, Ordering},
@@ -164,6 +177,25 @@ mod tests {
     use anyhow::bail;
 
     use super::*;
+
+    #[test]
+    fn inherited_policy_is_attached_only_to_the_final_moonrun_command() {
+        let command = prepare_artifact(
+            crate::run::ExecutionMode::MoonRun,
+            Path::new("program.wasm"),
+            None,
+            Some(OsStr::new("策略-🌙")),
+            &[],
+            &UserLog::new(log::LevelFilter::Warn),
+        )
+        .unwrap();
+
+        let inherited = command
+            .get_envs()
+            .find(|(name, _)| *name == moonutil::constants::MOONRUN_INHERITED_POLICY)
+            .and_then(|(_, value)| value);
+        assert_eq!(inherited, Some(OsStr::new("策略-🌙")));
+    }
 
     #[test]
     fn failed_production_does_not_publish_a_cache_entry() {

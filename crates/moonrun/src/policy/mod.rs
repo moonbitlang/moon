@@ -26,9 +26,11 @@ mod env;
 mod fs;
 mod net;
 mod process;
+mod snapshot;
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
+use std::sync::Mutex;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 
@@ -38,13 +40,17 @@ pub(crate) use self::fs::RuntimePathBase;
 use self::fs::{FsIntents, FsPolicy};
 use self::net::{NetOperation, NetPolicy};
 use self::process::ProcessPolicy;
+pub(crate) use self::snapshot::PolicySnapshot;
+use self::snapshot::SnapshotTemplate;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct Policy {
     fs: Option<FsPolicy>,
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
+    snapshot_template: Option<SnapshotTemplate>,
+    snapshot_leases: Mutex<Vec<PolicySnapshot>>,
 }
 
 fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
@@ -63,6 +69,8 @@ impl Policy {
             net: None,
             env: None,
             process: None,
+            snapshot_template: None,
+            snapshot_leases: Mutex::default(),
         }
     }
 
@@ -73,17 +81,48 @@ impl Policy {
     }
 
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
+        let fs_config = config.fs.unwrap_or_default();
+        let net_config = config.net.unwrap_or_default();
+        let env_config = config.env.unwrap_or_default();
+        let process_config = config.process.unwrap_or_default();
+        let fs = FsPolicy::from_config(fs_config, config_dir)?;
+        let snapshot_template = SnapshotTemplate::new(
+            fs.config_for_snapshot(),
+            net_config.clone(),
+            process_config.clone(),
+        );
         Ok(Self {
-            fs: Some(FsPolicy::from_config(
-                config.fs.unwrap_or_default(),
-                config_dir,
-            )?),
-            net: Some(NetPolicy::from_config(config.net.unwrap_or_default())?),
-            env: Some(EnvPolicy::from_config(config.env.unwrap_or_default())?),
-            process: Some(ProcessPolicy::from_config(
-                config.process.unwrap_or_default(),
-            )?),
+            fs: Some(fs),
+            net: Some(NetPolicy::from_config(net_config)?),
+            env: Some(EnvPolicy::from_config(env_config)?),
+            process: Some(ProcessPolicy::from_config(process_config)?),
+            snapshot_template: Some(snapshot_template),
+            snapshot_leases: Mutex::default(),
         })
+    }
+
+    pub(crate) fn from_inherited_snapshot(token: OsString) -> anyhow::Result<Self> {
+        Self::from_config(PolicySnapshot::consume(token)?, Path::new("."))
+    }
+
+    pub(crate) fn snapshot_for_child(&self) -> anyhow::Result<Option<snapshot::PolicySnapshot>> {
+        let Some(template) = self.snapshot_template.as_ref() else {
+            return Ok(None);
+        };
+        let net = self
+            .net_policy()
+            .expect("policy-bearing runs always have a network policy");
+        let env = self
+            .env_policy()
+            .expect("policy-bearing runs always have an environment policy");
+        let fs = self
+            .fs_policy()
+            .expect("policy-bearing runs always have a filesystem policy");
+        let snapshot = template.write(fs, net, env)?;
+        let mut leases = self.snapshot_leases.lock().unwrap();
+        leases.retain(|snapshot| !snapshot.is_consumed());
+        leases.push(snapshot.clone());
+        Ok(Some(snapshot))
     }
 
     pub(crate) fn open_path(
@@ -526,6 +565,173 @@ mod tests {
         #[cfg(windows)]
         policy
             .spawn_process_windows(OsStr::new("program.exe"))
+            .unwrap();
+    }
+
+    #[test]
+    fn snapshot_captures_effective_policy_without_reusing_the_source_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            r#"
+[fs]
+read = ["allowed"]
+write = ["allowed"]
+
+[env.set]
+INITIAL = "value"
+MOONRUN_INHERITED_POLICY = "guest value"
+
+[process]
+spawn = true
+"#,
+        )
+        .unwrap();
+        let policy = Policy::from_file(&policy_file).unwrap();
+        policy.unset_env_var("INITIAL");
+        policy.set_env_var("CURRENT".to_owned(), "策略-🌙".to_owned());
+
+        let snapshot = policy.snapshot_for_child().unwrap().unwrap();
+        std::fs::write(&policy_file, "").unwrap();
+        let snapshot_path = PathBuf::from(snapshot.transport_token());
+        let inherited =
+            Policy::from_inherited_snapshot(snapshot.transport_token().to_owned()).unwrap();
+        assert!(!snapshot_path.exists());
+        snapshot.handoff();
+
+        assert_eq!(inherited.get_env_var("CURRENT").as_deref(), Some("策略-🌙"));
+        assert!(!inherited.env_var_exists("INITIAL"));
+        assert!(!inherited.env_var_exists(moonutil::constants::MOONRUN_INHERITED_POLICY));
+        inherited
+            .write_path(
+                RuntimePathBase::CurrentDirectory,
+                allowed.join("child.txt").as_os_str(),
+            )
+            .unwrap();
+        #[cfg(unix)]
+        inherited
+            .spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
+            .unwrap();
+        #[cfg(windows)]
+        inherited
+            .spawn_process_windows(OsStr::new("program.exe"))
+            .unwrap();
+    }
+
+    #[test]
+    fn snapshot_transport_is_read_only_and_protected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = Policy::from_config(
+            PolicyConfig {
+                fs: Some(config::FsConfig {
+                    read: vec![PathBuf::from("*")],
+                    write: vec![PathBuf::from("*")],
+                }),
+                ..PolicyConfig::default()
+            },
+            tmp.path(),
+        )
+        .unwrap();
+        let snapshot = policy.snapshot_for_child().unwrap().unwrap();
+        let path = PathBuf::from(snapshot.transport_token());
+        assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
+        assert_eq!(
+            policy.read_path(RuntimePathBase::CurrentDirectory, path.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        assert_eq!(
+            policy.write_path(RuntimePathBase::CurrentDirectory, path.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        assert_eq!(
+            policy.remove_path(path.parent().unwrap().as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn unrestricted_runs_do_not_create_policy_snapshots() {
+        assert!(Policy::allow_all().snapshot_for_child().unwrap().is_none());
+    }
+
+    #[test]
+    fn originating_policy_keeps_cleanup_lease_until_run_teardown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = Policy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
+        let snapshot = policy.snapshot_for_child().unwrap().unwrap();
+        let path = PathBuf::from(snapshot.transport_token());
+
+        drop(snapshot);
+        assert!(path.exists());
+        drop(policy);
+        assert!(!path.exists());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn snapshot_preserves_non_utf8_filesystem_roots() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp
+            .path()
+            .join(std::ffi::OsString::from_vec(b"allowed-\xff".to_vec()));
+        std::fs::create_dir(&root).unwrap();
+        let policy = Policy::from_config(
+            PolicyConfig {
+                fs: Some(config::FsConfig {
+                    read: vec![root.clone()],
+                    write: vec![root.clone()],
+                }),
+                ..PolicyConfig::default()
+            },
+            tmp.path(),
+        )
+        .unwrap();
+
+        let snapshot = policy.snapshot_for_child().unwrap().unwrap();
+        let inherited =
+            Policy::from_inherited_snapshot(snapshot.transport_token().to_owned()).unwrap();
+        snapshot.handoff();
+
+        inherited
+            .write_path(
+                RuntimePathBase::CurrentDirectory,
+                root.join("child.txt").as_os_str(),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn snapshot_preserves_resolved_network_authority() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = Policy::from_config(
+            PolicyConfig {
+                net: Some(config::NetConfig {
+                    dns: Vec::new(),
+                    connect: vec!["api.example.com:443".to_owned()],
+                    bind: Vec::new(),
+                }),
+                ..PolicyConfig::default()
+            },
+            tmp.path(),
+        )
+        .unwrap();
+        let resolved = ipv4_addr(Ipv4Addr::LOCALHOST, 0);
+        policy
+            .register_dns_result(OsStr::new("api.example.com"), &[resolved])
+            .unwrap();
+
+        let snapshot = policy.snapshot_for_child().unwrap().unwrap();
+        let inherited =
+            Policy::from_inherited_snapshot(snapshot.transport_token().to_owned()).unwrap();
+        snapshot.handoff();
+
+        inherited
+            .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
             .unwrap();
     }
 

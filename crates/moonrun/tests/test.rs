@@ -969,12 +969,33 @@ fn test_moon_run_policy_with_workspace_async_fs() {
     let env_mutate_wasm = wasm_file("env_mutate");
     let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
     let process_env_wasm = wasm_file("process_env");
+    let spawn_moonx_wasm = wasm_file("spawn_moonx");
     let policy_file = std::fs::canonicalize(dir.path().join("policy.toml")).unwrap();
     let deny_all_policy_file = std::fs::canonicalize(dir.path().join("deny-all.toml")).unwrap();
     let process_any_args_policy_file =
         std::fs::canonicalize(dir.path().join("process-any-args.toml")).unwrap();
     let process_prefix_deny_policy_file =
         std::fs::canonicalize(dir.path().join("process-prefix-deny.toml")).unwrap();
+    let moonx_policy_file = std::fs::canonicalize(dir.path().join("moonx-policy.toml")).unwrap();
+
+    let moon_home = tempfile::tempdir().unwrap();
+    let moonx_bin_dir = tempfile::tempdir().unwrap();
+    let moonx_bin = moonx_bin_dir
+        .path()
+        .join(if cfg!(windows) { "moonx.exe" } else { "moonx" });
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(moon_bin(), &moonx_bin).unwrap();
+    #[cfg(windows)]
+    std::fs::copy(moon_bin(), &moonx_bin).unwrap();
+    let moonx_path = std::env::join_paths(std::iter::once(moonx_bin_dir.path().to_owned()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .unwrap();
+    let cached_moonx_wasm = moon_home
+        .path()
+        .join("registry/cache/assets/moonrun/policy-test/1.0.0/cmd/env/env.wasm");
+    std::fs::create_dir_all(cached_moonx_wasm.parent().unwrap()).unwrap();
+    std::fs::copy(&env_get_wasm, cached_moonx_wasm).unwrap();
 
     #[cfg(not(windows))]
     let fs_deny_read_stdout = snapbox::str![[r#"
@@ -1062,6 +1083,34 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .success()
         .stdout_eq("spawn denied\n")
         .stderr_eq("Sandbox policy blocked process spawn\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("MOON_HOME", moon_home.path())
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+        .env("PATH", &moonx_path)
+        .arg("--policy")
+        .arg(&moonx_policy_file)
+        .arg(&spawn_moonx_wasm)
+        .assert()
+        .success()
+        .stdout_eq("inherited policy 🌙\n")
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("MOON_HOME", moon_home.path())
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+        .env("PATH", &moonx_path)
+        .arg("--policy")
+        .arg(&moonx_policy_file)
+        .arg(&spawn_moonx_wasm)
+        .arg("--")
+        .arg("native")
+        .assert()
+        .success()
+        .stdout_eq("nested moonx exited with code 255\n")
+        .stderr_eq("Error: a sandboxed moonx invocation cannot use --target native\n");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())

@@ -63,6 +63,10 @@ impl HostProcess {
         job.check_policy(self)
     }
 
+    pub(crate) fn prepare_job(&self, job: &mut Job) -> AsyncHostResult<()> {
+        job.prepare_inherited_moonx(&self.policy)
+    }
+
     pub(crate) fn finish_job(&self, job: &Job, ret: i64, err: i32) -> AsyncHostResult<()> {
         job.finish(self, ret, err)
     }

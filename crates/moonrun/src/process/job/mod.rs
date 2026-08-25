@@ -57,6 +57,7 @@ enum Kind {
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
+        inherited_policy: Option<crate::policy::PolicySnapshot>,
         result: Option<ResourcePublication>,
     },
     #[cfg(windows)]
@@ -66,6 +67,7 @@ enum Kind {
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
+        inherited_policy: Option<crate::policy::PolicySnapshot>,
         result: Option<ResourcePublication>,
     },
     WaitForProcess {
@@ -101,6 +103,7 @@ impl Job {
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
+                inherited_policy: None,
                 result: None,
             },
         }
@@ -124,6 +127,7 @@ impl Job {
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
+                inherited_policy: None,
                 result: None,
             },
         }
@@ -244,6 +248,7 @@ impl Job {
                 options,
                 stdio,
                 cwd,
+                inherited_policy,
                 result,
             } => runner::run_spawn_job_unix(
                 std::mem::take(path),
@@ -251,6 +256,7 @@ impl Job {
                 std::mem::take(env),
                 std::mem::take(stdio),
                 cwd.take(),
+                inherited_policy.take(),
                 *options,
                 result,
             ),
@@ -261,12 +267,14 @@ impl Job {
                 options,
                 stdio,
                 cwd,
+                inherited_policy,
                 result,
             } => runner::run_spawn_job_windows(
                 std::mem::take(command_line),
                 std::mem::take(env),
                 std::mem::take(stdio),
                 cwd.take(),
+                inherited_policy.take(),
                 *options,
                 result,
             ),
@@ -303,6 +311,69 @@ impl Job {
                 pid,
                 ..
             } => process.check_wait(handle.is_some(), *tracked_pid, *pid),
+        }
+    }
+
+    pub(super) fn prepare_inherited_moonx(
+        &mut self,
+        policy: &crate::policy::Policy,
+    ) -> AsyncHostResult<()> {
+        match &mut self.kind {
+            #[cfg(unix)]
+            Kind::SpawnUnix {
+                args,
+                env,
+                inherited_policy,
+                ..
+            } => {
+                crate::async_sys::process::set_process_env_var(
+                    env,
+                    std::ffi::OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+                    None,
+                );
+                if !args
+                    .first()
+                    .is_some_and(|arg| moonutil::constants::is_moonx_executable(arg))
+                {
+                    return Ok(());
+                }
+                let Some(snapshot) = policy.snapshot_for_child().map_err(|error| {
+                    eprintln!("failed to snapshot sandbox policy: {error:#}");
+                    AsyncHostError::Io
+                })?
+                else {
+                    return Ok(());
+                };
+                *inherited_policy = Some(snapshot);
+                Ok(())
+            }
+            #[cfg(windows)]
+            Kind::SpawnWindows {
+                command_line,
+                env,
+                inherited_policy,
+                ..
+            } => {
+                crate::async_sys::process::set_process_env_var(
+                    env,
+                    std::ffi::OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+                    None,
+                );
+                let argv0 = moonutil::shlex::get_argv0_windows(&command_line.to_string_lossy());
+                if !moonutil::constants::is_moonx_executable(std::ffi::OsStr::new(&argv0)) {
+                    return Ok(());
+                }
+                let Some(snapshot) = policy.snapshot_for_child().map_err(|error| {
+                    eprintln!("failed to snapshot sandbox policy: {error:#}");
+                    AsyncHostError::Io
+                })?
+                else {
+                    return Ok(());
+                };
+                *inherited_policy = Some(snapshot);
+                Ok(())
+            }
+            Kind::WaitForProcess { .. } => Ok(()),
         }
     }
 
@@ -391,5 +462,82 @@ mod tests {
                 symbol.rust_symbol
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn policy_bearing_moonx_spawn_receives_a_snapshot_without_rewriting_the_command() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            r#"
+[env.set]
+UNICODE = "策略-🌙"
+
+[process]
+spawn = true
+"#,
+        )
+        .unwrap();
+        let policy = crate::policy::Policy::from_file(&policy_file).unwrap();
+        let mut job = Job::spawn_unix(
+            OsString::from("moon"),
+            vec![
+                OsString::from("moonx"),
+                OsString::from("user/module"),
+                OsString::from("参数-🌙"),
+            ],
+            vec![OsString::from("MOONRUN_INHERITED_POLICY=guest")],
+            None,
+            None,
+            None,
+            None,
+            SpawnOptions {
+                child_signal_mask: unsafe { std::mem::zeroed() },
+            },
+        );
+
+        job.prepare_inherited_moonx(&policy).unwrap();
+
+        let Kind::SpawnUnix {
+            path,
+            args,
+            env,
+            inherited_policy,
+            ..
+        } = &job.kind
+        else {
+            unreachable!()
+        };
+        assert_eq!(path, "moon");
+        assert_eq!(args, &["moonx", "user/module", "参数-🌙"]);
+        assert!(env.is_empty());
+        assert!(inherited_policy.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ordinary_spawn_cannot_supply_inherited_policy_capability() {
+        let mut job = Job::spawn_unix(
+            OsString::from("program"),
+            vec![OsString::from("program")],
+            vec![OsString::from("MOONRUN_INHERITED_POLICY=guest")],
+            None,
+            None,
+            None,
+            None,
+            SpawnOptions {
+                child_signal_mask: unsafe { std::mem::zeroed() },
+            },
+        );
+
+        job.prepare_inherited_moonx(&crate::policy::Policy::allow_all())
+            .unwrap();
+
+        let Kind::SpawnUnix { env, .. } = &job.kind else {
+            unreachable!()
+        };
+        assert!(env.is_empty());
     }
 }

@@ -31,6 +31,7 @@ serde_json.workspace = true
 serde_json_lenient.workspace = true
 libsqlite3-sys.workspace = true
 slotmap.workspace = true
+tempfile.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }
 moonutil.workspace = true
 rand = "0.8.5"
@@ -77,7 +78,6 @@ chrono.workspace = true
 escargot.workspace = true
 moon-test-util = { path = "../moon-test-util" }
 snapbox.workspace = true
-tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "time"] }
 
 [[bin]]

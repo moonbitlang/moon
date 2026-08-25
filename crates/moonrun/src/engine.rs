@@ -45,6 +45,7 @@ pub struct RunOptions {
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) policy_file: Option<PathBuf>,
+    pub(crate) inherited_policy: Option<Arc<policy::Policy>>,
 }
 
 impl RunOptions {
@@ -70,6 +71,13 @@ impl RunOptions {
     pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
         self.policy_file = Some(policy_file.into());
         self
+    }
+
+    /// Consume a host-authenticated policy snapshot received from another moonrun process.
+    #[doc(hidden)]
+    pub fn with_inherited_policy(mut self, token: std::ffi::OsString) -> anyhow::Result<Self> {
+        self.inherited_policy = Some(Arc::new(policy::Policy::from_inherited_snapshot(token)?));
+        Ok(self)
     }
 }
 
@@ -173,13 +181,18 @@ impl Engine {
     }
 
     /// Execute one isolated run synchronously on the calling thread.
-    pub fn run(&self, module: &Module, options: RunOptions) -> anyhow::Result<RunOutcome> {
-        let policy = Arc::new(match options.policy_file.as_ref() {
-            Some(path) => policy::Policy::from_file(path).context(
+    pub fn run(&self, module: &Module, mut options: RunOptions) -> anyhow::Result<RunOutcome> {
+        let inherited_policy = options.inherited_policy.take();
+        let policy = match (&options.policy_file, inherited_policy) {
+            (Some(path), None) => Arc::new(policy::Policy::from_file(path).context(
                 "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
-            )?,
-            None => policy::Policy::allow_all(),
-        });
+            )?),
+            (None, Some(policy)) => policy,
+            (None, None) => Arc::new(policy::Policy::allow_all()),
+            (Some(_), Some(_)) => {
+                anyhow::bail!("a policy file and inherited policy snapshot are mutually exclusive")
+            }
+        };
         v8_backend::run(
             &self.config,
             module.name(),

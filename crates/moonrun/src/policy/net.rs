@@ -162,6 +162,15 @@ impl NetPolicy {
             sandbox_denied(operation.sandbox_action(), Some(&target))
         }
     }
+
+    pub(super) fn resolved_connect_for_snapshot(&self) -> Vec<String> {
+        self.resolved_connect
+            .lock()
+            .unwrap()
+            .iter()
+            .map(SocketRule::describe)
+            .collect()
+    }
 }
 
 impl NetOperation {
@@ -254,6 +263,21 @@ impl SocketRule {
             SocketPortRule::Any => true,
             SocketPortRule::Exact(port) => port == addr.port,
         }
+    }
+
+    fn describe(&self) -> String {
+        let host = match &self.host {
+            SocketHostRule::Ip(IpAddr::V4(ip)) => ip.to_string(),
+            SocketHostRule::Ip(IpAddr::V6(ip)) => format!("[{ip}]"),
+            SocketHostRule::Any | SocketHostRule::Name(_) => {
+                unreachable!("resolved connect rules always contain an IP address")
+            }
+        };
+        let port = match self.port {
+            SocketPortRule::Any => "*".to_owned(),
+            SocketPortRule::Exact(port) => port.to_string(),
+        };
+        format!("{host}:{port}")
     }
 }
 
