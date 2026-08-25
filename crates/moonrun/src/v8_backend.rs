@@ -25,6 +25,10 @@ use anyhow::Context;
 use std::sync::{Arc, OnceLock};
 
 const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
+const JS_GLUE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/template/js_glue.js"
+));
 
 pub(crate) struct CompiledModule(v8::CompiledWasmModule);
 
@@ -168,11 +172,7 @@ pub(crate) fn run(
     ));
     entrypoint_source.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
     entrypoint_source.push('\n');
-    let js_glue = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/template/js_glue.js"
-    ));
-    entrypoint_source.push_str(js_glue);
+    entrypoint_source.push_str(JS_GLUE);
 
     let code = scope.string(&entrypoint_source);
     let script_origin = create_script_origin(scope, "wasm_mode_entry");
@@ -233,4 +233,16 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
 struct TestArgs {
     package: String,
     file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JS_GLUE;
+
+    #[test]
+    fn js_glue_does_not_own_runtime_values() {
+        assert!(!JS_GLUE.contains("__moonbit_run_env"));
+        assert!(!JS_GLUE.contains("function env_get_var"));
+        assert!(!JS_GLUE.contains("function args_get"));
+    }
 }

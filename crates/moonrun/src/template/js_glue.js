@@ -4,12 +4,6 @@
 const __moonbit_fs_unstable =
     globalThis.__moonbit_fs_unstable ||
     (globalThis.__moonbit_fs_unstable = {});
-// Provided by the filesystem adapter; fallback keeps interactive tests safe.
-const __moonbit_run_env = globalThis.__moonbit_run_env || {
-    env_vars: new Map(),
-    args: [],
-    stderr_is_tty: false,
-};
 // JS helper API attached to __moonbit_fs_unstable.
 (function init_js_api(obj) {
     // String ops
@@ -120,30 +114,12 @@ const __moonbit_run_env = globalThis.__moonbit_run_env || {
     obj.jsvalue_is_string = jsvalue_is_string
 })(__moonbit_fs_unstable);
 
-// Sys API wiring (env vars + args).
-(function init_runtime_api(obj, run_env) {
-    // Return the value of the environment variable
-    function env_get_var(name) {
-        return run_env.env_vars.get(name) || ""
-    }
-
-    // Get the list of arguments passed to the program
-    function args_get() {
-        return run_env.args
-    }
-
-    obj.env_get_var = env_get_var
-    obj.args_get = args_get
-})(__moonbit_fs_unstable, __moonbit_run_env);
-
 const __moonbit_wasi_unstable = globalThis.__moonbit_wasi_unstable || {};
 const __moonrun_v8_import = globalThis.__moonrun_v8_import || {};
 const moonbitlang_async = globalThis["moonbitlang/async"] || {};
 const moonbitlang_sqlite = globalThis["moonbitlang/sqlite"] || {};
 const moonbit_ffi_memory_sanitizer =
     globalThis["moonbit:ffi/memory-sanitizer"] || {};
-
-delete globalThis.__moonbit_run_env;
 
 function demangleMangledFunctionName(funcName) {
     if (typeof __moonbit_demangle_mangled_function_name === "function") {

@@ -39,6 +39,7 @@ mod resource;
 mod run_termination;
 mod source_map;
 mod sqlite;
+mod temp_dir;
 mod util;
 mod v8_backend;
 mod v8_builder;
