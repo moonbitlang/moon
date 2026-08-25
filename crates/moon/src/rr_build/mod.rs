@@ -368,12 +368,13 @@ impl CompilePreConfig {
                 use_wat: self.output_wat,
             },
             TargetBackend::Js => BackendConfig::Js,
-            TargetBackend::Native => BackendConfig::Native(self.detect_mode(
-                resolve_output,
-                requested_artifacts,
-                user_log,
-            )),
-            TargetBackend::LLVM => BackendConfig::Llvm,
+            TargetBackend::Native => BackendConfig::Native {
+                mode: self.detect_mode(resolve_output, requested_artifacts, user_log),
+                allocator: compiler_flags::NativeAllocator::from_env()?,
+            },
+            TargetBackend::LLVM => BackendConfig::Llvm {
+                allocator: compiler_flags::NativeAllocator::from_env()?,
+            },
         };
         info!("Final backend configuration: {:?}", backend);
         let stdlib_path = if std {
@@ -388,7 +389,6 @@ impl CompilePreConfig {
             self.action,
         );
         let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path.clone());
-
         Ok(CompileConfig {
             target_dir: self.target_dir,
             backend,

@@ -1144,19 +1144,21 @@ impl<'a> BuildPlanConstructor<'a> {
         );
 
         let generate_dsym = match &self.build_env.backend {
-            BackendConfig::Llvm => {
+            BackendConfig::Llvm { .. } => {
                 should_generate_llvm_dsym(self.build_env.debug_symbols, self.build_env.os)
             }
-            BackendConfig::Native(NativeBackendMode::DirectObject(mode)) => {
-                should_generate_direct_native_dsym(
-                    mode,
-                    self.build_env.debug_symbols,
-                    &effective_native_toolchain,
-                )
-            }
-            BackendConfig::Native(NativeBackendMode::GeneratedC | NativeBackendMode::TccRun(_)) => {
-                false
-            }
+            BackendConfig::Native {
+                mode: NativeBackendMode::DirectObject(mode),
+                ..
+            } => should_generate_direct_native_dsym(
+                mode,
+                self.build_env.debug_symbols,
+                &effective_native_toolchain,
+            ),
+            BackendConfig::Native {
+                mode: NativeBackendMode::GeneratedC | NativeBackendMode::TccRun(_),
+                ..
+            } => false,
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 unreachable!("non-native executable planning returns before toolchain planning")
             }
@@ -1169,11 +1171,21 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
+        let native_allocator = self
+            .build_env
+            .backend
+            .native_allocator()
+            .expect("native executable planning requires an allocator");
+        native_allocator
+            .validate_for_cc(effective_native_toolchain.cc())
+            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
+
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             effective_native_toolchain,
             c_flags,
             link_flags,
+            native_allocator,
         };
         self.res.backend.make_executable_info.insert(target, v);
 
@@ -1575,11 +1587,21 @@ impl<'a> BuildPlanConstructor<'a> {
                 .cc()
                 .archiver_updates_existing_archive())
         .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
+        let native_allocator = self
+            .build_env
+            .backend
+            .native_allocator()
+            .expect("native runtime planning requires an allocator");
+        native_allocator
+            .validate_for_cc(effective_native_toolchain.cc())
+            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
+
         self.res.backend.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
             source_files,
             simdutf_objects,
             static_archive_fingerprint,
+            native_allocator,
         });
 
         if builds_static_archive {

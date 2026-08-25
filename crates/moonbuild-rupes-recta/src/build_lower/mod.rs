@@ -138,7 +138,7 @@ impl BuildOptions {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 OperatingSystem::None
             }
-            BackendConfig::Native(_) | BackendConfig::Llvm => self.os(),
+            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => self.os(),
         };
         let (executable, linked_core) = match &self.backend {
             BackendConfig::Wasm { use_wat, .. } => (
@@ -150,7 +150,7 @@ impl BuildOptions {
                 LinkedCoreArtifact::WasmGC { use_wat: *use_wat },
             ),
             BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
-            BackendConfig::Native(mode) => (
+            BackendConfig::Native { mode, .. } => (
                 if mode.tcc_run().is_some() {
                     ExecutableArtifact::TccRunResponseFile
                 } else {
@@ -162,7 +162,7 @@ impl BuildOptions {
                     LinkedCoreArtifact::NativeC
                 },
             ),
-            BackendConfig::Llvm => (
+            BackendConfig::Llvm { .. } => (
                 ExecutableArtifact::LlvmExecutable,
                 LinkedCoreArtifact::LlvmObject { os },
             ),
@@ -364,7 +364,7 @@ mod tests {
 
     use indexmap::IndexSet;
     use moonutil::{
-        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain},
+        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, NativeAllocator, Toolchain},
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
@@ -835,6 +835,7 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
+            native_allocator: NativeAllocator::Default,
         });
 
         let (dependency_nodes, script_nodes) = partition_standalone_actions(&plan, script_package);
@@ -875,6 +876,7 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
+            native_allocator: NativeAllocator::Default,
         });
 
         let (dependency_actions, script_nodes) =
@@ -1019,6 +1021,7 @@ mod tests {
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
+            native_allocator: NativeAllocator::Default,
         });
         plan.test_insert_make_executable_info(
             target,
@@ -1027,6 +1030,7 @@ mod tests {
                 c_flags: Vec::new(),
                 link_flags: vec!["dep.lib".to_string(), "/LIBPATH:pkg/lib".to_string()],
                 link_c_stubs: vec![target.package],
+                native_allocator: NativeAllocator::Default,
             },
         );
 
@@ -1049,7 +1053,10 @@ mod tests {
         ));
         let options = BuildOptions {
             artifact_paths: artifact_paths.clone(),
-            backend: BackendConfig::Native(native_mode),
+            backend: BackendConfig::Native {
+                mode: native_mode,
+                allocator: NativeAllocator::Default,
+            },
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
             debug_symbols: false,
@@ -1266,15 +1273,21 @@ mod tests {
                 c_flags: Vec::new(),
                 link_flags: Vec::new(),
                 link_c_stubs: Vec::new(),
+                native_allocator: NativeAllocator::Default,
             },
         );
         plan.test_insert_dsymutil(dsymutil.clone());
 
         for backend in [
-            BackendConfig::Llvm,
-            BackendConfig::Native(NativeBackendMode::DirectObject(DirectNativeMode::Target(
-                NativeTarget::Aarch64AppleDarwin,
-            ))),
+            BackendConfig::Llvm {
+                allocator: NativeAllocator::Default,
+            },
+            BackendConfig::Native {
+                mode: NativeBackendMode::DirectObject(DirectNativeMode::Target(
+                    NativeTarget::Aarch64AppleDarwin,
+                )),
+                allocator: NativeAllocator::Default,
+            },
         ] {
             let lowering_environment = LoweringEnvironment::default();
             lowering_environment

@@ -52,7 +52,6 @@ pub struct CompileConfig {
     pub artifact_paths: ArtifactPathResolver,
     /// Host/toolchain facts resolved lazily during lowering.
     pub lowering_environment: LoweringEnvironment,
-
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
@@ -188,7 +187,7 @@ pub fn compile_standalone(
 }
 
 fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
-    let native_or_llvm = matches!(&cx.backend, BackendConfig::Native(_) | BackendConfig::Llvm);
+    let native_or_llvm = cx.backend.native_allocator().is_some();
     let compiler_paths = native_or_llvm.then(|| cx.lowering_environment.compiler_paths().clone());
     BuildEnvironment {
         backend: cx.backend.clone(),

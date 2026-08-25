@@ -541,8 +541,8 @@ impl<'a> LoweringContext<'a> {
             BuildAction::MakeExecutable { .. }
                 if matches!(
                     &self.opt.backend,
-                    BackendConfig::Native(backend)
-                        if backend.executable_realization()
+                    BackendConfig::Native { mode, .. }
+                        if mode.executable_realization()
                             == CExecutableRealization::CompileAndLinkGeneratedC
                 )
         );
@@ -624,14 +624,14 @@ impl<'a> LoweringContext<'a> {
                     && package_link_flags.is_none_or(<[_]>::is_empty)
             }
             BuildAction::MakeExecutable { info, .. } => match &self.opt.backend {
-                BackendConfig::Native(backend) => match backend.executable_realization() {
+                BackendConfig::Native { mode, .. } => match mode.executable_realization() {
                     CExecutableRealization::CompileAndLinkGeneratedC => {
                         info.c_flags.is_empty() && info.link_flags.is_empty()
                     }
                     CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
                     CExecutableRealization::WriteTccRunResponseFile => true,
                 },
-                BackendConfig::Llvm => info.c_flags.is_empty() && info.link_flags.is_empty(),
+                BackendConfig::Llvm { .. } => info.c_flags.is_empty() && info.link_flags.is_empty(),
                 BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                     unreachable!("non-native plans do not contain MakeExecutable actions")
                 }

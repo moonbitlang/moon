@@ -46,8 +46,8 @@ pub(crate) enum CStubLibraryRealization {
 impl BackendConfig {
     pub(crate) fn c_stub_library_realization(&self) -> CStubLibraryRealization {
         match self {
-            Self::Native(backend) => backend.c_stub_library_realization(),
-            Self::Llvm => CStubLibraryRealization::StaticArchive,
+            Self::Native { mode, .. } => mode.c_stub_library_realization(),
+            Self::Llvm { .. } => CStubLibraryRealization::StaticArchive,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("C stubs are only realized for C or LLVM backends")
             }
@@ -56,10 +56,10 @@ impl BackendConfig {
 
     pub(crate) fn uses_shared_runtime(&self) -> bool {
         match self {
-            Self::Native(backend) => {
-                backend.runtime_realization() == CRuntimeRealization::SharedLibraryForTccRun
+            Self::Native { mode, .. } => {
+                mode.runtime_realization() == CRuntimeRealization::SharedLibraryForTccRun
             }
-            Self::Llvm => false,
+            Self::Llvm { .. } => false,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("runtime artifacts are only realized for C or LLVM backends")
             }
@@ -97,7 +97,7 @@ impl NativeBackendMode {
 
 #[cfg(test)]
 mod tests {
-    use moonutil::compiler_flags::{ARKind, CC, CCKind};
+    use moonutil::compiler_flags::{ARKind, CC, CCKind, NativeAllocator};
 
     use crate::model::{DirectNativeMode, TccRunConfig};
 
@@ -126,8 +126,15 @@ mod tests {
 
     #[test]
     fn c_tcc_run_realizes_shared_runtime_and_response_file() {
-        let backend = BackendConfig::Native(NativeBackendMode::TccRun(fake_tcc_run()));
-        let BackendConfig::Native(ref native_mode) = backend else {
+        let backend = BackendConfig::Native {
+            mode: NativeBackendMode::TccRun(fake_tcc_run()),
+            allocator: NativeAllocator::Default,
+        };
+        let BackendConfig::Native {
+            mode: ref native_mode,
+            ..
+        } = backend
+        else {
             panic!("native backend should select C lowering")
         };
         assert_eq!(
@@ -143,11 +150,18 @@ mod tests {
 
     #[test]
     fn c_direct_object_realizes_linker_executable() {
-        let backend = BackendConfig::Native(NativeBackendMode::DirectObject(
-            DirectNativeMode::Target(crate::model::NativeTarget::Aarch64AppleDarwin),
-        ));
+        let backend = BackendConfig::Native {
+            mode: NativeBackendMode::DirectObject(DirectNativeMode::Target(
+                crate::model::NativeTarget::Aarch64AppleDarwin,
+            )),
+            allocator: NativeAllocator::Default,
+        };
 
-        let BackendConfig::Native(ref native_mode) = backend else {
+        let BackendConfig::Native {
+            mode: ref native_mode,
+            ..
+        } = backend
+        else {
             panic!("native backend should select C lowering")
         };
         assert_eq!(
@@ -163,9 +177,11 @@ mod tests {
 
     #[test]
     fn llvm_backend_is_not_c_realization() {
-        let backend = BackendConfig::Llvm;
+        let backend = BackendConfig::Llvm {
+            allocator: NativeAllocator::Default,
+        };
 
-        assert!(matches!(backend, BackendConfig::Llvm));
+        assert!(matches!(backend, BackendConfig::Llvm { .. }));
         assert_eq!(
             backend.c_stub_library_realization(),
             CStubLibraryRealization::StaticArchive
