@@ -1860,6 +1860,7 @@ dependencies = [
  "slotmap",
  "snapbox",
  "tempfile",
+ "thiserror 1.0.63",
  "tokio",
  "toml",
  "v8",

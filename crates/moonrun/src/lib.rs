@@ -27,6 +27,7 @@ mod async_host;
 mod async_sys;
 mod demangle_js_template;
 mod engine;
+mod env;
 mod filesystem;
 mod guest_memory;
 mod host;
