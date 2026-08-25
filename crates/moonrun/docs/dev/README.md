@@ -7,6 +7,19 @@
   deliver one upstream port at a time, and mark the originating async pull
   request completed after the Moon change lands.
 
+## Proposed designs and research
+
+- [Operating-system support for moonrun virtualization](os-virtualization-research.md):
+  identify which isolation and lifecycle primitives can be delegated to Linux,
+  macOS, and Windows and which semantics must remain inside moonrun.
+- [Scheduler control-flow models for moonrun](scheduler-control-flow-research.md):
+  compare Kubernetes, k0s, Nomad, and Wrangler ownership to separate
+  declarative workload reconciliation from imperative virtual children.
+- [Multi-service Runs and virtual child processes](multi-service-virtual-child-design.md):
+  deepen moonrun around Engine with Deployment Controller, Execution
+  Supervisor, and Host Process for transparent in-process Moonx children
+  through incremental MVP slices.
+
 ## How to Build and Test
 
 ```bash
