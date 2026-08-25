@@ -325,11 +325,12 @@ pub(crate) fn install(
     wasm_file_name: &str,
     args: &[String],
     policy: Arc<policy::Policy>,
+    environment: Arc<policy::Env>,
 ) -> run_termination::TerminationRequest {
     let global_proxy = scope.get_current_context().global(scope);
     let termination_request = run_termination::TerminationRequest::default();
     let v8_context = Box::new(crate::v8_import::V8RunContext::new(
-        crate::host::Host::new(Arc::clone(&policy)),
+        crate::host::Host::new(Arc::clone(&policy), Arc::clone(&environment)),
         termination_request.clone(),
     ));
     let v8_context_ptr = &*v8_context as *const crate::v8_import::V8RunContext;
@@ -390,8 +391,11 @@ pub(crate) fn install(
             scope,
             wasm_file_name,
             args,
-            Rc::clone(v8_context.memory_binding()),
-            termination_request.clone(),
+            wasi_api::WasiRunResources::new(
+                Arc::clone(&environment),
+                Rc::clone(v8_context.memory_binding()),
+                termination_request.clone(),
+            ),
             dtors,
         );
     }
@@ -403,7 +407,15 @@ pub(crate) fn install(
     // API for the fs module
     {
         let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
-        filesystem::v8::init_env(obj, scope, wasm_file_name, args, Arc::clone(&policy), dtors);
+        filesystem::v8::init_env(
+            obj,
+            scope,
+            wasm_file_name,
+            args,
+            Arc::clone(&policy),
+            environment,
+            dtors,
+        );
     }
     {
         let io = global_proxy.child(scope, "__moonbit_io_unstable");

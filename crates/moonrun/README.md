@@ -37,7 +37,9 @@ use moonrun::{Engine, RunOptions, RunOutcome};
 let outcome = Engine::default()
     .run_file(
         "path/to/file.wasm",
-        RunOptions::default().with_args(["arg"]),
+        RunOptions::default()
+            .with_args(["arg"])
+            .environment([("APP_ENV", "test")]),
     )
     .unwrap();
 
@@ -65,13 +67,18 @@ the stable program name used for guest arguments and diagnostics:
 let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
-The current implementation remains V8-backed and still inherits process stdio,
-environment, working directory, and signal compatibility behavior. These are
-shared process dependencies rather than isolated embedding inputs. Compiled
-modules reuse their prepared representation while each run creates fresh guest
+The current implementation remains V8-backed. Each run owns a private mutable
+environment delta. When `environment` is omitted, the process environment is
+its read-only backing source; Env reads it lazily as native `OsString` values.
+The embedding process must not mutate that environment while any Run backed by
+it is active. Full enumeration and inherited native spawn materialize the
+source plus the Run's delta. Process stdio, working directory, and signal
+compatibility behavior remain shared process dependencies. Compiled modules
+reuse their prepared representation while each run creates fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
 responsibility. Moonrun does not yet expose an interruption mechanism for a
-running guest.
+running guest, and broader concurrent-run behavior is not yet part of the
+interface contract.
 
 ## Memory Leak Reporting
 
@@ -89,9 +96,10 @@ system and switches supported moonrun-owned host surfaces into sandbox mode.
 The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
 deny that surface, and process spawning is disabled unless explicitly allowed.
 Add entries only for the access the program should have. The policy covers
-`moonbitlang/async` and moonrun's own `__moonbit_*_unstable` FFI surfaces. It
-does not apply to WASI
-(`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`).
+`moonbitlang/async` and moonrun's own `__moonbit_*_unstable` FFI surfaces. WASI
+environment reads share the same per-Run environment and therefore observe the
+`env` policy. WASI descriptors and preopens remain a separate capability
+surface not controlled by the filesystem policy.
 
 An empty JSON object denies all policy-covered filesystem, network, and
 environment access:
@@ -131,11 +139,28 @@ syntax; Windows policies may use normal Windows paths such as `C:\work` or
 wildcard `"*"` allows every host path on every platform. List a root in both
 `read` and `write` to allow read-write filesystem access.
 
-The environment policy constructs the guest environment. Use `from_host` to copy
-selected host variables if present, `required_from_host` to require selected
-host variables, and `env.set` for literal values. `env.set` overrides values
-copied from the host. Do not put secrets directly in the policy file; pass them
-by name through `from_host` or `required_from_host`.
+The Run chooses its environment source; Moonrun Policy only selects and
+overrides values from that source. Use `from_host` to select source variables
+if present, `required_from_host` to require selected source variables, and
+`env.set` for literal values. The CLI uses the host process environment;
+library callers may provide a fixed source with `RunOptions::environment`.
+`env.set` overrides selected values. Do not put secrets directly in the policy
+file; pass them by name through `from_host` or `required_from_host`. Runtime
+`set` and `unset` operations are immediately visible to subsequent moonrun-owned
+and WASI environment reads without mutating the source. WASI preserves one
+environment snapshot between a matching `environ_sizes_get` and `environ_get`
+so the reported table size remains valid.
+
+The temporary-directory base is resolved from the current Run environment. On
+Windows, an unrestricted Run whose environment omits `TMP` and `TEMP` preserves
+the native `GetTempPath2W` fallback; sandbox mode requires the temporary base to
+be present in the selected environment and does not consult process-global
+fallback variables.
+
+A child that requests inheritance snapshots the current per-Run environment
+when moonrun creates the spawn environment builder. Later parent `set` or
+`unset` operations do not change that builder; the next spawn observes the
+newer state.
 
 Process spawning is disabled unless the request matches a `process.allow` rule
 or `process.spawn` is `true`. Rules match the requested program exactly and
@@ -167,10 +192,12 @@ MoonBit appends `.exe` unless the requested program already ends in `.exe` or
 Allowing a shell, interpreter, package runner, or extensible tool can permit much
 more than the visible argument prefix suggests.
 
-A native child receives the host user's ambient filesystem, network, and process
-access. The `fs` and `net` objects do not sandbox child processes. PID-based
-process operations are restricted to children spawned by the current moonrun
-instance while policy mode is active.
+A native child receives the Run environment snapshot but still has the host
+user's ambient filesystem, network, and process access. The `fs` and `net`
+objects do not sandbox child processes. PID-based process operations are
+restricted to children spawned by the current moonrun instance while policy
+mode is active. Native executable lookup also retains host-platform
+compatibility semantics; it is not yet virtualized through the child Env.
 
 ```json
 {

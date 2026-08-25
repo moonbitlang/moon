@@ -44,7 +44,7 @@ struct Commandline {
     #[clap(
         long,
         value_name = "PATH",
-        long_help = r#"Experimental: Sandbox wasm runtime host access using a JSON policy file. WASI is not covered.
+        long_help = r#"Experimental: Sandbox wasm runtime host access using a JSON policy file. WASI descriptors and preopens are not covered; WASI environment reads use the same per-Run environment as moonrun-owned imports.
 
 Supplying --policy enables deny-by-default mode: omitted or empty fs, net, and env objects deny that surface, and process spawning is disabled unless explicitly allowed.
 

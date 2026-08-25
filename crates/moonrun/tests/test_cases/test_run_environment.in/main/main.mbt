@@ -16,25 +16,27 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! V8 adapter for MoonBit's unstable filesystem import object.
+///|
+fn runtime_exit(code : Int) = "moonbitlang/async" "runtime/exit"
 
-mod runtime;
-mod whole_file;
-
-use std::any::Any;
-use std::sync::Arc;
-
-use crate::policy::{Env, Policy};
-
-pub(crate) fn init_env<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    wasm_file_name: &str,
-    args: &[String],
-    policy: Arc<Policy>,
-    environment: Arc<Env>,
-    dtors: &mut Vec<Box<dyn Any>>,
-) {
-    runtime::register(obj, scope, wasm_file_name, args, environment, dtors);
-    whole_file::register(obj, scope, policy, dtors);
+///|
+fn main {
+  let expected = match @env.get_env_var("MOONRUN_RUN_ENV_ISOLATION_INPUT") {
+    Some(value) => value
+    None => {
+      runtime_exit(70)
+      return
+    }
+  }
+  @env.set_env_var("MOONRUN_RUN_ENV_ISOLATION_MUTABLE", expected)
+  for _ in 0..<100_000 {
+    if @env.get_env_var("MOONRUN_RUN_ENV_ISOLATION_MUTABLE") != Some(expected) {
+      runtime_exit(71)
+      return
+    }
+  }
+  @env.unset_env_var("MOONRUN_RUN_ENV_ISOLATION_MUTABLE")
+  if @env.get_env_var("MOONRUN_RUN_ENV_ISOLATION_MUTABLE") is Some(_) {
+    runtime_exit(72)
+  }
 }

@@ -3,6 +3,7 @@ import {
   "moonbitlang/async/io",
   "moonbitlang/async/os_error",
   "moonbitlang/async/process",
+  "moonbitlang/core/env",
 }
 
 options(

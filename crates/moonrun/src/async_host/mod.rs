@@ -56,7 +56,9 @@ use crate::guest_memory::{GuestMemory, GuestMemoryError};
 pub(crate) use crate::host::HostKey as HandleKey;
 use crate::host::{HostKeys, HostResourceKind as HandleKind};
 use crate::network::HostNetwork;
-use crate::policy::{Policy, RuntimePathBase};
+#[cfg(test)]
+use crate::policy::InitialEnv;
+use crate::policy::{Env, Policy, RuntimePathBase};
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 use crate::temp_dir::TempDir;
@@ -1200,6 +1202,7 @@ pub(crate) struct AsyncHost {
     // that ownership; worker threads own their Jobs and return them through the
     // completion channel instead of sharing the host's tables.
     policy: Arc<Policy>,
+    environment: Arc<Env>,
     temp_dir: TempDir,
     network: HostNetwork,
     errno: Cell<i32>,
@@ -1223,6 +1226,7 @@ pub(crate) struct AsyncHost {
     tls_error: RefCell<Option<String>>,
 }
 
+#[cfg(test)]
 impl Default for AsyncHost {
     fn default() -> Self {
         Self::new(Arc::new(Policy::allow_all()))
@@ -1230,16 +1234,31 @@ impl Default for AsyncHost {
 }
 
 impl AsyncHost {
+    #[cfg(test)]
     pub(crate) fn new(policy: Arc<Policy>) -> Self {
-        Self::with_keys(policy, Rc::new(RefCell::new(HostKeys::default())))
+        let environment = Arc::new(
+            policy
+                .realize_env(InitialEnv::Explicit(Vec::new()))
+                .expect("construct test Host environment"),
+        );
+        Self::with_keys(
+            policy,
+            environment,
+            Rc::new(RefCell::new(HostKeys::default())),
+        )
     }
 
-    pub(crate) fn with_keys(policy: Arc<Policy>, keys: Rc<RefCell<HostKeys>>) -> Self {
+    pub(crate) fn with_keys(
+        policy: Arc<Policy>,
+        environment: Arc<Env>,
+        keys: Rc<RefCell<HostKeys>>,
+    ) -> Self {
         let process = HostProcess::new(Arc::clone(&policy));
         let network = HostNetwork::new(Arc::clone(&policy));
-        let temp_dir = TempDir::new(Arc::clone(&policy));
+        let temp_dir = TempDir::new(Arc::clone(&environment), &policy);
         Self {
             policy,
+            environment,
             temp_dir,
             network,
             errno: Cell::new(0),
@@ -2635,6 +2654,10 @@ impl AsyncHost {
 
     pub(crate) fn policy(&self) -> &Policy {
         &self.policy
+    }
+
+    pub(crate) fn environment(&self) -> &Env {
+        &self.environment
     }
 
     pub(crate) fn temp_dir(&self) -> AsyncHostResult<OsString> {

@@ -1,0 +1,7 @@
+import {
+  "moonbitlang/core/env",
+}
+
+options(
+  "is-main": true,
+)

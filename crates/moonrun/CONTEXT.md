@@ -94,6 +94,32 @@ _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
 The per-run composition root for moonrun-owned import state. It creates one Host Key namespace, wires it into domain modules such as the Async Host and SQLite Host, and performs leak checking only when the complete run is torn down. Domain operations and payload accounting remain on their owning Host module.
 _Avoid_: giant host API, async-only host
 
+**Env**:
+The mutable environment owned by one Run's Host. Its constructor applies the
+startup-only Moonrun Policy to a read-only environment source, then owns only a
+per-Run delta of set and unset operations. The source is either explicit Run
+input or the ambient process environment; an ambient source is read lazily and
+the embedding process must treat it as immutable while the Run is active.
+Env is the only environment interface used by moonrun-owned imports, WASI
+environment reads, Temp Dir selection, and child inheritance. A spawn that
+requests inheritance materializes and snapshots Env when its environment
+builder is created; the resulting child does not retain a live reference. Env
+stores native `OsString` names and values so child inheritance is not forced
+through Unicode.
+String-only guest APIs expose entries representable by their string ABI.
+WASI preserves one Env snapshot across a matching environment size/get pair.
+Platform-specific child-block encoding belongs to the process Adapter after
+inherited and override entries have been merged, not to Env.
+_Avoid_: mutable policy, direct process-environment access, per-import environment map
+
+**Temp Dir**:
+The temporary-directory base resolved from the current Env by one Run's Host.
+An unrestricted Windows Run may use the native OS fallback when its Env omits
+`TMP` and `TEMP`; sandbox mode does not consult that process-global fallback.
+The platform Adapter owns path selection and normalization below the Temp Dir
+interface.
+_Avoid_: environment policy, per-import temp lookup, process-global temp mutation
+
 **Host Key**:
 The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
 All Handle kinds share the slotmap null Host Key. An ABI that needs to create or compare a null Handle obtains its encoded value from the running Host rather than hard-coding the slotmap representation.

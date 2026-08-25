@@ -29,6 +29,9 @@ fn host_platform() -> HostPlatform = "moonbitlang/async" "runtime/get_platform"
 
 ///|
 async fn main {
+  @env.set_env_var("MOONRUN_POLICY_ENV", "runtime override inherited")
+  @env.set_env_var("MOONRUN_REMOVED_ENV", "not inherited")
+  @env.unset_env_var("MOONRUN_REMOVED_ENV")
   let (command, args) = if host_platform() is Windows {
     (
       "cmd.exe",

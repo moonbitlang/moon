@@ -27,13 +27,16 @@ mod fs;
 mod net;
 mod process;
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::ffi::OsString;
 use std::path::Path;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 
 use self::config::PolicyConfig;
 use self::env::EnvPolicy;
+pub(crate) use self::env::{Env, InitialEnv};
 pub(crate) use self::fs::RuntimePathBase;
 use self::fs::{FsIntents, FsPolicy};
 use self::net::{NetOperation, NetPolicy};
@@ -239,26 +242,8 @@ impl Policy {
         net.check_socket(NetOperation::Bind, addr)
     }
 
-    pub(crate) fn env_vars(&self) -> Vec<(String, String)> {
-        self.env_policy()
-            .map_or_else(|| std::env::vars().collect(), EnvPolicy::vars)
-    }
-
-    pub(crate) fn get_env_var(&self, name: &str) -> Option<String> {
-        self.env_policy()
-            .map_or_else(|| std::env::var(name).ok(), |env| env.get(name))
-    }
-
-    pub(crate) fn env_var_exists(&self, name: &str) -> bool {
-        self.env_policy()
-            .map_or_else(|| std::env::var(name).is_ok(), |env| env.contains(name))
-    }
-
-    pub(crate) fn env_var_os(&self, name: &str) -> Option<OsString> {
-        self.env_policy().map_or_else(
-            || std::env::var_os(name),
-            |env| env.get(name).map(OsString::from),
-        )
+    pub(crate) fn realize_env(&self, initial: InitialEnv) -> anyhow::Result<Env> {
+        Env::realize(initial, self.env_policy())
     }
 
     pub(crate) fn has_env_policy(&self) -> bool {
@@ -285,24 +270,6 @@ impl Policy {
 
     pub(crate) fn has_process_policy(&self) -> bool {
         self.process.is_some()
-    }
-
-    pub(crate) fn set_env_var(&self, name: String, value: String) {
-        if let Some(env) = self.env_policy() {
-            env.set(name, value);
-        } else {
-            // TODO: Audit that the environment access only happens in single-threaded code.
-            unsafe { std::env::set_var(name, value) };
-        }
-    }
-
-    pub(crate) fn unset_env_var(&self, name: &str) {
-        if let Some(env) = self.env_policy() {
-            env.unset(name);
-        } else {
-            // TODO: Audit that the environment access only happens in single-threaded code.
-            unsafe { std::env::remove_var(name) };
-        }
     }
 
     #[inline]
@@ -467,8 +434,14 @@ mod tests {
         )
         .unwrap();
 
-        assert!(policy.env_vars().is_empty());
-        assert!(!policy.env_var_exists("PATH"));
+        let environment = policy
+            .realize_env(InitialEnv::Explicit(vec![(
+                "PATH".into(),
+                "host path".into(),
+            )]))
+            .unwrap();
+        assert!(environment.utf8_vars().is_empty());
+        assert!(!environment.contains("PATH"));
     }
 
     #[test]

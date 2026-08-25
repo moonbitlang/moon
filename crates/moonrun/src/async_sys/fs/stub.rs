@@ -53,15 +53,9 @@ ported_fns! {
         source = "src/fs/stub.c",
         original = "moonbitlang_async_get_tmp_path"
     )]
+    #[cfg(windows)]
     pub(crate) fn get_tmp_path() -> AsyncHostResult<OsString> {
-        #[cfg(unix)]
-        {
-            Ok(tmp_path_from_native_stub())
-        }
-        #[cfg(windows)]
-        {
-            tmp_path_from_native_stub()
-        }
+        tmp_path_from_native_stub()
     }
 
     #[ported(
@@ -199,11 +193,6 @@ fn last_native_error() -> AsyncHostError {
 }
 
 #[cfg(unix)]
-fn tmp_path_from_native_stub() -> OsString {
-    tmp_path_from_env(std::env::var_os("TMPDIR"))
-}
-
-#[cfg(unix)]
 fn tmp_path_from_env(tmpdir: Option<OsString>) -> OsString {
     // POSIX reserves TMPDIR for temporary-file placement. The async tmpdir
     // layer concatenates this base path with a generated name, so the host
@@ -308,6 +297,9 @@ mod tests {
 
     #[test]
     fn tmp_path_is_non_empty_and_separator_terminated() {
+        #[cfg(unix)]
+        let path = get_tmp_path_from_env(Some(OsString::from("/moonrun/tmp"))).unwrap();
+        #[cfg(windows)]
         let path = get_tmp_path().unwrap();
 
         assert!(!path.as_os_str().is_empty());
@@ -317,6 +309,9 @@ mod tests {
 
     #[test]
     fn tmp_path_buffer_is_non_empty() {
+        #[cfg(unix)]
+        let path = get_tmp_path_from_env(Some(OsString::from("/moonrun/tmp"))).unwrap();
+        #[cfg(windows)]
         let path = get_tmp_path().unwrap();
         let buffer = tmp_path_buffer(path.as_os_str()).unwrap();
 

@@ -18,8 +18,9 @@
 
 //! V8 adapter for runtime values exposed through the unstable filesystem object.
 
+use crate::policy::Env;
+use crate::util::get_ref;
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
-use crate::{policy::Policy, util::get_ref};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -45,11 +46,11 @@ fn set_env_var(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let policy = unsafe { get_ref::<Policy>(&args) };
+    let environment = environment(&args);
     let key = args.string_lossy(scope, 0);
     let value = args.string_lossy(scope, 1);
 
-    policy.set_env_var(key, value);
+    environment.set(key, value);
 
     ret.set_undefined()
 }
@@ -59,9 +60,9 @@ fn unset_env_var(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let policy = unsafe { get_ref::<Policy>(&args) };
+    let environment = environment(&args);
     let key = args.string_lossy(scope, 0);
-    policy.unset_env_var(&key);
+    environment.unset(&key);
     ret.set_undefined()
 }
 
@@ -70,9 +71,9 @@ fn get_env_var(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let policy = unsafe { get_ref::<Policy>(&args) };
+    let environment = environment(&args);
     let key = args.string_lossy(scope, 0);
-    let value = policy.get_env_var(&key).unwrap_or_default();
+    let value = environment.get(&key).unwrap_or_default();
     let value = scope.string(&value);
     ret.set(value.into());
 }
@@ -82,9 +83,9 @@ fn get_env_var_exists(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let policy = unsafe { get_ref::<Policy>(&args) };
+    let environment = environment(&args);
     let key = args.string_lossy(scope, 0);
-    ret.set_bool(policy.env_var_exists(&key));
+    ret.set_bool(environment.contains(&key));
 }
 
 fn get_env_vars(
@@ -92,14 +93,14 @@ fn get_env_vars(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let policy = unsafe { get_ref::<Policy>(&args) };
+    let environment = environment(&args);
     let result = v8::Array::new(scope, 0);
     let mut index = 0;
-    for (k, v) in policy.env_vars() {
+    for (k, v) in environment.utf8_vars() {
         let key = scope.string(&k);
         let val = scope.string(&v);
-        result.set_index(scope, index, key.into()).unwrap();
-        result.set_index(scope, index + 1, val.into()).unwrap();
+        let _ = result.set_index(scope, index, key.into());
+        let _ = result.set_index(scope, index + 1, val.into());
         index += 2;
     }
     ret.set(result.into());
@@ -110,23 +111,23 @@ pub(super) fn register<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
-    policy: Arc<Policy>,
+    environment: Arc<Env>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
-    let policy_ptr = Arc::as_ptr(&policy);
-    dtors.push(Box::new(policy));
+    let environment_ptr = Arc::as_ptr(&environment);
+    dtors.push(Box::new(environment));
 
-    set_policy_func(obj, scope, "env_get_var", get_env_var, policy_ptr);
-    set_policy_func(obj, scope, "set_env_var", set_env_var, policy_ptr);
-    set_policy_func(obj, scope, "unset_env_var", unset_env_var, policy_ptr);
-    set_policy_func(obj, scope, "get_env_vars", get_env_vars, policy_ptr);
-    set_policy_func(obj, scope, "get_env_var", get_env_var, policy_ptr);
-    set_policy_func(
+    set_environment_func(obj, scope, "env_get_var", get_env_var, environment_ptr);
+    set_environment_func(obj, scope, "set_env_var", set_env_var, environment_ptr);
+    set_environment_func(obj, scope, "unset_env_var", unset_env_var, environment_ptr);
+    set_environment_func(obj, scope, "get_env_vars", get_env_vars, environment_ptr);
+    set_environment_func(obj, scope, "get_env_var", get_env_var, environment_ptr);
+    set_environment_func(
         obj,
         scope,
         "get_env_var_exists",
         get_env_var_exists,
-        policy_ptr,
+        environment_ptr,
     );
 
     let args = Box::new(RuntimeArgs(
@@ -144,14 +145,19 @@ pub(super) fn register<'s>(
     dtors.push(args);
 }
 
-fn set_policy_func<'s>(
+fn environment<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s Env {
+    // SAFETY: `register` retains the Arc for the complete guest execution.
+    unsafe { get_ref::<Env>(args) }
+}
+
+fn set_environment_func<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,
-    policy_ptr: *const Policy,
+    environment: *const Env,
 ) {
-    let data = v8::External::new(scope, policy_ptr as *mut std::ffi::c_void);
+    let data = v8::External::new(scope, environment as *mut std::ffi::c_void);
     let function = v8::Function::builder(callback)
         .data(data.into())
         .build(scope)

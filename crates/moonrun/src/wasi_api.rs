@@ -16,11 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::policy::Env;
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::v8_builder::ScopeExt;
 use crate::v8_import::{V8ImportError, V8MemoryBinding};
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{ErrorKind, Read, Seek, Write};
@@ -171,12 +173,56 @@ impl TryFrom<i32> for ClockId {
 
 struct WasiContext {
     argv: Vec<Vec<u8>>,
+    environment: Arc<Env>,
+    environment_snapshot: RefCell<Option<Vec<Vec<u8>>>>,
     preopen_dir_name: Vec<u8>,
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
     descriptors: Mutex<DescriptorTable>,
     memory_binding: Rc<V8MemoryBinding>,
     termination_request: TerminationRequest,
+}
+
+impl WasiContext {
+    fn snapshot_environ(&self) -> WasiResult<(u32, u32)> {
+        let environ = collect_environ(&self.environment);
+        let count = u32::try_from(environ.len()).map_err(|_| WASI_ERRNO_FAULT)?;
+        let bytes = table_bytes_len(&environ)?;
+        *self
+            .environment_snapshot
+            .try_borrow_mut()
+            .map_err(|_| WASI_ERRNO_FAULT)? = Some(environ);
+        Ok((count, bytes))
+    }
+
+    fn take_environ_snapshot(&self) -> WasiResult<Vec<Vec<u8>>> {
+        Ok(self
+            .environment_snapshot
+            .try_borrow_mut()
+            .map_err(|_| WASI_ERRNO_FAULT)?
+            .take()
+            .unwrap_or_else(|| collect_environ(&self.environment)))
+    }
+}
+
+pub(crate) struct WasiRunResources {
+    environment: Arc<Env>,
+    memory_binding: Rc<V8MemoryBinding>,
+    termination_request: TerminationRequest,
+}
+
+impl WasiRunResources {
+    pub(crate) fn new(
+        environment: Arc<Env>,
+        memory_binding: Rc<V8MemoryBinding>,
+        termination_request: TerminationRequest,
+    ) -> Self {
+        Self {
+            environment,
+            memory_binding,
+            termination_request,
+        }
+    }
 }
 
 struct DirectoryEntry {
@@ -229,15 +275,11 @@ fn build_argv(wasm_file_name: &str, args: &[String]) -> Vec<Vec<u8>> {
     argv
 }
 
-fn collect_environ() -> Vec<Vec<u8>> {
-    std::env::vars_os()
-        .map(|(key, value)| {
-            encode_c_string(format!(
-                "{}={}",
-                key.to_string_lossy(),
-                value.to_string_lossy()
-            ))
-        })
+fn collect_environ(environment: &Env) -> Vec<Vec<u8>> {
+    environment
+        .utf8_vars()
+        .into_iter()
+        .map(|(key, value)| encode_c_string(format!("{key}={value}")))
         .collect()
 }
 
@@ -1579,10 +1621,8 @@ fn environ_sizes_get(
         let environc_ptr = read_u32_arg(scope, &args, 0)?;
         let environ_buf_size_ptr = read_u32_arg(scope, &args, 1)?;
 
-        let environ = collect_environ();
-        let environc = u32::try_from(environ.len()).map_err(|_| WASI_ERRNO_FAULT)?;
-        let environ_buf_size = table_bytes_len(&environ)?;
         let context = callback_context(&args);
+        let (environc, environ_buf_size) = context.snapshot_environ()?;
 
         with_wasi_memory_mut(scope, context, |memory| {
             write_u32(memory, environc_ptr, environc)?;
@@ -1604,7 +1644,7 @@ fn environ_get(
         let environ_buf_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
 
-        let environ = collect_environ();
+        let environ = context.take_environ_snapshot()?;
         with_wasi_memory_mut(scope, context, |memory| {
             write_c_string_table(memory, &environ, environ_ptr, environ_buf_ptr)
         })
@@ -1794,15 +1834,21 @@ pub(crate) fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
-    memory_binding: Rc<V8MemoryBinding>,
-    termination_request: TerminationRequest,
+    resources: WasiRunResources,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
+    let WasiRunResources {
+        environment,
+        memory_binding,
+        termination_request,
+    } = resources;
     let preopen_dir_host_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let preopen_dir_real_path =
         fs::canonicalize(&preopen_dir_host_path).unwrap_or_else(|_| preopen_dir_host_path.clone());
     let context = Box::new(WasiContext {
         argv: build_argv(wasm_file_name, args),
+        environment,
+        environment_snapshot: RefCell::new(None),
         preopen_dir_name: preopen_name(),
         preopen_dir_host_path,
         preopen_dir_real_path,
@@ -1837,10 +1883,17 @@ pub(crate) fn init_env<'s>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::Policy;
 
     fn test_context(root: &Path) -> WasiContext {
         WasiContext {
             argv: Vec::new(),
+            environment: Arc::new(
+                Policy::allow_all()
+                    .realize_env(crate::policy::InitialEnv::Explicit(Vec::new()))
+                    .unwrap(),
+            ),
+            environment_snapshot: RefCell::new(None),
             preopen_dir_name: preopen_name(),
             preopen_dir_host_path: root.to_path_buf(),
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
@@ -1848,6 +1901,52 @@ mod tests {
             memory_binding: Rc::new(V8MemoryBinding::new()),
             termination_request: TerminationRequest::default(),
         }
+    }
+
+    #[test]
+    fn wasi_environment_reads_the_current_run_environment() {
+        let environment = Policy::allow_all()
+            .realize_env(crate::policy::InitialEnv::Explicit(vec![
+                ("KEEP".into(), "initial".into()),
+                ("REMOVE".into(), "old".into()),
+            ]))
+            .unwrap();
+
+        environment.set("KEEP".to_owned(), "updated".to_owned());
+        environment.set("ADD".to_owned(), "new".to_owned());
+        environment.unset("REMOVE");
+
+        assert_eq!(
+            collect_environ(&environment),
+            vec![b"KEEP=updated\0".to_vec(), b"ADD=new\0".to_vec()]
+        );
+    }
+
+    #[test]
+    fn wasi_environment_get_uses_the_snapshot_reported_by_sizes_get() {
+        let directory = tempfile::tempdir().unwrap();
+        let context = test_context(directory.path());
+        context
+            .environment
+            .set("VALUE".to_owned(), "before".to_owned());
+        let expected = collect_environ(&context.environment);
+
+        assert_eq!(
+            context.snapshot_environ().unwrap(),
+            (
+                u32::try_from(expected.len()).unwrap(),
+                table_bytes_len(&expected).unwrap(),
+            )
+        );
+        context
+            .environment
+            .set("VALUE".to_owned(), "after sizes".to_owned());
+
+        assert_eq!(context.take_environ_snapshot().unwrap(), expected);
+        assert_eq!(
+            context.take_environ_snapshot().unwrap(),
+            collect_environ(&context.environment)
+        );
     }
 
     #[test]

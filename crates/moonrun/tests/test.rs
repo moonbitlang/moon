@@ -397,6 +397,62 @@ fn moonrun_library_returns_guest_exit_without_terminating_embedder() {
 }
 
 #[test]
+fn moonrun_run_environments_are_isolated_from_each_other_and_the_host() {
+    const MUTABLE_NAME: &str = "MOONRUN_RUN_ENV_ISOLATION_MUTABLE";
+
+    let dir = TestDir::new("test_run_environment.in");
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm = dir.join("_build/wasm/debug/build/main/main.wasm");
+    let engine = moonrun::Engine::default();
+    let module = engine.load_file(wasm).unwrap();
+    let error = engine
+        .run(
+            &module,
+            moonrun::RunOptions::default().environment([("BAD=NAME", "value")]),
+        )
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("invalid environment variable name"),
+        "{error:#}"
+    );
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let host_value_before = std::env::var_os(MUTABLE_NAME);
+
+    std::thread::scope(|scope| {
+        let threads = ["left", "right"].map(|value| {
+            let barrier = std::sync::Arc::clone(&barrier);
+            let engine = engine.clone();
+            let module = module.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                engine.run(
+                    &module,
+                    moonrun::RunOptions::default()
+                        .environment([("MOONRUN_RUN_ENV_ISOLATION_INPUT", value)]),
+                )
+            })
+        });
+        let [left, right] = threads;
+
+        assert_eq!(
+            left.join().unwrap().unwrap(),
+            moonrun::RunOutcome::Completed
+        );
+        assert_eq!(
+            right.join().unwrap().unwrap(),
+            moonrun::RunOutcome::Completed
+        );
+    });
+
+    assert_eq!(std::env::var_os(MUTABLE_NAME), host_value_before);
+}
+
+#[test]
 fn moonrun_library_compiles_modules_when_loading() {
     let wasm = tempfile::Builder::new()
         .prefix("invalid.")
@@ -1028,9 +1084,9 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .assert()
         .success()
         .stdout_eq(if cfg!(windows) {
-            "MOONRUN_POLICY_ENV=configured by policy\n"
+            "MOONRUN_POLICY_ENV=runtime override inherited\n"
         } else {
-            "configured by policy|\n"
+            "runtime override inherited|\n"
         });
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
@@ -1042,9 +1098,9 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .assert()
         .success()
         .stdout_eq(if cfg!(windows) {
-            "MOONRUN_POLICY_ENV=configured by policy\n"
+            "MOONRUN_POLICY_ENV=runtime override inherited\n"
         } else {
-            "configured by policy|\n"
+            "runtime override inherited|\n"
         });
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))

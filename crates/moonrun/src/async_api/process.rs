@@ -43,7 +43,7 @@ pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> u64 {
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(windows)]
 pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
-    let env = windows_env_block(inherited_windows_env(context)?);
+    let env = windows_env_block(inherited_windows_env(context));
     Ok(context.host.insert_process_env(env))
 }
 
@@ -186,7 +186,7 @@ pub(super) fn make_env(
     let inherited = if inherit_env == 0 {
         Vec::new()
     } else {
-        inherited_windows_env(context)?
+        inherited_windows_env(context)
     };
     Ok(context.host.insert_process_env_builder(inherited))
 }
@@ -437,92 +437,22 @@ pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostRe
 
 #[cfg(unix)]
 fn inherited_unix_env(context: &ImportContext<'_, '_>) -> Vec<OsString> {
-    if context.host.policy().has_env_policy() {
-        context
-            .host
-            .policy()
-            .env_vars()
-            .into_iter()
-            .map(|(key, value)| OsString::from(format!("{key}={value}")))
-            .collect()
-    } else {
-        current_unix_env()
-    }
-}
-
-#[cfg(unix)]
-fn current_unix_env() -> Vec<OsString> {
-    use std::ffi::CStr;
-    use std::os::unix::ffi::OsStringExt;
-
-    unsafe extern "C" {
-        static mut environ: *mut *mut libc::c_char;
-    }
-
-    let mut entries = Vec::new();
-    let mut cursor = unsafe { environ };
-    while !cursor.is_null() {
-        let entry = unsafe { *cursor };
-        if entry.is_null() {
-            break;
-        }
-        entries.push(OsString::from_vec(
-            unsafe { CStr::from_ptr(entry) }.to_bytes().to_vec(),
-        ));
-        cursor = unsafe { cursor.add(1) };
-    }
-    entries
+    context.host.environment().process_entries()
 }
 
 #[cfg(windows)]
-fn inherited_windows_env(context: &ImportContext<'_, '_>) -> AsyncHostResult<Vec<OsString>> {
-    if context.host.policy().has_env_policy() {
-        Ok(context
-            .host
-            .policy()
-            .env_vars()
-            .into_iter()
-            .map(|(key, value)| OsString::from(format!("{key}={value}")))
-            .collect())
-    } else {
-        current_windows_env()
-    }
-}
+fn inherited_windows_env(context: &ImportContext<'_, '_>) -> Vec<OsString> {
+    use std::os::windows::ffi::OsStrExt;
 
-#[cfg(windows)]
-fn current_windows_env() -> AsyncHostResult<Vec<OsString>> {
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::Foundation::GetLastError;
-    use windows_sys::Win32::System::Environment::{
-        FreeEnvironmentStringsW, GetEnvironmentStringsW,
-    };
-
-    let block = unsafe { GetEnvironmentStringsW() };
-    if block.is_null() {
-        return Err(AsyncHostError::Native(unsafe { GetLastError() } as i32));
-    }
-
-    let mut entries = Vec::new();
-    let mut cursor = block;
-    loop {
-        let mut len = 0usize;
-        while unsafe { *cursor.add(len) } != 0 {
-            len += 1;
-        }
-        if len == 0 {
-            break;
-        }
-        if unsafe { *cursor } != b'=' as u16 {
-            let entry = unsafe { std::slice::from_raw_parts(cursor, len) };
-            entries.push(OsString::from_wide(entry));
-        }
-        cursor = unsafe { cursor.add(len + 1) };
-    }
-    unsafe {
-        FreeEnvironmentStringsW(block);
-    }
-
-    Ok(entries)
+    context
+        .host
+        .environment()
+        .process_entries()
+        .into_iter()
+        // Preserve the previous adapter behavior: drive-current pseudo
+        // variables are not exposed through Moonrun's process environment.
+        .filter(|entry| entry.encode_wide().next() != Some(b'=' as u16))
+        .collect()
 }
 
 #[cfg(windows)]

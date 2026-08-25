@@ -18,6 +18,7 @@
 
 use crate::{policy, source_map, v8_backend};
 use anyhow::Context;
+use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,6 +46,7 @@ pub struct RunOptions {
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) policy_file: Option<PathBuf>,
+    pub(crate) initial_environment: Option<Vec<(OsString, OsString)>>,
 }
 
 impl RunOptions {
@@ -69,6 +71,27 @@ impl RunOptions {
 
     pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
         self.policy_file = Some(policy_file.into());
+        self
+    }
+
+    /// Use a fixed initial environment instead of the ambient process environment.
+    ///
+    /// Moonrun Policy selects and overrides values from whichever source this
+    /// Run chooses; it does not choose the source. When this option is omitted,
+    /// the embedding process environment is used as a read-only, lazy source
+    /// and must not be mutated while the Run is active.
+    pub fn environment<I, K, V>(mut self, environment: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<OsString>,
+        V: Into<OsString>,
+    {
+        self.initial_environment = Some(
+            environment
+                .into_iter()
+                .map(|(name, value)| (name.into(), value.into()))
+                .collect(),
+        );
         self
     }
 }
@@ -123,9 +146,11 @@ impl fmt::Debug for Module {
 /// on the calling thread. It does not create threads or retain run lifecycle
 /// state; callers choose execution placement and manage lifecycle.
 ///
-/// The current implementation still uses process stdio, environment, working
-/// directory, and signal compatibility behavior. Those remain shared,
-/// process-scoped dependencies to extract in later changes.
+/// The guest environment is owned by each Run. The current implementation
+/// still uses process stdio, working directory, and signal compatibility
+/// behavior. Those remain shared, process-scoped dependencies to extract in
+/// later changes. Concurrent run semantics beyond environment isolation are
+/// not yet part of this experimental interface.
 #[derive(Clone, Debug)]
 pub struct Engine {
     config: EngineConfig,
@@ -173,13 +198,22 @@ impl Engine {
     }
 
     /// Execute one isolated run synchronously on the calling thread.
-    pub fn run(&self, module: &Module, options: RunOptions) -> anyhow::Result<RunOutcome> {
+    pub fn run(&self, module: &Module, mut options: RunOptions) -> anyhow::Result<RunOutcome> {
         let policy = Arc::new(match options.policy_file.as_ref() {
             Some(path) => policy::Policy::from_file(path).context(
                 "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
             )?,
             None => policy::Policy::allow_all(),
         });
+        let initial_environment = match options.initial_environment.take() {
+            Some(entries) => policy::InitialEnv::Explicit(entries),
+            None => policy::InitialEnv::Ambient,
+        };
+        let environment = Arc::new(
+            policy
+                .realize_env(initial_environment)
+                .context("failed to construct the Run environment")?,
+        );
         v8_backend::run(
             &self.config,
             module.name(),
@@ -187,6 +221,7 @@ impl Engine {
             module.source_map(),
             options,
             policy,
+            environment,
         )
     }
 

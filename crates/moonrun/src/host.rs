@@ -26,7 +26,7 @@ use slotmap::Key;
 use slotmap::{KeyData, SlotMap, new_key_type};
 
 use crate::async_host::AsyncHost;
-use crate::policy::Policy;
+use crate::policy::{Env, Policy};
 use crate::sqlite::SqliteHost;
 
 new_key_type! {
@@ -98,10 +98,10 @@ pub(crate) struct Host {
 }
 
 impl Host {
-    pub(crate) fn new(policy: Arc<Policy>) -> Self {
+    pub(crate) fn new(policy: Arc<Policy>, environment: Arc<Env>) -> Self {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         Self {
-            async_state: AsyncHost::with_keys(Arc::clone(&policy), Rc::clone(&keys)),
+            async_state: AsyncHost::with_keys(Arc::clone(&policy), environment, Rc::clone(&keys)),
             sqlite: SqliteHost::with_keys(policy, keys),
         }
     }
@@ -122,7 +122,8 @@ impl Host {
 impl Drop for Host {
     fn drop(&mut self) {
         // Keep the historical opt-in name for compatibility even though the
-        // check now runs at the lifetime of the complete per-run Host.
+        // check now runs at the lifetime of the complete per-run Host. This is
+        // embedding-process diagnostics configuration, not a guest Env read.
         if std::thread::panicking() || std::env::var_os("MOONBIT_ASYNC_CHECK_FD_LEAK").is_none() {
             return;
         }
