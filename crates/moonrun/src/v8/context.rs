@@ -23,9 +23,10 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::OnceLock;
 
-use crate::host::Host;
 use crate::run_termination::TerminationRequest;
-use crate::v8_builder::ObjectExt;
+use crate::runtime::{Runtime, WorkingDirectory};
+
+use super::builder::ObjectExt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum V8ImportError {
@@ -89,27 +90,27 @@ impl V8MemoryBinding {
     }
 }
 
-/// Per-run state needed by V8 adapters for engine-neutral Host operations.
+/// Per-run state needed by V8 adapters for backend-neutral Host operations.
 ///
 /// This is deliberately V8-private. Other wasm runtimes acquire Guest Memory
-/// and carry Host state through their own adapter mechanisms.
+/// and retain the backend-neutral Runtime through their own adapter mechanisms.
 pub(crate) struct V8RunContext {
-    host: Host,
+    runtime: Runtime,
     memory_binding: Rc<V8MemoryBinding>,
     termination_request: TerminationRequest,
 }
 
 impl V8RunContext {
-    pub(crate) fn new(host: Host, termination_request: TerminationRequest) -> Self {
+    pub(crate) fn new(runtime: Runtime, termination_request: TerminationRequest) -> Self {
         Self {
-            host,
+            runtime,
             memory_binding: Rc::new(V8MemoryBinding::new()),
             termination_request,
         }
     }
 
-    pub(crate) fn host(&self) -> &Host {
-        &self.host
+    pub(crate) fn runtime(&self) -> &Runtime {
+        &self.runtime
     }
 
     pub(crate) fn memory_binding(&self) -> &Rc<V8MemoryBinding> {
@@ -118,6 +119,10 @@ impl V8RunContext {
 
     pub(crate) fn termination_request(&self) -> &TerminationRequest {
         &self.termination_request
+    }
+
+    pub(crate) fn working_directory(&self) -> &WorkingDirectory {
+        self.runtime.working_directory()
     }
 }
 
@@ -284,7 +289,7 @@ mod tests {
 
     #[test]
     fn wasm_u64_decoder_preserves_all_i64_bit_patterns() {
-        crate::v8_backend::initialize(&crate::engine::EngineConfig::default()).unwrap();
+        crate::v8::initialize(&crate::engine::EngineConfig::default()).unwrap();
         let isolate = &mut v8::Isolate::new(Default::default());
         let scope = &mut v8::HandleScope::new(isolate);
         let context = v8::Context::new(scope, Default::default());

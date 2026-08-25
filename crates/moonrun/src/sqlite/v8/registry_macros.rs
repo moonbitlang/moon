@@ -66,7 +66,7 @@ macro_rules! finish_sqlite_import {
         match $result {
             Ok(value) => $ret.set_int32(value),
             Err(error) => {
-                crate::v8_import::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
+                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
             }
         }
     };
@@ -74,7 +74,7 @@ macro_rules! finish_sqlite_import {
         match $result {
             Ok(value) => $ret.set_int32(value as i32),
             Err(error) => {
-                crate::v8_import::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
+                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
             }
         }
     };
@@ -82,7 +82,7 @@ macro_rules! finish_sqlite_import {
         match $result {
             Ok(value) => $ret.set(v8::BigInt::new_from_i64($scope, value).into()),
             Err(error) => {
-                crate::v8_import::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
+                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
             }
         }
     };
@@ -90,7 +90,7 @@ macro_rules! finish_sqlite_import {
         match $result {
             Ok(value) => $ret.set(v8::Number::new($scope, value).into()),
             Err(error) => {
-                crate::v8_import::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
+                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
             }
         }
     };
@@ -98,7 +98,7 @@ macro_rules! finish_sqlite_import {
         match $result {
             Ok(value) => $ret.set(v8::BigInt::new_from_u64($scope, value).into()),
             Err(error) => {
-                crate::v8_import::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
+                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
             }
         }
     };
@@ -108,14 +108,14 @@ macro_rules! invoke_sqlite_import {
     (
         $scope:ident,
         $args:ident,
-        Host::$callback:ident,
+        Runtime::$callback:ident,
         ($($arg:ident),*)
     ) => {{
         // SAFETY: `register_imports` installs the retained `V8RunContext`
         // pointer with this callback.
-        let context: &crate::v8_import::V8RunContext =
-            unsafe { crate::v8_import::callback_context(&$args) };
-        Ok::<_, SqliteError>(context.host().$callback($($arg),*))
+        let context: &crate::v8::context::V8RunContext =
+            unsafe { crate::v8::context::callback_context(&$args) };
+        Ok::<_, SqliteError>(context.runtime().$callback($($arg),*))
     }};
     (
         $scope:ident,
@@ -125,10 +125,10 @@ macro_rules! invoke_sqlite_import {
     ) => {{
         // SAFETY: `register_imports` installs the retained `V8RunContext`
         // pointer with this callback.
-        let context: &crate::v8_import::V8RunContext =
-            unsafe { crate::v8_import::callback_context(&$args) };
+        let context: &crate::v8::context::V8RunContext =
+            unsafe { crate::v8::context::callback_context(&$args) };
         context
-            .host()
+            .runtime()
             .sqlite()
             .$callback($($arg),*)
             .map_err(SqliteError::from)
@@ -141,8 +141,8 @@ macro_rules! invoke_sqlite_import {
     ) => {{
         // SAFETY: `register_imports` installs the retained `V8RunContext`
         // pointer with this callback.
-        let context: &crate::v8_import::V8RunContext =
-            unsafe { crate::v8_import::callback_context(&$args) };
+        let context: &crate::v8::context::V8RunContext =
+            unsafe { crate::v8::context::callback_context(&$args) };
         with_memory_context($scope, context, |context| {
             $module::$callback(context, $($arg),*)
         })
@@ -196,7 +196,7 @@ macro_rules! register_sqlite_import {
             );
         }
 
-        crate::v8_import::register_func(
+        crate::v8::context::register_func(
             $obj,
             $registration_scope,
             $wasm_symbol,

@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Host-owned access policy for moonrun-owned wasm boundaries.
+//! Runtime-owned access policy for moonrun-owned wasm boundaries.
 //!
 //! No policy file preserves existing moonrun behavior. Supplying a policy file
 //! switches the supported host surfaces to deny-by-default mode.
@@ -35,12 +35,11 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::env::Env;
+use crate::runtime::{Env, WorkingDirectory};
 
 use self::config::PolicyConfig;
 use self::env::EnvPolicy;
-pub(crate) use self::fs::RuntimePathBase;
-use self::fs::{FsIntents, FsPolicy};
+use self::fs::{FsIntents, FsPolicy, RuntimePathBase};
 use self::net::{NetOperation, NetPolicy};
 use self::process::ProcessPolicy;
 
@@ -77,6 +76,16 @@ impl Policy {
         Self::from_config(config, config_dir)
     }
 
+    /// Bind runtime path authorization to the working directory selected for
+    /// this Runtime. Unrestricted policy remains a no-op and therefore does not
+    /// introduce an additional cwd observation.
+    pub(crate) fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
+        self.fs = self
+            .fs
+            .map(|fs| fs.with_working_directory(working_directory));
+        self
+    }
+
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
         let config = canonicalize(config, config_dir)?;
         Ok(Self {
@@ -93,7 +102,6 @@ impl Policy {
 
     pub(crate) fn open_path(
         &self,
-        base: RuntimePathBase<'_>,
         path: &OsStr,
         access: i32,
         create_mode: i32,
@@ -102,40 +110,82 @@ impl Policy {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows(base, path, FsIntents::for_open(access, create_mode, append))
+        fs.allows(
+            RuntimePathBase::WorkingDirectory,
+            path,
+            FsIntents::for_open(access, create_mode, append),
+        )
     }
 
-    pub(crate) fn stat_path(&self, base: RuntimePathBase<'_>, path: &OsStr) -> AsyncHostResult<()> {
-        self.read_path(base, path)
+    pub(crate) fn stat_path(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.read_path(path)
     }
 
-    pub(crate) fn read_path(&self, base: RuntimePathBase<'_>, path: &OsStr) -> AsyncHostResult<()> {
+    pub(crate) fn stat_path_at(&self, base: Option<&Path>, path: &OsStr) -> AsyncHostResult<()> {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows(base, path, FsIntents::read())
+        fs.allows(
+            base.map(RuntimePathBase::PolicyPath)
+                .unwrap_or(RuntimePathBase::Untracked),
+            path,
+            FsIntents::read(),
+        )
     }
 
-    pub(crate) fn write_path(
+    pub(crate) fn stat_resource_path(&self, path: Option<&Path>) -> AsyncHostResult<()> {
+        let Some(fs) = self.fs_policy() else {
+            return Ok(());
+        };
+        match path {
+            Some(path) => fs.allows(
+                RuntimePathBase::WorkingDirectory,
+                path.as_os_str(),
+                FsIntents::read(),
+            ),
+            None => fs.allows(
+                RuntimePathBase::Untracked,
+                OsStr::new(""),
+                FsIntents::read(),
+            ),
+        }
+    }
+
+    pub(crate) fn read_path(&self, path: &OsStr) -> AsyncHostResult<()> {
+        let Some(fs) = self.fs_policy() else {
+            return Ok(());
+        };
+        fs.allows(RuntimePathBase::WorkingDirectory, path, FsIntents::read())
+    }
+
+    pub(crate) fn write_path(&self, path: &OsStr) -> AsyncHostResult<()> {
+        let Some(fs) = self.fs_policy() else {
+            return Ok(());
+        };
+        fs.allows(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
+    }
+
+    pub(crate) fn stat_entry_path_at(
         &self,
-        base: RuntimePathBase<'_>,
+        base: Option<&Path>,
         path: &OsStr,
     ) -> AsyncHostResult<()> {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows(base, path, FsIntents::write())
+        fs.allows_entry(
+            base.map(RuntimePathBase::PolicyPath)
+                .unwrap_or(RuntimePathBase::Untracked),
+            path,
+            FsIntents::read(),
+        )
     }
 
-    pub(crate) fn stat_entry_path(
-        &self,
-        base: RuntimePathBase<'_>,
-        path: &OsStr,
-    ) -> AsyncHostResult<()> {
+    pub(crate) fn stat_entry_path(&self, path: &OsStr) -> AsyncHostResult<()> {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows_entry(base, path, FsIntents::read())
+        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::read())
     }
 
     pub(crate) fn access_path(&self, path: &OsStr, access: i32) -> AsyncHostResult<()> {
@@ -143,21 +193,21 @@ impl Policy {
             return Ok(());
         };
         fs.allows(
-            RuntimePathBase::CurrentDirectory,
+            RuntimePathBase::WorkingDirectory,
             path,
             FsIntents::for_access_check(access),
         )
     }
 
     pub(crate) fn chmod_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        self.write_path(RuntimePathBase::CurrentDirectory, path)
+        self.write_path(path)
     }
 
     pub(crate) fn remove_path(&self, path: &OsStr) -> AsyncHostResult<()> {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows_entry(RuntimePathBase::CurrentDirectory, path, FsIntents::write())
+        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
     }
 
     pub(crate) fn rename_path(&self, old_path: &OsStr, new_path: &OsStr) -> AsyncHostResult<()> {
@@ -165,12 +215,12 @@ impl Policy {
             return Ok(());
         };
         fs.allows_entry(
-            RuntimePathBase::CurrentDirectory,
+            RuntimePathBase::WorkingDirectory,
             old_path,
             FsIntents::write(),
         )?;
         fs.allows_entry(
-            RuntimePathBase::CurrentDirectory,
+            RuntimePathBase::WorkingDirectory,
             new_path,
             FsIntents::write(),
         )
@@ -180,27 +230,26 @@ impl Policy {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows_entry(RuntimePathBase::CurrentDirectory, path, FsIntents::write())
+        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
     }
 
     pub(crate) fn mkdir_path(&self, path: &OsStr) -> AsyncHostResult<()> {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows_entry(RuntimePathBase::CurrentDirectory, path, FsIntents::write())
+        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
     }
 
     pub(crate) fn rmdir_path(&self, path: &OsStr) -> AsyncHostResult<()> {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows_entry(RuntimePathBase::CurrentDirectory, path, FsIntents::write())
+        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
     }
 
-    pub(crate) fn lock_path(
+    pub(crate) fn lock_resource_path(
         &self,
-        base: RuntimePathBase<'_>,
-        path: &OsStr,
+        path: Option<&Path>,
         exclusive: bool,
     ) -> AsyncHostResult<()> {
         if !exclusive {
@@ -209,7 +258,18 @@ impl Policy {
         let Some(fs) = self.fs_policy() else {
             return Ok(());
         };
-        fs.allows(base, path, FsIntents::write())
+        match path {
+            Some(path) => fs.allows(
+                RuntimePathBase::WorkingDirectory,
+                path.as_os_str(),
+                FsIntents::write(),
+            ),
+            None => fs.allows(
+                RuntimePathBase::Untracked,
+                OsStr::new(""),
+                FsIntents::write(),
+            ),
+        }
     }
 
     pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
@@ -332,9 +392,8 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
 
-    use crate::async_host::AsyncHostError;
-
     use super::*;
+    use crate::async_host::AsyncHostError;
 
     fn config_with_fs_roots(read: Vec<PathBuf>, write: Vec<PathBuf>) -> PolicyConfig {
         PolicyConfig {
@@ -456,13 +515,7 @@ mod tests {
         let policy = Policy::allow_all();
 
         policy
-            .open_path(
-                RuntimePathBase::CurrentDirectory,
-                OsStr::new("missing-parent/new.txt"),
-                1,
-                4,
-                false,
-            )
+            .open_path(OsStr::new("missing-parent/new.txt"), 1, 4, false)
             .unwrap();
     }
 
@@ -481,13 +534,7 @@ mod tests {
         .unwrap();
 
         let error = policy
-            .open_path(
-                RuntimePathBase::CurrentDirectory,
-                OsStr::new("missing-parent/new.txt"),
-                1,
-                4,
-                false,
-            )
+            .open_path(OsStr::new("missing-parent/new.txt"), 1, 4, false)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -508,13 +555,7 @@ mod tests {
         let denied = tmp.path().join("new.txt");
 
         let error = policy
-            .open_path(
-                RuntimePathBase::CurrentDirectory,
-                denied.as_os_str(),
-                1,
-                4,
-                false,
-            )
+            .open_path(denied.as_os_str(), 1, 4, false)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }

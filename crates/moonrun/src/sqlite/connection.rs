@@ -24,7 +24,7 @@ use slotmap::Key;
 
 use super::policy::{ensure_open_flags, ensure_valid_database, install_authorizer};
 use super::{SqliteHost, SqliteHostError, SqliteHostResult};
-use crate::host::{HostResourceKind, null_handle};
+use crate::runtime::{HostResourceKind, null_handle};
 
 // `libsqlite3-sys` intentionally omits SQLite's UTF-16 convenience APIs from
 // its generated bindings. The bundled SQLite library still exports them.

@@ -20,7 +20,7 @@ use std::ffi::CString;
 
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::sqlite::{SqliteHost, SqliteHostError};
-use crate::v8_import::{V8ImportError, V8RunContext};
+use crate::v8::context::{V8ImportError, V8RunContext};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SqliteError {
@@ -38,7 +38,7 @@ pub(super) fn with_memory_context<T>(
 ) -> SqliteResult<T> {
     context.memory_binding().with_memory_mut(scope, |memory| {
         f(&mut ImportContext {
-            host: context.host().sqlite(),
+            host: context.runtime().sqlite(),
             memory,
         })
     })
@@ -194,8 +194,8 @@ mod tests {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    use crate::host::HostKeys;
     use crate::policy::Policy;
+    use crate::runtime::HostKeys;
 
     fn host() -> SqliteHost {
         SqliteHost::with_keys(

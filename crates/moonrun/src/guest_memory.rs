@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Runtime-neutral access to one short-lived view of wasm linear memory.
+//! Wasm-engine-neutral access to one short-lived view of wasm linear memory.
 //!
-//! Runtime adapters are responsible for acquiring a fresh view for every host
+//! Wasm runtime adapters are responsible for acquiring a fresh view for every host
 //! call. This interface only defines checked access after that acquisition; it
 //! does not retain a runtime memory object or make address zero mean null.
 

@@ -19,8 +19,8 @@
 //! Moonrun-owned async domain state.
 //!
 //! This module owns async resources and operations for one run: Handle-indexed
-//! resources, workers, jobs, and poll instances. Runtime adapter concerns such
-//! as V8 callbacks and guest-memory access live in `async_api` and `v8_import`.
+//! resources, workers, jobs, and poll instances. Wasm runtime adapter concerns such
+//! as V8 callbacks and guest-memory access live in `async_api` and `v8`.
 //!
 //! Native async multiplexes pollable IO through epoll, kqueue, or IOCP, with
 //! thread-pool completions as one registered event
@@ -52,14 +52,13 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
-use crate::env::Env;
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
-pub(crate) use crate::host::HostKey as HandleKey;
-use crate::host::{HostKeys, HostResourceKind as HandleKind};
 use crate::network::HostNetwork;
-use crate::policy::{Policy, RuntimePathBase};
+use crate::policy::Policy;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
+pub(crate) use crate::runtime::HostKey as HandleKey;
+use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, WorkingDirectory};
 use crate::temp_dir::TempDir;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -1244,6 +1243,7 @@ impl AsyncHost {
             policy,
             environment,
             Rc::new(RefCell::new(HostKeys::default())),
+            WorkingDirectory::Ambient,
         )
     }
 
@@ -1251,8 +1251,9 @@ impl AsyncHost {
         policy: Arc<Policy>,
         environment: Arc<Env>,
         keys: Rc<RefCell<HostKeys>>,
+        working_directory: WorkingDirectory,
     ) -> Self {
-        let process = HostProcess::new(Arc::clone(&policy));
+        let process = HostProcess::new(Arc::clone(&policy), working_directory);
         let network = HostNetwork::new(Arc::clone(&policy));
         let temp_dir = TempDir::new(Arc::clone(&environment), &policy);
         Self {
@@ -3670,6 +3671,9 @@ impl AsyncHost {
             job.set_err(error.errno());
             return;
         }
+        if let Ok(job) = job.process_mut() {
+            process.configure_job_working_directory(job);
+        }
         thread_pool::run_host_job(job);
         if let Err(error) = Self::finish_process_job(process, job) {
             job.set_err(error.errno());
@@ -3694,10 +3698,7 @@ impl AsyncHost {
     #[cfg(target_os = "macos")]
     fn check_file_metadata_policy(policy: &Policy, file: Option<&Resource>) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
-        match file.policy_path() {
-            Some(path) => policy.stat_path(RuntimePathBase::CurrentDirectory, path.as_os_str()),
-            None => policy.stat_path(RuntimePathBase::Untracked, std::ffi::OsStr::new("")),
-        }
+        policy.stat_resource_path(file.policy_path())
     }
 
     fn check_file_lock_policy(
@@ -3706,18 +3707,7 @@ impl AsyncHost {
         exclusive: bool,
     ) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
-        match file.policy_path() {
-            Some(path) => policy.lock_path(
-                RuntimePathBase::CurrentDirectory,
-                path.as_os_str(),
-                exclusive,
-            ),
-            None => policy.lock_path(
-                RuntimePathBase::Untracked,
-                std::ffi::OsStr::new(""),
-                exclusive,
-            ),
-        }
+        policy.lock_resource_path(file.policy_path(), exclusive)
     }
 
     pub(crate) fn spawn_worker(&self, completion_id: i32, job_handle: u64) -> AsyncHostResult<u64> {
@@ -3996,13 +3986,7 @@ impl AsyncHost {
             ("TLS private key", private_key_file.as_path()),
             ("TLS certificate", certificate_file.as_path()),
         ] {
-            if let Err(error) = self.policy.open_path(
-                RuntimePathBase::CurrentDirectory,
-                path.as_os_str(),
-                0,
-                0,
-                false,
-            ) {
+            if let Err(error) = self.policy.open_path(path.as_os_str(), 0, 0, false) {
                 return self.with_tls_pending_mut(handle, |pending| {
                     pending.set_error(format!("failed to access {label} file: {error:?}"))
                 });
@@ -5560,13 +5544,7 @@ mod tests {
         let host = host_with_policy(&policy_file);
 
         host.policy()
-            .open_path(
-                RuntimePathBase::CurrentDirectory,
-                link.as_os_str(),
-                0,
-                0,
-                false,
-            )
+            .open_path(link.as_os_str(), 0, 0, false)
             .unwrap();
         let job = host
             .insert_job(FilesystemJob::open_legacy(

@@ -16,26 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! V8 adapter for MoonBit's unstable filesystem import object.
-
-mod runtime;
-mod whole_file;
-
-use std::any::Any;
-use std::sync::Arc;
-
-use crate::filesystem::HostFs;
-use crate::runtime::Env;
-
-pub(crate) fn init_env<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    wasm_file_name: &str,
-    args: &[String],
-    environment: Arc<Env>,
-    filesystem: HostFs,
-    dtors: &mut Vec<Box<dyn Any>>,
-) {
-    runtime::register(obj, scope, wasm_file_name, args, environment, dtors);
-    whole_file::register(obj, scope, filesystem, dtors);
+///|
+async test "ambient cwd is observed by each process" {
+  let input = @fs.read_file("input.txt").text()
+  let output = if input == "first" { b"first" } else { b"second" }
+  @fs.write_file("output.txt", output, create_mode=CreateOrTruncate)
+  match @env.current_dir() {
+    Some(cwd) => @fs.write_file(
+      "cwd.txt",
+      cwd,
+      create_mode=CreateOrTruncate,
+    )
+    None => abort("current directory is unavailable")
+  }
 }

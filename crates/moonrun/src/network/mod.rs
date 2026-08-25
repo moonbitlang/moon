@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Runtime-engine-neutral network operations for one moonrun Host.
+//! Wasm-backend-neutral network operations owned by one moonrun Runtime.
 
 mod job;
 

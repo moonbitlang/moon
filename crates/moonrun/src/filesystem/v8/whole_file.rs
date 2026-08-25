@@ -18,14 +18,11 @@
 
 //! V8 adapter for the temporary whole-file filesystem imports.
 
+use crate::filesystem::{FsOperationResults, HostFs};
+use crate::util::get_ref;
+use crate::v8::builder::{ArgsExt, ObjectExt, ScopeExt};
 use std::any::Any;
 use std::cell::RefCell;
-use std::sync::Arc;
-
-use crate::filesystem::{FsOperationResults, HostFs};
-use crate::policy::Policy;
-use crate::util::get_ref;
-use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
 struct FsImports {
     filesystem: HostFs,
@@ -36,9 +33,9 @@ struct FsImports {
 }
 
 impl FsImports {
-    fn new(policy: Arc<Policy>) -> Self {
+    fn new(filesystem: HostFs) -> Self {
         Self {
-            filesystem: HostFs::new(policy),
+            filesystem,
             operation_results: RefCell::new(FsOperationResults::default()),
         }
     }
@@ -360,10 +357,10 @@ fn copy_uint8_array(array: v8::Local<'_, v8::Uint8Array>) -> Vec<u8> {
 pub(super) fn register<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-    policy: Arc<Policy>,
+    filesystem: HostFs,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
-    let imports = Box::new(FsImports::new(policy));
+    let imports = Box::new(FsImports::new(filesystem));
     let imports_ptr = &*imports as *const FsImports;
     dtors.push(imports);
 

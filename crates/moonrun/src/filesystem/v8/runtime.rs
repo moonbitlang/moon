@@ -18,9 +18,9 @@
 
 //! V8 adapter for runtime values exposed through the unstable filesystem object.
 
-use crate::env::Env;
+use crate::runtime::Env;
 use crate::util::get_ref;
-use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
+use crate::v8::builder::{ArgsExt, ObjectExt, ScopeExt};
 use std::any::Any;
 use std::sync::Arc;
 

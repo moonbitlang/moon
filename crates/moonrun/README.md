@@ -32,12 +32,14 @@ file with fresh per-run state and returns guest termination as data instead of
 terminating the embedding process:
 
 ```rust
-use moonrun::{Engine, RunOptions, RunOutcome};
+use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 
 let outcome = Engine::default()
     .run_file(
         "path/to/file.wasm",
-        RunOptions::default().with_args(["arg"]),
+        RunOptions::default()
+            .with_args(["arg"])
+            .with_working_directory(WorkingDirectory::Ambient),
     )
     .unwrap();
 
@@ -66,9 +68,13 @@ let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
 The current implementation remains V8-backed and still inherits process stdio,
-environment, working directory, and signal compatibility behavior. These are
-shared process dependencies rather than isolated embedding inputs. Compiled
-modules reuse their prepared representation while each run creates fresh guest
+environment, working directory, and signal compatibility behavior. A Run can
+make its working-directory selection explicit with
+`WorkingDirectory::Ambient`, which is also the default and preserves the
+existing process-global behavior. No isolated or captured working-directory
+mode is available yet. Compiled modules reuse their prepared representation
+while each run currently creates a fresh Runtime that owns its environment,
+policy, working-directory selection, and domain state alongside fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
 responsibility. Moonrun does not yet expose an interruption mechanism for a
 running guest.
@@ -92,7 +98,7 @@ Add entries only for the access the program should have. The policy covers
 `moonbitlang/async` and moonrun's own non-WASI `__moonbit_*_unstable` FFI
 surfaces. WASI operations generally remain outside Moonrun Policy
 (`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`), with one shared-state
-exception: `environ_get` and `environ_sizes_get` expose the Run environment
+exception: `environ_get` and `environ_sizes_get` expose the Runtime environment
 realized from the `env` policy. WASI descriptors, preopens, and other WASI
 operations are still configured separately from Moonrun Policy.
 
@@ -128,8 +134,9 @@ file during migration or debugging.
 The filesystem policy restricts native host paths. It does not create a virtual
 guest filesystem, mount table, or portable `/` namespace. Relative filesystem
 roots are resolved relative to the policy file. Guest relative paths are
-resolved using the process current directory. Paths use the host platform's path
-syntax; Windows policies may use normal Windows paths such as `C:\work` or
+resolved using the Runtime Working Directory; its only current mode observes the
+process current directory at policy-check time. Paths use the host platform's
+path syntax; Windows policies may use normal Windows paths such as `C:\work` or
 `C:/work`; JSON strings must escape backslashes as `C:\\work`. The filesystem
 wildcard `"*"` allows every host path on every platform. List a root in both
 `read` and `write` to allow read-write filesystem access.

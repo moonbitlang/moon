@@ -18,14 +18,14 @@
 
 use crate::async_host::{AsyncHost, AsyncHostError, AsyncHostResult};
 use crate::run_termination::{RunTermination, TerminationRequest};
-use crate::v8_import::{V8ImportError, V8MemoryBinding, V8RunContext};
+use crate::v8::context::{V8ImportError, V8MemoryBinding, V8RunContext};
 
-pub(super) use crate::v8_import::ImportArgs;
+pub(super) use crate::v8::context::ImportArgs;
 
 pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s V8RunContext {
     // SAFETY: every async callback is registered with the pointer to the V8
-    // run context retained by `host_imports` for the complete run.
-    unsafe { crate::v8_import::callback_context(args) }
+    // run context retained by the V8 host imports for the complete run.
+    unsafe { crate::v8::context::callback_context(args) }
 }
 
 pub(super) struct ImportContext<'a, 'scope> {
@@ -39,7 +39,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
     pub(super) fn new(scope: &'a mut v8::HandleScope<'scope>, context: &'a V8RunContext) -> Self {
         Self {
             scope,
-            host: context.host().async_state(),
+            host: context.runtime().async_state(),
             memory_binding: context.memory_binding(),
             termination_request: context.termination_request(),
         }
@@ -83,7 +83,7 @@ pub(super) fn throw_import_error(
     import_name: &str,
     error: AsyncHostError,
 ) {
-    crate::v8_import::throw_import_error(scope, super::MOONBIT_ASYNC_MODULE, import_name, error);
+    crate::v8::context::throw_import_error(scope, super::MOONBIT_ASYNC_MODULE, import_name, error);
 }
 
 pub(super) trait FinishVoid {

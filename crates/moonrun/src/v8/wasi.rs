@@ -16,10 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::env::Env;
+use super::builder::ScopeExt;
+use super::context::{self, V8ImportError, V8MemoryBinding, V8RunContext};
 use crate::run_termination::{RunTermination, TerminationRequest};
-use crate::v8_builder::ScopeExt;
-use crate::v8_import::{V8ImportError, V8MemoryBinding, V8RunContext};
+use crate::runtime::Env;
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -268,7 +268,7 @@ fn read_u64_arg(
 ) -> WasiResult<u64> {
     let value = args.get(index);
     if value.is_big_int() {
-        crate::v8_import::decode_wasm_u64(value).ok_or(WASI_ERRNO_INVAL)
+        context::decode_wasm_u64(value).ok_or(WASI_ERRNO_INVAL)
     } else {
         let value = value.integer_value(scope).ok_or(WASI_ERRNO_INVAL)?;
         u64::try_from(value).map_err(|_| WASI_ERRNO_INVAL)
@@ -1802,7 +1802,10 @@ pub(crate) fn init_env<'s>(
     run_context: &V8RunContext,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
-    let preopen_dir_host_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let preopen_dir_host_path = run_context
+        .working_directory()
+        .current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
     let preopen_dir_real_path =
         fs::canonicalize(&preopen_dir_host_path).unwrap_or_else(|_| preopen_dir_host_path.clone());
     let context = Box::new(WasiContext {

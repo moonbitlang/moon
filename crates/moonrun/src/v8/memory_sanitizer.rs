@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
 use std::rc::Rc;
 
-use crate::v8_builder::ObjectExt;
+use super::builder::ObjectExt;
 
 pub(crate) const MEMORY_SANITIZER_MODULE: &str = "moonbit:ffi/memory-sanitizer";
 

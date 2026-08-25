@@ -22,8 +22,8 @@ use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
 
-use crate::host::null_handle;
-use crate::policy::{Policy, RuntimePathBase};
+use crate::policy::Policy;
+use crate::runtime::null_handle;
 
 /// Ensure the requested database and VFS are available in the MVP.
 ///
@@ -50,19 +50,19 @@ pub(super) fn ensure_valid_database(
     }
     let database = Path::new(filename);
     policy
-        .read_path(RuntimePathBase::CurrentDirectory, database.as_os_str())
+        .read_path(database.as_os_str())
         .map_err(|_| ffi::SQLITE_CANTOPEN)?;
     let parent = database
         .parent()
         .filter(|path| !path.as_os_str().is_empty());
     let parent = parent.unwrap_or_else(|| Path::new("."));
     policy
-        .read_path(RuntimePathBase::CurrentDirectory, parent.as_os_str())
+        .read_path(parent.as_os_str())
         .map_err(|_| ffi::SQLITE_CANTOPEN)?;
 
     if flags & (ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE) != 0 {
         policy
-            .write_path(RuntimePathBase::CurrentDirectory, parent.as_os_str())
+            .write_path(parent.as_os_str())
             .map_err(|_| ffi::SQLITE_CANTOPEN)?;
     }
     Ok(())
@@ -120,6 +120,15 @@ mod tests {
         CString::new(path.to_str().unwrap()).unwrap()
     }
 
+    fn ensure_valid_ambient_database(
+        policy: &Policy,
+        filename: &CStr,
+        flags: i32,
+        vfs: u64,
+    ) -> Result<(), i32> {
+        ensure_valid_database(policy, filename, flags, vfs)
+    }
+
     #[test]
     fn open_flags_preserve_only_access_modes() {
         for flags in [
@@ -142,7 +151,7 @@ mod tests {
     fn database_policy_accepts_memory_and_files_with_the_default_vfs() {
         let policy = Policy::allow_all();
         assert_eq!(
-            ensure_valid_database(
+            ensure_valid_ambient_database(
                 &policy,
                 c":memory:",
                 ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
@@ -151,7 +160,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            ensure_valid_database(
+            ensure_valid_ambient_database(
                 &policy,
                 c"database.sqlite",
                 ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
@@ -160,11 +169,16 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            ensure_valid_database(&policy, c":memory:", ffi::SQLITE_OPEN_READWRITE, u64::MAX),
+            ensure_valid_ambient_database(
+                &policy,
+                c":memory:",
+                ffi::SQLITE_OPEN_READWRITE,
+                u64::MAX
+            ),
             Err(ffi::SQLITE_CANTOPEN)
         );
         assert_eq!(
-            ensure_valid_database(&policy, c"", ffi::SQLITE_OPEN_READWRITE, null_handle()),
+            ensure_valid_ambient_database(&policy, c"", ffi::SQLITE_OPEN_READWRITE, null_handle()),
             Err(ffi::SQLITE_CANTOPEN)
         );
     }
@@ -187,7 +201,7 @@ mod tests {
         let denied_database = c_path(&denied.join("database.sqlite"));
 
         assert_eq!(
-            ensure_valid_database(
+            ensure_valid_ambient_database(
                 &policy,
                 &allowed_database,
                 ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
@@ -196,7 +210,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            ensure_valid_database(
+            ensure_valid_ambient_database(
                 &policy,
                 &denied_database,
                 ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
@@ -221,11 +235,16 @@ mod tests {
         let database = c_path(&database);
 
         assert_eq!(
-            ensure_valid_database(&policy, &database, ffi::SQLITE_OPEN_READONLY, null_handle()),
+            ensure_valid_ambient_database(
+                &policy,
+                &database,
+                ffi::SQLITE_OPEN_READONLY,
+                null_handle()
+            ),
             Err(ffi::SQLITE_CANTOPEN)
         );
         assert_eq!(
-            ensure_valid_database(
+            ensure_valid_ambient_database(
                 &policy,
                 &database,
                 ffi::SQLITE_OPEN_READWRITE,

@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Engine-neutral implementation of moonrun's permission-backed filesystem imports.
+//! Backend-neutral implementation of moonrun's permission-backed filesystem imports.
 //!
-//! Runtime adapters convert guest values and expose imports. This module owns
+//! Wasm runtime adapters convert guest values and expose imports. This module owns
 //! filesystem authorization, OS operations, and the guest-visible error text.
 //! WASI has its own descriptor and preopen capability model and does not pass
 //! through this module.
@@ -38,7 +38,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
-use crate::policy::{Policy, RuntimePathBase};
+use crate::policy::Policy;
+use crate::runtime::WorkingDirectory;
 
 #[derive(Debug)]
 pub(crate) struct HostFsError {
@@ -89,11 +90,15 @@ impl FsOperationResults {
 /// before accessing the operating system's filesystem.
 pub(crate) struct HostFs {
     policy: Arc<Policy>,
+    working_directory: WorkingDirectory,
 }
 
 impl HostFs {
-    pub(crate) fn new(policy: Arc<Policy>) -> Self {
-        Self { policy }
+    pub(crate) fn new(policy: Arc<Policy>, working_directory: WorkingDirectory) -> Self {
+        Self {
+            policy,
+            working_directory,
+        }
     }
 
     pub(crate) fn read_file_to_string(&self, path: &str) -> Result<String, HostFsError> {
@@ -164,7 +169,8 @@ impl HostFs {
         if self.ensure_read(".").is_err() {
             return String::new();
         }
-        std::env::current_dir()
+        self.working_directory
+            .current_dir()
             .unwrap_or_default()
             .to_str()
             .unwrap()
@@ -290,17 +296,11 @@ impl HostFs {
 }
 
 fn ensure_read_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
-    policy.stat_path(RuntimePathBase::CurrentDirectory, OsStr::new(path))
+    policy.stat_path(OsStr::new(path))
 }
 
 fn ensure_write_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
-    policy.open_path(
-        RuntimePathBase::CurrentDirectory,
-        OsStr::new(path),
-        1,
-        1,
-        false,
-    )
+    policy.open_path(OsStr::new(path), 1, 1, false)
 }
 
 fn ensure_remove_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
@@ -341,7 +341,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("input.bin");
         std::fs::write(&path, [1, 2, 3]).unwrap();
-        let host = HostFs::new(Arc::new(Policy::allow_all()));
+        let host = HostFs::new(Arc::new(Policy::allow_all()), WorkingDirectory::Ambient);
         let mut first = FsOperationResults::default();
         let second = FsOperationResults::default();
 
@@ -358,7 +358,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = HostFs::new(Arc::new(Policy::from_file(&policy_file).unwrap()));
+        let host = HostFs::new(
+            Arc::new(Policy::from_file(&policy_file).unwrap()),
+            WorkingDirectory::Ambient,
+        );
         let mut results = FsOperationResults::default();
 
         assert_eq!(host.read_file_to_bytes_new(&mut results, "denied.bin"), -1);
@@ -370,7 +373,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = HostFs::new(Arc::new(Policy::from_file(&policy_file).unwrap()));
+        let host = HostFs::new(
+            Arc::new(Policy::from_file(&policy_file).unwrap()),
+            WorkingDirectory::Ambient,
+        );
         let mut results = FsOperationResults::default();
         let converted = Cell::new(false);
 

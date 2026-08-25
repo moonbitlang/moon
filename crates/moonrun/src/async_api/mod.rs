@@ -47,7 +47,7 @@ mod thread_pool;
 mod time;
 mod tls;
 
-use crate::v8_import::V8RunContext;
+use crate::v8::context::V8RunContext;
 
 pub(crate) use registry::MOONBIT_ASYNC_MODULE;
 

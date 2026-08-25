@@ -19,7 +19,7 @@
 use super::context::{SqliteError, with_memory_context};
 use super::registry_macros::declare_sqlite_imports;
 use super::{bind, column, connection, statement};
-use crate::v8_import::{ImportArgs, V8ImportError, V8RunContext};
+use crate::v8::context::{ImportArgs, V8ImportError, V8RunContext};
 
 pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
 
@@ -28,7 +28,7 @@ pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
 // cannot update one without the other. Each entry names its implementation
 // target; the registry does not expose how the macro reaches that target.
 declare_sqlite_imports! {
-    Host::null_handle() -> u64 => "sqlite3_null_handle";
+    Runtime::null_handle() -> u64 => "sqlite3_null_handle";
 
     connection::open_v2(
         filename: u32,
