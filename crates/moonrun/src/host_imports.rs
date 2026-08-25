@@ -391,8 +391,8 @@ pub(crate) fn install(
             scope,
             wasm_file_name,
             args,
-            Rc::clone(v8_context.memory_binding()),
-            termination_request.clone(),
+            Arc::clone(&environment),
+            &v8_context,
             dtors,
         );
     }

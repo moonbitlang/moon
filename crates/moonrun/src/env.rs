@@ -156,7 +156,10 @@ impl Env {
                 // `vars_os` preserves native values. On Windows it is backed
                 // by GetEnvironmentStringsW; failure to obtain the process
                 // block is a process-wide condition from which no Run can
-                // usefully recover.
+                // usefully recover. On Unix, Env deliberately models POSIX
+                // `name=value` variables rather than opaque `envp` entries;
+                // malformed raw entries such as `TOKEN` or `=x` are outside
+                // this interface rather than being preserved byte-for-byte.
                 std::env::vars_os().collect()
             }
             EnvBacking::Owned(entries) => entries

@@ -53,11 +53,10 @@ restrict WASI descriptors.
 _Avoid_: WASI sandbox, virtual filesystem
 
 **Env**:
-The environment interface selected for one Run. Moonrun Policy contributes
-only its startup selection; runtime reads and mutations go through Env instead
-of treating Policy as mutable state. The current unrestricted mode retains its
-legacy process-environment write-through behavior; Run-owned isolation is a
-separate behavior change.
+The environment interface selected for one Run and shared by MoonBit
+environment imports, WASI environment calls, temporary-directory resolution,
+and child inheritance. Moonrun Policy contributes only its startup selection;
+unrestricted mode retains its legacy process-environment write-through behavior.
 _Avoid_: Mutable policy, per-import environment map
 
 **WASI Capability Surface**:

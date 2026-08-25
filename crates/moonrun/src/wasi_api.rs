@@ -16,9 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::env::Env;
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::v8_builder::ScopeExt;
-use crate::v8_import::{V8ImportError, V8MemoryBinding};
+use crate::v8_import::{V8ImportError, V8MemoryBinding, V8RunContext};
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -171,6 +172,7 @@ impl TryFrom<i32> for ClockId {
 
 struct WasiContext {
     argv: Vec<Vec<u8>>,
+    environment: Arc<Env>,
     preopen_dir_name: Vec<u8>,
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
@@ -229,8 +231,10 @@ fn build_argv(wasm_file_name: &str, args: &[String]) -> Vec<Vec<u8>> {
     argv
 }
 
-fn collect_environ() -> Vec<Vec<u8>> {
-    std::env::vars_os()
+fn collect_environ(environment: &Env) -> Vec<Vec<u8>> {
+    environment
+        .entries()
+        .into_iter()
         .map(|(key, value)| {
             encode_c_string(format!(
                 "{}={}",
@@ -1578,11 +1582,11 @@ fn environ_sizes_get(
     let result = (|| -> WasiResult<()> {
         let environc_ptr = read_u32_arg(scope, &args, 0)?;
         let environ_buf_size_ptr = read_u32_arg(scope, &args, 1)?;
+        let context = callback_context(&args);
 
-        let environ = collect_environ();
+        let environ = collect_environ(&context.environment);
         let environc = u32::try_from(environ.len()).map_err(|_| WASI_ERRNO_FAULT)?;
         let environ_buf_size = table_bytes_len(&environ)?;
-        let context = callback_context(&args);
 
         with_wasi_memory_mut(scope, context, |memory| {
             write_u32(memory, environc_ptr, environc)?;
@@ -1604,7 +1608,7 @@ fn environ_get(
         let environ_buf_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
 
-        let environ = collect_environ();
+        let environ = collect_environ(&context.environment);
         with_wasi_memory_mut(scope, context, |memory| {
             write_c_string_table(memory, &environ, environ_ptr, environ_buf_ptr)
         })
@@ -1794,8 +1798,8 @@ pub(crate) fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
-    memory_binding: Rc<V8MemoryBinding>,
-    termination_request: TerminationRequest,
+    environment: Arc<Env>,
+    run_context: &V8RunContext,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     let preopen_dir_host_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -1803,12 +1807,13 @@ pub(crate) fn init_env<'s>(
         fs::canonicalize(&preopen_dir_host_path).unwrap_or_else(|_| preopen_dir_host_path.clone());
     let context = Box::new(WasiContext {
         argv: build_argv(wasm_file_name, args),
+        environment,
         preopen_dir_name: preopen_name(),
         preopen_dir_host_path,
         preopen_dir_real_path,
         descriptors: Mutex::new(DescriptorTable::new()),
-        memory_binding,
-        termination_request,
+        memory_binding: Rc::clone(run_context.memory_binding()),
+        termination_request: run_context.termination_request().clone(),
     });
     let context_ptr = &*context as *const WasiContext as *mut std::ffi::c_void;
 
@@ -1841,6 +1846,7 @@ mod tests {
     fn test_context(root: &Path) -> WasiContext {
         WasiContext {
             argv: Vec::new(),
+            environment: Arc::new(Env::owned([]).unwrap()),
             preopen_dir_name: preopen_name(),
             preopen_dir_host_path: root.to_path_buf(),
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
@@ -1848,6 +1854,24 @@ mod tests {
             memory_binding: Rc::new(V8MemoryBinding::new()),
             termination_request: TerminationRequest::default(),
         }
+    }
+
+    #[test]
+    fn wasi_environment_uses_current_run_environment() {
+        let environment = Env::owned([
+            ("MOONRUN_WASI_ADD".into(), "initial".into()),
+            ("MOONRUN_WASI_REMOVE".into(), "removed".into()),
+        ])
+        .unwrap();
+        environment
+            .set("MOONRUN_WASI_ADD".into(), "updated".into())
+            .unwrap();
+        environment.unset("MOONRUN_WASI_REMOVE".as_ref()).unwrap();
+
+        assert_eq!(
+            collect_environ(&environment),
+            vec![b"MOONRUN_WASI_ADD=updated\0".to_vec()]
+        );
     }
 
     #[test]

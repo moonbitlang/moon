@@ -89,9 +89,12 @@ system and switches supported moonrun-owned host surfaces into sandbox mode.
 The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
 deny that surface, and process spawning is disabled unless explicitly allowed.
 Add entries only for the access the program should have. The policy covers
-`moonbitlang/async` and moonrun's own `__moonbit_*_unstable` FFI surfaces. It
-does not apply to WASI
-(`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`).
+`moonbitlang/async` and moonrun's own non-WASI `__moonbit_*_unstable` FFI
+surfaces. WASI operations generally remain outside Moonrun Policy
+(`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`), with one shared-state
+exception: `environ_get` and `environ_sizes_get` expose the Run environment
+realized from the `env` policy. WASI descriptors, preopens, and other WASI
+operations are still configured separately from Moonrun Policy.
 
 An empty JSON object denies all policy-covered filesystem, network, and
 environment access:
@@ -134,8 +137,9 @@ wildcard `"*"` allows every host path on every platform. List a root in both
 The environment policy constructs the guest environment. Use `from_host` to copy
 selected host variables if present, `required_from_host` to require selected
 host variables, and `env.set` for literal values. `env.set` overrides values
-copied from the host. Do not put secrets directly in the policy file; pass them
-by name through `from_host` or `required_from_host`.
+copied from the host. The realized environment is shared by MoonBit runtime
+environment APIs and WASI environment calls. Do not put secrets directly in the
+policy file; pass them by name through `from_host` or `required_from_host`.
 
 Process spawning is disabled unless the request matches a `process.allow` rule
 or `process.spawn` is `true`. Rules match the requested program exactly and
