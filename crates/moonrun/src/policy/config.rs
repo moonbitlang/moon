@@ -20,9 +20,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PolicyConfig {
     pub(super) fs: Option<FsConfig>,
@@ -31,7 +31,7 @@ pub(super) struct PolicyConfig {
     pub(super) process: Option<ProcessConfig>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct FsConfig {
     #[serde(default)]
@@ -40,7 +40,7 @@ pub(super) struct FsConfig {
     pub(super) write: Vec<PathBuf>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NetConfig {
     #[serde(default)]
@@ -51,7 +51,7 @@ pub(super) struct NetConfig {
     pub(super) bind: Vec<String>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EnvConfig {
     #[serde(default)]
@@ -62,7 +62,7 @@ pub(super) struct EnvConfig {
     pub(super) set: BTreeMap<String, String>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ProcessConfig {
     #[serde(default)]
@@ -71,7 +71,7 @@ pub(super) struct ProcessConfig {
     pub(super) allow: Vec<ProcessRuleConfig>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ProcessRuleConfig {
     pub(super) program: String,

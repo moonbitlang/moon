@@ -25,6 +25,7 @@ mod config;
 mod env;
 mod fs;
 mod net;
+mod policy_copy;
 mod process;
 
 use std::ffi::OsStr;
@@ -41,6 +42,7 @@ use self::config::PolicyConfig;
 use self::env::EnvPolicy;
 use self::fs::{FsIntents, FsPolicy, RuntimePathBase};
 use self::net::{NetOperation, NetPolicy};
+use self::policy_copy::PolicyCopy;
 use self::process::ProcessPolicy;
 
 #[derive(Clone, Debug)]
@@ -49,6 +51,9 @@ pub(crate) struct Policy {
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
+    // TODO(policy-inheritance): lease this copy to a directly spawned moonx
+    // Job when the process-boundary wiring lands.
+    _policy_copy: Option<PolicyCopy>,
 }
 
 fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
@@ -67,6 +72,7 @@ impl Policy {
             net: None,
             env: None,
             process: None,
+            _policy_copy: None,
         }
     }
 
@@ -88,15 +94,17 @@ impl Policy {
 
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
         let config = canonicalize(config, config_dir)?;
+        let policy_copy = PolicyCopy::publish(&config)?;
+        let mut fs = FsPolicy::from_canonical_config(config.fs.unwrap_or_default());
+        fs.protect_path(policy_copy.path().to_owned());
         Ok(Self {
-            fs: Some(FsPolicy::from_canonical_config(
-                config.fs.unwrap_or_default(),
-            )),
+            fs: Some(fs),
             net: Some(NetPolicy::from_config(config.net.unwrap_or_default())?),
             env: Some(EnvPolicy::from_config(config.env.unwrap_or_default())?),
             process: Some(ProcessPolicy::from_config(
                 config.process.unwrap_or_default(),
             )?),
+            _policy_copy: Some(policy_copy),
         })
     }
 
@@ -388,6 +396,7 @@ fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::ffi::OsStr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
@@ -508,6 +517,145 @@ mod tests {
         };
 
         assert!(error.to_string().contains(&missing.display().to_string()));
+    }
+
+    #[test]
+    fn policy_copy_preserves_canonical_rules_and_inherits_the_child_environment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let read = tmp.path().join("read");
+        let write = tmp.path().join("write");
+        std::fs::create_dir(&read).unwrap();
+        std::fs::create_dir(&write).unwrap();
+        let canonical_read = std::fs::canonicalize(&read).unwrap();
+        let canonical_write = std::fs::canonicalize(&write).unwrap();
+        let secret = "value-that-must-not-be-serialized";
+
+        let policy = Policy::from_config(
+            PolicyConfig {
+                fs: Some(config::FsConfig {
+                    read: vec![PathBuf::from("read")],
+                    write: vec![PathBuf::from("write")],
+                }),
+                net: Some(config::NetConfig {
+                    dns: vec!["example.com".to_owned()],
+                    connect: vec!["example.com:443".to_owned()],
+                    bind: Vec::new(),
+                }),
+                env: Some(config::EnvConfig {
+                    from_host: vec!["PATH".to_owned()],
+                    required_from_host: Vec::new(),
+                    set: BTreeMap::from([("MOONRUN_COPY_SECRET".to_owned(), secret.to_owned())]),
+                }),
+                process: Some(config::ProcessConfig {
+                    spawn: true,
+                    allow: Vec::new(),
+                }),
+            },
+            tmp.path(),
+        )
+        .unwrap();
+        let copy = policy._policy_copy.as_ref().unwrap();
+
+        assert!(
+            !std::fs::read_to_string(copy.path())
+                .unwrap()
+                .contains(secret)
+        );
+        let inherited = PolicyConfig::from_file(copy.path()).unwrap();
+        let fs = inherited.fs.unwrap();
+        assert_eq!(fs.read, [canonical_read]);
+        assert_eq!(fs.write, [canonical_write]);
+        assert_eq!(inherited.net.unwrap().dns, ["example.com"]);
+        let env = inherited.env.unwrap();
+        assert_eq!(env.from_host, ["*"]);
+        assert!(env.required_from_host.is_empty());
+        assert!(env.set.is_empty());
+        assert!(inherited.process.unwrap().spawn);
+    }
+
+    #[test]
+    fn each_policy_run_publishes_its_own_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = Policy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
+        let parent_copy = parent._policy_copy.as_ref().unwrap();
+
+        let child = Policy::from_file(parent_copy.path()).unwrap();
+        let child_copy = child._policy_copy.as_ref().unwrap();
+
+        assert_ne!(parent_copy.path(), child_copy.path());
+    }
+
+    #[test]
+    fn policy_copy_is_independent_of_later_source_file_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("policy.json");
+        std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
+        let parent = Policy::from_file(&source).unwrap();
+        let parent_copy = parent._policy_copy.as_ref().unwrap();
+
+        std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
+        let inherited = Policy::from_file(parent_copy.path()).unwrap();
+
+        #[cfg(unix)]
+        assert_eq!(
+            inherited.spawn_process_unix(OsStr::new("program"), &[OsString::from("program")]),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            inherited.spawn_process_windows(OsStr::new("program.exe")),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn policy_copy_is_not_reachable_through_policy_backed_filesystem_operations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = Policy::from_config(
+            config_with_fs_roots(vec![PathBuf::from("*")], vec![PathBuf::from("*")]),
+            tmp.path(),
+        )
+        .unwrap();
+        let copy_path = policy._policy_copy.as_ref().unwrap().path();
+
+        assert_eq!(
+            policy.read_path(RuntimePathBase::CurrentDirectory, copy_path.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        assert_eq!(
+            policy.write_path(RuntimePathBase::CurrentDirectory, copy_path.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        assert_eq!(
+            policy.remove_path(copy_path.parent().unwrap().as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        policy
+            .write_path(
+                RuntimePathBase::CurrentDirectory,
+                copy_path.parent().unwrap().as_os_str(),
+            )
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn policy_copy_cannot_be_modified_through_a_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = Policy::from_config(
+            config_with_fs_roots(vec![PathBuf::from("*")], vec![PathBuf::from("*")]),
+            tmp.path(),
+        )
+        .unwrap();
+        let copy_path = policy._policy_copy.as_ref().unwrap().path();
+        let alias = tmp.path().join("policy-copy-alias");
+        std::os::unix::fs::symlink(copy_path, &alias).unwrap();
+
+        assert_eq!(
+            policy.write_path(RuntimePathBase::CurrentDirectory, alias.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        policy.remove_path(alias.as_os_str()).unwrap();
     }
 
     #[test]
