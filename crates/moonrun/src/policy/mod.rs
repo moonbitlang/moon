@@ -28,7 +28,9 @@ mod net;
 mod process;
 
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use anyhow::Context;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 
@@ -73,11 +75,11 @@ impl Policy {
     }
 
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
+        let config = canonicalize(config, config_dir)?;
         Ok(Self {
-            fs: Some(FsPolicy::from_config(
+            fs: Some(FsPolicy::from_canonical_config(
                 config.fs.unwrap_or_default(),
-                config_dir,
-            )?),
+            )),
             net: Some(NetPolicy::from_config(config.net.unwrap_or_default())?),
             env: Some(EnvPolicy::from_config(config.env.unwrap_or_default())?),
             process: Some(ProcessPolicy::from_config(
@@ -321,6 +323,41 @@ impl Policy {
     }
 }
 
+/// Resolve source-relative policy values into a transport-independent form.
+///
+/// Environment materialization and runtime rule validation deliberately remain
+/// part of Policy construction; only filesystem roots depend on the policy
+/// source directory.
+fn canonicalize(mut config: PolicyConfig, config_dir: &Path) -> anyhow::Result<PolicyConfig> {
+    if let Some(fs) = config.fs.as_mut() {
+        fs.read = canonicalize_roots(std::mem::take(&mut fs.read), config_dir)?;
+        fs.write = canonicalize_roots(std::mem::take(&mut fs.write), config_dir)?;
+    }
+    Ok(config)
+}
+
+fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    roots
+        .into_iter()
+        .map(|root| {
+            if root.as_os_str() == OsStr::new("*") {
+                return Ok(root);
+            }
+            let path = if root.is_absolute() {
+                root
+            } else {
+                config_dir.join(root)
+            };
+            std::fs::canonicalize(&path).with_context(|| {
+                format!(
+                    "failed to resolve sandbox filesystem root {}",
+                    path.display()
+                )
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
@@ -330,6 +367,121 @@ mod tests {
     use crate::async_host::AsyncHostError;
 
     use super::*;
+
+    fn config_with_fs_roots(read: Vec<PathBuf>, write: Vec<PathBuf>) -> PolicyConfig {
+        PolicyConfig {
+            fs: Some(config::FsConfig { read, write }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn canonicalize_resolves_filesystem_roots_and_preserves_wildcards() {
+        let tmp = tempfile::tempdir().unwrap();
+        let read = tmp.path().join("read");
+        let write = tmp.path().join("write");
+        std::fs::create_dir(&read).unwrap();
+        std::fs::create_dir(&write).unwrap();
+        let canonical_read = std::fs::canonicalize(&read).unwrap();
+        let canonical_write = std::fs::canonicalize(&write).unwrap();
+
+        let config = canonicalize(
+            PolicyConfig {
+                fs: Some(config::FsConfig {
+                    read: vec![PathBuf::from("read"), PathBuf::from("*")],
+                    write: vec![write.clone()],
+                }),
+                net: Some(config::NetConfig {
+                    dns: vec!["example.com".to_owned()],
+                    ..Default::default()
+                }),
+                env: Some(config::EnvConfig {
+                    from_host: vec!["PATH".to_owned()],
+                    ..Default::default()
+                }),
+                process: Some(config::ProcessConfig {
+                    spawn: true,
+                    ..Default::default()
+                }),
+            },
+            tmp.path(),
+        )
+        .unwrap();
+
+        let fs = config.fs.unwrap();
+        assert_eq!(fs.read, [canonical_read, PathBuf::from("*")]);
+        assert_eq!(fs.write, [canonical_write]);
+        assert_eq!(config.net.unwrap().dns, ["example.com"]);
+        assert_eq!(config.env.unwrap().from_host, ["PATH"]);
+        assert!(config.process.unwrap().spawn);
+    }
+
+    #[test]
+    fn canonicalize_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        let canonical_target = std::fs::canonicalize(&target).unwrap();
+
+        let first = canonicalize(
+            config_with_fs_roots(vec![PathBuf::from("target")], Vec::new()),
+            tmp.path(),
+        )
+        .unwrap();
+        let second = canonicalize(first, Path::new("unrelated-source-directory")).unwrap();
+
+        assert_eq!(second.fs.unwrap().read, [canonical_target]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonicalize_resolves_symlinks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target");
+        let alias = tmp.path().join("alias");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        let canonical_target = std::fs::canonicalize(&target).unwrap();
+
+        let config =
+            canonicalize(config_with_fs_roots(vec![alias], Vec::new()), tmp.path()).unwrap();
+
+        assert_eq!(config.fs.unwrap().read, [canonical_target]);
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn canonicalize_preserves_non_utf8_paths() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let name = std::ffi::OsString::from_vec(b"allowed-\xff".to_vec());
+        let root = tmp.path().join(&name);
+        std::fs::create_dir(&root).unwrap();
+
+        let config = canonicalize(
+            config_with_fs_roots(vec![PathBuf::from(name)], Vec::new()),
+            tmp.path(),
+        )
+        .unwrap();
+
+        assert_eq!(config.fs.unwrap().read, [root]);
+    }
+
+    #[test]
+    fn canonicalize_reports_the_resolved_missing_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("missing");
+        let error = match canonicalize(
+            config_with_fs_roots(vec![PathBuf::from("missing")], Vec::new()),
+            tmp.path(),
+        ) {
+            Ok(_) => panic!("expected a missing root to fail canonicalization"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains(&missing.display().to_string()));
+    }
 
     #[test]
     fn no_policy_leaves_fs_unrestricted() {
