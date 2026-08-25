@@ -1017,7 +1017,7 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .arg(&env_mutate_wasm)
         .assert()
         .success()
-        .stdout_eq(env_mutate_stdout);
+        .stdout_eq(snapbox::Data::text(env_mutate_stdout).raw());
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
