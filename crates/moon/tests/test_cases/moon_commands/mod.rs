@@ -150,6 +150,28 @@ Options:
 }
 
 #[test]
+fn test_inherited_moonx_policy_rejects_native_execution() {
+    let dir = TestDir::new_empty();
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env(
+            moonutil::constants::MOONRUN_INHERITED_POLICY,
+            "opaque-policy-token",
+        )
+        .args(["--target", "native", "user/module"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: an inherited moonrun policy cannot be used with `--target native`
+
+"#]]);
+}
+
+#[test]
 fn test_moonx_runs_cached_wasm_and_forwards_everything_after_the_coordinate() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)

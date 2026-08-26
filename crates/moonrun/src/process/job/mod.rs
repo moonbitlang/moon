@@ -20,7 +20,7 @@
 
 mod runner;
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 #[cfg(windows)]
 use std::sync::Arc;
 
@@ -300,6 +300,44 @@ impl Job {
         }
     }
 
+    pub(super) fn invokes_moonx(&self) -> bool {
+        match &self.kind {
+            #[cfg(unix)]
+            Kind::SpawnUnix { args, .. } => args
+                .first()
+                .is_some_and(|argv0| moonutil::constants::is_moonx_executable(argv0)),
+            #[cfg(windows)]
+            Kind::SpawnWindows { command_line, .. } => {
+                moonutil::constants::is_moonx_executable(OsStr::new(
+                    &moonutil::shlex::get_argv0_windows(&command_line.to_string_lossy()),
+                ))
+            }
+            Kind::WaitForProcess { .. } => false,
+        }
+    }
+
+    pub(super) fn inherit_policy_for_moonx(&mut self, token: &OsStr) {
+        match &mut self.kind {
+            #[cfg(unix)]
+            Kind::SpawnUnix { env, .. } => {
+                crate::async_sys::process::overwrite_process_env_var(
+                    env,
+                    OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+                    token,
+                );
+            }
+            #[cfg(windows)]
+            Kind::SpawnWindows { env, .. } => {
+                crate::async_sys::process::overwrite_process_env_var(
+                    env,
+                    OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+                    token,
+                );
+            }
+            Kind::WaitForProcess { .. } => unreachable!("wait jobs do not invoke moonx"),
+        }
+    }
+
     pub(super) fn check_policy(&self, process: &HostProcess) -> AsyncHostResult<()> {
         match &self.kind {
             #[cfg(unix)]
@@ -384,6 +422,91 @@ fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn spawn_job(argv0: &str, env: Vec<OsString>) -> Job {
+        Job::spawn_unix(
+            argv0.into(),
+            vec![argv0.into()],
+            env,
+            None,
+            None,
+            None,
+            None,
+            SpawnOptions {
+                child_signal_mask: unsafe { std::mem::zeroed() },
+            },
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn direct_moonx_spawn_inherits_policy_after_guest_environment() {
+        let mut job = spawn_job(
+            "moonx",
+            vec!["MOONRUN_INHERITED_POLICY=guest".into(), "KEEP=value".into()],
+        );
+
+        assert!(job.invokes_moonx());
+        job.inherit_policy_for_moonx(OsStr::new("/tmp/parent-policy.json"));
+
+        let Kind::SpawnUnix { env, .. } = job.kind else {
+            unreachable!()
+        };
+        assert_eq!(
+            env,
+            [
+                "MOONRUN_INHERITED_POLICY=/tmp/parent-policy.json",
+                "KEEP=value"
+            ]
+            .map(OsString::from)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_moonx_spawn_does_not_inherit_policy() {
+        let job = spawn_job("moon", vec!["KEEP=value".into()]);
+
+        assert!(!job.invokes_moonx());
+
+        let Kind::SpawnUnix { env, .. } = job.kind else {
+            unreachable!()
+        };
+        assert_eq!(env, [OsString::from("KEEP=value")]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_embedded_quotes_cannot_bypass_moonx_inheritance() {
+        let mut job = Job::spawn_windows(
+            OsString::from(r#""moon"x user/module"#),
+            "moonrun_inherited_policy=guest\0KEEP=value\0\0"
+                .encode_utf16()
+                .collect(),
+            None,
+            None,
+            None,
+            None,
+            SpawnOptions {
+                no_console_window: false,
+                is_orphan: false,
+            },
+        );
+
+        assert!(job.invokes_moonx());
+        job.inherit_policy_for_moonx(OsStr::new(r"C:\parent-policy.json"));
+
+        let Kind::SpawnWindows { env, .. } = job.kind else {
+            unreachable!()
+        };
+        assert_eq!(
+            env,
+            "MOONRUN_INHERITED_POLICY=C:\\parent-policy.json\0KEEP=value\0\0"
+                .encode_utf16()
+                .collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn job_executors_reference_native_worker_symbols() {

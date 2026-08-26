@@ -16,34 +16,25 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Embeddable execution support for MoonBit Wasm programs.
-//!
-//! The interface is experimental. It currently separates guest termination
-//! from host-process termination, while retaining Moonrun's existing V8 and
-//! process-scoped host integrations.
-
-mod async_api;
-mod async_host;
-mod async_sys;
-mod engine;
-mod filesystem;
-mod guest_memory;
-mod network;
-mod policy;
-mod process;
-mod resource;
-mod run_termination;
-mod runtime;
-mod source_map;
-mod sqlite;
-mod temp_dir;
-mod util;
-mod v8;
-
-pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
-pub use runtime::WorkingDirectory;
-
-#[doc(hidden)]
-pub fn consume_inherited_policy_copy(token: std::ffi::OsString) -> anyhow::Result<Vec<u8>> {
-    policy::consume_inherited_copy(token)
+///|
+async fn main {
+  let marker = match @env.get_env_var("MOON_TEST_DETACH_MARKER") {
+    Some(marker) => marker
+    None => abort("missing detach marker path")
+  }
+  let pid_marker = match @env.get_env_var("MOON_TEST_DETACH_PID") {
+    Some(marker) => marker
+    None => abort("missing detached pid path")
+  }
+  for index = 0; index < 2; index = index + 1 {
+    let marker = marker + "-\{index}"
+    let output = @process.redirect_to_file(marker + ".log")
+    let _ = @process.spawn_orphan(
+      "moonx",
+      ["moonbitlang/parser/cmd/moonfmt@0.3.3", marker],
+      extra_env={ "MOON_TEST_DETACH_PID": pid_marker + "-\{index}" },
+      stdout=output,
+      stderr=output,
+    )
+  }
 }

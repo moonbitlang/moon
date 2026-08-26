@@ -25,6 +25,7 @@ mod config;
 mod env;
 mod fs;
 mod net;
+mod policy_copy;
 mod process;
 
 use std::ffi::OsStr;
@@ -41,6 +42,8 @@ use self::config::PolicyConfig;
 use self::env::EnvPolicy;
 use self::fs::{FsIntents, FsPolicy, RuntimePathBase};
 use self::net::{NetOperation, NetPolicy};
+use self::policy_copy::PolicyCopy;
+pub(crate) use self::policy_copy::consume_transfer as consume_inherited_copy;
 use self::process::ProcessPolicy;
 
 #[derive(Clone, Debug)]
@@ -49,6 +52,7 @@ pub(crate) struct Policy {
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
+    policy_copy: Option<PolicyCopy>,
 }
 
 fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
@@ -67,6 +71,7 @@ impl Policy {
             net: None,
             env: None,
             process: None,
+            policy_copy: None,
         }
     }
 
@@ -74,6 +79,14 @@ impl Policy {
         let config = PolicyConfig::from_file(path)?;
         let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
         Self::from_config(config, config_dir)
+    }
+
+    pub(crate) fn from_inherited_json(contents: &[u8]) -> anyhow::Result<Self> {
+        let config = serde_json::from_slice(contents)
+            .context("failed to parse inherited JSON Moonrun Policy")?;
+        // Canonical copies contain absolute filesystem roots. Running the same
+        // canonicalization confirms that those roots still resolve in this Run.
+        Self::from_config(config, Path::new("."))
     }
 
     /// Bind runtime path authorization to the working directory selected for
@@ -88,6 +101,7 @@ impl Policy {
 
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
         let config = canonicalize(config, config_dir)?;
+        let policy_copy = PolicyCopy::publish(&config)?;
         Ok(Self {
             fs: Some(FsPolicy::from_canonical_config(
                 config.fs.unwrap_or_default(),
@@ -97,7 +111,20 @@ impl Policy {
             process: Some(ProcessPolicy::from_config(
                 config.process.unwrap_or_default(),
             )?),
+            policy_copy: Some(policy_copy),
         })
+    }
+
+    pub(crate) fn publish_inherited_copy(&self) -> AsyncHostResult<Option<PathBuf>> {
+        self.policy_copy
+            .as_ref()
+            .map(PolicyCopy::publish_transfer)
+            .transpose()
+            .map_err(|error| {
+                error
+                    .raw_os_error()
+                    .map_or(AsyncHostError::Io, AsyncHostError::Native)
+            })
     }
 
     pub(crate) fn open_path(
@@ -388,6 +415,7 @@ fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::ffi::OsStr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
@@ -508,6 +536,91 @@ mod tests {
         };
 
         assert!(error.to_string().contains(&missing.display().to_string()));
+    }
+
+    #[test]
+    fn policy_copy_preserves_canonical_rules_and_inherits_the_child_environment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let read = tmp.path().join("read");
+        let write = tmp.path().join("write");
+        std::fs::create_dir(&read).unwrap();
+        std::fs::create_dir(&write).unwrap();
+        let canonical_read = std::fs::canonicalize(&read).unwrap();
+        let canonical_write = std::fs::canonicalize(&write).unwrap();
+        let secret = "value-that-must-not-be-serialized";
+
+        let policy = Policy::from_config(
+            PolicyConfig {
+                fs: Some(config::FsConfig {
+                    read: vec![PathBuf::from("read")],
+                    write: vec![PathBuf::from("write")],
+                }),
+                net: Some(config::NetConfig {
+                    dns: vec!["example.com".to_owned()],
+                    connect: vec!["example.com:443".to_owned()],
+                    bind: Vec::new(),
+                }),
+                env: Some(config::EnvConfig {
+                    from_host: vec!["PATH".to_owned()],
+                    required_from_host: Vec::new(),
+                    set: BTreeMap::from([("MOONRUN_COPY_SECRET".to_owned(), secret.to_owned())]),
+                }),
+                process: Some(config::ProcessConfig {
+                    spawn: true,
+                    allow: Vec::new(),
+                }),
+            },
+            tmp.path(),
+        )
+        .unwrap();
+        let path = policy
+            .policy_copy
+            .as_ref()
+            .unwrap()
+            .publish_transfer()
+            .unwrap();
+        let contents = policy_copy::consume_transfer(path.into_os_string()).unwrap();
+
+        assert!(!String::from_utf8_lossy(&contents).contains(secret));
+        let inherited: PolicyConfig = serde_json::from_slice(&contents).unwrap();
+        let fs = inherited.fs.unwrap();
+        assert_eq!(fs.read, [canonical_read]);
+        assert_eq!(fs.write, [canonical_write]);
+        assert_eq!(inherited.net.unwrap().dns, ["example.com"]);
+        let env = inherited.env.unwrap();
+        assert_eq!(env.from_host, ["*"]);
+        assert!(env.required_from_host.is_empty());
+        assert!(env.set.is_empty());
+        assert!(inherited.process.unwrap().spawn);
+    }
+
+    #[test]
+    fn policy_copy_is_independent_of_later_source_file_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("policy.json");
+        std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
+        let parent = Policy::from_file(&source).unwrap();
+        let path = parent
+            .policy_copy
+            .as_ref()
+            .unwrap()
+            .publish_transfer()
+            .unwrap();
+        let contents = policy_copy::consume_transfer(path.into_os_string()).unwrap();
+
+        std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
+        let inherited = Policy::from_inherited_json(&contents).unwrap();
+
+        #[cfg(unix)]
+        assert_eq!(
+            inherited.spawn_process_unix(OsStr::new("program"), &[OsString::from("program")]),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            inherited.spawn_process_windows(OsStr::new("program.exe")),
+            Err(AsyncHostError::PermissionDenied)
+        );
     }
 
     #[test]
