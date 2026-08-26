@@ -116,9 +116,13 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
 ### Wasm and WasmGC
 
 - Runner: `moonrun` binary from the active toolchain.
-- Invocation: `moonrun --test-args <json> <artifact>.wasm --`.
+- Invocation: `moonrun --test-args <json> [--policy <path>] <artifact>.wasm --`.
 - The JSON payload is a serialized `TestArgs`, so the runtime knows which files and
   indices to execute. Everything after `--` is forwarded to the MoonBit program.
+- `moon test --wasm-policy <path>` supplies the optional Moonrun Policy to each
+  Wasm test executable. A relative path is resolved against the effective Moon
+  invocation directory before test commands change to their module roots.
+  Other Target Backends ignore it.
 
 ### JavaScript
 

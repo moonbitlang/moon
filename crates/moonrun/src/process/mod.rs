@@ -85,14 +85,11 @@ impl HostProcess {
     /// directory at spawn time.
     pub(crate) fn configure_job_for_execution(&self, job: &mut Job) -> AsyncHostResult<()> {
         job.configure_working_directory(&self.working_directory);
-        // The guest environment is fully materialized now. Apply the
-        // host-owned value only after authorization so the env ABI cannot
-        // replace it and denied jobs remain untouched.
-        if job.invokes_moonx()
-            && let Some(path) = self.policy.publish_inherited_copy()?
-        {
-            job.inherit_policy_for_moonx(path.as_os_str());
-        }
+        // Authorization is complete, so the job may retain the immutable
+        // inheritance payload. Direct-moonx recognition, temporary-file I/O,
+        // handle setup, and reserved env replacement stay in the spawn job;
+        // this path only clones Arc-backed bytes.
+        job.set_policy_inheritance(self.policy.policy_inheritance());
         Ok(())
     }
 

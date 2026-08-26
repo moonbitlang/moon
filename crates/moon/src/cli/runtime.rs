@@ -93,22 +93,11 @@ fn prepare_delegate(invocation: DelegatedInvocation) -> anyhow::Result<Command> 
 }
 
 fn run_moonx(invocation: super::moonx::MoonxInvocation) -> i32 {
-    let inherited_policy_token = std::env::var_os(moonutil::constants::MOONRUN_INHERITED_POLICY);
-    if inherited_policy_token.is_some() {
-        // Moonx reaches this entry before Moon starts worker threads or child
-        // processes. Keep the token out of registry acquisition subprocesses;
-        // the final moonrun Command receives it explicitly.
-        unsafe {
-            std::env::remove_var(moonutil::constants::MOONRUN_INHERITED_POLICY);
-        }
-    }
     // moonx intentionally has no Moon tracing or workspace bootstrap. It owns
     // registry preparation, then returns the final program as a process action.
     let verbose = invocation.verbose;
     let user_log = UserLog::new(user_log_level(verbose, !verbose));
-    let result = super::moonx::prepare(invocation, inherited_policy_token, &user_log)
-        .map(ProcessAction::Delegate)
-        .and_then(process::execute);
+    let result = super::moonx::prepare(invocation, &user_log).and_then(process::execute);
     match result {
         Ok(code) => code,
         Err(error) => {

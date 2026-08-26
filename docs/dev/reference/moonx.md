@@ -36,26 +36,28 @@ required. `moonx` options therefore precede the package coordinate.
 The child process inherits the caller's working directory, environment,
 standard streams, and signal behavior. `moonx` returns the child's exit code.
 
-When a policy-bearing `moonrun` directly spawns `moonx`, the host publishes a
-canonical policy copy for that spawn and replaces a reserved environment entry
-with its private token. At its process entry, `moonx` removes the entry from its
-ambient environment before registry work and applies it explicitly only to the
-final `moonrun` command. That `moonrun` consumes the copy before constructing
-the Run environment, so detached `moonx` processes do not depend on the parent
-Run's lifetime, and neither registry subprocesses nor processes spawned by the
-resolved program inherit the token. The inherited policy takes precedence over
-an explicit `--experimental-policy`; the child may not replace or widen it. An
-inherited invocation rejects `--target native` because native execution does
-not pass through `moonrun`.
+When a policy-bearing `moonrun` directly spawns `moonx`, the host publishes the
+canonical policy representation through an inherited OS handle and replaces a
+reserved environment entry with the handle's process-local identifier. At
+process entry, `moonx` takes ownership of the handle, removes the entry from its
+ambient environment before registry work, and makes the handle inheritable
+again only for the final `moonrun` command. That `moonrun` reads and closes the
+handle before constructing the Run environment. Detached `moonx` processes
+therefore do not depend on the parent Run's lifetime, while registry
+subprocesses and processes spawned by the resolved program receive neither the
+marker nor the handle. No pathname crosses the process boundary: Unix removes
+the temporary name before spawning, while Windows keeps the delete-on-close
+file exclusively open. The guest therefore has no filesystem name it can
+replace or modify.
 
-The current token backend is a randomly named temporary pathname. It is
-published only for direct `moonx` spawns and normally removed by the receiving
-`moonrun`; failure or termination before that process entry can leave a
-temporary file.
-This pathname backend does not provide OS-level immutability when the platform
-temporary directory is reachable through a guest preopen. A future handle
-backend can replace this transport without changing policy serialization or
-the direct-spawn rule.
+Policy publication and handle setup run as part of the direct `moonx` spawn
+job. If either fails, the job reports the corresponding OS error and no child
+process is created or registered.
+
+For the Wasm target, the inherited policy takes precedence over an explicit
+`--experimental-policy`; the child may not replace or widen it. Native
+execution does not pass through `moonrun`, so moonx closes an inherited policy
+relay before registry work and otherwise preserves native execution behavior.
 
 ## Executable package coordinates
 

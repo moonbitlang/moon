@@ -57,6 +57,10 @@ tempfile.workspace = true
 
 [target."cfg(windows)".dependencies]
 find-msvc-tools.workspace = true
+windows-sys = { version = "0.59.0", features = ["Win32_Foundation"] }
+
+[target."cfg(unix)".dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

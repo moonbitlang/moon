@@ -331,6 +331,7 @@ Test the current package
   Possible values: `info`, `warn`, `error`
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
+* `--wasm-policy <PATH>` — Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when a single file is selected. Implies `--include-skipped`
 * `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when a single file is selected. Implies `--include-skipped`

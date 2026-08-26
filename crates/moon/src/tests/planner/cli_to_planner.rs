@@ -180,6 +180,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     render_no_loc: Error,
                     diagnostic_limit: None,
                 },
+                moonrun_policy: None,
                 package: None,
                 file: None,
                 index: None,
@@ -211,6 +212,22 @@ fn test_diagnostic_limit_parses_without_update() {
 
     assert_eq!(cmd.build_flags.diagnostic_limit, Some(10));
     assert!(!cmd.update);
+}
+
+#[test]
+fn test_wasm_policy_parses() {
+    let (_, cmd) = parse_test_command(&[
+        "test",
+        "--wasm-policy",
+        "moonrun-policy.json",
+        "--target",
+        "wasm",
+    ]);
+
+    assert_eq!(
+        cmd.moonrun_policy.as_deref(),
+        Some(std::path::Path::new("moonrun-policy.json"))
+    );
 }
 
 #[test]

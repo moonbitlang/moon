@@ -106,22 +106,25 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
 
 pub(crate) fn prepare(
     invocation: MoonxInvocation,
-    inherited_policy_token: Option<OsString>,
     user_log: &UserLog,
-) -> anyhow::Result<std::process::Command> {
+) -> anyhow::Result<super::process::ProcessAction> {
     let quiet = !invocation.verbose;
     let target = match invocation.target {
         MoonxTarget::Wasm => RegistryRunTarget::Wasm {
             experimental_policy: invocation.experimental_policy,
-            inherited_policy_token,
+            policy_relay: moonutil::policy_transport::PolicyTransfer::take_from_env()?
+                .map(moonutil::policy_transport::PolicyTransfer::into_relay),
         },
-        MoonxTarget::Native if inherited_policy_token.is_some() => {
-            anyhow::bail!("an inherited moonrun policy cannot be used with `--target native`")
-        }
         MoonxTarget::Native if invocation.experimental_policy.is_some() => {
             anyhow::bail!("--experimental-policy is only valid with `--target wasm`")
         }
-        MoonxTarget::Native => RegistryRunTarget::Native,
+        MoonxTarget::Native => {
+            // Native execution has no descendant moonrun. Consume and close a
+            // valid relay without letting an ambient malformed marker change
+            // native behavior.
+            moonutil::policy_transport::PolicyTransfer::discard_from_env();
+            RegistryRunTarget::Native
+        }
     };
     registry_runner::prepare(
         invocation.package,
