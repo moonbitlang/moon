@@ -42,6 +42,18 @@ fn render_search_results(
     writer: &mut dyn Write,
     results: &[RegistrySearchResult],
 ) -> std::io::Result<()> {
+    // Validate every name before writing anything so one malformed registry
+    // result cannot leave a partial, trusted-looking list of coordinates.
+    if results
+        .iter()
+        .any(|result| !is_safe_registry_module_name(&result.name))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "registry search response contains an invalid module name",
+        ));
+    }
+
     for result in results {
         write!(writer, "{}@{}", result.name, result.version)?;
         if let Some(description) = result.description.as_deref() {
@@ -53,6 +65,18 @@ fn render_search_results(
         writeln!(writer)?;
     }
     Ok(())
+}
+
+fn is_safe_registry_module_name(name: &str) -> bool {
+    name.split('/').all(|component| {
+        !component.is_empty()
+            && component != "."
+            && component != ".."
+            && !component.contains(['@', ':', '\\'])
+            && component
+                .chars()
+                .all(|character| !character.is_whitespace() && !character.is_control())
+    })
 }
 
 fn sanitize_registry_description(description: &str) -> String {
@@ -125,5 +149,41 @@ mod tests {
             example/empty-description@2.0.0
         "#]]
         .assert_eq(&String::from_utf8(output).unwrap());
+    }
+
+    #[test]
+    fn rejects_unsafe_module_names_before_rendering() {
+        for name in [
+            "example/module\nforged/coordinate",
+            "example/module\roverwrite",
+            "example/\x1b[2Jmodule",
+            "example/module name",
+            "example/module@9.9.9",
+        ] {
+            let mut output = Vec::new();
+            let error = render_search_results(
+                &mut output,
+                &[
+                    RegistrySearchResult {
+                        name: "example/valid".to_owned(),
+                        version: Version::new(1, 0, 0),
+                        description: None,
+                    },
+                    RegistrySearchResult {
+                        name: name.to_owned(),
+                        version: Version::new(2, 0, 0),
+                        description: None,
+                    },
+                ],
+            )
+            .unwrap_err();
+
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert_eq!(
+                error.to_string(),
+                "registry search response contains an invalid module name"
+            );
+            assert!(output.is_empty());
+        }
     }
 }
