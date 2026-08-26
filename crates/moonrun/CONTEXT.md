@@ -2,6 +2,11 @@
 
 Moonrun executes MoonBit wasm programs and provides host services that wasm code cannot perform directly.
 
+Runtime isolation work follows the
+[Runtime Isolation Contract](docs/dev/runtime-isolation.md). It records the
+Ambient compatibility guarantee, the current process-global effect inventory,
+and the verification gates for adding isolated Host-domain adapters.
+
 ## Language
 
 **Job**:

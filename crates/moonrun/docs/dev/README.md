@@ -6,6 +6,9 @@
   one-way upstream runtime-port request queue, preserve exact provenance,
   deliver one upstream port at a time, and mark the originating async pull
   request completed after the Moon change lands.
+- [Evolving Runtime isolation](runtime-isolation.md): preserve Ambient
+  compatibility, keep authorization independent from Runtime behavior, audit
+  process-global effects, and add isolated Host-domain adapters incrementally.
 
 ## How to Build and Test
 
