@@ -638,12 +638,7 @@ impl TargetLayout {
 
     /// Returns the backend inventory path shared by package metadata consumers.
     pub fn packages_index_path(&self) -> PathBuf {
-        Self::packages_index_path_in(&self.target_base_dir)
-    }
-
-    /// Returns the backend inventory path under the given target directory.
-    pub fn packages_index_path_in(target_base_dir: &Path) -> PathBuf {
-        target_base_dir.join(PACKAGES_INDEX_JSON)
+        self.target_base_dir.join(PACKAGES_INDEX_JSON)
     }
 
     /// Returns the universal metadata selector path for a standalone source

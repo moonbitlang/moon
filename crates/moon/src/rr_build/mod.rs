@@ -923,21 +923,21 @@ pub fn generate_metadata_selector(
 
 /// Generate the backend inventory for the package metadata published by one
 /// full Check invocation.
-pub fn generate_metadata_index(
-    target_dir: &Path,
-    target_backends: impl IntoIterator<Item = TargetBackend>,
+pub fn generate_metadata_index<'a>(
+    build_metas: impl IntoIterator<Item = &'a BuildMeta>,
 ) -> anyhow::Result<()> {
-    let backends = target_backends
-        .into_iter()
+    let mut build_metas = build_metas.into_iter();
+    let first = build_metas
+        .next()
+        .context("Cannot generate packages metadata index without a Check plan")?;
+    let metadata_file = first.artifact_paths.target_layout().packages_index_path();
+    let backends = std::iter::once(first)
+        .chain(build_metas)
+        .map(BuildMeta::target_backend)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .map(|backend| backend.to_string())
         .collect::<Vec<_>>();
-    anyhow::ensure!(
-        !backends.is_empty(),
-        "Cannot generate packages metadata index without a Check plan"
-    );
-    let metadata_file = TargetLayout::packages_index_path_in(target_dir);
     let index = serde_json::to_string_pretty(&backends)
         .context("Failed to serialize packages metadata index")?;
     write_metadata_if_changed(&metadata_file, &index)

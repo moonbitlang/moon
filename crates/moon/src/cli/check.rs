@@ -419,7 +419,7 @@ fn run_check_impl(
                 .collect()
         };
         let mut ret_value = 0;
-        let mut target_backends = Vec::with_capacity(targets.len());
+        let mut build_metas = Vec::with_capacity(targets.len());
         for t in targets {
             let result = run_check_for_single_file_rr(
                 cli,
@@ -430,12 +430,12 @@ fn run_check_impl(
                 output,
                 json.as_deref_mut(),
             );
-            let (x, target_backend) = match t {
+            let (x, build_meta) = match t {
                 Some(t) => result.context(format!("failed to run check for target {t:?}"))?,
                 None => result?,
             };
             ret_value = ret_value.max(x);
-            target_backends.push(target_backend);
+            build_metas.push(build_meta);
         }
         if !cli.dry_run {
             let _lock = lock_directory(&dirs.target_dir, user_log).with_context(|| {
@@ -444,7 +444,7 @@ fn run_check_impl(
                     dirs.target_dir.display()
                 )
             })?;
-            rr_build::generate_metadata_index(&dirs.target_dir, target_backends)?;
+            rr_build::generate_metadata_index(&build_metas)?;
         }
         return Ok(ret_value);
     }
@@ -520,7 +520,7 @@ fn run_check_for_single_file_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
-) -> anyhow::Result<(i32, TargetBackend)> {
+) -> anyhow::Result<(i32, rr_build::BuildMeta)> {
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -588,8 +588,6 @@ fn run_check_for_single_file_rr(
         resolved,
     )
     .context("Failed to calculate build plan")?;
-    let target_backend = build_meta.target_backend();
-
     if cli.dry_run {
         output.write_result(|writer| {
             rr_build::write_dry_run(
@@ -600,7 +598,7 @@ fn run_check_for_single_file_rr(
                 target_dir,
             )
         })?;
-        return Ok((0, target_backend));
+        return Ok((0, build_meta));
     }
 
     let _lock = lock_directory(target_dir, user_log).with_context(|| {
@@ -635,13 +633,13 @@ fn run_check_for_single_file_rr(
         )?;
         let successful = result.successful();
         json.append_build(result, user_log);
-        return Ok((if successful { 0 } else { 1 }, target_backend));
+        return Ok((if successful { 0 } else { 1 }, build_meta));
     }
 
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
-    Ok((if result.successful() { 0 } else { 1 }, target_backend))
+    Ok((if result.successful() { 0 } else { 1 }, build_meta))
 }
 
 fn get_user_intents_single_file(
@@ -849,10 +847,7 @@ fn run_check_normal_rr_from_resolved(
                 .0;
             rr_build::generate_metadata_selector(selected, None)?;
             rr_build::generate_metadata_index(
-                target_dir,
-                planned_runs
-                    .iter()
-                    .map(|(build_meta, _)| build_meta.target_backend()),
+                planned_runs.iter().map(|(build_meta, _)| build_meta),
             )?;
         }
 
