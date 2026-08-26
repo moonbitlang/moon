@@ -73,10 +73,25 @@ fn is_safe_registry_module_name(name: &str) -> bool {
             && component != "."
             && component != ".."
             && !component.contains(['@', ':', '\\'])
-            && component
-                .chars()
-                .all(|character| !character.is_whitespace() && !character.is_control())
+            && component.chars().all(|character| {
+                !character.is_whitespace()
+                    && !character.is_control()
+                    && !is_bidirectional_format_control(character)
+            })
     })
+}
+
+fn is_bidirectional_format_control(character: char) -> bool {
+    // These Unicode formatting controls can reorder surrounding text without
+    // occupying a visible cell, making a coordinate appear to say something else.
+    matches!(
+        character,
+        '\u{061c}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{206f}'
+    )
 }
 
 fn sanitize_registry_description(description: &str) -> String {
@@ -97,7 +112,10 @@ fn sanitize_registry_description(description: &str) -> String {
     let mut sanitized = String::with_capacity(printable.len());
     let mut pending_space = false;
     for character in printable.chars() {
-        if character.is_whitespace() || character.is_control() {
+        if character.is_whitespace()
+            || character.is_control()
+            || is_bidirectional_format_control(character)
+        {
             pending_space = !sanitized.is_empty();
         } else {
             if pending_space {
@@ -126,7 +144,8 @@ mod tests {
                     name: "mizchi/jq".to_owned(),
                     version: Version::new(0, 2, 2),
                     description: Some(
-                        "A jq clone\nfor MoonBit\r\x1b[31mwith color\x1b[0m\tand spaces".to_owned(),
+                        "A jq clone\nfor MoonBit\r\x1b[31mwith color\x1b[0m\tand\u{202e}spaces"
+                            .to_owned(),
                     ),
                 },
                 RegistrySearchResult {
@@ -157,6 +176,8 @@ mod tests {
             "example/module\nforged/coordinate",
             "example/module\roverwrite",
             "example/\x1b[2Jmodule",
+            "example/\u{202e}module",
+            "example/\u{2066}module",
             "example/module name",
             "example/module@9.9.9",
         ] {
