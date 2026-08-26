@@ -3671,15 +3671,11 @@ impl AsyncHost {
             job.set_err(error.errno());
             return;
         }
-        if let Ok(process_job) = job.process_mut() {
-            process.configure_job_working_directory(process_job);
-            // The guest environment is fully materialized now. The host-owned
-            // value is applied after authorization so the env ABI cannot
-            // replace it and denied jobs remain untouched.
-            if let Err(error) = process.inherit_policy_for_moonx(process_job) {
-                job.set_err(error.errno());
-                return;
-            }
+        if let Ok(process_job) = job.process_mut()
+            && let Err(error) = process.configure_job_for_execution(process_job)
+        {
+            job.set_err(error.errno());
+            return;
         }
         thread_pool::run_host_job(job);
         if let Err(error) = Self::finish_process_job(process, job) {

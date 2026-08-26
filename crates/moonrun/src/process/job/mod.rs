@@ -18,8 +18,6 @@
 
 //! Process-owned Job state submitted to moonrun's shared thread pool.
 
-mod runner;
-
 use std::ffi::{OsStr, OsString};
 #[cfg(windows)]
 use std::sync::Arc;
@@ -28,7 +26,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::{ResourcePublication, ResourceRef};
 use crate::runtime::WorkingDirectory;
 
-use super::HostProcess;
+use super::{HostProcess, ambient};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SpawnOptions {
@@ -144,7 +142,7 @@ impl Job {
                 #[cfg(unix)]
                 defer_reap,
                 #[cfg(windows)]
-                cancel: Some(Arc::new(runner::make_wait_for_process_cancel()?)),
+                cancel: Some(Arc::new(ambient::make_wait_for_process_cancel()?)),
             },
         })
     }
@@ -246,7 +244,7 @@ impl Job {
                 stdio,
                 cwd,
                 result,
-            } => runner::run_spawn_job_unix(
+            } => ambient::run_spawn_job_unix(
                 std::mem::take(path),
                 std::mem::take(args),
                 std::mem::take(env),
@@ -263,7 +261,7 @@ impl Job {
                 stdio,
                 cwd,
                 result,
-            } => runner::run_spawn_job_windows(
+            } => ambient::run_spawn_job_windows(
                 std::mem::take(command_line),
                 std::mem::take(env),
                 std::mem::take(stdio),
@@ -279,7 +277,7 @@ impl Job {
                 defer_reap,
                 #[cfg(windows)]
                 cancel,
-            } => runner::run_wait_for_process_job(
+            } => ambient::run_wait_for_process_job(
                 handle.take(),
                 *pid,
                 #[cfg(unix)]
@@ -409,14 +407,9 @@ impl Job {
     }
 }
 
-#[cfg(windows)]
-pub(super) fn cancel_wait(cancel: &ResourceRef) -> AsyncHostResult<()> {
-    runner::cancel_wait_for_process(cancel)
-}
-
 #[cfg(test)]
 fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    runner::PORTED_SYMBOLS.to_vec()
+    ambient::PORTED_SYMBOLS.to_vec()
 }
 
 #[cfg(test)]

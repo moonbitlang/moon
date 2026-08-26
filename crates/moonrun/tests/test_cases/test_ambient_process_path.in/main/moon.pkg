@@ -1,0 +1,5 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/process",
+  "moonbitlang/core/env",
+} for "test"

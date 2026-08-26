@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! glibc fallback for process spawning when `posix_spawn` cannot change cwd.
+//! glibc fallback for Ambient spawning when `posix_spawn` cannot change cwd.
 
 use std::ffi::{CString, OsStr, OsString};
 use std::io;

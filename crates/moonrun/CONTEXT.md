@@ -58,7 +58,8 @@ _Avoid_: WASI sandbox, virtual filesystem
 The environment interface owned by one Runtime and shared by MoonBit
 environment imports, WASI environment calls, temporary-directory resolution,
 and child inheritance. Moonrun Policy contributes only its startup selection;
-unrestricted mode retains its legacy process-environment write-through behavior.
+Ambient retains process-environment write-through for guest-reachable effects
+that do not yet cross Env.
 _Avoid_: Mutable policy, per-import environment map
 
 **WASI Capability Surface**:
@@ -100,10 +101,19 @@ _Avoid_: V8 network, Async Host network
 **Host Process**:
 The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed process operations. It owns Process Job payloads,
-authorization, blocking execution, result interpretation, and child-process
-authority. The Async Host owns guest Handles and worker lifecycle; the thread
-pool only schedules Process Jobs and delivers their Completions.
+authorization and final configuration, result interpretation, and child-process
+authority. Native execution stays behind its private Ambient Process
+implementation. The Async Host owns guest Handles and worker lifecycle; the
+thread pool only schedules Process Jobs and delivers their Completions.
 _Avoid_: V8 process, thread-pool process
+
+**Ambient Process**:
+The private operating-system implementation inside Host Process. It preserves
+native spawn, executable lookup, wait, cancellation, and error behavior while
+hiding Unix and Windows details below the Host Process seam. It is not a
+general process adapter interface; such an interface becomes useful only when
+another execution implementation exists.
+_Avoid_: Host Process, process adapter interface, virtual process
 
 **Handle**:
 An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, Completion Source, SQLite Database, or SQLite Statement.

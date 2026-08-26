@@ -1005,6 +1005,38 @@ allocation stack:
 }
 
 #[test]
+fn moonrun_ambient_path_lookup_observes_guest_environment_mutation() {
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_ambient_process_path.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_ambient_process_path.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    let ambient_path_bin = dir.path().join("ambient-path-bin");
+    std::fs::create_dir(&ambient_path_bin).expect("create ambient PATH directory");
+    std::fs::copy(
+        snapbox::cmd::cargo_bin!("moonrun"),
+        ambient_path_bin.join(if cfg!(windows) {
+            "moonrun-path-command.exe"
+        } else {
+            "moonrun-path-command"
+        }),
+    )
+    .expect("copy PATH lookup command");
+
+    // The command exists only on the PATH written by the guest test.
+    moon_cmd()
+        .current_dir(dir.path())
+        .env("MOONRUN_TEST_PATH", ambient_path_bin)
+        .args(["test", "main", "--target", "wasm"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+}
+
+#[test]
 fn test_moon_run_policy_with_workspace_async_fs() {
     let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
     let case_dir = case_root.join("test_policy_workspace.in");
@@ -1019,7 +1051,6 @@ fn test_moon_run_policy_with_workspace_async_fs() {
         .args(["build", "--target", "wasm"])
         .assert()
         .success();
-
     let wasm_file = |package: &str| {
         std::fs::canonicalize(dir.path().join(format!(
             "_build/wasm/debug/build/moon/policy_workspace/{package}/{package}.wasm"

@@ -21,8 +21,10 @@
 //! Callers use one native-string interface regardless of whether the Run uses
 //! moonrun's legacy ambient environment or an owned environment realized from
 //! policy. The ambient backing deliberately preserves the existing write-
-//! through contract: the embedder must serialize process-environment access.
-//! A later isolation change can replace that backing without changing callers.
+//! through contract: native executable lookup and native libraries can observe
+//! the process environment without crossing this interface, so the embedder
+//! must serialize process-environment access. An isolated backing must audit
+//! those effects before replacing Ambient behavior.
 
 use std::ffi::{OsStr, OsString};
 use std::io;
