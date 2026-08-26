@@ -17,20 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 ///|
-async fn main {
+async test "ambient PATH mutation reaches native executable lookup" {
   let path = match @env.get_env_var("MOONRUN_TEST_PATH") {
     Some(path) => path
-    None => abort("MOONRUN_TEST_PATH is missing")
+    None => fail("MOONRUN_TEST_PATH is missing")
   }
   @env.set_env_var("PATH", path)
-  try {
-    let (code, _) =
-      @process.collect_stdout("moonrun-path-command", ["--version"])
-    if code != 0 {
-      abort("PATH command exited with code \{code}")
-    }
-    println("spawned through updated PATH")
-  } catch {
-    err => abort("failed to spawn through updated PATH: \{err}")
-  }
+  let (code, _) = @process.collect_stdout("moonrun-path-command", ["--version"])
+  assert_eq(code, 0)
 }

@@ -3667,7 +3667,13 @@ impl AsyncHost {
     }
 
     fn run_policy_checked_job(policy: &Policy, process: &HostProcess, job: &mut Job) {
-        if let Err(error) = Self::prepare_job(policy, process, job) {
+        if let Err(error) = Self::check_job_policy(policy, process, job) {
+            job.set_err(error.errno());
+            return;
+        }
+        if let Ok(process_job) = job.process_mut()
+            && let Err(error) = process.configure_job_for_execution(process_job)
+        {
             job.set_err(error.errno());
             return;
         }
@@ -3677,10 +3683,10 @@ impl AsyncHost {
         }
     }
 
-    fn prepare_job(policy: &Policy, process: &HostProcess, job: &mut Job) -> AsyncHostResult<()> {
-        match job.payload_mut() {
+    fn check_job_policy(policy: &Policy, process: &HostProcess, job: &Job) -> AsyncHostResult<()> {
+        match job.payload() {
             JobPayload::Filesystem(job) => job.check_policy(policy),
-            JobPayload::Process(job) => process.prepare_job(job),
+            JobPayload::Process(job) => process.check_job(job),
             _ => Ok(()),
         }
     }

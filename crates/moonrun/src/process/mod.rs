@@ -72,10 +72,18 @@ impl HostProcess {
         self.state.is_some()
     }
 
-    /// Authorize and finish configuring a process job before it reaches the
-    /// Ambient operating-system implementation.
-    pub(crate) fn prepare_job(&self, job: &mut Job) -> AsyncHostResult<()> {
-        job.check_policy(self)?;
+    pub(crate) fn check_job(&self, job: &Job) -> AsyncHostResult<()> {
+        job.check_policy(self)
+    }
+
+    /// Apply Runtime-owned configuration to an authorized process job.
+    ///
+    /// A spawn job already contains any cwd explicitly supplied by the guest.
+    /// The Runtime Working Directory gets the final chance to adjust that
+    /// value before worker execution. Ambient deliberately leaves it alone,
+    /// including `None`, so the operating system observes its current
+    /// directory at spawn time.
+    pub(crate) fn configure_job_for_execution(&self, job: &mut Job) -> AsyncHostResult<()> {
         job.configure_working_directory(&self.working_directory);
         // The guest environment is fully materialized now. Apply the
         // host-owned value only after authorization so the env ABI cannot
