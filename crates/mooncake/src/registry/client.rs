@@ -54,8 +54,16 @@ struct RegistryIndexEntry {
 }
 
 struct RegistryEndpoints {
+    registry: String,
     packages: String,
     assets: String,
+}
+
+fn registry_http_client() -> anyhow::Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("failed to create registry HTTP client")
 }
 
 impl RegistryEndpoints {
@@ -67,9 +75,18 @@ impl RegistryEndpoints {
             format!("{registry}/user")
         };
         Self {
+            registry: registry.to_owned(),
             packages,
             assets: format!("{registry}/assets"),
         }
+    }
+
+    fn search(&self, keyword: &str, limit: u32) -> String {
+        let query = form_urlencoded::Serializer::new(String::new())
+            .append_pair("kw", keyword)
+            .append_pair("limit", &limit.to_string())
+            .finish();
+        format!("{}/api/v0/search?{query}", self.registry)
     }
 
     fn package_archive(&self, name: &ModuleName, version: &Version) -> String {
@@ -92,12 +109,21 @@ impl RegistryEndpoints {
     }
 }
 
+/// One module returned by a Mooncakes registry search.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RegistrySearchResult {
+    pub name: String,
+    pub version: Version,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
 /// Access to a configured Mooncakes registry and its local state.
 ///
-/// This client owns synchronization of the Git index and symbols archive as
-/// well as verified package and prebuilt wasm downloads. Resolution code can
-/// depend on the narrower [`super::Registry`] interface when it does not need
-/// to synchronize the registry.
+/// This client owns remote search, synchronization of the Git index and symbols
+/// archive, and verified package and prebuilt wasm downloads. Resolution code
+/// can depend on the narrower [`super::Registry`] interface when it only needs
+/// local registry metadata.
 pub struct RegistryClient {
     config: RegistryConfig,
     home: MoonHomeLayout,
@@ -137,6 +163,22 @@ impl RegistryClient {
         Ok(())
     }
 
+    /// Search the configured registry for published modules.
+    #[tracing::instrument(skip(self), fields(registry = %self.config.registry))]
+    pub fn search(&self, keyword: &str, limit: u32) -> anyhow::Result<Vec<RegistrySearchResult>> {
+        let url = self.endpoints.search(keyword, limit);
+        let response = registry_http_client()?
+            .get(&url)
+            .send()
+            .with_context(|| format!("failed to search registry at {url}"))?
+            .error_for_status()
+            .with_context(|| format!("registry search request failed at {url}"))?;
+
+        response
+            .json()
+            .with_context(|| format!("failed to parse registry search response from {url}"))
+    }
+
     /// Return a verified, locally cached prebuilt wasm asset.
     pub fn acquire_wasm_asset(
         &self,
@@ -145,10 +187,7 @@ impl RegistryClient {
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
-        let http = reqwest::blocking::Client::builder()
-            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-            .build()
-            .context("failed to create registry asset HTTP client")?;
+        let http = registry_http_client()?;
         self.acquire_wasm_asset_with(name, version, package_path, user_log, |url| {
             download_registry_asset(&http, url, user_log)
         })
@@ -732,6 +771,36 @@ mod tests {
         assert_eq!(
             endpoints.package_archive(&"test/pkg".into(), &Version::new(1, 2, 3)),
             "https://registry.example.com/user/test%2Fpkg%2F1.2.3.zip"
+        );
+    }
+
+    #[test]
+    fn registry_search_url_uses_configured_registry_and_encodes_query() {
+        let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
+            registry: "https://registry.example.com/".to_owned(),
+            index: String::new(),
+            symbols: None,
+        });
+        assert_eq!(
+            endpoints.search("json query", 7),
+            "https://registry.example.com/api/v0/search?kw=json+query&limit=7"
+        );
+    }
+
+    #[test]
+    fn registry_search_result_ignores_unneeded_response_fields() {
+        let results: Vec<RegistrySearchResult> = serde_json::from_str(
+            r#"[{"name":"mizchi/jq","version":"0.2.2","license":"Apache-2.0","description":"A jq clone","is_new":false}]"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            results,
+            [RegistrySearchResult {
+                name: "mizchi/jq".to_owned(),
+                version: Version::new(0, 2, 2),
+                description: Some("A jq clone".to_owned()),
+            }]
         );
     }
 

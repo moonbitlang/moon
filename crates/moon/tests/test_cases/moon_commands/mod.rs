@@ -66,6 +66,7 @@ fn test_moon_help() {
               install                Install a binary package globally or install project dependencies (deprecated without args)
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
+              search                 Search for modules in the package registry
               work                   Workspace maintenance commands
               login                  Log in to your account
               whoami                 Show login status and username

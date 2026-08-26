@@ -24,7 +24,7 @@ pub mod path;
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
-pub use client::RegistryClient;
+pub use client::{RegistryClient, RegistrySearchResult};
 pub use executable::ResolvedExecutablePackage;
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;

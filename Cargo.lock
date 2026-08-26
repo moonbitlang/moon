@@ -1654,6 +1654,7 @@ dependencies = [
 name = "moon"
 version = "0.1.0"
 dependencies = [
+ "anstream",
  "anstyle",
  "anyhow",
  "blake3",
