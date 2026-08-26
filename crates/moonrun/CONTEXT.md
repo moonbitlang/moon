@@ -58,7 +58,8 @@ _Avoid_: WASI sandbox, virtual filesystem
 The environment interface owned by one Runtime and shared by MoonBit
 environment imports, WASI environment calls, temporary-directory resolution,
 and child inheritance. Moonrun Policy contributes only its startup selection;
-unrestricted mode retains its legacy process-environment write-through behavior.
+Ambient retains process-environment write-through for guest-reachable effects
+that do not yet cross Env.
 _Avoid_: Mutable policy, per-import environment map
 
 **WASI Capability Surface**:

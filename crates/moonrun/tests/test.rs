@@ -1036,6 +1036,7 @@ fn test_moon_run_policy_with_workspace_async_fs() {
     #[cfg(unix)]
     let detach_moonx_wasm = wasm_file("detach_moonx");
     let env_mutate_wasm = wasm_file("env_mutate");
+    let ambient_process_path_wasm = wasm_file("ambient_process_path");
     let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
     let process_env_wasm = wasm_file("process_env");
     let policy_file = std::fs::canonicalize(dir.path().join("policy.toml")).unwrap();
@@ -1059,6 +1060,28 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
     let env_mutate_stdout = "runtime override\nmissing\n/first/\n/second/\n/tmp/\n";
     #[cfg(windows)]
     let env_mutate_stdout = "runtime override\nmissing\nC:/First\\\nC:/Second\\\nmissing\n";
+
+    let ambient_path_bin = dir.path().join("ambient-path-bin");
+    std::fs::create_dir(&ambient_path_bin).expect("create ambient PATH directory");
+    std::fs::copy(
+        snapbox::cmd::cargo_bin!("moonrun"),
+        ambient_path_bin.join(if cfg!(windows) {
+            "moonrun-path-command.exe"
+        } else {
+            "moonrun-path-command"
+        }),
+    )
+    .expect("copy PATH lookup command");
+
+    // Ambient environment mutation is process-wide today, so native
+    // executable lookup must observe the PATH set by the guest.
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("MOONRUN_TEST_PATH", &ambient_path_bin)
+        .arg(&ambient_process_path_wasm)
+        .assert()
+        .success()
+        .stdout_eq("spawned through updated PATH\n");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
