@@ -52,6 +52,7 @@ const MI_EXTENSION: &str = ".mi";
 const IMPL_MI_EXTENSION: &str = ".impl.mi";
 pub const GENERATED_TEST_DRIVER_PREFIX: &str = "__generated_driver_for";
 const PACKAGES_JSON: &str = "packages.json";
+const PACKAGES_INDEX_JSON: &str = "index.json";
 
 #[derive(Clone, Copy, Debug)]
 pub enum ExecutableArtifact {
@@ -633,6 +634,11 @@ impl TargetLayout {
     /// Returns the universal `packages.json` selector path.
     pub fn packages_selector_path(&self) -> PathBuf {
         packages_metadata_path(self.target_base_dir.clone(), None)
+    }
+
+    /// Returns the backend inventory path shared by package metadata consumers.
+    pub fn packages_index_path(&self) -> PathBuf {
+        self.target_base_dir.join(PACKAGES_INDEX_JSON)
     }
 
     /// Returns the universal metadata selector path for a standalone source
@@ -1810,6 +1816,10 @@ mod tests {
         assert_eq!(
             layout.packages_selector_path(),
             PathBuf::from("_build/packages.json")
+        );
+        assert_eq!(
+            layout.packages_index_path(),
+            PathBuf::from("_build/index.json")
         );
         assert_eq!(
             layout.standalone_packages_selector_path("main.mbt"),

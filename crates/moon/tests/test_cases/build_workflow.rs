@@ -131,15 +131,18 @@ fn test_check_failed_should_write_pkg_json() {
 
     let pkg_json = packages_selector_path(&dir);
     assert!(pkg_json.exists());
+    assert!(packages_index_path(&dir).exists());
 }
 
 #[test]
 fn test_packages_json_full_check_and_focused_check_behavior() {
     let dir = TestDir::new("hello");
     let pkg_json = packages_selector_path(&dir);
+    let index_json = packages_index_path(&dir);
     let scoped_pkg_json = scoped_packages_json_path(&dir, "wasm-gc", "release");
     std::fs::create_dir_all(pkg_json.parent().unwrap()).unwrap();
     std::fs::write(&pkg_json, "existing metadata").unwrap();
+    std::fs::write(&index_json, "existing index").unwrap();
 
     moon_cmd(&dir)
         .args(["check", "--target", "wasm-gc", "--release"])
@@ -158,12 +161,16 @@ fn test_packages_json_full_check_and_focused_check_behavior() {
             "opt_level": "release"
         })
     );
+    let packages_index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&index_json).unwrap()).unwrap();
+    assert_eq!(packages_index, serde_json::json!(["wasm-gc"]));
     let scoped_metadata: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&scoped_pkg_json).unwrap()).unwrap();
     assert_eq!(scoped_metadata["backend"], serde_json::json!("wasm-gc"));
     assert_eq!(scoped_metadata["opt_level"], serde_json::json!("release"));
 
     std::fs::write(&pkg_json, "existing metadata").unwrap();
+    std::fs::write(&index_json, "existing index").unwrap();
     std::fs::write(&scoped_pkg_json, "existing scoped metadata").unwrap();
 
     moon_cmd(&dir)
@@ -173,6 +180,10 @@ fn test_packages_json_full_check_and_focused_check_behavior() {
     assert_eq!(
         std::fs::read_to_string(&pkg_json).unwrap(),
         "existing metadata"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&index_json).unwrap(),
+        "existing index"
     );
     assert_eq!(
         std::fs::read_to_string(&scoped_pkg_json).unwrap(),

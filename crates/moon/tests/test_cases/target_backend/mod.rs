@@ -789,6 +789,8 @@ fn test_check_publishes_backend_scoped_packages_json() {
     let packages_selector: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(packages_selector_path(&dir)).unwrap())
             .unwrap();
+    let packages_index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_index_path(&dir)).unwrap()).unwrap();
     let js_packages_json: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(scoped_packages_json_path(&dir, "js", "debug")).unwrap(),
     )
@@ -805,6 +807,7 @@ fn test_check_publishes_backend_scoped_packages_json() {
             "opt_level": "debug"
         })
     );
+    assert_eq!(packages_index, serde_json::json!(["js", "native"]));
     assert_eq!(js_packages_json["backend"], serde_json::json!("js"));
     assert_eq!(native_packages_json["backend"], serde_json::json!("native"));
     assert_eq!(js_packages_json["opt_level"], serde_json::json!("debug"));

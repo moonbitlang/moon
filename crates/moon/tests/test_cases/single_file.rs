@@ -638,6 +638,9 @@ fn test_single_file_commands_work_with_workspace_disabled() {
         serde_json::from_str(&std::fs::read_to_string(scoped_pkg_json).unwrap()).unwrap();
     assert_eq!(scoped_pkg_json["backend"], serde_json::json!("wasm-gc"));
     assert_eq!(scoped_pkg_json["opt_level"], serde_json::json!("debug"));
+    let packages_index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_index_path(dir)).unwrap()).unwrap();
+    assert_eq!(packages_index, serde_json::json!(["wasm-gc"]));
 
     check(
         get_stdout_with_envs(&dir, ["test", "test.mbt"], [(MOON_NO_WORKSPACE, "1")]),
@@ -683,6 +686,9 @@ fn test_single_file_check_accepts_multiple_targets() {
 
     assert!(standalone_scoped_packages_json_path(dir, "wasm-gc", "debug", "hello.mbt").exists());
     assert!(standalone_scoped_packages_json_path(dir, "js", "debug", "hello.mbt").exists());
+    let packages_index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_index_path(dir)).unwrap()).unwrap();
+    assert_eq!(packages_index, serde_json::json!(["wasm-gc", "js"]));
     let selector: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(standalone_packages_selector_path(dir, "hello.mbt")).unwrap(),
     )
