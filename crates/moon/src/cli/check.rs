@@ -27,7 +27,8 @@
 //!    ordered list of single-backend RR plans.
 //! 4. `plan_check_rr_from_resolved` still plans exactly one backend group.
 //! 5. The command layer composes those plans into one executor graph. Project
-//!    checks without a selector publish `packages.json`; focused checks leave
+//!    checks without a selector publish `packages.json` and `index.json`;
+//!    focused checks leave
 //!    it untouched.
 //!
 use anyhow::Context;
@@ -826,6 +827,7 @@ fn run_planned_checks(
             .expect("non-empty planned runs were checked above")
             .0;
         rr_build::generate_metadata_selector(selected, metadata_filename)?;
+        rr_build::generate_metadata_index(planned_runs.iter().map(|(build_meta, _)| build_meta))?;
     }
 
     let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
