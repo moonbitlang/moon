@@ -634,6 +634,9 @@ fn test_single_file_commands_work_with_workspace_disabled() {
             "opt_level": "debug"
         })
     );
+    let packages_index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_index_path(dir)).unwrap()).unwrap();
+    assert_eq!(packages_index, serde_json::json!(["wasm-gc"]));
     let scoped_pkg_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(scoped_pkg_json).unwrap()).unwrap();
     assert_eq!(scoped_pkg_json["backend"], serde_json::json!("wasm-gc"));

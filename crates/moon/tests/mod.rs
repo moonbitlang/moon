@@ -56,6 +56,10 @@ fn packages_selector_path(dir: impl AsRef<Path>) -> PathBuf {
     dir.as_ref().join("_build/packages.json")
 }
 
+fn packages_index_path(dir: impl AsRef<Path>) -> PathBuf {
+    dir.as_ref().join("_build/index.json")
+}
+
 fn scoped_packages_json_path(dir: impl AsRef<Path>, backend: &str, profile: &str) -> PathBuf {
     dir.as_ref()
         .join(format!("_build/{backend}/{profile}/check/packages.json"))

@@ -125,6 +125,7 @@ fn test_indirect_dep_bundle() {
     let _ = get_stdout(&dir, ["clean"]);
     std::fs::create_dir_all(dir.join("_build")).unwrap();
     std::fs::write(packages_selector_path(&dir), "existing check selector").unwrap();
+    std::fs::write(packages_index_path(&dir), "existing check index").unwrap();
     check(
         get_stderr(&dir, ["bundle", "--target", "wasm-gc"]),
         expect![[r#"
@@ -134,6 +135,10 @@ fn test_indirect_dep_bundle() {
     assert_eq!(
         std::fs::read_to_string(packages_selector_path(&dir)).unwrap(),
         "existing check selector"
+    );
+    assert_eq!(
+        std::fs::read_to_string(packages_index_path(&dir)).unwrap(),
+        "existing check index"
     );
     assert!(
         !dir.join("_build/wasm-gc/release/bundle/packages.json")

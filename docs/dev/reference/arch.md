@@ -598,9 +598,9 @@ vector. Physical outputs required only for execution, such as a companion dSYM
 directory, are not caller-requested results; the current n2 graph still executes
 their producer when the output is an unconsumed graph root.
 
-`packages.json` is metadata shared with IDE tooling. The universal file is a
-small selector containing the active Target Backend and build profile from the
-last full Check plan:
+Package metadata is shared with IDE tooling. The universal `packages.json` is
+an exact two-field selector containing the active Target Backend and build
+profile from the last full Check plan:
 
 ```json
 {
@@ -609,10 +609,26 @@ last full Check plan:
 }
 ```
 
-The selector identifies a configuration-scoped Check document:
+The companion `index.json` is a JSON array of every Target Backend for which
+that Check invocation planned and published package metadata:
+
+```json
+[
+  "js",
+  "native"
+]
+```
+
+This set comes directly from the already-planned Check runs, so explicit
+targets, module preferences, and package `supported_targets` filtering are
+reflected without an additional discovery or resolution pass. Entries are
+deduplicated and ordered by Target Backend.
+
+The selector and index identify configuration-scoped Check documents:
 
 ```text
 _build/packages.json
+_build/index.json
 _build/<backend>/<profile>/check/packages.json
 ```
 
@@ -622,14 +638,22 @@ and conditional metadata for all package files. This first migration step only
 relocates that document behind the selector; backend/profile projection and
 removal of redundant legacy fields are deferred to a follow-up change.
 
-Standalone-file checks similarly publish both
-`_build/<filename>.packages.json` and
-`_build/<backend>/<profile>/check/<filename>.packages.json`. Project checks
-without a package or path selector publish metadata; focused project checks
-leave it untouched. `moon bundle` does not publish either format. `moon doc`
-generates only its scoped Check document and passes that path directly to
-`moondoc`, without changing the universal selector used by the language server.
+Standalone-file checks similarly publish their selector and scoped document,
+and replace the shared backend index:
 
-Scoped documents are atomically replaced before the selector, so readers never
-follow a new selector to a partially written document. Byte-identical metadata
-is left untouched.
+```text
+_build/<filename>.packages.json
+_build/index.json
+_build/<backend>/<profile>/check/<filename>.packages.json
+```
+
+Project checks without a package or path selector publish metadata; focused
+project checks leave it untouched. `moon bundle` does not publish these files.
+`moon doc` generates only its scoped Check document and passes that path
+directly to `moondoc`, without changing the universal selector or backend index
+used by the language server.
+
+Scoped documents are atomically replaced before the selector, and the backend
+index is replaced last. Readers therefore never follow a newly published index
+to a partially written document or stale selector. Byte-identical metadata is
+left untouched.

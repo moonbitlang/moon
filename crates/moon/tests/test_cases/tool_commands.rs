@@ -36,11 +36,13 @@ fn test_moon_doc() {
     let dir = TestDir::new("moon_doc.in");
     std::fs::create_dir_all(dir.join("_build")).unwrap();
     std::fs::write(packages_selector_path(&dir), "existing check selector").unwrap();
+    std::fs::write(packages_index_path(&dir), "existing check index").unwrap();
     let _ = get_stderr(&dir, ["doc"]);
     assert_eq!(
         read(packages_selector_path(&dir)),
         "existing check selector"
     );
+    assert_eq!(read(packages_index_path(&dir)), "existing check index");
     check(
         read(dir.join("_build/doc/username/hello/lib/members.md")),
         expect![[r#"
