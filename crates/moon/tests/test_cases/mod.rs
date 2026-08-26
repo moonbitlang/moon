@@ -98,6 +98,7 @@ mod prebuild;
 mod prebuild_config_script;
 mod prebuild_link_config_self;
 mod query_symbol;
+mod registry_search;
 mod run_command;
 mod run_doc_test;
 mod run_md_test;
