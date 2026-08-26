@@ -25,6 +25,7 @@ use std::{
 pub(crate) enum ProcessAction {
     Exit(i32),
     Delegate(Command),
+    DelegateWithPolicyRelay(Command, moonutil::policy_transport::PolicyRelay),
 }
 
 impl From<i32> for ProcessAction {
@@ -38,6 +39,46 @@ pub(crate) fn execute(action: ProcessAction) -> anyhow::Result<i32> {
     match action {
         ProcessAction::Exit(code) => Ok(code),
         ProcessAction::Delegate(mut command) => Ok(delegate(&mut command)?.code().unwrap_or(0)),
+        ProcessAction::DelegateWithPolicyRelay(mut command, relay) => {
+            Ok(delegate_with_policy_relay(&mut command, relay)?
+                .code()
+                .unwrap_or(0))
+        }
+    }
+}
+
+#[cfg(unix)]
+fn delegate_with_policy_relay(
+    cmd: &mut Command,
+    relay: moonutil::policy_transport::PolicyRelay,
+) -> anyhow::Result<ExitStatus> {
+    let _relay = relay.attach_to(cmd)?;
+    delegate(cmd)
+}
+
+#[cfg(windows)]
+fn delegate_with_policy_relay(
+    cmd: &mut Command,
+    relay: moonutil::policy_transport::PolicyRelay,
+) -> anyhow::Result<ExitStatus> {
+    install_ctrl_c_passthrough_handler()?;
+    // Moonx reaches this point after registry acquisition and does not start
+    // other children. Keep Windows' process-wide inheritable-handle window to
+    // the CreateProcess call itself.
+    let relay = relay.attach_to(cmd)?;
+    let child = cmd.spawn();
+    let isolation = relay.finish();
+    match (child, isolation) {
+        (Err(error), _) => Err(error.into()),
+        (Ok(mut child), Ok(())) => Ok(child.wait()?),
+        (Ok(mut child), Err(error)) => {
+            // The parent must not continue with the policy handle globally
+            // inheritable. Do not leave an already-created delegate running
+            // after reporting that isolation failed.
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(error.into())
+        }
     }
 }
 

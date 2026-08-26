@@ -217,6 +217,29 @@ fn test_moon_test_workspace_members_run_from_module_root() {
 }
 
 #[test]
+fn test_moon_test_resolves_wasm_policy_before_changing_to_module_roots() {
+    let dir = TestDir::new("moon_test/workspace_cwd");
+    let spawn_dir = dir.join("spawn");
+    std::fs::create_dir(&spawn_dir).expect("failed to create spawn directory");
+
+    moon_cmd(&spawn_dir)
+        .args([
+            "-C",
+            "..",
+            "test",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+            "policy.json",
+            "--no-parallelize",
+            "--sort-input",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 2, passed: 2, failed: 0.\n");
+}
+
+#[test]
 fn test_zombie_child_process() {
     use super::process::{
         read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,

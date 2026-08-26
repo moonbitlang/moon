@@ -150,7 +150,7 @@ Options:
 }
 
 #[test]
-fn test_inherited_moonx_policy_rejects_native_execution() {
+fn test_moonx_validates_native_options_before_discarding_an_inherited_marker() {
     let dir = TestDir::new_empty();
     let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
     let moonx = moonx_bin(&bin_dir);
@@ -159,14 +159,20 @@ fn test_inherited_moonx_policy_rejects_native_execution() {
         .current_dir(&dir)
         .env(
             moonutil::constants::MOONRUN_INHERITED_POLICY,
-            "opaque-policy-token",
+            "not-an-os-handle",
         )
-        .args(["--target", "native", "user/module"])
+        .args([
+            "--target",
+            "native",
+            "--experimental-policy",
+            "unused.toml",
+            "user/module",
+        ])
         .assert()
         .failure()
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
-Error: an inherited moonrun policy cannot be used with `--target native`
+Error: --experimental-policy is only valid with `--target wasm`
 
 "#]]);
 }
@@ -338,6 +344,52 @@ Finished. moon: ran 9 tasks, now up to date
     std::fs::remove_file(&executable).unwrap();
     run();
     assert!(executable.is_file());
+
+    let transfer = moonutil::policy_transport::PolicyTransfer::from_file(
+        tempfile::tempfile().expect("failed to create inherited policy handle"),
+    )
+    .unwrap();
+    let mut inherited_native = std::process::Command::new(&moonx);
+    inherited_native
+        .current_dir(&fixture)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .args([
+            "--target",
+            "native",
+            "testuser/runner/tool@1.2.3",
+            "--inherited-native",
+        ]);
+    let relay = transfer
+        .into_relay()
+        .attach_to(&mut inherited_native)
+        .unwrap();
+    snapbox::cmd::Command::from_std(inherited_native)
+        .assert()
+        .success()
+        .stdout_eq("native runner\n--inherited-native\n")
+        .stderr_eq("");
+    relay.finish().unwrap();
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&fixture)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env(
+            moonutil::constants::MOONRUN_INHERITED_POLICY,
+            "not-an-os-handle",
+        )
+        .args([
+            "--target",
+            "native",
+            "testuser/runner/tool@1.2.3",
+            "--malformed-inherited-marker",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("native runner\n--malformed-inherited-marker\n")
+        .stderr_eq("");
+
     std::fs::remove_file(&zip_path).unwrap();
     std::fs::remove_file(&index_path).unwrap();
     run();

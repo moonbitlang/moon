@@ -27,6 +27,9 @@ use std::process::{Command, Stdio};
 
 use crate::resource::ResourceRef;
 
+// This fallback takes the same native spawn inputs as the Ambient Process job.
+// Wrapping them would duplicate that representation only to satisfy Clippy.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_with_command(
     path: OsString,
     args: Vec<OsString>,
@@ -35,6 +38,7 @@ pub(super) fn spawn_with_command(
     cwd: OsString,
     child_signal_mask: libc::sigset_t,
     parent_path: Option<OsString>,
+    inherited_policy_fd: Option<libc::c_int>,
 ) -> Result<libc::pid_t, i32> {
     let mut stdio_fds = duplicate_stdio_fds(&stdio)?;
     let parent_path_search = ParentPathSearch::new(&path, &args, &env, parent_path.as_deref())?;
@@ -71,6 +75,12 @@ pub(super) fn spawn_with_command(
     // captured by value before fork, and constructs errors without allocation.
     unsafe {
         command.pre_exec(move || {
+            if let Some(fd) = inherited_policy_fd {
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                    return Err(io::Error::from_raw_os_error(last_errno()));
+                }
+            }
             for signal in 1..=max_signal {
                 if signal == libc::SIGKILL || signal == libc::SIGSTOP {
                     continue;
@@ -325,6 +335,7 @@ mod tests {
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
             Some(tmp.path().as_os_str().to_owned()),
+            None,
         )
         .unwrap();
         assert!(unsafe { libc::fcntl(stdout.as_file().unwrap().as_raw_fd(), libc::F_GETFD) } >= 0);
@@ -361,6 +372,7 @@ mod tests {
             [None, None, None],
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
+            None,
             None,
         );
         let mut current_mask = unsafe { std::mem::zeroed() };
@@ -400,6 +412,7 @@ mod tests {
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
             None,
+            None,
         )
         .unwrap_err();
 
@@ -432,6 +445,7 @@ mod tests {
             [None, Some(stdout.clone()), Some(stdout.clone())],
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
+            None,
             None,
         )
         .unwrap();

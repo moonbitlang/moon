@@ -18,7 +18,9 @@
 
 //! Process-owned Job state submitted to moonrun's shared thread pool.
 
-use std::ffi::{OsStr, OsString};
+#[cfg(windows)]
+use std::ffi::OsStr;
+use std::ffi::OsString;
 #[cfg(windows)]
 use std::sync::Arc;
 
@@ -56,6 +58,7 @@ enum Kind {
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
+        policy_inheritance: Option<crate::policy::PolicyInheritance>,
         result: Option<ResourcePublication>,
     },
     #[cfg(windows)]
@@ -65,6 +68,7 @@ enum Kind {
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
+        policy_inheritance: Option<crate::policy::PolicyInheritance>,
         result: Option<ResourcePublication>,
     },
     WaitForProcess {
@@ -100,6 +104,7 @@ impl Job {
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
+                policy_inheritance: None,
                 result: None,
             },
         }
@@ -123,6 +128,7 @@ impl Job {
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
+                policy_inheritance: None,
                 result: None,
             },
         }
@@ -234,6 +240,7 @@ impl Job {
     }
 
     pub(crate) fn run(&mut self) -> AsyncHostResult<i64> {
+        let invokes_moonx = self.invokes_moonx();
         match &mut self.kind {
             #[cfg(unix)]
             Kind::SpawnUnix {
@@ -243,6 +250,7 @@ impl Job {
                 options,
                 stdio,
                 cwd,
+                policy_inheritance,
                 result,
             } => ambient::run_spawn_job_unix(
                 std::mem::take(path),
@@ -251,6 +259,11 @@ impl Job {
                 std::mem::take(stdio),
                 cwd.take(),
                 *options,
+                if invokes_moonx {
+                    policy_inheritance.take()
+                } else {
+                    None
+                },
                 result,
             ),
             #[cfg(windows)]
@@ -260,6 +273,7 @@ impl Job {
                 options,
                 stdio,
                 cwd,
+                policy_inheritance,
                 result,
             } => ambient::run_spawn_job_windows(
                 std::mem::take(command_line),
@@ -267,6 +281,11 @@ impl Job {
                 std::mem::take(stdio),
                 cwd.take(),
                 *options,
+                if invokes_moonx {
+                    policy_inheritance.take()
+                } else {
+                    None
+                },
                 result,
             ),
             Kind::WaitForProcess {
@@ -301,9 +320,7 @@ impl Job {
     pub(super) fn invokes_moonx(&self) -> bool {
         match &self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { args, .. } => args
-                .first()
-                .is_some_and(|argv0| moonutil::constants::is_moonx_executable(argv0)),
+            Kind::SpawnUnix { path, .. } => moonutil::constants::is_moonx_executable(path),
             #[cfg(windows)]
             Kind::SpawnWindows { command_line, .. } => {
                 moonutil::constants::is_moonx_executable(OsStr::new(
@@ -314,25 +331,23 @@ impl Job {
         }
     }
 
-    pub(super) fn inherit_policy_for_moonx(&mut self, token: &OsStr) {
-        match &mut self.kind {
+    pub(super) fn set_policy_inheritance(
+        &mut self,
+        inheritance: Option<crate::policy::PolicyInheritance>,
+    ) {
+        let slot = match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { env, .. } => {
-                crate::async_sys::process::overwrite_process_env_var(
-                    env,
-                    OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
-                    token,
-                );
-            }
+            Kind::SpawnUnix {
+                policy_inheritance, ..
+            } => Some(policy_inheritance),
             #[cfg(windows)]
-            Kind::SpawnWindows { env, .. } => {
-                crate::async_sys::process::overwrite_process_env_var(
-                    env,
-                    OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
-                    token,
-                );
-            }
-            Kind::WaitForProcess { .. } => unreachable!("wait jobs do not invoke moonx"),
+            Kind::SpawnWindows {
+                policy_inheritance, ..
+            } => Some(policy_inheritance),
+            Kind::WaitForProcess { .. } => None,
+        };
+        if let Some(slot) = slot {
+            *slot = inheritance;
         }
     }
 
@@ -434,26 +449,13 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn direct_moonx_spawn_inherits_policy_after_guest_environment() {
-        let mut job = spawn_job(
+    fn direct_moonx_spawn_is_recognized_after_guest_environment() {
+        let job = spawn_job(
             "moonx",
             vec!["MOONRUN_INHERITED_POLICY=guest".into(), "KEEP=value".into()],
         );
 
         assert!(job.invokes_moonx());
-        job.inherit_policy_for_moonx(OsStr::new("/tmp/parent-policy.json"));
-
-        let Kind::SpawnUnix { env, .. } = job.kind else {
-            unreachable!()
-        };
-        assert_eq!(
-            env,
-            [
-                "MOONRUN_INHERITED_POLICY=/tmp/parent-policy.json",
-                "KEEP=value"
-            ]
-            .map(OsString::from)
-        );
     }
 
     #[cfg(unix)]
@@ -462,17 +464,31 @@ mod tests {
         let job = spawn_job("moon", vec!["KEEP=value".into()]);
 
         assert!(!job.invokes_moonx());
+    }
 
-        let Kind::SpawnUnix { env, .. } = job.kind else {
-            unreachable!()
-        };
-        assert_eq!(env, [OsString::from("KEEP=value")]);
+    #[cfg(unix)]
+    #[test]
+    fn guest_argv0_cannot_disguise_another_executable_as_moonx() {
+        let job = Job::spawn_unix(
+            "/bin/sh".into(),
+            vec!["moonx".into()],
+            Vec::new(),
+            None,
+            None,
+            None,
+            None,
+            SpawnOptions {
+                child_signal_mask: unsafe { std::mem::zeroed() },
+            },
+        );
+
+        assert!(!job.invokes_moonx());
     }
 
     #[cfg(windows)]
     #[test]
     fn windows_embedded_quotes_cannot_bypass_moonx_inheritance() {
-        let mut job = Job::spawn_windows(
+        let job = Job::spawn_windows(
             OsString::from(r#""moon"x user/module"#),
             "moonrun_inherited_policy=guest\0KEEP=value\0\0"
                 .encode_utf16()
@@ -488,17 +504,6 @@ mod tests {
         );
 
         assert!(job.invokes_moonx());
-        job.inherit_policy_for_moonx(OsStr::new(r"C:\parent-policy.json"));
-
-        let Kind::SpawnWindows { env, .. } = job.kind else {
-            unreachable!()
-        };
-        assert_eq!(
-            env,
-            "MOONRUN_INHERITED_POLICY=C:\\parent-policy.json\0KEEP=value\0\0"
-                .encode_utf16()
-                .collect::<Vec<_>>()
-        );
     }
 
     #[test]

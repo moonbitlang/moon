@@ -25,7 +25,7 @@ mod config;
 mod env;
 mod fs;
 mod net;
-mod policy_copy;
+mod policy_inheritance;
 mod process;
 
 use std::ffi::OsStr;
@@ -42,8 +42,7 @@ use self::config::PolicyConfig;
 use self::env::EnvPolicy;
 use self::fs::{FsIntents, FsPolicy, RuntimePathBase};
 use self::net::{NetOperation, NetPolicy};
-use self::policy_copy::PolicyCopy;
-pub(crate) use self::policy_copy::consume_transfer as consume_inherited_copy;
+pub(crate) use self::policy_inheritance::PolicyInheritance;
 use self::process::ProcessPolicy;
 
 #[derive(Clone, Debug)]
@@ -52,7 +51,7 @@ pub(crate) struct Policy {
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
-    policy_copy: Option<PolicyCopy>,
+    policy_inheritance: Option<PolicyInheritance>,
 }
 
 fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
@@ -71,7 +70,7 @@ impl Policy {
             net: None,
             env: None,
             process: None,
-            policy_copy: None,
+            policy_inheritance: None,
         }
     }
 
@@ -84,8 +83,8 @@ impl Policy {
     pub(crate) fn from_inherited_json(contents: &[u8]) -> anyhow::Result<Self> {
         let config = serde_json::from_slice(contents)
             .context("failed to parse inherited JSON Moonrun Policy")?;
-        // Canonical copies contain absolute filesystem roots. Running the same
-        // canonicalization confirms that those roots still resolve in this Run.
+        // Inherited policies contain absolute filesystem roots. Running the
+        // same canonicalization confirms that those roots still resolve here.
         Self::from_config(config, Path::new("."))
     }
 
@@ -101,7 +100,7 @@ impl Policy {
 
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
         let config = canonicalize(config, config_dir)?;
-        let policy_copy = PolicyCopy::publish(&config)?;
+        let policy_inheritance = PolicyInheritance::from_config(&config)?;
         Ok(Self {
             fs: Some(FsPolicy::from_canonical_config(
                 config.fs.unwrap_or_default(),
@@ -111,20 +110,12 @@ impl Policy {
             process: Some(ProcessPolicy::from_config(
                 config.process.unwrap_or_default(),
             )?),
-            policy_copy: Some(policy_copy),
+            policy_inheritance: Some(policy_inheritance),
         })
     }
 
-    pub(crate) fn publish_inherited_copy(&self) -> AsyncHostResult<Option<PathBuf>> {
-        self.policy_copy
-            .as_ref()
-            .map(PolicyCopy::publish_transfer)
-            .transpose()
-            .map_err(|error| {
-                error
-                    .raw_os_error()
-                    .map_or(AsyncHostError::Io, AsyncHostError::Native)
-            })
+    pub(crate) fn policy_inheritance(&self) -> Option<PolicyInheritance> {
+        self.policy_inheritance.clone()
     }
 
     pub(crate) fn open_path(
@@ -539,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn policy_copy_preserves_canonical_rules_and_inherits_the_child_environment() {
+    fn inherited_policy_preserves_canonical_rules_and_uses_the_child_environment() {
         let tmp = tempfile::tempdir().unwrap();
         let read = tmp.path().join("read");
         let write = tmp.path().join("write");
@@ -573,13 +564,13 @@ mod tests {
             tmp.path(),
         )
         .unwrap();
-        let path = policy
-            .policy_copy
-            .as_ref()
+        let contents = policy
+            .policy_inheritance()
             .unwrap()
-            .publish_transfer()
+            .open_transfer()
+            .unwrap()
+            .read()
             .unwrap();
-        let contents = policy_copy::consume_transfer(path.into_os_string()).unwrap();
 
         assert!(!String::from_utf8_lossy(&contents).contains(secret));
         let inherited: PolicyConfig = serde_json::from_slice(&contents).unwrap();
@@ -595,18 +586,18 @@ mod tests {
     }
 
     #[test]
-    fn policy_copy_is_independent_of_later_source_file_changes() {
+    fn inherited_policy_is_independent_of_later_source_file_changes() {
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("policy.json");
         std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
         let parent = Policy::from_file(&source).unwrap();
-        let path = parent
-            .policy_copy
-            .as_ref()
+        let contents = parent
+            .policy_inheritance()
             .unwrap()
-            .publish_transfer()
+            .open_transfer()
+            .unwrap()
+            .read()
             .unwrap();
-        let contents = policy_copy::consume_transfer(path.into_os_string()).unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
         let inherited = Policy::from_inherited_json(&contents).unwrap();

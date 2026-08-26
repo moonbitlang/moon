@@ -16,29 +16,34 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Embeddable execution support for MoonBit Wasm programs.
-//!
-//! The interface is experimental. It currently separates guest termination
-//! from host-process termination, while retaining Moonrun's existing V8 and
-//! process-scoped host integrations.
+///|
+enum HostPlatform {
+  Linux = 0
+  MacOS = 1
+  Windows = 2
+}
 
-mod async_api;
-mod async_host;
-mod async_sys;
-mod engine;
-mod filesystem;
-mod guest_memory;
-mod network;
-mod policy;
-mod process;
-mod resource;
-mod run_termination;
-mod runtime;
-mod source_map;
-mod sqlite;
-mod temp_dir;
-mod util;
-mod v8;
+///|
+#unsafe_skip_stub_check
+fn host_platform() -> HostPlatform = "moonbitlang/async" "runtime/get_platform"
 
-pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
-pub use runtime::WorkingDirectory;
+///|
+async test "policy transfer failure is reported by the spawn job" {
+  let temp_dir = if host_platform() is Windows {
+    @env.get_env_var("TEMP")
+  } else {
+    @env.get_env_var("TMPDIR")
+  }
+  match temp_dir {
+    Some(path) => @fs.rmdir(path)
+    None => abort("temporary directory is missing")
+  }
+
+  try {
+    let _ = @process.collect_stdout("moonx", ["moonbitlang/parser/cmd/moonfmt@0.3.3"])
+    abort("moonx was spawned after policy transfer failed")
+  } catch {
+    @os_error.OSError(_) => ()
+    err => abort("unexpected process error: \{err}")
+  }
+}

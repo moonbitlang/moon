@@ -26,8 +26,8 @@ pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_WORK: &str = "moon.work";
 pub const MOON_WORK_ENV: &str = "MOON_WORK";
 pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
-/// Carries a private policy-copy token from a policy-bearing moonrun through
-/// moonx to the moonrun that executes the resolved Wasm artifact.
+/// Carries a process-local policy-copy handle identifier from a policy-bearing
+/// moonrun through moonx to the moonrun that executes the resolved Wasm artifact.
 pub const MOONRUN_INHERITED_POLICY: &str = "MOONRUN_INHERITED_POLICY";
 pub const MOON_PKG: &str = "moon.pkg";
 pub const MBTI_GENERATED: &str = "pkg.generated.mbti";

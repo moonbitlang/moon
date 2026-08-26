@@ -195,7 +195,7 @@ where
 ///
 /// An external driver should check the results for reruns. See [module-level
 /// docs](crate::run::runtest) for more information about the workflow.
-#[instrument(level = "debug", skip(build_meta, filter))]
+#[instrument(level = "debug", skip(build_meta, filter, moonrun_policy))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_tests(
     build_meta: &BuildMeta,
@@ -206,6 +206,7 @@ pub(crate) fn run_tests(
     bench: bool,
     no_parallelize: bool,
     parallelism: Option<usize>,
+    moonrun_policy: Option<&Path>,
     user_log: &moonutil::user_log::UserLog,
 ) -> anyhow::Result<ReplaceableTestResults> {
     let invocations = collect_test_invocations(build_meta, filter, include_skipped, bench)?;
@@ -236,6 +237,7 @@ pub(crate) fn run_tests(
                 rt,
                 source_dir,
                 target_dir,
+                moonrun_policy,
                 user_log,
             };
             debug!(
@@ -294,6 +296,8 @@ struct TestRunCtx<'a> {
     source_dir: &'a Path,
     /// Target directory; coverage output destination
     target_dir: &'a Path,
+    /// Optional Moonrun Policy applied to Wasm test executables.
+    moonrun_policy: Option<&'a Path>,
     /// User-facing verbose command output.
     user_log: &'a moonutil::user_log::UserLog,
 }
@@ -789,10 +793,11 @@ fn run_one_test_executable(
         ctx.source_dir.join(&test.executable)
     };
 
-    let mut cmd = crate::run::command_for(
+    let mut cmd = crate::run::command_for_with_moonrun_policy(
         crate::run::ExecutionMode::from(&ctx.build_meta.backend),
         &executable,
         Some(&test.args),
+        ctx.moonrun_policy,
     );
     cmd.current_dir(module_root);
     let mut cov_cap = mk_coverage_capture();

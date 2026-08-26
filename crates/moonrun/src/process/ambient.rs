@@ -26,13 +26,14 @@ use std::ffi::OsString;
 #[cfg(unix)]
 use std::ffi::{CStr, CString};
 #[cfg(unix)]
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
+use crate::policy::PolicyInheritance;
 #[cfg(any(windows, target_os = "linux"))]
 use crate::resource::Resource;
 use crate::resource::ResourceRef;
@@ -59,6 +60,7 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
+        policy_inheritance: Option<PolicyInheritance>,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_unix(
@@ -68,6 +70,7 @@ ported_fns! {
             stdio,
             cwd,
             options,
+            policy_inheritance,
             result,
         )
     }
@@ -84,6 +87,7 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
+        policy_inheritance: Option<PolicyInheritance>,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_windows(
@@ -92,6 +96,7 @@ ported_fns! {
             stdio,
             cwd,
             options,
+            policy_inheritance,
             result,
         )
     }
@@ -122,15 +127,26 @@ ported_fns! {
 fn spawn_process_unix(
     path: OsString,
     args: Vec<OsString>,
-    env: Vec<OsString>,
+    mut env: Vec<OsString>,
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
     options: SpawnOptions,
+    policy_inheritance: Option<PolicyInheritance>,
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     #[cfg(not(target_os = "linux"))]
     let _ = result;
 
+    // Creating the anonymous policy file can touch temporary storage, so it
+    // belongs to the spawn job. Failure occurs before OS process creation and
+    // is returned through this job's errno.
+    let policy_transfer = match policy_inheritance {
+        Some(inheritance) => Some(inheritance.open_transfer().map_err(policy_transfer_error)?),
+        None => None,
+    };
+    let policy_transfer_fd = policy_transfer
+        .as_ref()
+        .map(|transfer| transfer.as_raw_fd());
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     let posix_spawn_addchdir = match cwd.as_ref() {
         Some(_) => resolve_posix_spawn_addchdir(),
@@ -141,6 +157,13 @@ fn spawn_process_unix(
     if let Some(cwd) = cwd.as_ref()
         && posix_spawn_addchdir.is_none()
     {
+        if let Some(fd) = policy_transfer_fd {
+            crate::async_sys::process::overwrite_process_env_var(
+                &mut env,
+                std::ffi::OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+                std::ffi::OsStr::new(&fd.to_string()),
+            );
+        }
         let pid = glibc_compat::spawn_with_command(
             path,
             args,
@@ -149,12 +172,33 @@ fn spawn_process_unix(
             cwd.clone(),
             options.child_signal_mask,
             std::env::var_os("PATH"),
+            policy_transfer_fd,
         )
         .map_err(AsyncHostError::Native)?;
         if let Ok(pidfd) = crate::async_sys::process::open_pid_handle(pid) {
             *result = Some(ResourcePublication::Unpublished(Resource::new(pidfd)));
         }
         return Ok(i64::from(pid));
+    }
+
+    let policy_transfer_child = if let Some(fd) = policy_transfer_fd {
+        let child_fd = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+        if child_fd < 0 {
+            return Err(last_native_error());
+        }
+        // Reserve a distinct descriptor number in the parent. The spawn
+        // action below replaces this duplicate in the child, which both keeps
+        // the number race-free and gives the child a non-CLOEXEC descriptor.
+        Some(unsafe { std::fs::File::from_raw_fd(child_fd) })
+    } else {
+        None
+    };
+    if let Some(file) = policy_transfer_child.as_ref() {
+        crate::async_sys::process::overwrite_process_env_var(
+            &mut env,
+            std::ffi::OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+            std::ffi::OsStr::new(&file.as_raw_fd().to_string()),
+        );
     }
 
     let path = unix_cstring(path)?;
@@ -213,6 +257,15 @@ fn spawn_process_unix(
                     )
                 })?;
             }
+        }
+        if let (Some(source), Some(target)) = (policy_transfer_fd, policy_transfer_child.as_ref()) {
+            check_spawn_errno(unsafe {
+                libc::posix_spawn_file_actions_adddup2(
+                    &mut file_actions,
+                    source,
+                    target.as_raw_fd(),
+                )
+            })?;
         }
         if let Some(cwd) = cwd.as_ref() {
             #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -415,10 +468,11 @@ fn add_chdir_file_action(
 #[allow(clippy::too_many_arguments)]
 fn spawn_process_windows(
     command_line: OsString,
-    env_block: Vec<u16>,
+    mut env_block: Vec<u16>,
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
     options: SpawnOptions,
+    policy_inheritance: Option<PolicyInheritance>,
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     use std::os::windows::ffi::OsStrExt;
@@ -432,6 +486,14 @@ fn spawn_process_windows(
         InitializeProcThreadAttributeList, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
         PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
         STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
+    };
+
+    // As on Unix, materialize the transfer on the worker before duplicating
+    // child handles. A failure therefore cannot leave a child or inherited
+    // handle behind.
+    let policy_transfer = match policy_inheritance {
+        Some(inheritance) => Some(inheritance.open_transfer().map_err(policy_transfer_error)?),
+        None => None,
     };
 
     let mut command_line = command_line.encode_wide().collect::<Vec<_>>();
@@ -448,7 +510,8 @@ fn spawn_process_windows(
     };
 
     let std_handles = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE];
-    let mut inherited_handles = Vec::with_capacity(std_handles.len());
+    let mut inherited_handles =
+        Vec::with_capacity(std_handles.len() + usize::from(policy_transfer.is_some()));
     for (resource, std_handle) in stdio.iter().zip(std_handles) {
         let raw_result = if let Some(resource) = resource {
             spawn_stdio_handle(resource)
@@ -474,6 +537,22 @@ fn spawn_process_windows(
                 return Err(error);
             }
         }
+    }
+
+    if let Some(transfer) = policy_transfer.as_ref() {
+        let handle = match duplicate_inheritable_handle(transfer.as_raw_handle()) {
+            Ok(handle) => handle,
+            Err(error) => {
+                close_handles(&inherited_handles);
+                return Err(error);
+            }
+        };
+        crate::async_sys::process::overwrite_process_env_var(
+            &mut env_block,
+            std::ffi::OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
+            std::ffi::OsStr::new(&(handle as usize).to_string()),
+        );
+        inherited_handles.push(handle);
     }
 
     let mut startup_info = unsafe { std::mem::zeroed::<STARTUPINFOEXW>() };
@@ -885,6 +964,12 @@ fn close_handles(handles: &[RawFile]) {
     }
 }
 
+fn policy_transfer_error(error: std::io::Error) -> AsyncHostError {
+    error
+        .raw_os_error()
+        .map_or(AsyncHostError::Io, AsyncHostError::Native)
+}
+
 #[cfg(windows)]
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(unsafe { windows_sys::Win32::Foundation::GetLastError() as i32 })
@@ -903,6 +988,27 @@ fn last_native_errno() -> i32 {
 #[cfg(target_os = "macos")]
 fn last_native_errno() -> i32 {
     unsafe { *libc::__error() }
+}
+
+#[cfg(test)]
+mod policy_transfer_error_tests {
+    use super::*;
+
+    #[test]
+    fn preserves_native_errors_for_the_spawn_job() {
+        assert_eq!(
+            policy_transfer_error(std::io::Error::from_raw_os_error(1234)),
+            AsyncHostError::Native(1234)
+        );
+    }
+
+    #[test]
+    fn reports_non_native_transfer_failures_as_io() {
+        assert_eq!(
+            policy_transfer_error(std::io::Error::other("policy transfer failed")),
+            AsyncHostError::Io
+        );
+    }
 }
 
 #[cfg(all(test, unix))]

@@ -1110,9 +1110,9 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
         .success()
         .stdout_eq("configured by policy\n");
 
-    // Policy construction keeps its canonical copy in memory. A Run that
-    // never spawns moonx therefore works even when the platform temp directory
-    // is itself the Runtime Working Directory.
+    // Policy construction keeps its canonical inheritance payload in memory.
+    // A Run that never spawns moonx therefore works even when the platform temp
+    // directory is itself the Runtime Working Directory.
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(std::env::temp_dir())
         .arg("--policy")
@@ -1207,18 +1207,48 @@ spawn = true
     )
     .unwrap();
 
+    // The blackbox test removes this directory through the guest filesystem,
+    // then verifies that the following direct moonx spawn reports the policy-
+    // transfer failure instead of creating a child.
+    let policy_transfer_temp = tempfile::TempDir::new().expect("create policy transfer temp");
     moon_cmd()
         .current_dir(dir.path())
+        .env("PATH", &path)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("TMPDIR", policy_transfer_temp.path())
+        .env("TMP", policy_transfer_temp.path())
+        .env("TEMP", policy_transfer_temp.path())
         .args([
             "test",
-            "--build-only",
+            "--package",
+            "moon/policy_workspace/spawn_moonx_error",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+        ])
+        .arg(&inherited_policy)
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .env("PATH", &path)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .args([
+            "test",
             "--package",
             "moon/policy_workspace/spawn_moonx",
             "--target",
             "wasm",
+            "--wasm-policy",
         ])
+        .arg(&inherited_policy)
         .assert()
-        .success();
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 
     #[cfg(unix)]
     {
@@ -1319,27 +1349,6 @@ exec "$MOON_TEST_REAL_MOONX" "$@"
             );
         }
     }
-
-    let spawn_moonx_test_wasm = std::fs::canonicalize(dir.path().join(
-        "_build/wasm/debug/test/moon/policy_workspace/spawn_moonx/spawn_moonx.blackbox_test.wasm",
-    ))
-    .unwrap();
-
-    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
-        .current_dir(dir.path())
-        .env("PATH", path)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
-        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
-        .arg("--test-args")
-        .arg(
-            r#"{"package":"moon/policy_workspace/spawn_moonx","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-        )
-        .arg("--policy")
-        .arg(&inherited_policy)
-        .arg(&spawn_moonx_test_wasm)
-        .assert()
-        .success();
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())

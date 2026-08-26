@@ -49,6 +49,7 @@ mod mooncakes;
 pub mod package;
 pub mod path;
 pub mod path_normalizer;
+pub mod policy_transport;
 pub mod project;
 pub mod registry;
 pub mod render;

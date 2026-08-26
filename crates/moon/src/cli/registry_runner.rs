@@ -16,10 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use mooncake::registry::{RegistryClient, ResolvedExecutablePackage};
@@ -30,7 +27,7 @@ use crate::rr_build;
 pub(crate) enum RegistryRunTarget {
     Wasm {
         experimental_policy: Option<PathBuf>,
-        inherited_policy_token: Option<OsString>,
+        policy_relay: Option<moonutil::policy_transport::PolicyRelay>,
     },
     Native,
 }
@@ -85,19 +82,19 @@ pub(crate) fn prepare(
     quiet: bool,
     verbose: bool,
     user_log: &UserLog,
-) -> anyhow::Result<std::process::Command> {
+) -> anyhow::Result<super::process::ProcessAction> {
     let registry = RegistryClient::configured();
     match target {
         RegistryRunTarget::Wasm {
             experimental_policy,
-            inherited_policy_token,
+            policy_relay,
         } => {
             let wasm_path = registry.acquire_executable_wasm(&package, user_log)?;
             prepare_artifact(
                 crate::run::ExecutionMode::MoonRun,
                 &wasm_path,
                 experimental_policy.as_deref(),
-                inherited_policy_token.as_deref(),
+                policy_relay,
                 &args,
                 user_log,
             )
@@ -147,10 +144,10 @@ fn prepare_artifact(
     mode: crate::run::ExecutionMode<'_>,
     artifact: &Path,
     experimental_policy: Option<&Path>,
-    inherited_policy_token: Option<&std::ffi::OsStr>,
+    policy_relay: Option<moonutil::policy_transport::PolicyRelay>,
     args: &[String],
     user_log: &UserLog,
-) -> anyhow::Result<std::process::Command> {
+) -> anyhow::Result<super::process::ProcessAction> {
     let mut run_cmd =
         crate::run::command_for_with_moonrun_policy(mode, artifact, None, experimental_policy);
     run_cmd.args(args);
@@ -159,15 +156,14 @@ fn prepare_artifact(
         user_log.info(rr_build::format_dry_run_command(&run_cmd, Path::new(".")));
     }
 
-    // This token is internal transport state, not part of verbose command
-    // rendering. It belongs only to the final moonrun process.
-    if let Some(token) = inherited_policy_token {
-        run_cmd.env(moonutil::constants::MOONRUN_INHERITED_POLICY, token);
-    } else {
-        run_cmd.env_remove(moonutil::constants::MOONRUN_INHERITED_POLICY);
-    }
+    // Inheritance is attached immediately before delegation. Keep any ambient
+    // marker out of the prepared command in both inherited and ordinary runs.
+    run_cmd.env_remove(moonutil::constants::MOONRUN_INHERITED_POLICY);
 
-    Ok(run_cmd)
+    Ok(match policy_relay {
+        Some(relay) => super::process::ProcessAction::DelegateWithPolicyRelay(run_cmd, relay),
+        None => super::process::ProcessAction::Delegate(run_cmd),
+    })
 }
 
 #[cfg(test)]
@@ -183,32 +179,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn inherited_policy_is_set_on_the_final_moonrun_command() {
-        let user_log = UserLog::new(log::LevelFilter::Warn);
-        let command = prepare_artifact(
-            crate::run::ExecutionMode::MoonRun,
-            Path::new("artifact.wasm"),
-            None,
-            Some(OsStr::new("opaque-policy-token")),
-            &[],
-            &user_log,
-        )
-        .unwrap();
-
-        assert_eq!(
-            command
-                .get_envs()
-                .find(|(name, _)| {
-                    *name == OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY)
-                })
-                .and_then(|(_, value)| value),
-            Some(OsStr::new("opaque-policy-token"))
-        );
-    }
-
-    #[test]
     fn ordinary_registry_runs_remove_an_ambient_inherited_policy() {
-        let command = prepare_artifact(
+        let action = prepare_artifact(
             crate::run::ExecutionMode::MoonRun,
             Path::new("artifact.wasm"),
             None,
@@ -217,6 +189,9 @@ mod tests {
             &UserLog::new(log::LevelFilter::Warn),
         )
         .unwrap();
+        let crate::cli::process::ProcessAction::Delegate(command) = action else {
+            panic!("ordinary registry run unexpectedly carried an inherited policy")
+        };
         assert!(command.get_envs().any(|(name, value)| {
             name == OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY) && value.is_none()
         }));

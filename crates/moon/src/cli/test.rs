@@ -239,6 +239,10 @@ pub(crate) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
+    /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
+    #[clap(long = "wasm-policy", value_name = "PATH")]
+    pub(crate) moonrun_policy: Option<PathBuf>,
+
     /// Run test in the specified package
     #[clap(short, long, num_args(1..))]
     pub package: Option<Vec<String>>,
@@ -318,9 +322,17 @@ pub(crate) struct TestSubcommand {
 #[instrument(skip_all)]
 pub(crate) fn run_test(
     cli: UniversalFlags,
-    cmd: TestSubcommand,
+    mut cmd: TestSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    // Test executables run from their module roots. Resolve this CLI path while
+    // the process still has the invocation directory selected by `-C`.
+    if let Some(policy) = &mut cmd.moonrun_policy
+        && policy.is_relative()
+    {
+        *policy =
+            std::path::absolute(&*policy).context("failed to resolve the --wasm-policy path")?;
+    }
     let result = run_test_impl(&cli, &cmd, output);
     if crate::run::shutdown_requested() {
         return Ok(130);
@@ -612,6 +624,7 @@ fn run_test_in_single_file_rr(
 pub(crate) struct TestLikeSubcommand<'a> {
     pub run_mode: RunMode,
     pub build_flags: &'a BuildFlags,
+    pub moonrun_policy: Option<&'a Path>,
     /// Explicit filesystem path filters from positional `PATH` arguments.
     pub explicit_path_filters: &'a [PathBuf],
     pub package: &'a Option<Vec<String>>,
@@ -637,6 +650,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
         Self {
             run_mode: RunMode::Test,
             build_flags: &cmd.build_flags,
+            moonrun_policy: cmd.moonrun_policy.as_deref(),
             package: &cmd.package,
             explicit_path_filters: &cmd.path,
             file: &cmd.file,
@@ -661,6 +675,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
         Self {
             run_mode: RunMode::Bench,
             build_flags: &cmd.build_flags,
+            moonrun_policy: None,
             explicit_path_filters: &cmd.path,
             package: &cmd.package,
             file: &cmd.file,
@@ -1752,6 +1767,7 @@ fn rr_test_after_build(
         cmd.run_mode == RunMode::Bench,
         cmd.no_parallelize,
         cmd.build_flags.jobs,
+        cmd.moonrun_policy,
         user_log,
     )?;
     let _initial_summary = test_result.summary();
@@ -1845,6 +1861,7 @@ fn rr_test_after_build(
                 cmd.run_mode == RunMode::Bench,
                 cmd.no_parallelize,
                 cmd.build_flags.jobs,
+                cmd.moonrun_policy,
                 user_log,
             )?;
             let _rerun_summary = new_test_result.summary();

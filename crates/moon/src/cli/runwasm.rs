@@ -86,14 +86,13 @@ pub(crate) fn run_runwasm(
         cmd.package,
         super::registry_runner::RegistryRunTarget::Wasm {
             experimental_policy: cmd.experimental_policy,
-            inherited_policy_token: None,
+            policy_relay: None,
         },
         cmd.args,
         cli.quiet,
         cli.verbose,
         output.user_log(),
     )
-    .map(ProcessAction::Delegate)
 }
 
 fn should_run_as_local_package(input: &str) -> anyhow::Result<bool> {
