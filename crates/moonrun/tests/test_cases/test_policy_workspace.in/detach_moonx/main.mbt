@@ -28,29 +28,25 @@ enum HostPlatform {
 fn host_platform() -> HostPlatform = "moonbitlang/async" "runtime/get_platform"
 
 ///|
+#unsafe_skip_stub_check
+fn terminate_process(pid : Int, signal : Int) = "moonbitlang/async" "process/terminate"
+
+///|
 async fn main {
-  assert_eq(@env.get_env_var("MOONRUN_INHERITED_POLICY"), None)
-  assert_eq(@env.get_env_var("MOONRUN_POLICY_ENV"), Some("inherited"))
-  let (command, args) = if host_platform() is Windows {
-    (
-      "cmd.exe",
-      [
-        "/D", "/C", "if defined MOONRUN_INHERITED_POLICY (echo visible) else (echo missing)",
-      ],
-    )
-  } else {
-    (
-      "/bin/sh",
-      [
-        "-c", "if [ -n \"${MOONRUN_INHERITED_POLICY+x}\" ]; then printf visible; else printf missing; fi",
-      ],
-    )
+  let marker = match @env.get_env_var("MOON_TEST_DETACH_MARKER") {
+    Some(marker) => marker
+    None => abort("missing detach marker path")
   }
-  let (code, output) = @process.collect_stdout(command, args)
-  assert_eq(code, 0)
-  assert_eq(output.text().trim(char_set="\n\r "), "missing")
-  match @env.args()[1:] {
-    [marker] => @fs.write_file(marker, "inherited policy active")
-    _ => ()
+  let pid_marker = match @env.get_env_var("MOON_TEST_DETACH_PID") {
+    Some(marker) => marker
+    None => abort("missing detached pid path")
   }
+  let output = @process.redirect_to_file(marker + ".log")
+  let pid = @process.spawn_orphan("moonx", [
+    "moonbitlang/parser/cmd/moonfmt@0.3.3",
+    marker,
+  ], stdout=output, stderr=output)
+  let stop_signal = if host_platform() is MacOS { 17 } else { 19 }
+  terminate_process(pid, stop_signal)
+  @fs.write_file(pid_marker, pid.to_string())
 }

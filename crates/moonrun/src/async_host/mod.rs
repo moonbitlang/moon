@@ -3676,7 +3676,10 @@ impl AsyncHost {
             // The guest environment is fully materialized now. The host-owned
             // value is applied after authorization so the env ABI cannot
             // replace it and denied jobs remain untouched.
-            process.inherit_policy_for_moonx(process_job);
+            if let Err(error) = process.inherit_policy_for_moonx(process_job) {
+                job.set_err(error.errno());
+                return;
+            }
         }
         thread_pool::run_host_job(job);
         if let Err(error) = Self::finish_process_job(process, job) {

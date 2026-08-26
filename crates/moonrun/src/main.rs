@@ -86,7 +86,9 @@ fn get_moonrun_version() -> String {
 }
 
 fn main() -> anyhow::Result<()> {
-    let inherited_policy = std::env::var_os(moonutil::constants::MOONRUN_INHERITED_POLICY);
+    let inherited_policy = std::env::var_os(moonutil::constants::MOONRUN_INHERITED_POLICY)
+        .map(moonrun::consume_inherited_policy_copy)
+        .transpose()?;
     if inherited_policy.is_some() {
         // This is the process entry point and no other threads exist yet. The
         // reserved transport value must not become part of env.from_host="*".
@@ -107,8 +109,10 @@ fn main() -> anyhow::Result<()> {
         options = options.with_test_args(test_args);
     }
     // An inherited policy is host-owned and cannot be replaced by a child CLI
-    // argument. Policy::from_file publishes this Run's own canonical copy.
-    if let Some(policy) = inherited_policy.map(PathBuf::from).or(matches.policy) {
+    // argument. Each Run publishes its own canonical copy for future children.
+    if let Some(policy) = inherited_policy {
+        options = options.with_inherited_policy(policy);
+    } else if let Some(policy) = matches.policy {
         options = options.with_policy_file(policy);
     }
 

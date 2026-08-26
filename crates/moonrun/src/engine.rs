@@ -46,6 +46,7 @@ pub struct RunOptions {
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) policy_file: Option<PathBuf>,
+    pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
 }
 
@@ -71,6 +72,14 @@ impl RunOptions {
 
     pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
         self.policy_file = Some(policy_file.into());
+        self.inherited_policy = None;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
+        self.policy_file = None;
+        self.inherited_policy = Some(policy);
         self
     }
 
@@ -190,6 +199,7 @@ impl Engine {
     pub fn run(&self, module: &Module, options: RunOptions) -> anyhow::Result<RunOutcome> {
         let runtime = Runtime::new(
             options.policy_file.as_deref(),
+            options.inherited_policy.as_deref(),
             options.working_directory.clone(),
         )?;
         v8::run(

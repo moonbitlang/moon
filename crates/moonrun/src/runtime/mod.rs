@@ -113,13 +113,17 @@ pub(crate) struct Runtime {
 impl Runtime {
     pub(crate) fn new(
         policy_file: Option<&Path>,
+        inherited_policy: Option<&[u8]>,
         working_directory: WorkingDirectory,
     ) -> anyhow::Result<Self> {
-        let policy = match policy_file {
-            Some(path) => Policy::from_file(path).context(
+        let policy = match (inherited_policy, policy_file) {
+            (Some(contents), _) => Policy::from_inherited_json(contents).context(
+                "failed to load inherited sandbox policy (experimental)",
+            )?,
+            (None, Some(path)) => Policy::from_file(path).context(
                 "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
             )?,
-            None => Policy::allow_all(),
+            (None, None) => Policy::allow_all(),
         }
         .with_working_directory(working_directory.clone());
         let environment = Arc::new(

@@ -42,3 +42,8 @@ mod v8;
 
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
 pub use runtime::WorkingDirectory;
+
+#[doc(hidden)]
+pub fn consume_inherited_policy_copy(token: std::ffi::OsString) -> anyhow::Result<Vec<u8>> {
+    policy::consume_inherited_copy(token)
+}

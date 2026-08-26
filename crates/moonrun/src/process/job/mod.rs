@@ -300,14 +300,26 @@ impl Job {
         }
     }
 
+    pub(super) fn invokes_moonx(&self) -> bool {
+        match &self.kind {
+            #[cfg(unix)]
+            Kind::SpawnUnix { args, .. } => args
+                .first()
+                .is_some_and(|argv0| moonutil::constants::is_moonx_executable(argv0)),
+            #[cfg(windows)]
+            Kind::SpawnWindows { command_line, .. } => {
+                moonutil::constants::is_moonx_executable(OsStr::new(
+                    &moonutil::shlex::get_argv0_windows(&command_line.to_string_lossy()),
+                ))
+            }
+            Kind::WaitForProcess { .. } => false,
+        }
+    }
+
     pub(super) fn inherit_policy_for_moonx(&mut self, token: &OsStr) {
         match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { args, env, .. }
-                if args
-                    .first()
-                    .is_some_and(|argv0| moonutil::constants::is_moonx_executable(argv0)) =>
-            {
+            Kind::SpawnUnix { env, .. } => {
                 crate::async_sys::process::overwrite_process_env_var(
                     env,
                     OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
@@ -315,19 +327,14 @@ impl Job {
                 );
             }
             #[cfg(windows)]
-            Kind::SpawnWindows {
-                command_line, env, ..
-            } if moonutil::constants::is_moonx_executable(OsStr::new(
-                &moonutil::shlex::get_argv0_windows(&command_line.to_string_lossy()),
-            )) =>
-            {
+            Kind::SpawnWindows { env, .. } => {
                 crate::async_sys::process::overwrite_process_env_var(
                     env,
                     OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
                     token,
                 );
             }
-            _ => {}
+            Kind::WaitForProcess { .. } => unreachable!("wait jobs do not invoke moonx"),
         }
     }
 
@@ -440,6 +447,7 @@ mod tests {
             vec!["MOONRUN_INHERITED_POLICY=guest".into(), "KEEP=value".into()],
         );
 
+        assert!(job.invokes_moonx());
         job.inherit_policy_for_moonx(OsStr::new("/tmp/parent-policy.json"));
 
         let Kind::SpawnUnix { env, .. } = job.kind else {
@@ -458,9 +466,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn non_moonx_spawn_does_not_inherit_policy() {
-        let mut job = spawn_job("moon", vec!["KEEP=value".into()]);
+        let job = spawn_job("moon", vec!["KEEP=value".into()]);
 
-        job.inherit_policy_for_moonx(OsStr::new("/tmp/parent-policy.json"));
+        assert!(!job.invokes_moonx());
 
         let Kind::SpawnUnix { env, .. } = job.kind else {
             unreachable!()
@@ -486,6 +494,7 @@ mod tests {
             },
         );
 
+        assert!(job.invokes_moonx());
         job.inherit_policy_for_moonx(OsStr::new(r"C:\parent-policy.json"));
 
         let Kind::SpawnWindows { env, .. } = job.kind else {

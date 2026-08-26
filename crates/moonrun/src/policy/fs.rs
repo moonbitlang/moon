@@ -34,7 +34,6 @@ pub(super) struct FsPolicy {
     working_directory: WorkingDirectory,
     read_roots: Vec<FsRoot>,
     write_roots: Vec<FsRoot>,
-    protected_paths: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,17 +62,12 @@ impl FsPolicy {
             working_directory: WorkingDirectory::Ambient,
             read_roots: roots_from_config(config.read),
             write_roots: roots_from_config(config.write),
-            protected_paths: Vec::new(),
         }
     }
 
     pub(super) fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
         self
-    }
-
-    pub(super) fn protect_path(&mut self, path: PathBuf) {
-        self.protected_paths.push(path);
     }
 
     pub(super) fn allows(
@@ -94,7 +88,7 @@ impl FsPolicy {
             Err(error) => return Err(error),
         };
 
-        self.allows_resolved(&path, intents, false, &target)
+        self.allows_resolved(&path, intents, &target)
     }
 
     pub(super) fn allows_entry(
@@ -115,24 +109,15 @@ impl FsPolicy {
             Err(error) => return Err(error),
         };
 
-        self.allows_resolved(&path, intents, true, &target)
+        self.allows_resolved(&path, intents, &target)
     }
 
     fn allows_resolved(
         &self,
         path: &Path,
         intents: FsIntents,
-        mutates_entry: bool,
         target: &str,
     ) -> AsyncHostResult<()> {
-        // An entry mutation on an ancestor can move or recursively delete a
-        // protected path. Ordinary writes to the ancestor remain independent.
-        let protected = self.protected_paths.iter().any(|protected| {
-            path == protected || (mutates_entry && intents.write && protected.starts_with(path))
-        });
-        if protected {
-            return sandbox_denied(intents.sandbox_action(), Some(target));
-        }
         if intents.read && !self.allows_read(path) {
             return sandbox_denied("file read", Some(target));
         }

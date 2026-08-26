@@ -16,78 +16,82 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! An owned, process-boundary representation of the policy for one Run.
+//! A process-boundary representation of one Run's canonical Moonrun Policy.
 //!
-//! Callers depend on the published policy and its lifetime, not on how it is
-//! stored. The current implementation uses a temporary JSON file; a future
-//! transport can replace that storage without changing policy serialization.
+//! Policy construction keeps immutable serialized bytes in memory. A direct
+//! moonx spawn publishes one temporary pathname for that child. This keeps the
+//! transport replaceable without making ordinary policy-bearing Runs depend on
+//! temporary storage.
 
-use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
 
 use super::config::{EnvConfig, PolicyConfig};
 
+const COPY_PREFIX: &str = "moonrun-policy-";
+const COPY_SUFFIX: &str = ".json";
+
 #[derive(Clone, Debug)]
 pub(super) struct PolicyCopy {
-    inner: Arc<PolicyCopyFile>,
-}
-
-#[derive(Debug)]
-struct PolicyCopyFile {
-    path: PathBuf,
-    _file: tempfile::NamedTempFile,
+    contents: Arc<[u8]>,
 }
 
 impl PolicyCopy {
     pub(super) fn publish(config: &PolicyConfig) -> anyhow::Result<Self> {
         let mut inherited = config.clone();
         // Env owns the Run's current values. They cross the process boundary
-        // through the normal process environment rather than the policy file.
+        // through the normal process environment rather than the policy copy.
         inherited.env = Some(EnvConfig {
             from_host: vec!["*".to_owned()],
             ..Default::default()
         });
 
-        let mut file = tempfile::Builder::new()
-            .prefix("moonrun-policy-")
-            .suffix(".json")
-            .tempfile()
-            .context("failed to create temporary policy copy")?;
-        serde_json::to_writer_pretty(file.as_file_mut(), &inherited)
-            .context("failed to serialize inherited policy")?;
-        file.as_file_mut()
-            .flush()
-            .context("failed to write temporary policy copy")?;
-
-        let path = std::fs::canonicalize(file.path())
-            .context("failed to resolve temporary policy copy")?;
-        let wasi_preopen = std::fs::canonicalize(
-            std::env::current_dir().context("failed to resolve the current directory")?,
-        )
-        .context("failed to resolve the WASI preopen directory")?;
-        // WASI preopens the Run's current directory independently of Moonrun
-        // Policy, so the copy must not be placed anywhere below it.
-        anyhow::ensure!(
-            !path.starts_with(&wasi_preopen),
-            "temporary policy copy would be reachable through the WASI preopen"
-        );
-
+        let contents = serde_json::to_vec_pretty(&inherited)
+            .context("failed to serialize inherited Moonrun Policy")?;
         Ok(Self {
-            inner: Arc::new(PolicyCopyFile { path, _file: file }),
+            contents: contents.into(),
         })
     }
 
-    pub(super) fn path(&self) -> &Path {
-        &self.inner.path
+    /// Publish a copy for one direct moonx spawn.
+    ///
+    /// The pathname intentionally survives the publishing Run so a detached
+    /// moonx can open it. The receiving moonrun consumes it at process entry.
+    pub(super) fn publish_transfer(&self) -> std::io::Result<PathBuf> {
+        let mut copy = tempfile::Builder::new()
+            .prefix(COPY_PREFIX)
+            .suffix(COPY_SUFFIX)
+            .tempfile()?;
+        copy.write_all(&self.contents)?;
+        copy.flush()?;
+        let path = std::fs::canonicalize(copy.path())?;
+        let (file, _) = copy.keep().map_err(|error| error.error)?;
+        drop(file);
+        Ok(path)
     }
+}
 
-    pub(super) fn token(&self) -> &OsStr {
-        self.inner.path.as_os_str()
-    }
+/// Consume the private pathname transport before the Run environment exists.
+pub(crate) fn consume_transfer(token: OsString) -> anyhow::Result<Vec<u8>> {
+    let path = PathBuf::from(token);
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("invalid inherited Moonrun Policy copy path")?;
+    anyhow::ensure!(
+        name.starts_with(COPY_PREFIX) && name.ends_with(COPY_SUFFIX),
+        "invalid inherited Moonrun Policy copy path"
+    );
+    let contents = std::fs::read(&path)
+        .with_context(|| format!("failed to read inherited policy copy {}", path.display()))?;
+    // The bytes are already owned by this process, so removing the transport
+    // name before parsing prevents it from reaching the guest filesystem.
+    let _ = std::fs::remove_file(path);
+    Ok(contents)
 }
 
 #[cfg(test)]
@@ -95,15 +99,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn copy_lives_until_its_last_owner_is_dropped() {
+    fn transfer_outlives_the_publisher_and_is_consumed_once() {
         let copy = PolicyCopy::publish(&PolicyConfig::default()).unwrap();
-        let path = copy.path().to_owned();
-        let second_owner = copy.clone();
+        let path = copy.publish_transfer().unwrap();
 
         drop(copy);
         assert!(path.exists());
 
-        drop(second_owner);
+        let contents = consume_transfer(path.clone().into_os_string()).unwrap();
+        let config: PolicyConfig = serde_json::from_slice(&contents).unwrap();
+        assert_eq!(config.env.unwrap().from_host, ["*"]);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn each_spawn_gets_an_independent_transfer() {
+        let copy = PolicyCopy::publish(&PolicyConfig::default()).unwrap();
+        let first = copy.publish_transfer().unwrap();
+        let second = copy.publish_transfer().unwrap();
+
+        assert_ne!(first, second);
+
+        consume_transfer(first.into_os_string()).unwrap();
+        consume_transfer(second.into_os_string()).unwrap();
     }
 }

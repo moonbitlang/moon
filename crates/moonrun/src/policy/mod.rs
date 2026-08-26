@@ -43,6 +43,7 @@ use self::env::EnvPolicy;
 use self::fs::{FsIntents, FsPolicy, RuntimePathBase};
 use self::net::{NetOperation, NetPolicy};
 use self::policy_copy::PolicyCopy;
+pub(crate) use self::policy_copy::consume_transfer as consume_inherited_copy;
 use self::process::ProcessPolicy;
 
 #[derive(Clone, Debug)]
@@ -80,6 +81,14 @@ impl Policy {
         Self::from_config(config, config_dir)
     }
 
+    pub(crate) fn from_inherited_json(contents: &[u8]) -> anyhow::Result<Self> {
+        let config = serde_json::from_slice(contents)
+            .context("failed to parse inherited JSON Moonrun Policy")?;
+        // Canonical copies contain absolute filesystem roots. Running the same
+        // canonicalization confirms that those roots still resolve in this Run.
+        Self::from_config(config, Path::new("."))
+    }
+
     /// Bind runtime path authorization to the working directory selected for
     /// this Runtime. Unrestricted policy remains a no-op and therefore does not
     /// introduce an additional cwd observation.
@@ -93,10 +102,10 @@ impl Policy {
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
         let config = canonicalize(config, config_dir)?;
         let policy_copy = PolicyCopy::publish(&config)?;
-        let mut fs = FsPolicy::from_canonical_config(config.fs.unwrap_or_default());
-        fs.protect_path(policy_copy.path().to_owned());
         Ok(Self {
-            fs: Some(fs),
+            fs: Some(FsPolicy::from_canonical_config(
+                config.fs.unwrap_or_default(),
+            )),
             net: Some(NetPolicy::from_config(config.net.unwrap_or_default())?),
             env: Some(EnvPolicy::from_config(config.env.unwrap_or_default())?),
             process: Some(ProcessPolicy::from_config(
@@ -106,8 +115,16 @@ impl Policy {
         })
     }
 
-    pub(crate) fn inherited_copy_token(&self) -> Option<&OsStr> {
-        self.policy_copy.as_ref().map(PolicyCopy::token)
+    pub(crate) fn publish_inherited_copy(&self) -> AsyncHostResult<Option<PathBuf>> {
+        self.policy_copy
+            .as_ref()
+            .map(PolicyCopy::publish_transfer)
+            .transpose()
+            .map_err(|error| {
+                error
+                    .raw_os_error()
+                    .map_or(AsyncHostError::Io, AsyncHostError::Native)
+            })
     }
 
     pub(crate) fn open_path(
@@ -556,14 +573,16 @@ mod tests {
             tmp.path(),
         )
         .unwrap();
-        let copy = policy.policy_copy.as_ref().unwrap();
+        let path = policy
+            .policy_copy
+            .as_ref()
+            .unwrap()
+            .publish_transfer()
+            .unwrap();
+        let contents = policy_copy::consume_transfer(path.into_os_string()).unwrap();
 
-        assert!(
-            !std::fs::read_to_string(copy.path())
-                .unwrap()
-                .contains(secret)
-        );
-        let inherited = PolicyConfig::from_file(copy.path()).unwrap();
+        assert!(!String::from_utf8_lossy(&contents).contains(secret));
+        let inherited: PolicyConfig = serde_json::from_slice(&contents).unwrap();
         let fs = inherited.fs.unwrap();
         assert_eq!(fs.read, [canonical_read]);
         assert_eq!(fs.write, [canonical_write]);
@@ -576,27 +595,21 @@ mod tests {
     }
 
     #[test]
-    fn each_policy_run_publishes_its_own_copy() {
-        let tmp = tempfile::tempdir().unwrap();
-        let parent = Policy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
-        let parent_copy = parent.policy_copy.as_ref().unwrap();
-
-        let child = Policy::from_file(parent_copy.path()).unwrap();
-        let child_copy = child.policy_copy.as_ref().unwrap();
-
-        assert_ne!(parent_copy.path(), child_copy.path());
-    }
-
-    #[test]
     fn policy_copy_is_independent_of_later_source_file_changes() {
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("policy.json");
         std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
         let parent = Policy::from_file(&source).unwrap();
-        let parent_copy = parent.policy_copy.as_ref().unwrap();
+        let path = parent
+            .policy_copy
+            .as_ref()
+            .unwrap()
+            .publish_transfer()
+            .unwrap();
+        let contents = policy_copy::consume_transfer(path.into_os_string()).unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
-        let inherited = Policy::from_file(parent_copy.path()).unwrap();
+        let inherited = Policy::from_inherited_json(&contents).unwrap();
 
         #[cfg(unix)]
         assert_eq!(
@@ -608,56 +621,6 @@ mod tests {
             inherited.spawn_process_windows(OsStr::new("program.exe")),
             Err(AsyncHostError::PermissionDenied)
         );
-    }
-
-    #[test]
-    fn policy_copy_is_not_reachable_through_policy_backed_filesystem_operations() {
-        let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(
-            config_with_fs_roots(vec![PathBuf::from("*")], vec![PathBuf::from("*")]),
-            tmp.path(),
-        )
-        .unwrap();
-        let copy_path = policy.policy_copy.as_ref().unwrap().path();
-
-        assert_eq!(
-            policy.read_path(RuntimePathBase::CurrentDirectory, copy_path.as_os_str()),
-            Err(AsyncHostError::PermissionDenied)
-        );
-        assert_eq!(
-            policy.write_path(RuntimePathBase::CurrentDirectory, copy_path.as_os_str()),
-            Err(AsyncHostError::PermissionDenied)
-        );
-        assert_eq!(
-            policy.remove_path(copy_path.parent().unwrap().as_os_str()),
-            Err(AsyncHostError::PermissionDenied)
-        );
-        policy
-            .write_path(
-                RuntimePathBase::CurrentDirectory,
-                copy_path.parent().unwrap().as_os_str(),
-            )
-            .unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn policy_copy_cannot_be_modified_through_a_symlink() {
-        let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(
-            config_with_fs_roots(vec![PathBuf::from("*")], vec![PathBuf::from("*")]),
-            tmp.path(),
-        )
-        .unwrap();
-        let copy_path = policy.policy_copy.as_ref().unwrap().path();
-        let alias = tmp.path().join("policy-copy-alias");
-        std::os::unix::fs::symlink(copy_path, &alias).unwrap();
-
-        assert_eq!(
-            policy.write_path(RuntimePathBase::CurrentDirectory, alias.as_os_str()),
-            Err(AsyncHostError::PermissionDenied)
-        );
-        policy.remove_path(alias.as_os_str()).unwrap();
     }
 
     #[test]

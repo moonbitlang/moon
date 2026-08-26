@@ -1032,6 +1032,7 @@ fn test_moon_run_policy_with_workspace_async_fs() {
     // test executable because a MoonBit test driver does nothing without
     // moonrun's --test-args selection.
     let env_marker_wasm = wasm_file("env_marker");
+    let detach_moonx_wasm = wasm_file("detach_moonx");
     let env_mutate_wasm = wasm_file("env_mutate");
     let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
     let process_env_wasm = wasm_file("process_env");
@@ -1069,6 +1070,18 @@ OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&env_get_wasm)
+        .assert()
+        .success()
+        .stdout_eq("configured by policy\n");
+
+    // Policy construction keeps its canonical copy in memory. A Run that
+    // never spawns moonx therefore works even when the platform temp directory
+    // is itself the Runtime Working Directory.
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(std::env::temp_dir())
         .arg("--policy")
         .arg(&policy_file)
         .arg(&env_get_wasm)
@@ -1152,6 +1165,9 @@ from_host = ["*"]
 MOONRUN_INHERITED_POLICY = "guest"
 MOONRUN_POLICY_ENV = "inherited"
 
+[fs]
+write = ["*"]
+
 [process]
 spawn = true
 "#,
@@ -1160,20 +1176,74 @@ spawn = true
 
     moon_cmd()
         .current_dir(dir.path())
-        .env("PATH", path)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
-        .env(
-            moonutil::constants::MOONRUN_INHERITED_POLICY,
-            &inherited_policy,
-        )
         .args([
             "test",
+            "--build-only",
             "--package",
             "moon/policy_workspace/spawn_moonx",
             "--target",
             "wasm",
         ])
+        .assert()
+        .success();
+
+    #[cfg(unix)]
+    {
+        let marker = dir.path().join("detached-moonx-finished");
+        let pid_marker = dir.path().join("detached-moonx-pid");
+
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .current_dir(dir.path())
+            .env("PATH", &path)
+            .env("MOON_HOME", moon_home.path())
+            .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+            .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+            .env("MOON_TEST_DETACH_MARKER", &marker)
+            .env("MOON_TEST_DETACH_PID", &pid_marker)
+            .arg("--policy")
+            .arg(&inherited_policy)
+            .arg(&detach_moonx_wasm)
+            .assert()
+            .success()
+            .stdout_eq("")
+            .stderr_eq("");
+
+        let pid = std::fs::read_to_string(&pid_marker)
+            .expect("detached moonx pid was not published")
+            .parse::<libc::pid_t>()
+            .unwrap();
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGCONT) }, 0);
+
+        for _ in 0..200 {
+            if marker.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            std::fs::read_to_string(&marker).expect("detached moonx did not finish"),
+            "inherited policy active"
+        );
+    }
+
+    let spawn_moonx_test_wasm = std::fs::canonicalize(dir.path().join(
+        "_build/wasm/debug/test/moon/policy_workspace/spawn_moonx/spawn_moonx.blackbox_test.wasm",
+    ))
+    .unwrap();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("PATH", path)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+        .arg("--test-args")
+        .arg(
+            r#"{"package":"moon/policy_workspace/spawn_moonx","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
+        )
+        .arg("--policy")
+        .arg(&inherited_policy)
+        .arg(&spawn_moonx_test_wasm)
         .assert()
         .success();
 
