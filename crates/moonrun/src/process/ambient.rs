@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Process jobs ported from `moonbitlang/async/src/internal/event_loop/thread_pool.c`.
+//! Native operating-system process execution.
+//!
+//! This is the Ambient implementation behind the process module. It preserves
+//! native process behavior, including platform executable lookup, while the
+//! parent module owns policy and child provenance.
 
 use std::ffi::OsString;
 #[cfg(unix)]
@@ -33,7 +37,7 @@ use crate::async_sys::ported_fns;
 use crate::resource::Resource;
 use crate::resource::ResourceRef;
 
-use super::SpawnOptions;
+use super::job::SpawnOptions;
 use crate::resource::ResourcePublication;
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]

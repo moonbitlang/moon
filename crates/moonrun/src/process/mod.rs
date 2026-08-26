@@ -17,7 +17,14 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Wasm-backend-neutral process operations owned by one moonrun Runtime.
+//!
+//! [`HostProcess`] is the module interface used by the async host. Policy,
+//! working-directory configuration, and child provenance stay above the
+//! private [`ambient`] implementation, which owns native operating-system
+//! execution. A future execution kind can therefore be added inside this
+//! module without exposing platform process details to callers.
 
+mod ambient;
 mod job;
 
 use std::collections::{HashMap, HashSet};
@@ -65,15 +72,14 @@ impl HostProcess {
         self.state.is_some()
     }
 
-    pub(crate) fn check_job(&self, job: &Job) -> AsyncHostResult<()> {
-        job.check_policy(self)
-    }
-
-    pub(crate) fn configure_job_working_directory(&self, job: &mut Job) {
+    /// Authorize and finish configuring a process job before it reaches the
+    /// Ambient operating-system implementation.
+    pub(crate) fn prepare_job(&self, job: &mut Job) -> AsyncHostResult<()> {
+        job.check_policy(self)?;
         job.configure_working_directory(&self.working_directory);
-    }
-
-    pub(crate) fn inherit_policy_for_moonx(&self, job: &mut Job) -> AsyncHostResult<()> {
+        // The guest environment is fully materialized now. Apply the
+        // host-owned value only after authorization so the env ABI cannot
+        // replace it and denied jobs remain untouched.
         if job.invokes_moonx()
             && let Some(path) = self.policy.publish_inherited_copy()?
         {
@@ -289,5 +295,5 @@ impl HostProcess {
 
 #[cfg(windows)]
 pub(crate) fn cancel_wait(cancel: &crate::resource::ResourceRef) -> AsyncHostResult<()> {
-    job::cancel_wait(cancel)
+    ambient::cancel_wait_for_process(cancel)
 }

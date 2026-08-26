@@ -3667,19 +3667,9 @@ impl AsyncHost {
     }
 
     fn run_policy_checked_job(policy: &Policy, process: &HostProcess, job: &mut Job) {
-        if let Err(error) = Self::check_job_policy(policy, process, job) {
+        if let Err(error) = Self::prepare_job(policy, process, job) {
             job.set_err(error.errno());
             return;
-        }
-        if let Ok(process_job) = job.process_mut() {
-            process.configure_job_working_directory(process_job);
-            // The guest environment is fully materialized now. The host-owned
-            // value is applied after authorization so the env ABI cannot
-            // replace it and denied jobs remain untouched.
-            if let Err(error) = process.inherit_policy_for_moonx(process_job) {
-                job.set_err(error.errno());
-                return;
-            }
         }
         thread_pool::run_host_job(job);
         if let Err(error) = Self::finish_process_job(process, job) {
@@ -3687,10 +3677,10 @@ impl AsyncHost {
         }
     }
 
-    fn check_job_policy(policy: &Policy, process: &HostProcess, job: &Job) -> AsyncHostResult<()> {
-        match job.payload() {
+    fn prepare_job(policy: &Policy, process: &HostProcess, job: &mut Job) -> AsyncHostResult<()> {
+        match job.payload_mut() {
             JobPayload::Filesystem(job) => job.check_policy(policy),
-            JobPayload::Process(job) => process.check_job(job),
+            JobPayload::Process(job) => process.prepare_job(job),
             _ => Ok(()),
         }
     }
