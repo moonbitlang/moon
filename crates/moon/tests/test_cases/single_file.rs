@@ -663,3 +663,30 @@ fn test_single_file_commands_work_with_workspace_disabled() {
         "#]],
     );
 }
+
+#[test]
+fn test_single_file_multi_target_metadata_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+
+    std::fs::write(
+        dir.join("hello.mbt"),
+        r#"fn main {
+  println("hello")
+}
+"#,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env(MOON_WORK_ENV, "off")
+        .args(["check", "hello.mbt", "--target", "wasm-gc,js"])
+        .assert()
+        .success();
+
+    assert!(standalone_scoped_packages_json_path(dir, "wasm-gc", "debug", "hello.mbt").exists());
+    assert!(standalone_scoped_packages_json_path(dir, "js", "debug", "hello.mbt").exists());
+    let packages_index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_index_path(dir)).unwrap()).unwrap();
+    assert_eq!(packages_index, serde_json::json!(["wasm-gc", "js"]));
+}

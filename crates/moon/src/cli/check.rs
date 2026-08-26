@@ -409,13 +409,52 @@ fn run_check_impl(
         dirs.mooncake_bin_dir = dirs.target_dir.join(moonutil::constants::MOON_BIN_DIR);
     }
 
+    if let Some(single_file_path) = single_file.as_deref() {
+        let targets = if cmd.build_flags.target.is_empty() {
+            vec![None]
+        } else {
+            lower_surface_targets(&cmd.build_flags.target)
+                .into_iter()
+                .map(Some)
+                .collect()
+        };
+        let mut ret_value = 0;
+        let mut target_backends = Vec::with_capacity(targets.len());
+        for t in targets {
+            let result = run_check_for_single_file_rr(
+                cli,
+                cmd,
+                single_file_path,
+                &dirs,
+                t,
+                output,
+                json.as_deref_mut(),
+            );
+            let (x, target_backend) = match t {
+                Some(t) => result.context(format!("failed to run check for target {t:?}"))?,
+                None => result?,
+            };
+            ret_value = ret_value.max(x);
+            target_backends.push(target_backend);
+        }
+        if !cli.dry_run {
+            let _lock = lock_directory(&dirs.target_dir, user_log).with_context(|| {
+                format!(
+                    "failed to acquire build lock in target directory `{}`",
+                    dirs.target_dir.display()
+                )
+            })?;
+            rr_build::generate_metadata_index(&dirs.target_dir, target_backends)?;
+        }
+        return Ok(ret_value);
+    }
+
     if cmd.build_flags.target.is_empty() {
-        return run_check_internal(
+        return run_check_normal_internal(
             cli,
             cmd,
             &dirs,
             &watch_ignored_subtree,
-            single_file.as_deref(),
             None,
             output,
             json,
@@ -425,15 +464,14 @@ fn run_check_impl(
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
 
-    if single_file.is_some() || cmd.watch {
+    if cmd.watch {
         let mut ret_value = 0;
         for t in targets {
-            let x = run_check_internal(
+            let x = run_check_normal_internal(
                 cli,
                 cmd,
                 &dirs,
                 &watch_ignored_subtree,
-                single_file.as_deref(),
                 Some(t),
                 output,
                 json.as_deref_mut(),
@@ -473,41 +511,6 @@ fn run_check_impl(
     Ok(if result.ok { 0 } else { 1 })
 }
 
-#[instrument(skip_all)]
-#[allow(clippy::too_many_arguments)]
-fn run_check_internal(
-    cli: &UniversalFlags,
-    cmd: &CheckSubcommand,
-    dirs: &PackageDirs,
-    watch_ignored_subtree: &Path,
-    single_file: Option<&Path>,
-    selected_target_backend: Option<TargetBackend>,
-    output: &CommandOutput,
-    json: Option<&mut CheckJsonAccumulator>,
-) -> anyhow::Result<i32> {
-    if let Some(single_file_path) = single_file {
-        run_check_for_single_file_rr(
-            cli,
-            cmd,
-            single_file_path,
-            dirs,
-            selected_target_backend,
-            output,
-            json,
-        )
-    } else {
-        run_check_normal_internal(
-            cli,
-            cmd,
-            dirs,
-            watch_ignored_subtree,
-            selected_target_backend,
-            output,
-            json,
-        )
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn run_check_for_single_file_rr(
     cli: &UniversalFlags,
@@ -517,7 +520,7 @@ fn run_check_for_single_file_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<(i32, TargetBackend)> {
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -553,9 +556,10 @@ fn run_check_for_single_file_rr(
         false,
         user_log,
     )?;
-    let selected_target_backend = selected_target_backend
-        .or(cmd.build_flags.resolve_single_target_backend()?)
-        .or(backend);
+    let selected_target_backend = match selected_target_backend {
+        Some(selected) => Some(selected),
+        None => cmd.build_flags.resolve_single_target_backend()?.or(backend),
+    };
 
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -584,6 +588,7 @@ fn run_check_for_single_file_rr(
         resolved,
     )
     .context("Failed to calculate build plan")?;
+    let target_backend = build_meta.target_backend();
 
     if cli.dry_run {
         output.write_result(|writer| {
@@ -595,7 +600,7 @@ fn run_check_for_single_file_rr(
                 target_dir,
             )
         })?;
-        return Ok(0);
+        return Ok((0, target_backend));
     }
 
     let _lock = lock_directory(target_dir, user_log).with_context(|| {
@@ -613,7 +618,6 @@ fn run_check_for_single_file_rr(
         .map(String::from);
     rr_build::generate_metadata(source_dir, &build_meta, &build_graph, filename.as_deref())?;
     rr_build::generate_metadata_selector(&build_meta, filename.as_deref())?;
-    rr_build::generate_metadata_index(std::iter::once(&build_meta))?;
 
     let mut cfg = BuildConfig::from_flags(
         &cmd.build_flags,
@@ -631,13 +635,13 @@ fn run_check_for_single_file_rr(
         )?;
         let successful = result.successful();
         json.append_build(result, user_log);
-        return Ok(if successful { 0 } else { 1 });
+        return Ok((if successful { 0 } else { 1 }, target_backend));
     }
 
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
-    Ok(if result.successful() { 0 } else { 1 })
+    Ok((if result.successful() { 0 } else { 1 }, target_backend))
 }
 
 fn get_user_intents_single_file(
@@ -845,7 +849,10 @@ fn run_check_normal_rr_from_resolved(
                 .0;
             rr_build::generate_metadata_selector(selected, None)?;
             rr_build::generate_metadata_index(
-                planned_runs.iter().map(|(build_meta, _)| build_meta),
+                target_dir,
+                planned_runs
+                    .iter()
+                    .map(|(build_meta, _)| build_meta.target_backend()),
             )?;
         }
 
