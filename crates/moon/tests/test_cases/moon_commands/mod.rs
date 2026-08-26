@@ -140,7 +140,7 @@ fn test_moon_search_uses_configured_registry() {
             String::from_utf8_lossy(&request)
         );
 
-        let body = br#"[{"name":"example/json","version":"1.2.3","description":"JSON query tools"},{"name":"example/no-description","version":"0.4.0"}]"#;
+        let body = br#"[{"name":"example/json","version":"1.2.3","description":"JSON query\ntools\r\u001b[31mwith color\u001b[0m\tand spaces"},{"name":"example/no-description","version":"0.4.0"}]"#;
         write!(
             stream,
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -157,7 +157,9 @@ fn test_moon_search_uses_configured_registry() {
         .args(["search", "json query", "--limit", "2"])
         .assert()
         .success()
-        .stdout_eq("example/json@1.2.3: JSON query tools\nexample/no-description@0.4.0\n")
+        .stdout_eq(
+            "example/json@1.2.3: JSON query tools with color and spaces\nexample/no-description@0.4.0\n",
+        )
         .stderr_eq("");
     server.join().unwrap();
 }

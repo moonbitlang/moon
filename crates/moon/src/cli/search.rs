@@ -44,16 +44,46 @@ fn render_search_results(
 ) -> std::io::Result<()> {
     for result in results {
         write!(writer, "{}@{}", result.name, result.version)?;
-        if let Some(description) = result
-            .description
-            .as_deref()
-            .filter(|value| !value.is_empty())
-        {
-            write!(writer, ": {description}")?;
+        if let Some(description) = result.description.as_deref() {
+            let description = sanitize_registry_description(description);
+            if !description.is_empty() {
+                write!(writer, ": {description}")?;
+            }
         }
         writeln!(writer)?;
     }
     Ok(())
+}
+
+fn sanitize_registry_description(description: &str) -> String {
+    // Preserve word boundaries across lines before stripping terminal escape
+    // sequences, which would otherwise discard newlines along with controls.
+    let single_line = description
+        .chars()
+        .map(|character| {
+            if character.is_whitespace() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let printable = anstream::adapter::strip_str(&single_line).to_string();
+
+    let mut sanitized = String::with_capacity(printable.len());
+    let mut pending_space = false;
+    for character in printable.chars() {
+        if character.is_whitespace() || character.is_control() {
+            pending_space = !sanitized.is_empty();
+        } else {
+            if pending_space {
+                sanitized.push(' ');
+                pending_space = false;
+            }
+            sanitized.push(character);
+        }
+    }
+    sanitized
 }
 
 #[cfg(test)]
@@ -71,20 +101,28 @@ mod tests {
                 RegistrySearchResult {
                     name: "mizchi/jq".to_owned(),
                     version: Version::new(0, 2, 2),
-                    description: Some("A jq clone implemented in MoonBit".to_owned()),
+                    description: Some(
+                        "A jq clone\nfor MoonBit\r\x1b[31mwith color\x1b[0m\tand spaces".to_owned(),
+                    ),
                 },
                 RegistrySearchResult {
                     name: "example/no-description".to_owned(),
                     version: Version::new(1, 0, 0),
                     description: None,
                 },
+                RegistrySearchResult {
+                    name: "example/empty-description".to_owned(),
+                    version: Version::new(2, 0, 0),
+                    description: Some("\x1b[2J\r\n".to_owned()),
+                },
             ],
         )
         .unwrap();
 
         expect_test::expect![[r#"
-            mizchi/jq@0.2.2: A jq clone implemented in MoonBit
+            mizchi/jq@0.2.2: A jq clone for MoonBit with color and spaces
             example/no-description@1.0.0
+            example/empty-description@2.0.0
         "#]]
         .assert_eq(&String::from_utf8(output).unwrap());
     }
