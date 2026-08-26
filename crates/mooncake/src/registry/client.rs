@@ -37,7 +37,7 @@ use moonutil::{
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     registry::RegistryVersionInfo,
@@ -110,7 +110,7 @@ impl RegistryEndpoints {
 }
 
 /// One module returned by a Mooncakes registry search.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct RegistrySearchResult {
     pub name: String,
     pub version: Version,

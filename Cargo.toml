@@ -103,6 +103,7 @@ tempfile = "3.10.1"
 line-index = "0.1.1"
 libsqlite3-sys = { version = "0.38.2", features = ["bundled"] }
 text-size = "1.1.1"
+unicode-width = "0.1.13"
 log = "0.4.20"
 thiserror = "1.0"
 test-log = "0.2"

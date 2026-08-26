@@ -58,6 +58,7 @@ indexmap.workspace = true
 petgraph.workspace = true
 rand.workspace = true
 tempfile.workspace = true
+unicode-width.workspace = true
 shlex.workspace = true
 derive_builder.workspace = true
 sha2.workspace = true

@@ -85,11 +85,11 @@ enum OutputFormat {
 }
 ```
 
-`check` is currently the only command that selects JSON. The distinction is an
-output contract, not a `JsonCheck` command variant. A future JSON command may
-own a different result schema while reusing the same lifecycle requirement:
-one complete Command Result on stdout and no terminal-only output on stderr.
-No universal JSON payload or generic result trait is required.
+`check` and `search` currently select JSON through command-local `--json`
+flags. The distinction is an output contract, not a JSON-specific command
+variant. Each command owns its result schema while reusing the same lifecycle
+requirement: one complete Command Result on stdout and no terminal-only output
+on stderr. No universal JSON payload or generic result trait is required.
 
 ## Runtime
 
@@ -203,6 +203,8 @@ Public CLI tests cover:
 - trace ownership around the cram delegation point;
 - complete traces before `cram test` and registry `runwasm` delegation;
 - complete JSON stdout and trace files for successful and failed JSON checks;
+- complete JSON stdout with empty stderr for successful and failed registry
+  searches;
 - JSON check capture for successful and failed legacy postadd hooks and nested
   binary-dependency builds; and
 - existing `moon run` trace and temporary-project cleanup invariants.
