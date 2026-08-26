@@ -19,7 +19,12 @@
 use std::io::Write;
 
 use mooncake::registry::{RegistryClient, RegistrySearchResult};
-use moonutil::command_output::CommandOutput;
+use moonutil::{
+    command_output::CommandOutput,
+    user_log::{UserLogCapture, UserLogEntry, UserLogEntryLevel},
+};
+use serde::Serialize;
+use unicode_width::UnicodeWidthStr;
 
 /// Search for modules in the package registry
 #[derive(Debug, clap::Parser)]
@@ -30,12 +35,85 @@ pub(crate) struct SearchSubcommand {
     /// Limit the number of search results
     #[clap(short, long, default_value_t = 20)]
     pub limit: u32,
+
+    /// Print search results as JSON
+    #[clap(long)]
+    pub json: bool,
 }
 
 pub(crate) fn run_search(cmd: SearchSubcommand, output: &CommandOutput) -> anyhow::Result<i32> {
     let results = RegistryClient::configured().search(&cmd.keyword, cmd.limit)?;
     output.write_result(|writer| render_search_results(writer, &results))?;
     Ok(0)
+}
+
+pub(crate) struct SearchJsonOutcome {
+    exit_code: i32,
+    results: Vec<RegistrySearchResult>,
+    error: Option<String>,
+}
+
+impl SearchJsonOutcome {
+    pub(crate) fn from_error(exit_code: i32, error: impl std::fmt::Display) -> Self {
+        Self {
+            exit_code,
+            results: Vec::new(),
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub(crate) fn exit_code(&self) -> i32 {
+        self.exit_code
+    }
+}
+
+#[derive(Serialize)]
+struct SearchJsonReport {
+    version: u8,
+    status: &'static str,
+    results: Vec<RegistrySearchResult>,
+    messages: Vec<UserLogEntry>,
+}
+
+pub(crate) fn run_search_json(cmd: &SearchSubcommand, error_exit_code: i32) -> SearchJsonOutcome {
+    match RegistryClient::configured().search(&cmd.keyword, cmd.limit) {
+        Ok(results) => SearchJsonOutcome {
+            exit_code: 0,
+            results,
+            error: None,
+        },
+        Err(error) => SearchJsonOutcome::from_error(error_exit_code, format!("{error:#}")),
+    }
+}
+
+pub(crate) fn write_search_json(
+    output: &CommandOutput,
+    capture: &UserLogCapture,
+    outcome: SearchJsonOutcome,
+) -> anyhow::Result<()> {
+    let status = if outcome.exit_code == 0 {
+        "success"
+    } else {
+        "failure"
+    };
+    let mut messages = capture.take();
+    if let Some(error) = outcome.error {
+        messages.push(UserLogEntry {
+            level: UserLogEntryLevel::Error,
+            message: error,
+        });
+    }
+    let report = SearchJsonReport {
+        version: 1,
+        status,
+        results: outcome.results,
+        messages,
+    };
+    output.write_result(|writer| -> anyhow::Result<()> {
+        serde_json::to_writer(&mut *writer, &report)?;
+        writeln!(writer)?;
+        Ok(())
+    })
 }
 
 fn render_search_results(
@@ -54,16 +132,58 @@ fn render_search_results(
         ));
     }
 
-    for result in results {
-        write!(writer, "{}@{}", result.name, result.version)?;
-        if let Some(description) = result.description.as_deref() {
-            let description = sanitize_registry_description(description);
-            if !description.is_empty() {
-                write!(writer, ": {description}")?;
-            }
-        }
-        writeln!(writer)?;
+    if results.is_empty() {
+        writeln!(writer, "No modules found.")?;
+        return Ok(());
     }
+
+    let module_width = results
+        .iter()
+        .map(|result| result.name.width())
+        .max()
+        .unwrap_or_default()
+        .max("MODULE".len());
+    let version_width = results
+        .iter()
+        .map(|result| result.version.to_string().len())
+        .max()
+        .unwrap_or_default()
+        .max("VERSION".len());
+    writeln!(
+        writer,
+        "{} {} found\n",
+        results.len(),
+        if results.len() == 1 {
+            "module"
+        } else {
+            "modules"
+        }
+    )?;
+    writeln!(
+        writer,
+        "{:<module_width$}  {:<version_width$}  DESCRIPTION",
+        "MODULE", "VERSION"
+    )?;
+    for result in results {
+        let module_padding = module_width.saturating_sub(result.name.width());
+        let description = result
+            .description
+            .as_deref()
+            .map(sanitize_registry_description)
+            .filter(|description| !description.is_empty());
+        writeln!(
+            writer,
+            "{}{:module_padding$}  {:<version_width$}  {}",
+            result.name,
+            "",
+            result.version,
+            description.as_deref().unwrap_or("—")
+        )?;
+    }
+    writeln!(
+        writer,
+        "\nRun `moon add <module>@<version>` to add a dependency."
+    )?;
     Ok(())
 }
 
@@ -135,7 +255,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_search_results_as_addable_module_coordinates() {
+    fn renders_search_results_as_a_table() {
         let mut output = Vec::new();
         render_search_results(
             &mut output,
@@ -162,10 +282,71 @@ mod tests {
         )
         .unwrap();
 
+        let output = String::from_utf8(output).unwrap();
+
         expect_test::expect![[r#"
-            mizchi/jq@0.2.2: A jq clone for MoonBit with color and spaces
-            example/no-description@1.0.0
-            example/empty-description@2.0.0
+            3 modules found
+
+            MODULE                     VERSION  DESCRIPTION
+            mizchi/jq                  0.2.2    A jq clone for MoonBit with color and spaces
+            example/no-description     1.0.0    —
+            example/empty-description  2.0.0    —
+
+            Run `moon add <module>@<version>` to add a dependency.
+        "#]]
+        .assert_eq(&output);
+    }
+
+    #[test]
+    fn aligns_unicode_module_names_by_display_width() {
+        let mut output = Vec::new();
+        render_search_results(
+            &mut output,
+            &[
+                RegistrySearchResult {
+                    name: "example/ascii".to_owned(),
+                    version: Version::new(1, 0, 0),
+                    description: None,
+                },
+                RegistrySearchResult {
+                    name: "example/中".to_owned(),
+                    version: Version::new(2, 0, 0),
+                    description: None,
+                },
+                RegistrySearchResult {
+                    name: "example/e\u{301}".to_owned(),
+                    version: Version::new(3, 0, 0),
+                    description: None,
+                },
+            ],
+        )
+        .unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        let version_columns = [
+            ("example/ascii", "1.0.0"),
+            ("example/中", "2.0.0"),
+            ("example/e\u{301}", "3.0.0"),
+        ]
+        .map(|(name, version)| {
+            let row = output
+                .lines()
+                .find(|line| line.starts_with(name))
+                .expect("module row should be present");
+            let version_start = row.find(version).expect("version should be present");
+            unicode_width::UnicodeWidthStr::width(&row[..version_start])
+        });
+
+        assert_eq!(version_columns, [15, 15, 15]);
+    }
+
+    #[test]
+    fn renders_an_explicit_empty_state() {
+        let mut output = Vec::new();
+        render_search_results(&mut output, &[]).unwrap();
+
+        expect_test::expect![[r#"
+            No modules found.
         "#]]
         .assert_eq(&String::from_utf8(output).unwrap());
     }

@@ -131,7 +131,7 @@ fn run_moon(mut invocation: MoonInvocation) -> i32 {
         && let Err(error) = std::env::set_current_dir(dir)
     {
         let message = format!("failed to change directory to {}: {}", dir.display(), error);
-        return finish_bootstrap_error(&output, capture.as_ref(), message);
+        return finish_bootstrap_error(&output, capture.as_ref(), &invocation.command, message);
     }
 
     let trace_guard = init_tracing(
@@ -148,7 +148,12 @@ fn run_moon(mut invocation: MoonInvocation) -> i32 {
                     format!("{error:?}")
                 };
                 drop(trace_guard);
-                return finish_bootstrap_error(&output, capture.as_ref(), message);
+                return finish_bootstrap_error(
+                    &output,
+                    capture.as_ref(),
+                    &invocation.command,
+                    message,
+                );
             }
         };
     invocation.flags.workspace_env = workspace_env;
@@ -161,18 +166,22 @@ fn run_moon(mut invocation: MoonInvocation) -> i32 {
     }
 
     if invocation.output == OutputFormat::Json {
-        let MoonBuildSubcommands::Check(command) = &invocation.command else {
-            unreachable!("only check currently selects JSON output")
+        let capture = capture
+            .as_ref()
+            .expect("JSON output should have a captured UserLog");
+        return match &invocation.command {
+            MoonBuildSubcommands::Check(command) => {
+                let outcome = super::run_check_json(&invocation.flags, command, &output);
+                drop(trace_guard);
+                finish_check_json(&output, capture, outcome)
+            }
+            MoonBuildSubcommands::Search(command) => {
+                let outcome = super::run_search_json(command, INTERNAL_ERROR_EXIT_CODE);
+                drop(trace_guard);
+                finish_search_json(&output, capture, outcome)
+            }
+            _ => unreachable!("command does not select JSON output"),
         };
-        let outcome = super::run_check_json(&invocation.flags, command, &output);
-        drop(trace_guard);
-        return finish_check_json(
-            &output,
-            capture
-                .as_ref()
-                .expect("JSON output should have a captured UserLog"),
-            outcome,
-        );
     }
 
     let result = dispatch(invocation.flags, invocation.command, &output);
@@ -189,17 +198,39 @@ fn run_moon(mut invocation: MoonInvocation) -> i32 {
 fn finish_bootstrap_error(
     output: &CommandOutput,
     capture: Option<&UserLogCapture>,
+    command: &MoonBuildSubcommands,
     message: String,
 ) -> i32 {
     if let Some(capture) = capture {
-        finish_check_json(
-            output,
-            capture,
-            CheckJsonOutcome::from_error(INTERNAL_ERROR_EXIT_CODE, message),
-        )
+        match command {
+            MoonBuildSubcommands::Check(_) => finish_check_json(
+                output,
+                capture,
+                CheckJsonOutcome::from_error(INTERNAL_ERROR_EXIT_CODE, message),
+            ),
+            MoonBuildSubcommands::Search(_) => finish_search_json(
+                output,
+                capture,
+                super::SearchJsonOutcome::from_error(INTERNAL_ERROR_EXIT_CODE, message),
+            ),
+            _ => unreachable!("command does not select JSON output"),
+        }
     } else {
         output.user_log().error(message);
         INTERNAL_ERROR_EXIT_CODE
+    }
+}
+
+fn finish_search_json(
+    output: &CommandOutput,
+    capture: &UserLogCapture,
+    outcome: super::SearchJsonOutcome,
+) -> i32 {
+    let exit_code = outcome.exit_code();
+    if super::write_search_json(output, capture, outcome).is_err() {
+        INTERNAL_ERROR_EXIT_CODE
+    } else {
+        exit_code
     }
 }
 

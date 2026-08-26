@@ -20,8 +20,15 @@ use std::io::{Read, Write};
 
 use super::*;
 
-#[test]
-fn test_moon_search_uses_configured_registry() {
+const SEARCH_RESULTS: &[u8] = br#"[{"name":"example/json","version":"1.2.3","description":"JSON query\ntools\r\u001b[31mwith color\u001b[0m\tand spaces for MoonBit package development and automation."},{"name":"example/no-description","version":"0.4.0"}]"#;
+
+fn moon_search(
+    args: &[&str],
+    response_status: &'static str,
+    response_body: &'static [u8],
+) -> snapbox::cmd::OutputAssert {
+    // Initialize the shared test dependency before starting the server's timeout.
+    let _ = moonrun_bin();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let registry = format!("http://{}", listener.local_addr().unwrap());
@@ -40,6 +47,7 @@ fn test_moon_search_uses_configured_registry() {
                 Err(error) => panic!("registry test server failed: {error}"),
             }
         };
+        stream.set_nonblocking(false).unwrap();
 
         let mut request = Vec::new();
         let mut buffer = [0; 1024];
@@ -54,30 +62,123 @@ fn test_moon_search_uses_configured_registry() {
             String::from_utf8_lossy(&request)
         );
 
-        let body = br#"[{"name":"example/json","version":"1.2.3","description":"JSON query\ntools\r\u001b[31mwith color\u001b[0m\tand spaces"},{"name":"example/no-description","version":"0.4.0"}]"#;
         write!(
             stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
+            "HTTP/1.1 {response_status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response_body.len()
         )
         .unwrap();
-        stream.write_all(body).unwrap();
+        stream.write_all(response_body).unwrap();
     });
 
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
-    moon_cmd(&dir)
+    let assert = moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("MOONCAKES_REGISTRY", registry)
         .env("NO_PROXY", "*")
-        .args(["search", "json query", "--limit", "2"])
-        .assert()
-        .success()
-        .stdout_eq(snapbox::str![[r#"
-example/json@1.2.3: JSON query tools with color and spaces
-example/no-description@0.4.0
+        .args(args)
+        .assert();
+    server.join().unwrap();
+    assert
+}
+
+#[test]
+fn test_moon_search_uses_configured_registry() {
+    moon_search(
+        &["search", "json query", "--limit", "2"],
+        "200 OK",
+        SEARCH_RESULTS,
+    )
+    .success()
+    .stdout_eq(snapbox::str![[r#"
+2 modules found
+
+MODULE                  VERSION  DESCRIPTION
+example/json            1.2.3    JSON query tools with color and spaces for MoonBit package development and automation.
+example/no-description  0.4.0    —
+
+Run `moon add <module>@<version>` to add a dependency.
 
 "#]])
+    .stderr_eq("");
+}
+
+#[test]
+fn test_moon_search_json_is_one_complete_result() {
+    let assert = moon_search(
+        &["search", "json query", "--limit", "2", "--json"],
+        "200 OK",
+        SEARCH_RESULTS,
+    )
+    .success()
+    .stderr_eq("");
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)
+        .expect("stdout should contain one complete JSON value");
+
+    assert_eq!(report["version"], 1);
+    assert_eq!(report["status"], "success");
+    assert_eq!(report["messages"], serde_json::json!([]));
+    assert_eq!(
+        report["results"],
+        serde_json::json!([
+            {
+                "name": "example/json",
+                "version": "1.2.3",
+                "description": "JSON query\ntools\r\u{1b}[31mwith color\u{1b}[0m\tand spaces for MoonBit package development and automation."
+            },
+            {
+                "name": "example/no-description",
+                "version": "0.4.0",
+                "description": null
+            }
+        ])
+    );
+}
+
+#[test]
+fn test_moon_search_json_failure_stays_in_json() {
+    let assert = moon_search(
+        &["search", "json query", "--limit", "2", "--json"],
+        "500 Internal Server Error",
+        b"",
+    )
+    .failure()
+    .stderr_eq("");
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)
+        .expect("stdout should contain one complete JSON value");
+
+    assert_eq!(report["version"], 1);
+    assert_eq!(report["status"], "failure");
+    assert_eq!(report["results"], serde_json::json!([]));
+    assert_eq!(report["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(report["messages"][0]["level"], "error");
+    assert!(
+        report["messages"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("registry search request failed at http://127.0.0.1:")
+    );
+}
+
+#[test]
+fn test_moon_search_json_bootstrap_failure_stays_in_json() {
+    let dir = TestDir::new_empty();
+    let assert = moon_cmd(&dir)
+        .args(["-C", "missing", "search", "json", "--json"])
+        .assert()
+        .failure()
         .stderr_eq("");
-    server.join().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)
+        .expect("stdout should contain one complete JSON value");
+
+    assert_eq!(report["status"], "failure");
+    assert_eq!(report["results"], serde_json::json!([]));
+    assert_eq!(report["messages"][0]["level"], "error");
+    assert!(
+        report["messages"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("failed to change directory")
+    );
 }

@@ -1701,6 +1701,7 @@ dependencies = [
  "tracing",
  "tracing-chrome",
  "tracing-subscriber",
+ "unicode-width",
  "walkdir",
  "which 6.0.2",
  "windows-sys 0.59.0",

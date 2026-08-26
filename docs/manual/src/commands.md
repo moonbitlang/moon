@@ -598,6 +598,7 @@ Search for modules in the package registry
 * `-l`, `--limit <LIMIT>` — Limit the number of search results
 
   Default value: `20`
+* `--json` — Print search results as JSON
 
 
 
