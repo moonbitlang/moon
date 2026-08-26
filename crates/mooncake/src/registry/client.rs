@@ -23,6 +23,7 @@ use std::{
     io::{BufRead, Read, Seek, Write},
     path::Path,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Context, bail};
@@ -44,6 +45,11 @@ use crate::{
     update::{RegistryIndexRecloneReason, RegistryIndexUpdate, UpdateOutcome},
     zip_util::extract_zip_to_dir,
 };
+
+// Bound connection setup separately from stalled reads. Blocking response
+// bodies are streamed so the read timeout resets whenever data arrives.
+const REGISTRY_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const REGISTRY_READ_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -102,6 +108,7 @@ pub struct RegistryClient {
     config: RegistryConfig,
     home: MoonHomeLayout,
     endpoints: RegistryEndpoints,
+    http: reqwest::blocking::Client,
     cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
 }
 
@@ -120,6 +127,12 @@ impl RegistryClient {
             endpoints: RegistryEndpoints::from_config(&config),
             config,
             home,
+            http: reqwest::blocking::Client::builder()
+                .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+                .timeout(REGISTRY_READ_TIMEOUT)
+                .connect_timeout(REGISTRY_CONNECT_TIMEOUT)
+                .build()
+                .expect("failed to create registry HTTP client"),
             cache: RefCell::new(HashMap::new()),
         }
     }
@@ -131,7 +144,7 @@ impl RegistryClient {
 
     /// Synchronize the Git index and symbols archive with the configured registry.
     pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
-        let outcome = crate::update::sync(&self.home, &self.config, user_log)?;
+        let outcome = crate::update::sync(&self.home, &self.config, &self.http, user_log)?;
         self.cache.borrow_mut().clear();
         log_sync_outcome(outcome, user_log);
         Ok(())
@@ -145,12 +158,8 @@ impl RegistryClient {
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
-        let http = reqwest::blocking::Client::builder()
-            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-            .build()
-            .context("failed to create registry asset HTTP client")?;
         self.acquire_wasm_asset_with(name, version, package_path, user_log, |url| {
-            download_registry_asset(&http, url, user_log)
+            download_registry_asset(&self.http, url, user_log)
         })
     }
 
@@ -257,12 +266,14 @@ fn download_registry_asset(
     if response.status() == StatusCode::NOT_FOUND {
         bail!("Prebuilt wasm asset does not exist");
     }
-    let data = response
+    let mut response = response
         .error_for_status()
-        .with_context(|| format!("registry asset download returned error status for {url}"))?
-        .bytes()
+        .with_context(|| format!("registry asset download returned error status for {url}"))?;
+    let mut data = Vec::new();
+    response
+        .read_to_end(&mut data)
         .with_context(|| format!("failed to read registry asset response from {url}"))?;
-    Ok(data.to_vec())
+    Ok(data)
 }
 
 fn ensure_cached_wasm(
@@ -550,8 +561,8 @@ impl RegistryClient {
         }
         user_log.status(format!("Downloading {name}@{version}"));
         let url = self.endpoints.package_archive(name, version);
-        let client = reqwest::blocking::Client::new();
-        let mut response = client
+        let mut response = self
+            .http
             .get(url)
             .header(
                 USER_AGENT,
@@ -1235,6 +1246,107 @@ mod tests {
             result.unwrap();
         }
         assert_eq!(request_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn sequential_archive_downloads_reuse_http_connection() {
+        fn serve_requests(mut stream: std::net::TcpStream, archive: &[u8], count: usize) {
+            for _ in 0..count {
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                loop {
+                    let read = stream.read(&mut buffer).unwrap();
+                    if read == 0 {
+                        return;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+                    archive.len()
+                )
+                .unwrap();
+                stream.write_all(archive).unwrap();
+            }
+        }
+
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let (mut registry, name, first_version) = test_registry(&sandbox);
+        let second_version = Version::new(1, 2, 4);
+        let archive = test_archive();
+        let checksum = calc_sha2(&mut Cursor::new(&archive)).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        registry.endpoints.packages = format!("http://{}", listener.local_addr().unwrap());
+
+        let server = std::thread::spawn(move || {
+            let (first_stream, _) = listener.accept().unwrap();
+            let first_control = first_stream.try_clone().unwrap();
+            let archive = Arc::new(archive);
+            let (first_done_tx, first_done_rx) = std::sync::mpsc::channel();
+            let first_connection = {
+                let archive = Arc::clone(&archive);
+                std::thread::spawn(move || {
+                    serve_requests(first_stream, &archive, 2);
+                    let _ = first_done_tx.send(());
+                })
+            };
+
+            listener.set_nonblocking(true).unwrap();
+            let connections = loop {
+                match first_done_rx.try_recv() {
+                    Ok(()) => break 1,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        panic!("first registry test connection failed")
+                    }
+                }
+                match listener.accept() {
+                    Ok((second_stream, _)) => {
+                        serve_requests(second_stream, &archive, 1);
+                        break 2;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => panic!("registry test server failed: {error}"),
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            };
+
+            if connections != 1 {
+                let _ = first_control.shutdown(std::net::Shutdown::Both);
+            }
+            first_connection.join().unwrap();
+            connections
+        });
+
+        registry
+            .acquire_source_to(
+                &name,
+                &first_version,
+                &checksum,
+                &sandbox.path().join("source-first"),
+                &quiet_user_log(),
+            )
+            .unwrap();
+        registry
+            .acquire_source_to(
+                &name,
+                &second_version,
+                &checksum,
+                &sandbox.path().join("source-second"),
+                &quiet_user_log(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            server.join().unwrap(),
+            1,
+            "sequential registry downloads should share one HTTP connection"
+        );
     }
 
     #[test]
