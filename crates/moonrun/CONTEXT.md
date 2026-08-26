@@ -48,12 +48,14 @@ _Avoid_: Native buffer, temporary buffer
 **Moonrun Policy**:
 The permission configuration enforced by moonrun-owned host imports, including
 `moonbitlang/async` and `__moonbit_fs_unstable`. It authorizes host paths and
-operations before moonrun performs them. It does not implicitly configure or
-restrict WASI descriptors.
+operations before moonrun performs them. Runtime binds filesystem enforcement
+to its Runtime Working Directory once; policy callers provide operations and
+path provenance rather than carrying cwd state. Moonrun Policy does not
+implicitly configure or restrict WASI descriptors.
 _Avoid_: WASI sandbox, virtual filesystem
 
 **Env**:
-The environment interface selected for one Run and shared by MoonBit
+The environment interface owned by one Runtime and shared by MoonBit
 environment imports, WASI environment calls, temporary-directory resolution,
 and child inheritance. Moonrun Policy contributes only its startup selection;
 unrestricted mode retains its legacy process-environment write-through behavior.
@@ -67,17 +69,27 @@ configure both explicitly instead of treating one as enforcement for the
 other.
 _Avoid_: Moonrun Policy, FFI permissions
 
+**Runtime Working Directory**:
+The working-directory behavior owned by one Runtime and used by cwd-dependent
+Host domains and backend adapters. The only current value is `Ambient`: it
+preserves historical behavior by observing or inheriting the process current
+directory at the same execution points as before this seam. It does not
+snapshot a path, retain a directory handle, change the process cwd, or isolate
+concurrent Runs. New modes belong behind this seam rather than in individual
+filesystem, process, SQLite, policy, or WASI call sites.
+_Avoid_: sandbox root, virtual filesystem root, captured cwd
+
 **Host Filesystem**:
-The per-Run, runtime-engine-neutral implementation of moonrun's
+The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed filesystem operations. It owns filesystem authorization,
-Filesystem Job payloads, execution, and result interpretation. Runtime adapters
-only convert values and expose imports; the thread pool only schedules
+Filesystem Job payloads, execution, and result interpretation. Wasm runtime
+adapters only convert values and expose imports; the thread pool only schedules
 Filesystem Jobs and delivers their Completions. WASI does not pass through the
 Host Filesystem.
 _Avoid_: WASI filesystem, V8 filesystem
 
 **Host Network**:
-The per-Run, runtime-engine-neutral implementation of moonrun's
+The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed network operations. It creates TCP and UDP Resources and
 owns network authorization, synchronous socket operations, Network Job payloads,
 execution, and result interpretation. The Async Host owns the Host Network,
@@ -86,7 +98,7 @@ Network Jobs and delivers their Completions.
 _Avoid_: V8 network, Async Host network
 
 **Host Process**:
-The per-Run, runtime-engine-neutral implementation of moonrun's
+The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed process operations. It owns Process Job payloads,
 authorization, blocking execution, result interpretation, and child-process
 authority. The Async Host owns guest Handles and worker lifecycle; the thread
@@ -97,13 +109,17 @@ _Avoid_: V8 process, thread-pool process
 An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, Completion Source, SQLite Database, or SQLite Statement.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
 
-**Host**:
-The per-run composition root for moonrun-owned import state. It creates one Host Key namespace, wires it into domain modules such as the Async Host and SQLite Host, and performs leak checking only when the complete run is torn down. Domain operations and payload accounting remain on their owning Host module.
-_Avoid_: giant host API, async-only host
+**Runtime**:
+The backend-neutral composition root and isolation boundary for one virtual
+environment. It owns Env, Moonrun Policy, the Runtime Working Directory, and
+Host-domain state. A Runtime is distinct from the process-shared Engine, from a
+guest Instance, and from the Run action that executes guest code. An Ambient
+dependency may still deliberately expose process-global behavior.
+_Avoid_: Host, Engine, V8 Run Context, service locator
 
 **Host Key**:
 The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
-All Handle kinds share the slotmap null Host Key. An ABI that needs to create or compare a null Handle obtains its encoded value from the running Host rather than hard-coding the slotmap representation.
+All Handle kinds share the slotmap null Host Key. An ABI that needs to create or compare a null Handle obtains its encoded value from the running Runtime rather than hard-coding the slotmap representation.
 _Avoid_: resource payload, raw pointer, per-API key
 
 **V8 Memory Binding**:
@@ -111,8 +127,11 @@ The V8 adapter's retained handle to the instance's exact exported memory. The Ja
 _Avoid_: Guest Memory, Host memory, generic runtime memory
 
 **V8 Run Context**:
-The V8-private per-run composition object that retains the Host, V8 Memory Binding, and termination request for current V8 adapters. Other wasm runtimes carry the same engine-neutral Host state through their own adapter mechanisms rather than implementing a universal runtime context.
-_Avoid_: Host, import family, universal runtime context
+The V8-private per-run adapter object that retains Runtime, V8 Memory Binding,
+and the termination request for current V8 adapters. Other wasm runtimes carry
+the same backend-neutral Runtime through their own adapter mechanisms rather
+than implementing a universal runtime context.
+_Avoid_: Runtime, Host, import family, universal runtime context
 
 **Resource**:
 A moonrun-owned OS or runtime object that can be acquired by a Job, such as a file, socket, or directory cursor.
@@ -155,23 +174,29 @@ the backend state needed to create fresh guest execution state for each Run.
 _Avoid_: Wasm bytes, Run, file path alias
 
 **Engine**:
-The shareable Moonrun execution interface that prepares reusable Loaded Modules
-and executes Runs. It neither chooses execution placement nor retains Run
+The process-shared Moonrun backend that prepares reusable Loaded Modules and
+executes Runs. It neither owns a Runtime's virtual environment nor retains Run
 lifecycle state.
-_Avoid_: Run, execution thread, thread pool
+_Avoid_: Runtime, Instance, Run, execution thread, thread pool
+
+**Instance**:
+An instantiation of a Loaded Module inside a Runtime, with its own Guest Memory
+and guest execution state. A Runtime may contain multiple related Instances; a
+Run is the action that executes guest code rather than the Instance itself.
+_Avoid_: Runtime, Run, Loaded Module, poll instance
 
 **Run**:
-One synchronous execution of a Loaded Module using execution placement chosen
-by the caller. A Run owns fresh guest and Host state and returns only after that
-state is torn down.
-_Avoid_: Engine, Worker, execution thread
+One synchronous execution action within a Runtime, using execution placement
+chosen by the caller. It returns only after run-local guest execution state is
+torn down.
+_Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
 **Async API**:
 The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm ABI values, reacquires guest memory, sets return values, and reports traps.
-_Avoid_: Runtime state, native-stub implementation
+_Avoid_: Host state, native-stub implementation
 
 **Async Host**:
-Moonrun-owned async runtime state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Host's shared Host Key namespace and contains no SQLite state.
+Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace and contains no SQLite state.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
@@ -179,7 +204,7 @@ The V8-facing `moonbitlang/sqlite` adapter that lowers SQLite-shaped calls into 
 _Avoid_: SQLite Host, SQLite wrapper SDK
 
 **SQLite Host**:
-The engine-neutral SQLite implementation for one run. It owns SQLite policy and operations, uses the Host's shared Host Key namespace, and contains the Database and Statement pointer maps, teardown, and leak accounting. Runtime adapters lower their own memory and scalar representations before crossing its interface.
+The backend-neutral SQLite implementation owned by one Runtime. It owns SQLite policy and operations, uses the Runtime's shared Host Key namespace, and contains the Database and Statement pointer maps, teardown, and leak accounting. Wasm runtime adapters lower their own memory and scalar representations before crossing its interface.
 _Avoid_: SQLite API, Async Host, V8 SQLite
 
 **Async Sys**:
@@ -197,7 +222,7 @@ in their owning domain modules.
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:
-The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`. Resource registrations store their Resource Handle directly in the poller's opaque user-data field. The event accessor returns the native field unchanged, including platform-specific non-Resource values; later Resource operations—not the accessor—validate any returned Handle.
+The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque poll-instance Handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`. Resource registrations store their Resource Handle directly in the poller's opaque user-data field. The event accessor returns the native field unchanged, including platform-specific non-Resource values; later Resource operations—not the accessor—validate any returned Handle.
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:

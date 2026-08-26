@@ -184,7 +184,7 @@ macro_rules! declare_async_imports {
         pub(super) fn register_imports<'s>(
             obj: v8::Local<'s, v8::Object>,
             scope: &mut v8::HandleScope<'s>,
-            context_ptr: *const crate::v8_import::V8RunContext,
+            context_ptr: *const crate::v8::context::V8RunContext,
         ) {
             $(
                 $(#[$meta])*
@@ -221,7 +221,7 @@ macro_rules! register_async_import {
         ) {
             unreachable!("fake async import should not be called")
         }
-        crate::v8_import::register_func(
+        crate::v8::context::register_func(
             $obj,
             $scope,
             $wasm_symbol,
@@ -273,7 +273,7 @@ macro_rules! register_async_import {
                 Err(error) => throw_import_error(scope, $wasm_symbol, error),
             }
         }
-        crate::v8_import::register_func(
+        crate::v8::context::register_func(
             $obj,
             $scope,
             $wasm_symbol,

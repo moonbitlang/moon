@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Runtime environment state behind moonrun's environment seam.
+//! Environment state owned by one Runtime.
 //!
 //! Callers use one native-string interface regardless of whether the Run uses
 //! moonrun's legacy ambient environment or an owned environment realized from

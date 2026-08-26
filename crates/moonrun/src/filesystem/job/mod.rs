@@ -26,7 +26,7 @@ use std::ffi::{OsStr, OsString};
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::fd_util;
 use crate::guest_memory::GuestMemory;
-use crate::policy::{Policy, RuntimePathBase};
+use crate::policy::Policy;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 use stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
@@ -430,15 +430,9 @@ impl Job {
                 request,
                 ..
             } => {
-                policy.open_path(
-                    RuntimePathBase::CurrentDirectory,
-                    filename,
-                    *access,
-                    *create_mode,
-                    *append,
-                )?;
+                policy.open_path(filename, *access, *create_mode, *append)?;
                 if request.mask() & !STAT_OPEN_IDENTITY != 0 {
-                    policy.stat_path(RuntimePathBase::CurrentDirectory, filename)?;
+                    policy.stat_path(filename)?;
                 }
                 Ok(())
             }
@@ -453,12 +447,7 @@ impl Job {
                 parent,
                 path,
                 follow_symlink,
-            } => check_path_metadata_policy(
-                policy,
-                resource_path_base(parent.as_deref()),
-                path,
-                *follow_symlink,
-            ),
+            } => check_path_metadata_policy(policy, parent.as_deref(), path, *follow_symlink),
             Kind::FileSize { file, .. } | Kind::FileTime { file, .. } => {
                 check_file_metadata_policy(policy, file.as_deref())
             }
@@ -466,19 +455,10 @@ impl Job {
                 path,
                 follow_symlink,
                 ..
-            } => check_path_metadata_policy(
-                policy,
-                RuntimePathBase::CurrentDirectory,
-                path,
-                *follow_symlink,
-            ),
-            Kind::Realpath { path, .. } => {
-                policy.stat_path(RuntimePathBase::CurrentDirectory, path)
-            }
+            } => check_path_metadata_policy(policy, None, path, *follow_symlink),
+            Kind::Realpath { path, .. } => policy.stat_path(path),
             #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => {
-                policy.stat_path(RuntimePathBase::CurrentDirectory, path)
-            }
+            Kind::InotifyAddWatch { path, .. } => policy.stat_path(path),
             Kind::Access { path, access } => policy.access_path(path, *access),
             Kind::Chmod { path, .. } => policy.chmod_path(path),
             Kind::Flock { file, exclusive } => {
@@ -850,22 +830,20 @@ impl OpenJobResult {
 
 fn check_file_metadata_policy(policy: &Policy, file: Option<&Resource>) -> AsyncHostResult<()> {
     let file = file.ok_or(AsyncHostError::Badf)?;
-    match file.policy_path() {
-        Some(path) => policy.stat_path(RuntimePathBase::CurrentDirectory, path.as_os_str()),
-        None => policy.stat_path(RuntimePathBase::Untracked, OsStr::new("")),
-    }
+    policy.stat_resource_path(file.policy_path())
 }
 
 fn check_path_metadata_policy(
     policy: &Policy,
-    base: RuntimePathBase<'_>,
+    parent: Option<&Resource>,
     path: &OsStr,
     follow_symlink: bool,
 ) -> AsyncHostResult<()> {
-    if follow_symlink {
-        policy.stat_path(base, path)
-    } else {
-        policy.stat_entry_path(base, path)
+    match (parent, follow_symlink) {
+        (None, true) => policy.stat_path(path),
+        (None, false) => policy.stat_entry_path(path),
+        (Some(parent), true) => policy.stat_path_at(parent.policy_path(), path),
+        (Some(parent), false) => policy.stat_entry_path_at(parent.policy_path(), path),
     }
 }
 
@@ -875,24 +853,7 @@ fn check_file_lock_policy(
     exclusive: bool,
 ) -> AsyncHostResult<()> {
     let file = file.ok_or(AsyncHostError::Badf)?;
-    match file.policy_path() {
-        Some(path) => policy.lock_path(
-            RuntimePathBase::CurrentDirectory,
-            path.as_os_str(),
-            exclusive,
-        ),
-        None => policy.lock_path(RuntimePathBase::Untracked, OsStr::new(""), exclusive),
-    }
-}
-
-fn resource_path_base(parent: Option<&Resource>) -> RuntimePathBase<'_> {
-    match parent {
-        None => RuntimePathBase::CurrentDirectory,
-        Some(parent) => parent
-            .policy_path()
-            .map(RuntimePathBase::PolicyPath)
-            .unwrap_or(RuntimePathBase::Untracked),
-    }
+    policy.lock_resource_path(file.policy_path(), exclusive)
 }
 
 #[cfg(test)]

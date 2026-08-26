@@ -22,10 +22,10 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
-use crate::env::Env;
 use crate::policy::Policy;
+use crate::runtime::Env;
 
-/// Selects the temporary-directory base observed by one Run.
+/// Selects the temporary-directory base observed by one Runtime.
 pub(crate) struct TempDir {
     environment: Arc<Env>,
     source: TempDirSource,

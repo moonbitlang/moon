@@ -20,16 +20,18 @@ use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::runtime::WorkingDirectory;
 
 use super::{config::FsConfig, sandbox_denied};
 
 /// Restricts async filesystem operations to native host roots.
 ///
 /// This is not a virtual filesystem: relative runtime paths are resolved using
-/// the process current directory, and configured roots are resolved using the
-/// host platform's path rules.
+/// the Runtime Working Directory, and configured roots are resolved using the host
+/// platform's path rules.
 #[derive(Clone, Debug, Default)]
 pub(super) struct FsPolicy {
+    working_directory: WorkingDirectory,
     read_roots: Vec<FsRoot>,
     write_roots: Vec<FsRoot>,
 }
@@ -47,8 +49,8 @@ pub(super) struct FsIntents {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RuntimePathBase<'a> {
-    CurrentDirectory,
+pub(super) enum RuntimePathBase<'a> {
+    WorkingDirectory,
     PolicyPath(&'a Path),
     Untracked,
 }
@@ -57,9 +59,15 @@ impl FsPolicy {
     /// Construct runtime enforcement from roots canonicalized by `policy`.
     pub(super) fn from_canonical_config(config: FsConfig) -> Self {
         Self {
+            working_directory: WorkingDirectory::Ambient,
             read_roots: roots_from_config(config.read),
             write_roots: roots_from_config(config.write),
         }
+    }
+
+    pub(super) fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
+        self.working_directory = working_directory;
+        self
     }
 
     pub(super) fn allows(
@@ -70,7 +78,7 @@ impl FsPolicy {
     ) -> AsyncHostResult<()> {
         let target = sandbox_path_target(base, path);
         let path = Path::new(path);
-        let path = match resolve_runtime_path(base, path)
+        let path = match resolve_runtime_path(&self.working_directory, base, path)
             .and_then(|path| canonicalize_existing_prefix(&path))
         {
             Ok(path) => path,
@@ -91,7 +99,7 @@ impl FsPolicy {
     ) -> AsyncHostResult<()> {
         let target = sandbox_path_target(base, path);
         let path = Path::new(path);
-        let path = match resolve_runtime_path(base, path)
+        let path = match resolve_runtime_path(&self.working_directory, base, path)
             .and_then(|path| canonicalize_entry_path(&path))
         {
             Ok(path) => path,
@@ -202,14 +210,18 @@ fn roots_from_config(roots: Vec<PathBuf>) -> Vec<FsRoot> {
         .collect()
 }
 
-fn resolve_runtime_path(base: RuntimePathBase<'_>, path: &Path) -> AsyncHostResult<PathBuf> {
+fn resolve_runtime_path(
+    working_directory: &WorkingDirectory,
+    base: RuntimePathBase<'_>,
+    path: &Path,
+) -> AsyncHostResult<PathBuf> {
     if path.is_absolute() {
         return Ok(path.to_path_buf());
     }
 
     match base {
-        RuntimePathBase::CurrentDirectory => std::env::current_dir()
-            .map(|current_dir| current_dir.join(path))
+        RuntimePathBase::WorkingDirectory => working_directory
+            .resolve(path)
             .map_err(|_| AsyncHostError::PermissionDenied),
         RuntimePathBase::PolicyPath(base) => Ok(base.join(path)),
         RuntimePathBase::Untracked => Err(AsyncHostError::PermissionDenied),
@@ -293,7 +305,7 @@ mod tests {
 
         policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 allowed.join("new.txt").as_os_str(),
                 FsIntents::for_open(1, 0, false),
             )
@@ -311,7 +323,7 @@ mod tests {
 
         let error = policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 denied.join("new.txt").as_os_str(),
                 FsIntents::write(),
             )
@@ -329,14 +341,14 @@ mod tests {
 
         policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 path.as_os_str(),
                 FsIntents::read(),
             )
             .unwrap();
         let error = policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 path.as_os_str(),
                 FsIntents::write(),
             )
@@ -353,7 +365,7 @@ mod tests {
 
         let error = policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 allowed.join("new.txt").as_os_str(),
                 FsIntents::read(),
             )
@@ -370,7 +382,7 @@ mod tests {
 
         let error = policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 allowed.join("new.txt").as_os_str(),
                 FsIntents::for_open(0, 1, false),
             )
@@ -406,7 +418,7 @@ mod tests {
 
         policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 denied.join("new.txt").as_os_str(),
                 FsIntents::write(),
             )
@@ -429,14 +441,14 @@ mod tests {
 
         policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 denied_link.as_os_str(),
                 FsIntents::write(),
             )
             .unwrap();
         let error = policy
             .allows_entry(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 denied_link.as_os_str(),
                 FsIntents::write(),
             )
@@ -461,14 +473,14 @@ mod tests {
 
         policy
             .allows_entry(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 allowed_link.as_os_str(),
                 FsIntents::write(),
             )
             .unwrap();
         let error = policy
             .allows(
-                RuntimePathBase::CurrentDirectory,
+                RuntimePathBase::WorkingDirectory,
                 allowed_link.as_os_str(),
                 FsIntents::write(),
             )

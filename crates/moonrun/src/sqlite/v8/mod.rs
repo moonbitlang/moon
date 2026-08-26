@@ -45,7 +45,7 @@ mod registry;
 mod registry_macros;
 mod statement;
 
-use crate::v8_import::V8RunContext;
+use crate::v8::context::V8RunContext;
 
 pub(crate) use registry::MOONBIT_SQLITE_MODULE;
 

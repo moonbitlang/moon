@@ -33,8 +33,8 @@ use std::sync::Arc;
 use libsqlite3_sys as ffi;
 use slotmap::SecondaryMap;
 
-use crate::host::{HostKey, HostKeys};
 use crate::policy::Policy;
+use crate::runtime::{HostKey, HostKeys};
 
 use connection::Database;
 use statement::Statement;
@@ -58,7 +58,7 @@ pub(crate) type SqliteHostResult<T> = Result<T, SqliteHostError>;
 
 /// Per-run SQLite policy, operations, identity, and payload storage.
 ///
-/// Runtime adapters lower their own memory and scalar representations before
+/// Wasm runtime adapters lower their own memory and scalar representations before
 /// crossing this interface. The shared Host Key table supplies identity, while
 /// SQLite-owned pointers remain private payloads of this module.
 pub(crate) struct SqliteHost {
@@ -120,7 +120,7 @@ pub(super) mod tests {
         let outcome = host.open_v2(
             c":memory:",
             ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
-            crate::host::null_handle(),
+            crate::runtime::null_handle(),
         );
         assert_eq!(outcome.code, ffi::SQLITE_OK);
         outcome.database.unwrap()

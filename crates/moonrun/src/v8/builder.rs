@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Small construction helpers shared by V8 adapters.
+
 use v8::{FunctionCallback, FunctionCallbackArguments, HandleScope, Local, Object, Value};
 
 pub(crate) trait ScopeExt<'s> {

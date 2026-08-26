@@ -18,8 +18,9 @@
 
 //! Host imports installed by Moonrun's current V8 backend.
 
-use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
-use crate::{async_api, filesystem, policy, run_termination, sqlite, util, wasi_api};
+use super::builder::{ArgsExt, ObjectExt, ScopeExt};
+use super::{context, wasi};
+use crate::{async_api, filesystem, run_termination, sqlite, util};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -324,21 +325,22 @@ pub(crate) fn install(
     scope: &mut v8::HandleScope,
     wasm_file_name: &str,
     args: &[String],
-    policy: Arc<policy::Policy>,
-    environment: Arc<crate::env::Env>,
+    runtime: crate::runtime::Runtime,
 ) -> run_termination::TerminationRequest {
     let global_proxy = scope.get_current_context().global(scope);
     let termination_request = run_termination::TerminationRequest::default();
-    let v8_context = Box::new(crate::v8_import::V8RunContext::new(
-        crate::host::Host::new(Arc::clone(&policy), Arc::clone(&environment)),
+    let environment = Arc::clone(runtime.environment());
+    let filesystem = runtime.filesystem();
+    let v8_context = Box::new(context::V8RunContext::new(
+        runtime,
         termination_request.clone(),
     ));
-    let v8_context_ptr = &*v8_context as *const crate::v8_import::V8RunContext;
+    let v8_context_ptr = &*v8_context as *const context::V8RunContext;
     let v8_import_runtime = global_proxy.child(scope, "__moonrun_v8_import");
     // SAFETY: `dtors` retains `v8_context` throughout guest execution. The
     // single-shot runner does not re-enter V8 after dropping `dtors`.
     unsafe {
-        crate::v8_import::register_memory_binder(
+        context::register_memory_binder(
             v8_import_runtime,
             scope,
             Rc::as_ptr(v8_context.memory_binding()),
@@ -386,7 +388,7 @@ pub(crate) fn install(
 
     {
         let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
-        wasi_api::init_env(
+        wasi::init_env(
             wasi,
             scope,
             wasm_file_name,
@@ -409,8 +411,8 @@ pub(crate) fn install(
             scope,
             wasm_file_name,
             args,
-            Arc::clone(&policy),
             environment,
+            filesystem,
             dtors,
         );
     }

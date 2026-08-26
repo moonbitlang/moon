@@ -16,19 +16,27 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Per-instance state shared by moonrun-owned host import families.
+//! Process-facing state selected for one Moonrun Runtime.
+
+mod environment;
+mod working_directory;
 
 use std::cell::RefCell;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use anyhow::Context;
 use slotmap::Key;
 use slotmap::{KeyData, SlotMap, new_key_type};
 
 use crate::async_host::AsyncHost;
-use crate::env::Env;
+use crate::filesystem::HostFs;
 use crate::policy::Policy;
 use crate::sqlite::SqliteHost;
+
+pub(crate) use environment::Env;
+pub use working_directory::WorkingDirectory;
 
 new_key_type! {
     pub(crate) struct HostKey;
@@ -89,22 +97,64 @@ impl HostKeys {
     }
 }
 
-/// Composition root for host-owned state.
+/// Backend-neutral composition root for one Moonrun virtual environment.
 ///
-/// Behavior remains on each domain state. `Host` wires those states to one key
-/// namespace and performs teardown with the complete per-run Host.
-pub(crate) struct Host {
+/// `RunOptions` selects the process-facing dependencies. `Runtime` realizes
+/// them once, binds filesystem policy to the same working-directory authority,
+/// wires host domain state to one key namespace, and owns it until teardown.
+pub(crate) struct Runtime {
+    policy: Arc<Policy>,
+    environment: Arc<Env>,
+    working_directory: WorkingDirectory,
     async_state: AsyncHost,
     sqlite: SqliteHost,
 }
 
-impl Host {
-    pub(crate) fn new(policy: Arc<Policy>, environment: Arc<Env>) -> Self {
-        let keys = Rc::new(RefCell::new(HostKeys::default()));
-        Self {
-            async_state: AsyncHost::with_keys(Arc::clone(&policy), environment, Rc::clone(&keys)),
-            sqlite: SqliteHost::with_keys(policy, keys),
+impl Runtime {
+    pub(crate) fn new(
+        policy_file: Option<&Path>,
+        working_directory: WorkingDirectory,
+    ) -> anyhow::Result<Self> {
+        let policy = match policy_file {
+            Some(path) => Policy::from_file(path).context(
+                "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
+            )?,
+            None => Policy::allow_all(),
         }
+        .with_working_directory(working_directory.clone());
+        let environment = Arc::new(
+            policy
+                .realize_env()
+                .context("failed to construct the Runtime environment")?,
+        );
+        let policy = Arc::new(policy);
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let async_state = AsyncHost::with_keys(
+            Arc::clone(&policy),
+            Arc::clone(&environment),
+            Rc::clone(&keys),
+            working_directory.clone(),
+        );
+        let sqlite = SqliteHost::with_keys(Arc::clone(&policy), keys);
+        Ok(Self {
+            policy,
+            environment,
+            working_directory,
+            async_state,
+            sqlite,
+        })
+    }
+
+    pub(crate) fn environment(&self) -> &Arc<Env> {
+        &self.environment
+    }
+
+    pub(crate) fn filesystem(&self) -> HostFs {
+        HostFs::new(Arc::clone(&self.policy), self.working_directory.clone())
+    }
+
+    pub(crate) fn working_directory(&self) -> &WorkingDirectory {
+        &self.working_directory
     }
 
     pub(crate) fn async_state(&self) -> &AsyncHost {
@@ -120,10 +170,10 @@ impl Host {
     }
 }
 
-impl Drop for Host {
+impl Drop for Runtime {
     fn drop(&mut self) {
         // Keep the historical opt-in name for compatibility even though the
-        // check now runs at the lifetime of the complete per-run Host.
+        // check now runs at the lifetime of the complete Runtime.
         if std::thread::panicking() || std::env::var_os("MOONBIT_ASYNC_CHECK_FD_LEAK").is_none() {
             return;
         }
@@ -136,7 +186,7 @@ impl Drop for Host {
             leaks.push(format!("sqlite({summary})"));
         }
         if !leaks.is_empty() {
-            panic!("moonrun Host leaked state: {}", leaks.join(", "));
+            panic!("moonrun Runtime leaked host state: {}", leaks.join(", "));
         }
     }
 }

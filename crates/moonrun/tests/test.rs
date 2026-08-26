@@ -384,7 +384,11 @@ fn moonrun_library_returns_guest_exit_without_terminating_embedder() {
 
     let wasm = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
     let engine = moonrun::Engine::default();
-    let options = || moonrun::RunOptions::default().with_args(["exit-7"]);
+    let options = || {
+        moonrun::RunOptions::default()
+            .with_args(["exit-7"])
+            .with_working_directory(moonrun::WorkingDirectory::Ambient)
+    };
 
     assert_eq!(
         engine.run_file(&wasm, options()).unwrap(),
@@ -394,6 +398,64 @@ fn moonrun_library_returns_guest_exit_without_terminating_embedder() {
         engine.run_file(&wasm, options()).unwrap(),
         moonrun::RunOutcome::Exited(7)
     );
+}
+
+#[test]
+fn moonrun_observes_each_process_working_directory() {
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_working_directory_instances.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_working_directory_instances.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .args(["test", "main", "--target", "wasm", "--build-only"])
+        .assert()
+        .success();
+
+    let wasm = dir.path().join(
+        "_build/wasm/debug/test/moon/working_directory_instances/main/main.blackbox_test.wasm",
+    );
+    for marker in ["first", "second"] {
+        let instance = dir.path().join(marker);
+        std::fs::create_dir(&instance).unwrap();
+        std::fs::write(instance.join("input.txt"), marker).unwrap();
+
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .current_dir(&instance)
+            .arg("--test-args")
+            .arg(
+                r#"{"package":"moon/working_directory_instances/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
+            )
+            .arg(&wasm)
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"main_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"main_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+
+"#]])
+            .stderr_eq("");
+
+        assert_eq!(
+            std::fs::read_to_string(instance.join("output.txt")).unwrap(),
+            marker
+        );
+        assert_eq!(
+            std::fs::canonicalize(PathBuf::from(
+                std::fs::read_to_string(instance.join("cwd.txt")).unwrap(),
+            ))
+            .unwrap(),
+            std::fs::canonicalize(instance).unwrap(),
+        );
+    }
 }
 
 #[test]
@@ -785,7 +847,7 @@ Sandbox policy blocked file read: "denied/database.sqlite"
         .stdout_eq("leaked\n");
     let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
     assert!(
-        stderr.contains("moonrun Host leaked state: sqlite(databases=1)"),
+        stderr.contains("moonrun Runtime leaked host state: sqlite(databases=1)"),
         "expected SQLite leak assertion in stderr, got:\n{stderr}"
     );
 
@@ -1135,7 +1197,7 @@ fn test_moon_run_async_host_leak_check_env() {
         .stdout_eq("leaked\n");
     let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
     assert!(
-        stderr.contains("moonrun Host leaked state: async(polls=1"),
+        stderr.contains("moonrun Runtime leaked host state: async(polls=1"),
         "expected async host leak assertion in stderr, got:\n{stderr}"
     );
 }

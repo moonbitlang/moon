@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::{ResourcePublication, ResourceRef};
+use crate::runtime::WorkingDirectory;
 
 use super::HostProcess;
 
@@ -286,6 +287,16 @@ impl Job {
                 #[cfg(windows)]
                 cancel.take(),
             ),
+        }
+    }
+
+    pub(super) fn configure_working_directory(&mut self, working_directory: &WorkingDirectory) {
+        match &mut self.kind {
+            #[cfg(unix)]
+            Kind::SpawnUnix { cwd, .. } => working_directory.configure_child_cwd(cwd),
+            #[cfg(windows)]
+            Kind::SpawnWindows { cwd, .. } => working_directory.configure_child_cwd(cwd),
+            Kind::WaitForProcess { .. } => {}
         }
     }
 

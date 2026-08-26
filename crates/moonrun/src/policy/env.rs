@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use std::ffi::OsString;
 
 use super::config::EnvConfig;
-use crate::env::Env;
+use crate::runtime::Env;
 
 #[derive(Clone, Debug)]
 pub(super) struct EnvPolicy {

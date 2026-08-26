@@ -16,14 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+pub(crate) mod builder;
+pub(crate) mod context;
+mod demangle;
+mod host_imports;
+mod memory_sanitizer;
+mod wasi;
+
 use crate::engine::{EngineConfig, RunOptions, RunOutcome};
-use crate::env::Env;
-use crate::policy::Policy;
 use crate::run_termination::RunTermination;
-use crate::v8_builder::{ObjectExt, ScopeExt};
-use crate::{demangle_js_template, host_imports, memory_sanitizer_api};
+use crate::runtime::Runtime;
 use anyhow::Context;
-use std::sync::{Arc, OnceLock};
+use builder::{ObjectExt, ScopeExt};
+use std::sync::OnceLock;
 
 const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
 const JS_GLUE: &str = include_str!(concat!(
@@ -122,8 +127,7 @@ pub(crate) fn run(
     module: &CompiledModule,
     source_map: Option<&str>,
     options: RunOptions,
-    policy: Arc<Policy>,
-    environment: Arc<Env>,
+    runtime: Runtime,
 ) -> anyhow::Result<RunOutcome> {
     initialize(config)?;
 
@@ -138,21 +142,15 @@ pub(crate) fn run(
     let global_proxy = scope.get_current_context().global(scope);
     let wasm_module = v8::WasmModuleObject::from_compiled_module(scope, &module.0)
         .context("failed to load compiled WebAssembly module into the run isolate")?;
-    let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
+    let memory_sanitizer = memory_sanitizer::MemorySanitizer::default();
 
     let mut dtors = Vec::new();
-    let termination_request = host_imports::install(
-        &mut dtors,
-        scope,
-        module_name,
-        &options.args,
-        policy,
-        environment,
-    );
+    let termination_request =
+        host_imports::install(&mut dtors, scope, module_name, &options.args, runtime);
 
     let memory_sanitizer_imports =
-        global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
-    memory_sanitizer_api::init_env(memory_sanitizer_imports, scope, &memory_sanitizer);
+        global_proxy.child(scope, memory_sanitizer::MEMORY_SANITIZER_MODULE);
+    memory_sanitizer::init_env(memory_sanitizer_imports, scope, &memory_sanitizer);
 
     if let Some(ref test_args) = options.test_args {
         let test_args = serde_json_lenient::from_str::<TestArgs>(test_args)
@@ -178,7 +176,7 @@ pub(crate) fn run(
         "const test_mode = {};",
         options.test_args.is_some()
     ));
-    entrypoint_source.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
+    entrypoint_source.push_str(demangle::DEMANGLE_JS_TEMPLATE);
     entrypoint_source.push('\n');
     entrypoint_source.push_str(JS_GLUE);
 

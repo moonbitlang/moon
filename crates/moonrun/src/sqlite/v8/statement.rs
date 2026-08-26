@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::context::{ImportContext, SqliteError, SqliteResult};
-use crate::host::null_handle;
+use crate::runtime::null_handle;
 
 pub(super) fn prepare16_v2(
     context: &mut ImportContext,

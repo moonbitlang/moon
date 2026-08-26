@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Runtime-engine-neutral process operations for one moonrun Host.
+//! Wasm-backend-neutral process operations owned by one moonrun Runtime.
 
 mod job;
 
@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::policy::Policy;
+use crate::runtime::WorkingDirectory;
 
 pub(crate) use job::{Job, SpawnOptions};
 
@@ -32,6 +33,7 @@ pub(crate) use job::{Job, SpawnOptions};
 #[derive(Clone)]
 pub(crate) struct HostProcess {
     policy: Arc<Policy>,
+    working_directory: WorkingDirectory,
     state: Option<Arc<ProcessPolicyState>>,
 }
 
@@ -48,11 +50,15 @@ struct ProcessPolicyStateInner {
 }
 
 impl HostProcess {
-    pub(crate) fn new(policy: Arc<Policy>) -> Self {
+    pub(crate) fn new(policy: Arc<Policy>, working_directory: WorkingDirectory) -> Self {
         let state = policy
             .has_process_policy()
             .then(|| Arc::new(ProcessPolicyState::default()));
-        Self { policy, state }
+        Self {
+            policy,
+            working_directory,
+            state,
+        }
     }
 
     pub(crate) fn has_policy(&self) -> bool {
@@ -61,6 +67,10 @@ impl HostProcess {
 
     pub(crate) fn check_job(&self, job: &Job) -> AsyncHostResult<()> {
         job.check_policy(self)
+    }
+
+    pub(crate) fn configure_job_working_directory(&self, job: &mut Job) {
+        job.configure_working_directory(&self.working_directory);
     }
 
     pub(crate) fn finish_job(&self, job: &Job, ret: i64, err: i32) -> AsyncHostResult<()> {

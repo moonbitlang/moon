@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{policy, source_map, v8_backend};
+use crate::runtime::{Runtime, WorkingDirectory};
+use crate::{source_map, v8};
 use anyhow::Context;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -45,6 +46,7 @@ pub struct RunOptions {
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) policy_file: Option<PathBuf>,
+    pub(crate) working_directory: WorkingDirectory,
 }
 
 impl RunOptions {
@@ -71,6 +73,15 @@ impl RunOptions {
         self.policy_file = Some(policy_file.into());
         self
     }
+
+    /// Select the working-directory behavior for this run.
+    ///
+    /// Only [`WorkingDirectory::Ambient`] is currently available. It preserves
+    /// process-global cwd behavior and does not isolate or snapshot a directory.
+    pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
+        self.working_directory = working_directory;
+        self
+    }
 }
 
 /// The observable result of one MoonBit Wasm run.
@@ -83,7 +94,7 @@ pub enum RunOutcome {
 
 struct ModuleData {
     name: String,
-    compiled: v8_backend::CompiledModule,
+    compiled: v8::CompiledModule,
     source_map: Option<String>,
 }
 
@@ -91,7 +102,7 @@ struct ModuleData {
 ///
 /// Loading compiles the file once against the Engine. Cloning a Module reuses
 /// that compiled representation, and each call to [`Engine::run`] creates
-/// fresh per-run guest and host state from it.
+/// fresh per-run guest and Runtime state from it.
 #[derive(Clone)]
 pub struct Module(Arc<ModuleData>);
 
@@ -100,7 +111,7 @@ impl Module {
         &self.0.name
     }
 
-    pub(crate) fn compiled(&self) -> &v8_backend::CompiledModule {
+    pub(crate) fn compiled(&self) -> &v8::CompiledModule {
         &self.0.compiled
     }
 
@@ -119,15 +130,16 @@ impl fmt::Debug for Module {
 
 /// Process-shared Moonrun execution engine.
 ///
-/// An Engine loads reusable modules and executes each isolated run synchronously
+/// An Engine loads reusable modules and executes each run synchronously
 /// on the calling thread. It does not create threads or retain run lifecycle
 /// state; callers choose execution placement and manage lifecycle.
 ///
-/// The current implementation still uses process stdio, environment, working
-/// directory, and signal compatibility behavior. Those remain shared,
-/// process-scoped dependencies to extract in later changes. In particular,
-/// unrestricted guest environment mutations write through to the process and
-/// must not race other process-environment access.
+/// The current implementation still uses process stdio and signal
+/// compatibility behavior. Environment and working-directory behavior are
+/// selected per run, but unrestricted environment access and the only current
+/// working-directory mode remain process-scoped. In particular, unrestricted
+/// guest environment mutations write through to the process and must not race
+/// other process-environment access.
 #[derive(Clone, Debug)]
 pub struct Engine {
     config: EngineConfig,
@@ -145,7 +157,7 @@ impl Engine {
         bytes: impl AsRef<[u8]>,
     ) -> anyhow::Result<Module> {
         let name = name.into();
-        let compiled = v8_backend::compile(&self.config, bytes.as_ref())
+        let compiled = v8::compile(&self.config, bytes.as_ref())
             .with_context(|| format!("failed to compile `{name}`"))?;
         Ok(Module(Arc::new(ModuleData {
             name,
@@ -165,7 +177,7 @@ impl Engine {
         }
         let bytes = std::fs::read(file).context("failed to read Wasm file")?;
         let name = file.to_string_lossy().into_owned();
-        let compiled = v8_backend::compile(&self.config, &bytes)
+        let compiled = v8::compile(&self.config, &bytes)
             .with_context(|| format!("failed to compile `{name}`"))?;
         Ok(Module(Arc::new(ModuleData {
             name,
@@ -174,27 +186,19 @@ impl Engine {
         })))
     }
 
-    /// Execute one isolated run synchronously on the calling thread.
+    /// Execute one run synchronously on the calling thread.
     pub fn run(&self, module: &Module, options: RunOptions) -> anyhow::Result<RunOutcome> {
-        let policy = Arc::new(match options.policy_file.as_ref() {
-            Some(path) => policy::Policy::from_file(path).context(
-                "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
-            )?,
-            None => policy::Policy::allow_all(),
-        });
-        let environment = Arc::new(
-            policy
-                .realize_env()
-                .context("failed to construct the Run environment")?,
-        );
-        v8_backend::run(
+        let runtime = Runtime::new(
+            options.policy_file.as_deref(),
+            options.working_directory.clone(),
+        )?;
+        v8::run(
             &self.config,
             module.name(),
             module.compiled(),
             module.source_map(),
             options,
-            policy,
-            environment,
+            runtime,
         )
     }
 
@@ -218,6 +222,20 @@ impl Default for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_options_default_to_ambient_working_directory() {
+        assert_eq!(
+            RunOptions::default().working_directory,
+            WorkingDirectory::Ambient
+        );
+        assert_eq!(
+            RunOptions::default()
+                .with_working_directory(WorkingDirectory::Ambient)
+                .working_directory,
+            WorkingDirectory::Ambient
+        );
+    }
 
     #[test]
     fn loaded_module_keeps_source_map_after_files_are_removed() {
