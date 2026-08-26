@@ -41,13 +41,14 @@ pub(crate) fn moon_bin() -> PathBuf {
 pub(crate) fn moonrun_bin() -> PathBuf {
     MOONRUN_BIN
         .get_or_init(|| {
+            // `moonrun` is a host tool. Keep Cargo's default target layout so
+            // it can reuse artifacts from the outer Cargo invocation.
             escargot::CargoBuild::new()
                 .manifest_path(
                     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moonrun/Cargo.toml"),
                 )
                 .bin("moonrun")
                 .current_release()
-                .current_target()
                 .run()
                 .expect("failed to build moonrun")
                 .path()

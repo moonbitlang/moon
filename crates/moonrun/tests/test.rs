@@ -31,11 +31,12 @@ fn moon_bin() -> &'static PathBuf {
     static MOON_BIN: OnceLock<PathBuf> = OnceLock::new();
     MOON_BIN.get_or_init(|| {
         let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
+        // `moon` is a host tool. Keep Cargo's default target layout so it can
+        // reuse artifacts from the outer Cargo invocation.
         escargot::CargoBuild::new()
             .manifest_path(manifest_path)
             .bin("moon")
             .current_release()
-            .current_target()
             .run()
             .expect("failed to build moon")
             .path()
