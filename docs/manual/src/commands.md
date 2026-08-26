@@ -569,6 +569,8 @@ Display the dependency tree
 * `--json` — Output one complete JSON result to stdout
 * `--package` — Show the package-level dependency graph instead of the module-level tree
 
+   Text output expands source imports from every package in the selected module. With `--json`, the result contains every non-standard-library package in the resolved project, all import target kinds, and the selected module's packages in `root`.
+
 
 
 ## `moon fetch`

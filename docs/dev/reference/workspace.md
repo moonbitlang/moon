@@ -152,6 +152,9 @@ These commands are still workspace-aware:
 - they keep workspace-local build layout
 - they use the selected member as the operation target
 
+Machine-readable `moon tree --json` output derives each `workspace_member`
+value from the selected workspace layout, including workspaces with one member.
+
 But they are not workspace-wide commands.
 
 At a workspace root, they fail unless Moon can determine a member module from

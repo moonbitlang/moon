@@ -930,6 +930,21 @@ fn test_member_dir_tree_json_output() {
 }
 
 #[test]
+fn test_single_member_workspace_tree_json_marks_member() {
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"fmt/workspace/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true}],"edges":[],"logs":[{"level":"warning","message":"`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead."}]}
+
+"#]]);
+}
+
+#[test]
 fn test_member_dir_tree_package_json_output() {
     let dir = TestDir::new("workspace_basic.in");
 

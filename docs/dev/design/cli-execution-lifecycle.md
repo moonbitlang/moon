@@ -85,9 +85,10 @@ enum OutputFormat {
 }
 ```
 
-`check` and `search` currently select JSON through command-local `--json`
-flags. The distinction is an output contract, not a JSON-specific command
-variant. Each command owns its result schema while reusing the same lifecycle
+`check`, `search`, and `tree` currently select JSON through command-local
+`--json` flags. The distinction is an output contract, not a JSON-specific
+command variant. Each command owns its result schema while reusing the same
+lifecycle
 requirement: one complete Command Result on stdout and no terminal-only output
 on stderr. No universal JSON payload or generic result trait is required.
 
@@ -171,12 +172,13 @@ enum ChildOutputMode {
 }
 ```
 
-Human commands inherit the child's stdout and stderr. JSON check captures both
-channels, closes the child's stdin, and waits for completion before producing
-the Command Result. Non-empty output from a successful child becomes an
-informational User Log entry; output from a failed child becomes an error.
-User Log filtering and child-output mode remain independent decisions: capture
-is never inferred from the User Log destination.
+Human commands inherit the child's stdout and stderr. Machine-readable command
+modes that synchronize dependencies, currently `check --json` and
+`tree --package --json`, capture both channels, close the child's stdin, and
+wait for completion before producing the Command Result. Non-empty output from
+a successful child becomes an informational User Log entry; output from a
+failed child becomes an error. User Log filtering and child-output mode remain
+independent decisions: capture is never inferred from the User Log destination.
 
 Registry adapters only acquire and verify source. Project-local dependency
 installation invokes the isolated legacy-postadd module after materialization,
@@ -205,6 +207,7 @@ Public CLI tests cover:
 - complete JSON stdout and trace files for successful and failed JSON checks;
 - complete JSON stdout with empty stderr for successful and failed registry
   searches;
-- JSON check capture for successful and failed legacy postadd hooks and nested
+- JSON tree capture for successful and failed module and package trees, plus
+  JSON check capture for successful and failed legacy postadd hooks and nested
   binary-dependency builds; and
 - existing `moon run` trace and temporary-project cleanup invariants.

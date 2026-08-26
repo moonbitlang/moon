@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -37,15 +38,22 @@ pub struct TreeSubcommand {
     pub json: bool,
 
     /// Show the package-level dependency graph instead of the module-level tree
+    ///
+    /// Text output expands source imports from every package in the selected
+    /// module. With `--json`, the result contains every non-standard-library
+    /// package in the resolved project, all import target kinds, and the
+    /// selected module's packages in `root`.
     #[clap(long)]
     pub package: bool,
 }
 
 /// The resolved dependency graph of the selected module, together with the
 /// module the tree is rooted at.
+#[derive(Debug)]
 pub struct ResolvedTree {
     pub env: ResolvedEnv,
     pub root: ModuleId,
+    pub workspace_members: HashSet<ModuleId>,
 }
 
 pub fn tree(
@@ -71,8 +79,15 @@ pub fn tree(
         .or_else(|| resolved.input_module_ids().first().copied())
         .context("resolved dependency graph has no root modules")?;
 
+    let workspace_members = if matches!(project_manifest, ProjectManifest::Workspace(_)) {
+        resolved.input_module_ids().iter().copied().collect()
+    } else {
+        HashSet::new()
+    };
+
     Ok(ResolvedTree {
         env: resolved,
         root: selected_root,
+        workspace_members,
     })
 }

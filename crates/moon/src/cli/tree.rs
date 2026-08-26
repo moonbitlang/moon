@@ -25,8 +25,12 @@ use moonbuild_rupes_recta::{
     model::{BuildTarget, PackageId, TargetKind},
     resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies},
 };
-use mooncake::pkg::tree::TreeSubcommand;
+use mooncake::pkg::{
+    sync::SyncOutputOptions,
+    tree::{ResolvedTree, TreeSubcommand},
+};
 use moonutil::{
+    child_process::ChildOutputMode,
     cli_support::UniversalFlags,
     command_output::CommandOutput,
     manifest::read_module_desc_file_in_dir,
@@ -48,11 +52,12 @@ pub(crate) fn tree_cli(
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let rendered = if cmd.package {
-        let (resolve_output, selected) = resolve_selected_package_graph(&cli, output.user_log())?;
+        let (resolve_output, selected) =
+            resolve_selected_package_graph(&cli, output.user_log(), ChildOutputMode::Inherit)?;
         render_package_tree(&resolve_output, selected)
     } else {
-        let (env, root) = resolve_selected_tree(&cli, output.user_log())?;
-        render_tree(&env, root)
+        let resolved = resolve_selected_tree(&cli, output.user_log())?;
+        render_tree(&resolved.env, resolved.root, &resolved.workspace_members)
     };
     output.write_result(|writer| -> anyhow::Result<()> {
         writer.write_all(rendered.as_bytes())?;
@@ -74,13 +79,9 @@ fn selected_tree_project(
     Ok((module_dir, dirs))
 }
 
-fn resolve_selected_tree(
-    cli: &UniversalFlags,
-    user_log: &UserLog,
-) -> anyhow::Result<(ResolvedEnv, ModuleId)> {
+fn resolve_selected_tree(cli: &UniversalFlags, user_log: &UserLog) -> anyhow::Result<ResolvedTree> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
-    let resolved = mooncake::pkg::tree::tree(&module_dir, &dirs.project_manifest, user_log)?;
-    Ok((resolved.env, resolved.root))
+    mooncake::pkg::tree::tree(&module_dir, &dirs.project_manifest, user_log)
 }
 
 /// Resolve the package-level dependency graph through the Rupes Recta
@@ -88,10 +89,15 @@ fn resolve_selected_tree(
 fn resolve_selected_package_graph(
     cli: &UniversalFlags,
     user_log: &UserLog,
+    child_output: ChildOutputMode,
 ) -> anyhow::Result<(ResolveOutput, ModuleId)> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
     let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
+        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
+            .with_sync_output(SyncOutputOptions {
+                quiet: false,
+                child_output,
+            });
     let synced = sync_dependencies(&resolve_cfg, &dirs, user_log)?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced, user_log)?;
 
@@ -114,7 +120,7 @@ pub(crate) fn run_tree_json(
 ) -> TreeJsonOutcome {
     let user_log = output.user_log();
     if cmd.package {
-        match resolve_selected_package_graph(cli, user_log) {
+        match resolve_selected_package_graph(cli, user_log, ChildOutputMode::Capture) {
             Ok((resolve_output, selected)) => {
                 TreeJsonOutcome::success(TreeJsonData::Package(Box::new(resolve_output), selected))
             }
@@ -122,7 +128,7 @@ pub(crate) fn run_tree_json(
         }
     } else {
         match resolve_selected_tree(cli, user_log) {
-            Ok((env, root)) => TreeJsonOutcome::success(TreeJsonData::Module(Box::new(env), root)),
+            Ok(resolved) => TreeJsonOutcome::success(TreeJsonData::Module(Box::new(resolved))),
             Err(error) => TreeJsonOutcome::from_error(format!("{error:#}"), false),
         }
     }
@@ -139,7 +145,7 @@ enum TreeJsonOutcomeKind {
 
 #[derive(Debug)]
 enum TreeJsonData {
-    Module(Box<ResolvedEnv>, ModuleId),
+    Module(Box<ResolvedTree>),
     Package(Box<ResolveOutput>, ModuleId),
 }
 
@@ -180,8 +186,9 @@ pub(crate) fn write_tree_json(
     let logs = capture.take();
     output.write_result(|writer| -> anyhow::Result<()> {
         match outcome.kind {
-            TreeJsonOutcomeKind::Success(TreeJsonData::Module(env, root)) => {
-                let graph = render_graph_json(&env, root);
+            TreeJsonOutcomeKind::Success(TreeJsonData::Module(resolved)) => {
+                let graph =
+                    render_graph_json(&resolved.env, resolved.root, &resolved.workspace_members);
                 let report = TreeJsonReport {
                     version: MODULE_TREE_JSON_VERSION,
                     status,
@@ -310,8 +317,11 @@ struct PackageEdgeJSON {
     kinds: Vec<&'static str>,
 }
 
-fn render_graph_json(resolved: &ResolvedEnv, root: ModuleId) -> TreeGraphJSON {
-    let workspace_members = workspace_members(resolved);
+fn render_graph_json(
+    resolved: &ResolvedEnv,
+    root: ModuleId,
+    workspace_members: &HashSet<ModuleId>,
+) -> TreeGraphJSON {
     let mut modules = resolved
         .all_modules_and_id()
         .map(|(id, source)| {
@@ -617,17 +627,19 @@ fn source_json(source: &ModuleSourceKind) -> SourceJSON {
     }
 }
 
-fn render_tree(resolved: &ResolvedEnv, root: ModuleId) -> String {
-    let workspace_members = workspace_members(resolved);
-
+fn render_tree(
+    resolved: &ResolvedEnv,
+    root: ModuleId,
+    workspace_members: &HashSet<ModuleId>,
+) -> String {
     let mut out = String::new();
-    out.push_str(&format_module_label(resolved, root, &workspace_members));
+    out.push_str(&format_module_label(resolved, root, workspace_members));
     out.push_str(":\n");
 
     let mut stack = HashSet::new();
     stack.insert(root);
     let direct_dep_count =
-        render_tree_edges(resolved, root, "", &workspace_members, &mut stack, &mut out);
+        render_tree_edges(resolved, root, "", workspace_members, &mut stack, &mut out);
 
     if direct_dep_count == 0 {
         out.push_str("  (no dependencies)\n");
@@ -686,14 +698,6 @@ fn render_tree_edges(
     }
 
     deps.len()
-}
-
-fn workspace_members(resolved: &ResolvedEnv) -> HashSet<ModuleId> {
-    if resolved.input_module_ids().len() > 1 {
-        resolved.input_module_ids().iter().copied().collect()
-    } else {
-        HashSet::new()
-    }
 }
 
 fn format_module_label(
@@ -766,7 +770,7 @@ mod tests {
         env.add_dependency(root_id, dep_b, &regular_dep("alice/b"));
         env.add_dependency(dep_a, dep_c, &regular_dep("alice/c"));
 
-        let rendered = render_tree(&env, root_id);
+        let rendered = render_tree(&env, root_id, &HashSet::new());
         expect![[r#"
             alice/root@0.1.0 (local /workspace/root):
             ├─ alice/a -> alice/a@0.1.0 (local /workspace/a)
@@ -789,7 +793,7 @@ mod tests {
         );
         env.add_dependency(root_id, dep_id, &regular_dep("just/hello004"));
 
-        let rendered = render_tree(&env, root_id);
+        let rendered = render_tree(&env, root_id, &HashSet::new());
         expect![[r#"
             username/hello@0.1.0 (local /workspace/hello):
             └─ just/hello004 -> just/hello004@0.1.0 (local /workspace/hello/deps/hello004)
@@ -811,7 +815,8 @@ mod tests {
         let mut env = ResolvedEnv::from_root_modules(roots);
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 
-        let rendered = render_tree(&env, app);
+        let workspace_members = [app, liba].into_iter().collect();
+        let rendered = render_tree(&env, app, &workspace_members);
         expect![[r#"
             alice/app@0.1.0 (local /workspace/app) [workspace member]:
             └─ alice/liba -> alice/liba@0.1.1 (local /workspace/liba) [workspace member]
@@ -844,7 +849,7 @@ mod tests {
         env.add_dependency(root_id, dep_b, &regular_dep("alice/b"));
         env.add_dependency(dep_a, dep_c, &regular_dep("alice/c"));
 
-        let graph = render_graph_json(&env, root_id);
+        let graph = render_graph_json(&env, root_id, &HashSet::new());
         expect![[r#"
             {
               "root": 3,
@@ -923,7 +928,7 @@ mod tests {
         );
         env.add_dependency(root_id, dep_id, &regular_dep("just/hello004"));
 
-        let graph = render_graph_json(&env, root_id);
+        let graph = render_graph_json(&env, root_id, &HashSet::new());
         expect![[r#"
             {
               "root": 1,
@@ -973,7 +978,8 @@ mod tests {
         let mut env = ResolvedEnv::from_root_modules(roots);
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 
-        let graph = render_graph_json(&env, app);
+        let workspace_members = [app, liba].into_iter().collect();
+        let graph = render_graph_json(&env, app, &workspace_members);
         expect![[r#"
             {
               "root": 0,
