@@ -409,47 +409,23 @@ fn run_check_impl(
         dirs.mooncake_bin_dir = dirs.target_dir.join(moonutil::constants::MOON_BIN_DIR);
     }
 
+    let targets = if cmd.build_flags.target.is_empty() {
+        Vec::new()
+    } else {
+        lower_surface_targets(&cmd.build_flags.target)
+    };
+
     if let Some(single_file_path) = single_file.as_deref() {
-        let targets = if cmd.build_flags.target.is_empty() {
-            vec![None]
-        } else {
-            lower_surface_targets(&cmd.build_flags.target)
-                .into_iter()
-                .map(Some)
-                .collect()
+        let result =
+            run_check_for_single_file_rr(cli, cmd, single_file_path, &dirs, &targets, output, json);
+        return match targets.as_slice() {
+            [] => result,
+            [target] => result.context(format!("failed to run check for target {target:?}")),
+            _ => result.context(format!("failed to run check for targets {targets:?}")),
         };
-        let mut ret_value = 0;
-        let mut build_metas = Vec::with_capacity(targets.len());
-        for t in targets {
-            let result = run_check_for_single_file_rr(
-                cli,
-                cmd,
-                single_file_path,
-                &dirs,
-                t,
-                output,
-                json.as_deref_mut(),
-            );
-            let (x, build_meta) = match t {
-                Some(t) => result.context(format!("failed to run check for target {t:?}"))?,
-                None => result?,
-            };
-            ret_value = ret_value.max(x);
-            build_metas.push(build_meta);
-        }
-        if !cli.dry_run {
-            let _lock = lock_directory(&dirs.target_dir, user_log).with_context(|| {
-                format!(
-                    "failed to acquire build lock in target directory `{}`",
-                    dirs.target_dir.display()
-                )
-            })?;
-            rr_build::generate_metadata_index(&build_metas)?;
-        }
-        return Ok(ret_value);
     }
 
-    if cmd.build_flags.target.is_empty() {
+    if targets.is_empty() {
         return run_check_normal_internal(
             cli,
             cmd,
@@ -460,9 +436,6 @@ fn run_check_impl(
             json,
         );
     }
-
-    let surface_targets = cmd.build_flags.target.clone();
-    let targets = lower_surface_targets(&surface_targets);
 
     if cmd.watch {
         let mut ret_value = 0;
@@ -517,13 +490,12 @@ fn run_check_for_single_file_rr(
     cmd: &CheckSubcommand,
     single_file_path: &Path,
     dirs: &PackageDirs,
-    selected_target_backend: Option<TargetBackend>,
+    selected_target_backends: &[TargetBackend],
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
-) -> anyhow::Result<(i32, rr_build::BuildMeta)> {
+) -> anyhow::Result<i32> {
     let user_log = output.user_log();
     let PackageDirs {
-        source_dir,
         target_dir,
         mooncake_bin_dir,
         ..
@@ -556,90 +528,57 @@ fn run_check_for_single_file_rr(
         false,
         user_log,
     )?;
-    let selected_target_backend = match selected_target_backend {
-        Some(selected) => Some(selected),
-        None => cmd.build_flags.resolve_single_target_backend()?.or(backend),
+    let target_backends = if selected_target_backends.is_empty() {
+        vec![cmd.build_flags.resolve_single_target_backend()?.or(backend)]
+    } else {
+        selected_target_backends.iter().copied().map(Some).collect()
     };
 
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Check,
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        user_log,
-        &resolved,
-    )?;
-    let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        user_log,
-        planning_context,
-        intent,
-        mooncake_bin_dir,
-        resolved,
-    )
-    .context("Failed to calculate build plan")?;
-    if cli.dry_run {
-        output.write_result(|writer| {
-            rr_build::write_dry_run(
-                writer,
-                &build_graph,
-                build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(target_dir, user_log).with_context(|| {
+            format!(
+                "failed to acquire build lock in target directory `{}`",
+                target_dir.display()
             )
         })?;
-        return Ok((0, build_meta));
     }
 
-    let _lock = lock_directory(target_dir, user_log).with_context(|| {
-        format!(
-            "failed to acquire build lock in target directory `{}`",
-            target_dir.display()
-        )
-    })?;
-
-    // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(&build_meta)?;
-    let filename = single_file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(String::from);
-    rr_build::generate_metadata(source_dir, &build_meta, &build_graph, filename.as_deref())?;
-    rr_build::generate_metadata_selector(&build_meta, filename.as_deref())?;
-
-    let mut cfg = BuildConfig::from_flags(
-        &cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose && json.is_none(),
-    );
-    cfg.patch_file = cmd.patch_file.clone();
-    cfg.explain_errors |= cmd.explain;
-
-    if let Some(json) = json {
-        let result = rr_build::execute_build_json(
-            &cfg.with_suppressed_progress(true),
-            build_graph,
+    let mut planned_runs = Vec::with_capacity(target_backends.len());
+    for target_backend in target_backends {
+        let preconfig = preconfig_compile(
+            &cmd.auto_sync_flags,
+            cli,
+            &cmd.build_flags,
+            target_backend,
             target_dir,
+            RunMode::Check,
+        );
+        let planning_context = rr_build::prepare_resolved_build(
+            &preconfig,
+            &cli.unstable_feature,
+            target_dir,
+            user_log,
+            &resolved,
         )?;
-        let successful = result.successful();
-        json.append_build(result, user_log);
-        return Ok((if successful { 0 } else { 1 }, build_meta));
+        let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
+        planned_runs.push(
+            rr_build::plan_resolved_build_from_intent(
+                preconfig,
+                &cli.unstable_feature,
+                user_log,
+                planning_context,
+                intent,
+                mooncake_bin_dir,
+                resolved.clone(),
+            )
+            .context("Failed to calculate build plan")?,
+        );
     }
 
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-    result.print_info(cli.quiet, "checking")?;
-
-    Ok((if result.successful() { 0 } else { 1 }, build_meta))
+    let filename = single_file_path.file_name().and_then(|name| name.to_str());
+    run_planned_checks(cli, cmd, dirs, planned_runs, true, filename, output, json)
+        .map(|ok| if ok { 0 } else { 1 })
 }
 
 fn get_user_intents_single_file(
@@ -799,15 +738,48 @@ fn run_check_normal_rr_from_resolved(
             .collect()
     };
 
+    let ok = run_planned_checks(
+        cli,
+        cmd,
+        dirs,
+        planned_runs,
+        cmd.package_path.is_none() && cmd.path.is_empty(),
+        None,
+        output,
+        json,
+    )?;
+
+    Ok(WatchOutput {
+        ok,
+        additional_ignored_paths: prebuild_list.ignored_paths,
+        additional_watched_paths: prebuild_list.watched_paths,
+    })
+}
+
+/// Finalizes metadata and executes checks that have already been planned.
+///
+/// The caller must hold the target-directory lock for a non-dry-run check.
+#[allow(clippy::too_many_arguments)]
+fn run_planned_checks(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    dirs: &PackageDirs,
+    planned_runs: Vec<(rr_build::BuildMeta, rr_build::BuildInput)>,
+    publish_metadata: bool,
+    metadata_filename: Option<&str>,
+    output: &CommandOutput,
+    json: Option<&mut CheckJsonAccumulator>,
+) -> anyhow::Result<bool> {
     if planned_runs.is_empty() {
-        return Ok(WatchOutput {
-            ok: true,
-            additional_ignored_paths: prebuild_list.ignored_paths,
-            additional_watched_paths: prebuild_list.watched_paths,
-        });
+        return Ok(true);
     }
 
-    let ok = if cli.dry_run {
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        ..
+    } = dirs;
+    if cli.dry_run {
         output.write_result(|writer| {
             let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
             let build_input =
@@ -821,59 +793,51 @@ fn run_check_normal_rr_from_resolved(
             )?;
             Ok::<_, std::io::Error>(())
         })?;
-        true
+        return Ok(true);
+    }
+
+    let mut cfg = BuildConfig::from_flags(
+        &cmd.build_flags,
+        &cli.unstable_feature,
+        cli.verbose && json.is_none(),
+    );
+    cfg.patch_file = cmd.patch_file.clone();
+    cfg.explain_errors |= cmd.explain;
+    for (build_meta, build_input) in &planned_runs {
+        // Generate all_pkgs.json for indirect dependency resolution
+        rr_build::generate_all_pkgs_json(build_meta)?;
+        if publish_metadata {
+            rr_build::generate_metadata(source_dir, build_meta, build_input, metadata_filename)?;
+        }
+    }
+    if publish_metadata {
+        // The compiler's universal format selects one active projection.
+        // Before the split, repeated publication made the final planned
+        // backend authoritative, so retain that deterministic behavior.
+        let selected = &planned_runs
+            .last()
+            .expect("non-empty planned runs were checked above")
+            .0;
+        rr_build::generate_metadata_selector(selected, metadata_filename)?;
+        rr_build::generate_metadata_index(planned_runs.iter().map(|(build_meta, _)| build_meta))?;
+    }
+
+    let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
+    let build_input = rr_build::compose_build_inputs(build_inputs)?;
+    if let Some(json) = json {
+        let result = rr_build::execute_build_json(
+            &cfg.with_suppressed_progress(true),
+            build_input,
+            target_dir,
+        )?;
+        let successful = result.successful();
+        json.append_build(result, output.user_log());
+        Ok(successful)
     } else {
-        let mut cfg = BuildConfig::from_flags(
-            &cmd.build_flags,
-            &cli.unstable_feature,
-            cli.verbose && json.is_none(),
-        );
-        cfg.patch_file = cmd.patch_file.clone();
-        cfg.explain_errors |= cmd.explain;
-        for (build_meta, build_input) in &planned_runs {
-            // Generate all_pkgs.json for indirect dependency resolution
-            rr_build::generate_all_pkgs_json(build_meta)?;
-            if cmd.package_path.is_none() && cmd.path.is_empty() {
-                rr_build::generate_metadata(source_dir, build_meta, build_input, None)?;
-            }
-        }
-        if cmd.package_path.is_none() && cmd.path.is_empty() {
-            // The compiler's universal format selects one active projection.
-            // Before the split, repeated publication made the final planned
-            // backend authoritative, so retain that deterministic behavior.
-            let selected = &planned_runs
-                .last()
-                .expect("non-empty planned runs were checked above")
-                .0;
-            rr_build::generate_metadata_selector(selected, None)?;
-            rr_build::generate_metadata_index(
-                planned_runs.iter().map(|(build_meta, _)| build_meta),
-            )?;
-        }
-
-        let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-        let build_input = rr_build::compose_build_inputs(build_inputs)?;
-        if let Some(json) = json {
-            let result = rr_build::execute_build_json(
-                &cfg.with_suppressed_progress(true),
-                build_input,
-                target_dir,
-            )?;
-            let successful = result.successful();
-            json.append_build(result, user_log);
-            successful
-        } else {
-            let result = rr_build::execute_build(&cfg, build_input, target_dir, user_log)?;
-            result.print_info(cli.quiet, "checking")?;
-            result.successful()
-        }
-    };
-
-    Ok(WatchOutput {
-        ok,
-        additional_ignored_paths: prebuild_list.ignored_paths,
-        additional_watched_paths: prebuild_list.watched_paths,
-    })
+        let result = rr_build::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+        result.print_info(cli.quiet, "checking")?;
+        Ok(result.successful())
+    }
 }
 
 fn sync_and_resolve_check_project(
