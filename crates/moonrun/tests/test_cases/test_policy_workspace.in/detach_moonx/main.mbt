@@ -17,21 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 ///|
-enum HostPlatform {
-  Linux = 0
-  MacOS = 1
-  Windows = 2
-}
-
-///|
-#unsafe_skip_stub_check
-fn host_platform() -> HostPlatform = "moonbitlang/async" "runtime/get_platform"
-
-///|
-#unsafe_skip_stub_check
-fn terminate_process(pid : Int, signal : Int) = "moonbitlang/async" "process/terminate"
-
-///|
 async fn main {
   let marker = match @env.get_env_var("MOON_TEST_DETACH_MARKER") {
     Some(marker) => marker
@@ -41,12 +26,15 @@ async fn main {
     Some(marker) => marker
     None => abort("missing detached pid path")
   }
-  let output = @process.redirect_to_file(marker + ".log")
-  let pid = @process.spawn_orphan("moonx", [
-    "moonbitlang/parser/cmd/moonfmt@0.3.3",
-    marker,
-  ], stdout=output, stderr=output)
-  let stop_signal = if host_platform() is MacOS { 17 } else { 19 }
-  terminate_process(pid, stop_signal)
-  @fs.write_file(pid_marker, pid.to_string())
+  for index = 0; index < 2; index = index + 1 {
+    let marker = marker + "-\{index}"
+    let output = @process.redirect_to_file(marker + ".log")
+    let _ = @process.spawn_orphan(
+      "moonx",
+      ["moonbitlang/parser/cmd/moonfmt@0.3.3", marker],
+      extra_env={ "MOON_TEST_DETACH_PID": pid_marker + "-\{index}" },
+      stdout=output,
+      stderr=output,
+    )
+  }
 }

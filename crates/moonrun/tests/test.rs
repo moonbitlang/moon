@@ -1032,6 +1032,7 @@ fn test_moon_run_policy_with_workspace_async_fs() {
     // test executable because a MoonBit test driver does nothing without
     // moonrun's --test-args selection.
     let env_marker_wasm = wasm_file("env_marker");
+    #[cfg(unix)]
     let detach_moonx_wasm = wasm_file("detach_moonx");
     let env_mutate_wasm = wasm_file("env_mutate");
     let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
@@ -1189,15 +1190,40 @@ spawn = true
 
     #[cfg(unix)]
     {
+        use std::os::unix::fs::PermissionsExt;
+
+        // The moonx-named wrapper stops itself before execing the real binary.
+        // Resuming it only after the parent moonrun exits makes the detached
+        // lifetime boundary deterministic. Exec preserves both environment and
+        // inherited OS handles, so this test also applies to a future FD transport.
+        let wrapper_dir =
+            tempfile::TempDir::new().expect("create detached moonx wrapper directory");
+        let wrapper = wrapper_dir.path().join("moonx");
+        std::fs::write(
+            &wrapper,
+            r#"#!/bin/sh
+set -eu
+printf '%s' "$$" > "$MOON_TEST_DETACH_PID"
+kill -STOP "$$"
+exec "$MOON_TEST_REAL_MOONX" "$@"
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let detached_path = std::env::join_paths(
+            std::iter::once(wrapper_dir.path().to_path_buf()).chain(std::env::split_paths(&path)),
+        )
+        .expect("put detached moonx wrapper on PATH");
         let marker = dir.path().join("detached-moonx-finished");
         let pid_marker = dir.path().join("detached-moonx-pid");
 
         snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
             .current_dir(dir.path())
-            .env("PATH", &path)
+            .env("PATH", detached_path)
             .env("MOON_HOME", moon_home.path())
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
             .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+            .env("MOON_TEST_REAL_MOONX", &moonx)
             .env("MOON_TEST_DETACH_MARKER", &marker)
             .env("MOON_TEST_DETACH_PID", &pid_marker)
             .arg("--policy")
@@ -1208,22 +1234,58 @@ spawn = true
             .stdout_eq("")
             .stderr_eq("");
 
-        let pid = std::fs::read_to_string(&pid_marker)
-            .expect("detached moonx pid was not published")
-            .parse::<libc::pid_t>()
-            .unwrap();
-        assert_eq!(unsafe { libc::kill(pid, libc::SIGCONT) }, 0);
+        let pid_markers = [
+            pid_marker.with_file_name("detached-moonx-pid-0"),
+            pid_marker.with_file_name("detached-moonx-pid-1"),
+        ];
+        let markers = [
+            marker.with_file_name("detached-moonx-finished-0"),
+            marker.with_file_name("detached-moonx-finished-1"),
+        ];
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !pid_markers.iter().all(|path| path.exists()) {
+            if std::time::Instant::now() >= deadline {
+                for path in &pid_markers {
+                    if let Ok(pid) = std::fs::read_to_string(path)
+                        .and_then(|pid| pid.parse::<libc::pid_t>().map_err(std::io::Error::other))
+                    {
+                        unsafe {
+                            libc::kill(pid, libc::SIGKILL);
+                        }
+                    }
+                }
+                panic!("detached moonx processes did not reach their synchronization point");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let pids = pid_markers.map(|path| {
+            std::fs::read_to_string(path)
+                .unwrap()
+                .parse::<libc::pid_t>()
+                .unwrap()
+        });
+        for pid in pids {
+            assert_eq!(unsafe { libc::kill(pid, libc::SIGCONT) }, 0);
+        }
 
-        for _ in 0..200 {
-            if marker.exists() {
+        let completion_deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !markers.iter().all(|path| path.exists()) {
+            if std::time::Instant::now() >= completion_deadline {
+                for pid in pids {
+                    unsafe {
+                        libc::kill(pid, libc::SIGKILL);
+                    }
+                }
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert_eq!(
-            std::fs::read_to_string(&marker).expect("detached moonx did not finish"),
-            "inherited policy active"
-        );
+        for marker in markers {
+            assert_eq!(
+                std::fs::read_to_string(marker).expect("detached moonx did not finish"),
+                "inherited policy active"
+            );
+        }
     }
 
     let spawn_moonx_test_wasm = std::fs::canonicalize(dir.path().join(
