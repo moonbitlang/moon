@@ -41,7 +41,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
     pub(super) fn new(scope: &'a mut v8::HandleScope<'scope>, context: &'a V8RunContext) -> Self {
         Self {
             scope,
-            host: context.runtime().async_state(),
+            host: context.runtime().async_host(),
             filesystem: context.runtime().filesystem(),
             memory_binding: context.memory_binding(),
             termination_request: context.termination_request(),

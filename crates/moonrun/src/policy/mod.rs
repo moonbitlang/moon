@@ -16,10 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Runtime-owned access policy for moonrun-owned wasm boundaries.
+//! Construction-time authorization input for moonrun-owned wasm boundaries.
 //!
 //! No policy file preserves existing moonrun behavior. Supplying a policy file
-//! switches the supported host surfaces to deny-by-default mode.
+//! switches the supported host surfaces to deny-by-default mode. Runtime
+//! construction consumes the resulting domain policies instead of retaining a
+//! global policy object in the Host domains.
 
 mod config;
 mod env;
@@ -29,21 +31,19 @@ mod policy_inheritance;
 mod process;
 
 use std::ffi::OsStr;
-#[cfg(unix)]
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::runtime::{Env, WorkingDirectory};
+use crate::runtime::Env;
 
 use self::config::PolicyConfig;
 use self::env::EnvPolicy;
-use self::fs::{FsIntents, FsPolicy, RuntimePathBase};
-use self::net::{NetOperation, NetPolicy};
+pub(crate) use self::fs::{FsIntents, FsPolicy};
+pub(crate) use self::net::{NetOperation, NetPolicy, SocketRule};
 pub(crate) use self::policy_inheritance::PolicyInheritance;
-use self::process::ProcessPolicy;
+pub(crate) use self::process::ProcessPolicy;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Policy {
@@ -88,16 +88,6 @@ impl Policy {
         Self::from_config(config, Path::new("."))
     }
 
-    /// Bind runtime path authorization to the working directory selected for
-    /// this Runtime. Unrestricted policy remains a no-op and therefore does not
-    /// introduce an additional cwd observation.
-    pub(crate) fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
-        self.fs = self
-            .fs
-            .map(|fs| fs.with_working_directory(working_directory));
-        self
-    }
-
     fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
         let config = canonicalize(config, config_dir)?;
         let policy_inheritance = PolicyInheritance::from_config(&config)?;
@@ -114,254 +104,26 @@ impl Policy {
         })
     }
 
-    pub(crate) fn policy_inheritance(&self) -> Option<PolicyInheritance> {
-        self.policy_inheritance.clone()
+    pub(crate) fn take_filesystem_policy(&mut self) -> Option<FsPolicy> {
+        self.fs.take()
     }
 
-    pub(crate) fn open_path(
-        &self,
-        path: &OsStr,
-        access: i32,
-        create_mode: i32,
-        append: bool,
-    ) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows(
-            RuntimePathBase::WorkingDirectory,
-            path,
-            FsIntents::for_open(access, create_mode, append),
-        )
+    pub(crate) fn take_network_policy(&mut self) -> Option<NetPolicy> {
+        self.net.take()
     }
 
-    pub(crate) fn stat_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        self.read_path(path)
+    pub(crate) fn realize_env(&mut self) -> anyhow::Result<Env> {
+        self.env
+            .take()
+            .map_or_else(|| Ok(Env::ambient()), |policy| policy.realize())
     }
 
-    pub(crate) fn stat_path_at(&self, base: Option<&Path>, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows(
-            base.map(RuntimePathBase::PolicyPath)
-                .unwrap_or(RuntimePathBase::Untracked),
-            path,
-            FsIntents::read(),
-        )
+    pub(crate) fn take_process_policy(&mut self) -> Option<ProcessPolicy> {
+        self.process.take()
     }
 
-    pub(crate) fn stat_resource_path(&self, path: Option<&Path>) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        match path {
-            Some(path) => fs.allows(
-                RuntimePathBase::WorkingDirectory,
-                path.as_os_str(),
-                FsIntents::read(),
-            ),
-            None => fs.allows(
-                RuntimePathBase::Untracked,
-                OsStr::new(""),
-                FsIntents::read(),
-            ),
-        }
-    }
-
-    pub(crate) fn read_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows(RuntimePathBase::WorkingDirectory, path, FsIntents::read())
-    }
-
-    pub(crate) fn write_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
-    }
-
-    pub(crate) fn stat_entry_path_at(
-        &self,
-        base: Option<&Path>,
-        path: &OsStr,
-    ) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows_entry(
-            base.map(RuntimePathBase::PolicyPath)
-                .unwrap_or(RuntimePathBase::Untracked),
-            path,
-            FsIntents::read(),
-        )
-    }
-
-    pub(crate) fn stat_entry_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::read())
-    }
-
-    pub(crate) fn access_path(&self, path: &OsStr, access: i32) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows(
-            RuntimePathBase::WorkingDirectory,
-            path,
-            FsIntents::for_access_check(access),
-        )
-    }
-
-    pub(crate) fn chmod_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        self.write_path(path)
-    }
-
-    pub(crate) fn remove_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
-    }
-
-    pub(crate) fn rename_path(&self, old_path: &OsStr, new_path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows_entry(
-            RuntimePathBase::WorkingDirectory,
-            old_path,
-            FsIntents::write(),
-        )?;
-        fs.allows_entry(
-            RuntimePathBase::WorkingDirectory,
-            new_path,
-            FsIntents::write(),
-        )
-    }
-
-    pub(crate) fn symlink_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
-    }
-
-    pub(crate) fn mkdir_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
-    }
-
-    pub(crate) fn rmdir_path(&self, path: &OsStr) -> AsyncHostResult<()> {
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        fs.allows_entry(RuntimePathBase::WorkingDirectory, path, FsIntents::write())
-    }
-
-    pub(crate) fn lock_resource_path(
-        &self,
-        path: Option<&Path>,
-        exclusive: bool,
-    ) -> AsyncHostResult<()> {
-        if !exclusive {
-            return Ok(());
-        }
-        let Some(fs) = self.fs_policy() else {
-            return Ok(());
-        };
-        match path {
-            Some(path) => fs.allows(
-                RuntimePathBase::WorkingDirectory,
-                path.as_os_str(),
-                FsIntents::write(),
-            ),
-            None => fs.allows(
-                RuntimePathBase::Untracked,
-                OsStr::new(""),
-                FsIntents::write(),
-            ),
-        }
-    }
-
-    pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
-        let Some(net) = self.net_policy() else {
-            return Ok(());
-        };
-        net.check_dns(host)
-    }
-
-    pub(crate) fn register_dns_result(
-        &self,
-        host: &OsStr,
-        addrs: &[Box<[u8]>],
-    ) -> AsyncHostResult<()> {
-        let Some(net) = self.net_policy() else {
-            return Ok(());
-        };
-        net.register_dns_result(host, addrs)
-    }
-
-    pub(crate) fn check_connect(&self, addr: &[u8]) -> AsyncHostResult<()> {
-        let Some(net) = self.net_policy() else {
-            return Ok(());
-        };
-        net.check_socket(NetOperation::Connect, addr)
-    }
-
-    pub(crate) fn check_bind(&self, addr: &[u8]) -> AsyncHostResult<()> {
-        let Some(net) = self.net_policy() else {
-            return Ok(());
-        };
-        net.check_socket(NetOperation::Bind, addr)
-    }
-
-    pub(crate) fn realize_env(&self) -> anyhow::Result<Env> {
-        self.env_policy()
-            .map_or_else(|| Ok(Env::ambient()), EnvPolicy::realize)
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn spawn_process_unix(
-        &self,
-        program: &OsStr,
-        argv: &[OsString],
-    ) -> AsyncHostResult<()> {
-        self.process
-            .as_ref()
-            .map_or(Ok(()), |process| process.allows_unix(program, argv))
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn spawn_process_windows(&self, command_line: &OsStr) -> AsyncHostResult<()> {
-        self.process
-            .as_ref()
-            .map_or(Ok(()), |process| process.allows_windows(command_line))
-    }
-
-    pub(crate) fn has_process_policy(&self) -> bool {
-        self.process.is_some()
-    }
-
-    #[inline]
-    fn fs_policy(&self) -> Option<&FsPolicy> {
-        self.fs.as_ref()
-    }
-
-    #[inline]
-    fn net_policy(&self) -> Option<&NetPolicy> {
-        self.net.as_ref()
-    }
-
-    #[inline]
-    fn env_policy(&self) -> Option<&EnvPolicy> {
-        self.env.as_ref()
+    pub(crate) fn take_policy_inheritance(&mut self) -> Option<PolicyInheritance> {
+        self.policy_inheritance.take()
     }
 }
 
@@ -404,6 +166,8 @@ fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<
 mod tests {
     use std::collections::BTreeMap;
     use std::ffi::OsStr;
+    #[cfg(unix)]
+    use std::ffi::OsString;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
 
@@ -415,6 +179,46 @@ mod tests {
             fs: Some(config::FsConfig { read, write }),
             ..Default::default()
         }
+    }
+
+    fn check_ambient_open(
+        mut policy: Policy,
+        path: &OsStr,
+        access: i32,
+        create_mode: i32,
+        append: bool,
+    ) -> AsyncHostResult<()> {
+        policy.take_filesystem_policy().map_or(Ok(()), |policy| {
+            policy.authorize(
+                Some(Path::new(path)),
+                FsIntents::for_open(access, create_mode, append),
+                &format!("{:?}", path),
+            )
+        })
+    }
+
+    fn check_network_connect(mut policy: Policy, addr: &[u8]) -> AsyncHostResult<()> {
+        policy.take_network_policy().map_or(Ok(()), |policy| {
+            policy.check_socket(NetOperation::Connect, addr, &[])
+        })
+    }
+
+    #[cfg(unix)]
+    fn check_process_spawn(
+        mut policy: Policy,
+        program: &OsStr,
+        argv: &[OsString],
+    ) -> AsyncHostResult<()> {
+        policy
+            .take_process_policy()
+            .map_or(Ok(()), |policy| policy.allows_unix(program, argv))
+    }
+
+    #[cfg(windows)]
+    fn check_process_spawn(mut policy: Policy, command_line: &OsStr) -> AsyncHostResult<()> {
+        policy
+            .take_process_policy()
+            .map_or(Ok(()), |policy| policy.allows_windows(command_line))
     }
 
     #[test]
@@ -536,7 +340,7 @@ mod tests {
         let canonical_write = std::fs::canonicalize(&write).unwrap();
         let secret = "value-that-must-not-be-serialized";
 
-        let policy = Policy::from_config(
+        let mut policy = Policy::from_config(
             PolicyConfig {
                 fs: Some(config::FsConfig {
                     read: vec![PathBuf::from("read")],
@@ -561,7 +365,7 @@ mod tests {
         )
         .unwrap();
         let contents = policy
-            .policy_inheritance()
+            .take_policy_inheritance()
             .unwrap()
             .open_transfer()
             .unwrap()
@@ -586,9 +390,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("policy.json");
         std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
-        let parent = Policy::from_file(&source).unwrap();
+        let mut parent = Policy::from_file(&source).unwrap();
         let contents = parent
-            .policy_inheritance()
+            .take_policy_inheritance()
             .unwrap()
             .open_transfer()
             .unwrap()
@@ -600,12 +404,16 @@ mod tests {
 
         #[cfg(unix)]
         assert_eq!(
-            inherited.spawn_process_unix(OsStr::new("program"), &[OsString::from("program")]),
+            check_process_spawn(
+                inherited,
+                OsStr::new("program"),
+                &[OsString::from("program")]
+            ),
             Err(AsyncHostError::PermissionDenied)
         );
         #[cfg(windows)]
         assert_eq!(
-            inherited.spawn_process_windows(OsStr::new("program.exe")),
+            check_process_spawn(inherited, OsStr::new("program.exe")),
             Err(AsyncHostError::PermissionDenied)
         );
     }
@@ -614,9 +422,7 @@ mod tests {
     fn no_policy_leaves_fs_unrestricted() {
         let policy = Policy::allow_all();
 
-        policy
-            .open_path(OsStr::new("missing-parent/new.txt"), 1, 4, false)
-            .unwrap();
+        check_ambient_open(policy, OsStr::new("missing-parent/new.txt"), 1, 4, false).unwrap();
     }
 
     #[test]
@@ -633,8 +439,7 @@ mod tests {
         )
         .unwrap();
 
-        let error = policy
-            .open_path(OsStr::new("missing-parent/new.txt"), 1, 4, false)
+        let error = check_ambient_open(policy, OsStr::new("missing-parent/new.txt"), 1, 4, false)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -654,9 +459,7 @@ mod tests {
         .unwrap();
         let denied = tmp.path().join("new.txt");
 
-        let error = policy
-            .open_path(denied.as_os_str(), 1, 4, false)
-            .unwrap_err();
+        let error = check_ambient_open(policy, denied.as_os_str(), 1, 4, false).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -664,9 +467,7 @@ mod tests {
     fn no_policy_leaves_net_unrestricted() {
         let policy = Policy::allow_all();
 
-        policy
-            .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
-            .unwrap();
+        check_network_connect(policy, &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap();
     }
 
     #[test]
@@ -688,9 +489,8 @@ mod tests {
         )
         .unwrap();
 
-        let error = policy
-            .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
-            .unwrap_err();
+        let error =
+            check_network_connect(policy, &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -708,16 +508,15 @@ mod tests {
         )
         .unwrap();
 
-        let error = policy
-            .check_connect(&ipv4_addr(Ipv4Addr::LOCALHOST, 443))
-            .unwrap_err();
+        let error =
+            check_network_connect(policy, &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
     #[test]
     fn missing_env_section_uses_empty_env_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(
+        let mut policy = Policy::from_config(
             PolicyConfig {
                 fs: None,
                 net: None,
@@ -737,13 +536,9 @@ mod tests {
     fn no_policy_leaves_process_spawning_unrestricted() {
         let policy = Policy::allow_all();
         #[cfg(unix)]
-        policy
-            .spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
-            .unwrap();
+        check_process_spawn(policy, OsStr::new("program"), &[OsString::from("program")]).unwrap();
         #[cfg(windows)]
-        policy
-            .spawn_process_windows(OsStr::new("program.exe"))
-            .unwrap();
+        check_process_spawn(policy, OsStr::new("program.exe")).unwrap();
     }
 
     #[test]
@@ -755,11 +550,11 @@ mod tests {
             {
                 #[cfg(unix)]
                 {
-                    policy.spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
+                    check_process_spawn(policy, OsStr::new("program"), &[OsString::from("program")])
                 }
                 #[cfg(windows)]
                 {
-                    policy.spawn_process_windows(OsStr::new("program.exe"))
+                    check_process_spawn(policy, OsStr::new("program.exe"))
                 }
             },
             Err(AsyncHostError::PermissionDenied)
@@ -782,13 +577,9 @@ mod tests {
         .unwrap();
 
         #[cfg(unix)]
-        policy
-            .spawn_process_unix(OsStr::new("program"), &[OsString::from("program")])
-            .unwrap();
+        check_process_spawn(policy, OsStr::new("program"), &[OsString::from("program")]).unwrap();
         #[cfg(windows)]
-        policy
-            .spawn_process_windows(OsStr::new("program.exe"))
-            .unwrap();
+        check_process_spawn(policy, OsStr::new("program.exe")).unwrap();
     }
 
     fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {

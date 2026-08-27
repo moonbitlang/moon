@@ -22,7 +22,7 @@ use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
 
-use crate::policy::Policy;
+use crate::filesystem::HostFs;
 use crate::runtime::null_handle;
 
 /// Ensure the requested database and VFS are available in the MVP.
@@ -30,9 +30,11 @@ use crate::runtime::null_handle;
 /// File-backed connections use SQLite's default VFS. The main database is
 /// authorized for reading together with its parent directory because SQLite
 /// may read journal, WAL, and shared-memory files beside it. Writable
-/// connections also require write access to that directory.
+/// connections also require write access to that directory. This is an
+/// admission check, not VFS mediation: SQLite still interprets the filename
+/// again when `sqlite3_open_v2` runs.
 pub(super) fn ensure_valid_database(
-    policy: &Policy,
+    filesystem: &HostFs,
     filename: &CStr,
     flags: i32,
     vfs: u64,
@@ -49,20 +51,20 @@ pub(super) fn ensure_valid_database(
         return Err(ffi::SQLITE_CANTOPEN);
     }
     let database = Path::new(filename);
-    policy
-        .read_path(database.as_os_str())
+    filesystem
+        .authorize_read(database.as_os_str())
         .map_err(|_| ffi::SQLITE_CANTOPEN)?;
     let parent = database
         .parent()
         .filter(|path| !path.as_os_str().is_empty());
     let parent = parent.unwrap_or_else(|| Path::new("."));
-    policy
-        .read_path(parent.as_os_str())
+    filesystem
+        .authorize_read(parent.as_os_str())
         .map_err(|_| ffi::SQLITE_CANTOPEN)?;
 
     if flags & (ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE) != 0 {
-        policy
-            .write_path(parent.as_os_str())
+        filesystem
+            .authorize_write(parent.as_os_str())
             .map_err(|_| ffi::SQLITE_CANTOPEN)?;
     }
     Ok(())
@@ -114,6 +116,7 @@ unsafe extern "C" fn untrusted_authorizer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::Policy;
     use std::ffi::CString;
 
     fn c_path(path: &Path) -> CString {
@@ -121,12 +124,17 @@ mod tests {
     }
 
     fn ensure_valid_ambient_database(
-        policy: &Policy,
+        policy: &crate::policy::Policy,
         filename: &CStr,
         flags: i32,
         vfs: u64,
     ) -> Result<(), i32> {
-        ensure_valid_database(policy, filename, flags, vfs)
+        ensure_valid_database(
+            &crate::sqlite::tests::ambient_filesystem(policy.clone()),
+            filename,
+            flags,
+            vfs,
+        )
     }
 
     #[test]

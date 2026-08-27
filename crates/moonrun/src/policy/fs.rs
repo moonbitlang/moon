@@ -17,21 +17,18 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::OsStr;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::runtime::WorkingDirectory;
+use crate::async_host::AsyncHostResult;
 
 use super::{config::FsConfig, sandbox_denied};
 
 /// Restricts async filesystem operations to native host roots.
 ///
-/// This is not a virtual filesystem: relative runtime paths are resolved using
-/// the Runtime Working Directory, and configured roots are resolved using the host
-/// platform's path rules.
+/// This is not a virtual filesystem. `HostFs` resolves runtime paths before
+/// asking these immutable rules whether the resulting target is allowed.
 #[derive(Clone, Debug, Default)]
-pub(super) struct FsPolicy {
-    working_directory: WorkingDirectory,
+pub(crate) struct FsPolicy {
     read_roots: Vec<FsRoot>,
     write_roots: Vec<FsRoot>,
 }
@@ -43,81 +40,29 @@ enum FsRoot {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct FsIntents {
+pub(crate) struct FsIntents {
     read: bool,
     write: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RuntimePathBase<'a> {
-    WorkingDirectory,
-    PolicyPath(&'a Path),
-    Untracked,
 }
 
 impl FsPolicy {
     /// Construct runtime enforcement from roots canonicalized by `policy`.
     pub(super) fn from_canonical_config(config: FsConfig) -> Self {
         Self {
-            working_directory: WorkingDirectory::Ambient,
             read_roots: roots_from_config(config.read),
             write_roots: roots_from_config(config.write),
         }
     }
 
-    pub(super) fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
-        self.working_directory = working_directory;
-        self
-    }
-
-    pub(super) fn allows(
+    pub(crate) fn authorize(
         &self,
-        base: RuntimePathBase<'_>,
-        path: &OsStr,
-        intents: FsIntents,
-    ) -> AsyncHostResult<()> {
-        let target = sandbox_path_target(base, path);
-        let path = Path::new(path);
-        let path = match resolve_runtime_path(&self.working_directory, base, path)
-            .and_then(|path| canonicalize_existing_prefix(&path))
-        {
-            Ok(path) => path,
-            Err(AsyncHostError::PermissionDenied) => {
-                return sandbox_denied(intents.sandbox_action(), Some(&target));
-            }
-            Err(error) => return Err(error),
-        };
-
-        self.allows_resolved(&path, intents, &target)
-    }
-
-    pub(super) fn allows_entry(
-        &self,
-        base: RuntimePathBase<'_>,
-        path: &OsStr,
-        intents: FsIntents,
-    ) -> AsyncHostResult<()> {
-        let target = sandbox_path_target(base, path);
-        let path = Path::new(path);
-        let path = match resolve_runtime_path(&self.working_directory, base, path)
-            .and_then(|path| canonicalize_entry_path(&path))
-        {
-            Ok(path) => path,
-            Err(AsyncHostError::PermissionDenied) => {
-                return sandbox_denied(intents.sandbox_action(), Some(&target));
-            }
-            Err(error) => return Err(error),
-        };
-
-        self.allows_resolved(&path, intents, &target)
-    }
-
-    fn allows_resolved(
-        &self,
-        path: &Path,
+        resolved_path: Option<&Path>,
         intents: FsIntents,
         target: &str,
     ) -> AsyncHostResult<()> {
+        let Some(path) = resolved_path else {
+            return sandbox_denied(intents.sandbox_action(), Some(target));
+        };
         if intents.read && !self.allows_read(path) {
             return sandbox_denied("file read", Some(target));
         }
@@ -146,14 +91,14 @@ impl FsRoot {
 }
 
 impl FsIntents {
-    pub(super) fn read() -> Self {
+    pub(crate) fn read() -> Self {
         Self {
             read: true,
             write: false,
         }
     }
 
-    pub(super) fn write() -> Self {
+    pub(crate) fn write() -> Self {
         Self {
             read: false,
             write: true,
@@ -167,7 +112,7 @@ impl FsIntents {
         }
     }
 
-    pub(super) fn for_open(access: i32, create_mode: i32, append: bool) -> Self {
+    pub(crate) fn for_open(access: i32, create_mode: i32, append: bool) -> Self {
         let mut intents = match access {
             0 | 3 => Self::read(),
             1 => Self::write(),
@@ -180,7 +125,7 @@ impl FsIntents {
         intents
     }
 
-    pub(super) fn for_access_check(access: i32) -> Self {
+    pub(crate) fn for_access_check(access: i32) -> Self {
         if access == 2 {
             Self::write()
         } else {
@@ -210,79 +155,10 @@ fn roots_from_config(roots: Vec<PathBuf>) -> Vec<FsRoot> {
         .collect()
 }
 
-fn resolve_runtime_path(
-    working_directory: &WorkingDirectory,
-    base: RuntimePathBase<'_>,
-    path: &Path,
-) -> AsyncHostResult<PathBuf> {
-    if path.is_absolute() {
-        return Ok(path.to_path_buf());
-    }
-
-    match base {
-        RuntimePathBase::WorkingDirectory => working_directory
-            .resolve(path)
-            .map_err(|_| AsyncHostError::PermissionDenied),
-        RuntimePathBase::PolicyPath(base) => Ok(base.join(path)),
-        RuntimePathBase::Untracked => Err(AsyncHostError::PermissionDenied),
-    }
-}
-
-fn canonicalize_existing_prefix(path: &Path) -> AsyncHostResult<PathBuf> {
-    for ancestor in path.ancestors() {
-        if let Ok(prefix) = std::fs::canonicalize(ancestor) {
-            let suffix = path
-                .strip_prefix(ancestor)
-                .map_err(|_| AsyncHostError::PermissionDenied)?;
-            return Ok(normalize_path(prefix.join(suffix)));
-        }
-    }
-    Err(AsyncHostError::PermissionDenied)
-}
-
-fn canonicalize_entry_path(path: &Path) -> AsyncHostResult<PathBuf> {
-    let parent = path.parent().ok_or(AsyncHostError::PermissionDenied)?;
-    let file_name = path.file_name().ok_or(AsyncHostError::PermissionDenied)?;
-    Ok(normalize_path(
-        canonicalize_existing_prefix(parent)?.join(file_name),
-    ))
-}
-
-fn normalize_path(path: PathBuf) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
-                normalized.push(component.as_os_str());
-            }
-        }
-    }
-    normalized
-}
-
-fn sandbox_path_target(base: RuntimePathBase<'_>, path: &OsStr) -> String {
-    if matches!(base, RuntimePathBase::Untracked) {
-        quote_str("<untracked resource>")
-    } else {
-        quote_os_str(path)
-    }
-}
-
-fn quote_os_str(value: &OsStr) -> String {
-    quote_str(&value.to_string_lossy())
-}
-
-fn quote_str(value: &str) -> String {
-    format!("{value:?}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::async_host::AsyncHostError;
 
     fn policy(read: Vec<PathBuf>, write: Vec<PathBuf>, config_dir: &Path) -> FsPolicy {
         let config = crate::policy::canonicalize(
@@ -296,6 +172,12 @@ mod tests {
         FsPolicy::from_canonical_config(config.fs.unwrap())
     }
 
+    fn authorize(policy: &FsPolicy, path: &Path, intents: FsIntents) -> AsyncHostResult<()> {
+        let parent = std::fs::canonicalize(path.parent().unwrap()).unwrap();
+        let resolved = parent.join(path.file_name().unwrap());
+        policy.authorize(Some(&resolved), intents, &format!("{:?}", path.as_os_str()))
+    }
+
     #[test]
     fn allows_missing_file_under_relative_root() {
         let tmp = tempfile::tempdir().unwrap();
@@ -303,17 +185,16 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                allowed.join("new.txt").as_os_str(),
-                FsIntents::for_open(1, 0, false),
-            )
-            .unwrap();
+        authorize(
+            &policy,
+            &allowed.join("new.txt"),
+            FsIntents::for_open(1, 0, false),
+        )
+        .unwrap();
     }
 
     #[test]
-    fn denies_paths_outside_roots_after_normalization() {
+    fn denies_paths_outside_roots() {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         let denied = tmp.path().join("denied");
@@ -321,13 +202,7 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![allowed], tmp.path());
 
-        let error = policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                denied.join("new.txt").as_os_str(),
-                FsIntents::write(),
-            )
-            .unwrap_err();
+        let error = authorize(&policy, &denied.join("new.txt"), FsIntents::write()).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -339,20 +214,8 @@ mod tests {
         let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
         let path = allowed.join("new.txt");
 
-        policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                path.as_os_str(),
-                FsIntents::read(),
-            )
-            .unwrap();
-        let error = policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                path.as_os_str(),
-                FsIntents::write(),
-            )
-            .unwrap_err();
+        authorize(&policy, &path, FsIntents::read()).unwrap();
+        let error = authorize(&policy, &path, FsIntents::write()).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -363,13 +226,7 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        let error = policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                allowed.join("new.txt").as_os_str(),
-                FsIntents::read(),
-            )
-            .unwrap_err();
+        let error = authorize(&policy, &allowed.join("new.txt"), FsIntents::read()).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -380,13 +237,12 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
 
-        let error = policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                allowed.join("new.txt").as_os_str(),
-                FsIntents::for_open(0, 1, false),
-            )
-            .unwrap_err();
+        let error = authorize(
+            &policy,
+            &allowed.join("new.txt"),
+            FsIntents::for_open(0, 1, false),
+        )
+        .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -400,11 +256,7 @@ mod tests {
         );
 
         let error = policy
-            .allows(
-                RuntimePathBase::Untracked,
-                OsStr::new("file.txt"),
-                FsIntents::read(),
-            )
+            .authorize(None, FsIntents::read(), "\"<untracked resource>\"")
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -416,76 +268,6 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("*")], tmp.path());
 
-        policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                denied.join("new.txt").as_os_str(),
-                FsIntents::write(),
-            )
-            .unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn entry_checks_use_link_path_not_symlink_target() {
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("allowed");
-        let denied = tmp.path().join("denied");
-        std::fs::create_dir(&allowed).unwrap();
-        std::fs::create_dir(&denied).unwrap();
-        let allowed_file = allowed.join("target.txt");
-        std::fs::write(&allowed_file, "target").unwrap();
-        let denied_link = denied.join("link.txt");
-        std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
-        let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
-
-        policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                denied_link.as_os_str(),
-                FsIntents::write(),
-            )
-            .unwrap();
-        let error = policy
-            .allows_entry(
-                RuntimePathBase::WorkingDirectory,
-                denied_link.as_os_str(),
-                FsIntents::write(),
-            )
-            .unwrap_err();
-
-        assert_eq!(error, AsyncHostError::PermissionDenied);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn entry_checks_allow_allowed_link_without_target_write() {
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("allowed");
-        let denied = tmp.path().join("denied");
-        std::fs::create_dir(&allowed).unwrap();
-        std::fs::create_dir(&denied).unwrap();
-        let denied_file = denied.join("target.txt");
-        std::fs::write(&denied_file, "target").unwrap();
-        let allowed_link = allowed.join("link.txt");
-        std::os::unix::fs::symlink(&denied_file, &allowed_link).unwrap();
-        let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
-
-        policy
-            .allows_entry(
-                RuntimePathBase::WorkingDirectory,
-                allowed_link.as_os_str(),
-                FsIntents::write(),
-            )
-            .unwrap();
-        let error = policy
-            .allows(
-                RuntimePathBase::WorkingDirectory,
-                allowed_link.as_os_str(),
-                FsIntents::write(),
-            )
-            .unwrap_err();
-
-        assert_eq!(error, AsyncHostError::PermissionDenied);
+        authorize(&policy, &denied.join("new.txt"), FsIntents::write()).unwrap();
     }
 }

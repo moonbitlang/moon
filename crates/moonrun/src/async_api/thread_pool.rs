@@ -805,19 +805,7 @@ pub(super) fn make_wait_for_process_job(
     handle: u64,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    let tracked_pid = context.host.process_handle_pid(handle)?;
-    let handle = optional_resource(context, handle)?;
-    #[cfg(unix)]
-    let defer_reap = context.host.policy().has_process_policy();
-    context
-        .host
-        .insert_job(ProcessJob::wait_for_process(
-            handle,
-            tracked_pid,
-            pid,
-            #[cfg(unix)]
-            defer_reap,
-        )?)
+    context.host.make_wait_for_process_job(handle, pid)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]

@@ -34,12 +34,12 @@ pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use crate::async_host::AsyncHostResult;
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::fs::stub;
-use crate::policy::Policy;
+use crate::policy::{FsIntents, FsPolicy};
 use crate::runtime::{Env, WorkingDirectory};
 
 #[derive(Debug)]
@@ -90,16 +90,16 @@ impl FsOperationResults {
 /// Engine-neutral filesystem operations that enforce the runtime policy
 /// before accessing the operating system's filesystem.
 pub(crate) struct HostFs {
-    policy: Arc<Policy>,
+    policy: Option<FsPolicy>,
     environment: Arc<Env>,
-    working_directory: WorkingDirectory,
+    working_directory: Arc<WorkingDirectory>,
 }
 
 impl HostFs {
     pub(crate) fn new(
-        policy: Arc<Policy>,
+        policy: Option<FsPolicy>,
         environment: Arc<Env>,
-        working_directory: WorkingDirectory,
+        working_directory: Arc<WorkingDirectory>,
     ) -> Self {
         Self {
             policy,
@@ -308,29 +308,214 @@ impl HostFs {
         }
     }
 
+    pub(crate) fn authorize_open(
+        &self,
+        path: &OsStr,
+        access: i32,
+        create_mode: i32,
+        append: bool,
+    ) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::for_open(access, create_mode, append))
+    }
+
+    fn authorize_metadata(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_read(path)
+    }
+
+    fn authorize_metadata_at(&self, base: Option<&Path>, path: &OsStr) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = authorization_target_at(base, path);
+        let resolved = resolve_from_directory(base, Path::new(path))
+            .and_then(|path| canonicalize_existing_prefix(&path))
+            .ok();
+        policy.authorize(resolved.as_deref(), FsIntents::read(), &target)
+    }
+
+    pub(crate) fn authorize_resource_metadata(&self, path: Option<&Path>) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        match path {
+            Some(path) => {
+                let target = quote_os_str(path.as_os_str());
+                let resolved = canonicalize_existing_prefix(path).ok();
+                policy.authorize(resolved.as_deref(), FsIntents::read(), &target)
+            }
+            None => policy.authorize(None, FsIntents::read(), "\"<untracked resource>\""),
+        }
+    }
+
+    pub(crate) fn authorize_read(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::read())
+    }
+
+    pub(crate) fn authorize_write(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::write())
+    }
+
+    fn authorize_entry_metadata_at(
+        &self,
+        base: Option<&Path>,
+        path: &OsStr,
+    ) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = authorization_target_at(base, path);
+        let resolved = resolve_from_directory(base, Path::new(path))
+            .and_then(|path| canonicalize_entry_path(&path))
+            .ok();
+        policy.authorize(resolved.as_deref(), FsIntents::read(), &target)
+    }
+
+    fn authorize_entry_metadata(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(path, FsIntents::read())
+    }
+
+    fn authorize_access(&self, path: &OsStr, access: i32) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::for_access_check(access))
+    }
+
+    fn authorize_remove(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(path, FsIntents::write())
+    }
+
+    fn authorize_rename(&self, old_path: &OsStr, new_path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(old_path, FsIntents::write())?;
+        self.authorize_entry(new_path, FsIntents::write())
+    }
+
+    pub(crate) fn authorize_resource_lock(
+        &self,
+        path: Option<&Path>,
+        exclusive: bool,
+    ) -> AsyncHostResult<()> {
+        if !exclusive {
+            return Ok(());
+        }
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        match path {
+            Some(path) => {
+                let target = quote_os_str(path.as_os_str());
+                let resolved = canonicalize_existing_prefix(path).ok();
+                policy.authorize(resolved.as_deref(), FsIntents::write(), &target)
+            }
+            None => policy.authorize(None, FsIntents::write(), "\"<untracked resource>\""),
+        }
+    }
+
+    fn authorize_write_entry(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(path, FsIntents::write())
+    }
+
+    fn authorize_path(&self, path: &OsStr, intents: FsIntents) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = quote_os_str(path);
+        let resolved = self
+            .resolve_from_working_directory(Path::new(path))
+            .and_then(|path| canonicalize_existing_prefix(&path))
+            .ok();
+        policy.authorize(resolved.as_deref(), intents, &target)
+    }
+
+    fn authorize_entry(&self, path: &OsStr, intents: FsIntents) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = quote_os_str(path);
+        let resolved = self
+            .resolve_from_working_directory(Path::new(path))
+            .and_then(|path| canonicalize_entry_path(&path))
+            .ok();
+        policy.authorize(resolved.as_deref(), intents, &target)
+    }
+
+    fn resolve_from_working_directory(&self, path: &Path) -> AsyncHostResult<PathBuf> {
+        if path.is_absolute() {
+            Ok(path.to_path_buf())
+        } else {
+            self.working_directory
+                .resolve(path)
+                .map_err(|_| AsyncHostError::PermissionDenied)
+        }
+    }
+
     fn ensure_read(&self, path: &str) -> Result<(), HostFsError> {
-        ensure_read_policy(&self.policy, path).map_err(|_| HostFsError::permission_denied(path))
+        self.authorize_metadata(OsStr::new(path))
+            .map_err(|_| HostFsError::permission_denied(path))
     }
 
     fn ensure_write(&self, path: &str) -> Result<(), HostFsError> {
-        ensure_write_policy(&self.policy, path).map_err(|_| HostFsError::permission_denied(path))
+        self.authorize_open(OsStr::new(path), 1, 1, false)
+            .map_err(|_| HostFsError::permission_denied(path))
     }
 
     fn ensure_remove(&self, path: &str) -> Result<(), HostFsError> {
-        ensure_remove_policy(&self.policy, path).map_err(|_| HostFsError::permission_denied(path))
+        self.authorize_remove(OsStr::new(path))
+            .map_err(|_| HostFsError::permission_denied(path))
     }
 }
 
-fn ensure_read_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
-    policy.stat_path(OsStr::new(path))
+fn resolve_from_directory(base: Option<&Path>, path: &Path) -> AsyncHostResult<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        base.map(|base| base.join(path))
+            .ok_or(AsyncHostError::PermissionDenied)
+    }
 }
 
-fn ensure_write_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
-    policy.open_path(OsStr::new(path), 1, 1, false)
+fn canonicalize_existing_prefix(path: &Path) -> AsyncHostResult<PathBuf> {
+    for ancestor in path.ancestors() {
+        if let Ok(prefix) = std::fs::canonicalize(ancestor) {
+            let suffix = path
+                .strip_prefix(ancestor)
+                .map_err(|_| AsyncHostError::PermissionDenied)?;
+            return Ok(normalize_path(prefix.join(suffix)));
+        }
+    }
+    Err(AsyncHostError::PermissionDenied)
 }
 
-fn ensure_remove_policy(policy: &Policy, path: &str) -> AsyncHostResult<()> {
-    policy.remove_path(OsStr::new(path))
+fn canonicalize_entry_path(path: &Path) -> AsyncHostResult<PathBuf> {
+    let parent = path.parent().ok_or(AsyncHostError::PermissionDenied)?;
+    let file_name = path.file_name().ok_or(AsyncHostError::PermissionDenied)?;
+    Ok(normalize_path(
+        canonicalize_existing_prefix(parent)?.join(file_name),
+    ))
+}
+
+fn normalize_path(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+        }
+    }
+    normalized
+}
+
+fn quote_os_str(value: &OsStr) -> String {
+    format!("{:?}", value.to_string_lossy())
+}
+
+fn authorization_target_at(base: Option<&Path>, path: &OsStr) -> String {
+    base.map_or_else(
+        || quote_os_str(OsStr::new("<untracked resource>")),
+        |_| quote_os_str(path),
+    )
 }
 
 fn read_dir_entries(path: &str) -> std::io::Result<Vec<String>> {
@@ -363,9 +548,14 @@ mod tests {
     use super::*;
     #[cfg(windows)]
     use crate::async_host::AsyncHostError;
+    use crate::policy::Policy;
 
-    fn host_fs(policy: Policy, environment: Arc<Env>) -> HostFs {
-        HostFs::new(Arc::new(policy), environment, WorkingDirectory::Ambient)
+    fn host_fs(mut policy: Policy, environment: Arc<Env>) -> HostFs {
+        HostFs::new(
+            policy.take_filesystem_policy(),
+            environment,
+            Arc::new(WorkingDirectory::Ambient),
+        )
     }
 
     #[test]
@@ -497,6 +687,72 @@ mod tests {
         assert_eq!(results.error_message(), "Permission denied: denied.bin");
     }
 
+    #[test]
+    fn relative_at_authorization_uses_the_open_directory_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::write(allowed.join("input.txt"), "input").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let host = host_fs(
+            Policy::from_file(&policy_file).unwrap(),
+            Arc::new(Env::ambient()),
+        );
+
+        host.authorize_metadata_at(Some(&allowed), OsStr::new("input.txt"))
+            .unwrap();
+        assert_eq!(
+            host.authorize_metadata_at(None, OsStr::new("input.txt")),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn relative_at_authorization_preserves_untracked_diagnostic_target() {
+        assert_eq!(
+            authorization_target_at(None, OsStr::new("input.txt")),
+            "\"<untracked resource>\""
+        );
+        assert_eq!(
+            authorization_target_at(Some(Path::new("base")), OsStr::new("input.txt")),
+            "\"input.txt\""
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_authorization_rechecks_saved_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let resource_path = allowed.join("resource.txt");
+        let denied_file = denied.join("target.txt");
+        std::fs::write(&resource_path, "allowed").unwrap();
+        std::fs::write(&denied_file, "denied").unwrap();
+        let saved_path = std::fs::canonicalize(&resource_path).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
+        )
+        .unwrap();
+        let host = host_fs(
+            Policy::from_file(&policy_file).unwrap(),
+            Arc::new(Env::ambient()),
+        );
+
+        std::fs::remove_file(&resource_path).unwrap();
+        std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
+
+        let metadata = host.authorize_resource_metadata(Some(&saved_path));
+        let lock = host.authorize_resource_lock(Some(&saved_path), true);
+        assert_eq!(metadata, Err(AsyncHostError::PermissionDenied));
+        assert_eq!(lock, Err(AsyncHostError::PermissionDenied));
+    }
+
     #[cfg(unix)]
     #[test]
     fn remove_policy_checks_link_path_not_target() {
@@ -513,10 +769,39 @@ mod tests {
         std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
-        let policy = Policy::from_file(&policy_file).unwrap();
+        let host = host_fs(
+            Policy::from_file(&policy_file).unwrap(),
+            Arc::new(Env::ambient()),
+        );
 
         assert_eq!(
-            ensure_remove_policy(&policy, denied_link.to_str().unwrap()),
+            host.authorize_remove(denied_link.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_policy_checks_link_entry_not_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let denied_file = denied.join("target.txt");
+        let allowed_link = allowed.join("link.txt");
+        std::fs::write(&denied_file, "target").unwrap();
+        std::os::unix::fs::symlink(&denied_file, &allowed_link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
+        let host = host_fs(
+            Policy::from_file(&policy_file).unwrap(),
+            Arc::new(Env::ambient()),
+        );
+
+        host.authorize_remove(allowed_link.as_os_str()).unwrap();
+        assert_eq!(
+            host.authorize_write(allowed_link.as_os_str()),
             Err(AsyncHostError::PermissionDenied)
         );
     }

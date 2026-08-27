@@ -30,13 +30,13 @@ use super::{
 };
 
 #[derive(Clone, Debug)]
-pub(super) enum ProcessPolicy {
+pub(crate) enum ProcessPolicy {
     AllowAll,
     Scoped(Vec<ProcessRule>),
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ProcessRule {
+pub(crate) struct ProcessRule {
     #[cfg(unix)]
     program: String,
     #[cfg(unix)]
@@ -67,7 +67,7 @@ impl ProcessPolicy {
     }
 
     #[cfg(unix)]
-    pub(super) fn allows_unix(&self, program: &OsStr, argv: &[OsString]) -> AsyncHostResult<()> {
+    pub(crate) fn allows_unix(&self, program: &OsStr, argv: &[OsString]) -> AsyncHostResult<()> {
         match self {
             Self::AllowAll => Ok(()),
             Self::Scoped(rules) if rules.iter().any(|rule| rule.matches_unix(program, argv)) => {
@@ -78,7 +78,7 @@ impl ProcessPolicy {
     }
 
     #[cfg(windows)]
-    pub(super) fn allows_windows(&self, command_line: &OsStr) -> AsyncHostResult<()> {
+    pub(crate) fn allows_windows(&self, command_line: &OsStr) -> AsyncHostResult<()> {
         use std::os::windows::ffi::OsStrExt;
 
         match self {

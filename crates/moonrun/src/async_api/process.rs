@@ -358,14 +358,11 @@ pub(super) fn get_process_result(
         let code = {
             let handle_id = handle_id.ok_or(AsyncHostError::Badf)?;
             let raw_handle = raw_handle.ok_or(AsyncHostError::Badf)?;
-            context.host.finish_process_handle(pid, handle_id, || {
-                if context.host.policy().has_process_policy()
-                    && process::process_id_from_handle(raw_handle)? != pid
-                {
-                    return Err(AsyncHostError::PermissionDenied);
-                }
-                process::get_process_result(Some(raw_handle), pid)
-            })?
+            context
+                .host
+                .finish_process_handle(pid, handle_id, raw_handle, || {
+                    process::get_process_result(Some(raw_handle), pid)
+                })?
         };
         context.with_memory_mut(|memory| Ok(memory.write_exact(out, &code.to_le_bytes())?))
     })();
