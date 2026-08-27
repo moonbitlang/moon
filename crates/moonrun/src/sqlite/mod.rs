@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! SQLite behavior, lifetime state, policy, and runtime adapters.
+//! SQLite behavior, lifetime state, admission rules, and runtime adapters.
 
 pub(crate) mod v8;
 
@@ -33,7 +33,7 @@ use std::sync::Arc;
 use libsqlite3_sys as ffi;
 use slotmap::SecondaryMap;
 
-use crate::policy::Policy;
+use crate::filesystem::HostFs;
 use crate::runtime::{HostKey, HostKeys};
 
 use connection::Database;
@@ -56,22 +56,22 @@ pub(crate) enum SqliteHostError {
 
 pub(crate) type SqliteHostResult<T> = Result<T, SqliteHostError>;
 
-/// Per-run SQLite policy, operations, identity, and payload storage.
+/// Per-run SQLite admission, operations, identity, and payload storage.
 ///
 /// Wasm runtime adapters lower their own memory and scalar representations before
 /// crossing this interface. The shared Host Key table supplies identity, while
 /// SQLite-owned pointers remain private payloads of this module.
 pub(crate) struct SqliteHost {
-    policy: Arc<Policy>,
+    filesystem: Arc<HostFs>,
     keys: Rc<RefCell<HostKeys>>,
     databases: RefCell<SecondaryMap<HostKey, Database>>,
     statements: RefCell<SecondaryMap<HostKey, Statement>>,
 }
 
 impl SqliteHost {
-    pub(crate) fn with_keys(policy: Arc<Policy>, keys: Rc<RefCell<HostKeys>>) -> Self {
+    pub(crate) fn new(filesystem: Arc<HostFs>, keys: Rc<RefCell<HostKeys>>) -> Self {
         Self {
-            policy,
+            filesystem,
             keys,
             databases: RefCell::new(SecondaryMap::new()),
             statements: RefCell::new(SecondaryMap::new()),
@@ -108,10 +108,20 @@ impl Drop for SqliteHost {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::policy::Policy;
+    use crate::runtime::{Env, WorkingDirectory};
+
+    pub(super) fn ambient_filesystem(mut policy: Policy) -> Arc<HostFs> {
+        Arc::new(HostFs::new(
+            policy.take_filesystem_policy(),
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        ))
+    }
 
     pub(super) fn host() -> SqliteHost {
-        SqliteHost::with_keys(
-            Arc::new(Policy::allow_all()),
+        SqliteHost::new(
+            ambient_filesystem(Policy::allow_all()),
             Rc::new(RefCell::new(HostKeys::default())),
         )
     }

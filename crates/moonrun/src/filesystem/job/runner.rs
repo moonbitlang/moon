@@ -57,11 +57,11 @@ ported_fns! {
         mode: i32,
         request: StatRequest,
     ) -> AsyncHostResult<i64> {
-        let filename_for_policy = filename.clone();
+        let filename_for_provenance = filename.clone();
         let file = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
-        let resource = Resource::new_with_policy_path(
+        let resource = Resource::new_with_canonical_path(
             file,
-            std::fs::canonicalize(filename_for_policy).ok(),
+            std::fs::canonicalize(filename_for_provenance).ok(),
         );
         let mut stat = None;
         run_fstatx_job(&resource, request, &mut stat)?;

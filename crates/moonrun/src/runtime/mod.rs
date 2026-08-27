@@ -32,7 +32,9 @@ use slotmap::{KeyData, SlotMap, new_key_type};
 
 use crate::async_host::AsyncHost;
 use crate::filesystem::HostFs;
+use crate::network::HostNetwork;
 use crate::policy::Policy;
+use crate::process::HostProcess;
 use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
@@ -100,13 +102,13 @@ impl HostKeys {
 /// Backend-neutral composition root for one Moonrun virtual environment.
 ///
 /// `RunOptions` selects the process-facing dependencies. `Runtime` realizes
-/// them once, binds filesystem policy to the same working-directory authority,
+/// them once, distributes domain policy together with shared Runtime State,
 /// wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
     environment: Arc<Env>,
-    working_directory: WorkingDirectory,
+    working_directory: Arc<WorkingDirectory>,
     filesystem: Arc<HostFs>,
-    async_state: AsyncHost,
+    async_host: AsyncHost,
     sqlite: SqliteHost,
 }
 
@@ -116,7 +118,7 @@ impl Runtime {
         inherited_policy: Option<&[u8]>,
         working_directory: WorkingDirectory,
     ) -> anyhow::Result<Self> {
-        let policy = match (inherited_policy, policy_file) {
+        let mut policy = match (inherited_policy, policy_file) {
             (Some(contents), _) => Policy::from_inherited_json(contents).context(
                 "failed to load inherited sandbox policy (experimental)",
             )?,
@@ -124,32 +126,42 @@ impl Runtime {
                 "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
             )?,
             (None, None) => Policy::allow_all(),
-        }
-        .with_working_directory(working_directory.clone());
+        };
         let environment = Arc::new(
             policy
                 .realize_env()
                 .context("failed to construct the Runtime environment")?,
         );
-        let policy = Arc::new(policy);
+        let filesystem_policy = policy.take_filesystem_policy();
+        let network_policy = policy.take_network_policy();
+        let process_policy = policy.take_process_policy();
+        let policy_inheritance = policy.take_policy_inheritance();
+        let working_directory = Arc::new(working_directory);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
-            Arc::clone(&policy),
+            filesystem_policy,
             Arc::clone(&environment),
-            working_directory.clone(),
+            Arc::clone(&working_directory),
         ));
-        let async_state = AsyncHost::with_keys(
-            Arc::clone(&policy),
-            Arc::clone(&environment),
-            Rc::clone(&keys),
-            working_directory.clone(),
+        let network = HostNetwork::new(network_policy);
+        let process = HostProcess::new(
+            process_policy,
+            policy_inheritance,
+            Arc::clone(&working_directory),
         );
-        let sqlite = SqliteHost::with_keys(Arc::clone(&policy), keys);
+        let async_host = AsyncHost::new(
+            Arc::clone(&environment),
+            Arc::clone(&filesystem),
+            network,
+            process,
+            Rc::clone(&keys),
+        );
+        let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
             environment,
             working_directory,
             filesystem,
-            async_state,
+            async_host,
             sqlite,
         })
     }
@@ -166,8 +178,8 @@ impl Runtime {
         &self.working_directory
     }
 
-    pub(crate) fn async_state(&self) -> &AsyncHost {
-        &self.async_state
+    pub(crate) fn async_host(&self) -> &AsyncHost {
+        &self.async_host
     }
 
     pub(crate) fn null_handle(&self) -> u64 {
@@ -188,7 +200,7 @@ impl Drop for Runtime {
         }
 
         let mut leaks = Vec::new();
-        if let Some(summary) = self.async_state.leak_summary() {
+        if let Some(summary) = self.async_host.leak_summary() {
             leaks.push(format!("async({summary})"));
         }
         if let Some(summary) = self.sqlite.leak_summary() {

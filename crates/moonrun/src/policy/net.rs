@@ -18,7 +18,6 @@
 
 use std::ffi::OsStr;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 
@@ -27,15 +26,14 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use super::{config::NetConfig, sandbox_denied};
 
 #[derive(Clone, Debug)]
-pub(super) struct NetPolicy {
+pub(crate) struct NetPolicy {
     dns: Vec<DnsPattern>,
     connect: Vec<SocketRule>,
     bind: Vec<SocketRule>,
-    resolved_connect: Arc<Mutex<Vec<SocketRule>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum NetOperation {
+pub(crate) enum NetOperation {
     Connect,
     Bind,
 }
@@ -48,7 +46,7 @@ enum DnsPattern {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SocketRule {
+pub(crate) struct SocketRule {
     host: SocketHostRule,
     port: SocketPortRule,
 }
@@ -95,15 +93,10 @@ impl NetPolicy {
             }
         }
 
-        Ok(Self {
-            dns,
-            connect,
-            bind,
-            resolved_connect: Arc::default(),
-        })
+        Ok(Self { dns, connect, bind })
     }
 
-    pub(super) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
+    pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
         let target = quote_os_str(host);
         let host = host.to_string_lossy();
         let host = normalize_dns_name(&host);
@@ -116,11 +109,11 @@ impl NetPolicy {
         }
     }
 
-    pub(super) fn register_dns_result(
+    pub(crate) fn resolved_connect_rules(
         &self,
         host: &OsStr,
         addrs: &[Box<[u8]>],
-    ) -> AsyncHostResult<()> {
+    ) -> AsyncHostResult<Vec<SocketRule>> {
         let host = host.to_string_lossy();
         let host = normalize_dns_name(&host);
         let rules = self
@@ -129,30 +122,38 @@ impl NetPolicy {
             .filter(|rule| rule.allows_resolved_name(&host))
             .collect::<Vec<_>>();
         if rules.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
-        let mut resolved_connect = self.resolved_connect.lock().unwrap();
-        for addr in addrs {
-            let addr = parse_socket_addr(addr)?;
-            for rule in &rules {
-                resolved_connect.push(SocketRule {
-                    host: SocketHostRule::Ip(addr.ip),
-                    port: rule.port,
-                });
-            }
-        }
-        Ok(())
+        addrs
+            .iter()
+            .map(|addr| parse_socket_addr(addr))
+            .collect::<AsyncHostResult<Vec<_>>>()
+            .map(|addrs| {
+                addrs
+                    .into_iter()
+                    .flat_map(|addr| {
+                        rules.iter().map(move |rule| SocketRule {
+                            host: SocketHostRule::Ip(addr.ip),
+                            port: rule.port,
+                        })
+                    })
+                    .collect()
+            })
     }
 
-    pub(super) fn check_socket(&self, operation: NetOperation, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn check_socket(
+        &self,
+        operation: NetOperation,
+        addr: &[u8],
+        resolved_connect: &[SocketRule],
+    ) -> AsyncHostResult<()> {
         let addr = parse_socket_addr(addr)?;
         let target = quote_str(&addr.describe());
         let rules = match operation {
             NetOperation::Connect => &self.connect,
             NetOperation::Bind => &self.bind,
         };
-        let resolved_connect = self.resolved_connect.lock().unwrap();
         if rules.iter().any(|rule| rule.matches(addr))
             || (operation == NetOperation::Connect
                 && resolved_connect.iter().any(|rule| rule.matches(addr)))
@@ -404,15 +405,15 @@ mod tests {
         let denied_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 80);
 
         policy.check_dns(OsStr::new("API.DEEPSEEK.COM.")).unwrap();
-        policy
-            .register_dns_result(OsStr::new("api.deepseek.com"), &[resolved_addr])
+        let resolved_connect = policy
+            .resolved_connect_rules(OsStr::new("api.deepseek.com"), &[resolved_addr])
             .unwrap();
 
         policy
-            .check_socket(NetOperation::Connect, &allowed_addr)
+            .check_socket(NetOperation::Connect, &allowed_addr, &resolved_connect)
             .unwrap();
         let error = policy
-            .check_socket(NetOperation::Connect, &denied_addr)
+            .check_socket(NetOperation::Connect, &denied_addr, &resolved_connect)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -429,7 +430,7 @@ mod tests {
 
         policy.check_dns(OsStr::new("api.deepseek.com")).unwrap();
         let error = policy
-            .check_socket(NetOperation::Connect, &addr)
+            .check_socket(NetOperation::Connect, &addr, &[])
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -449,11 +450,11 @@ mod tests {
         let error = policy.check_dns(OsStr::new("example.com")).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
 
-        policy
-            .register_dns_result(OsStr::new("api.example.com"), &[resolved_addr])
+        let resolved_connect = policy
+            .resolved_connect_rules(OsStr::new("api.example.com"), &[resolved_addr])
             .unwrap();
         policy
-            .check_socket(NetOperation::Connect, &allowed_addr)
+            .check_socket(NetOperation::Connect, &allowed_addr, &resolved_connect)
             .unwrap();
     }
 
@@ -468,7 +469,9 @@ mod tests {
         let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
 
         policy.check_dns(OsStr::new("api.deepseek.com")).unwrap();
-        policy.check_socket(NetOperation::Connect, &addr).unwrap();
+        policy
+            .check_socket(NetOperation::Connect, &addr, &[])
+            .unwrap();
     }
 
     #[test]
@@ -481,9 +484,9 @@ mod tests {
         .unwrap();
         let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 8080);
 
-        policy.check_socket(NetOperation::Bind, &addr).unwrap();
+        policy.check_socket(NetOperation::Bind, &addr, &[]).unwrap();
         let error = policy
-            .check_socket(NetOperation::Connect, &addr)
+            .check_socket(NetOperation::Connect, &addr, &[])
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }

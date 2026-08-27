@@ -31,7 +31,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::policy::Policy;
+#[cfg(windows)]
+use crate::async_sys::internal::fd_util::stub::RawFd;
+use crate::policy::{PolicyInheritance, ProcessPolicy};
+use crate::resource::ResourceRef;
 use crate::runtime::WorkingDirectory;
 
 pub(crate) use job::{Job, SpawnOptions};
@@ -39,41 +42,65 @@ pub(crate) use job::{Job, SpawnOptions};
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]
 pub(crate) struct HostProcess {
-    policy: Arc<Policy>,
-    working_directory: WorkingDirectory,
-    state: Option<Arc<ChildProcessTable>>,
+    policy: Option<ProcessPolicy>,
+    policy_inheritance: Option<PolicyInheritance>,
+    working_directory: Arc<WorkingDirectory>,
+    child_authority: Option<Arc<ChildAuthorityState>>,
 }
 
 #[derive(Default)]
-struct ChildProcessTable {
+struct ChildAuthorityState {
     // PID authority and stable-handle provenance must change atomically.
-    inner: Mutex<ChildProcessTableInner>,
+    inner: Mutex<ChildAuthorityStateInner>,
 }
 
 #[derive(Default)]
-struct ChildProcessTableInner {
+struct ChildAuthorityStateInner {
     owned_child_pids: HashSet<i32>,
     process_handle_pids: HashMap<u64, i32>,
 }
 
 impl HostProcess {
-    pub(crate) fn new(policy: Arc<Policy>, working_directory: WorkingDirectory) -> Self {
-        let state = policy
-            .has_process_policy()
-            .then(|| Arc::new(ChildProcessTable::default()));
+    pub(crate) fn new(
+        policy: Option<ProcessPolicy>,
+        policy_inheritance: Option<PolicyInheritance>,
+        working_directory: Arc<WorkingDirectory>,
+    ) -> Self {
+        // Enforced process policy needs child provenance to authorize later
+        // PID and handle operations. Ambient execution preserves direct OS
+        // behavior and therefore does not create authority state.
+        let child_authority = policy
+            .is_some()
+            .then(|| Arc::new(ChildAuthorityState::default()));
         Self {
             policy,
+            policy_inheritance,
             working_directory,
-            state,
+            child_authority,
         }
-    }
-
-    pub(crate) fn has_policy(&self) -> bool {
-        self.state.is_some()
     }
 
     pub(crate) fn check_job(&self, job: &Job) -> AsyncHostResult<()> {
         job.check_policy(self)
+    }
+
+    pub(crate) fn wait_job(
+        &self,
+        handle: Option<ResourceRef>,
+        tracked_pid: Option<i32>,
+        pid: i32,
+    ) -> AsyncHostResult<Job> {
+        // On Unix, enforced authorization must inspect this provenance before
+        // reaping, so the worker defers the final reap to HostProcess.
+        #[cfg(unix)]
+        let defer_reap_for_authorization = self.child_authority.is_some();
+        Job::wait_for_process(
+            handle,
+            tracked_pid,
+            pid,
+            #[cfg(unix)]
+            defer_reap_for_authorization,
+        )
     }
 
     /// Apply Runtime-owned configuration to an authorized process job.
@@ -89,7 +116,7 @@ impl HostProcess {
         // inheritance payload. Direct-moonx recognition, temporary-file I/O,
         // handle setup, and reserved env replacement stay in the spawn job;
         // this path only clones Arc-backed bytes.
-        job.set_policy_inheritance(self.policy.policy_inheritance());
+        job.set_policy_inheritance(self.policy_inheritance.clone());
         Ok(())
     }
 
@@ -106,7 +133,7 @@ impl HostProcess {
         pid: i32,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             return f();
         };
         let state = state.inner.lock().unwrap();
@@ -123,7 +150,7 @@ impl HostProcess {
         handle: Option<u64>,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             return f();
         };
         let mut state = state.inner.lock().unwrap();
@@ -142,13 +169,17 @@ impl HostProcess {
         &self,
         pid: i32,
         handle: u64,
+        raw_handle: RawFd,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             return f();
         };
         let mut state = state.inner.lock().unwrap();
         if state.process_handle_pids.get(&handle) != Some(&pid) {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        if crate::async_sys::process::process_id_from_handle(raw_handle)? != pid {
             return Err(AsyncHostError::PermissionDenied);
         }
         let result = f()?;
@@ -157,7 +188,7 @@ impl HostProcess {
     }
 
     pub(crate) fn process_handle_pid(&self, handle: u64) -> AsyncHostResult<Option<i32>> {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             return Ok(None);
         };
         state
@@ -172,7 +203,7 @@ impl HostProcess {
     }
 
     pub(crate) fn track_process_handle(&self, handle: u64, pid: i32) {
-        if let Some(state) = self.state.as_deref() {
+        if let Some(state) = self.child_authority.as_deref() {
             state
                 .inner
                 .lock()
@@ -183,7 +214,7 @@ impl HostProcess {
     }
 
     pub(crate) fn untrack_process_handle(&self, handle: u64) {
-        if let Some(state) = self.state.as_deref() {
+        if let Some(state) = self.child_authority.as_deref() {
             let mut state = state.inner.lock().unwrap();
             if let Some(pid) = state.process_handle_pids.remove(&handle)
                 && !state
@@ -203,7 +234,7 @@ impl HostProcess {
 
     #[cfg(test)]
     pub(crate) fn check_process_handle_pid(&self, handle: u64, pid: i32) -> AsyncHostResult<()> {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             return Ok(());
         };
         if state.inner.lock().unwrap().process_handle_pids.get(&handle) == Some(&pid) {
@@ -224,12 +255,16 @@ impl HostProcess {
         program: &std::ffi::OsStr,
         argv: &[std::ffi::OsString],
     ) -> AsyncHostResult<()> {
-        self.policy.spawn_process_unix(program, argv)
+        self.policy
+            .as_ref()
+            .map_or(Ok(()), |policy| policy.allows_unix(program, argv))
     }
 
     #[cfg(windows)]
     fn check_spawn_windows(&self, command_line: &std::ffi::OsStr) -> AsyncHostResult<()> {
-        self.policy.spawn_process_windows(command_line)
+        self.policy
+            .as_ref()
+            .map_or(Ok(()), |policy| policy.allows_windows(command_line))
     }
 
     fn check_wait(
@@ -238,7 +273,7 @@ impl HostProcess {
         tracked_pid: Option<i32>,
         pid: i32,
     ) -> AsyncHostResult<()> {
-        if self.state.is_none() {
+        if self.child_authority.is_none() {
             return Ok(());
         }
         self.ensure_owned_child_pid(pid)?;
@@ -250,7 +285,7 @@ impl HostProcess {
     }
 
     fn ensure_owned_child_pid(&self, pid: i32) -> AsyncHostResult<()> {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             return Ok(());
         };
         if state.inner.lock().unwrap().owned_child_pids.contains(&pid) {
@@ -261,13 +296,13 @@ impl HostProcess {
     }
 
     fn track_spawned_child(&self, pid: i32) {
-        if let Some(state) = self.state.as_deref() {
+        if let Some(state) = self.child_authority.as_deref() {
             state.inner.lock().unwrap().owned_child_pids.insert(pid);
         }
     }
 
     fn finish_waited_child(&self, pid: i32, #[cfg(unix)] defer_reap: bool) -> AsyncHostResult<()> {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             #[cfg(unix)]
             if defer_reap {
                 crate::async_sys::process::reap_process(pid)?;
@@ -284,7 +319,7 @@ impl HostProcess {
     }
 
     fn revoke_child_if_unreferenced(&self, pid: i32) {
-        let Some(state) = self.state.as_deref() else {
+        let Some(state) = self.child_authority.as_deref() else {
             return;
         };
         let mut state = state.inner.lock().unwrap();

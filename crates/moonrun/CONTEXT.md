@@ -117,8 +117,10 @@ The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed filesystem operations. It owns filesystem authorization,
 Filesystem Job payloads, execution, and result interpretation. Wasm runtime
 adapters only convert values and expose imports; the thread pool only schedules
-Filesystem Jobs and delivers their Completions. WASI does not pass through the
-Host Filesystem.
+Filesystem Jobs and delivers their Completions. Other Host Domains may ask it
+to interpret and authorize filesystem intents without transferring their own
+domain semantics to the Host Filesystem. WASI does not pass through the Host
+Filesystem.
 _Avoid_: WASI filesystem, V8 filesystem
 
 **Host Network**:
@@ -248,7 +250,14 @@ The V8-facing `moonbitlang/sqlite` adapter that lowers SQLite-shaped calls into 
 _Avoid_: SQLite Host, SQLite wrapper SDK
 
 **SQLite Host**:
-The backend-neutral SQLite implementation owned by one Runtime. It owns SQLite policy and operations, uses the Runtime's shared Host Key namespace, and contains the Database and Statement pointer maps, teardown, and leak accounting. Wasm runtime adapters lower their own memory and scalar representations before crossing its interface.
+The backend-neutral SQLite implementation owned by one Runtime. It owns SQLite
+admission rules and operations, uses the Runtime's shared Host Key namespace,
+and contains the Database and Statement pointer maps, teardown, and leak
+accounting. File-backed admission currently asks the Host Filesystem to
+interpret and authorize its filesystem intents before SQLite's default VFS
+reinterprets the filename; SQLite flags, VFS selection, authorizer behavior,
+and FFI remain SQLite Host semantics. Wasm runtime adapters lower their own
+memory and scalar representations before crossing its interface.
 _Avoid_: SQLite API, Async Host, V8 SQLite
 
 **Async Sys**:

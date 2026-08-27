@@ -25,8 +25,8 @@ use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::fd_util;
+use crate::filesystem::HostFs;
 use crate::guest_memory::GuestMemory;
-use crate::policy::Policy;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 use stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
@@ -420,7 +420,7 @@ impl Job {
         }
     }
 
-    pub(crate) fn check_policy(&self, policy: &Policy) -> AsyncHostResult<()> {
+    pub(crate) fn check_policy(&self, filesystem: &HostFs) -> AsyncHostResult<()> {
         match &self.kind {
             Kind::Open {
                 filename,
@@ -430,13 +430,13 @@ impl Job {
                 request,
                 ..
             } => {
-                policy.open_path(filename, *access, *create_mode, *append)?;
+                filesystem.authorize_open(filename, *access, *create_mode, *append)?;
                 if request.mask() & !STAT_OPEN_IDENTITY != 0 {
-                    policy.stat_path(filename)?;
+                    filesystem.authorize_metadata(filename)?;
                 }
                 Ok(())
             }
-            Kind::Fstatx { file, .. } => check_file_metadata_policy(policy, file.as_deref()),
+            Kind::Fstatx { file, .. } => check_file_metadata_policy(filesystem, file.as_deref()),
             Kind::Statx {
                 parent,
                 path,
@@ -447,30 +447,30 @@ impl Job {
                 parent,
                 path,
                 follow_symlink,
-            } => check_path_metadata_policy(policy, parent.as_deref(), path, *follow_symlink),
+            } => check_path_metadata_policy(filesystem, parent.as_deref(), path, *follow_symlink),
             Kind::FileSize { file, .. } | Kind::FileTime { file, .. } => {
-                check_file_metadata_policy(policy, file.as_deref())
+                check_file_metadata_policy(filesystem, file.as_deref())
             }
             Kind::FileTimeByPath {
                 path,
                 follow_symlink,
                 ..
-            } => check_path_metadata_policy(policy, None, path, *follow_symlink),
-            Kind::Realpath { path, .. } => policy.stat_path(path),
+            } => check_path_metadata_policy(filesystem, None, path, *follow_symlink),
+            Kind::Realpath { path, .. } => filesystem.authorize_metadata(path),
             #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => policy.stat_path(path),
-            Kind::Access { path, access } => policy.access_path(path, *access),
-            Kind::Chmod { path, .. } => policy.chmod_path(path),
+            Kind::InotifyAddWatch { path, .. } => filesystem.authorize_metadata(path),
+            Kind::Access { path, access } => filesystem.authorize_access(path, *access),
+            Kind::Chmod { path, .. } => filesystem.authorize_write(path),
             Kind::Flock { file, exclusive } => {
-                check_file_lock_policy(policy, file.as_deref(), *exclusive)
+                check_file_lock_policy(filesystem, file.as_deref(), *exclusive)
             }
-            Kind::Remove { path } => policy.remove_path(path),
+            Kind::Remove { path } => filesystem.authorize_remove(path),
             Kind::Rename {
                 old_path, new_path, ..
-            } => policy.rename_path(old_path, new_path),
-            Kind::Symlink { path, .. } => policy.symlink_path(path),
-            Kind::Mkdir { path, .. } => policy.mkdir_path(path),
-            Kind::Rmdir { path } => policy.rmdir_path(path),
+            } => filesystem.authorize_rename(old_path, new_path),
+            Kind::Symlink { path, .. } | Kind::Mkdir { path, .. } | Kind::Rmdir { path } => {
+                filesystem.authorize_write_entry(path)
+            }
             Kind::Read { .. } | Kind::Write { .. } | Kind::Fsync { .. } | Kind::Readdir { .. } => {
                 Ok(())
             }
@@ -828,32 +828,34 @@ impl OpenJobResult {
     }
 }
 
-fn check_file_metadata_policy(policy: &Policy, file: Option<&Resource>) -> AsyncHostResult<()> {
+fn check_file_metadata_policy(filesystem: &HostFs, file: Option<&Resource>) -> AsyncHostResult<()> {
     let file = file.ok_or(AsyncHostError::Badf)?;
-    policy.stat_resource_path(file.policy_path())
+    filesystem.authorize_resource_metadata(file.canonical_path())
 }
 
 fn check_path_metadata_policy(
-    policy: &Policy,
+    filesystem: &HostFs,
     parent: Option<&Resource>,
     path: &OsStr,
     follow_symlink: bool,
 ) -> AsyncHostResult<()> {
     match (parent, follow_symlink) {
-        (None, true) => policy.stat_path(path),
-        (None, false) => policy.stat_entry_path(path),
-        (Some(parent), true) => policy.stat_path_at(parent.policy_path(), path),
-        (Some(parent), false) => policy.stat_entry_path_at(parent.policy_path(), path),
+        (None, true) => filesystem.authorize_metadata(path),
+        (None, false) => filesystem.authorize_entry_metadata(path),
+        (Some(parent), true) => filesystem.authorize_metadata_at(parent.canonical_path(), path),
+        (Some(parent), false) => {
+            filesystem.authorize_entry_metadata_at(parent.canonical_path(), path)
+        }
     }
 }
 
 fn check_file_lock_policy(
-    policy: &Policy,
+    filesystem: &HostFs,
     file: Option<&Resource>,
     exclusive: bool,
 ) -> AsyncHostResult<()> {
     let file = file.ok_or(AsyncHostError::Badf)?;
-    policy.lock_resource_path(file.policy_path(), exclusive)
+    filesystem.authorize_resource_lock(file.canonical_path(), exclusive)
 }
 
 #[cfg(test)]

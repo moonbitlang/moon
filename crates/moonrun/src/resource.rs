@@ -116,7 +116,9 @@ enum ResourcePayload {
     Invalid,
     File {
         raw: OwnedRawFile,
-        policy_path: Option<PathBuf>,
+        // Best-effort pathname provenance for current filesystem authorization.
+        // This is not a stable identity for the opened Resource.
+        canonical_path: Option<PathBuf>,
     },
     // Reserved process stdio handle. The guest can use it, but does not own it.
     StdioFile(isize),
@@ -137,20 +139,20 @@ impl Resource {
         }
         Self::from_payload(ResourcePayload::File {
             raw: owned_raw_file(raw),
-            policy_path: None,
+            canonical_path: None,
         })
     }
 
-    pub(crate) fn new_with_policy_path(
+    pub(crate) fn new_with_canonical_path(
         raw: fd_util::stub::RawFd,
-        policy_path: Option<PathBuf>,
+        canonical_path: Option<PathBuf>,
     ) -> Self {
         if raw == invalid_raw_file() {
             return Self::invalid();
         }
         Self::from_payload(ResourcePayload::File {
             raw: owned_raw_file(raw),
-            policy_path,
+            canonical_path,
         })
     }
 
@@ -277,9 +279,9 @@ impl Resource {
         }
     }
 
-    pub(crate) fn policy_path(&self) -> Option<&Path> {
+    pub(crate) fn canonical_path(&self) -> Option<&Path> {
         match &self.payload {
-            ResourcePayload::File { policy_path, .. } => policy_path.as_deref(),
+            ResourcePayload::File { canonical_path, .. } => canonical_path.as_deref(),
             ResourcePayload::Invalid
             | ResourcePayload::StdioFile(_)
             | ResourcePayload::TcpSocket { .. }

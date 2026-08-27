@@ -52,13 +52,13 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+use crate::filesystem::HostFs;
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
-use crate::policy::Policy;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 pub(crate) use crate::runtime::HostKey as HandleKey;
-use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, WorkingDirectory};
+use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -1198,7 +1198,7 @@ pub(crate) struct AsyncHost {
     // V8 enters this host synchronously on one thread. Cell and RefCell encode
     // that ownership; worker threads own their Jobs and return them through the
     // completion channel instead of sharing the host's tables.
-    policy: Arc<Policy>,
+    filesystem: Arc<HostFs>,
     environment: Arc<Env>,
     network: HostNetwork,
     errno: Cell<i32>,
@@ -1222,39 +1222,16 @@ pub(crate) struct AsyncHost {
     tls_error: RefCell<Option<String>>,
 }
 
-#[cfg(test)]
-impl Default for AsyncHost {
-    fn default() -> Self {
-        Self::new(Arc::new(Policy::allow_all()))
-    }
-}
-
 impl AsyncHost {
-    #[cfg(test)]
-    pub(crate) fn new(policy: Arc<Policy>) -> Self {
-        let environment = Arc::new(
-            policy
-                .realize_env()
-                .expect("construct test Host environment"),
-        );
-        Self::with_keys(
-            policy,
-            environment,
-            Rc::new(RefCell::new(HostKeys::default())),
-            WorkingDirectory::Ambient,
-        )
-    }
-
-    pub(crate) fn with_keys(
-        policy: Arc<Policy>,
+    pub(crate) fn new(
         environment: Arc<Env>,
+        filesystem: Arc<HostFs>,
+        network: HostNetwork,
+        process: HostProcess,
         keys: Rc<RefCell<HostKeys>>,
-        working_directory: WorkingDirectory,
     ) -> Self {
-        let process = HostProcess::new(Arc::clone(&policy), working_directory);
-        let network = HostNetwork::new(Arc::clone(&policy));
         Self {
-            policy,
+            filesystem,
             environment,
             network,
             errno: Cell::new(0),
@@ -2439,11 +2416,9 @@ impl AsyncHost {
             }
             ResourcePublication::Unpublished(resource) => resource,
         };
-        let process_pid = self.process.has_policy().then(|| job.ret() as i32);
+        let process_pid = job.ret() as i32;
         let fd = self.handles.borrow_mut().insert_resource(resource);
-        if let Some(pid) = process_pid {
-            self.process.track_process_handle(fd, pid);
-        }
+        self.process.track_process_handle(fd, process_pid);
         job.process_mut()?
             .set_spawn_result(ResourcePublication::Published(fd))?;
         Ok(fd)
@@ -2639,7 +2614,7 @@ impl AsyncHost {
 
         let kqueue = self.acquire_resource(kqueue_handle)?;
         let file = self.acquire_resource(file_handle)?;
-        Self::check_file_metadata_policy(&self.policy, Some(file.as_ref()))?;
+        Self::check_file_metadata_policy(&self.filesystem, Some(file.as_ref()))?;
         crate::async_sys::fs::watch_kqueue::add_file(
             kqueue.as_fd()?.as_raw_fd(),
             file.as_fd()?.as_raw_fd(),
@@ -2648,8 +2623,9 @@ impl AsyncHost {
         )
     }
 
-    pub(crate) fn policy(&self) -> &Policy {
-        &self.policy
+    #[cfg(all(test, unix))]
+    pub(crate) fn filesystem(&self) -> &HostFs {
+        &self.filesystem
     }
 
     pub(crate) fn environment(&self) -> &Env {
@@ -2684,16 +2660,33 @@ impl AsyncHost {
         &self,
         pid: i32,
         handle: HostHandle,
+        raw_handle: RawFd,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        self.process.finish_process_handle(pid, handle, f)
+        self.process
+            .finish_process_handle(pid, handle, raw_handle, f)
     }
 
-    pub(crate) fn process_handle_pid(&self, handle: HostHandle) -> AsyncHostResult<Option<i32>> {
+    fn process_handle_pid(&self, handle: HostHandle) -> AsyncHostResult<Option<i32>> {
         if handle == INVALID_HOST_HANDLE || handle == self.invalid_fd() {
             return Ok(None);
         }
         self.process.process_handle_pid(handle)
+    }
+
+    pub(crate) fn make_wait_for_process_job(
+        &self,
+        handle: HostHandle,
+        pid: i32,
+    ) -> AsyncHostResult<HostHandle> {
+        let tracked_pid = self.process_handle_pid(handle)?;
+        let resource = if handle == INVALID_HOST_HANDLE || handle == self.invalid_fd() {
+            None
+        } else {
+            Some(self.acquire_resource(handle)?)
+        };
+        let job = self.process.wait_job(resource, tracked_pid, pid)?;
+        self.insert_job(job)
     }
 
     #[cfg(test)]
@@ -3640,7 +3633,7 @@ impl AsyncHost {
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
-            Self::check_file_lock_policy(&self.policy, Some(file), exclusive)?;
+            Self::check_file_lock_policy(&self.filesystem, Some(file), exclusive)?;
             crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
         })
     }
@@ -3654,12 +3647,12 @@ impl AsyncHost {
     pub(crate) fn run_job(&self, handle: u64) -> AsyncHostResult<()> {
         let key = self.handles.borrow().job(handle)?;
         let mut job = self.jobs.borrow_mut().take_ready_job(key)?;
-        Self::run_policy_checked_job(&self.policy, &self.process, &mut job);
+        Self::run_policy_checked_job(&self.filesystem, &self.process, &mut job);
         self.restore_job(key, job)
     }
 
-    fn run_policy_checked_job(policy: &Policy, process: &HostProcess, job: &mut Job) {
-        if let Err(error) = Self::check_job_policy(policy, process, job) {
+    fn run_policy_checked_job(filesystem: &HostFs, process: &HostProcess, job: &mut Job) {
+        if let Err(error) = Self::check_job_policy(filesystem, process, job) {
             job.set_err(error.errno());
             return;
         }
@@ -3675,9 +3668,13 @@ impl AsyncHost {
         }
     }
 
-    fn check_job_policy(policy: &Policy, process: &HostProcess, job: &Job) -> AsyncHostResult<()> {
+    fn check_job_policy(
+        filesystem: &HostFs,
+        process: &HostProcess,
+        job: &Job,
+    ) -> AsyncHostResult<()> {
         match job.payload() {
-            JobPayload::Filesystem(job) => job.check_policy(policy),
+            JobPayload::Filesystem(job) => job.check_policy(filesystem),
             JobPayload::Process(job) => process.check_job(job),
             _ => Ok(()),
         }
@@ -3691,18 +3688,21 @@ impl AsyncHost {
     }
 
     #[cfg(target_os = "macos")]
-    fn check_file_metadata_policy(policy: &Policy, file: Option<&Resource>) -> AsyncHostResult<()> {
+    fn check_file_metadata_policy(
+        filesystem: &HostFs,
+        file: Option<&Resource>,
+    ) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
-        policy.stat_resource_path(file.policy_path())
+        filesystem.authorize_resource_metadata(file.canonical_path())
     }
 
     fn check_file_lock_policy(
-        policy: &Policy,
+        filesystem: &HostFs,
         file: Option<&Resource>,
         exclusive: bool,
     ) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
-        policy.lock_resource_path(file.policy_path(), exclusive)
+        filesystem.authorize_resource_lock(file.canonical_path(), exclusive)
     }
 
     pub(crate) fn spawn_worker(&self, completion_id: i32, job_handle: u64) -> AsyncHostResult<u64> {
@@ -3981,7 +3981,10 @@ impl AsyncHost {
             ("TLS private key", private_key_file.as_path()),
             ("TLS certificate", certificate_file.as_path()),
         ] {
-            if let Err(error) = self.policy.open_path(path.as_os_str(), 0, 0, false) {
+            if let Err(error) = self
+                .filesystem
+                .authorize_open(path.as_os_str(), 0, 0, false)
+            {
                 return self.with_tls_pending_mut(handle, |pending| {
                     pending.set_error(format!("failed to access {label} file: {error:?}"))
                 });
@@ -4202,13 +4205,13 @@ impl AsyncHost {
         init_job: HostWorkerJob,
         complete_job: impl FnMut(WorkerCompletionId) + Send + 'static,
     ) -> AsyncHostResult<()> {
-        let policy = Arc::clone(&self.policy);
+        let filesystem = Arc::clone(&self.filesystem);
         let process_for_runner = self.process.clone();
         self.workers.spawn(
             worker,
             init_job,
             move |worker_job| {
-                Self::run_policy_checked_job(&policy, &process_for_runner, &mut worker_job.job);
+                Self::run_policy_checked_job(&filesystem, &process_for_runner, &mut worker_job.job);
             },
             complete_job,
         )
@@ -4376,7 +4379,9 @@ mod tests {
 
     use super::*;
     use crate::filesystem::Job as FilesystemJob;
+    use crate::policy::Policy;
     use crate::process::{Job as ProcessJob, SpawnOptions};
+    use crate::runtime::WorkingDirectory;
 
     #[repr(align(2))]
     struct AlignedBytes<const N: usize>([u8; N]);
@@ -4393,8 +4398,39 @@ mod tests {
         host.handles.borrow().resource_count_excluding_reserved()
     }
 
+    fn test_host(mut policy: Policy) -> AsyncHost {
+        let environment = Arc::new(
+            policy
+                .realize_env()
+                .expect("construct test Host environment"),
+        );
+        let working_directory = Arc::new(WorkingDirectory::Ambient);
+        let filesystem = Arc::new(HostFs::new(
+            policy.take_filesystem_policy(),
+            Arc::clone(&environment),
+            Arc::clone(&working_directory),
+        ));
+        let network = HostNetwork::new(policy.take_network_policy());
+        let process = HostProcess::new(
+            policy.take_process_policy(),
+            policy.take_policy_inheritance(),
+            working_directory,
+        );
+        AsyncHost::new(
+            environment,
+            filesystem,
+            network,
+            process,
+            Rc::new(RefCell::new(HostKeys::default())),
+        )
+    }
+
+    fn default_host() -> AsyncHost {
+        test_host(Policy::allow_all())
+    }
+
     fn host_with_policy(path: &std::path::Path) -> AsyncHost {
-        AsyncHost::new(Arc::new(Policy::from_file(path).unwrap()))
+        test_host(Policy::from_file(path).unwrap())
     }
 
     #[cfg(unix)]
@@ -4432,16 +4468,15 @@ mod tests {
     }
 
     #[test]
-    fn no_policy_does_not_allocate_child_ownership_tracking() {
-        let host = AsyncHost::default();
+    fn no_policy_leaves_unknown_child_access_unrestricted() {
+        let host = default_host();
 
-        assert!(!host.process.has_policy());
         host.check_owned_child_pid(i32::MAX).unwrap();
     }
 
     #[test]
     fn spawn_job_builder_only_mutates_ready_spawn_jobs() {
-        let host = AsyncHost::default();
+        let host = default_host();
         #[cfg(unix)]
         let spawn_job = successful_process_job();
         #[cfg(windows)]
@@ -4662,7 +4697,7 @@ mod tests {
 
     #[test]
     fn get_spawn_result_rejects_non_spawn_job() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
 
         assert_eq!(
@@ -4729,7 +4764,7 @@ mod tests {
 
     #[test]
     fn process_env_block_transfer_consumes_source() {
-        let host = AsyncHost::default();
+        let host = default_host();
         #[cfg(unix)]
         let src = host.insert_process_env(vec![Some(OsString::from("A=B"))]);
         #[cfg(windows)]
@@ -4771,7 +4806,7 @@ mod tests {
 
     #[test]
     fn process_env_block_transfer_consumes_source_on_failure() {
-        let host = AsyncHost::default();
+        let host = default_host();
         #[cfg(unix)]
         let src = host.insert_process_env(vec![Some(OsString::from("A=B"))]);
         #[cfg(windows)]
@@ -4791,7 +4826,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn legacy_process_spawn_inputs_use_inherited_count_to_build_environment() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let argv = host.insert_process_argv(2).unwrap();
         host.process_argv_add_entry(argv, 0, OsString::from("command"))
             .unwrap();
@@ -4820,7 +4855,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn legacy_process_spawn_inputs_apply_current_nul_handling() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let argv = host.insert_process_argv(1).unwrap();
         host.process_argv_add_entry(argv, 0, OsString::from("command"))
             .unwrap();
@@ -4848,7 +4883,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn invalid_legacy_process_spawn_inherited_count_does_not_consume_buffers() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let argv = host.insert_process_argv(1).unwrap();
         host.process_argv_add_entry(argv, 0, OsString::from("command"))
             .unwrap();
@@ -4865,7 +4900,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn invalid_process_spawn_buffers_are_not_partially_consumed() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let argv = host.insert_process_argv(1).unwrap();
         host.process_argv_add_entry(argv, 0, OsString::from("command"))
             .unwrap();
@@ -4882,7 +4917,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn process_spawn_abis_reject_the_other_environment_handle_kind() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let argv = host.insert_process_argv(1).unwrap();
         host.process_argv_add_entry(argv, 0, OsString::from("command"))
             .unwrap();
@@ -4907,7 +4942,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn process_spawn_environment_transfers_ownership() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let block = vec![b'A' as u16, b'=' as u16, b'B' as u16, 0, 0];
         let env = host.insert_process_env(block.clone());
 
@@ -4918,7 +4953,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn process_spawn_abis_reject_the_other_environment_handle_kind() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let builder = host.insert_process_env_builder(Vec::new());
         assert_eq!(host.take_process_env(builder), Err(AsyncHostError::Badf));
         assert!(host.handles.borrow().process_env_builder(builder).is_ok());
@@ -4999,7 +5034,7 @@ mod tests {
 
     #[test]
     fn resource_class_rejects_file_as_socket() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
 
         assert_eq!(
@@ -5018,7 +5053,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn pipe_applies_async_flags_to_nonblocking_state() {
-        let host = AsyncHost::default();
+        let host = default_host();
 
         for (read_is_async, write_is_async) in
             [(false, false), (true, false), (false, true), (true, true)]
@@ -5054,7 +5089,7 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
 
-        let host = AsyncHost::default();
+        let host = default_host();
         let tcp = host.make_tcp_socket(4).unwrap();
         let udp = host.make_udp_socket(4, false).unwrap();
 
@@ -5086,7 +5121,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn completion_source_is_resource_handle() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_source = host.init_thread_pool(poll).unwrap();
         let raw_completion_fd = host
@@ -5121,7 +5156,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn fetch_completion_publishes_completion_id_without_copying_payload() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let job = FilesystemJob::read(Arc::new(Resource::invalid()), 3, -1);
@@ -5157,7 +5192,7 @@ mod tests {
 
     #[test]
     fn failed_stat_job_does_not_require_a_filesystem_payload() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let error = AsyncHostError::Inval.errno();
         let job = host
             .insert_job(thread_pool::make_failed_job(error))
@@ -5174,7 +5209,7 @@ mod tests {
 
     #[test]
     fn c_buffer_access_rejects_interior_raw_pointer() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
         let interior_ptr = host
             .with_c_buffer(handle, |buffer| {
@@ -5197,7 +5232,7 @@ mod tests {
 
     #[test]
     fn readdir_job_exclusively_leases_and_restores_c_buffer() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
         let key = host.handles.borrow().c_buffer(handle).unwrap();
         assert!(matches!(
@@ -5236,7 +5271,7 @@ mod tests {
 
     #[test]
     fn freeing_unrun_readdir_job_restores_c_buffer() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
         let lease = host.lease_c_buffer(handle).unwrap();
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
@@ -5253,7 +5288,7 @@ mod tests {
 
     #[test]
     fn discarded_queued_readdir_job_restores_c_buffer() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
         let lease = host.lease_c_buffer(handle).unwrap();
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
@@ -5278,7 +5313,7 @@ mod tests {
 
     #[test]
     fn freed_c_buffer_is_not_restored_by_its_readdir_job() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let handle = host.insert_c_buffer(b"old".to_vec().into_boxed_slice());
         let lease = host.lease_c_buffer(handle).unwrap();
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 3, false);
@@ -5302,7 +5337,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn realpath_result_is_registered_c_buffer_cleaned_up_with_job() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let job_handle = host
             .insert_job(FilesystemJob::realpath(std::ffi::OsString::from(
                 "/tmp/example",
@@ -5335,7 +5370,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn fetch_completion_leaves_unfetched_completion_ids_in_os_source() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         {
@@ -5366,7 +5401,7 @@ mod tests {
 
     #[test]
     fn stale_job_handle_is_rejected_after_free() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
 
         host.free_job(job).unwrap();
@@ -5377,7 +5412,7 @@ mod tests {
 
     #[test]
     fn open_job_get_fd_publishes_opened_resource_once() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let path =
             std::env::temp_dir().join(format!("moonrun-published-open-job-{}", std::process::id()));
         let job = host
@@ -5538,8 +5573,8 @@ mod tests {
         std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
         let host = host_with_policy(&policy_file);
 
-        host.policy()
-            .open_path(link.as_os_str(), 0, 0, false)
+        host.filesystem()
+            .authorize_open(link.as_os_str(), 0, 0, false)
             .unwrap();
         let job = host
             .insert_job(FilesystemJob::open_legacy(
@@ -5982,7 +6017,7 @@ mod tests {
 
     #[test]
     fn discarded_completed_open_job_drops_unpublished_resource() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let path =
             std::env::temp_dir().join(format!("moonrun-discarded-open-job-{}", std::process::id()));
         let job_handle = host
@@ -6018,9 +6053,8 @@ mod tests {
 
     #[test]
     fn drop_destroys_pool_even_when_worker_holds_state() {
-        let policy = Arc::new(Policy::allow_all());
-        let policy_weak = Arc::downgrade(&policy);
-        let host = AsyncHost::new(policy);
+        let host = default_host();
+        let filesystem_weak = Arc::downgrade(&host.filesystem);
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
@@ -6042,12 +6076,12 @@ mod tests {
 
         drop(host);
 
-        assert!(policy_weak.upgrade().is_none());
+        assert!(filesystem_weak.upgrade().is_none());
     }
 
     #[test]
     fn worker_result_is_available_after_completion_event() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_source = host.init_thread_pool(poll).unwrap();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
@@ -6080,7 +6114,7 @@ mod tests {
 
     #[test]
     fn free_running_worker_job_detaches_its_result() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let first_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let first_key = job_key(&host, first_job);
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
@@ -6126,7 +6160,7 @@ mod tests {
 
     #[test]
     fn free_queued_worker_job_detaches_without_cancelling_it() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let first_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let first_key = job_key(&host, first_job);
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
@@ -6209,7 +6243,7 @@ mod tests {
 
     #[test]
     fn worker_handles_stay_stale_after_thread_pool_reinit() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let first_job = host
@@ -6254,7 +6288,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn native_order_completion_before_poll_destroy_remains_supported() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let completion = host.thread_pool_completion_target().unwrap();
@@ -6274,7 +6308,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn alternate_order_poll_destroy_before_completion_remains_safe() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
 
         host.init_thread_pool(poll).unwrap();
@@ -6290,7 +6324,7 @@ mod tests {
 
     #[test]
     fn stale_worker_handle_is_rejected_after_free() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let job = host
@@ -6319,7 +6353,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn acquired_resource_survives_guest_close() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(false, false).unwrap();
         let file = host.acquire_resource(read).unwrap();
 
@@ -6344,7 +6378,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn close_fd_unregisters_poll_when_job_still_holds_resource() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
@@ -6403,7 +6437,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn read_dir_changes_io_result_leases_buffer_until_free() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let buffer = host.insert_windows_watcher_buffer();
         let result = host.make_read_dir_changes_io_result(buffer).unwrap();
 
@@ -6423,7 +6457,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn read_dir_changes_rejects_a_generic_c_buffer() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let buffer = host.insert_c_buffer(vec![1, 2, 3].into_boxed_slice());
 
         assert_eq!(
@@ -6484,7 +6518,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn io_result_write_creation_copies_guest_source() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let mut memory = b"zzzabc".to_vec();
 
         let result = host
@@ -6504,7 +6538,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn cancel_io_result_rejects_wrong_fd_without_clearing_pending() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
@@ -6542,7 +6576,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn cancel_io_result_clears_pending_result_when_no_wait_is_needed() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         {
@@ -6574,7 +6608,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn cancel_io_result_keeps_pending_result_when_wait_is_needed() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
@@ -6611,7 +6645,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn close_fd_rejects_pending_io_result() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
@@ -6647,7 +6681,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn close_fd_rejects_extra_pending_close_guard() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let (raw_read, raw_write) = {
@@ -6699,7 +6733,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn free_io_result_rejects_pending_result() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         {
@@ -6736,7 +6770,7 @@ mod tests {
     fn poll_event_io_result_marks_pending_result_delivered() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_port = {
             let polls = host.polls.borrow();
@@ -6783,7 +6817,7 @@ mod tests {
     fn unregistered_iocp_completion_key_is_returned() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_port = {
             let polls = host.polls.borrow();
@@ -6807,7 +6841,7 @@ mod tests {
     fn zero_iocp_completion_key_is_returned() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_port = {
             let polls = host.polls.borrow();
@@ -6829,7 +6863,7 @@ mod tests {
     fn close_fd_preserves_polled_iocp_resource_handle() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
@@ -6860,7 +6894,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn poll_reports_registered_pipe_readiness_as_guest_fd() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
@@ -6891,7 +6925,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn close_fd_preserves_polled_resource_handle() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let poll = host.poll_create().unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
@@ -6917,7 +6951,7 @@ mod tests {
 
     #[test]
     fn stale_file_handle_is_rejected_after_close() {
-        let host = AsyncHost::default();
+        let host = default_host();
         let [read, write] = host.pipe(true, true).unwrap();
 
         host.close_fd(read).unwrap();

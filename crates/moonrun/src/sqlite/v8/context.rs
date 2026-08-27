@@ -192,14 +192,13 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::rc::Rc;
-    use std::sync::Arc;
 
     use crate::policy::Policy;
     use crate::runtime::HostKeys;
 
     fn host() -> SqliteHost {
-        SqliteHost::with_keys(
-            Arc::new(Policy::allow_all()),
+        SqliteHost::new(
+            crate::sqlite::tests::ambient_filesystem(Policy::allow_all()),
             Rc::new(RefCell::new(HostKeys::default())),
         )
     }
