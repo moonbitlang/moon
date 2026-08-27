@@ -75,21 +75,30 @@ They occur before a Moon command runtime exists.
 
 ## Moon command and output selection
 
-A selected Moon invocation contains its parsed command, universal flags, and
-an orthogonal output format:
+A selected Moon invocation contains universal flags and either its parsed
+human command or command-owned machine-readable hooks:
 
 ```rust
-enum OutputFormat {
-    Human,
-    Json,
+struct MoonInvocation {
+    flags: UniversalFlags,
+    command: MoonCommand,
+}
+
+enum MoonCommand {
+    Human(Box<MoonBuildSubcommands>),
+    Json(Box<dyn JsonCommand>),
 }
 ```
 
-`check` and `search` currently select JSON through command-local `--json`
-flags. The distinction is an output contract, not a JSON-specific command
-variant. Each command owns its result schema while reusing the same lifecycle
+`check`, `search`, and `tree` currently select JSON through command-local
+`--json` flags. The distinction is an output contract, not a JSON-specific
+command variant. Invocation selection attaches that command's run and
+bootstrap-error hooks once. Each hook returns an opaque outcome that owns its
+exit code and final renderer. Runtime therefore applies capture, tracing, and
+finalization without switching on command names or knowing any JSON schema.
+Each command still owns its result schema while reusing the same lifecycle
 requirement: one complete Command Result on stdout and no terminal-only output
-on stderr. No universal JSON payload or generic result trait is required.
+on stderr. No universal JSON payload schema is required.
 
 ## Runtime
 
@@ -105,9 +114,9 @@ For an ordinary Moon command, the runtime performs these steps:
 2. apply the selected working directory;
 3. initialize tracing;
 4. load workspace environment and emit command warnings;
-5. dispatch the parsed command and receive a `ProcessAction`;
+5. invoke the selected machine-readable hook or dispatch the human command;
 6. drop the tracing guard;
-7. execute the process action; and
+7. render the machine-readable outcome or execute the process action; and
 8. return one integer exit code to `main`.
 
 Unhandled human-command errors have one User Log renderer. JSON errors after
@@ -171,12 +180,13 @@ enum ChildOutputMode {
 }
 ```
 
-Human commands inherit the child's stdout and stderr. JSON check captures both
-channels, closes the child's stdin, and waits for completion before producing
-the Command Result. Non-empty output from a successful child becomes an
-informational User Log entry; output from a failed child becomes an error.
-User Log filtering and child-output mode remain independent decisions: capture
-is never inferred from the User Log destination.
+Human commands inherit the child's stdout and stderr. Machine-readable command
+modes that synchronize dependencies, currently `check --json` and
+`tree --package --json`, capture both channels, close the child's stdin, and
+wait for completion before producing the Command Result. Non-empty output from
+a successful child becomes an informational User Log entry; output from a
+failed child becomes an error. User Log filtering and child-output mode remain
+independent decisions: capture is never inferred from the User Log destination.
 
 Registry adapters only acquire and verify source. Project-local dependency
 installation invokes the isolated legacy-postadd module after materialization,
@@ -205,6 +215,7 @@ Public CLI tests cover:
 - complete JSON stdout and trace files for successful and failed JSON checks;
 - complete JSON stdout with empty stderr for successful and failed registry
   searches;
-- JSON check capture for successful and failed legacy postadd hooks and nested
+- JSON tree capture for successful and failed module and package trees, plus
+  JSON check capture for successful and failed legacy postadd hooks and nested
   binary-dependency builds; and
 - existing `moon run` trace and temporary-project cleanup invariants.

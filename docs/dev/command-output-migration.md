@@ -117,12 +117,18 @@ Blocks: CO-7
 
 ### CO-6: Move package-manager presentation to the CLI seam
 
+Status: in progress
+
 Blocked by: CO-3, CO-4
 
 - Replace `mooncake` direct result printing with returned report data or writer-based rendering.
 - Pass `UserLog` only to operations whose user-facing events occur during long-running work such as downloads.
 - Migrate add, fetch, tree, work, update, install, and registry notifications in small command-family changes.
 - Done when `mooncake` has no unclassified direct stdout or stderr writes.
+
+`tree` has been migrated: `mooncake::pkg::tree::tree` returns the resolved
+graph, and `moon` renders the text tree and the `--json` command result through
+`CommandOutput` (`crates/moon/src/cli/tree.rs`).
 
 ### CO-7: Classify build execution output
 

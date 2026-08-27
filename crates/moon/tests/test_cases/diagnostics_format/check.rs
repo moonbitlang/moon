@@ -1,64 +1,13 @@
 use expect_test::expect;
 
-use crate::{
-    TestDir, get_stderr, get_stdout, moon_bin, moon_cmd,
-    util::{cache_registry_package, check},
-};
+use crate::{TestDir, get_stderr, get_stdout, moon_cmd, util::check};
+
+use super::json_command_with_postadd;
 
 fn parse_complete_json(assert: snapbox::cmd::OutputAssert) -> serde_json::Value {
     let assert = assert.stderr_eq("");
     let output = assert.get_output();
     serde_json::from_slice(&output.stdout).expect("stdout should contain one complete JSON value")
-}
-
-fn check_json_with_postadd(postadd: &str) -> snapbox::cmd::OutputAssert {
-    let dir = TestDir::new_empty();
-    let moon_home = tempfile::TempDir::new().expect("failed to create temporary MOON_HOME");
-    let moon_path = std::env::join_paths(
-        std::iter::once(
-            moon_bin()
-                .parent()
-                .expect("test moon binary should have a parent directory")
-                .to_path_buf(),
-        )
-        .chain(std::env::split_paths(
-            &std::env::var_os("PATH").unwrap_or_default(),
-        )),
-    )
-    .expect("test PATH should be valid");
-    std::fs::create_dir_all(dir.join("src/lib")).unwrap();
-    std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-            "name": "test/root",
-            "version": "0.1.0",
-            "source": "src",
-            "deps": { "testuser/postadd": "1.0.0" }
-        }"#,
-    )
-    .unwrap();
-    std::fs::write(dir.join("src/lib/moon.pkg.json"), "{}").unwrap();
-    std::fs::write(dir.join("src/lib/lib.mbt"), "pub fn answer() -> Int { 42 }").unwrap();
-
-    let dependency_manifest = serde_json::json!({
-        "name": "testuser/postadd",
-        "version": "1.0.0",
-        "scripts": { "postadd": postadd }
-    })
-    .to_string()
-    .into_bytes();
-    cache_registry_package(
-        moon_home.path(),
-        "testuser/postadd",
-        "1.0.0",
-        &[("moon.mod.json", dependency_manifest)],
-    );
-
-    moon_cmd(&dir)
-        .env("MOON_HOME", moon_home.path())
-        .env("PATH", moon_path)
-        .args(["check", "--json"])
-        .assert()
 }
 
 #[test]
@@ -332,7 +281,9 @@ fn test_moon_check_complete_json_captures_resolution_failure() {
 
 #[test]
 fn test_moon_check_complete_json_captures_postadd_output() {
-    let report = parse_complete_json(check_json_with_postadd("moon --version").success());
+    let report = parse_complete_json(
+        json_command_with_postadd(&["check", "--json"], "moon --version").success(),
+    );
 
     assert_eq!(report["status"], "success");
     assert!(
@@ -352,8 +303,9 @@ fn test_moon_check_complete_json_captures_postadd_output() {
 
 #[test]
 fn test_moon_check_complete_json_captures_postadd_failure() {
-    let report =
-        parse_complete_json(check_json_with_postadd("moon check --not-a-real-option").failure());
+    let report = parse_complete_json(
+        json_command_with_postadd(&["check", "--json"], "moon check --not-a-real-option").failure(),
+    );
 
     assert_eq!(report["status"], "failure");
     assert!(

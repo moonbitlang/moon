@@ -152,6 +152,12 @@ These commands are still workspace-aware:
 - they keep workspace-local build layout
 - they use the selected member as the operation target
 
+Machine-readable `moon tree --json` output derives each `workspace_member`
+value from the selected workspace layout, including workspaces with one member.
+The human tree preserves its historical display convention and adds
+`[workspace member]` only when the resolution has multiple workspace roots;
+that text marker is not the authoritative membership signal.
+
 But they are not workspace-wide commands.
 
 At a workspace root, they fail unless Moon can determine a member module from

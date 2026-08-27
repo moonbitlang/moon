@@ -24,21 +24,61 @@ use std::{
 };
 
 use clap::{CommandFactory, Parser, error::ErrorKind};
-use moonutil::cli_support::UniversalFlags;
+use moonutil::{
+    cli_support::UniversalFlags, command_output::CommandOutput, user_log::UserLogCapture,
+};
 
 use super::{CramCommand, MoonBuildCli, MoonBuildSubcommands, VersionSubcommand, moonx, tool};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OutputFormat {
-    Human,
-    Json,
-}
 
 #[derive(Debug)]
 pub(crate) struct MoonInvocation {
     pub(crate) flags: UniversalFlags,
-    pub(crate) command: MoonBuildSubcommands,
-    pub(crate) output: OutputFormat,
+    pub(crate) command: MoonCommand,
+}
+
+#[derive(Debug)]
+pub(crate) enum MoonCommand {
+    Human(Box<MoonBuildSubcommands>),
+    Json(Box<dyn JsonCommand>),
+}
+
+/// Command-owned hooks for one machine-readable lifecycle.
+pub(crate) trait JsonCommand: std::fmt::Debug {
+    fn run(&self, flags: &UniversalFlags, output: &CommandOutput) -> JsonCommandOutcome;
+
+    fn bootstrap_error(&self, message: String) -> JsonCommandOutcome;
+}
+
+type JsonFinish =
+    Box<dyn FnOnce(&CommandOutput, &UserLogCapture) -> anyhow::Result<()> + Send + 'static>;
+
+pub(crate) struct JsonCommandOutcome {
+    exit_code: i32,
+    finish: JsonFinish,
+}
+
+impl JsonCommandOutcome {
+    pub(crate) fn new(
+        exit_code: i32,
+        finish: impl FnOnce(&CommandOutput, &UserLogCapture) -> anyhow::Result<()> + Send + 'static,
+    ) -> Self {
+        Self {
+            exit_code,
+            finish: Box::new(finish),
+        }
+    }
+
+    pub(crate) fn exit_code(&self) -> i32 {
+        self.exit_code
+    }
+
+    pub(crate) fn finish(
+        self,
+        output: &CommandOutput,
+        capture: &UserLogCapture,
+    ) -> anyhow::Result<()> {
+        (self.finish)(output, capture)
+    }
 }
 
 #[derive(Debug)]
@@ -169,15 +209,21 @@ pub(crate) fn select(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap
             DelegatedInvocation::Register { current_dir },
         ),
         command => {
-            let output = match &command {
-                MoonBuildSubcommands::Check(command) if command.json => OutputFormat::Json,
-                MoonBuildSubcommands::Search(command) if command.json => OutputFormat::Json,
-                _ => OutputFormat::Human,
+            let command = match command {
+                MoonBuildSubcommands::Check(command) if command.json => {
+                    MoonCommand::Json(super::check::json_command(command))
+                }
+                MoonBuildSubcommands::Search(command) if command.json => {
+                    MoonCommand::Json(super::search::json_command(command))
+                }
+                MoonBuildSubcommands::Tree(command) if command.json => {
+                    MoonCommand::Json(super::tree::json_command(command))
+                }
+                command => MoonCommand::Human(Box::new(command)),
             };
             Ok(SelectedInvocation::Moon(Box::new(MoonInvocation {
                 flags,
                 command,
-                output,
             })))
         }
     }
@@ -345,20 +391,31 @@ mod tests {
         let SelectedInvocation::Moon(build) = select(args(&["moon", "build"])).unwrap() else {
             panic!("build should select a Moon invocation")
         };
-        assert_eq!(build.output, OutputFormat::Human);
+        assert!(matches!(build.command, MoonCommand::Human(_)));
 
         let SelectedInvocation::Moon(check) = select(args(&["moon", "check", "--json"])).unwrap()
         else {
             panic!("JSON check should select a Moon invocation")
         };
-        assert_eq!(check.output, OutputFormat::Json);
+        assert!(matches!(check.command, MoonCommand::Json(_)));
 
         let SelectedInvocation::Moon(search) =
             select(args(&["moon", "search", "json", "--json"])).unwrap()
         else {
             panic!("JSON search should select a Moon invocation")
         };
-        assert_eq!(search.output, OutputFormat::Json);
+        assert!(matches!(search.command, MoonCommand::Json(_)));
+
+        let SelectedInvocation::Moon(tree) = select(args(&["moon", "tree"])).unwrap() else {
+            panic!("tree should select a Moon invocation")
+        };
+        assert!(matches!(tree.command, MoonCommand::Human(_)));
+
+        let SelectedInvocation::Moon(tree) = select(args(&["moon", "tree", "--json"])).unwrap()
+        else {
+            panic!("JSON tree should select a Moon invocation")
+        };
+        assert!(matches!(tree.command, MoonCommand::Json(_)));
     }
 
     #[test]
@@ -422,9 +479,9 @@ mod tests {
         else {
             panic!("a successfully parsed global version should not use the cram fallback")
         };
-        assert!(matches!(
-            invocation.command,
-            MoonBuildSubcommands::Version(_)
-        ));
+        let MoonCommand::Human(command) = invocation.command else {
+            panic!("global version should select a human command")
+        };
+        assert!(matches!(*command, MoonBuildSubcommands::Version(_)));
     }
 }

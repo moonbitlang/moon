@@ -911,6 +911,70 @@ fn test_single_module_commands_from_member_dir_target_member_manifest() {
 }
 
 #[test]
+fn test_member_dir_tree_json_output() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true},{"name":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"workspace_member":true}],"edges":[{"from":0,"to":1,"name":"alice/liba","kind":"regular"}],"logs":[]}
+
+"#]]);
+}
+
+#[test]
+fn test_single_member_workspace_tree_json_marks_member() {
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"fmt/workspace/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true}],"edges":[],"logs":[{"level":"warning","message":"`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead."}]}
+
+"#]]);
+}
+
+#[test]
+fn test_single_member_workspace_tree_text_omits_member_marker() {
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+
+"#]])
+        .stdout_eq(snapbox::str![[r#"
+fmt/workspace/app@0.1.0 (local [..]/app):
+  (no dependencies)
+
+"#]]);
+}
+
+#[test]
+fn test_member_dir_tree_package_json_output() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree", "--package", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"rel":"main"},{"module":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"rel":"lib"}],"edges":[{"from":0,"to":1,"alias":"lib","kinds":["source"]}],"logs":[]}
+
+"#]]);
+}
+
+#[test]
 fn test_member_dir_can_disable_implicit_workspace_mode() {
     let dir = TestDir::new("workspace_basic.in");
 
@@ -920,6 +984,48 @@ fn test_member_dir_can_disable_implicit_workspace_mode() {
         [(MOON_WORK_ENV, "off")],
     );
     assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
+fn test_member_dir_tree_package_text_output() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(
+        get_stdout(&dir, ["-C", "app", "tree", "--package"]),
+        expect![[r#"
+            alice/app@0.1.0 (local $ROOT/app) [main]:
+            └─ lib -> alice/liba@0.1.1 (local $ROOT/liba) [lib]
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["-C", "liba", "tree", "--package"]),
+        expect![[r#"
+            alice/liba@0.1.1 (local $ROOT/liba) [lib]:
+              (no dependencies)
+        "#]],
+    );
+}
+
+#[test]
+fn test_tree_package_json_bootstrap_error_keeps_package_schema() {
+    let dir = TestDir::new("workspace_basic.in");
+    let assert = moon_cmd(&dir)
+        .args(["-C", "missing", "tree", "--package", "--json"])
+        .assert()
+        .failure()
+        .stderr_eq("");
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+
+    assert_eq!(report["status"], "failure");
+    assert!(
+        report.get("nodes").is_some(),
+        "package schema must contain nodes"
+    );
+    assert!(
+        report.get("modules").is_none(),
+        "package schema must not contain modules"
+    );
 }
 
 #[test]
