@@ -103,9 +103,9 @@ impl HostKeys {
 /// them once, binds filesystem policy to the same working-directory authority,
 /// wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
-    policy: Arc<Policy>,
     environment: Arc<Env>,
     working_directory: WorkingDirectory,
+    filesystem: Arc<HostFs>,
     async_state: AsyncHost,
     sqlite: SqliteHost,
 }
@@ -133,6 +133,11 @@ impl Runtime {
         );
         let policy = Arc::new(policy);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let filesystem = Arc::new(HostFs::new(
+            Arc::clone(&policy),
+            Arc::clone(&environment),
+            working_directory.clone(),
+        ));
         let async_state = AsyncHost::with_keys(
             Arc::clone(&policy),
             Arc::clone(&environment),
@@ -141,9 +146,9 @@ impl Runtime {
         );
         let sqlite = SqliteHost::with_keys(Arc::clone(&policy), keys);
         Ok(Self {
-            policy,
             environment,
             working_directory,
+            filesystem,
             async_state,
             sqlite,
         })
@@ -153,8 +158,8 @@ impl Runtime {
         &self.environment
     }
 
-    pub(crate) fn filesystem(&self) -> HostFs {
-        HostFs::new(Arc::clone(&self.policy), self.working_directory.clone())
+    pub(crate) fn filesystem(&self) -> &Arc<HostFs> {
+        &self.filesystem
     }
 
     pub(crate) fn working_directory(&self) -> &WorkingDirectory {

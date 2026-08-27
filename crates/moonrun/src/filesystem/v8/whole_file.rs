@@ -23,9 +23,10 @@ use crate::util::get_ref;
 use crate::v8::builder::{ArgsExt, ObjectExt, ScopeExt};
 use std::any::Any;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 struct FsImports {
-    filesystem: HostFs,
+    filesystem: Arc<HostFs>,
     // V8 invokes these imports synchronously on the isolate thread. Keep the
     // adapter's mutable protocol state local without imposing a threading
     // model on the engine-neutral FsOperationResults.
@@ -33,7 +34,7 @@ struct FsImports {
 }
 
 impl FsImports {
-    fn new(filesystem: HostFs) -> Self {
+    fn new(filesystem: Arc<HostFs>) -> Self {
         Self {
             filesystem,
             operation_results: RefCell::new(FsOperationResults::default()),
@@ -357,7 +358,7 @@ fn copy_uint8_array(array: v8::Local<'_, v8::Uint8Array>) -> Vec<u8> {
 pub(super) fn register<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-    filesystem: HostFs,
+    filesystem: Arc<HostFs>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     let imports = Box::new(FsImports::new(filesystem));

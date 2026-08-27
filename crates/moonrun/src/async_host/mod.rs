@@ -2656,10 +2656,6 @@ impl AsyncHost {
         &self.environment
     }
 
-    pub(crate) fn temp_dir(&self) -> AsyncHostResult<OsString> {
-        self.environment.temp_dir()
-    }
-
     #[cfg(test)]
     pub(crate) fn check_owned_child_pid(&self, pid: i32) -> AsyncHostResult<()> {
         self.process.check_owned_child_pid(pid)

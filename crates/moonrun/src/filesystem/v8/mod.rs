@@ -33,7 +33,7 @@ pub(crate) fn init_env<'s>(
     wasm_file_name: &str,
     args: &[String],
     environment: Arc<Env>,
-    filesystem: HostFs,
+    filesystem: Arc<HostFs>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     runtime::register(obj, scope, wasm_file_name, args, environment, dtors);
