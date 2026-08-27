@@ -48,11 +48,22 @@ const PACKAGE_TREE_JSON_VERSION: u32 = 2;
 const TREE_JSON_ERROR_EXIT_CODE: i32 = -1;
 
 /// Display the dependency tree
+///
+/// Text output expands each dependency once per root. When another path
+/// reaches a dependency whose children were already displayed, the dependency
+/// remains visible with `(*)`, but its children are omitted. Use
+/// `--no-dedupe` to repeat those subgraphs. Cycles remain marked as `(cycle)`.
+/// JSON output represents shared dependencies once and preserves their
+/// relationships as edges.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct TreeSubcommand {
     /// Output one complete JSON result to stdout
     #[clap(long)]
     pub json: bool,
+
+    /// Repeat dependency subgraphs instead of marking them with `(*)`
+    #[clap(long, conflicts_with = "json")]
+    pub no_dedupe: bool,
 
     /// Show the package-level dependency graph instead of the module-level tree
     ///
@@ -69,15 +80,16 @@ pub(crate) fn tree_cli(
     cmd: TreeSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let dedupe = !cmd.no_dedupe;
     let rendered = if cmd.package {
         let (resolve_output, selected) =
             resolve_selected_package_graph(&cli, output.user_log(), ChildOutputMode::Inherit)?;
-        render_package_tree(&resolve_output, selected)
+        render_package_tree(&resolve_output, selected, dedupe)
     } else {
         let resolved = resolve_selected_tree(&cli, output.user_log())?;
         let workspace_members =
             (resolved.workspace_members.len() > 1).then_some(&resolved.workspace_members);
-        render_tree(&resolved.env, resolved.root, workspace_members)
+        render_tree(&resolved.env, resolved.root, workspace_members, dedupe)
     };
     output.write_result(|writer| -> anyhow::Result<()> {
         writer.write_all(rendered.as_bytes())?;
@@ -544,7 +556,11 @@ fn target_kind_str(kind: TargetKind) -> &'static str {
 ///
 /// Source targets form the roots; expansion follows all non-stdlib dependency
 /// edges, mirroring the module-level text tree's treatment of stdlib modules.
-fn render_package_tree(resolve_output: &ResolveOutput, selected_module: ModuleId) -> String {
+fn render_package_tree(
+    resolve_output: &ResolveOutput,
+    selected_module: ModuleId,
+    dedupe: bool,
+) -> String {
     let pkg_dirs = &resolve_output.pkg_dirs;
     let source_packages = selected_source_packages(resolve_output, selected_module);
     let sorted_children = |source| sorted_package_tree_children(resolve_output, source);
@@ -560,8 +576,17 @@ fn render_package_tree(resolve_output: &ResolveOutput, selected_module: ModuleId
 
         let mut stack = HashSet::new();
         stack.insert(target);
-        let direct_dep_count =
-            render_tree_children(target, "", &mut stack, &mut out, &sorted_children);
+        let mut expanded = HashSet::new();
+        expanded.insert(target);
+        let direct_dep_count = render_tree_children(
+            sorted_children(target),
+            "",
+            &mut stack,
+            &mut expanded,
+            dedupe,
+            &mut out,
+            &sorted_children,
+        );
         if direct_dep_count == 0 {
             out.push_str("  (no dependencies)\n");
         }
@@ -658,6 +683,7 @@ fn render_tree(
     resolved: &ResolvedEnv,
     root: ModuleId,
     workspace_members: Option<&HashSet<ModuleId>>,
+    dedupe: bool,
 ) -> String {
     let sorted_children = |source| sorted_module_tree_children(resolved, source, workspace_members);
     let mut out = String::new();
@@ -666,7 +692,17 @@ fn render_tree(
 
     let mut stack = HashSet::new();
     stack.insert(root);
-    let direct_dep_count = render_tree_children(root, "", &mut stack, &mut out, &sorted_children);
+    let mut expanded = HashSet::new();
+    expanded.insert(root);
+    let direct_dep_count = render_tree_children(
+        sorted_children(root),
+        "",
+        &mut stack,
+        &mut expanded,
+        dedupe,
+        &mut out,
+        &sorted_children,
+    );
 
     if direct_dep_count == 0 {
         out.push_str("  (no dependencies)\n");
@@ -707,9 +743,11 @@ struct TreeChild<Node> {
 }
 
 fn render_tree_children<Node, Children>(
-    source: Node,
+    children: Vec<TreeChild<Node>>,
     indent: &str,
     stack: &mut HashSet<Node>,
+    expanded: &mut HashSet<Node>,
+    dedupe: bool,
     out: &mut String,
     sorted_children: &Children,
 ) -> usize
@@ -717,24 +755,47 @@ where
     Node: Copy + Eq + Hash,
     Children: Fn(Node) -> Vec<TreeChild<Node>>,
 {
-    let children = sorted_children(source);
     for (idx, child) in children.iter().enumerate() {
         let is_last = idx + 1 == children.len();
+        let is_cycle = stack.contains(&child.node);
+        let already_expanded = !expanded.insert(child.node);
+        let descendants = if is_cycle {
+            Vec::new()
+        } else {
+            sorted_children(child.node)
+        };
+        let omit_descendants = dedupe && already_expanded;
+
         out.push_str(indent);
         out.push_str(if is_last { "└─" } else { "├─" });
         out.push(' ');
         out.push_str(&child.label);
+        if omit_descendants && !descendants.is_empty() {
+            out.push_str(" (*)");
+        }
         out.push('\n');
 
         let next_indent = format!("{indent}{}", if is_last { "   " } else { "│  " });
-        if stack.contains(&child.node) {
+        if is_cycle {
             out.push_str(&next_indent);
             out.push_str("└─ (cycle)\n");
             continue;
         }
 
+        if omit_descendants {
+            continue;
+        }
+
         stack.insert(child.node);
-        render_tree_children(child.node, &next_indent, stack, out, sorted_children);
+        render_tree_children(
+            descendants,
+            &next_indent,
+            stack,
+            expanded,
+            dedupe,
+            out,
+            sorted_children,
+        );
         stack.remove(&child.node);
     }
 
@@ -787,6 +848,49 @@ mod tests {
     }
 
     #[test]
+    fn no_dedupe_is_text_only() {
+        let command =
+            <TreeSubcommand as clap::Parser>::try_parse_from(["tree", "--no-dedupe"]).unwrap();
+        assert!(command.no_dedupe);
+        assert!(
+            <TreeSubcommand as clap::Parser>::try_parse_from(["tree", "--json", "--no-dedupe"])
+                .is_err()
+        );
+    }
+
+    fn shared_subgraph() -> (ResolvedEnv, ModuleId) {
+        let (roots, root) = ResolvedModule::only_one_module(
+            local_source("alice/root", "0.1.0", "/workspace/root"),
+            local_module("alice/root", "0.1.0"),
+        );
+        let mut env = ResolvedEnv::from_root_modules(roots);
+        let dep_a = env.add_module(
+            local_source("alice/a", "0.1.0", "/workspace/a"),
+            local_module("alice/a", "0.1.0"),
+        );
+        let dep_b = env.add_module(
+            local_source("alice/b", "0.1.0", "/workspace/b"),
+            local_module("alice/b", "0.1.0"),
+        );
+        let shared = env.add_module(
+            local_source("alice/shared", "0.1.0", "/workspace/shared"),
+            local_module("alice/shared", "0.1.0"),
+        );
+        let leaf = env.add_module(
+            local_source("alice/leaf", "0.1.0", "/workspace/leaf"),
+            local_module("alice/leaf", "0.1.0"),
+        );
+
+        env.add_dependency(root, dep_a, &regular_dep("alice/a"));
+        env.add_dependency(root, dep_b, &regular_dep("alice/b"));
+        env.add_dependency(dep_a, shared, &regular_dep("alice/shared"));
+        env.add_dependency(dep_b, shared, &regular_dep("alice/shared"));
+        env.add_dependency(shared, leaf, &regular_dep("alice/leaf"));
+        env.add_dependency(dep_b, leaf, &regular_dep("alice/leaf"));
+        (env, root)
+    }
+
+    #[test]
     fn tree_render_uses_three_column_unicode_indent() {
         let (roots, root_id) = ResolvedModule::only_one_module(
             local_source("alice/root", "0.1.0", "/workspace/root"),
@@ -811,7 +915,7 @@ mod tests {
         env.add_dependency(root_id, dep_b, &regular_dep("alice/b"));
         env.add_dependency(dep_a, dep_c, &regular_dep("alice/c"));
 
-        let rendered = render_tree(&env, root_id, None);
+        let rendered = render_tree(&env, root_id, None, true);
         expect![[r#"
             alice/root@0.1.0 (local /workspace/root):
             ├─ alice/a -> alice/a@0.1.0 (local /workspace/a)
@@ -834,12 +938,96 @@ mod tests {
         );
         env.add_dependency(root_id, dep_id, &regular_dep("just/hello004"));
 
-        let rendered = render_tree(&env, root_id, None);
+        let rendered = render_tree(&env, root_id, None, true);
         expect![[r#"
             username/hello@0.1.0 (local /workspace/hello):
             └─ just/hello004 -> just/hello004@0.1.0 (local /workspace/hello/deps/hello004)
         "#]]
         .assert_eq(&rendered);
+    }
+
+    #[test]
+    fn tree_render_expands_shared_subgraph_once() {
+        let (env, root) = shared_subgraph();
+
+        let rendered = render_tree(&env, root, None, true);
+        expect![[r#"
+            alice/root@0.1.0 (local /workspace/root):
+            ├─ alice/a -> alice/a@0.1.0 (local /workspace/a)
+            │  └─ alice/shared -> alice/shared@0.1.0 (local /workspace/shared)
+            │     └─ alice/leaf -> alice/leaf@0.1.0 (local /workspace/leaf)
+            └─ alice/b -> alice/b@0.1.0 (local /workspace/b)
+               ├─ alice/leaf -> alice/leaf@0.1.0 (local /workspace/leaf)
+               └─ alice/shared -> alice/shared@0.1.0 (local /workspace/shared) (*)
+        "#]]
+        .assert_eq(&rendered);
+    }
+
+    #[test]
+    fn tree_render_can_repeat_shared_subgraphs() {
+        let (env, root) = shared_subgraph();
+
+        let rendered = render_tree(&env, root, None, false);
+        expect![[r#"
+            alice/root@0.1.0 (local /workspace/root):
+            ├─ alice/a -> alice/a@0.1.0 (local /workspace/a)
+            │  └─ alice/shared -> alice/shared@0.1.0 (local /workspace/shared)
+            │     └─ alice/leaf -> alice/leaf@0.1.0 (local /workspace/leaf)
+            └─ alice/b -> alice/b@0.1.0 (local /workspace/b)
+               ├─ alice/leaf -> alice/leaf@0.1.0 (local /workspace/leaf)
+               └─ alice/shared -> alice/shared@0.1.0 (local /workspace/shared)
+                  └─ alice/leaf -> alice/leaf@0.1.0 (local /workspace/leaf)
+        "#]]
+        .assert_eq(&rendered);
+    }
+
+    #[test]
+    fn tree_render_stops_cycles_without_deduplication() {
+        let (roots, root) = ResolvedModule::only_one_module(
+            local_source("alice/root", "0.1.0", "/workspace/root"),
+            local_module("alice/root", "0.1.0"),
+        );
+        let mut env = ResolvedEnv::from_root_modules(roots);
+        let dep = env.add_module(
+            local_source("alice/dep", "0.1.0", "/workspace/dep"),
+            local_module("alice/dep", "0.1.0"),
+        );
+        env.add_dependency(root, dep, &regular_dep("alice/dep"));
+        env.add_dependency(dep, root, &regular_dep("alice/root"));
+
+        let rendered = render_tree(&env, root, None, false);
+        expect![[r#"
+            alice/root@0.1.0 (local /workspace/root):
+            └─ alice/dep -> alice/dep@0.1.0 (local /workspace/dep)
+               └─ alice/root -> alice/root@0.1.0 (local /workspace/root)
+                  └─ (cycle)
+        "#]]
+        .assert_eq(&rendered);
+    }
+
+    #[test]
+    fn tree_json_represents_shared_subgraph_once() {
+        let (env, root) = shared_subgraph();
+
+        let graph = render_graph_json(&env, root, &HashSet::new());
+        let shared = graph
+            .modules
+            .iter()
+            .position(|module| module.name == "alice/shared")
+            .unwrap();
+
+        assert_eq!(
+            graph
+                .modules
+                .iter()
+                .filter(|module| module.name == "alice/shared")
+                .count(),
+            1
+        );
+        assert_eq!(
+            graph.edges.iter().filter(|edge| edge.to == shared).count(),
+            2
+        );
     }
 
     #[test]
@@ -857,7 +1045,7 @@ mod tests {
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 
         let workspace_members = [app, liba].into_iter().collect();
-        let rendered = render_tree(&env, app, Some(&workspace_members));
+        let rendered = render_tree(&env, app, Some(&workspace_members), true);
         expect![[r#"
             alice/app@0.1.0 (local /workspace/app) [workspace member]:
             └─ alice/liba -> alice/liba@0.1.1 (local /workspace/liba) [workspace member]

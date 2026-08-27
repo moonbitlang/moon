@@ -562,11 +562,14 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 Display the dependency tree
 
+Text output expands each dependency once per root. When another path reaches a dependency whose children were already displayed, the dependency remains visible with `(*)`, but its children are omitted. Use `--no-dedupe` to repeat those subgraphs. Cycles remain marked as `(cycle)`. JSON output represents shared dependencies once and preserves their relationships as edges.
+
 **Usage:** `moon tree [OPTIONS]`
 
 ###### **Options:**
 
 * `--json` — Output one complete JSON result to stdout
+* `--no-dedupe` — Repeat dependency subgraphs instead of marking them with `(*)`
 * `--package` — Show the package-level dependency graph instead of the module-level tree
 
    Text output expands source imports from every package in the selected module. With `--json`, the result contains every non-standard-library package in the resolved project, all import target kinds, and the selected module's packages in `root`.
