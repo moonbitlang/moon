@@ -59,7 +59,6 @@ use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 pub(crate) use crate::runtime::HostKey as HandleKey;
 use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, WorkingDirectory};
-use crate::temp_dir::TempDir;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -1201,7 +1200,6 @@ pub(crate) struct AsyncHost {
     // completion channel instead of sharing the host's tables.
     policy: Arc<Policy>,
     environment: Arc<Env>,
-    temp_dir: TempDir,
     network: HostNetwork,
     errno: Cell<i32>,
     addr_infos: RefCell<SecondaryMap<HandleKey, HostAddrInfo>>,
@@ -1255,11 +1253,9 @@ impl AsyncHost {
     ) -> Self {
         let process = HostProcess::new(Arc::clone(&policy), working_directory);
         let network = HostNetwork::new(Arc::clone(&policy));
-        let temp_dir = TempDir::new(Arc::clone(&environment), &policy);
         Self {
             policy,
             environment,
-            temp_dir,
             network,
             errno: Cell::new(0),
             addr_infos: RefCell::new(SecondaryMap::new()),
@@ -2661,7 +2657,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn temp_dir(&self) -> AsyncHostResult<OsString> {
-        self.temp_dir.path()
+        self.environment.temp_dir()
     }
 
     #[cfg(test)]

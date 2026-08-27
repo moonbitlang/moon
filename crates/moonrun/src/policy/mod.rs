@@ -327,10 +327,6 @@ impl Policy {
             .map_or_else(|| Ok(Env::ambient()), EnvPolicy::realize)
     }
 
-    pub(crate) fn has_env_policy(&self) -> bool {
-        self.env_policy().is_some()
-    }
-
     #[cfg(unix)]
     pub(crate) fn spawn_process_unix(
         &self,

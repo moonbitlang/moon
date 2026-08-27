@@ -45,21 +45,53 @@ _Avoid_: Guest UTF-8 path buffer
 Memory owned by moonrun while servicing guest jobs.
 _Avoid_: Native buffer, temporary buffer
 
+**Runtime Configuration**:
+Construction input that selects how one Runtime behaves, such as its Working
+Directory, Env initialization, stdio bindings, or process implementation. It
+does not grant permission to perform host operations.
+_Avoid_: Moonrun Policy, Runtime State, global process configuration
+
+**Runtime State**:
+The canonical realized state owned by one Runtime, including Env, Runtime
+Working Directory, stdio bindings, Handle namespace, and Host-domain state.
+Every Host Domain that needs one of these dependencies observes the same
+Runtime-owned state rather than independently reconstructing it.
+_Avoid_: Moonrun Policy, Runtime Configuration, process-global state
+
 **Moonrun Policy**:
-The permission configuration enforced by moonrun-owned host imports, including
-`moonbitlang/async` and `__moonbit_fs_unstable`. It authorizes host paths and
-operations before moonrun performs them. Runtime binds filesystem enforcement
-to its Runtime Working Directory once; policy callers provide operations and
-path provenance rather than carrying cwd state. Moonrun Policy does not
-implicitly configure or restrict WASI descriptors.
-_Avoid_: WASI sandbox, virtual filesystem
+Authorization input that answers which fully interpreted host operations are
+allowed. It does not own or select Runtime State such as Env, Runtime Working
+Directory, stdio bindings, VFS configuration, child tables, or OS handles.
+Moonrun Policy does not implicitly configure or restrict WASI descriptors.
+_Avoid_: Runtime Configuration, Runtime State, WASI sandbox, virtual filesystem
+
+**Host Domain**:
+The unique semantic owner for one family of host behavior. A Host Domain
+interprets a request using its Runtime State and Handles, derives the complete
+intent, authorizes it with its domain policy at the last safe moment, performs
+the Raw Operation, and updates its state. The primary call chain is Wasm
+Adapter → Host Domain → Raw Operation; Runtime composes this chain but does not
+forward each call through another layer.
+_Avoid_: Wasm Adapter, Raw Operation, forwarding service
+
+**Raw Operation**:
+A platform or library primitive below a Host Domain, such as an OS syscall or
+SQLite FFI call. It implements mechanism after semantic interpretation and
+authorization; it does not independently own Policy or Runtime State.
+_Avoid_: Host Domain, Wasm Adapter, policy check
+
+**Wasm Adapter**:
+A backend-specific boundary that decodes guest representations, validates ABI
+contracts, invokes the owning Host Domain, and encodes results. It does not own
+domain semantics and must not bypass a Host Domain to call its Raw Operations.
+_Avoid_: Host Domain, Raw Operation, Runtime
 
 **Env**:
 The environment interface owned by one Runtime and shared by MoonBit
 environment imports, WASI environment calls, temporary-directory resolution,
-and child inheritance. Moonrun Policy contributes only its startup selection;
-Ambient retains process-environment write-through for guest-reachable effects
-that do not yet cross Env.
+and child inheritance. Provisioning rules may determine its initial contents;
+after construction it is Runtime State. Ambient retains process-environment
+write-through for guest-reachable effects that do not yet cross Env.
 _Avoid_: Mutable policy, per-import environment map
 
 **WASI Capability Surface**:
@@ -121,9 +153,11 @@ _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
 
 **Runtime**:
 The backend-neutral composition root and isolation boundary for one virtual
-environment. It owns Env, Moonrun Policy, the Runtime Working Directory, and
-Host-domain state. A Runtime is distinct from the process-shared Engine, from a
-guest Instance, and from the Run action that executes guest code. An Ambient
+environment. It consumes Runtime Configuration and authorization inputs, owns
+the canonical Runtime State and Host Domains, and wires each domain's
+dependencies during construction. It is not a forwarding layer for individual
+operations. A Runtime is distinct from the process-shared Engine, from a guest
+Instance, and from the Run action that executes guest code. An Ambient
 dependency may still deliberately expose process-global behavior.
 _Avoid_: Host, Engine, V8 Run Context, service locator
 

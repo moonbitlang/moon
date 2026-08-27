@@ -32,6 +32,8 @@ use std::sync::RwLock;
 
 use thiserror::Error;
 
+use crate::async_host::AsyncHostResult;
+
 #[derive(Debug, Error)]
 pub(crate) enum EnvError {
     #[error("invalid environment variable name {0:?}")]
@@ -181,6 +183,25 @@ impl Env {
         match &self.backing {
             EnvBacking::Ambient => os::inherited_entries(),
             EnvBacking::Owned(_) => self.entries(),
+        }
+    }
+
+    pub(crate) fn temp_dir(&self) -> AsyncHostResult<OsString> {
+        match &self.backing {
+            EnvBacking::Ambient => crate::async_sys::fs::stub::get_tmp_path(),
+            EnvBacking::Owned(_) => {
+                #[cfg(unix)]
+                {
+                    crate::async_sys::fs::stub::get_tmp_path_from_env(self.get("TMPDIR".as_ref()))
+                }
+                #[cfg(windows)]
+                {
+                    crate::async_sys::fs::stub::get_tmp_path_from_env(
+                        self.get("TMP".as_ref()),
+                        self.get("TEMP".as_ref()),
+                    )
+                }
+            }
         }
     }
 }
@@ -354,6 +375,92 @@ mod os {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    use crate::async_host::AsyncHostError;
+    use crate::async_sys::fs::stub;
+
+    #[test]
+    fn ambient_temp_dir_uses_native_path() {
+        let environment = Env::ambient();
+
+        assert_eq!(
+            environment.temp_dir().unwrap(),
+            stub::get_tmp_path().unwrap()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owned_temp_dir_uses_tmpdir() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Env::owned([("TMPDIR".into(), "/runtime/tmp".into())]).unwrap();
+
+        assert_eq!(environment.temp_dir().unwrap().as_bytes(), b"/runtime/tmp/");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temp_dir_reflects_owned_environment_changes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Env::owned([("TMPDIR".into(), "/first".into())]).unwrap();
+
+        assert_eq!(environment.temp_dir().unwrap().as_bytes(), b"/first/");
+        environment.set("TMPDIR".into(), "/second".into()).unwrap();
+        assert_eq!(environment.temp_dir().unwrap().as_bytes(), b"/second/");
+        environment.unset("TMPDIR".as_ref()).unwrap();
+        assert_eq!(
+            environment.temp_dir().unwrap(),
+            stub::get_tmp_path_from_env(None).unwrap()
+        );
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn empty_owned_environment_uses_default_temp_dir() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Env::owned(Vec::<(OsString, OsString)>::new()).unwrap();
+
+        assert_eq!(environment.temp_dir().unwrap().as_bytes(), b"/tmp/");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn owned_temp_dir_requires_configured_windows_temp_env() {
+        let environment = Env::owned(Vec::<(OsString, OsString)>::new()).unwrap();
+
+        assert_eq!(
+            environment.temp_dir(),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        environment.set("TEMP".into(), "C:/Temp".into()).unwrap();
+        assert_eq!(
+            environment.temp_dir().unwrap().to_string_lossy(),
+            "C:/Temp\\"
+        );
+        environment.unset("TEMP".as_ref()).unwrap();
+        assert_eq!(
+            environment.temp_dir(),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn empty_tmp_falls_back_to_temp() {
+        let environment = Env::owned([
+            ("TMP".into(), "".into()),
+            ("TEMP".into(), "C:/Fallback".into()),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            environment.temp_dir().unwrap().to_string_lossy(),
+            "C:/Fallback\\"
+        );
+    }
 
     #[test]
     fn owned_environment_applies_mutations_over_initial_values() {
