@@ -58,7 +58,7 @@ use crate::network::HostNetwork;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 pub(crate) use crate::runtime::HostKey as HandleKey;
-use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind};
+use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, Stdio, StdioBindings};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -236,24 +236,6 @@ const STDIN_ID: i32 = 0;
 const STDOUT_ID: i32 = 1;
 const STDERR_ID: i32 = 2;
 
-#[cfg(windows)]
-const WINDOWS_STDIO_IDS: [u32; 3] = [
-    windows_sys::Win32::System::Console::STD_INPUT_HANDLE,
-    windows_sys::Win32::System::Console::STD_OUTPUT_HANDLE,
-    windows_sys::Win32::System::Console::STD_ERROR_HANDLE,
-];
-
-#[cfg(unix)]
-const STDIO_IDS: [i32; 3] = [STDIN_ID, STDOUT_ID, STDERR_ID];
-
-#[repr(usize)]
-#[derive(Clone, Copy)]
-enum Stdio {
-    Stdin,
-    Stdout,
-    Stderr,
-}
-
 fn handle_from_key(key: HandleKey) -> HostHandle {
     key.data().as_ffi()
 }
@@ -282,51 +264,31 @@ struct HandleTable {
     stdio_resources: [HandleKey; 3],
 }
 
-impl Default for HandleTable {
-    fn default() -> Self {
-        Self::with_keys(Rc::new(RefCell::new(HostKeys::default())))
-    }
-}
-
 impl HandleTable {
-    fn with_keys(keys: Rc<RefCell<HostKeys>>) -> Self {
+    fn with_keys(keys: Rc<RefCell<HostKeys>>, stdio: &StdioBindings) -> Self {
         let mut handles = keys.borrow_mut();
         let mut resources = SecondaryMap::new();
 
         let invalid_resource = handles.insert(HandleKind::Resource);
         resources.insert(invalid_resource, Arc::new(Resource::invalid()));
 
-        #[cfg(unix)]
-        let stdio_resources = STDIO_IDS.map(|id| {
-            let key = handles.insert(HandleKind::Resource);
-            resources.insert(key, Arc::new(Resource::stdio_file(id)));
-            key
-        });
-
-        #[cfg(windows)]
-        let stdio_resources = {
-            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-            use windows_sys::Win32::System::Console::GetStdHandle;
-
-            let mut keys = [invalid_resource; 3];
-            let mut raws = [0isize; 3];
-            for (index, id) in WINDOWS_STDIO_IDS.iter().enumerate() {
-                let handle = unsafe { GetStdHandle(*id) };
-                if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-                    continue;
-                }
-                let raw = handle as isize;
-                if let Some(prev) = (0..index).find(|prev| raws[*prev] == raw) {
-                    keys[index] = keys[prev];
-                    continue;
-                }
+        let stdio_raw_handles = stdio.raw_handles();
+        let mut stdio_resources = [invalid_resource; 3];
+        for (index, raw) in stdio_raw_handles.iter().enumerate() {
+            let Some(raw) = raw else {
+                continue;
+            };
+            if let Some(previous) = stdio_raw_handles[..index]
+                .iter()
+                .position(|previous| previous.as_ref() == Some(raw))
+            {
+                stdio_resources[index] = stdio_resources[previous];
+            } else {
                 let key = handles.insert(HandleKind::Resource);
-                resources.insert(key, Arc::new(Resource::stdio_file(handle)));
-                keys[index] = key;
-                raws[index] = raw;
+                resources.insert(key, Arc::new(Resource::stdio_file(*raw)));
+                stdio_resources[index] = key;
             }
-            keys
-        };
+        }
 
         drop(handles);
         Self {
@@ -1225,6 +1187,7 @@ pub(crate) struct AsyncHost {
 impl AsyncHost {
     pub(crate) fn new(
         environment: Arc<Env>,
+        stdio: &StdioBindings,
         filesystem: Arc<HostFs>,
         network: HostNetwork,
         process: HostProcess,
@@ -1250,7 +1213,7 @@ impl AsyncHost {
             workers: InstanceWorkers::new(),
             polls: RefCell::new(PollTable::default()),
             thread_pool_completions: RefCell::new(ThreadPoolCompletions::default()),
-            handles: RefCell::new(HandleTable::with_keys(keys)),
+            handles: RefCell::new(HandleTable::with_keys(keys, stdio)),
             tls_connections: RefCell::new(SecondaryMap::new()),
             tls_error: RefCell::new(None),
         }
@@ -4411,13 +4374,16 @@ mod tests {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(policy.take_network_policy());
+        let stdio = Arc::new(StdioBindings::Ambient);
         let process = HostProcess::new(
             policy.take_process_policy(),
             policy.take_policy_inheritance(),
             working_directory,
+            Arc::clone(&stdio),
         );
         AsyncHost::new(
             environment,
+            &stdio,
             filesystem,
             network,
             process,

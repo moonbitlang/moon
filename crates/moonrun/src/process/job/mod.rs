@@ -21,12 +21,11 @@
 #[cfg(windows)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
-#[cfg(windows)]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::{ResourcePublication, ResourceRef};
-use crate::runtime::WorkingDirectory;
+use crate::runtime::{ChildStdio, Stdio, StdioBindings, WorkingDirectory};
 
 use super::{HostProcess, ambient};
 
@@ -57,6 +56,7 @@ enum Kind {
         env: Vec<OsString>,
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
+        runtime_stdio: Option<Arc<StdioBindings>>,
         cwd: Option<OsString>,
         policy_inheritance: Option<crate::policy::PolicyInheritance>,
         result: Option<ResourcePublication>,
@@ -67,6 +67,7 @@ enum Kind {
         env: Vec<u16>,
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
+        runtime_stdio: Option<Arc<StdioBindings>>,
         cwd: Option<OsString>,
         policy_inheritance: Option<crate::policy::PolicyInheritance>,
         result: Option<ResourcePublication>,
@@ -103,6 +104,7 @@ impl Job {
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
+                runtime_stdio: None,
                 cwd,
                 policy_inheritance: None,
                 result: None,
@@ -127,6 +129,7 @@ impl Job {
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
+                runtime_stdio: None,
                 cwd,
                 policy_inheritance: None,
                 result: None,
@@ -249,45 +252,57 @@ impl Job {
                 env,
                 options,
                 stdio,
+                runtime_stdio,
                 cwd,
                 policy_inheritance,
                 result,
-            } => ambient::run_spawn_job_unix(
-                std::mem::take(path),
-                std::mem::take(args),
-                std::mem::take(env),
-                std::mem::take(stdio),
-                cwd.take(),
-                *options,
-                if invokes_moonx {
-                    policy_inheritance.take()
-                } else {
-                    None
-                },
-                result,
-            ),
+            } => {
+                if let Some(runtime_stdio) = runtime_stdio.take() {
+                    apply_runtime_stdio(&runtime_stdio, stdio)?;
+                }
+                ambient::run_spawn_job_unix(
+                    std::mem::take(path),
+                    std::mem::take(args),
+                    std::mem::take(env),
+                    std::mem::take(stdio),
+                    cwd.take(),
+                    *options,
+                    if invokes_moonx {
+                        policy_inheritance.take()
+                    } else {
+                        None
+                    },
+                    result,
+                )
+            }
             #[cfg(windows)]
             Kind::SpawnWindows {
                 command_line,
                 env,
                 options,
                 stdio,
+                runtime_stdio,
                 cwd,
                 policy_inheritance,
                 result,
-            } => ambient::run_spawn_job_windows(
-                std::mem::take(command_line),
-                std::mem::take(env),
-                std::mem::take(stdio),
-                cwd.take(),
-                *options,
-                if invokes_moonx {
-                    policy_inheritance.take()
-                } else {
-                    None
-                },
-                result,
-            ),
+            } => {
+                if let Some(runtime_stdio) = runtime_stdio.take() {
+                    apply_runtime_stdio(&runtime_stdio, stdio)?;
+                }
+                ambient::run_spawn_job_windows(
+                    std::mem::take(command_line),
+                    std::mem::take(env),
+                    std::mem::take(stdio),
+                    cwd.take(),
+                    *options,
+                    if invokes_moonx {
+                        policy_inheritance.take()
+                    } else {
+                        None
+                    },
+                    result,
+                )
+            }
             Kind::WaitForProcess {
                 handle,
                 tracked_pid: _,
@@ -313,6 +328,16 @@ impl Job {
             Kind::SpawnUnix { cwd, .. } => working_directory.configure_child_cwd(cwd),
             #[cfg(windows)]
             Kind::SpawnWindows { cwd, .. } => working_directory.configure_child_cwd(cwd),
+            Kind::WaitForProcess { .. } => {}
+        }
+    }
+
+    pub(super) fn set_stdio_bindings(&mut self, stdio: Arc<StdioBindings>) {
+        match &mut self.kind {
+            #[cfg(unix)]
+            Kind::SpawnUnix { runtime_stdio, .. } => *runtime_stdio = Some(stdio),
+            #[cfg(windows)]
+            Kind::SpawnWindows { runtime_stdio, .. } => *runtime_stdio = Some(stdio),
             Kind::WaitForProcess { .. } => {}
         }
     }
@@ -420,6 +445,30 @@ impl Job {
             process.revoke_child_if_unreferenced(ret as i32);
         }
     }
+}
+
+fn apply_runtime_stdio(
+    runtime_stdio: &StdioBindings,
+    slots: &mut [Option<ResourceRef>; 3],
+) -> AsyncHostResult<()> {
+    for (slot, stream) in slots.iter_mut().zip(Stdio::ALL) {
+        if slot.is_none() {
+            let child = runtime_stdio.child(stream).map_err(|error| {
+                error
+                    .raw_os_error()
+                    .map_or(AsyncHostError::Io, AsyncHostError::Native)
+            })?;
+            match child {
+                #[cfg(unix)]
+                ChildStdio::Inherit => {}
+                #[cfg(windows)]
+                ChildStdio::Handle(raw) => {
+                    *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@
 use super::builder::ScopeExt;
 use super::context::{self, V8ImportError, V8MemoryBinding, V8RunContext};
 use crate::run_termination::{RunTermination, TerminationRequest};
-use crate::runtime::Env;
+use crate::runtime::{Env, StdioBindings};
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -173,6 +173,7 @@ impl TryFrom<i32> for ClockId {
 struct WasiContext {
     argv: Vec<Vec<u8>>,
     environment: Arc<Env>,
+    stdio: Arc<StdioBindings>,
     preopen_dir_name: Vec<u8>,
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
@@ -1143,91 +1144,16 @@ fn normalize_poll_subscriptions(
     Ok(())
 }
 
-#[cfg(unix)]
-fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
-    let timeout_ms = match timeout {
-        Some(duration) => {
-            let millis = duration.as_millis();
-            i32::try_from(millis.min(i32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
-        }
-        None => -1,
-    };
-
-    let mut pollfd = libc::pollfd {
-        fd: libc::STDIN_FILENO,
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    loop {
-        // SAFETY: `pollfd` points to a valid single-element array for the duration of the call.
-        let ready_count = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
-        if ready_count >= 0 {
-            return Ok(ready_count > 0
-                && (pollfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0);
-        }
-
-        let error = std::io::Error::last_os_error();
-        if error.kind() == ErrorKind::Interrupted {
-            continue;
-        }
-        if let Some(code) = error.raw_os_error()
-            && code == libc::EPERM
-        {
-            return Ok(true);
-        }
-        return Err(io_error_to_errno(&error));
-    }
-}
-
-#[cfg(windows)]
-fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
-    use windows_sys::Win32::Foundation::{
-        INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
-    };
-    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
-    use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
-
-    let timeout_ms = match timeout {
-        Some(duration) => {
-            let millis = duration.as_millis();
-            u32::try_from(millis.min(u32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
-        }
-        None => INFINITE,
-    };
-
-    // SAFETY: We only query the process standard-input handle; no ownership is transferred.
-    let stdin_handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-    if stdin_handle.is_null() || stdin_handle == INVALID_HANDLE_VALUE {
-        return Err(WASI_ERRNO_IO);
-    }
-
-    // SAFETY: `stdin_handle` is a handle value obtained from `GetStdHandle`.
-    let wait_result = unsafe { WaitForSingleObject(stdin_handle, timeout_ms) };
-    match wait_result {
-        WAIT_OBJECT_0 => Ok(true),
-        WAIT_TIMEOUT => Ok(false),
-        WAIT_FAILED => {
-            let error = std::io::Error::last_os_error();
-            Err(io_error_to_errno(&error))
-        }
-        _ => Ok(true),
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
-    if let Some(duration) = timeout
-        && duration > Duration::ZERO
-    {
-        thread::sleep(duration);
-    }
-    Ok(true)
+fn poll_stdin_with_timeout(stdio: &StdioBindings, timeout: Option<Duration>) -> WasiResult<bool> {
+    stdio
+        .poll_stdin(timeout)
+        .map_err(|error| io_error_to_errno(&error))
 }
 
 fn poll_fd_read_state(context: &WasiContext, fd: i32) -> WasiResult<FdReadPollState> {
     match fd {
         WASI_FD_STDIN => {
-            if poll_stdin_with_timeout(Some(Duration::ZERO))? {
+            if poll_stdin_with_timeout(&context.stdio, Some(Duration::ZERO))? {
                 Ok(FdReadPollState::Ready(1))
             } else {
                 Ok(FdReadPollState::Pending)
@@ -1394,7 +1320,7 @@ fn poll_oneoff_impl(
         while events.is_empty() {
             if pending_stdin_read {
                 let timeout = min_remaining_ns.map(Duration::from_nanos);
-                let _ = poll_stdin_with_timeout(timeout)?;
+                let _ = poll_stdin_with_timeout(&context.stdio, timeout)?;
             } else if let Some(wait_ns) = min_remaining_ns {
                 if wait_ns > 0 {
                     thread::sleep(Duration::from_nanos(wait_ns));
@@ -1653,24 +1579,28 @@ fn fd_write(
 
             match fd {
                 WASI_FD_STDOUT => {
-                    let mut stdout = std::io::stdout();
-                    for index in 0..iovs_len {
-                        let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                        let bytes = checked_mut_range(memory, buf_offset, len)?;
-                        stdout.write_all(bytes).map_err(|_| WASI_ERRNO_IO)?;
-                        total_written = total_written.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
-                    }
-                    stdout.flush().map_err(|_| WASI_ERRNO_IO)?;
+                    context.stdio.with_stdout(|stdout| -> WasiResult<()> {
+                        for index in 0..iovs_len {
+                            let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
+                            let bytes = checked_mut_range(memory, buf_offset, len)?;
+                            stdout.write_all(bytes).map_err(|_| WASI_ERRNO_IO)?;
+                            total_written =
+                                total_written.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
+                        }
+                        stdout.flush().map_err(|_| WASI_ERRNO_IO)
+                    })?;
                 }
                 WASI_FD_STDERR => {
-                    let mut stderr = std::io::stderr();
-                    for index in 0..iovs_len {
-                        let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                        let bytes = checked_mut_range(memory, buf_offset, len)?;
-                        stderr.write_all(bytes).map_err(|_| WASI_ERRNO_IO)?;
-                        total_written = total_written.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
-                    }
-                    stderr.flush().map_err(|_| WASI_ERRNO_IO)?;
+                    context.stdio.with_stderr(|stderr| -> WasiResult<()> {
+                        for index in 0..iovs_len {
+                            let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
+                            let bytes = checked_mut_range(memory, buf_offset, len)?;
+                            stderr.write_all(bytes).map_err(|_| WASI_ERRNO_IO)?;
+                            total_written =
+                                total_written.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
+                        }
+                        stderr.flush().map_err(|_| WASI_ERRNO_IO)
+                    })?;
                 }
                 _ => {
                     let descriptor = descriptor.as_ref().ok_or(WASI_ERRNO_BADF)?;
@@ -1719,20 +1649,23 @@ fn fd_read(
             let mut total_read: usize = 0;
             match fd {
                 WASI_FD_STDIN => {
-                    let mut stdin = std::io::stdin().lock();
-                    for index in 0..iovs_len {
-                        let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                        if len == 0 {
-                            continue;
-                        }
-                        let buffer = checked_mut_range(memory, buf_offset, len)?;
-                        let read_len = stdin.read(buffer).map_err(|_| WASI_ERRNO_IO)?;
-                        total_read = total_read.checked_add(read_len).ok_or(WASI_ERRNO_FAULT)?;
+                    context.stdio.with_stdin(|stdin| -> WasiResult<()> {
+                        for index in 0..iovs_len {
+                            let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
+                            if len == 0 {
+                                continue;
+                            }
+                            let buffer = checked_mut_range(memory, buf_offset, len)?;
+                            let read_len = stdin.read(buffer).map_err(|_| WASI_ERRNO_IO)?;
+                            total_read =
+                                total_read.checked_add(read_len).ok_or(WASI_ERRNO_FAULT)?;
 
-                        if read_len < len {
-                            break;
+                            if read_len < len {
+                                break;
+                            }
                         }
-                    }
+                        Ok(())
+                    })?;
                 }
                 _ => {
                     let descriptor = descriptor.as_ref().ok_or(WASI_ERRNO_BADF)?;
@@ -1811,6 +1744,7 @@ pub(crate) fn init_env<'s>(
     let context = Box::new(WasiContext {
         argv: build_argv(wasm_file_name, args),
         environment,
+        stdio: Arc::clone(run_context.runtime().stdio()),
         preopen_dir_name: preopen_name(),
         preopen_dir_host_path,
         preopen_dir_real_path,
@@ -1850,6 +1784,7 @@ mod tests {
         WasiContext {
             argv: Vec::new(),
             environment: Arc::new(Env::owned([]).unwrap()),
+            stdio: Arc::new(StdioBindings::Ambient),
             preopen_dir_name: preopen_name(),
             preopen_dir_host_path: root.to_path_buf(),
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),

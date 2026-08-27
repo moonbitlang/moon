@@ -94,6 +94,15 @@ after construction it is Runtime State. Ambient retains process-environment
 write-through for guest-reachable effects that do not yet cross Env.
 _Avoid_: Mutable policy, per-import environment map
 
+**Stdio Bindings**:
+The standard-stream behavior selected once by Runtime Configuration and owned
+by one Runtime. The V8 I/O imports, WASI descriptors, reserved Async Host
+Resources, and Host Process defaults all consume this same Runtime State.
+The only current value is `Ambient`: it preserves the historical observation
+points for process standard streams and does not snapshot, own, or close their
+OS handles. Moonrun Policy neither selects nor authorizes Stdio Bindings.
+_Avoid_: process-global fallback, stdio policy, Host Stdio forwarding service
+
 **WASI Capability Surface**:
 The files and directories reachable through WASI descriptors and preopens.
 WASI access is configured separately from Moonrun Policy, even when both
@@ -135,8 +144,9 @@ _Avoid_: V8 network, Async Host network
 **Host Process**:
 The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed process operations. It owns Process Job payloads,
-authorization and final configuration, result interpretation, and child-process
-authority. Native execution stays behind its private Ambient Process
+authorization and final configuration (including cwd and default stdio),
+result interpretation, and child-process authority. Native execution stays
+behind its private Ambient Process
 implementation. The Async Host owns guest Handles and worker lifecycle; the
 thread pool only schedules Process Jobs and delivers their Completions.
 _Avoid_: V8 process, thread-pool process
@@ -242,7 +252,7 @@ The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm A
 _Avoid_: Host state, native-stub implementation
 
 **Async Host**:
-Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace and contains no SQLite state.
+Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace, materializes its reserved standard-stream Resources from the Runtime Stdio Bindings, and contains no SQLite state.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
