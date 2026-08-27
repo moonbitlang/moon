@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHost, AsyncHostError, AsyncHostResult};
+use crate::filesystem::HostFs;
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::v8::context::{V8ImportError, V8MemoryBinding, V8RunContext};
 
@@ -31,6 +32,7 @@ pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> 
 pub(super) struct ImportContext<'a, 'scope> {
     pub(super) scope: &'a mut v8::HandleScope<'scope>,
     pub(super) host: &'a AsyncHost,
+    filesystem: &'a HostFs,
     memory_binding: &'a V8MemoryBinding,
     termination_request: &'a TerminationRequest,
 }
@@ -40,6 +42,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
         Self {
             scope,
             host: context.runtime().async_state(),
+            filesystem: context.runtime().filesystem(),
             memory_binding: context.memory_binding(),
             termination_request: context.termination_request(),
         }
@@ -50,6 +53,10 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
         // Termination cannot be caught by the guest's JavaScript glue. The run
         // loop converts the recorded request into its runtime outcome.
         self.scope.terminate_execution();
+    }
+
+    pub(super) fn filesystem(&self) -> &HostFs {
+        self.filesystem
     }
 
     pub(super) fn with_host_and_memory_mut<T>(

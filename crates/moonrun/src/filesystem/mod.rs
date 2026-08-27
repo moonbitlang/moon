@@ -32,14 +32,15 @@ pub(crate) use job::Job;
 #[cfg(test)]
 pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
+use crate::async_sys::fs::stub;
 use crate::policy::Policy;
-use crate::runtime::WorkingDirectory;
+use crate::runtime::{Env, WorkingDirectory};
 
 #[derive(Debug)]
 pub(crate) struct HostFsError {
@@ -90,14 +91,39 @@ impl FsOperationResults {
 /// before accessing the operating system's filesystem.
 pub(crate) struct HostFs {
     policy: Arc<Policy>,
+    environment: Arc<Env>,
     working_directory: WorkingDirectory,
 }
 
 impl HostFs {
-    pub(crate) fn new(policy: Arc<Policy>, working_directory: WorkingDirectory) -> Self {
+    pub(crate) fn new(
+        policy: Arc<Policy>,
+        environment: Arc<Env>,
+        working_directory: WorkingDirectory,
+    ) -> Self {
         Self {
             policy,
+            environment,
             working_directory,
+        }
+    }
+
+    pub(crate) fn temp_dir(&self) -> AsyncHostResult<OsString> {
+        // Native Windows selection has fallbacks beyond TMP and TEMP. Preserve
+        // those only for Ambient; an owned Env must never consult process state.
+        if self.environment.is_ambient() {
+            return stub::get_tmp_path();
+        }
+        #[cfg(unix)]
+        {
+            stub::get_tmp_path_from_env(self.environment.get("TMPDIR".as_ref()))
+        }
+        #[cfg(windows)]
+        {
+            stub::get_tmp_path_from_env(
+                self.environment.get("TMP".as_ref()),
+                self.environment.get("TEMP".as_ref()),
+            )
         }
     }
 
@@ -335,13 +361,94 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
+    #[cfg(windows)]
+    use crate::async_host::AsyncHostError;
+
+    fn host_fs(policy: Policy, environment: Arc<Env>) -> HostFs {
+        HostFs::new(Arc::new(policy), environment, WorkingDirectory::Ambient)
+    }
+
+    #[test]
+    fn ambient_temp_dir_uses_native_path() {
+        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+
+        assert_eq!(host.temp_dir().unwrap(), stub::get_tmp_path().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owned_temp_dir_uses_runtime_environment() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Arc::new(Env::owned([("TMPDIR".into(), "/runtime/tmp".into())]).unwrap());
+        let host = host_fs(Policy::allow_all(), environment);
+
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/runtime/tmp/");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temp_dir_reflects_runtime_environment_changes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Arc::new(Env::owned([("TMPDIR".into(), "/first".into())]).unwrap());
+        let host = host_fs(Policy::allow_all(), Arc::clone(&environment));
+
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/first/");
+        environment.set("TMPDIR".into(), "/second".into()).unwrap();
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/second/");
+        environment.unset("TMPDIR".as_ref()).unwrap();
+        assert_eq!(
+            host.temp_dir().unwrap(),
+            stub::get_tmp_path_from_env(None).unwrap()
+        );
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn empty_owned_environment_uses_default_temp_dir() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Arc::new(Env::owned(Vec::<(OsString, OsString)>::new()).unwrap());
+        let host = host_fs(Policy::allow_all(), environment);
+
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/tmp/");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn owned_temp_dir_requires_configured_windows_environment() {
+        let environment = Arc::new(Env::owned(Vec::<(OsString, OsString)>::new()).unwrap());
+        let host = host_fs(Policy::allow_all(), Arc::clone(&environment));
+
+        assert_eq!(host.temp_dir(), Err(AsyncHostError::PermissionDenied));
+        environment.set("TEMP".into(), "C:/Temp".into()).unwrap();
+        assert_eq!(host.temp_dir().unwrap().to_string_lossy(), "C:/Temp\\");
+        environment.unset("TEMP".as_ref()).unwrap();
+        assert_eq!(host.temp_dir(), Err(AsyncHostError::PermissionDenied));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn empty_tmp_falls_back_to_temp() {
+        let environment = Arc::new(
+            Env::owned([
+                ("TMP".into(), "".into()),
+                ("TEMP".into(), "C:/Fallback".into()),
+            ])
+            .unwrap(),
+        );
+        let host = host_fs(Policy::allow_all(), environment);
+
+        assert_eq!(host.temp_dir().unwrap().to_string_lossy(), "C:/Fallback\\");
+    }
 
     #[test]
     fn operation_results_belong_to_one_runtime() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("input.bin");
         std::fs::write(&path, [1, 2, 3]).unwrap();
-        let host = HostFs::new(Arc::new(Policy::allow_all()), WorkingDirectory::Ambient);
+        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
         let mut first = FsOperationResults::default();
         let second = FsOperationResults::default();
 
@@ -358,9 +465,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = HostFs::new(
-            Arc::new(Policy::from_file(&policy_file).unwrap()),
-            WorkingDirectory::Ambient,
+        let host = host_fs(
+            Policy::from_file(&policy_file).unwrap(),
+            Arc::new(Env::ambient()),
         );
         let mut results = FsOperationResults::default();
 
@@ -373,9 +480,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = HostFs::new(
-            Arc::new(Policy::from_file(&policy_file).unwrap()),
-            WorkingDirectory::Ambient,
+        let host = host_fs(
+            Policy::from_file(&policy_file).unwrap(),
+            Arc::new(Env::ambient()),
         );
         let mut results = FsOperationResults::default();
         let converted = Cell::new(false);

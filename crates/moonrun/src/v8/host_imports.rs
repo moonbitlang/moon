@@ -330,7 +330,7 @@ pub(crate) fn install(
     let global_proxy = scope.get_current_context().global(scope);
     let termination_request = run_termination::TerminationRequest::default();
     let environment = Arc::clone(runtime.environment());
-    let filesystem = runtime.filesystem();
+    let filesystem = Arc::clone(runtime.filesystem());
     let v8_context = Box::new(context::V8RunContext::new(
         runtime,
         termination_request.clone(),

@@ -33,7 +33,7 @@ use super::provenance::ported_imports;
 ported_imports! {
 pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
     match context
-        .host
+        .filesystem()
         .temp_dir()
         .and_then(|path| encode_guest_units(&path))
         .and_then(|units| i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault))
@@ -49,7 +49,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
 #[ported(source = "src/fs/stub.c")]
 pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: u32, len: u32) -> i32 {
     let result = (|| {
-        let path = context.host.temp_dir()?;
+        let path = context.filesystem().temp_dir()?;
         let units = encode_guest_units(&path)?;
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         if len != units.len() {
@@ -61,7 +61,7 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: u32, len: u
 }
 
 pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
-    let path = context.host.temp_dir()?;
+    let path = context.filesystem().temp_dir()?;
     Ok(context
         .host
         .insert_c_buffer(stub::tmp_path_buffer(path.as_os_str())?))
