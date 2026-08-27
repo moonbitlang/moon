@@ -61,6 +61,9 @@ use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_pa
 use crate::watch::{WatchOutput, watching};
 
 use super::BuildFlags;
+use super::invocation::{JsonCommand, JsonCommandOutcome};
+
+const CHECK_JSON_ERROR_EXIT_CODE: i32 = -1;
 
 #[derive(Debug, Clone)]
 struct ResolvedCheckSelection {
@@ -172,13 +175,13 @@ impl CheckJsonAccumulator {
     }
 }
 
-pub(crate) struct CheckJsonOutcome {
+struct CheckJsonOutcome {
     exit_code: i32,
     accumulator: CheckJsonAccumulator,
 }
 
 impl CheckJsonOutcome {
-    pub(crate) fn from_error(exit_code: i32, error: impl std::fmt::Display) -> Self {
+    fn from_error(exit_code: i32, error: impl std::fmt::Display) -> Self {
         let mut accumulator = CheckJsonAccumulator::default();
         accumulator.error(error);
         Self {
@@ -187,9 +190,38 @@ impl CheckJsonOutcome {
         }
     }
 
-    pub(crate) fn exit_code(&self) -> i32 {
+    fn exit_code(&self) -> i32 {
         self.exit_code
     }
+}
+
+#[derive(Debug)]
+struct CheckJsonCommand {
+    command: CheckSubcommand,
+}
+
+pub(crate) fn json_command(command: CheckSubcommand) -> Box<dyn JsonCommand> {
+    Box::new(CheckJsonCommand { command })
+}
+
+impl JsonCommand for CheckJsonCommand {
+    fn run(&self, flags: &UniversalFlags, output: &CommandOutput) -> JsonCommandOutcome {
+        check_json_outcome(run_check_json(flags, &self.command, output))
+    }
+
+    fn bootstrap_error(&self, message: String) -> JsonCommandOutcome {
+        check_json_outcome(CheckJsonOutcome::from_error(
+            CHECK_JSON_ERROR_EXIT_CODE,
+            message,
+        ))
+    }
+}
+
+fn check_json_outcome(outcome: CheckJsonOutcome) -> JsonCommandOutcome {
+    let exit_code = outcome.exit_code();
+    JsonCommandOutcome::new(exit_code, move |output, capture| {
+        write_check_json(output, capture, outcome)
+    })
 }
 
 impl ResolvedCheckSelection {
@@ -260,7 +292,7 @@ pub(crate) struct CheckSubcommand {
     pub json: bool,
 }
 
-pub(crate) fn write_check_json(
+fn write_check_json(
     output: &CommandOutput,
     capture: &UserLogCapture,
     mut outcome: CheckJsonOutcome,
@@ -307,7 +339,7 @@ pub(crate) fn write_check_json(
     })
 }
 
-pub(crate) fn run_check_json(
+fn run_check_json(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     output: &CommandOutput,
@@ -340,7 +372,7 @@ pub(crate) fn run_check_json(
         Err(error) => {
             accumulator.error(format!("{error:#}"));
             CheckJsonOutcome {
-                exit_code: -1,
+                exit_code: CHECK_JSON_ERROR_EXIT_CODE,
                 accumulator,
             }
         }

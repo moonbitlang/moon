@@ -30,23 +30,6 @@ use crate::pkg::roots_for_selected_module;
 use crate::registry;
 use crate::resolver::{ResolveConfig, resolve_with_default_env_and_resolver};
 
-/// Display the dependency tree
-#[derive(Debug, clap::Parser)]
-pub struct TreeSubcommand {
-    /// Output one complete JSON result to stdout
-    #[clap(long)]
-    pub json: bool,
-
-    /// Show the package-level dependency graph instead of the module-level tree
-    ///
-    /// Text output expands source imports from every package in the selected
-    /// module. With `--json`, the result contains every non-standard-library
-    /// package in the resolved project, all import target kinds, and the
-    /// selected module's packages in `root`.
-    #[clap(long)]
-    pub package: bool,
-}
-
 /// The resolved dependency graph of the selected module, together with the
 /// module the tree is rooted at.
 #[derive(Debug)]

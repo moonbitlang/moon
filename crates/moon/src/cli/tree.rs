@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::hash::Hash;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -25,10 +26,7 @@ use moonbuild_rupes_recta::{
     model::{BuildTarget, PackageId, TargetKind},
     resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies},
 };
-use mooncake::pkg::{
-    sync::SyncOutputOptions,
-    tree::{ResolvedTree, TreeSubcommand},
-};
+use mooncake::pkg::{sync::SyncOutputOptions, tree::ResolvedTree};
 use moonutil::{
     child_process::ChildOutputMode,
     cli_support::UniversalFlags,
@@ -40,11 +38,31 @@ use moonutil::{
 };
 use serde::Serialize;
 
-use super::require_selected_module;
-use super::runtime::INTERNAL_ERROR_EXIT_CODE;
+use super::{
+    invocation::{JsonCommand, JsonCommandOutcome},
+    require_selected_module,
+};
 
 const MODULE_TREE_JSON_VERSION: u32 = 1;
 const PACKAGE_TREE_JSON_VERSION: u32 = 2;
+const TREE_JSON_ERROR_EXIT_CODE: i32 = -1;
+
+/// Display the dependency tree
+#[derive(Debug, clap::Parser)]
+pub(crate) struct TreeSubcommand {
+    /// Output one complete JSON result to stdout
+    #[clap(long)]
+    pub json: bool,
+
+    /// Show the package-level dependency graph instead of the module-level tree
+    ///
+    /// Text output expands source imports from every package in the selected
+    /// module. With `--json`, the result contains every non-standard-library
+    /// package in the resolved project, all import target kinds, and the
+    /// selected module's packages in `root`.
+    #[clap(long)]
+    pub package: bool,
+}
 
 pub(crate) fn tree_cli(
     cli: UniversalFlags,
@@ -57,7 +75,9 @@ pub(crate) fn tree_cli(
         render_package_tree(&resolve_output, selected)
     } else {
         let resolved = resolve_selected_tree(&cli, output.user_log())?;
-        render_tree(&resolved.env, resolved.root, &resolved.workspace_members)
+        let workspace_members =
+            (resolved.workspace_members.len() > 1).then_some(&resolved.workspace_members);
+        render_tree(&resolved.env, resolved.root, workspace_members)
     };
     output.write_result(|writer| -> anyhow::Result<()> {
         writer.write_all(rendered.as_bytes())?;
@@ -113,67 +133,97 @@ fn resolve_selected_package_graph(
     Ok((resolve_output, selected))
 }
 
-pub(crate) fn run_tree_json(
+fn run_tree_json(
     cli: &UniversalFlags,
     cmd: &TreeSubcommand,
     output: &CommandOutput,
 ) -> TreeJsonOutcome {
     let user_log = output.user_log();
     if cmd.package {
-        match resolve_selected_package_graph(cli, user_log, ChildOutputMode::Capture) {
-            Ok((resolve_output, selected)) => {
-                TreeJsonOutcome::success(TreeJsonData::Package(Box::new(resolve_output), selected))
-            }
-            Err(error) => TreeJsonOutcome::from_error(format!("{error:#}"), true),
-        }
+        TreeJsonOutcome::package(
+            resolve_selected_package_graph(cli, user_log, ChildOutputMode::Capture)
+                .map(|(resolved, selected)| (Box::new(resolved), selected))
+                .map_err(|error| format!("{error:#}")),
+        )
     } else {
-        match resolve_selected_tree(cli, user_log) {
-            Ok(resolved) => TreeJsonOutcome::success(TreeJsonData::Module(Box::new(resolved))),
-            Err(error) => TreeJsonOutcome::from_error(format!("{error:#}"), false),
-        }
+        TreeJsonOutcome::module(
+            resolve_selected_tree(cli, user_log)
+                .map(Box::new)
+                .map_err(|error| format!("{error:#}")),
+        )
     }
 }
 
-pub(crate) struct TreeJsonOutcome {
+struct TreeJsonOutcome {
+    exit_code: i32,
     kind: TreeJsonOutcomeKind,
 }
 
 enum TreeJsonOutcomeKind {
-    Success(TreeJsonData),
-    Failure { error: String, package_mode: bool },
-}
-
-#[derive(Debug)]
-enum TreeJsonData {
-    Module(Box<ResolvedTree>),
-    Package(Box<ResolveOutput>, ModuleId),
+    Module(Result<Box<ResolvedTree>, String>),
+    Package(Result<(Box<ResolveOutput>, ModuleId), String>),
 }
 
 impl TreeJsonOutcome {
-    fn success(data: TreeJsonData) -> Self {
+    fn module(result: Result<Box<ResolvedTree>, String>) -> Self {
         Self {
-            kind: TreeJsonOutcomeKind::Success(data),
-        }
-    }
-
-    pub(crate) fn from_error(error: impl std::fmt::Display, package_mode: bool) -> Self {
-        Self {
-            kind: TreeJsonOutcomeKind::Failure {
-                error: error.to_string(),
-                package_mode,
+            exit_code: if result.is_ok() {
+                0
+            } else {
+                TREE_JSON_ERROR_EXIT_CODE
             },
+            kind: TreeJsonOutcomeKind::Module(result),
         }
     }
 
-    pub(crate) fn exit_code(&self) -> i32 {
-        match self.kind {
-            TreeJsonOutcomeKind::Success(_) => 0,
-            TreeJsonOutcomeKind::Failure { .. } => INTERNAL_ERROR_EXIT_CODE,
+    fn package(result: Result<(Box<ResolveOutput>, ModuleId), String>) -> Self {
+        Self {
+            exit_code: if result.is_ok() {
+                0
+            } else {
+                TREE_JSON_ERROR_EXIT_CODE
+            },
+            kind: TreeJsonOutcomeKind::Package(result),
         }
+    }
+
+    fn exit_code(&self) -> i32 {
+        self.exit_code
     }
 }
 
-pub(crate) fn write_tree_json(
+#[derive(Debug)]
+struct TreeJsonCommand {
+    command: TreeSubcommand,
+}
+
+pub(crate) fn json_command(command: TreeSubcommand) -> Box<dyn JsonCommand> {
+    Box::new(TreeJsonCommand { command })
+}
+
+impl JsonCommand for TreeJsonCommand {
+    fn run(&self, flags: &UniversalFlags, output: &CommandOutput) -> JsonCommandOutcome {
+        tree_json_outcome(run_tree_json(flags, &self.command, output))
+    }
+
+    fn bootstrap_error(&self, message: String) -> JsonCommandOutcome {
+        let outcome = if self.command.package {
+            TreeJsonOutcome::package(Err(message))
+        } else {
+            TreeJsonOutcome::module(Err(message))
+        };
+        tree_json_outcome(outcome)
+    }
+}
+
+fn tree_json_outcome(outcome: TreeJsonOutcome) -> JsonCommandOutcome {
+    let exit_code = outcome.exit_code();
+    JsonCommandOutcome::new(exit_code, move |output, capture| {
+        write_tree_json(output, capture, outcome)
+    })
+}
+
+fn write_tree_json(
     output: &CommandOutput,
     capture: &UserLogCapture,
     outcome: TreeJsonOutcome,
@@ -186,7 +236,7 @@ pub(crate) fn write_tree_json(
     let logs = capture.take();
     output.write_result(|writer| -> anyhow::Result<()> {
         match outcome.kind {
-            TreeJsonOutcomeKind::Success(TreeJsonData::Module(resolved)) => {
+            TreeJsonOutcomeKind::Module(Ok(resolved)) => {
                 let graph =
                     render_graph_json(&resolved.env, resolved.root, &resolved.workspace_members);
                 let report = TreeJsonReport {
@@ -200,14 +250,11 @@ pub(crate) fn write_tree_json(
                 };
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            TreeJsonOutcomeKind::Success(TreeJsonData::Package(resolve_output, selected)) => {
+            TreeJsonOutcomeKind::Package(Ok((resolve_output, selected))) => {
                 let report = render_package_json_report(&resolve_output, selected, status, logs);
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            TreeJsonOutcomeKind::Failure {
-                error,
-                package_mode: true,
-            } => {
+            TreeJsonOutcomeKind::Package(Err(error)) => {
                 let report = PackageJsonReport {
                     version: PACKAGE_TREE_JSON_VERSION,
                     status,
@@ -219,10 +266,7 @@ pub(crate) fn write_tree_json(
                 };
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            TreeJsonOutcomeKind::Failure {
-                error,
-                package_mode: false,
-            } => {
+            TreeJsonOutcomeKind::Module(Err(error)) => {
                 let report = TreeJsonReport {
                     version: MODULE_TREE_JSON_VERSION,
                     status,
@@ -503,6 +547,7 @@ fn target_kind_str(kind: TargetKind) -> &'static str {
 fn render_package_tree(resolve_output: &ResolveOutput, selected_module: ModuleId) -> String {
     let pkg_dirs = &resolve_output.pkg_dirs;
     let source_packages = selected_source_packages(resolve_output, selected_module);
+    let sorted_children = |source| sorted_package_tree_children(resolve_output, source);
 
     let mut out = String::new();
     for (root_idx, package_id) in source_packages.iter().enumerate() {
@@ -516,7 +561,7 @@ fn render_package_tree(resolve_output: &ResolveOutput, selected_module: ModuleId
         let mut stack = HashSet::new();
         stack.insert(target);
         let direct_dep_count =
-            render_package_tree_edges(resolve_output, target, "", &mut stack, &mut out);
+            render_tree_children(target, "", &mut stack, &mut out, &sorted_children);
         if direct_dep_count == 0 {
             out.push_str("  (no dependencies)\n");
         }
@@ -533,13 +578,10 @@ fn selected_source_packages(resolve_output: &ResolveOutput, module: ModuleId) ->
         .collect()
 }
 
-fn render_package_tree_edges(
+fn sorted_package_tree_children(
     resolve_output: &ResolveOutput,
     source: BuildTarget,
-    indent: &str,
-    stack: &mut HashSet<BuildTarget>,
-    out: &mut String,
-) -> usize {
+) -> Vec<TreeChild<BuildTarget>> {
     let pkg_dirs = &resolve_output.pkg_dirs;
     let dep_graph = &resolve_output.pkg_rel.dep_graph;
 
@@ -563,27 +605,12 @@ fn render_package_tree_edges(
         },
     );
 
-    for (idx, (dep_id, alias, label)) in deps.iter().enumerate() {
-        let is_last = idx + 1 == deps.len();
-        let branch = if is_last { "└─" } else { "├─" };
-        out.push_str(indent);
-        out.push_str(branch);
-        out.push(' ');
-        out.push_str(&format!("{alias} -> {label}"));
-        out.push('\n');
-
-        let next_indent = format!("{indent}{}", if is_last { "   " } else { "│  " });
-        if stack.contains(dep_id) {
-            out.push_str(&next_indent);
-            out.push_str("└─ (cycle)\n");
-            continue;
-        }
-        stack.insert(*dep_id);
-        render_package_tree_edges(resolve_output, *dep_id, &next_indent, stack, out);
-        stack.remove(dep_id);
-    }
-
-    deps.len()
+    deps.into_iter()
+        .map(|(node, alias, label)| TreeChild {
+            node,
+            label: format!("{alias} -> {label}"),
+        })
+        .collect()
 }
 
 fn format_package_label(pkg_dirs: &DiscoverResult, target: BuildTarget) -> String {
@@ -630,16 +657,16 @@ fn source_json(source: &ModuleSourceKind) -> SourceJSON {
 fn render_tree(
     resolved: &ResolvedEnv,
     root: ModuleId,
-    workspace_members: &HashSet<ModuleId>,
+    workspace_members: Option<&HashSet<ModuleId>>,
 ) -> String {
+    let sorted_children = |source| sorted_module_tree_children(resolved, source, workspace_members);
     let mut out = String::new();
     out.push_str(&format_module_label(resolved, root, workspace_members));
     out.push_str(":\n");
 
     let mut stack = HashSet::new();
     stack.insert(root);
-    let direct_dep_count =
-        render_tree_edges(resolved, root, "", workspace_members, &mut stack, &mut out);
+    let direct_dep_count = render_tree_children(root, "", &mut stack, &mut out, &sorted_children);
 
     if direct_dep_count == 0 {
         out.push_str("  (no dependencies)\n");
@@ -648,14 +675,11 @@ fn render_tree(
     out
 }
 
-fn render_tree_edges(
+fn sorted_module_tree_children(
     resolved: &ResolvedEnv,
     source: ModuleId,
-    indent: &str,
-    workspace_members: &HashSet<ModuleId>,
-    stack: &mut HashSet<ModuleId>,
-    out: &mut String,
-) -> usize {
+    workspace_members: Option<&HashSet<ModuleId>>,
+) -> Vec<TreeChild<ModuleId>> {
     let mut deps = resolved.deps_keyed(source).collect::<Vec<_>>();
     deps.sort_by(|(lhs_id, lhs_edge), (rhs_id, rhs_edge)| {
         lhs_edge.name.cmp(&rhs_edge.name).then_with(|| {
@@ -665,48 +689,65 @@ fn render_tree_edges(
         })
     });
 
-    for (idx, (dep_id, dep_edge)) in deps.iter().enumerate() {
-        let is_last = idx + 1 == deps.len();
-        let branch = if is_last { "└─" } else { "├─" };
+    deps.into_iter()
+        .map(|(node, edge)| TreeChild {
+            node,
+            label: format!(
+                "{} -> {}",
+                edge.name,
+                format_module_label(resolved, node, workspace_members)
+            ),
+        })
+        .collect()
+}
+
+struct TreeChild<Node> {
+    node: Node,
+    label: String,
+}
+
+fn render_tree_children<Node, Children>(
+    source: Node,
+    indent: &str,
+    stack: &mut HashSet<Node>,
+    out: &mut String,
+    sorted_children: &Children,
+) -> usize
+where
+    Node: Copy + Eq + Hash,
+    Children: Fn(Node) -> Vec<TreeChild<Node>>,
+{
+    let children = sorted_children(source);
+    for (idx, child) in children.iter().enumerate() {
+        let is_last = idx + 1 == children.len();
         out.push_str(indent);
-        out.push_str(branch);
+        out.push_str(if is_last { "└─" } else { "├─" });
         out.push(' ');
-        out.push_str(&format!(
-            "{} -> {}",
-            dep_edge.name,
-            format_module_label(resolved, *dep_id, workspace_members)
-        ));
+        out.push_str(&child.label);
         out.push('\n');
 
         let next_indent = format!("{indent}{}", if is_last { "   " } else { "│  " });
-        if stack.contains(dep_id) {
+        if stack.contains(&child.node) {
             out.push_str(&next_indent);
             out.push_str("└─ (cycle)\n");
             continue;
         }
 
-        stack.insert(*dep_id);
-        render_tree_edges(
-            resolved,
-            *dep_id,
-            &next_indent,
-            workspace_members,
-            stack,
-            out,
-        );
-        stack.remove(dep_id);
+        stack.insert(child.node);
+        render_tree_children(child.node, &next_indent, stack, out, sorted_children);
+        stack.remove(&child.node);
     }
 
-    deps.len()
+    children.len()
 }
 
 fn format_module_label(
     resolved: &ResolvedEnv,
     id: ModuleId,
-    workspace_members: &HashSet<ModuleId>,
+    workspace_members: Option<&HashSet<ModuleId>>,
 ) -> String {
     let mut label = resolved.module_source(id).to_string();
-    if workspace_members.contains(&id) {
+    if workspace_members.is_some_and(|members| members.contains(&id)) {
         label.push_str(" [workspace member]");
     }
     label
@@ -770,7 +811,7 @@ mod tests {
         env.add_dependency(root_id, dep_b, &regular_dep("alice/b"));
         env.add_dependency(dep_a, dep_c, &regular_dep("alice/c"));
 
-        let rendered = render_tree(&env, root_id, &HashSet::new());
+        let rendered = render_tree(&env, root_id, None);
         expect![[r#"
             alice/root@0.1.0 (local /workspace/root):
             ├─ alice/a -> alice/a@0.1.0 (local /workspace/a)
@@ -793,7 +834,7 @@ mod tests {
         );
         env.add_dependency(root_id, dep_id, &regular_dep("just/hello004"));
 
-        let rendered = render_tree(&env, root_id, &HashSet::new());
+        let rendered = render_tree(&env, root_id, None);
         expect![[r#"
             username/hello@0.1.0 (local /workspace/hello):
             └─ just/hello004 -> just/hello004@0.1.0 (local /workspace/hello/deps/hello004)
@@ -816,7 +857,7 @@ mod tests {
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 
         let workspace_members = [app, liba].into_iter().collect();
-        let rendered = render_tree(&env, app, &workspace_members);
+        let rendered = render_tree(&env, app, Some(&workspace_members));
         expect![[r#"
             alice/app@0.1.0 (local /workspace/app) [workspace member]:
             └─ alice/liba -> alice/liba@0.1.1 (local /workspace/liba) [workspace member]

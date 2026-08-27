@@ -26,6 +26,10 @@ use moonutil::{
 use serde::Serialize;
 use unicode_width::UnicodeWidthStr;
 
+use super::invocation::{JsonCommand, JsonCommandOutcome};
+
+const SEARCH_JSON_ERROR_EXIT_CODE: i32 = -1;
+
 /// Search for modules in the package registry
 #[derive(Debug, clap::Parser)]
 pub(crate) struct SearchSubcommand {
@@ -47,14 +51,14 @@ pub(crate) fn run_search(cmd: SearchSubcommand, output: &CommandOutput) -> anyho
     Ok(0)
 }
 
-pub(crate) struct SearchJsonOutcome {
+struct SearchJsonOutcome {
     exit_code: i32,
     results: Vec<RegistrySearchResult>,
     error: Option<String>,
 }
 
 impl SearchJsonOutcome {
-    pub(crate) fn from_error(exit_code: i32, error: impl std::fmt::Display) -> Self {
+    fn from_error(exit_code: i32, error: impl std::fmt::Display) -> Self {
         Self {
             exit_code,
             results: Vec::new(),
@@ -62,7 +66,7 @@ impl SearchJsonOutcome {
         }
     }
 
-    pub(crate) fn exit_code(&self) -> i32 {
+    fn exit_code(&self) -> i32 {
         self.exit_code
     }
 }
@@ -75,18 +79,53 @@ struct SearchJsonReport {
     messages: Vec<UserLogEntry>,
 }
 
-pub(crate) fn run_search_json(cmd: &SearchSubcommand, error_exit_code: i32) -> SearchJsonOutcome {
+fn run_search_json(cmd: &SearchSubcommand) -> SearchJsonOutcome {
     match RegistryClient::configured().search(&cmd.keyword, cmd.limit) {
         Ok(results) => SearchJsonOutcome {
             exit_code: 0,
             results,
             error: None,
         },
-        Err(error) => SearchJsonOutcome::from_error(error_exit_code, format!("{error:#}")),
+        Err(error) => {
+            SearchJsonOutcome::from_error(SEARCH_JSON_ERROR_EXIT_CODE, format!("{error:#}"))
+        }
     }
 }
 
-pub(crate) fn write_search_json(
+#[derive(Debug)]
+struct SearchJsonCommand {
+    command: SearchSubcommand,
+}
+
+pub(crate) fn json_command(command: SearchSubcommand) -> Box<dyn JsonCommand> {
+    Box::new(SearchJsonCommand { command })
+}
+
+impl JsonCommand for SearchJsonCommand {
+    fn run(
+        &self,
+        _flags: &moonutil::cli_support::UniversalFlags,
+        _output: &CommandOutput,
+    ) -> JsonCommandOutcome {
+        search_json_outcome(run_search_json(&self.command))
+    }
+
+    fn bootstrap_error(&self, message: String) -> JsonCommandOutcome {
+        search_json_outcome(SearchJsonOutcome::from_error(
+            SEARCH_JSON_ERROR_EXIT_CODE,
+            message,
+        ))
+    }
+}
+
+fn search_json_outcome(outcome: SearchJsonOutcome) -> JsonCommandOutcome {
+    let exit_code = outcome.exit_code();
+    JsonCommandOutcome::new(exit_code, move |output, capture| {
+        write_search_json(output, capture, outcome)
+    })
+}
+
+fn write_search_json(
     output: &CommandOutput,
     capture: &UserLogCapture,
     outcome: SearchJsonOutcome,

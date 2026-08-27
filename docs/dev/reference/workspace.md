@@ -154,6 +154,9 @@ These commands are still workspace-aware:
 
 Machine-readable `moon tree --json` output derives each `workspace_member`
 value from the selected workspace layout, including workspaces with one member.
+The human tree preserves its historical display convention and adds
+`[workspace member]` only when the resolution has multiple workspace roots;
+that text marker is not the authoritative membership signal.
 
 But they are not workspace-wide commands.
 
