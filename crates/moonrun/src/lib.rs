@@ -36,7 +36,6 @@ mod run_termination;
 mod runtime;
 mod source_map;
 mod sqlite;
-mod temp_dir;
 mod util;
 mod v8;
 

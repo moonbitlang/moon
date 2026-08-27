@@ -36,22 +36,22 @@ use crate::runtime::WorkingDirectory;
 
 pub(crate) use job::{Job, SpawnOptions};
 
-/// Permission and child ownership state shared by guest and worker threads.
+/// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]
 pub(crate) struct HostProcess {
     policy: Arc<Policy>,
     working_directory: WorkingDirectory,
-    state: Option<Arc<ProcessPolicyState>>,
+    state: Option<Arc<ChildProcessTable>>,
 }
 
 #[derive(Default)]
-struct ProcessPolicyState {
+struct ChildProcessTable {
     // PID authority and stable-handle provenance must change atomically.
-    inner: Mutex<ProcessPolicyStateInner>,
+    inner: Mutex<ChildProcessTableInner>,
 }
 
 #[derive(Default)]
-struct ProcessPolicyStateInner {
+struct ChildProcessTableInner {
     owned_child_pids: HashSet<i32>,
     process_handle_pids: HashMap<u64, i32>,
 }
@@ -60,7 +60,7 @@ impl HostProcess {
     pub(crate) fn new(policy: Arc<Policy>, working_directory: WorkingDirectory) -> Self {
         let state = policy
             .has_process_policy()
-            .then(|| Arc::new(ProcessPolicyState::default()));
+            .then(|| Arc::new(ChildProcessTable::default()));
         Self {
             policy,
             working_directory,
