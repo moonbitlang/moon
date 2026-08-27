@@ -338,11 +338,11 @@ impl HostFs {
             return Ok(());
         };
         match path {
-            Some(path) => policy.authorize(
-                Some(path),
-                FsIntents::read(),
-                &quote_os_str(path.as_os_str()),
-            ),
+            Some(path) => {
+                let target = quote_os_str(path.as_os_str());
+                let resolved = canonicalize_existing_prefix(path).ok();
+                policy.authorize(resolved.as_deref(), FsIntents::read(), &target)
+            }
             None => policy.authorize(None, FsIntents::read(), "\"<untracked resource>\""),
         }
     }
@@ -399,11 +399,11 @@ impl HostFs {
             return Ok(());
         };
         match path {
-            Some(path) => policy.authorize(
-                Some(path),
-                FsIntents::write(),
-                &quote_os_str(path.as_os_str()),
-            ),
+            Some(path) => {
+                let target = quote_os_str(path.as_os_str());
+                let resolved = canonicalize_existing_prefix(path).ok();
+                policy.authorize(resolved.as_deref(), FsIntents::write(), &target)
+            }
             None => policy.authorize(None, FsIntents::write(), "\"<untracked resource>\""),
         }
     }
@@ -718,6 +718,39 @@ mod tests {
             authorization_target_at(Some(Path::new("base")), OsStr::new("input.txt")),
             "\"input.txt\""
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_authorization_rechecks_saved_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let resource_path = allowed.join("resource.txt");
+        let denied_file = denied.join("target.txt");
+        std::fs::write(&resource_path, "allowed").unwrap();
+        std::fs::write(&denied_file, "denied").unwrap();
+        let saved_path = std::fs::canonicalize(&resource_path).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
+        )
+        .unwrap();
+        let host = host_fs(
+            Policy::from_file(&policy_file).unwrap(),
+            Arc::new(Env::ambient()),
+        );
+
+        std::fs::remove_file(&resource_path).unwrap();
+        std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
+
+        let metadata = host.authorize_resource_metadata(Some(&saved_path));
+        let lock = host.authorize_resource_lock(Some(&saved_path), true);
+        assert_eq!(metadata, Err(AsyncHostError::PermissionDenied));
+        assert_eq!(lock, Err(AsyncHostError::PermissionDenied));
     }
 
     #[cfg(unix)]
