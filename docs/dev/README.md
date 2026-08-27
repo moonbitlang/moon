@@ -54,6 +54,9 @@ path still uses it or compatibility is part of the requirement.
   reconsideration criteria.
 - [`docs/dev/reference`](reference/readme.md) owns descriptions of implemented
   MoonBuild behavior and must change with that behavior.
+- [`docs/dev/research`](research/) contains non-normative investigations that
+  inform design choices but do not define implemented behavior, including the
+  [dependency-tree deduplication comparison](research/dependency-tree-dedup-comparison.md).
 - [Command output migration](command-output-migration.md) owns the sequencing
   of that in-progress migration.
 - [`docs/manual`](../manual/) and [`docs/manual-zh`](../manual-zh/) own
