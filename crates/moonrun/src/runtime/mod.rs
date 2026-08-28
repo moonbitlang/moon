@@ -19,6 +19,7 @@
 //! Process-facing state selected for one Moonrun Runtime.
 
 mod environment;
+mod stdio;
 mod working_directory;
 
 use std::cell::RefCell;
@@ -38,6 +39,7 @@ use crate::process::HostProcess;
 use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
+pub(crate) use stdio::{Stdio, StdioStream};
 pub use working_directory::WorkingDirectory;
 
 new_key_type! {
@@ -107,6 +109,7 @@ impl HostKeys {
 pub(crate) struct Runtime {
     environment: Arc<Env>,
     working_directory: Arc<WorkingDirectory>,
+    stdio: Arc<Stdio>,
     filesystem: Arc<HostFs>,
     async_host: AsyncHost,
     sqlite: SqliteHost,
@@ -137,6 +140,7 @@ impl Runtime {
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
         let working_directory = Arc::new(working_directory);
+        let stdio = Arc::new(Stdio::Ambient);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -148,9 +152,11 @@ impl Runtime {
             process_policy,
             policy_inheritance,
             Arc::clone(&working_directory),
+            Arc::clone(&stdio),
         );
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
+            &stdio,
             Arc::clone(&filesystem),
             network,
             process,
@@ -160,6 +166,7 @@ impl Runtime {
         Ok(Self {
             environment,
             working_directory,
+            stdio,
             filesystem,
             async_host,
             sqlite,
@@ -176,6 +183,10 @@ impl Runtime {
 
     pub(crate) fn working_directory(&self) -> &WorkingDirectory {
         &self.working_directory
+    }
+
+    pub(crate) fn stdio(&self) -> &Arc<Stdio> {
+        &self.stdio
     }
 
     pub(crate) fn async_host(&self) -> &AsyncHost {

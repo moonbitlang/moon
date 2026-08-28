@@ -20,19 +20,26 @@
 
 use super::builder::{ArgsExt, ObjectExt, ScopeExt};
 use super::{context, wasi};
+use crate::runtime::Stdio;
 use crate::{async_api, filesystem, run_termination, sqlite, util};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::any::Any;
-use std::io::{self, Write};
+use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::{cell::Cell, io::Read, time::Instant};
+use std::{cell::Cell, time::Instant};
 
-#[derive(Default)]
 struct PrintEnv {
     dangling_high_half: Cell<Option<u32>>,
+    stdio: Arc<Stdio>,
+}
+
+fn run_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s context::V8RunContext {
+    // SAFETY: install registers these callbacks with the retained
+    // V8RunContext pointer.
+    unsafe { context::callback_context(args) }
 }
 
 fn now(
@@ -109,7 +116,10 @@ fn print_char(
         let high = c - 0xd800;
         if print_env.dangling_high_half.get().is_some() {
             // Print previous char as invalid unicode
-            print!("{}", std::char::from_u32(0xfffd).unwrap());
+            print_env
+                .stdio
+                .with_stdout(|stdout| write!(stdout, "{}", std::char::from_u32(0xfffd).unwrap()))
+                .unwrap();
         }
         print_env.dangling_high_half.set(Some(high));
     } else {
@@ -126,7 +136,10 @@ fn print_char(
             }
         };
         let c = std::char::from_u32(c).unwrap();
-        print!("{c}");
+        print_env
+            .stdio
+            .with_stdout(|stdout| write!(stdout, "{c}"))
+            .unwrap();
     }
     ret.set_undefined()
 }
@@ -137,7 +150,11 @@ fn console_elog(
     mut _ret: v8::ReturnValue,
 ) {
     let arg = args.string_lossy(scope, 0);
-    eprintln!("{arg}");
+    run_context(&args)
+        .runtime()
+        .stdio()
+        .with_stderr(|stderr| writeln!(stderr, "{arg}"))
+        .unwrap();
 }
 
 fn console_log(
@@ -146,55 +163,58 @@ fn console_log(
     mut _ret: v8::ReturnValue,
 ) {
     let arg = args.string_lossy(scope, 0);
-    println!("{arg}");
+    run_context(&args)
+        .runtime()
+        .stdio()
+        .with_stdout(|stdout| writeln!(stdout, "{arg}"))
+        .unwrap();
 }
 
 fn get_array_buffer_ptr(ab: v8::Local<v8::ArrayBuffer>) -> *mut u8 {
     unsafe { std::mem::transmute(ab.data()) }
 }
 
-fn read_utf8_char() -> io::Result<Option<char>> {
+fn read_utf8_char(stdio: &Stdio) -> io::Result<Option<char>> {
     let mut buffer = [0; 4];
-    let stdin = io::stdin();
-    let mut handle = stdin.lock();
-
-    let size = handle.read(&mut buffer[0..1])?;
-    if size == 0 {
-        return Ok(None);
-    }
-
-    let num_bytes = match buffer[0] {
-        0..=0x7F => 1,
-        0xC0..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF7 => 4,
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid UTF-8 first byte",
-            ));
+    stdio.with_stdin(|stdin| {
+        let size = stdin.read(&mut buffer[0..1])?;
+        if size == 0 {
+            return Ok(None);
         }
-    };
 
-    if num_bytes > 1 {
-        handle.read_exact(&mut buffer[1..num_bytes])?;
-    }
+        let num_bytes = match buffer[0] {
+            0..=0x7F => 1,
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid UTF-8 first byte",
+                ));
+            }
+        };
 
-    let char = std::str::from_utf8(&buffer[..num_bytes])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
-        .chars()
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no character found"))?;
+        if num_bytes > 1 {
+            stdin.read_exact(&mut buffer[1..num_bytes])?;
+        }
 
-    Ok(Some(char))
+        let char = std::str::from_utf8(&buffer[..num_bytes])
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+            .chars()
+            .next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no character found"))?;
+
+        Ok(Some(char))
+    })
 }
 
 fn read_char(
     _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let result = read_utf8_char();
+    let result = read_utf8_char(run_context(&args).runtime().stdio());
     match result {
         Ok(Some(c)) => {
             ret.set_int32(c as i32);
@@ -205,14 +225,15 @@ fn read_char(
 
 fn read_bytes_from_stdin(
     scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let mut buffer = Vec::new();
-    let stdin = io::stdin();
-    let mut handle = stdin.lock();
-
-    let size = handle.read_to_end(&mut buffer).unwrap();
+    let size = run_context(&args)
+        .runtime()
+        .stdio()
+        .with_stdin(|stdin| stdin.read_to_end(&mut buffer))
+        .unwrap();
 
     if size == 0 {
         let empty_array_buffer = v8::ArrayBuffer::new(scope, 0);
@@ -236,9 +257,10 @@ fn write_char(
     let fd = args.get(0).int32_value(scope).unwrap();
     let c = args.get(1).integer_value(scope).unwrap() as u32;
     let c = std::char::from_u32(c).unwrap();
+    let stdio = run_context(&args).runtime().stdio();
     match fd {
-        1 => print!("{c}"),
-        2 => eprint!("{c}"),
+        1 => stdio.with_stdout(|stdout| write!(stdout, "{c}")).unwrap(),
+        2 => stdio.with_stderr(|stderr| write!(stderr, "{c}")).unwrap(),
         _ => {}
     }
 }
@@ -249,9 +271,10 @@ fn flush(
     mut _ret: v8::ReturnValue,
 ) {
     let fd = args.get(0).int32_value(scope).unwrap();
+    let stdio = run_context(&args).runtime().stdio();
     match fd {
-        1 => std::io::stdout().flush().unwrap(),
-        2 => std::io::stderr().flush().unwrap(),
+        1 => stdio.with_stdout(|stdout| stdout.flush()).unwrap(),
+        2 => stdio.with_stderr(|stderr| stderr.flush()).unwrap(),
         _ => {}
     }
 }
@@ -347,7 +370,10 @@ pub(crate) fn install(
         )
     };
 
-    let print_env_box = Box::<PrintEnv>::default();
+    let print_env_box = Box::new(PrintEnv {
+        dangling_high_half: Cell::new(None),
+        stdio: Arc::clone(v8_context.runtime().stdio()),
+    });
     let identifier = scope.string("print");
     let print_env = &*print_env_box as *const PrintEnv;
     let print_env = v8::External::new(scope, print_env as *mut std::ffi::c_void);
@@ -359,8 +385,20 @@ pub(crate) fn install(
     dtors.push(print_env_box);
 
     {
-        global_proxy.set_func(scope, "console_log", console_log);
-        global_proxy.set_func(scope, "console_elog", console_elog);
+        context::register_func(
+            global_proxy,
+            scope,
+            "console_log",
+            console_log,
+            v8_context_ptr,
+        );
+        context::register_func(
+            global_proxy,
+            scope,
+            "console_elog",
+            console_elog,
+            v8_context_ptr,
+        );
     }
 
     {
@@ -418,10 +456,16 @@ pub(crate) fn install(
     }
     {
         let io = global_proxy.child(scope, "__moonbit_io_unstable");
-        io.set_func(scope, "read_bytes_from_stdin", read_bytes_from_stdin);
-        io.set_func(scope, "read_char", read_char);
-        io.set_func(scope, "write_char", write_char);
-        io.set_func(scope, "flush", flush);
+        context::register_func(
+            io,
+            scope,
+            "read_bytes_from_stdin",
+            read_bytes_from_stdin,
+            v8_context_ptr,
+        );
+        context::register_func(io, scope, "read_char", read_char, v8_context_ptr);
+        context::register_func(io, scope, "write_char", write_char, v8_context_ptr);
+        context::register_func(io, scope, "flush", flush, v8_context_ptr);
     }
 
     {

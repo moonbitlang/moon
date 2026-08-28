@@ -476,10 +476,7 @@ fn spawn_process_windows(
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Console::{
-        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-    };
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::Threading::{
         CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
         CreateProcessW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
@@ -509,21 +506,14 @@ fn spawn_process_windows(
         global_job_object()?
     };
 
-    let std_handles = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE];
     let mut inherited_handles =
-        Vec::with_capacity(std_handles.len() + usize::from(policy_transfer.is_some()));
-    for (resource, std_handle) in stdio.iter().zip(std_handles) {
-        let raw_result = if let Some(resource) = resource {
-            spawn_stdio_handle(resource)
-        } else {
-            let raw = unsafe { GetStdHandle(std_handle) };
-            if raw.is_null() || raw == INVALID_HANDLE_VALUE {
-                Err(last_native_error())
-            } else {
-                Ok(raw)
-            }
-        };
-        let raw = match raw_result {
+        Vec::with_capacity(stdio.len() + usize::from(policy_transfer.is_some()));
+    for resource in &stdio {
+        let raw = match resource
+            .as_deref()
+            .ok_or(AsyncHostError::Badf)
+            .and_then(spawn_stdio_handle)
+        {
             Ok(raw) => raw,
             Err(error) => {
                 close_handles(&inherited_handles);
