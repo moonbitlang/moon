@@ -55,8 +55,8 @@ impl LongPathCase {
             "the source file must remain below the legacy path limit"
         );
 
-        // `moon doc` has no `--target`, so pin the fixture while passing the
-        // target explicitly to commands that support it.
+        // Pin the fixture while also passing the target explicitly to commands
+        // that support it.
         write_file(
             &root.join("moon.mod"),
             "name = \"test/long-path\"\npreferred_target = \"wasm-gc\"\n",
@@ -256,7 +256,12 @@ fn bundle_reports_its_long_output_directory() {
 // reveals exactly which boundary becomes reachable.
 #[test]
 fn doc_reports_its_long_check_directory() {
-    LongPathCase::new().assert_compiler_path_failure(&["doc"], "wasm-gc", "debug", "check");
+    LongPathCase::new().assert_compiler_path_failure(
+        &["doc", "--target", "wasm-gc"],
+        "wasm-gc",
+        "debug",
+        "check",
+    );
 }
 
 #[test]

@@ -32,6 +32,19 @@ fn test_moon_doc_dry_run() {
 }
 
 #[test]
+fn test_moon_doc_dry_run_with_target() {
+    let dir = TestDir::new("moon_doc.in");
+    check(
+        get_stdout(&dir, ["doc", "--target", "js", "--dry-run"]),
+        expect![[r#"
+            moonc check ./src/lib/hello.mbt -o ./_build/js/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./src/lib -target js -workspace-path . -all-pkgs ./_build/js/debug/check/all_pkgs.json
+            moonc check ./src/main/main.mbt -o ./_build/js/debug/check/main/main.mi -pkg username/hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i ./_build/js/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./src/main -target js -workspace-path . -all-pkgs ./_build/js/debug/check/all_pkgs.json
+            moondoc . -o ./_build/doc -std-path '$MOON_HOME/lib/core' -packages-json ./_build/js/debug/check/packages.json
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_doc() {
     let dir = TestDir::new("moon_doc.in");
     std::fs::create_dir_all(dir.join("_build")).unwrap();

@@ -395,6 +395,7 @@ Generate documentation or searching documentation for a symbol
 
 ###### **Options:**
 
+* `--target <TARGET>` — Select output target
 * `--serve` — Start a web server to serve the documentation
 * `-b`, `--bind <BIND>` — The address of the server
 

@@ -25,6 +25,7 @@ use moonutil::command_output::CommandOutput;
 use moonutil::constants::MOON_MOD_JSON;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
+use moonutil::target::TargetBackend;
 use moonutil::{build_options::RunMode, locks::lock_directory, user_log::UserLog};
 use tracing::instrument;
 
@@ -36,6 +37,10 @@ use crate::rr_build::{self, BuildConfig, preconfig_compile};
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct DocSubcommand {
+    /// Select output target
+    #[clap(long, value_parser = TargetBackend::str_to_backend)]
+    pub target: Option<TargetBackend>,
+
     /// Start a web server to serve the documentation
     #[clap(long)]
     pub serve: bool,
@@ -130,7 +135,7 @@ pub(crate) fn run_doc_rr(
         &cmd.auto_sync_flags,
         &cli,
         &BuildFlags::default(),
-        None,
+        cmd.target,
         target_dir,
         RunMode::Check,
     );
