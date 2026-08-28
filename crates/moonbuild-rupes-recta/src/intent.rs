@@ -217,6 +217,9 @@ impl UserIntent {
                             target_kind: k,
                         });
                     }
+                    if target_backend == TargetBackend::Js {
+                        out.push(ArtifactKey::NodeTestPackageConfig { package: pkg });
+                    }
                 }
             }
             UserIntent::Bundle(m) => {

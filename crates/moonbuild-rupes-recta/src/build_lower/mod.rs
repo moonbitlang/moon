@@ -299,6 +299,7 @@ fn partition_standalone_actions(
             | BuildPlanNode::GenerateMbti(target) => Some(target.package),
             BuildPlanNode::BuildCStub(package, _)
             | BuildPlanNode::ArchiveOrLinkCStubs(package)
+            | BuildPlanNode::GenerateNodeTestPackageConfig(package)
             | BuildPlanNode::BuildVirtual(package) => Some(*package),
             BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeObject(_)

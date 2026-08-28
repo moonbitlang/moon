@@ -34,12 +34,37 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{ArtifactKey, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
-    model::{BuildTarget, OperatingSystem, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
 use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts, moonc_command};
 
 impl<'a> super::LoweringContext<'a> {
+    #[instrument(level = Level::DEBUG, skip(self, artifacts))]
+    pub(super) fn lower_generate_node_test_package_config(
+        &self,
+        artifacts: &ActionArtifacts,
+        package: PackageId,
+    ) -> BuildCommand {
+        let output = artifacts.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                ArtifactKey::NodeTestPackageConfig {
+                    package: artifact_package
+                } if *artifact_package == package
+            )
+        });
+        let commandline = compiler::MoonGenerateNodeTestPackageConfig {
+            output: output.into(),
+        }
+        .build_command(&*BINARIES.moonbuild);
+
+        BuildCommand {
+            commandline: commandline.into(),
+            extra_inputs: vec![],
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_gen_test_driver(
         &mut self,

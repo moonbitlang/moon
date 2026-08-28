@@ -346,6 +346,11 @@ impl<'a> BuildPlanConstructor<'a> {
                     },
                 );
             }
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::NodeTestPackageConfig { package });
+            }
             BuildPlanNode::Bundle(module) => {
                 self.res
                     .artifacts
@@ -469,6 +474,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 package,
                 target_kind,
             } => BuildPlanNode::GenerateTestInfo(package.build_target(*target_kind)),
+            ArtifactKey::NodeTestPackageConfig { package } => {
+                BuildPlanNode::GenerateNodeTestPackageConfig(*package)
+            }
             ArtifactKey::BundleResult { module } => BuildPlanNode::Bundle(*module),
             ArtifactKey::RuntimeObject { source } => {
                 let info = self
@@ -552,7 +560,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     );
                 }
             }
-            BuildPlanNode::GenerateMbti(_build_target) => (),
+            BuildPlanNode::GenerateNodeTestPackageConfig(_) | BuildPlanNode::GenerateMbti(_) => (),
             BuildPlanNode::Bundle(module_id) => {
                 assert!(
                     self.res.backend.bundle_info.contains_key(&module_id),
@@ -643,6 +651,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 unreachable!("GenerateDsym nodes are resolved with their MakeExecutable node")
             }
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
+            BuildPlanNode::GenerateNodeTestPackageConfig(_) => {
+                self.resolved_node(node);
+                Ok(())
+            }
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeObject(index) => self.build_runtime_object(node, index),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),

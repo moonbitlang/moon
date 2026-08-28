@@ -333,6 +333,9 @@ impl<'a> LoweringContext<'a> {
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for GenerateTestInfo nodes"),
             },
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                BuildAction::GenerateNodeTestPackageConfig { package }
+            }
             BuildPlanNode::GenerateMbti(target) => BuildAction::GenerateMbti { target },
             BuildPlanNode::BuildVirtual(package) => BuildAction::BuildVirtual {
                 package,
@@ -484,6 +487,9 @@ impl<'a> LoweringContext<'a> {
             }
             BuildAction::GenerateTestInfo { target, info } => {
                 self.lower_gen_test_driver(&action_artifacts, target, info)
+            }
+            BuildAction::GenerateNodeTestPackageConfig { package } => {
+                self.lower_generate_node_test_package_config(&action_artifacts, package)
             }
             BuildAction::GenerateMbti { target } => {
                 self.lower_generate_mbti(&action_artifacts, target)
@@ -638,6 +644,7 @@ impl<'a> LoweringContext<'a> {
             },
             BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
+            | BuildAction::GenerateNodeTestPackageConfig { .. }
             | BuildAction::GenerateMbti { .. }
             | BuildAction::BuildVirtual { .. }
             | BuildAction::Bundle { .. }

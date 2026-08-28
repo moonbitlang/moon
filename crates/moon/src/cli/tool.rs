@@ -22,6 +22,7 @@ pub(crate) mod embed;
 pub(crate) mod exec;
 pub(crate) mod format_and_diff;
 pub(crate) mod format_workspace;
+pub(crate) mod generate_node_test_package_config;
 pub(crate) mod migrate_manifest;
 pub(crate) mod write_rsp_file;
 
@@ -29,6 +30,7 @@ use demangle::*;
 use embed::*;
 use format_and_diff::*;
 use format_workspace::*;
+use generate_node_test_package_config::*;
 use migrate_manifest::*;
 use moonutil::{cli_support::UniversalFlags, user_log::UserLog};
 use write_rsp_file::*;
@@ -43,6 +45,8 @@ pub(crate) struct ToolSubcommand {
 pub(crate) enum ToolSubcommands {
     FormatAndDiff(FormatAndDiffSubcommand),
     FormatWorkspace(FormatWorkspaceSubcommand),
+    #[clap(hide = true)]
+    GenerateNodeTestPackageConfig(GenerateNodeTestPackageConfigSubcommand),
     #[clap(hide = true)]
     MigrateManifest(MigrateManifestSubcommand),
     Embed(Embed),
@@ -59,6 +63,9 @@ pub(crate) fn run_tool(
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
         ToolSubcommands::FormatWorkspace(subcmd) => run_format_workspace(subcmd, user_log),
+        ToolSubcommands::GenerateNodeTestPackageConfig(subcmd) => {
+            generate_node_test_package_config(cli, subcmd)
+        }
         ToolSubcommands::MigrateManifest(subcmd) => run_migrate_manifest(subcmd),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
         ToolSubcommands::WriteTccRspFile(subcmd) => write_tcc_rsp_file(subcmd),

@@ -341,6 +341,9 @@ pub enum BuildPlanNode {
     /// Generate test driver and metadata for the given test target.
     GenerateTestInfo(BuildTarget),
 
+    /// Generate the package boundary used to run JavaScript tests under Node.
+    GenerateNodeTestPackageConfig(PackageId),
+
     /// Generate the `.mbti` interface file for the given target's package.
     /// This does not promote the `.mbti` into the source directory.
     GenerateMbti(BuildTarget),
@@ -384,6 +387,7 @@ impl BuildPlanNode {
             BuildPlanNode::BuildCStub(_, _)
             | BuildPlanNode::BuildRuntimeObject(_)
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
+            | BuildPlanNode::GenerateNodeTestPackageConfig(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs(_)
@@ -458,6 +462,12 @@ impl BuildPlanNode {
                     "generate test driver for {}{}",
                     fqn,
                     qualifier(build_target.kind)
+                )
+            }
+            BuildPlanNode::GenerateNodeTestPackageConfig(package_id) => {
+                format!(
+                    "generate Node test package config for {}",
+                    packages.fqn(*package_id)
                 )
             }
             BuildPlanNode::GenerateMbti(build_target) => {
@@ -535,6 +545,10 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateTestInfo(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@GenerateTestInfo", fqn, t.kind)
+            }
+            BuildPlanNode::GenerateNodeTestPackageConfig(pkg) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@GenerateNodeTestPackageConfig", fqn)
             }
             BuildPlanNode::GenerateMbti(t) => {
                 let fqn = packages.fqn(t.package);
