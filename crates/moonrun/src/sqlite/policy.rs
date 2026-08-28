@@ -116,7 +116,7 @@ unsafe extern "C" fn untrusted_authorizer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::Policy;
+    use crate::policy::{self, Policy};
     use std::ffi::CString;
 
     fn c_path(path: &Path) -> CString {
@@ -204,7 +204,7 @@ mod tests {
             "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
         )
         .unwrap();
-        let policy = Policy::from_file(&policy_file).unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
         let allowed_database = c_path(&allowed.join("database.sqlite"));
         let denied_database = c_path(&denied.join("database.sqlite"));
 
@@ -239,7 +239,7 @@ mod tests {
             "[fs]\nread = [\"database.sqlite\"]\nwrite = [\"database.sqlite\"]\n",
         )
         .unwrap();
-        let policy = Policy::from_file(&policy_file).unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
         let database = c_path(&database);
 
         assert_eq!(

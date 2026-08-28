@@ -548,7 +548,7 @@ mod tests {
     use super::*;
     #[cfg(windows)]
     use crate::async_host::AsyncHostError;
-    use crate::policy::Policy;
+    use crate::policy::{self, Policy};
 
     fn host_fs(mut policy: Policy, environment: Arc<Env>) -> HostFs {
         HostFs::new(
@@ -655,10 +655,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = host_fs(
-            Policy::from_file(&policy_file).unwrap(),
-            Arc::new(Env::ambient()),
-        );
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
         let mut results = FsOperationResults::default();
 
         assert_eq!(host.read_file_to_bytes_new(&mut results, "denied.bin"), -1);
@@ -670,10 +668,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
-        let host = host_fs(
-            Policy::from_file(&policy_file).unwrap(),
-            Arc::new(Env::ambient()),
-        );
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
         let mut results = FsOperationResults::default();
         let converted = Cell::new(false);
 
@@ -695,10 +691,8 @@ mod tests {
         std::fs::write(allowed.join("input.txt"), "input").unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
-        let host = host_fs(
-            Policy::from_file(&policy_file).unwrap(),
-            Arc::new(Env::ambient()),
-        );
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
 
         host.authorize_metadata_at(Some(&allowed), OsStr::new("input.txt"))
             .unwrap();
@@ -739,10 +733,8 @@ mod tests {
             "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
         )
         .unwrap();
-        let host = host_fs(
-            Policy::from_file(&policy_file).unwrap(),
-            Arc::new(Env::ambient()),
-        );
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
 
         std::fs::remove_file(&resource_path).unwrap();
         std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
@@ -769,10 +761,8 @@ mod tests {
         std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
-        let host = host_fs(
-            Policy::from_file(&policy_file).unwrap(),
-            Arc::new(Env::ambient()),
-        );
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
 
         assert_eq!(
             host.authorize_remove(denied_link.as_os_str()),
@@ -794,10 +784,8 @@ mod tests {
         std::os::unix::fs::symlink(&denied_file, &allowed_link).unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
-        let host = host_fs(
-            Policy::from_file(&policy_file).unwrap(),
-            Arc::new(Env::ambient()),
-        );
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
 
         host.authorize_remove(allowed_link.as_os_str()).unwrap();
         assert_eq!(
