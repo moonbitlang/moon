@@ -681,8 +681,8 @@ pub(crate) fn sync(
     std::fs::create_dir_all(&registry_dir)
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
     let observed = observe_registry_update_state(&home.registry_update_state_path());
-    let symbols_url = registry_config.symbols.as_deref().unwrap_or(SYMBOLS_URL);
-    let registry_identity = registry_identity(&registry_config.index, symbols_url);
+    let symbols_url = symbols_url(registry_config);
+    let registry_identity = registry_identity(&registry_config.index, &symbols_url);
 
     run_registry_update_locked(
         home,
@@ -694,7 +694,7 @@ pub(crate) fn sync(
             let (symbols_updated, symbols_etag) = match update_symbols_from_url(
                 &registry_dir,
                 &symbols_dir,
-                symbols_url,
+                &symbols_url,
                 previous_etag,
             ) {
                 Ok(etag) => (true, etag),
@@ -713,6 +713,19 @@ pub(crate) fn sync(
             ))
         },
     )
+}
+
+fn symbols_url(registry_config: &RegistryConfig) -> String {
+    if let Some(symbols) = &registry_config.symbols {
+        symbols.clone()
+    } else if registry_config.legacy_asset_urls {
+        SYMBOLS_URL.to_owned()
+    } else {
+        format!(
+            "{}/symbols.zip",
+            registry_config.download.trim_end_matches('/')
+        )
+    }
 }
 
 fn registry_identity(index_url: &str, symbols_url: &str) -> String {
@@ -789,9 +802,11 @@ mod tests {
         (
             base,
             RegistryConfig {
-                registry: index.clone(),
+                api: index.clone(),
                 index,
+                download: String::new(),
                 symbols: None,
+                legacy_asset_urls: false,
             },
         )
     }
@@ -868,9 +883,11 @@ mod tests {
         (
             base,
             RegistryConfig {
-                registry: index.clone(),
+                api: index.clone(),
                 index,
+                download: String::new(),
                 symbols: None,
+                legacy_asset_urls: false,
             },
         )
     }
@@ -893,6 +910,32 @@ mod tests {
             identity,
             registry_identity("https://registry.invalid/index", "https://b/symbols")
         );
+    }
+
+    #[test]
+    fn symbols_url_uses_the_split_download_endpoint() {
+        let config = RegistryConfig {
+            api: "https://api.example".to_owned(),
+            index: "https://index.example".to_owned(),
+            download: "https://download.example/".to_owned(),
+            symbols: None,
+            legacy_asset_urls: false,
+        };
+
+        assert_eq!(symbols_url(&config), "https://download.example/symbols.zip");
+    }
+
+    #[test]
+    fn symbols_url_preserves_legacy_overrides() {
+        let config = RegistryConfig {
+            api: "https://registry.example".to_owned(),
+            index: "https://index.example".to_owned(),
+            download: "https://registry.example".to_owned(),
+            symbols: Some("https://mirror.example/symbols.zip".to_owned()),
+            legacy_asset_urls: true,
+        };
+
+        assert_eq!(symbols_url(&config), "https://mirror.example/symbols.zip");
     }
 
     struct TestHttpResponse {

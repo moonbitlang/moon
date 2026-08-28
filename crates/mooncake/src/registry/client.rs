@@ -54,9 +54,9 @@ struct RegistryIndexEntry {
 }
 
 struct RegistryEndpoints {
-    registry: String,
-    packages: String,
-    assets: String,
+    api: String,
+    download: String,
+    legacy_asset_urls: bool,
 }
 
 fn registry_http_client() -> anyhow::Result<reqwest::blocking::Client> {
@@ -68,16 +68,10 @@ fn registry_http_client() -> anyhow::Result<reqwest::blocking::Client> {
 
 impl RegistryEndpoints {
     fn from_config(config: &RegistryConfig) -> Self {
-        let registry = config.registry.trim_end_matches('/');
-        let packages = if registry == "https://mooncakes.io" {
-            "https://download.mooncakes.io/user".to_owned()
-        } else {
-            format!("{registry}/user")
-        };
         Self {
-            registry: registry.to_owned(),
-            packages,
-            assets: format!("{registry}/assets"),
+            api: config.api.trim_end_matches('/').to_owned(),
+            download: config.download.trim_end_matches('/').to_owned(),
+            legacy_asset_urls: config.legacy_asset_urls,
         }
     }
 
@@ -86,27 +80,66 @@ impl RegistryEndpoints {
             .append_pair("kw", keyword)
             .append_pair("limit", &limit.to_string())
             .finish();
-        format!("{}/api/v0/search?{query}", self.registry)
+        format!("{}/api/v0/search?{query}", self.api)
     }
 
     fn package_archive(&self, name: &ModuleName, version: &Version) -> String {
-        let path = form_urlencoded::Serializer::new(String::new())
-            .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
-            .finish();
-        format!("{}/{}.zip", self.packages, path)
+        if self.legacy_asset_urls {
+            let path = form_urlencoded::Serializer::new(String::new())
+                .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
+                .finish();
+            format!("{}/user/{path}.zip", self.download)
+        } else {
+            format!(
+                "{}/user/{}/{}/{}.zip",
+                self.download,
+                encode_path_segment(&name.username),
+                encode_path_segment(&name.unqual),
+                encode_path_segment(&version.to_string())
+            )
+        }
     }
 
     fn wasm_asset(&self, name: &ModuleName, version: &Version, package_path: &str) -> String {
         let artifact_name = wasm_artifact_name(name, package_path);
-        if package_path.is_empty() {
-            format!("{}/{}@{version}/{artifact_name}", self.assets, name)
+        if self.legacy_asset_urls {
+            if package_path.is_empty() {
+                format!("{}/assets/{}@{version}/{artifact_name}", self.api, name)
+            } else {
+                format!(
+                    "{}/assets/{}@{version}/{package_path}/{artifact_name}",
+                    self.api, name
+                )
+            }
+        } else if package_path.is_empty() {
+            format!(
+                "{}/prebuild/{}@{version}/{artifact_name}",
+                self.download, name
+            )
         } else {
             format!(
-                "{}/{}@{version}/{package_path}/{artifact_name}",
-                self.assets, name
+                "{}/prebuild/{}@{version}/{package_path}/{artifact_name}",
+                self.download, name
             )
         }
     }
+
+    fn wasm_checksum(&self, name: &ModuleName, version: &Version, package_path: &str) -> String {
+        format!("{}.sha256", self.wasm_asset(name, version, package_path))
+    }
+}
+
+/// Percent-encode one RFC 3986 path segment without treating `/` as data.
+fn encode_path_segment(segment: &str) -> String {
+    segment.bytes().fold(String::new(), |mut encoded, byte| {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(byte as char);
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+        encoded
+    })
 }
 
 /// One module returned by a Mooncakes registry search.
@@ -164,7 +197,7 @@ impl RegistryClient {
     }
 
     /// Search the configured registry for published modules.
-    #[tracing::instrument(skip(self), fields(registry = %self.config.registry))]
+    #[tracing::instrument(skip(self), fields(api = %self.config.api))]
     pub fn search(&self, keyword: &str, limit: u32) -> anyhow::Result<Vec<RegistrySearchResult>> {
         let url = self.endpoints.search(keyword, limit);
         let response = registry_http_client()?
@@ -201,9 +234,10 @@ impl RegistryClient {
         user_log: &UserLog,
         mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
     ) -> anyhow::Result<std::path::PathBuf> {
+        validate_registry_module_name(name)?;
         validate_asset_package_path(name, package_path)?;
         let url = self.endpoints.wasm_asset(name, version, package_path);
-        let checksum_url = format!("{url}.sha256");
+        let checksum_url = self.endpoints.wasm_checksum(name, version, package_path);
         let cache_path = self.home.registry_executable_artifact_path(
             name,
             version,
@@ -279,6 +313,16 @@ fn validate_asset_package_path(name: &ModuleName, package_path: &str) -> anyhow:
         .context("invalid registry asset package path")?;
     if parsed.module != *name || parsed.package != package_path {
         bail!("invalid registry asset package path");
+    }
+    Ok(())
+}
+
+fn validate_registry_module_name(name: &ModuleName) -> anyhow::Result<()> {
+    if name
+        .segments()
+        .any(|component| component.contains(['#', '?', '%']))
+    {
+        bail!("registry module name cannot contain `#`, `?`, or `%`");
     }
     Ok(())
 }
@@ -563,6 +607,7 @@ impl RegistryClient {
         expected_checksum: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<File> {
+        validate_registry_module_name(name)?;
         let pkg_index = self.home.registry_index_file(name);
         if !pkg_index.exists() {
             anyhow::bail!("Module {}@{} not found", name, version);
@@ -749,41 +794,94 @@ mod tests {
     }
 
     #[test]
-    fn official_registry_uses_download_service() {
+    fn split_registry_uses_configured_download_service() {
         let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
-            registry: "https://mooncakes.io/".to_owned(),
+            api: "https://mooncakes.io/".to_owned(),
             index: String::new(),
+            download: "https://download.mooncakes.io/".to_owned(),
             symbols: None,
+            legacy_asset_urls: false,
         });
         assert_eq!(
             endpoints.package_archive(&"test/pkg".into(), &Version::new(1, 2, 3)),
-            "https://download.mooncakes.io/user/test%2Fpkg%2F1.2.3.zip"
+            "https://download.mooncakes.io/user/test/pkg/1.2.3.zip"
         );
     }
 
     #[test]
-    fn configured_registry_serves_package_downloads() {
+    fn split_registry_keeps_api_and_download_urls_independent() {
         let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
-            registry: "https://registry.example.com/".to_owned(),
+            api: "https://api.example.com/".to_owned(),
             index: String::new(),
+            download: "https://download.example.com/".to_owned(),
             symbols: None,
+            legacy_asset_urls: false,
         });
         assert_eq!(
             endpoints.package_archive(&"test/pkg".into(), &Version::new(1, 2, 3)),
-            "https://registry.example.com/user/test%2Fpkg%2F1.2.3.zip"
+            "https://download.example.com/user/test/pkg/1.2.3.zip"
+        );
+        assert_eq!(
+            endpoints.search("json query", 7),
+            "https://api.example.com/api/v0/search?kw=json+query&limit=7"
+        );
+    }
+
+    #[test]
+    fn split_registry_rejects_reserved_archive_path_components() {
+        let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
+            api: "https://api.example.com".to_owned(),
+            index: String::new(),
+            download: "https://download.example.com".to_owned(),
+            symbols: None,
+            legacy_asset_urls: false,
+        });
+        let name: ModuleName = "test#/pkg?".into();
+        assert!(validate_registry_module_name(&name).is_err());
+        assert_eq!(
+            endpoints.package_archive(&"test/pkg".into(), &Version::parse("1.2.3+build").unwrap()),
+            "https://download.example.com/user/test/pkg/1.2.3%2Bbuild.zip"
         );
     }
 
     #[test]
     fn registry_search_url_uses_configured_registry_and_encodes_query() {
         let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
-            registry: "https://registry.example.com/".to_owned(),
+            api: "https://registry.example.com/".to_owned(),
             index: String::new(),
+            download: String::new(),
             symbols: None,
+            legacy_asset_urls: false,
         });
         assert_eq!(
             endpoints.search("json query", 7),
             "https://registry.example.com/api/v0/search?kw=json+query&limit=7"
+        );
+    }
+
+    #[test]
+    fn legacy_registry_config_keeps_existing_download_urls() {
+        let endpoints = RegistryEndpoints::from_config(&RegistryConfig {
+            api: "https://registry.example.com".to_owned(),
+            index: String::new(),
+            download: "https://registry.example.com".to_owned(),
+            symbols: None,
+            legacy_asset_urls: true,
+        });
+        let name: ModuleName = "test/pkg".into();
+        let version = Version::new(1, 2, 3);
+
+        assert_eq!(
+            endpoints.package_archive(&name, &version),
+            "https://registry.example.com/user/test%2Fpkg%2F1.2.3.zip"
+        );
+        assert_eq!(
+            endpoints.wasm_asset(&name, &version, "cmd/tool"),
+            "https://registry.example.com/assets/test/pkg@1.2.3/cmd/tool/tool.wasm"
+        );
+        assert_eq!(
+            endpoints.wasm_checksum(&name, &version, "cmd/tool"),
+            "https://registry.example.com/assets/test/pkg@1.2.3/cmd/tool/tool.wasm.sha256"
         );
     }
 
@@ -807,9 +905,11 @@ mod tests {
     fn asset_test_registry(sandbox: &tempfile::TempDir) -> RegistryClient {
         RegistryClient::with_home(
             RegistryConfig {
-                registry: "https://mooncakes.io".to_owned(),
+                api: "https://mooncakes.io".to_owned(),
                 index: String::new(),
+                download: "https://download.mooncakes.io".to_owned(),
                 symbols: None,
+                legacy_asset_urls: false,
             },
             MoonHomeLayout::new(sandbox.path().to_path_buf()),
         )
@@ -829,13 +929,13 @@ mod tests {
             registry
                 .endpoints
                 .wasm_asset(&parser_module(), &version, "cmd/moonfmt"),
-            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm"
+            "https://download.mooncakes.io/prebuild/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm"
         );
         assert_eq!(
             registry
                 .endpoints
                 .wasm_asset(&parser_module(), &version, ""),
-            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/parser.wasm"
+            "https://download.mooncakes.io/prebuild/moonbitlang/parser@0.3.3/parser.wasm"
         );
     }
 
@@ -865,7 +965,7 @@ mod tests {
                 &quiet_user_log(),
                 |url| {
                     urls.push(url.to_owned());
-                    if url.ends_with(".sha256") {
+                    if url.ends_with(".wasm.sha256") {
                         Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
                     } else {
                         Ok(wasm.clone())
@@ -878,8 +978,8 @@ mod tests {
         assert_eq!(
             urls,
             [
-                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm.sha256",
-                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm",
+                "https://download.mooncakes.io/prebuild/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm.sha256",
+                "https://download.mooncakes.io/prebuild/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm",
             ]
         );
     }
@@ -922,9 +1022,11 @@ mod tests {
             .map(|_| {
                 let registry = RegistryClient::with_home(
                     RegistryConfig {
-                        registry: "https://mooncakes.io".to_owned(),
+                        api: "https://mooncakes.io".to_owned(),
                         index: String::new(),
+                        download: "https://download.mooncakes.io".to_owned(),
                         symbols: None,
+                        legacy_asset_urls: false,
                     },
                     home.clone(),
                 );
@@ -940,7 +1042,7 @@ mod tests {
                         "cmd/moonfmt",
                         &quiet_user_log(),
                         |url| {
-                            if url.ends_with(".sha256") {
+                            if url.ends_with(".wasm.sha256") {
                                 download_count.fetch_add(1, Ordering::SeqCst);
                                 std::thread::sleep(Duration::from_millis(50));
                                 Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
@@ -973,7 +1075,7 @@ mod tests {
 
         let error = registry
             .acquire_wasm_asset_with(&name, &version, "cmd/moonfmt", &quiet_user_log(), |url| {
-                if url.ends_with(".sha256") {
+                if url.ends_with(".wasm.sha256") {
                     Ok(format!("{expected_checksum}\n").into_bytes())
                 } else {
                     Ok(b"different wasm".to_vec())
@@ -1026,7 +1128,7 @@ mod tests {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let unavailable_address = listener.local_addr().unwrap();
             drop(listener);
-            registry.endpoints.packages = format!("http://{unavailable_address}");
+            registry.endpoints.download = format!("http://{unavailable_address}");
 
             registry
                 .acquire_source_to(
@@ -1130,9 +1232,11 @@ mod tests {
         (
             RegistryClient::with_home(
                 RegistryConfig {
-                    registry: String::new(),
+                    api: String::new(),
                     index: String::new(),
+                    download: String::new(),
                     symbols: None,
+                    legacy_asset_urls: false,
                 },
                 home,
             ),
@@ -1271,9 +1375,11 @@ mod tests {
                 std::thread::spawn(move || {
                     let registry = RegistryClient::with_home(
                         RegistryConfig {
-                            registry: url_base,
+                            api: url_base.clone(),
                             index: String::new(),
+                            download: url_base,
                             symbols: None,
+                            legacy_asset_urls: false,
                         },
                         home,
                     );
@@ -1402,9 +1508,11 @@ mod tests {
 
         let registry = RegistryClient::with_home(
             RegistryConfig {
-                registry: String::new(),
+                api: String::new(),
                 index: String::new(),
+                download: String::new(),
                 symbols: None,
+                legacy_asset_urls: false,
             },
             home.clone(),
         );
