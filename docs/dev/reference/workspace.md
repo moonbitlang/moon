@@ -173,6 +173,11 @@ This is why `publish`, `package`, `doc`, and `prove` only work for one selected
 module at a time today. There is no "publish the whole workspace" or "generate
 docs for the whole workspace" mode in the current design.
 
+`moon doc` also selects its Target Backend from that member module's
+`preferred_target`, falling back to the default backend when it is absent.
+Preferences from unrelated workspace members do not affect documentation
+planning.
+
 ### Workspace Maintenance Commands
 
 These commands manage the workspace manifest itself:

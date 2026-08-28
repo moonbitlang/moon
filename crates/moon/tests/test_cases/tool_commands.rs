@@ -32,6 +32,45 @@ fn test_moon_doc_dry_run() {
 }
 
 #[test]
+fn test_moon_doc_dry_run_filters_packages_by_backend() {
+    let dir = TestDir::new("moon_doc_backend_filter.in");
+    let output = get_stdout(&dir, ["doc", "--dry-run"]);
+
+    assert!(output.contains("./src/lib/lib.mbt"), "stdout: {output}");
+    assert!(
+        !output.contains("./src/native/native.mbt"),
+        "stdout: {output}"
+    );
+
+    assert_success(&dir, ["doc"]);
+    assert!(
+        !dir.join("_build/wasm/debug/check/native/native.mi")
+            .exists()
+    );
+}
+
+#[test]
+fn test_moon_doc_uses_selected_module_preferred_backend() {
+    let dir = TestDir::new("moon_doc_workspace_preferred.in");
+    let selected_member = dir.join("js");
+
+    let output = get_stdout(&selected_member, ["doc", "--dry-run"]);
+    let stderr = get_stderr(&selected_member, ["doc", "--dry-run"]);
+
+    assert!(output.contains("./js/src/lib/lib.mbt"), "stdout: {output}");
+    assert!(output.contains("./_build/js/"), "stdout: {output}");
+    assert!(output.contains("-target js"), "stdout: {output}");
+    assert!(
+        !output.contains("./native/src/lib/lib.mbt"),
+        "stdout: {output}"
+    );
+    assert!(
+        !stderr.contains("Multiple local modules specify different preferred targets"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_moon_doc() {
     let dir = TestDir::new("moon_doc.in");
     std::fs::create_dir_all(dir.join("_build")).unwrap();

@@ -71,6 +71,7 @@ separate feature and unchanged.
 | `moon check` , `moon build` | keep packages that support `B` before root selection | selected package must support `B` |
 | `moon test` , `moon bench` | keep packages that support `B` | selected package(s) must support `B` |
 | `moon run` | N/A (explicit selector required) | selected package must support `B` |
+| `moon doc` | keep selected-module packages that support `B` | N/A (no package/path selector) |
 | `moon info` | write canonical `preferred-backend` output; inspect requested backend `B` | unsupported selected package(s) are skipped with warning |
 | `moon bundle` | planner skips package targets that do not support `B` | no package-level explicit filter |
 
@@ -84,6 +85,7 @@ Notes:
   n2 database, so actions with identical physical outputs can reuse recorded
   execution state.
 * `llvm` is still a valid value in `supported_targets`.
+* `moon doc` selects `B` from the selected module's `preferred_target`, then falls back to `wasm`.
 * `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
 
 ## Dependency compatibility (fail-fast)
