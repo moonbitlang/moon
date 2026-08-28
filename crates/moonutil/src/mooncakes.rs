@@ -675,16 +675,14 @@ pub struct PackageSubcommand {
     pub list: bool,
 }
 
-// username rule
-// at least 5 char, at most 39 char
-// may contain [a-z] [0-9] [A-Z] '-' '_'
+/// Validate syntax needed to interpolate a username into a module manifest.
+/// Registry-specific account rules, including length limits, belong to the
+/// registry service.
 pub fn validate_username(username: &str) -> anyhow::Result<(), String> {
-    // Check the length constraints
-    if username.len() < 5 || username.len() > 39 {
-        return Err("Username must be between 5 and 39 characters long".to_string());
+    if username.is_empty() {
+        return Err("Username must not be empty".to_string());
     }
 
-    // Check for valid characters
     if !username
         .chars()
         .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
@@ -696,4 +694,22 @@ pub fn validate_username(username: &str) -> anyhow::Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_username;
+
+    #[test]
+    fn accepts_usernames_of_any_nonzero_length() {
+        assert!(validate_username("a").is_ok());
+        assert!(validate_username(&"a".repeat(40)).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_and_manifest_unsafe_usernames() {
+        assert!(validate_username("").is_err());
+        assert!(validate_username("foo\nbar").is_err());
+        assert!(validate_username("foo\"bar").is_err());
+    }
 }
