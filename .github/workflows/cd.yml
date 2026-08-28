@@ -31,7 +31,86 @@ on:
       - main
 
 jobs:
+  core-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: 1.95.0
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install MoonBit (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        shell: bash
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+
+      - name: Install MoonBit (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $env:MOONBIT_INSTALL_VERSION="nightly"
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build
+        run: cargo build
+
+      - name: Versions
+        run: cargo run --bin moon -- version --all
+
+      - name: Bundle core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        shell: bash
+        run: cargo run --bin moon -- -C ~/.moon/lib/core bundle --all
+
+      - name: Bundle core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
+
+      - name: Test core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        shell: bash
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}/target/debug/moonrun
+        run: |
+          cargo run --bin moon -- -C ~/.moon/lib/core test -j 8 --target all
+          cargo run --bin moon -- -C ~/.moon/lib/core test -j 8 --release --target all
+
+      - name: Test core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}\target\debug\moonrun.exe
+        run: |
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target all
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target all
+
+      # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
+      # TODO: Add this back when we add LLVM to nightly.
+
   build:
+    needs: core-test
     strategy:
       matrix:
         os: [macos-latest, ubuntu-22.04-arm, windows-latest]
@@ -78,6 +157,7 @@ jobs:
           aws s3 cp .\target\release\moonrun.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Windows-x86_64/"
 
   ubuntu-build:
+    needs: core-test
     runs-on: ubuntu-latest
     env:
       LINUX_GLIBC_VERSION: ${{ inputs.glibc-version || '2.23' }}
