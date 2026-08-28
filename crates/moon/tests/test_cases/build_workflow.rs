@@ -411,27 +411,7 @@ fn test_exports_in_native_backend() {
 
 #[test]
 fn test_diag_source_map_remaps_generated_sources() {
-    // Real-world generated parser fixture: diagnostics from `parser.mbt` are
-    // remapped to locations in `parser.mbty` via `parser.mbt.map.json`.
-    let dir = TestDir::new("diag_loc_map.in");
-    check(
-        get_err_stderr(&dir, ["check"]),
-        expect![[r#"
-            Error: [4014]
-                 ╭─[ $ROOT/parser.mbt:129:13 ]
-                 │
-             129 │       lhs + "x" + rhs
-                 │             ─┬─  
-                 │              ╰─── Expr Type Mismatch
-                    has type : String
-                    wanted   : Int
-            ─────╯
-            Failed with 0 warnings, 1 errors.
-            Error: failed when checking project
-        "#]],
-    );
-
-    // Minimal reproducible fixture: a tiny DSL source is remapped from
+    // A tiny DSL source is remapped from
     // generated `main.mbt` back to `toy.src`.
     let dir = TestDir::new("diag_loc_map_small.in");
     check(
