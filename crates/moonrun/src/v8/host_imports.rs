@@ -20,7 +20,7 @@
 
 use super::builder::{ArgsExt, ObjectExt, ScopeExt};
 use super::{context, wasi};
-use crate::runtime::StdioBindings;
+use crate::runtime::Stdio;
 use crate::{async_api, filesystem, run_termination, sqlite, util};
 use rand::Rng;
 use rand::SeedableRng;
@@ -33,7 +33,7 @@ use std::{cell::Cell, time::Instant};
 
 struct PrintEnv {
     dangling_high_half: Cell<Option<u32>>,
-    stdio: Arc<StdioBindings>,
+    stdio: Arc<Stdio>,
 }
 
 fn run_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s context::V8RunContext {
@@ -174,7 +174,7 @@ fn get_array_buffer_ptr(ab: v8::Local<v8::ArrayBuffer>) -> *mut u8 {
     unsafe { std::mem::transmute(ab.data()) }
 }
 
-fn read_utf8_char(stdio: &StdioBindings) -> io::Result<Option<char>> {
+fn read_utf8_char(stdio: &Stdio) -> io::Result<Option<char>> {
     let mut buffer = [0; 4];
     stdio.with_stdin(|stdin| {
         let size = stdin.read(&mut buffer[0..1])?;

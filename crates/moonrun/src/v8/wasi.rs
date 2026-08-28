@@ -19,7 +19,7 @@
 use super::builder::ScopeExt;
 use super::context::{self, V8ImportError, V8MemoryBinding, V8RunContext};
 use crate::run_termination::{RunTermination, TerminationRequest};
-use crate::runtime::{Env, StdioBindings};
+use crate::runtime::{Env, Stdio, StdioStream};
 use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -173,7 +173,7 @@ impl TryFrom<i32> for ClockId {
 struct WasiContext {
     argv: Vec<Vec<u8>>,
     environment: Arc<Env>,
-    stdio: Arc<StdioBindings>,
+    stdio: Arc<Stdio>,
     preopen_dir_name: Vec<u8>,
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
@@ -1144,10 +1144,75 @@ fn normalize_poll_subscriptions(
     Ok(())
 }
 
-fn poll_stdin_with_timeout(stdio: &StdioBindings, timeout: Option<Duration>) -> WasiResult<bool> {
-    stdio
-        .poll_stdin(timeout)
-        .map_err(|error| io_error_to_errno(&error))
+#[cfg(unix)]
+fn poll_stdin_with_timeout(stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
+    let timeout_ms = match timeout {
+        Some(duration) => {
+            let millis = duration.as_millis();
+            i32::try_from(millis.min(i32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
+        }
+        None => -1,
+    };
+    let mut pollfd = libc::pollfd {
+        fd: stdio
+            .raw(StdioStream::Stdin)
+            .map_err(|error| io_error_to_errno(&error))?,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: `pollfd` points to a valid single-element array for the
+        // duration of the call.
+        let ready_count = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        if ready_count >= 0 {
+            return Ok(ready_count > 0
+                && (pollfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0);
+        }
+
+        let error = std::io::Error::last_os_error();
+        if error.kind() == ErrorKind::Interrupted {
+            continue;
+        }
+        if error.raw_os_error() == Some(libc::EPERM) {
+            return Ok(true);
+        }
+        return Err(io_error_to_errno(&error));
+    }
+}
+
+#[cfg(windows)]
+fn poll_stdin_with_timeout(stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
+    use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
+
+    let timeout_ms = match timeout {
+        Some(duration) => {
+            let millis = duration.as_millis();
+            u32::try_from(millis.min(u32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
+        }
+        None => INFINITE,
+    };
+    let stdin_handle = stdio
+        .raw(StdioStream::Stdin)
+        .map_err(|error| io_error_to_errno(&error))?;
+    // SAFETY: `stdin_handle` is a non-owning handle observed from the Runtime
+    // Stdio immediately before this wait.
+    match unsafe { WaitForSingleObject(stdin_handle, timeout_ms) } {
+        WAIT_OBJECT_0 => Ok(true),
+        WAIT_TIMEOUT => Ok(false),
+        WAIT_FAILED => Err(io_error_to_errno(&std::io::Error::last_os_error())),
+        _ => Ok(true),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn poll_stdin_with_timeout(_stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
+    if let Some(duration) = timeout
+        && duration > Duration::ZERO
+    {
+        thread::sleep(duration);
+    }
+    Ok(true)
 }
 
 fn poll_fd_read_state(context: &WasiContext, fd: i32) -> WasiResult<FdReadPollState> {
@@ -1784,7 +1849,7 @@ mod tests {
         WasiContext {
             argv: Vec::new(),
             environment: Arc::new(Env::owned([]).unwrap()),
-            stdio: Arc::new(StdioBindings::Ambient),
+            stdio: Arc::new(Stdio::Ambient),
             preopen_dir_name: preopen_name(),
             preopen_dir_host_path: root.to_path_buf(),
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),

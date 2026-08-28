@@ -39,7 +39,7 @@ use crate::process::HostProcess;
 use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
-pub(crate) use stdio::{ChildStdio, Stdio, StdioBindings};
+pub(crate) use stdio::{Stdio, StdioStream};
 pub use working_directory::WorkingDirectory;
 
 new_key_type! {
@@ -109,7 +109,7 @@ impl HostKeys {
 pub(crate) struct Runtime {
     environment: Arc<Env>,
     working_directory: Arc<WorkingDirectory>,
-    stdio: Arc<StdioBindings>,
+    stdio: Arc<Stdio>,
     filesystem: Arc<HostFs>,
     async_host: AsyncHost,
     sqlite: SqliteHost,
@@ -140,7 +140,7 @@ impl Runtime {
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
         let working_directory = Arc::new(working_directory);
-        let stdio = Arc::new(StdioBindings::Ambient);
+        let stdio = Arc::new(Stdio::Ambient);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -185,7 +185,7 @@ impl Runtime {
         &self.working_directory
     }
 
-    pub(crate) fn stdio(&self) -> &Arc<StdioBindings> {
+    pub(crate) fn stdio(&self) -> &Arc<Stdio> {
         &self.stdio
     }
 

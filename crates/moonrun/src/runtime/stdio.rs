@@ -19,7 +19,6 @@
 //! Standard-stream behavior selected for one Moonrun Runtime.
 
 use std::io::{self, Read, Write};
-use std::time::Duration;
 
 #[cfg(unix)]
 pub(crate) type RawStdio = std::os::fd::RawFd;
@@ -28,22 +27,14 @@ pub(crate) type RawStdio = std::os::windows::io::RawHandle;
 
 #[repr(usize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Stdio {
+pub(crate) enum StdioStream {
     Stdin,
     Stdout,
     Stderr,
 }
 
-impl Stdio {
+impl StdioStream {
     pub(crate) const ALL: [Self; 3] = [Self::Stdin, Self::Stdout, Self::Stderr];
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ChildStdio {
-    #[cfg(unix)]
-    Inherit,
-    #[cfg(windows)]
-    Handle(RawStdio),
 }
 
 /// Runtime-owned selection of the guest-visible standard streams.
@@ -52,14 +43,12 @@ pub(crate) enum ChildStdio {
 /// points as the historical callers: the Handle namespace snapshots them at
 /// construction, child defaults are resolved at spawn, and synchronous I/O
 /// observes them for each operation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub(crate) enum StdioBindings {
-    #[default]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Stdio {
     Ambient,
 }
 
-impl StdioBindings {
+impl Stdio {
     pub(crate) fn with_stdin<T, E>(
         &self,
         f: impl FnOnce(&mut dyn Read) -> Result<T, E>,
@@ -88,99 +77,33 @@ impl StdioBindings {
     }
 
     /// Observe one ambient raw handle without taking ownership of it.
-    pub(crate) fn raw(&self, stream: Stdio) -> io::Result<RawStdio> {
+    pub(crate) fn raw(&self, stream: StdioStream) -> io::Result<RawStdio> {
         match self {
-            #[cfg(unix)]
-            Self::Ambient => Ok(stream as RawStdio),
-            #[cfg(windows)]
-            Self::Ambient => ambient_windows_raw(stream),
+            Self::Ambient => ambient_raw(stream),
         }
     }
 
     pub(crate) fn raw_handles(&self) -> [Option<RawStdio>; 3] {
-        Stdio::ALL.map(|stream| self.raw(stream).ok())
-    }
-
-    pub(crate) fn child(&self, stream: Stdio) -> io::Result<ChildStdio> {
-        match self {
-            // Unix historically leaves an absent spawn entry untouched so
-            // posix_spawn inherits the child's descriptor 0, 1, or 2.
-            #[cfg(unix)]
-            Self::Ambient => {
-                let _ = stream;
-                Ok(ChildStdio::Inherit)
-            }
-            // Windows requires concrete STARTUPINFO handles and historically
-            // observes them immediately before each spawn.
-            #[cfg(windows)]
-            Self::Ambient => self.raw(stream).map(ChildStdio::Handle),
-        }
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn poll_stdin(&self, timeout: Option<Duration>) -> io::Result<bool> {
-        let timeout_ms = match timeout {
-            Some(duration) => i32::try_from(duration.as_millis().min(i32::MAX as u128))
-                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?,
-            None => -1,
-        };
-        let mut pollfd = libc::pollfd {
-            fd: self.raw(Stdio::Stdin)?,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        loop {
-            // SAFETY: `pollfd` is a valid single-element array for this call.
-            let ready_count = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
-            if ready_count >= 0 {
-                return Ok(ready_count > 0
-                    && (pollfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0);
-            }
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            // Sandbox profiles can reject poll while reads remain available.
-            if error.raw_os_error() == Some(libc::EPERM) {
-                return Ok(true);
-            }
-            return Err(error);
-        }
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn poll_stdin(&self, timeout: Option<Duration>) -> io::Result<bool> {
-        use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
-        use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
-
-        let timeout_ms = match timeout {
-            Some(duration) => u32::try_from(duration.as_millis().min(u32::MAX as u128))
-                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?,
-            None => INFINITE,
-        };
-        let handle = self.raw(Stdio::Stdin)?;
-        // SAFETY: the Ambient binding just obtained this non-owning process
-        // handle from GetStdHandle and does not close it.
-        match unsafe { WaitForSingleObject(handle, timeout_ms) } {
-            WAIT_OBJECT_0 => Ok(true),
-            WAIT_TIMEOUT => Ok(false),
-            WAIT_FAILED => Err(io::Error::last_os_error()),
-            _ => Ok(true),
-        }
+        StdioStream::ALL.map(|stream| self.raw(stream).ok())
     }
 }
 
+#[cfg(unix)]
+fn ambient_raw(stream: StdioStream) -> io::Result<RawStdio> {
+    Ok(stream as RawStdio)
+}
+
 #[cfg(windows)]
-fn ambient_windows_raw(stream: Stdio) -> io::Result<RawStdio> {
+fn ambient_raw(stream: StdioStream) -> io::Result<RawStdio> {
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::System::Console::{
         GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
     };
 
     let id = match stream {
-        Stdio::Stdin => STD_INPUT_HANDLE,
-        Stdio::Stdout => STD_OUTPUT_HANDLE,
-        Stdio::Stderr => STD_ERROR_HANDLE,
+        StdioStream::Stdin => STD_INPUT_HANDLE,
+        StdioStream::Stdout => STD_OUTPUT_HANDLE,
+        StdioStream::Stderr => STD_ERROR_HANDLE,
     };
     // SAFETY: this only observes a process standard handle; ownership remains
     // with the process.
@@ -191,23 +114,14 @@ fn ambient_windows_raw(stream: Stdio) -> io::Result<RawStdio> {
     Ok(raw)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     #[test]
-    fn runtime_stdio_defaults_to_ambient() {
-        assert_eq!(StdioBindings::default(), StdioBindings::Ambient);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn ambient_child_stdio_preserves_native_inheritance() {
-        for stream in Stdio::ALL {
-            assert_eq!(
-                StdioBindings::Ambient.child(stream).unwrap(),
-                ChildStdio::Inherit
-            );
+    fn ambient_raw_handles_are_native_stdio_descriptors() {
+        for (stream, expected) in StdioStream::ALL.into_iter().zip([0, 1, 2]) {
+            assert_eq!(Stdio::Ambient.raw(stream).unwrap(), expected);
         }
     }
 }

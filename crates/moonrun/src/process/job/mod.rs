@@ -21,11 +21,14 @@
 #[cfg(windows)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
+#[cfg(windows)]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::{ResourcePublication, ResourceRef};
-use crate::runtime::{ChildStdio, Stdio, StdioBindings, WorkingDirectory};
+#[cfg(windows)]
+use crate::runtime::StdioStream;
+use crate::runtime::{Stdio, WorkingDirectory};
 
 use super::{HostProcess, ambient};
 
@@ -56,7 +59,6 @@ enum Kind {
         env: Vec<OsString>,
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
-        runtime_stdio: Option<Arc<StdioBindings>>,
         cwd: Option<OsString>,
         policy_inheritance: Option<crate::policy::PolicyInheritance>,
         result: Option<ResourcePublication>,
@@ -67,7 +69,6 @@ enum Kind {
         env: Vec<u16>,
         options: SpawnOptions,
         stdio: [Option<ResourceRef>; 3],
-        runtime_stdio: Option<Arc<StdioBindings>>,
         cwd: Option<OsString>,
         policy_inheritance: Option<crate::policy::PolicyInheritance>,
         result: Option<ResourcePublication>,
@@ -104,7 +105,6 @@ impl Job {
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
-                runtime_stdio: None,
                 cwd,
                 policy_inheritance: None,
                 result: None,
@@ -129,7 +129,6 @@ impl Job {
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
-                runtime_stdio: None,
                 cwd,
                 policy_inheritance: None,
                 result: None,
@@ -252,57 +251,45 @@ impl Job {
                 env,
                 options,
                 stdio,
-                runtime_stdio,
                 cwd,
                 policy_inheritance,
                 result,
-            } => {
-                if let Some(runtime_stdio) = runtime_stdio.take() {
-                    apply_runtime_stdio(&runtime_stdio, stdio)?;
-                }
-                ambient::run_spawn_job_unix(
-                    std::mem::take(path),
-                    std::mem::take(args),
-                    std::mem::take(env),
-                    std::mem::take(stdio),
-                    cwd.take(),
-                    *options,
-                    if invokes_moonx {
-                        policy_inheritance.take()
-                    } else {
-                        None
-                    },
-                    result,
-                )
-            }
+            } => ambient::run_spawn_job_unix(
+                std::mem::take(path),
+                std::mem::take(args),
+                std::mem::take(env),
+                std::mem::take(stdio),
+                cwd.take(),
+                *options,
+                if invokes_moonx {
+                    policy_inheritance.take()
+                } else {
+                    None
+                },
+                result,
+            ),
             #[cfg(windows)]
             Kind::SpawnWindows {
                 command_line,
                 env,
                 options,
                 stdio,
-                runtime_stdio,
                 cwd,
                 policy_inheritance,
                 result,
-            } => {
-                if let Some(runtime_stdio) = runtime_stdio.take() {
-                    apply_runtime_stdio(&runtime_stdio, stdio)?;
-                }
-                ambient::run_spawn_job_windows(
-                    std::mem::take(command_line),
-                    std::mem::take(env),
-                    std::mem::take(stdio),
-                    cwd.take(),
-                    *options,
-                    if invokes_moonx {
-                        policy_inheritance.take()
-                    } else {
-                        None
-                    },
-                    result,
-                )
-            }
+            } => ambient::run_spawn_job_windows(
+                std::mem::take(command_line),
+                std::mem::take(env),
+                std::mem::take(stdio),
+                cwd.take(),
+                *options,
+                if invokes_moonx {
+                    policy_inheritance.take()
+                } else {
+                    None
+                },
+                result,
+            ),
             Kind::WaitForProcess {
                 handle,
                 tracked_pid: _,
@@ -332,13 +319,31 @@ impl Job {
         }
     }
 
-    pub(super) fn set_stdio_bindings(&mut self, stdio: Arc<StdioBindings>) {
+    pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { runtime_stdio, .. } => *runtime_stdio = Some(stdio),
+            Kind::SpawnUnix { .. } => {
+                // An absent Unix file action preserves native descriptor
+                // inheritance, which is exactly the Ambient Runtime setting.
+                match runtime_stdio {
+                    Stdio::Ambient => Ok(()),
+                }
+            }
             #[cfg(windows)]
-            Kind::SpawnWindows { runtime_stdio, .. } => *runtime_stdio = Some(stdio),
-            Kind::WaitForProcess { .. } => {}
+            Kind::SpawnWindows { stdio, .. } => {
+                for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
+                    if slot.is_none() {
+                        let raw = runtime_stdio.raw(stream).map_err(|error| {
+                            error
+                                .raw_os_error()
+                                .map_or(AsyncHostError::Io, AsyncHostError::Native)
+                        })?;
+                        *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
+                    }
+                }
+                Ok(())
+            }
+            Kind::WaitForProcess { .. } => Ok(()),
         }
     }
 
@@ -447,30 +452,6 @@ impl Job {
     }
 }
 
-fn apply_runtime_stdio(
-    runtime_stdio: &StdioBindings,
-    slots: &mut [Option<ResourceRef>; 3],
-) -> AsyncHostResult<()> {
-    for (slot, stream) in slots.iter_mut().zip(Stdio::ALL) {
-        if slot.is_none() {
-            let child = runtime_stdio.child(stream).map_err(|error| {
-                error
-                    .raw_os_error()
-                    .map_or(AsyncHostError::Io, AsyncHostError::Native)
-            })?;
-            match child {
-                #[cfg(unix)]
-                ChildStdio::Inherit => {}
-                #[cfg(windows)]
-                ChildStdio::Handle(raw) => {
-                    *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     ambient::PORTED_SYMBOLS.to_vec()
@@ -513,6 +494,47 @@ mod tests {
         let job = spawn_job("moon", vec!["KEEP=value".into()]);
 
         assert!(!job.invokes_moonx());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ambient_stdio_preserves_native_inheritance() {
+        let mut job = spawn_job("moon", Vec::new());
+
+        job.configure_stdio(&Stdio::Ambient).unwrap();
+
+        let Kind::SpawnUnix { stdio, .. } = &job.kind else {
+            unreachable!();
+        };
+        assert!(stdio.iter().all(Option::is_none));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ambient_stdio_fills_missing_handles_without_replacing_guest_streams() {
+        let explicit_stdin = Arc::new(crate::resource::Resource::stdio_file(
+            Stdio::Ambient.raw(StdioStream::Stdin).unwrap(),
+        ));
+        let mut job = Job::spawn_windows(
+            OsString::from("cmd.exe /D /C exit 0"),
+            vec![0, 0],
+            Some(Arc::clone(&explicit_stdin)),
+            None,
+            None,
+            None,
+            SpawnOptions {
+                no_console_window: false,
+                is_orphan: false,
+            },
+        );
+
+        job.configure_stdio(&Stdio::Ambient).unwrap();
+
+        let Kind::SpawnWindows { stdio, .. } = &job.kind else {
+            unreachable!();
+        };
+        assert!(Arc::ptr_eq(stdio[0].as_ref().unwrap(), &explicit_stdin));
+        assert!(stdio[1..].iter().all(Option::is_some));
     }
 
     #[cfg(unix)]

@@ -58,7 +58,7 @@ use crate::network::HostNetwork;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 pub(crate) use crate::runtime::HostKey as HandleKey;
-use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, Stdio, StdioBindings};
+use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -265,7 +265,7 @@ struct HandleTable {
 }
 
 impl HandleTable {
-    fn with_keys(keys: Rc<RefCell<HostKeys>>, stdio: &StdioBindings) -> Self {
+    fn with_keys(keys: Rc<RefCell<HostKeys>>, stdio: &Stdio) -> Self {
         let mut handles = keys.borrow_mut();
         let mut resources = SecondaryMap::new();
 
@@ -1187,7 +1187,7 @@ pub(crate) struct AsyncHost {
 impl AsyncHost {
     pub(crate) fn new(
         environment: Arc<Env>,
-        stdio: &StdioBindings,
+        stdio: &Stdio,
         filesystem: Arc<HostFs>,
         network: HostNetwork,
         process: HostProcess,
@@ -1225,9 +1225,9 @@ impl AsyncHost {
 
     pub(crate) fn std_handle(&self, id: i32) -> AsyncHostResult<HostHandle> {
         let stdio = match id {
-            STDIN_ID => Stdio::Stdin,
-            STDOUT_ID => Stdio::Stdout,
-            STDERR_ID => Stdio::Stderr,
+            STDIN_ID => StdioStream::Stdin,
+            STDOUT_ID => StdioStream::Stdout,
+            STDERR_ID => StdioStream::Stderr,
             _ => return Err(AsyncHostError::Inval),
         };
         let handles = self.handles.borrow();
@@ -4374,7 +4374,7 @@ mod tests {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(policy.take_network_policy());
-        let stdio = Arc::new(StdioBindings::Ambient);
+        let stdio = Arc::new(Stdio::Ambient);
         let process = HostProcess::new(
             policy.take_process_policy(),
             policy.take_policy_inheritance(),

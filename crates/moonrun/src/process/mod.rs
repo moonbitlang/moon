@@ -35,7 +35,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::policy::{PolicyInheritance, ProcessPolicy};
 use crate::resource::ResourceRef;
-use crate::runtime::{StdioBindings, WorkingDirectory};
+use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use job::{Job, SpawnOptions};
 
@@ -45,7 +45,7 @@ pub(crate) struct HostProcess {
     policy: Option<ProcessPolicy>,
     policy_inheritance: Option<PolicyInheritance>,
     working_directory: Arc<WorkingDirectory>,
-    stdio: Arc<StdioBindings>,
+    stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
 }
 
@@ -66,7 +66,7 @@ impl HostProcess {
         policy: Option<ProcessPolicy>,
         policy_inheritance: Option<PolicyInheritance>,
         working_directory: Arc<WorkingDirectory>,
-        stdio: Arc<StdioBindings>,
+        stdio: Arc<Stdio>,
     ) -> Self {
         // Enforced process policy needs child provenance to authorize later
         // PID and handle operations. Ambient execution preserves direct OS
@@ -117,11 +117,11 @@ impl HostProcess {
     /// immediately before native execution.
     pub(crate) fn configure_job_for_execution(&self, job: &mut Job) -> AsyncHostResult<()> {
         job.configure_working_directory(&self.working_directory);
-        job.set_stdio_bindings(Arc::clone(&self.stdio));
+        job.configure_stdio(&self.stdio)?;
         // Authorization is complete, so the job may retain the immutable
         // inheritance payload. Direct-moonx recognition, temporary-file I/O,
-        // handle setup, and reserved env replacement stay in the spawn job;
-        // this path only attaches Arc-backed Runtime State.
+        // handle duplication, and reserved env replacement stay in the spawn
+        // job.
         job.set_policy_inheritance(self.policy_inheritance.clone());
         Ok(())
     }
