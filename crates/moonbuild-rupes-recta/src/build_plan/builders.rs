@@ -1723,11 +1723,30 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn build_build_docs(
         &mut self,
         node: BuildPlanNode,
-        _module_id: ModuleId,
+        module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
-        // For now, `moondoc` depends on *every check*, as specified in its
-        // packages.json input. I guess bad things might happen if you don't?
-        for (pkg_id, _) in self.input.pkg_dirs.all_packages(true) {
+        // Documentation starts from backend-compatible packages in the
+        // selected module. Their Check MI requirements expand the same
+        // dependency closure used by ordinary package checks.
+        let target_backend = self.build_env.target_backend();
+        let packages = self
+            .input
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .expect("documentation module must exist in the resolved package set");
+        let supported_packages = packages
+            .values()
+            .copied()
+            .filter(|&pkg_id| {
+                self.input
+                    .pkg_dirs
+                    .get_package(pkg_id)
+                    .effective_supported_targets
+                    .contains(&target_backend)
+            })
+            .collect::<Vec<_>>();
+
+        for pkg_id in supported_packages {
             self.require_artifact(
                 node,
                 ArtifactKey::CheckMi {

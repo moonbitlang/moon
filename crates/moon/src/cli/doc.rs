@@ -125,8 +125,9 @@ pub(crate) fn run_doc_rr(
         ..
     } = &dirs;
 
-    // FIXME: This is copied from `moon check`'s code. Share code if possible.
-    let mut preconfig = preconfig_compile(
+    // Resolve the complete selected project before choosing the member-scoped
+    // documentation backend.
+    let resolve_preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         &cli,
         &BuildFlags::default(),
@@ -134,12 +135,26 @@ pub(crate) fn run_doc_rr(
         target_dir,
         RunMode::Check,
     );
-    preconfig.docs_serve = cmd.serve;
 
-    let resolve_cfg = preconfig.resolve_config();
+    let resolve_cfg = resolve_preconfig.resolve_config();
     let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+
+    let module_id = selected_doc_module_id(&resolve_output, &selected_module.root)?;
+    let target_backend = resolve_output
+        .module_info(module_id)
+        .preferred_target
+        .unwrap_or_default();
+    let mut preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        &cli,
+        &BuildFlags::default(),
+        Some(target_backend),
+        target_dir,
+        RunMode::Check,
+    );
+    preconfig.docs_serve = cmd.serve;
 
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
@@ -148,7 +163,6 @@ pub(crate) fn run_doc_rr(
         user_log,
         &resolve_output,
     )?;
-    let module_id = selected_doc_module_id(&resolve_output, &selected_module.root)?;
     let intent = vec![UserIntent::Doc(module_id)].into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
