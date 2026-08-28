@@ -203,8 +203,8 @@ jobs:
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}/target/debug/moonrun
         run: |
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target all
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target all
+          cargo run --bin moon -- -C ~/.moon/lib/core test -j 8 --target all
+          cargo run --bin moon -- -C ~/.moon/lib/core test -j 8 --release --target all
 
       # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
       # TODO: Add this back when we add LLVM to nightly
@@ -418,15 +418,15 @@ jobs:
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}/target/debug/moonrun
         run: |
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target all
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target all
+          cargo run --bin moon -- -C ~/.moon/lib/core test -j 8 --target all
+          cargo run --bin moon -- -C ~/.moon/lib/core test -j 8 --release --target all
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}\target\debug\moonrun.exe
         run: |
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target all
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target all
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test -j 8 --target all
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test -j 8 --release --target all
 
   # coverage:
   #   needs: bleeding-test
