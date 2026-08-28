@@ -62,6 +62,7 @@ fn parse_path_components(path: &str) -> anyhow::Result<Vec<&str>> {
             || *component == ".."
             || component.contains(':')
             || component.contains('\\')
+            || component.contains(['#', '?', '%'])
     }) {
         anyhow::bail!("path contains an invalid component");
     }
@@ -260,6 +261,9 @@ mod tests {
         for path in [
             "user/module/.",
             "user/module/..",
+            "user#/module/package",
+            "user/module?/package",
+            "user/module/package%",
             "C:/module/package",
             r"user/module/a\..\..\evil",
         ] {

@@ -79,9 +79,11 @@ Currently, no ambiguity is allowed when resolving package names.
 If two packages resolves to the same full name when building,
 the build system should abort and return an error.
 
-Although technically module and package name components are allowed to contain any character execpt `/`,
+Although technically module and package name components are allowed to contain any character except `/`,
 we recommend and plan to restrict the character set to ASCII identifiers,
 to prevent causing issues on other parts of the toolchain and compiler.
+Registry module and package components additionally may not contain `#`, `?`,
+or `%`, because they have URL syntax meaning.
 
 ## Dependency resolving
 

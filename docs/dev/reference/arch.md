@@ -370,14 +370,17 @@ Current registry configuration behavior today is:
 - The public `Registry` trait contains only metadata queries used by resolution.
   Package source acquisition remains on `RegistryClient`; dependency-source
   tests replace it through a crate-private seam.
-- `RegistryConfig.index` controls how `moon update` populates the local
-  registry index over Git.
-- `RegistryClient` derives the search and package archive endpoints internally
-  from the loaded registry configuration; callers do not construct or depend
-  on its transport URLs.
-- The optional `RegistryConfig.symbols` URL overrides the default Mooncakes
-  symbols archive used by `moon update`. `MOONCAKES_REGISTRY` derives the
-  index and symbols URLs from the configured registry base.
+- `RegistryConfig.api` controls dynamic registry requests such as search.
+  `RegistryConfig.index` controls how `moon update` populates the local
+  registry index over Git. `RegistryConfig.download` controls immutable package
+  archives, prebuilt Wasm artifacts and checksums, and the default
+  `symbols.zip` archive.
+- `RegistryClient` constructs those URLs internally; callers do not construct
+  or depend on its transport URLs. The optional `RegistryConfig.symbols` URL
+  remains a compatibility override for `symbols.zip`.
+- Existing `registry`-format configurations and `MOONCAKES_REGISTRY` retain
+  their former combined endpoint layout while users migrate to the split
+  configuration.
 - MVS itself resolves against the local on-disk index and does not consume
   `RegistryConfig` directly.
 

@@ -70,7 +70,12 @@ $MOON_HOME/
   `.registry-update-state.json` lets callers that waited for that lock reuse a
   concurrent update. Lock files remain in place after unlocking so all
   processes continue to lock the same filesystem object.
-- `config.json` stores registry configuration.
+- `config.json` stores registry configuration. New configurations use independent
+  `api`, `index`, and `download` URLs: dynamic registry operations use `api`,
+  the local Git checkout uses `index`, and immutable package archives,
+  prebuilt Wasm artifacts, checksums, and `symbols.zip` use `download`.
+  Existing configurations with `registry`, `index`, and optional `symbols`
+  remain supported with their original URL layout.
 - `credentials.json` stores Mooncakes login credentials.
 
 The layout deliberately records current behavior rather than claiming every
