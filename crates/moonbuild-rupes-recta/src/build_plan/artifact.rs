@@ -108,6 +108,9 @@ pub enum ArtifactKey {
         package: PackageId,
         target_kind: TargetKind,
     },
+    NodeTestPackageConfig {
+        package: PackageId,
+    },
     BundleResult {
         module: ModuleId,
     },
@@ -177,6 +180,7 @@ impl ArtifactKey {
                 target_kind,
             } => Some(package.build_target(*target_kind)),
             Self::VirtualContractMi { .. }
+            | Self::NodeTestPackageConfig { .. }
             | Self::CStubObject { .. }
             | Self::CStubLibrary { .. }
             | Self::BundleResult { .. }

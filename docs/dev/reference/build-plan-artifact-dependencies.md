@@ -178,6 +178,13 @@ artifact set is recorded before provider expansion, so proof-surface artifacts
 select `Prove` when the invocation also requests `ProofReport`, and otherwise
 select `EmitProof`.
 
+JavaScript test intents also request one `NodeTestPackageConfig` for each
+package. Its dedicated package-scoped `GenerateNodeTestPackageConfig` provider
+lowers to `moon tool generate-node-test-package-config`, which writes the empty
+`package.json` that prevents Node from inheriting module settings from the
+user's project. Test-driver actions do not own this artifact; whitebox,
+blackbox, and inline test targets share the same package boundary.
+
 Normal downstream `BuildCore` actions require both Build MI and Core IR, so an
 implementation change that leaves the interface stable still rebuilds the
 dependent package. Check actions require Check MI only. `LinkCore` and

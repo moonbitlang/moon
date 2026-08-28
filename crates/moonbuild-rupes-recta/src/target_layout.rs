@@ -943,6 +943,14 @@ impl ArtifactPathResolver {
                     options.target_backend(),
                 )]
             }
+            ArtifactKey::NodeTestPackageConfig { package } => {
+                let pkg = &packages.get_package(*package).fqn;
+                vec![
+                    self.target_layout
+                        .package_dir(pkg, options.target_backend())
+                        .join("package.json"),
+                ]
+            }
             ArtifactKey::BundleResult { module } => {
                 let module_name = modules.module_source(*module);
                 vec![

@@ -95,14 +95,6 @@ pub(crate) fn command_for_with_moonrun_policy(
             cmd
         }
         ExecutionMode::Node => {
-            if test.is_some() {
-                // Also write package.json to the directory of the .js file being required
-                // to prevent node from finding the user's package.json with "type": "module"
-                if let Some(js_parent) = mbt_executable.parent() {
-                    let js_dir_package_json = js_parent.join("package.json");
-                    let _ = std::fs::write(js_dir_package_json, "{}");
-                }
-            }
             let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
             cmd.arg(mbt_executable);

@@ -1725,10 +1725,9 @@ fn rr_test_after_build(
     }
 
     if cmd.build_only {
-        // Match legacy behavior: create JS wrappers and print test artifacts as JSON
+        // Match legacy behavior: print test artifacts as JSON.
         let test_artifacts = collect_test_artifacts_for_build_only(
             build_meta,
-            target_dir,
             &filter,
             cmd.include_skipped,
             cmd.run_mode == RunMode::Bench,
@@ -1960,12 +1959,11 @@ fn execute_test_build_from_plan(
 }
 
 /// Collect test artifacts for --build-only mode, matching legacy behavior.
-/// For JS backend, creates .cjs wrapper files and returns those paths.
-/// For other backends, returns the executable paths directly.
+/// For JS backend, serializes each invocation's filter arguments.
+/// For other backends, returns executable paths directly.
 /// Only includes artifacts that have actual tests (skips empty test executables).
 fn collect_test_artifacts_for_build_only(
     build_meta: &rr_build::BuildMeta,
-    target_dir: &Path,
     filter: &TestFilter,
     include_skipped: bool,
     bench: bool,
@@ -1976,14 +1974,8 @@ fn collect_test_artifacts_for_build_only(
     for invocation in
         crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
     {
-        // For JS backend, create .cjs wrapper file (matching legacy behavior)
+        // JS build-only output carries the serialized filter beside the executable.
         if matches!(build_meta.target_backend(), TargetBackend::Js) {
-            // Write package.json to prevent node from using outer "type": "module"
-            let _ = std::fs::write(target_dir.join("package.json"), "{}");
-            if let Some(parent) = invocation.executable.parent() {
-                let _ = std::fs::write(parent.join("package.json"), "{}");
-            }
-
             let filter_arg = serde_json::to_string(&invocation.args)
                 .context("failed to serialize JS test filter args")?;
 

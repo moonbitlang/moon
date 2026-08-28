@@ -348,6 +348,7 @@ Backend build-plan nodes and package prebuild actions are peer action kinds.
 | `BuildRuntimeLib`               | archiver or C compiler      | runtime library       | runtime objects, release SIMDUTF objects    | Collects the native runtime                    |
 | `GenerateMbti(BuildTarget)`     | `mooninfo`                  | `.mbti`               | `.mi`                                      | Get text repr of `.mi`                         |
 | `GenerateTestInfo(BuildTarget)` | `moon generate-test-driver` | test driver, metadata | source files                               | Generate the test driver and metadata          |
+| `GenerateNodeTestPackageConfig(PackageId)` | `moon tool generate-node-test-package-config` | `package.json` | N/A | Create a type-neutral Node package boundary |
 | `BuildVirtual(PackageId)`       | `moonc build-interface`     | `.mi`                 | `.mbti`                                    | Get interface from `.mbti`                     |
 
 `PackagePrebuildKey` separately identifies custom, moonlex, and moonyacc

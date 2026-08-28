@@ -193,6 +193,9 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
             BuildPlanNode::GenerateDsym(target) => format!("{:?}@GenerateDsym", target),
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                format!("{:?}@GenerateNodeTestPackageConfig", package)
+            }
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
             BuildPlanNode::BuildRuntimeObject(index) => {
@@ -246,6 +249,10 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nGenerateTestInfo", fqn)
             }
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                let fqn = packages.fqn(*package);
+                format!("{}\\nGenerateNodeTestPackageConfig", fqn)
+            }
             BuildPlanNode::Bundle(module_id) => {
                 let src = env.module_source(*module_id);
                 format!("{}\\nBundle", src)
@@ -281,6 +288,7 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(_) => "lightpink",
             BuildPlanNode::GenerateDsym(_) => "pink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
+            BuildPlanNode::GenerateNodeTestPackageConfig(_) => "lightgray",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::BuildRuntimeObject(_) => "orange",

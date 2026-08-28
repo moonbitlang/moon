@@ -74,6 +74,9 @@ pub(crate) enum BuildAction<'a> {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
     },
+    GenerateNodeTestPackageConfig {
+        package: PackageId,
+    },
     GenerateMbti {
         target: BuildTarget,
     },
