@@ -1064,7 +1064,6 @@ fn test_moon_run_policy_with_workspace_async_fs() {
     // test executable because a MoonBit test driver does nothing without
     // moonrun's --test-args selection.
     let env_marker_wasm = wasm_file("env_marker");
-    #[cfg(unix)]
     let detach_moonx_wasm = wasm_file("detach_moonx");
     let env_mutate_wasm = wasm_file("env_mutate");
     let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
@@ -1250,34 +1249,43 @@ spawn = true
         .success()
         .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
-        use std::os::unix::fs::PermissionsExt;
-
-        // The moonx-named wrapper stops itself before execing the real binary.
-        // Resuming it only after the parent moonrun exits makes the detached
-        // lifetime boundary deterministic. Exec preserves both environment and
-        // inherited OS handles, so this test also applies to a future FD transport.
+        // Each moonx-named wrapper announces itself over TCP and waits for the
+        // test to release it. The test does not send that release until the
+        // parent moonrun has exited, so the detached lifetime boundary is an
+        // event in the protocol rather than a filesystem timing assumption.
         let wrapper_dir =
             tempfile::TempDir::new().expect("create detached moonx wrapper directory");
-        let wrapper = wrapper_dir.path().join("moonx");
-        std::fs::write(
-            &wrapper,
-            r#"#!/bin/sh
-set -eu
-printf '%s' "$$" > "$MOON_TEST_DETACH_PID"
-kill -STOP "$$"
-exec "$MOON_TEST_REAL_MOONX" "$@"
-"#,
-        )
-        .unwrap();
-        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let wrapper = wrapper_dir
+            .path()
+            .join(format!("moonx{}", std::env::consts::EXE_SUFFIX));
+        let wrapper_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/detached_moonx_wrapper.rs");
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        let status = std::process::Command::new(rustc)
+            .arg("--edition=2021")
+            .arg(wrapper_source)
+            .arg("-o")
+            .arg(&wrapper)
+            .status()
+            .expect("compile detached moonx wrapper");
+        assert!(status.success(), "failed to compile detached moonx wrapper");
+
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .expect("bind detached moonx synchronization listener");
+        listener
+            .set_nonblocking(true)
+            .expect("make detached moonx listener nonblocking");
+        let server = listener
+            .local_addr()
+            .expect("read detached moonx listener address")
+            .to_string();
         let detached_path = std::env::join_paths(
             std::iter::once(wrapper_dir.path().to_path_buf()).chain(std::env::split_paths(&path)),
         )
         .expect("put detached moonx wrapper on PATH");
-        let marker = dir.path().join("detached-moonx-finished");
-        let pid_marker = dir.path().join("detached-moonx-pid");
+        let log = dir.path().join("detached-moonx");
 
         snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
             .current_dir(dir.path())
@@ -1286,8 +1294,8 @@ exec "$MOON_TEST_REAL_MOONX" "$@"
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
             .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
             .env("MOON_TEST_REAL_MOONX", &moonx)
-            .env("MOON_TEST_DETACH_MARKER", &marker)
-            .env("MOON_TEST_DETACH_PID", &pid_marker)
+            .env("MOON_TEST_DETACH_SERVER", server)
+            .env("MOON_TEST_DETACH_LOG", &log)
             .arg("--policy")
             .arg(&inherited_policy)
             .arg(&detach_moonx_wasm)
@@ -1296,56 +1304,69 @@ exec "$MOON_TEST_REAL_MOONX" "$@"
             .stdout_eq("")
             .stderr_eq("");
 
-        let pid_markers = [
-            pid_marker.with_file_name("detached-moonx-pid-0"),
-            pid_marker.with_file_name("detached-moonx-pid-1"),
-        ];
-        let markers = [
-            marker.with_file_name("detached-moonx-finished-0"),
-            marker.with_file_name("detached-moonx-finished-1"),
-        ];
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while !pid_markers.iter().all(|path| path.exists()) {
-            if std::time::Instant::now() >= deadline {
-                for path in &pid_markers {
-                    if let Ok(pid) = std::fs::read_to_string(path)
-                        .and_then(|pid| pid.parse::<libc::pid_t>().map_err(std::io::Error::other))
-                    {
-                        unsafe {
-                            libc::kill(pid, libc::SIGKILL);
-                        }
+        let logs = || {
+            (0..2)
+                .map(|index| {
+                    let path = log.with_file_name(format!("detached-moonx-{index}.log"));
+                    let contents = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|error| format!("<failed to read: {error}>"));
+                    format!("{}:\n{contents}", path.display())
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        // Time only bounds a broken test. Every successful transition below
+        // is driven by a byte received from the process on the other side.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut children = Vec::with_capacity(2);
+        while children.len() < 2 {
+            match listener.accept() {
+                Ok((stream, _)) => children.push(stream),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        panic!("detached moonx did not connect before timeout\n{}", logs());
                     }
+                    std::thread::sleep(Duration::from_millis(10));
                 }
-                panic!("detached moonx processes did not reach their synchronization point");
+                Err(error) => panic!("failed to accept detached moonx: {error}\n{}", logs()),
             }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        let pids = pid_markers.map(|path| {
-            std::fs::read_to_string(path)
-                .unwrap()
-                .parse::<libc::pid_t>()
-                .unwrap()
-        });
-        for pid in pids {
-            assert_eq!(unsafe { libc::kill(pid, libc::SIGCONT) }, 0);
         }
 
-        let completion_deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while !markers.iter().all(|path| path.exists()) {
-            if std::time::Instant::now() >= completion_deadline {
-                for pid in pids {
-                    unsafe {
-                        libc::kill(pid, libc::SIGKILL);
-                    }
-                }
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
+        for child in &mut children {
+            child
+                .set_nonblocking(false)
+                .expect("make detached moonx connection blocking");
+            child
+                .set_read_timeout(Some(Duration::from_secs(60)))
+                .expect("set detached moonx read timeout");
+            child
+                .set_write_timeout(Some(Duration::from_secs(60)))
+                .expect("set detached moonx write timeout");
+            let mut ready = [0];
+            std::io::Read::read_exact(child, &mut ready).unwrap_or_else(|error| {
+                panic!("detached moonx did not become ready: {error}\n{}", logs())
+            });
+            assert_eq!(ready, [b'R'], "unexpected detached moonx handshake");
         }
-        for marker in markers {
+
+        for child in &mut children {
+            std::io::Write::write_all(child, b"G").unwrap_or_else(|error| {
+                panic!("failed to release detached moonx: {error}\n{}", logs())
+            });
+        }
+        for child in &mut children {
+            let mut result = [0];
+            std::io::Read::read_exact(child, &mut result).unwrap_or_else(|error| {
+                panic!(
+                    "detached moonx did not report completion: {error}\n{}",
+                    logs()
+                )
+            });
             assert_eq!(
-                std::fs::read_to_string(marker).expect("detached moonx did not finish"),
-                "inherited policy active"
+                result,
+                [b'S'],
+                "detached moonx failed after its parent exited\n{}",
+                logs()
             );
         }
     }

@@ -18,21 +18,15 @@
 
 ///|
 async fn main {
-  let marker = match @env.get_env_var("MOON_TEST_DETACH_MARKER") {
-    Some(marker) => marker
-    None => abort("missing detach marker path")
-  }
-  let pid_marker = match @env.get_env_var("MOON_TEST_DETACH_PID") {
-    Some(marker) => marker
-    None => abort("missing detached pid path")
+  let log = match @env.get_env_var("MOON_TEST_DETACH_LOG") {
+    Some(log) => log
+    None => abort("missing detach log path")
   }
   for index = 0; index < 2; index = index + 1 {
-    let marker = marker + "-\{index}"
-    let output = @process.redirect_to_file(marker + ".log")
+    let output = @process.redirect_to_file(log + "-\{index}.log")
     let _ = @process.spawn_orphan(
       "moonx",
-      ["moonbitlang/parser/cmd/moonfmt@0.3.3", marker],
-      extra_env={ "MOON_TEST_DETACH_PID": pid_marker + "-\{index}" },
+      ["moonbitlang/parser/cmd/moonfmt@0.3.3"],
       stdout=output,
       stderr=output,
     )
