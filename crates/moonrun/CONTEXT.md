@@ -89,9 +89,10 @@ _Avoid_: Host Domain, Raw Operation, Runtime
 **Env**:
 The environment interface owned by one Runtime and shared by MoonBit
 environment imports, WASI environment calls, temporary-directory resolution,
-and child inheritance. Provisioning rules may determine its initial contents;
-after construction it is Runtime State. Ambient retains process-environment
-write-through for guest-reachable effects that do not yet cross Env.
+and child inheritance. Provisioning rules may determine its initial contents
+and are consumed during construction. The realized Env is then Runtime State.
+Ambient retains process-environment write-through for guest-reachable effects
+that do not yet cross Env.
 _Avoid_: Mutable policy, per-import environment map
 
 **Runtime Stdio**:

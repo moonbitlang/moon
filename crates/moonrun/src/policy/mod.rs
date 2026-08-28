@@ -21,10 +21,10 @@
 //! No policy file preserves existing moonrun behavior. Supplying a policy file
 //! switches the supported host surfaces to deny-by-default mode. Runtime
 //! construction consumes the resulting domain policies instead of retaining a
-//! global policy object in the Host domains.
+//! global policy object in the Host domains. Environment provisioning is also
+//! consumed during construction and does not become a runtime policy check.
 
 mod config;
-mod env;
 mod fs;
 mod net;
 mod policy_inheritance;
@@ -35,21 +35,18 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::runtime::Env;
-
 use self::config::PolicyConfig;
-use self::env::EnvPolicy;
 pub(crate) use self::fs::{FsIntents, FsPolicy};
 pub(crate) use self::net::{NetOperation, NetPolicy, SocketRule};
 pub(crate) use self::policy_inheritance::PolicyInheritance;
 pub(crate) use self::process::ProcessPolicy;
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::runtime::EnvProvisioning;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Policy {
     fs: Option<FsPolicy>,
     net: Option<NetPolicy>,
-    env: Option<EnvPolicy>,
     process: Option<ProcessPolicy>,
     policy_inheritance: Option<PolicyInheritance>,
 }
@@ -68,40 +65,9 @@ impl Policy {
         Self {
             fs: None,
             net: None,
-            env: None,
             process: None,
             policy_inheritance: None,
         }
-    }
-
-    pub(crate) fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let config = PolicyConfig::from_file(path)?;
-        let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
-        Self::from_config(config, config_dir)
-    }
-
-    pub(crate) fn from_inherited_json(contents: &[u8]) -> anyhow::Result<Self> {
-        let config = serde_json::from_slice(contents)
-            .context("failed to parse inherited JSON Moonrun Policy")?;
-        // Inherited policies contain absolute filesystem roots. Running the
-        // same canonicalization confirms that those roots still resolve here.
-        Self::from_config(config, Path::new("."))
-    }
-
-    fn from_config(config: PolicyConfig, config_dir: &Path) -> anyhow::Result<Self> {
-        let config = canonicalize(config, config_dir)?;
-        let policy_inheritance = PolicyInheritance::from_config(&config)?;
-        Ok(Self {
-            fs: Some(FsPolicy::from_canonical_config(
-                config.fs.unwrap_or_default(),
-            )),
-            net: Some(NetPolicy::from_config(config.net.unwrap_or_default())?),
-            env: Some(EnvPolicy::from_config(config.env.unwrap_or_default())?),
-            process: Some(ProcessPolicy::from_config(
-                config.process.unwrap_or_default(),
-            )?),
-            policy_inheritance: Some(policy_inheritance),
-        })
     }
 
     pub(crate) fn take_filesystem_policy(&mut self) -> Option<FsPolicy> {
@@ -110,12 +76,6 @@ impl Policy {
 
     pub(crate) fn take_network_policy(&mut self) -> Option<NetPolicy> {
         self.net.take()
-    }
-
-    pub(crate) fn realize_env(&mut self) -> anyhow::Result<Env> {
-        self.env
-            .take()
-            .map_or_else(|| Ok(Env::ambient()), |policy| policy.realize())
     }
 
     pub(crate) fn take_process_policy(&mut self) -> Option<ProcessPolicy> {
@@ -127,11 +87,56 @@ impl Policy {
     }
 }
 
+/// Load the legacy policy document into its two construction-time outputs.
+///
+/// The source format still colocates environment provisioning with operational
+/// authorization. Splitting them here prevents that historical file layout
+/// from making provisioning part of the realized `Policy`.
+pub(crate) fn load_file(path: &Path) -> anyhow::Result<(Policy, EnvProvisioning)> {
+    let config = PolicyConfig::from_file(path)?;
+    let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    realize_config(config, config_dir)
+}
+
+pub(crate) fn load_inherited_json(contents: &[u8]) -> anyhow::Result<(Policy, EnvProvisioning)> {
+    let config = serde_json::from_slice(contents)
+        .context("failed to parse inherited JSON Moonrun Policy")?;
+    // Inherited policies contain absolute filesystem roots. Running the same
+    // canonicalization confirms that those roots still resolve here.
+    realize_config(config, Path::new("."))
+}
+
+fn realize_config(
+    config: PolicyConfig,
+    config_dir: &Path,
+) -> anyhow::Result<(Policy, EnvProvisioning)> {
+    let config = canonicalize(config, config_dir)?;
+    let policy_inheritance = PolicyInheritance::from_config(&config)?;
+    let fs = Some(FsPolicy::from_canonical_config(
+        config.fs.unwrap_or_default(),
+    ));
+    let net = Some(NetPolicy::from_config(config.net.unwrap_or_default())?);
+    let env = config.env.unwrap_or_default();
+    let env_provisioning = EnvProvisioning::new(env.from_host, env.required_from_host, env.set)?;
+    let process = Some(ProcessPolicy::from_config(
+        config.process.unwrap_or_default(),
+    )?);
+    Ok((
+        Policy {
+            fs,
+            net,
+            process,
+            policy_inheritance: Some(policy_inheritance),
+        },
+        env_provisioning,
+    ))
+}
+
 /// Resolve source-relative policy values into a transport-independent form.
 ///
-/// Environment materialization and runtime rule validation deliberately remain
-/// part of Policy construction; only filesystem roots depend on the policy
-/// source directory.
+/// Environment provisioning and runtime rule validation deliberately remain
+/// part of configuration realization; only filesystem roots depend on the
+/// policy source directory.
 fn canonicalize(mut config: PolicyConfig, config_dir: &Path) -> anyhow::Result<PolicyConfig> {
     if let Some(fs) = config.fs.as_mut() {
         fs.read = canonicalize_roots(std::mem::take(&mut fs.read), config_dir)?;
@@ -340,7 +345,7 @@ mod tests {
         let canonical_write = std::fs::canonicalize(&write).unwrap();
         let secret = "value-that-must-not-be-serialized";
 
-        let mut policy = Policy::from_config(
+        let (mut policy, _) = realize_config(
             PolicyConfig {
                 fs: Some(config::FsConfig {
                     read: vec![PathBuf::from("read")],
@@ -390,7 +395,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("policy.json");
         std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
-        let mut parent = Policy::from_file(&source).unwrap();
+        let (mut parent, _) = load_file(&source).unwrap();
         let contents = parent
             .take_policy_inheritance()
             .unwrap()
@@ -400,7 +405,7 @@ mod tests {
             .unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
-        let inherited = Policy::from_inherited_json(&contents).unwrap();
+        let (inherited, _) = load_inherited_json(&contents).unwrap();
 
         #[cfg(unix)]
         assert_eq!(
@@ -428,7 +433,7 @@ mod tests {
     #[test]
     fn missing_fs_section_denies_fs_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(
+        let (policy, _) = realize_config(
             PolicyConfig {
                 fs: None,
                 net: Some(Default::default()),
@@ -447,7 +452,7 @@ mod tests {
     #[test]
     fn empty_fs_section_denies_fs() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(
+        let (policy, _) = realize_config(
             PolicyConfig {
                 fs: Some(Default::default()),
                 net: None,
@@ -475,7 +480,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         std::fs::create_dir(&allowed).unwrap();
-        let policy = Policy::from_config(
+        let (policy, _) = realize_config(
             PolicyConfig {
                 fs: Some(config::FsConfig {
                     read: vec![PathBuf::from("allowed")],
@@ -497,7 +502,7 @@ mod tests {
     #[test]
     fn empty_net_section_denies_net() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(
+        let (policy, _) = realize_config(
             PolicyConfig {
                 fs: None,
                 net: Some(Default::default()),
@@ -516,7 +521,7 @@ mod tests {
     #[test]
     fn missing_env_section_uses_empty_env_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut policy = Policy::from_config(
+        let (_, provisioning) = realize_config(
             PolicyConfig {
                 fs: None,
                 net: None,
@@ -527,7 +532,7 @@ mod tests {
         )
         .unwrap();
 
-        let environment = policy.realize_env().unwrap();
+        let environment = provisioning.realize().unwrap();
         assert!(environment.entries().is_empty());
         assert!(environment.get("PATH".as_ref()).is_none());
     }
@@ -544,7 +549,7 @@ mod tests {
     #[test]
     fn missing_process_section_denies_spawning_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
+        let (policy, _) = realize_config(PolicyConfig::default(), tmp.path()).unwrap();
 
         assert_eq!(
             {
@@ -564,7 +569,7 @@ mod tests {
     #[test]
     fn process_section_can_allow_spawning() {
         let tmp = tempfile::tempdir().unwrap();
-        let policy = Policy::from_config(
+        let (policy, _) = realize_config(
             PolicyConfig {
                 process: Some(config::ProcessConfig {
                     spawn: true,

@@ -19,6 +19,7 @@
 //! Process-facing state selected for one Moonrun Runtime.
 
 mod environment;
+mod environment_provisioning;
 mod stdio;
 mod working_directory;
 
@@ -34,11 +35,12 @@ use slotmap::{KeyData, SlotMap, new_key_type};
 use crate::async_host::AsyncHost;
 use crate::filesystem::HostFs;
 use crate::network::HostNetwork;
-use crate::policy::Policy;
+use crate::policy::{self, Policy};
 use crate::process::HostProcess;
 use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
+pub(crate) use environment_provisioning::EnvProvisioning;
 pub(crate) use stdio::{Stdio, StdioStream};
 pub use working_directory::WorkingDirectory;
 
@@ -121,18 +123,23 @@ impl Runtime {
         inherited_policy: Option<&[u8]>,
         working_directory: WorkingDirectory,
     ) -> anyhow::Result<Self> {
-        let mut policy = match (inherited_policy, policy_file) {
-            (Some(contents), _) => Policy::from_inherited_json(contents).context(
-                "failed to load inherited sandbox policy (experimental)",
-            )?,
-            (None, Some(path)) => Policy::from_file(path).context(
-                "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
-            )?,
-            (None, None) => Policy::allow_all(),
+        let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
+            (Some(contents), _) => {
+                let (policy, env) = policy::load_inherited_json(contents)
+                    .context("failed to load inherited sandbox policy (experimental)")?;
+                (policy, Some(env))
+            }
+            (None, Some(path)) => {
+                let (policy, env) = policy::load_file(path).context(
+                    "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
+                )?;
+                (policy, Some(env))
+            }
+            (None, None) => (Policy::allow_all(), None),
         };
         let environment = Arc::new(
-            policy
-                .realize_env()
+            env_provisioning
+                .map_or_else(|| Ok(Env::ambient()), EnvProvisioning::realize)
                 .context("failed to construct the Runtime environment")?,
         );
         let filesystem_policy = policy.take_filesystem_policy();

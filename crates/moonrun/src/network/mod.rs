@@ -301,7 +301,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use crate::policy::Policy;
+    use crate::policy::{self, Policy};
 
     fn network(mut policy: Policy) -> HostNetwork {
         HostNetwork::new(policy.take_network_policy())
@@ -363,7 +363,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("deny-all.toml");
         std::fs::write(&policy_file, "").unwrap();
-        let network = network(Policy::from_file(&policy_file).unwrap());
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let network = network(policy);
         let socket = network.make_tcp_socket(4).unwrap();
 
         assert_eq!(
@@ -381,7 +382,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("deny-all.toml");
         std::fs::write(&policy_file, "").unwrap();
-        let network = network(Policy::from_file(&policy_file).unwrap());
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let network = network(policy);
         let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
         sys::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
 
@@ -404,7 +406,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("network.toml");
         std::fs::write(&policy_file, "[net]\nconnect = [\"api.example.com:443\"]\n").unwrap();
-        let mut policy = Policy::from_file(&policy_file).unwrap();
+        let (mut policy, _) = policy::load_file(&policy_file).unwrap();
         let policy = policy.take_network_policy().unwrap();
         let first = HostNetwork::new(Some(policy.clone()));
         let second = HostNetwork::new(Some(policy));

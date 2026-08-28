@@ -141,7 +141,7 @@ path syntax; Windows policies may use normal Windows paths such as `C:\work` or
 wildcard `"*"` allows every host path on every platform. List a root in both
 `read` and `write` to allow read-write filesystem access.
 
-The environment policy constructs the guest environment. Use `from_host` to copy
+The `env` section provisions the guest environment. Use `from_host` to copy
 selected host variables if present, `required_from_host` to require selected
 host variables, and `env.set` for literal values. `env.set` overrides values
 copied from the host. The realized environment is shared by MoonBit runtime

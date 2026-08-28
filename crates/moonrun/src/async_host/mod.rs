@@ -4342,7 +4342,7 @@ mod tests {
 
     use super::*;
     use crate::filesystem::Job as FilesystemJob;
-    use crate::policy::Policy;
+    use crate::policy::{self, Policy};
     use crate::process::{Job as ProcessJob, SpawnOptions};
     use crate::runtime::WorkingDirectory;
 
@@ -4361,12 +4361,8 @@ mod tests {
         host.handles.borrow().resource_count_excluding_reserved()
     }
 
-    fn test_host(mut policy: Policy) -> AsyncHost {
-        let environment = Arc::new(
-            policy
-                .realize_env()
-                .expect("construct test Host environment"),
-        );
+    fn test_host(mut policy: Policy, environment: Env) -> AsyncHost {
+        let environment = Arc::new(environment);
         let working_directory = Arc::new(WorkingDirectory::Ambient);
         let filesystem = Arc::new(HostFs::new(
             policy.take_filesystem_policy(),
@@ -4392,11 +4388,12 @@ mod tests {
     }
 
     fn default_host() -> AsyncHost {
-        test_host(Policy::allow_all())
+        test_host(Policy::allow_all(), Env::ambient())
     }
 
     fn host_with_policy(path: &std::path::Path) -> AsyncHost {
-        test_host(Policy::from_file(path).unwrap())
+        let (policy, env) = policy::load_file(path).unwrap();
+        test_host(policy, env.realize().unwrap())
     }
 
     #[cfg(unix)]
