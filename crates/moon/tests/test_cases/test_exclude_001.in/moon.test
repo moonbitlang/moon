@@ -1,6 +1,7 @@
   $ moon package --list
   
   Running moon check ...
+  Warning: `exclude` in `[WORK_DIR]/moon.mod.json` is deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.
   Finished. moon: ran 4 tasks, now up to date
   Check passed
   README.md

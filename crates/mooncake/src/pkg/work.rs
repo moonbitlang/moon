@@ -27,8 +27,8 @@ use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
     manifest::{
-        MoonMod, convert_module_to_mod_json, read_module_desc_file_in_dir,
-        warn_if_shadowed_manifest, write_module_json_to_file,
+        MoonMod, convert_module_to_mod_json, read_module_desc_file_in_dir, warn_module_manifest,
+        write_module_json_to_file,
     },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::{
@@ -162,10 +162,8 @@ fn resolve_workspace_member(path: &Path, user_log: &UserLog) -> anyhow::Result<P
     if !member_dir.is_dir() {
         bail!("workspace member `{}` is not a directory", path.display());
     }
-    warn_if_shadowed_manifest(
+    warn_module_manifest(
         &member_dir,
-        MOON_MOD_JSON,
-        MOON_MOD,
         &format!("at module root '{}'", member_dir.display()),
         user_log,
     );
@@ -223,10 +221,8 @@ fn workspace_roots(
     let mut roots = ResolvedRootModules::with_key();
 
     for member_dir in member_dirs {
-        warn_if_shadowed_manifest(
+        warn_module_manifest(
             member_dir,
-            MOON_MOD_JSON,
-            MOON_MOD,
             &format!("at module root '{}'", member_dir.display()),
             user_log,
         );
