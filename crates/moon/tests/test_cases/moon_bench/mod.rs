@@ -46,6 +46,16 @@ fn test_bench_driver_build_native() {
 }
 
 #[test]
+fn test_bench_isolates_each_case_in_its_own_process() {
+    let dir = TestDir::new("bench_isolation.in");
+    let out = get_stdout(&dir, ["bench"]);
+    assert!(
+        out.contains("Total tests: 2, passed: 2, failed: 0."),
+        "benchmarks should not share a process:\n{out}"
+    );
+}
+
+#[test]
 #[cfg(not(windows))]
 fn test_bench_displays_nanoseconds() {
     let dir = TestDir::new("moon_bench");

@@ -212,6 +212,19 @@ pub(crate) fn run_tests(
     let invocations = collect_test_invocations(build_meta, filter, include_skipped, bench)?;
     debug!(count = invocations.len(), "collected test invocations");
 
+    // Benchmarks are timed, so they must not share a process; see
+    // [`isolate_invocations`].
+    let invocations = if bench {
+        let invocations = isolate_invocations(invocations);
+        debug!(
+            count = invocations.len(),
+            "isolated each benchmark into its own run"
+        );
+        invocations
+    } else {
+        invocations
+    };
+
     // Parallelism is opt-in: sequential by default, parallel only when -j is given
     let parallelism = if no_parallelize {
         1
@@ -775,6 +788,51 @@ pub(crate) fn collect_test_invocations(
     Ok(invocations)
 }
 
+/// Split each invocation into one invocation per selected case, so that every
+/// case gets a freshly started process.
+///
+/// A test executable runs every case it is given inside one long-lived
+/// runtime, which is fine for tests but not for benchmarks: a case that runs
+/// second is measured against a runtime that the first case has already
+/// warmed, grown and specialized. The effect is large enough to show up as a
+/// regression when an unrelated benchmark is added ahead of an existing one.
+fn isolate_invocations(invocations: Vec<TestInvocation>) -> Vec<TestInvocation> {
+    let mut isolated = Vec::with_capacity(invocations.len());
+    for invocation in invocations {
+        for case in split_cases(&invocation.args.file_and_index) {
+            isolated.push(TestInvocation {
+                target: invocation.target,
+                executable: invocation.executable.clone(),
+                args: TestArgs {
+                    package: invocation.args.package.clone(),
+                    file_and_index: vec![case],
+                },
+                meta: invocation.meta.clone(),
+            });
+        }
+    }
+    isolated
+}
+
+/// Expand a case filter into one single-case filter per selected case. Files
+/// with nothing selected drop out.
+// The one-element range vectors are the point here: each returned filter
+// selects exactly one case.
+#[allow(clippy::single_range_in_vec_init)]
+fn split_cases(
+    file_and_index: &[(String, Vec<std::ops::Range<u32>>)],
+) -> Vec<(String, Vec<std::ops::Range<u32>>)> {
+    let mut cases = Vec::new();
+    for (file, ranges) in file_and_index {
+        for range in ranges {
+            for index in range.clone() {
+                cases.push((file.clone(), vec![index..index + 1]));
+            }
+        }
+    }
+    cases
+}
+
 #[instrument(level = "debug", skip(ctx, test))]
 fn run_one_test_executable(
     ctx: &TestRunCtx<'_>,
@@ -1169,6 +1227,26 @@ mod tests {
                 );
             }
         });
+    }
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn isolation_gives_every_selected_case_its_own_run() {
+        let selected = vec![
+            ("a.mbt".to_string(), vec![0..2, 5..6]),
+            ("b.mbt".to_string(), vec![]),
+            ("c.mbt".to_string(), vec![3..4]),
+        ];
+
+        assert_eq!(
+            super::split_cases(&selected),
+            vec![
+                ("a.mbt".to_string(), vec![0..1]),
+                ("a.mbt".to_string(), vec![1..2]),
+                ("a.mbt".to_string(), vec![5..6]),
+                ("c.mbt".to_string(), vec![3..4]),
+            ]
+        );
     }
 
     #[test]
