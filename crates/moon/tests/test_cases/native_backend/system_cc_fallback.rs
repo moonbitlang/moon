@@ -5,7 +5,7 @@ use super::unix_graph::{assert_native_backend_graph, prepend_to_path};
 
 #[test]
 fn test_native_backend_system_cc_fallback() {
-    let dir = TestDir::new("native_backend/tcc_run");
+    let dir = TestDir::new("native_backend/system_cc_fallback");
     let fake_bin = dir.join("fake-toolchain/bin");
     let fake_path = prepend_to_path(&fake_bin);
     let envs = &[("MOONBIT_NEW_NATIVE", "0"), ("PATH", fake_path.as_str())];
@@ -14,7 +14,7 @@ fn test_native_backend_system_cc_fallback() {
         "build_native_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         envs,
-        expect_file!["tcc_run/build_native_graph.jsonl.snap"],
+        expect_file!["system_cc_fallback/build_native_graph.jsonl.snap"],
     );
 
     assert_native_backend_graph(
@@ -23,9 +23,9 @@ fn test_native_backend_system_cc_fallback() {
         &["test", "--target", "native", "--dry-run", "--sort-input"],
         envs,
         if cfg!(target_os = "macos") {
-            expect_file!["tcc_run/test_native_macos_graph.jsonl.snap"]
+            expect_file!["system_cc_fallback/test_native_macos_graph.jsonl.snap"]
         } else {
-            expect_file!["tcc_run/test_native_linux_graph.jsonl.snap"]
+            expect_file!["system_cc_fallback/test_native_linux_graph.jsonl.snap"]
         },
     );
 }
