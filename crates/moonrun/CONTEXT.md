@@ -254,6 +254,9 @@ _Avoid_: Host state, native-stub implementation
 
 **Async Host**:
 Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace, materializes its reserved standard-stream Resources from the Runtime Stdio, and contains no SQLite state.
+It also owns guest cancellation-signal registration and the completion target
+used for signal delivery. It constructs Unix signal-wait Jobs backed by the
+raw signal operation in Async Sys.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
@@ -275,14 +278,16 @@ _Avoid_: SQLite API, Async Host, V8 SQLite
 The V8-free native-stub port layer. Ports carry provenance for the native source
 path and symbol they track. Reusable operating-system operations remain here;
 Job implementations live with their owning domain. Poller files are direct
-ports behind the wasm `poll/*` imports.
+ports behind the wasm `poll/*` imports. Process-global signal masks, the Unix
+signal-wait primitive, and Windows console handler mechanisms are raw ports;
+guest cancellation registration and delivery coordination belong to Async Host.
 _Avoid_: V8 adapter, placeholder unsupported imports
 
 **Thread Pool**:
 The shared host facility that schedules Jobs outside the guest coroutine loop.
 It owns the common Job result envelope, Workers, and Completion delivery. It
-does not interpret Filesystem, Network, or Process Job semantics, which remain
-in their owning domain modules.
+does not interpret Filesystem, Network, or Process Job semantics, and does not
+implement the Unix signal-wait primitive.
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:

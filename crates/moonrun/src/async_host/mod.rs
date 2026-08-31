@@ -1527,7 +1527,7 @@ impl AsyncHost {
                 .as_ref()
                 .is_some_and(|target| target.poll == poll_key)
             {
-                let _ = crate::async_sys::signal::set_console_control_handler(false, None);
+                let _ = self.set_signal_delivery_enabled(false);
                 completions.target = None;
             }
         }
@@ -1699,6 +1699,35 @@ impl AsyncHost {
         })
     }
 
+    /// Apply the guest's cancellation-signal selection.
+    ///
+    /// The current raw implementation is process-global. Keeping that detail
+    /// behind the Async Host lets the guest adapter remain unchanged when
+    /// signal interest and delivery become per-Run state.
+    pub(crate) fn set_cancellation_signals(
+        &self,
+        all_signals: &[i32],
+        signals: &[i32],
+    ) -> AsyncHostResult<()> {
+        crate::async_sys::signal::set_global_cancellation_signals(all_signals, signals)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn make_sigwait_job(&self, signals: Vec<i32>) -> AsyncHostResult<HostHandle> {
+        let notifier = self.thread_pool_notifier()?;
+        self.insert_job(crate::async_sys::signal::SigwaitJob::new(signals, notifier))
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn set_signal_delivery_enabled(&self, enabled: bool) -> AsyncHostResult<i32> {
+        let completion_target = if enabled {
+            Some(self.thread_pool_completion_target()?)
+        } else {
+            None
+        };
+        crate::async_sys::signal::set_console_control_handler(enabled, completion_target)
+    }
+
     pub(crate) fn init_thread_pool(&self, poll_handle: u64) -> AsyncHostResult<HostHandle> {
         let poll_key = self.handles.borrow().poll(poll_handle)?;
         #[cfg(unix)]
@@ -1799,7 +1828,7 @@ impl AsyncHost {
         }
         #[cfg(windows)]
         {
-            let _ = crate::async_sys::signal::set_console_control_handler(false, None);
+            let _ = self.set_signal_delivery_enabled(false);
             self.thread_pool_completions.borrow_mut().target = None;
         }
     }
@@ -3831,9 +3860,7 @@ impl AsyncHost {
     }
 
     #[cfg(unix)]
-    pub(crate) fn thread_pool_notifier(
-        &self,
-    ) -> AsyncHostResult<Arc<ThreadPoolCompletionNotifier>> {
+    fn thread_pool_notifier(&self) -> AsyncHostResult<Arc<ThreadPoolCompletionNotifier>> {
         self.thread_pool_completions
             .borrow()
             .notifier

@@ -42,7 +42,9 @@ pub(super) fn set_global_cancellation_signals(
 ) -> crate::async_host::AsyncHostResult<()> {
     let all_signals = context.with_memory_mut(|memory| read_i32_array(memory, all_signals, all_signals_len))?;
     let signals = context.with_memory_mut(|memory| read_i32_array(memory, signals, signals_len))?;
-    signal::set_global_cancellation_signals(&all_signals, &signals)
+    context
+        .host
+        .set_cancellation_signals(&all_signals, &signals)
 }
 
 #[ported(source = "src/internal/event_loop/signal.c")]
@@ -51,12 +53,7 @@ pub(super) fn set_console_control_handler(
     context: &mut ImportContext<'_, '_>,
     add: i32,
 ) -> crate::async_host::AsyncHostResult<i32> {
-    let completion_target = if add != 0 {
-        Some(context.host.thread_pool_completion_target()?)
-    } else {
-        None
-    };
-    signal::set_console_control_handler(add != 0, completion_target)
+    context.host.set_signal_delivery_enabled(add != 0)
 }
 }
 
