@@ -21,7 +21,8 @@
 use std::path::Path;
 
 use moonutil::compiler_flags::{
-    MsvcCrtPolicy, NativeAllocator, Toolchain, WINDOWS_MSVC_DEFAULT_LIBS,
+    MsvcCrtPolicy, NativeAllocator, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
+    WINDOWS_MSVC_DEFAULT_LIBS,
 };
 
 pub(crate) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
@@ -42,6 +43,7 @@ pub(crate) fn compile_runtime_command(
     let mut command = vec![
         toolchain.cc_command_path(),
         "/nologo".to_string(),
+        WINDOWS_MSVC_C_STANDARD_FLAG.to_string(),
         "/utf-8".to_string(),
         "/wd4819".to_string(),
         "/c".to_string(),
@@ -120,6 +122,11 @@ mod tests {
         );
 
         assert!(command.iter().any(|arg| arg == "/Imoon/include"));
+        assert!(
+            command
+                .iter()
+                .any(|arg| arg == WINDOWS_MSVC_C_STANDARD_FLAG)
+        );
         assert!(
             command
                 .iter()

@@ -281,6 +281,7 @@ pub const WINDOWS_MSVC_DEFAULT_LIBS: &[&str] = &[
     "uuid.lib",
 ];
 pub const WINDOWS_MSVC_STATIC_RUNTIME_FLAG: &str = "/MT";
+pub const WINDOWS_MSVC_C_STANDARD_FLAG: &str = "/std:c11";
 
 #[cfg(windows)]
 static WINDOWS_MSVC_TOOLCHAIN: OnceLock<Option<DiscoveredMsvcToolchain>> = OnceLock::new();
@@ -1487,6 +1488,8 @@ fn add_cc_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bo
         return;
     }
 
+    buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
+
     // MSVC-specific misc options
     if !has_user_flags {
         buf.push("/utf-8".to_string());
@@ -2672,6 +2675,11 @@ mod tests {
         );
 
         assert!(command.iter().any(|flag| flag == "/nologo"));
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == WINDOWS_MSVC_C_STANDARD_FLAG)
+        );
         assert!(command.iter().any(|flag| flag == "/O2"));
         assert!(!command.iter().any(|flag| flag == "/utf-8"));
         assert!(!command.iter().any(|flag| flag == "/wd4819"));
