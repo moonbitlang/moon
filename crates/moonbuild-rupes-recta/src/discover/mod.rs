@@ -56,7 +56,7 @@ use moonutil::{
     },
     manifest::{
         read_module_desc_file_in_dir, read_package_desc_file_from_path_with_supported_targets_decl,
-        warn_if_shadowed_manifest, warn_known_shadowed_manifest,
+        warn_known_shadowed_manifest, warn_module_manifest,
     },
     package::resolve_supported_targets,
     user_log::UserLog,
@@ -93,7 +93,7 @@ pub fn discover_packages(
 
         let dir = dirs.get(id).expect("Bad module ID to get directory");
         let location = format!("at module root '{}'", dir.display());
-        warn_if_shadowed_manifest(dir, MOON_MOD_JSON, MOON_MOD, &location, user_log);
+        warn_module_manifest(dir, &location, user_log);
         discover_packages_for_mod(&mut res, dir, id, env.resolved_module(id), user_log)?;
     }
 
@@ -135,10 +135,8 @@ pub fn discover_local_project(
     let mut pkg_dirs = DiscoverResult::default();
 
     for module_dir in module_dirs {
-        warn_if_shadowed_manifest(
+        warn_module_manifest(
             &module_dir,
-            MOON_MOD_JSON,
-            MOON_MOD,
             &format!("at module root '{}'", module_dir.display()),
             user_log,
         );

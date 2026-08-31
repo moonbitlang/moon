@@ -419,6 +419,41 @@ pub fn warn_if_shadowed_manifest(
     }
 }
 
+/// Emit user-facing warnings associated with the selected module manifest.
+pub fn warn_module_manifest(dir: &Path, location: &str, user_log: &UserLog) {
+    if !should_warn_manifest(dir) {
+        return;
+    }
+    warn_if_shadowed_manifest(dir, MOON_MOD_JSON, MOON_MOD, location, user_log);
+
+    let Some((manifest_path, format)) = preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
+    else {
+        return;
+    };
+    let module = match format {
+        ManifestFormat::New => read_module_from_dsl(&manifest_path),
+        ManifestFormat::Legacy => {
+            read_module_from_json(&manifest_path).map_err(anyhow::Error::from)
+        }
+    };
+    let Ok(module) = module else {
+        // The normal manifest read reports format and I/O errors.
+        return;
+    };
+    let deprecated_fields = match (module.include.is_some(), module.exclude.is_some()) {
+        (true, true) => Some(("`include` and `exclude`", "are")),
+        (true, false) => Some(("`include`", "is")),
+        (false, true) => Some(("`exclude`", "is")),
+        (false, false) => None,
+    };
+    if let Some((fields, verb)) = deprecated_fields {
+        user_log.warn(format!(
+            "{fields} in `{}` {verb} deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
+            manifest_path.display()
+        ));
+    }
+}
+
 pub fn warn_known_shadowed_manifest(
     dir: &Path,
     legacy_manifest: &'static str,

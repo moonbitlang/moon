@@ -20,10 +20,12 @@ use std::path::PathBuf;
 
 use moonutil::manifest::{
     MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
-    read_module_desc_file_in_dir, read_module_from_dsl, write_module_dsl_to_file,
+    read_module_desc_file_in_dir, read_module_from_dsl, warn_module_manifest,
+    write_module_dsl_to_file,
 };
 use moonutil::package::SupportedTargetsConfig;
 use moonutil::target::TargetBackend;
+use moonutil::user_log::UserLog;
 use semver::Version;
 
 fn fixture_dir(name: &str) -> PathBuf {
@@ -109,6 +111,71 @@ fn read_module_desc_prefers_dsl() {
     let dir = fixture_dir("module_both");
     let module = read_module_desc_file_in_dir(&dir).expect("read module descriptor");
     assert_eq!(module.name, "example/dsl_prefers");
+}
+
+#[test]
+fn warn_module_manifest_reports_deprecated_packaging_fields() {
+    let dir = temp_dir("deprecated-packaging-fields");
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+  "name": "example/deprecated",
+  "include": ["src/**"],
+  "exclude": ["target/**"]
+}
+"#,
+    )
+    .unwrap();
+    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+    warn_module_manifest(&dir, "at test module root", &user_log);
+
+    let entries = capture.take();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].message,
+        format!(
+            "`include` and `exclude` in `{}` are deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
+            dir.join("moon.mod.json").display()
+        )
+    );
+}
+
+#[test]
+fn warn_module_manifest_uses_the_selected_manifest_path() {
+    let dir = temp_dir("selected-deprecated-packaging-fields");
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"name = "example/deprecated"
+
+options(
+  "include": ["src/**"],
+)
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+  "name": "example/deprecated",
+  "exclude": ["target/**"]
+}
+"#,
+    )
+    .unwrap();
+    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+    warn_module_manifest(&dir, "at test module root", &user_log);
+
+    let entries = capture.take();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(
+        entries[1].message,
+        format!(
+            "`include` in `{}` is deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
+            dir.join("moon.mod").display()
+        )
+    );
 }
 
 #[test]

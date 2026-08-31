@@ -37,6 +37,32 @@ fn write_file(path: &Path, content: &str) {
     std::fs::write(path, content).unwrap();
 }
 
+#[test]
+fn deprecated_packaging_config_reports_workspace_member_manifest() {
+    let dir = TestDir::new("workspace_basic.in");
+    write_file(
+        &dir.join("app/moon.mod.json"),
+        r#"{
+  "name": "alice/app",
+  "version": "0.1.0",
+  "source": "src",
+  "deps": {
+    "alice/liba": "0.1.0"
+  },
+  "include": ["src/**"]
+}
+"#,
+    );
+
+    let stderr = get_stderr(&dir, ["check"]);
+    let warning = "`include` in `$ROOT/app/moon.mod.json` is deprecated";
+    assert_eq!(
+        stderr.matches(warning).count(),
+        1,
+        "expected the warning to identify the workspace member manifest, got:\n{stderr}"
+    );
+}
+
 fn same_root_workspace_dir() -> TestDir {
     let dir = TestDir::new_empty();
 

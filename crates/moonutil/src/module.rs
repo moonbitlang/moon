@@ -58,6 +58,8 @@ pub struct MoonMod {
     pub name: String,
     pub version: Option<Version>,
     pub deps: IndexMap<String, SourceDependencyInfo>,
+    /// Deprecated third-party binary dependencies. Publish portable Wasm tools
+    /// and run them with `moonx` instead.
     pub bin_deps: Option<IndexMap<String, BinaryDependencyInfo>>,
     pub readme: Option<String>,
     pub repository: Option<String>,
@@ -77,7 +79,13 @@ pub struct MoonMod {
 
     pub warn_list: Option<String>,
 
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     pub include: Option<Vec<String>>,
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     pub exclude: Option<Vec<String>>,
 
     pub preferred_target: Option<TargetBackend>,
@@ -194,11 +202,15 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warn_list: Option<String>,
 
-    /// Files to include when publishing.
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
 
-    /// Files to exclude when publishing.
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude: Option<Vec<String>>,
 
