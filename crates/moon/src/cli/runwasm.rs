@@ -28,10 +28,13 @@ use tracing::instrument;
 use super::{BuildFlags, RunSubcommand};
 use crate::cli::process::ProcessAction;
 
-/// Run a local package as WebAssembly or a prebuilt WebAssembly binary
+/// Deprecated: use moon run --target wasm locally or moonx for registry packages
 #[derive(Debug, clap::Parser)]
-#[clap(
-    long_about = r#"Run a local package as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
+#[clap(long_about = r#"Deprecated:
+  Local packages: use `moon run <LOCAL_PACKAGE> --target wasm`.
+  Registry packages: use `moonx <PACKAGE[@VERSION]>`.
+
+Run a local package as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
 
 Local package inputs are handled like `moon run --target wasm`:
   moon runwasm main
@@ -49,8 +52,7 @@ Pinned coordinates use the given version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already in the local index, updating it only when the module
 is absent. Fetched wasm files are cached under $MOON_HOME/registry/cache/assets
-and reused on later runs."#
-)]
+and reused on later runs."#)]
 pub(crate) struct RunWasmSubcommand {
     /// Local package path or Mooncakes package coordinate of the prebuilt wasm binary
     #[clap(value_name = "LOCAL_PACKAGE|PACKAGE[@VERSION]")]
@@ -75,9 +77,16 @@ pub(crate) fn run_runwasm(
     output: &CommandOutput,
 ) -> anyhow::Result<ProcessAction> {
     if should_run_as_local_package(&cmd.package)? {
+        output.user_log().warn(
+            "`moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moon run <PACKAGE> --target wasm` instead.",
+        );
         return super::run_run(cli, runwasm_as_run_subcommand(cmd), output)
             .map(ProcessAction::Exit);
     }
+
+    output.user_log().warn(
+        "`moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moonx` instead.",
+    );
 
     if cli.dry_run {
         bail!("--dry-run is not supported for Mooncakes assets in `moon runwasm`");

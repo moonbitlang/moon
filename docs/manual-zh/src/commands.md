@@ -54,7 +54,7 @@ This document contains the help content for the `moon` command-line program.
 * `check` — Check the current package, but don't build object files
 * `prove` — Prove the current package
 * `run` — Run a main package
-* `runwasm` — Run a local package as WebAssembly or a prebuilt WebAssembly binary
+* `runwasm` — Deprecated: use moon run --target wasm locally or moonx for registry packages
 * `test` — Test the current package
 * `clean` — Remove local build outputs or configured global caches
 * `fmt` — Format source code
@@ -260,6 +260,10 @@ Run a main package
 
 
 ## `moon runwasm`
+
+Deprecated:
+  Local packages: use `moon run <LOCAL_PACKAGE> --target wasm`.
+  Registry packages: use `moonx <PACKAGE[@VERSION]>`.
 
 Run a local package as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
 

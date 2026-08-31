@@ -23,10 +23,15 @@ use moonutil::user_log::UserLog;
 
 use super::registry_runner::{self, RegistryRunTarget};
 
+pub(crate) const NATIVE_TARGET_DEPRECATION_WARNING: &str =
+    "`moonx --target native` is deprecated and scheduled for removal after 2026-09-14.";
+
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub(crate) enum MoonxTarget {
     #[default]
     Wasm,
+    // TODO(2026-09-14): Remove the native moonx target and its registry
+    // build/cache path after the two-week deprecation window.
     Native,
 }
 
@@ -43,7 +48,9 @@ Accepted package coordinate forms:
 
 Pinned coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
-the latest version already known to the local registry index."#,
+the latest version already known to the local registry index.
+
+The native target is deprecated and scheduled for removal after 2026-09-14."#,
     override_usage = "moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...",
     version
 )]

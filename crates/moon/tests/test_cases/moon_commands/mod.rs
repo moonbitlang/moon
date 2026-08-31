@@ -53,7 +53,7 @@ fn test_moon_help() {
               check                  Check the current package, but don't build object files
               prove                  Prove the current package
               run                    Run a main package
-              runwasm                Run a local package as WebAssembly or a prebuilt WebAssembly binary
+              runwasm                Deprecated: use moon run --target wasm locally or moonx for registry packages
               test                   Test the current package
               clean                  Remove local build outputs or configured global caches
               fmt                    Format source code
@@ -127,6 +127,8 @@ Pinned coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already known to the local registry index.
 
+The native target is deprecated and scheduled for removal after 2026-09-14.
+
 Usage: moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
 
 Options:
@@ -172,6 +174,7 @@ fn test_moonx_validates_native_options_before_discarding_an_inherited_marker() {
         .failure()
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
+Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
 Error: --experimental-policy is only valid with `--target wasm`
 
 "#]]);
@@ -277,6 +280,7 @@ fn test_moonx_native_output_and_cache_contract() {
         .failure()
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
+Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
 [..]Package `testuser/runner` not found or is not a main package (is-main: true required)
 
 "#]]);
@@ -290,6 +294,7 @@ fn test_moonx_native_output_and_cache_contract() {
         .failure()
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
+Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
 [..]Package `testuser/runner/lib` not found or is not a main package (is-main: true required)
 
 "#]]);
@@ -332,6 +337,7 @@ fn test_moonx_native_output_and_cache_contract() {
         .success()
         .stdout_eq("native runner\n--child-arg\n")
         .stderr_eq(snapbox::str![[r#"
+Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
 Using cached testuser/runner@1.2.3
 Using cached testuser/dependency@1.0.0
 Building `testuser/runner/tool`...
@@ -368,7 +374,9 @@ Finished. moon: ran 9 tasks, now up to date
         .assert()
         .success()
         .stdout_eq("native runner\n--inherited-native\n")
-        .stderr_eq("");
+        .stderr_eq(
+            "Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.\n",
+        );
     relay.finish().unwrap();
 
     snapbox::cmd::Command::new(&moonx)
@@ -388,7 +396,9 @@ Finished. moon: ran 9 tasks, now up to date
         .assert()
         .success()
         .stdout_eq("native runner\n--malformed-inherited-marker\n")
-        .stderr_eq("");
+        .stderr_eq(
+            "Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.\n",
+        );
 
     std::fs::remove_file(&zip_path).unwrap();
     std::fs::remove_file(&index_path).unwrap();
@@ -499,6 +509,14 @@ fn test_runwasm_help_marks_policy_as_experimental() {
     let dir = TestDir::new_empty();
     let help = get_stdout(&dir, ["runwasm", "--help"]);
     assert!(
+        help.contains("Local packages: use `moon run <LOCAL_PACKAGE> --target wasm`."),
+        "expected runwasm help to identify the local-package replacement, got:\n{help}"
+    );
+    assert!(
+        help.contains("Registry packages: use `moonx <PACKAGE[@VERSION]>`."),
+        "expected runwasm help to identify the registry-package replacement, got:\n{help}"
+    );
+    assert!(
         help.contains("--experimental-policy <PATH>"),
         "expected runwasm help to expose experimental policy flag, got:\n{help}"
     );
@@ -528,6 +546,12 @@ fn test_runwasm_local_package_forwards_experimental_policy() {
             "main",
         ],
         [("MOONRUN_OVERRIDE", moonrun_bin())],
+    );
+    assert!(
+        stderr.contains(
+            "`moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moon run <PACKAGE> --target wasm` instead."
+        ),
+        "expected local runwasm deprecation guidance, got:\n{stderr}"
     );
     assert!(
         stderr.contains("failed to load sandbox policy"),
@@ -631,7 +655,9 @@ fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
         .assert()
         .code(7)
         .stdout_eq("")
-        .stderr_eq("");
+        .stderr_eq(
+            "Warning: `moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moonx` instead.\n",
+        );
 }
 
 #[test]
@@ -704,6 +730,12 @@ fn test_runwasm_cached_asset_forwards_experimental_policy() {
         envs,
     );
     assert!(
+        stderr.contains(
+            "`moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moonx` instead."
+        ),
+        "expected registry runwasm deprecation guidance, got:\n{stderr}"
+    );
+    assert!(
         stderr.contains("failed to load sandbox policy"),
         "expected sandbox policy load error, got:\n{stderr}"
     );
@@ -744,7 +776,9 @@ fn test_runwasm_uses_cached_asset_and_forwards_args() {
 arg2
 
 "#]])
-        .stderr_eq("");
+        .stderr_eq(
+            "Warning: `moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moonx` instead.\n",
+        );
 }
 
 #[test]

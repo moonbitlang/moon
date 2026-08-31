@@ -22,7 +22,7 @@ moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
 The supported options are:
 
 ```text
---target <wasm|native>        # defaults to wasm
+--target <wasm|native>        # defaults to wasm; native is deprecated
 --experimental-policy <PATH> # wasm only
 -v, --verbose
 -h, --help
@@ -104,6 +104,10 @@ Tests for its cached-asset mode must use linear-Wasm fixtures rather than
 WasmGC fixtures.
 
 ## Native target
+
+The `native` target is deprecated and scheduled for removal after September
+14, 2026. Until then, it retains its existing behavior and emits a deprecation
+warning on every invocation.
 
 The `native` target reuses the registry acquisition, exact main-package
 selection, and release build behavior of `moon install`, but publishes the
