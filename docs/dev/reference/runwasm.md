@@ -3,7 +3,9 @@
 > This page documents registry-backed prebuilt wasm mode of `moon runwasm`.
 > Local package inputs are delegated to `moon run --target wasm`.
 >
-> Status: expected behavior in this branch as of June 10, 2026.
+> Status: deprecated and scheduled for removal after September 14, 2026. Use
+> `moon run <local-package> --target wasm` for local packages and `moonx` for
+> registry packages.
 
 ## Scope
 
@@ -16,6 +18,10 @@
    published for a registry module version.
 
 This document focuses on Mooncakes asset mode.
+
+Valid local-package invocations emit a deprecation warning directing users to
+`moon run <local-package> --target wasm`. Registry-package invocations instead
+direct users to `moonx`.
 
 ## Coordinate model
 

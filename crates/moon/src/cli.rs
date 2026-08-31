@@ -118,6 +118,8 @@ pub(crate) enum MoonBuildSubcommands {
     Check(CheckSubcommand),
     Prove(ProveSubcommand),
     Run(RunSubcommand),
+    // TODO(2026-09-14): Remove `moon runwasm` after the two-week deprecation
+    // window; its replacements depend on whether the input is local or remote.
     #[clap(name = "runwasm")]
     RunWasm(RunWasmSubcommand),
     Test(TestSubcommand),
