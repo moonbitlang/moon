@@ -42,7 +42,7 @@ fn test_moon_run_single_file_dry_run() {
             cc -o ./_build/native/debug/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/env.c'
             cc -o ./_build/native/debug/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
             [ARCHIVER] [CREATE_ARGS] ./_build/native/debug/build/libruntime[FINGER_PRINT].a ./_build/native/debug/build/runtime-backtrace.o ./_build/native/debug/build/runtime-env.o ./_build/native/debug/build/runtime-runtime.o ./_build/native/debug/build/runtime-sync_io.o ./_build/native/debug/build/runtime-utf.o
-            cc -o ./_build/native/debug/build/single/single.exe '-I$MOON_HOME/include' -g -fwrapv -fno-strict-aliasing -Og '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/debug/build/single/single.c ./_build/native/debug/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
+            cc -o ./_build/native/debug/build/single/single.exe '-I$MOON_HOME/include' -g -fwrapv -fno-strict-aliasing -Og '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/debug/build/single/single.c ./_build/native/debug/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
             ./_build/native/debug/build/single/single.exe
         "#]],
     );
@@ -72,7 +72,7 @@ fn test_moon_run_single_file_dry_run() {
             cc -o ./_build/native/release/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/env.c'
             cc -o ./_build/native/release/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
             [ARCHIVER] [CREATE_ARGS] ./_build/native/release/build/libruntime[FINGER_PRINT].a ./_build/native/release/build/runtime-backtrace.o ./_build/native/release/build/runtime-env.o ./_build/native/release/build/runtime-runtime.o ./_build/native/release/build/runtime-sync_io.o ./_build/native/release/build/runtime-utf.o '$MOON_HOME/lib/moonbit_simdutf.o' '$MOON_HOME/lib/simdutf.o'
-            cc -o ./_build/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -O2 '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/release/build/single/single.c ./_build/native/release/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
+            cc -o ./_build/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -O2 '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/release/build/single/single.c ./_build/native/release/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
             ./_build/native/release/build/single/single.exe
         "#]],
     );

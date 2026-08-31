@@ -53,7 +53,7 @@ pub(crate) fn compile_runtime_command(
     ];
     command.push(format!(
         "/DMOONBIT_ALLOCATOR={}",
-        native_allocator.moonbit_allocator_macro_for_runtime(toolchain.cc(), false)
+        native_allocator.moonbit_allocator_macro(toolchain.cc(), false)
     ));
     command.push(source.display().to_string());
     command

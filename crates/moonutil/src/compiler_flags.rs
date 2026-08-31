@@ -137,11 +137,11 @@ impl NativeAllocator {
         }
     }
 
-    pub fn moonbit_allocator_macro_for_runtime(
-        self,
-        cc: &CC,
-        link_moonbitrun: bool,
-    ) -> &'static str {
+    /// The `MOONBIT_ALLOCATOR` macro value for every translation unit that
+    /// includes `moonbit.h`: the shipped runtime sources and the C emitted by
+    /// `moonc link-core`. Both must agree, otherwise the program inlines a
+    /// different allocator than the runtime it links against.
+    pub fn moonbit_allocator_macro(self, cc: &CC, link_moonbitrun: bool) -> &'static str {
         match self {
             Self::Default if link_moonbitrun && self.should_link_moonbitrun(cc) => {
                 "MOONBIT_ALLOCATOR_MIMALLOC"
@@ -1655,16 +1655,11 @@ fn add_cc_simdutf_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 }
 
 fn add_cc_allocator_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if config.output_ty == OutputType::Executable {
-        return;
-    }
-
     let Some(native_allocator) = config.native_allocator else {
         return;
     };
 
-    let allocator_macro =
-        native_allocator.moonbit_allocator_macro_for_runtime(cc, config.link_moonbitrun);
+    let allocator_macro = native_allocator.moonbit_allocator_macro(cc, config.link_moonbitrun);
 
     if cc.is_msvc() {
         buf.push(format!("/DMOONBIT_ALLOCATOR={allocator_macro}"));
@@ -1988,6 +1983,63 @@ mod tests {
             command
                 .iter()
                 .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC")
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn allocator_flag_is_emitted_for_generated_program_c() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::Default);
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC")
+        );
+    }
+
+    #[test]
+    fn system_allocator_flag_is_emitted_for_generated_program_c() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::System);
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
         );
     }
 

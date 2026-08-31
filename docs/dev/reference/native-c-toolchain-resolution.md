@@ -92,9 +92,10 @@ The runtime uses the same explicit multi-step shape for ordinary native builds:
 - `system`: compile the runtime with
   `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
 
-The `MOONBIT_ALLOCATOR` macro is a runtime compile setting. Moon passes it only
-when compiling the shipped runtime sources, not when compiling package C stubs
-or the C file emitted by `moonc link-core`.
+Moon passes the `MOONBIT_ALLOCATOR` macro when compiling the shipped runtime
+sources and the C file emitted by `moonc link-core`, so that a program inlines
+the same allocator as the runtime it links against. It is not passed when
+compiling package C stubs.
 
 During the toolchain transition, Moon falls back to the legacy `lib/runtime.c`
 when the split runtime directory is absent.
