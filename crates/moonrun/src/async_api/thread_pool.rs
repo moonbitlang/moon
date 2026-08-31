@@ -817,10 +817,7 @@ pub(super) fn make_sigwait_job(
 ) -> AsyncHostResult<u64> {
     let signals =
         context.with_memory_mut(|memory| read_i32_array(memory, signals, signals_len))?;
-    let notifier = context.host.thread_pool_notifier()?;
-    context
-        .host
-        .insert_job(thread_pool::make_sigwait_job(signals, notifier))
+    context.host.make_sigwait_job(signals)
 }
 
 fn optional_resource(

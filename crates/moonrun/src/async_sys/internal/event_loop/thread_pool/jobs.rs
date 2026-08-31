@@ -16,11 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
-use std::sync::Arc;
-
-#[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
 
 use super::types::{Job, JobPayload, platform};
@@ -69,14 +64,6 @@ ported_fns! {
 
 pub(crate) fn make_sleep_job(ms: i32) -> Job {
     Job::new(JobPayload::Sleep { duration_ms: ms })
-}
-
-#[cfg(unix)]
-pub(crate) fn make_sigwait_job(
-    signals: Vec<i32>,
-    notifier: Arc<ThreadPoolCompletionNotifier>,
-) -> Job {
-    Job::new(JobPayload::Sigwait { signals, notifier })
 }
 
 #[cfg(test)]

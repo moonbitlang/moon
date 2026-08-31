@@ -18,14 +18,10 @@
 
 mod jobs;
 mod runner;
-#[cfg(unix)]
-mod signal;
 mod sleep;
 mod types;
 mod worker;
 
-#[cfg(unix)]
-pub(crate) use jobs::make_sigwait_job;
 pub(crate) use jobs::{
     errno_is_cancelled, get_platform, job_get_err, job_get_ret, make_failed_job, make_sleep_job,
 };
@@ -46,21 +42,12 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
 }
 
 #[cfg(test)]
-fn job_executor_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    let mut symbols = Vec::new();
-    #[cfg(unix)]
-    symbols.extend_from_slice(signal::PORTED_SYMBOLS);
-    symbols.extend_from_slice(sleep::PORTED_SYMBOLS);
-    symbols
-}
-
-#[cfg(test)]
 mod tests {
     #[test]
-    fn job_executors_reference_native_worker_symbols() {
+    fn sleep_job_executor_references_native_worker_symbol() {
         let async_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../third_party/moonbitlang_async");
-        for symbol in super::job_executor_ported_symbols() {
+        for symbol in super::sleep::PORTED_SYMBOLS {
             let source_path = async_root.join(symbol.source);
             let contents = std::fs::read_to_string(&source_path)
                 .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));

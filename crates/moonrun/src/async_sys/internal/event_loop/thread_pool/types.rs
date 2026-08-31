@@ -16,13 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
-use std::sync::Arc;
-
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
+#[cfg(unix)]
+use crate::async_sys::signal::SigwaitJob;
 use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
 use crate::process::Job as ProcessJob;
@@ -133,6 +130,13 @@ impl From<ProcessJob> for Job {
     }
 }
 
+#[cfg(unix)]
+impl From<SigwaitJob> for Job {
+    fn from(job: SigwaitJob) -> Self {
+        Self::new(JobPayload::Signal(job))
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum JobPayload {
     Failed {
@@ -145,10 +149,7 @@ pub(crate) enum JobPayload {
     Network(NetworkJob),
     Process(ProcessJob),
     #[cfg(unix)]
-    Sigwait {
-        signals: Vec<i32>,
-        notifier: Arc<ThreadPoolCompletionNotifier>,
-    },
+    Signal(SigwaitJob),
 }
 
 pub(crate) trait ResourceTable {

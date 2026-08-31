@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
-use super::signal::run_sigwait_job;
 use super::sleep::run_sleep_job;
 use super::types::{Job, JobPayload};
 use crate::async_host::AsyncHostError;
@@ -35,7 +33,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
         JobPayload::Network(job) => job.run(),
         JobPayload::Process(job) => job.run(),
         #[cfg(unix)]
-        JobPayload::Sigwait { signals, notifier } => run_sigwait_job(signals, notifier),
+        JobPayload::Signal(job) => job.run(),
     };
 
     // A normal host call can still return a domain-specific status in `ret`.
