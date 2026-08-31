@@ -60,9 +60,6 @@ pub enum ExecutableArtifact {
     WasmGC { use_wat: bool },
     Js,
     NativeExecutable,
-    // TODO(native): Remove this variant and its `uses_tcc_run` response-file and
-    // shared-library layout branches when `write-tcc-rsp-file` is removed.
-    TccRunResponseFile,
     LlvmExecutable,
 }
 
@@ -104,7 +101,7 @@ impl ExecutableArtifact {
             Self::Wasm { .. } => TargetBackend::Wasm,
             Self::WasmGC { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
-            Self::NativeExecutable | Self::TccRunResponseFile => TargetBackend::Native,
+            Self::NativeExecutable => TargetBackend::Native,
             Self::LlvmExecutable => TargetBackend::LLVM,
         }
     }
@@ -115,12 +112,7 @@ impl ExecutableArtifact {
             Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
             Self::Js => ".js",
             Self::NativeExecutable | Self::LlvmExecutable => ".exe",
-            Self::TccRunResponseFile => ".rspfile",
         }
-    }
-
-    fn uses_tcc_run(self) -> bool {
-        matches!(self, Self::TccRunResponseFile)
     }
 }
 
@@ -463,16 +455,6 @@ impl TargetLayout {
         result
     }
 
-    pub fn runtime_shared_library_path(
-        &self,
-        backend: TargetBackend,
-        os: OperatingSystem,
-    ) -> PathBuf {
-        let mut result = self.runtime_output_dir(backend);
-        result.push(format!("libruntime{}", dynamic_library_ext(os)));
-        result
-    }
-
     /// The *artifact* of the format operation.
     ///
     /// At the time of writing, it should only be used as a stamp file to
@@ -601,26 +583,6 @@ impl TargetLayout {
             None => format!("lib{}{}", pkg_fqn.short_alias(), static_library_ext(os)),
         };
         base_dir.push(filename);
-        base_dir
-    }
-
-    /// Returns the path for a C stub dynamic library.
-    ///
-    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/lib{package_name}.{dylib_ext}`
-    pub fn c_stub_link_dylib_path(
-        &self,
-        pkg_list: &DiscoverResult,
-        package: PackageId,
-        backend: TargetBackend,
-        os: OperatingSystem,
-    ) -> PathBuf {
-        let pkg_fqn = &pkg_list.get_package(package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(format!(
-            "lib{}{}",
-            pkg_fqn.short_alias(),
-            dynamic_library_ext(os)
-        ));
         base_dir
     }
 
@@ -884,22 +846,13 @@ impl ArtifactPathResolver {
                 let BuildAction::ArchiveOrLinkCStubs { info, .. } = action_context else {
                     unreachable!("C stub library artifacts require C stub library actions")
                 };
-                if options.executable.uses_tcc_run() {
-                    vec![self.target_layout.c_stub_link_dylib_path(
-                        packages,
-                        *package,
-                        options.target_backend(),
-                        options.os,
-                    )]
-                } else {
-                    vec![self.target_layout.c_stub_archive_path(
-                        packages,
-                        *package,
-                        options.target_backend(),
-                        options.os,
-                        info.static_archive_fingerprint.as_deref(),
-                    )]
-                }
+                vec![self.target_layout.c_stub_archive_path(
+                    packages,
+                    *package,
+                    options.target_backend(),
+                    options.os,
+                    info.static_archive_fingerprint.as_deref(),
+                )]
             }
             ArtifactKey::LinkedCore {
                 package,
@@ -974,18 +927,11 @@ impl ArtifactPathResolver {
                 let BuildAction::BuildRuntimeLib { info } = action_context else {
                     unreachable!("runtime library artifacts require runtime library actions")
                 };
-                if options.executable.uses_tcc_run() {
-                    vec![
-                        self.target_layout
-                            .runtime_shared_library_path(options.target_backend(), options.os),
-                    ]
-                } else {
-                    vec![self.target_layout.runtime_archive_path(
-                        options.target_backend(),
-                        options.os,
-                        info.static_archive_fingerprint.as_deref(),
-                    )]
-                }
+                vec![self.target_layout.runtime_archive_path(
+                    options.target_backend(),
+                    options.os,
+                    info.static_archive_fingerprint.as_deref(),
+                )]
             }
             ArtifactKey::GeneratedMbti {
                 package,
@@ -1151,16 +1097,6 @@ fn static_library_ext(os: OperatingSystem) -> &'static str {
     }
 }
 
-/// Returns the file extension for dynamic libraries on the given OS.
-fn dynamic_library_ext(os: OperatingSystem) -> &'static str {
-    match os {
-        OperatingSystem::Windows => ".dll",
-        OperatingSystem::Linux => ".so",
-        OperatingSystem::MacOS => ".dylib",
-        OperatingSystem::None => panic!("No dynamic library extension for no-OS targets"),
-    }
-}
-
 /// Returns the file extension for object files on the given OS.
 fn object_file_ext(os: OperatingSystem) -> &'static str {
     match os {
@@ -1224,9 +1160,7 @@ mod tests {
             ExecutableArtifact::Wasm { use_wat } => LinkedCoreArtifact::Wasm { use_wat },
             ExecutableArtifact::WasmGC { use_wat } => LinkedCoreArtifact::WasmGC { use_wat },
             ExecutableArtifact::Js => LinkedCoreArtifact::Js,
-            ExecutableArtifact::NativeExecutable | ExecutableArtifact::TccRunResponseFile => {
-                LinkedCoreArtifact::NativeC
-            }
+            ExecutableArtifact::NativeExecutable => LinkedCoreArtifact::NativeC,
             ExecutableArtifact::LlvmExecutable => LinkedCoreArtifact::LlvmObject {
                 os: OperatingSystem::Linux,
             },
@@ -1712,19 +1646,6 @@ mod tests {
             ),
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
         );
-        assert_eq!(
-            resolver.paths_for_artifact(
-                &ArtifactKey::CStubLibrary { package },
-                BuildAction::ArchiveOrLinkCStubs {
-                    package,
-                    info: &info,
-                },
-                &packages,
-                &modules,
-                artifact_options(ExecutableArtifact::TccRunResponseFile),
-            ),
-            vec![PathBuf::from("_build/native/debug/build/ffi/libffi.so")],
-        );
     }
 
     #[test]
@@ -1734,12 +1655,8 @@ mod tests {
         let module = modules.input_module_ids()[0];
         let options = ArtifactPathOptions {
             os: OperatingSystem::Linux,
-            executable: ExecutableArtifact::TccRunResponseFile,
-            linked_core: LinkedCoreArtifact::NativeC,
-        };
-        let static_options = ArtifactPathOptions {
             executable: ExecutableArtifact::NativeExecutable,
-            ..options
+            linked_core: LinkedCoreArtifact::NativeC,
         };
 
         assert_eq!(
@@ -1750,7 +1667,7 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                static_options,
+                options,
             ),
             vec![PathBuf::from(
                 "_build/native/debug/build/libruntime-runtime-test.a"
@@ -1767,22 +1684,9 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                static_options,
-            ),
-            vec![PathBuf::from("_build/native/debug/build/libruntime.a")],
-        );
-
-        assert_eq!(
-            resolver.paths_for_artifact(
-                &ArtifactKey::RuntimeLibrary,
-                BuildAction::BuildRuntimeLib {
-                    info: &runtime_info(),
-                },
-                &packages,
-                &modules,
                 options,
             ),
-            vec![PathBuf::from("_build/native/debug/build/libruntime.so")],
+            vec![PathBuf::from("_build/native/debug/build/libruntime.a")],
         );
         assert_eq!(
             resolver.paths_for_artifact(

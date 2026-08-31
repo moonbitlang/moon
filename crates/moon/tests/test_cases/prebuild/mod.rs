@@ -226,6 +226,9 @@ fn test_pre_build_mooncake_bin_shape() {
     let dir = top_dir.join("user.in");
     let target_dir = dir.join("artifacts");
     let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    // The user package passes `$output` and `$mooncake_bin` to the local
+    // `shape-tool` bin-dependency. It records the expanded directory so the
+    // assertion below can verify that a custom target directory is preserved.
     // The local fixture and cached registry module both carry invalid
     // moonlex/moonyacc inputs alongside their generated outputs. The build can
     // succeed only if bin-deps consume those outputs without rerunning source

@@ -1,6 +1,5 @@
 use crate::{TestDir, moon_process_cmd};
 use expect_test::expect_file;
-use walkdir::WalkDir;
 
 use super::unix_graph::{assert_native_backend_graph, prepend_to_path};
 
@@ -62,20 +61,5 @@ fn test_native_system_cc_when_moon_spawned_from_other_dir() {
     assert!(
         stdout.contains("Total tests: 2, passed: 2, failed: 0."),
         "native system-CC test stdout did not contain expected summary\nstdout:\n{stdout}",
-    );
-
-    let has_tcc_run_response_file = WalkDir::new(dir.join("_build/native/debug/test"))
-        .into_iter()
-        .filter_map(Result::ok)
-        .any(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext == "rspfile")
-        });
-    assert!(
-        !has_tcc_run_response_file,
-        "did not expect tcc-run response files"
     );
 }
