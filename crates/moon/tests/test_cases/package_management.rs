@@ -393,7 +393,7 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
         "version": "1.0.0",
         "source": "src",
         "scripts": {
-            "postadd": "moon tool write-tcc-rsp-file src/tool/generated.mbt fn generated()->Int{42}"
+            "postadd": "moon tool embed --text -i src/tool/generated.txt -o src/tool/generated.mbt --name generated"
         }
     })
     .to_string()
@@ -405,9 +405,10 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
         &[
             ("moon.mod.json", manifest),
             ("src/tool/moon.pkg.json", br#"{"is-main":true}"#.to_vec()),
+            ("src/tool/generated.txt", b"42".to_vec()),
             (
                 "src/tool/main.mbt",
-                br#"fn main { println(generated()) }"#.to_vec(),
+                br#"fn main { println(generated) }"#.to_vec(),
             ),
         ],
     );

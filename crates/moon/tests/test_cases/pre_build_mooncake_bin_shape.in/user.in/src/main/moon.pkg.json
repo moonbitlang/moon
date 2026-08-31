@@ -6,7 +6,7 @@
       "output": [
         "mooncake_bin.txt"
       ],
-      "command": "moon tool write-tcc-rsp-file \"$output\" \"$mooncake_bin\""
+      "command": "../provider.in/shape-tool \"$output\" \"$mooncake_bin\""
     }
   ]
 }

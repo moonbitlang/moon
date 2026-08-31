@@ -101,8 +101,6 @@ pub struct MoonbuildOpt {
     pub build_graph: bool,
     /// Max parallel tasks to run in n2; `None` to use default
     pub parallelism: Option<usize>,
-    pub use_tcc_run: bool,
-    pub dynamic_stub_libs: Option<Vec<String>>,
     pub render_no_loc: DiagnosticLevel,
 }
 
