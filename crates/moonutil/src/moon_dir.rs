@@ -158,7 +158,6 @@ pub struct MoonDirs {
     pub moon_include_path: PathBuf,
     pub moon_lib_path: PathBuf,
     pub moon_bin_path: PathBuf,
-    pub internal_tcc_path: PathBuf,
 }
 
 pub static MOON_HOME: LazyLock<MoonHomeLayout> =
@@ -170,12 +169,10 @@ pub static MOON_DIRS: LazyLock<MoonDirs> = LazyLock::new(|| {
     let moon_include_path = toolchain_root.join("include");
     let moon_lib_path = toolchain_root.join("lib");
     let moon_bin_path = toolchain_root.join("bin");
-    let internal_tcc_path = moon_bin_path.join("internal").join("tcc");
     MoonDirs {
         moon_include_path,
         moon_lib_path,
         moon_bin_path,
-        internal_tcc_path,
     }
 });
 

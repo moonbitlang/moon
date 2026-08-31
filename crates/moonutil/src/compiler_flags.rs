@@ -845,14 +845,6 @@ impl CC {
         // And we conservatively disable libmoonbitrun.o
         self.can_link_libmoonbitrun_o() && !self.is_env_override
     }
-
-    // Constructors for TCC toolchain
-
-    /// Create a CC configured for the internal TCC shipped with Moon.
-    /// Resolves MOON_DIRS.internal_tcc_path via which::which.
-    pub fn internal_tcc() -> anyhow::Result<Self> {
-        try_internal_tcc()
-    }
 }
 
 pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(|| {
@@ -913,20 +905,8 @@ fn detect_system_cc() -> anyhow::Result<CC> {
     )
 }
 
-fn detect_internal_tcc() -> anyhow::Result<CC> {
-    let cc_path = which::which(&MOON_DIRS.internal_tcc_path).with_context(|| {
-        format!(
-            "internal tcc not found at {}",
-            MOON_DIRS.internal_tcc_path.display()
-        )
-    })?;
-    detect_path_candidate(&cc_path, CCKind::Tcc)
-}
-
 static DETECTED_SYSTEM_CC: std::sync::LazyLock<anyhow::Result<CC>> =
     std::sync::LazyLock::new(detect_system_cc);
-static DETECTED_INTERNAL_TCC: std::sync::LazyLock<anyhow::Result<CC>> =
-    std::sync::LazyLock::new(detect_internal_tcc);
 
 fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result<CC> {
     result
@@ -937,10 +917,6 @@ fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result
 
 pub fn try_system_cc() -> anyhow::Result<CC> {
     cached_cc(&DETECTED_SYSTEM_CC)
-}
-
-pub fn try_internal_tcc() -> anyhow::Result<CC> {
-    cached_cc(&DETECTED_INTERNAL_TCC)
 }
 
 pub fn has_cc_env_override() -> bool {
@@ -958,35 +934,24 @@ fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     try_system_cc().map(Toolchain::from_path_probe)
 }
 
-fn selected_default_native_toolchain(
-    internal_tcc_fallback: Option<&CC>,
-) -> anyhow::Result<Toolchain> {
+fn selected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(Toolchain::from_env_override(env_cc.clone()));
     }
-    match detected_default_native_toolchain() {
-        Ok(toolchain) => Ok(toolchain),
-        Err(err) => match internal_tcc_fallback {
-            Some(internal_tcc) => Ok(Toolchain::from_path_probe(internal_tcc.clone())),
-            None => Err(err),
-        },
-    }
+    detected_default_native_toolchain()
 }
 
-pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
-    resolve_native_toolchain_executables(selected_default_native_toolchain(internal_tcc_fallback)?)
+pub fn default_native_toolchain() -> anyhow::Result<Toolchain> {
+    resolve_native_toolchain_executables(selected_default_native_toolchain()?)
 }
 
-pub fn effective_native_toolchain(
-    package_cc: Option<&CC>,
-    internal_tcc_fallback: Option<&CC>,
-) -> anyhow::Result<Toolchain> {
+pub fn effective_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
     let selected = if let Some(env_cc) = ENV_CC.as_ref() {
         Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
     } else if let Some(package_cc) = package_cc {
         Toolchain::from_package_override(package_cc.clone())
     } else {
-        selected_default_native_toolchain(internal_tcc_fallback)?
+        selected_default_native_toolchain()?
     };
     resolve_native_toolchain_executables(selected)
 }
