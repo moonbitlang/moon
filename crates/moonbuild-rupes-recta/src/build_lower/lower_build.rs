@@ -26,10 +26,9 @@ use std::{
 use moonutil::{
     build_options::RunMode,
     compiler_flags::{
-        ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
+        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command_resolved,
-        make_cc_command_resolved_for_toolchain, make_cc_command_resolved_with_link_flags,
-        make_linker_command_resolved,
+        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     package::JsFormat,
@@ -42,7 +41,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{
-        CExecutableRealization, CStubLibraryRealization, WarningCondition,
+        CExecutableRealization, WarningCondition,
         compiler::{
             BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
@@ -894,16 +893,13 @@ impl<'a> LoweringContext<'a> {
             (false, true) => CCOptLevel::Debug,
             (false, false) => CCOptLevel::None,
         };
-        // `tcc run` uses shared runtime, others use static runtime
-        let use_shared_runtime = self.opt.backend.uses_shared_runtime();
-
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
             .output_ty(CCOutputType::Object)
             .opt_level(opt_level)
             .debug_info(self.opt.debug_symbols)
-            .link_moonbitrun(!use_shared_runtime)
-            .define_use_shared_runtime_macro(use_shared_runtime)
+            .link_moonbitrun(true)
+            .define_use_shared_runtime_macro(false)
             .build()
             .expect("Failed to build CC configuration for C stub");
 
@@ -951,32 +947,14 @@ impl<'a> LoweringContext<'a> {
             matches!(artifact, ArtifactKey::CStubObject { .. })
         });
 
-        // There's two ways to handle this:
-        // - When not using `tcc -run`, this creates an archive of the C stubs.
-        // - When using `tcc -run`, this links the C stubs to an ELF .so, so tcc
-        //   can load it at runtime.
-        match self.opt.backend.c_stub_library_realization() {
-            CStubLibraryRealization::SharedLibraryForTccRun => {
-                let output = artifacts.single_output_path_matching(|artifact| {
-                    matches!(
-                        artifact,
-                        ArtifactKey::CStubLibrary { package }
-                            if *package == target
-                    )
-                });
-                self.lower_link_c_stubs(artifacts, info, &object_files, output)
-            }
-            CStubLibraryRealization::StaticArchive => {
-                let output = artifacts.single_output_path_matching(|artifact| {
-                    matches!(
-                        artifact,
-                        ArtifactKey::CStubLibrary { package }
-                            if *package == target
-                    )
-                });
-                self.lower_archive_c_stubs(info, &object_files, output)
-            }
-        }
+        let output = artifacts.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                ArtifactKey::CStubLibrary { package }
+                    if *package == target
+            )
+        });
+        self.lower_archive_c_stubs(info, &object_files, output)
     }
 
     fn lower_archive_c_stubs(
@@ -1004,64 +982,6 @@ impl<'a> LoweringContext<'a> {
         BuildCommand {
             extra_inputs: vec![],
             commandline: commandline.into(),
-        }
-        .with_msvc_env(&info.effective_native_toolchain)
-    }
-
-    fn lower_link_c_stubs(
-        &mut self,
-        artifacts: &ActionArtifacts,
-        info: &BuildCStubsInfo,
-        object_files: &[PathBuf],
-        dylib_out: PathBuf,
-    ) -> BuildCommand {
-        let dest_dir = dylib_out
-            .parent()
-            .expect("c stub dylib should have a parent directory")
-            .display()
-            .to_string();
-
-        // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
-        // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
-        let runtime_dylib = artifacts.single_dependency_path_matching(|artifact| {
-            matches!(artifact, ArtifactKey::RuntimeLibrary)
-        });
-        let runtime_parent = runtime_dylib
-            .parent()
-            .expect("runtime dylib should have a parent directory");
-
-        // Use the effective toolchain (already resolved at planning time)
-        let cc = info.effective_native_toolchain.cc().clone();
-
-        // Build linker config: shared lib, no libmoonbitrun, and link shared runtime dir
-        let lcfg = LinkerConfigBuilder::<&Path>::default()
-            .link_moonbitrun(false) // this is only for tcc -run
-            .link_libbacktrace(true)
-            .output_ty(CCOutputType::SharedLib)
-            .link_shared_runtime(Some(runtime_parent))
-            .build()
-            .expect("Failed to build LinkerConfig for C stub dylib");
-
-        // Sources: only object files; runtime handled via link_shared_runtime (-lruntime + rpath)
-        let sources: Vec<String> = object_files
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect();
-
-        let cc_cmd = make_linker_command_resolved(
-            cc,
-            lcfg,
-            &info.link_flags,
-            &sources,
-            &dest_dir,
-            &dylib_out.display().to_string(),
-            &self.opt.compiler_paths().lib_path,
-        );
-
-        // Note: Runtime input is tracked in build plan, so no need to add here.
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cc_cmd.into(),
         }
         .with_msvc_env(&info.effective_native_toolchain)
     }
@@ -1101,13 +1021,6 @@ impl<'a> LoweringContext<'a> {
                 unreachable!("non-native plans do not contain MakeExecutable actions")
             }
             BackendConfig::Native { mode, .. } => match mode.executable_realization() {
-                CExecutableRealization::WriteTccRunResponseFile => {
-                    let tcc_run = mode
-                        .tcc_run()
-                        .expect("tcc-run realization should carry tcc-run config");
-                    let internal_tcc = tcc_run.internal_tcc().clone();
-                    self.build_tcc_run_driver_command(artifacts, info, internal_tcc)
-                }
                 CExecutableRealization::LinkDirectObject => {
                     self.lower_link_new_native_exe(artifacts, target, info)
                 }
@@ -1146,22 +1059,14 @@ impl<'a> LoweringContext<'a> {
         &self,
         artifacts: &ActionArtifacts,
         info: &MakeExecutableInfo,
-        include_linked_core: bool,
     ) -> Vec<PathBuf> {
         let mut sources = Vec::new();
 
         // Runtime is a static archive for regular builds, so place it after the
         // linked core and C stub archives that may introduce runtime symbols.
-        // TCC-run uses a shared runtime and keeps the legacy runtime-first order.
-        if include_linked_core {
-            sources.extend(artifacts.dependency_paths_matching(|artifact| {
-                matches!(artifact, ArtifactKey::LinkedCore { .. })
-            }));
-        } else {
-            sources.extend(artifacts.dependency_paths_matching(|artifact| {
-                matches!(artifact, ArtifactKey::RuntimeLibrary)
-            }));
-        }
+        sources.extend(artifacts.dependency_paths_matching(|artifact| {
+            matches!(artifact, ArtifactKey::LinkedCore { .. })
+        }));
 
         for package in &info.link_c_stubs {
             sources.extend(artifacts.dependency_paths_matching(|artifact| {
@@ -1169,11 +1074,11 @@ impl<'a> LoweringContext<'a> {
             }));
         }
 
-        if include_linked_core {
-            sources.extend(artifacts.dependency_paths_matching(|artifact| {
+        sources.extend(
+            artifacts.dependency_paths_matching(|artifact| {
                 matches!(artifact, ArtifactKey::RuntimeLibrary)
-            }));
-        }
+            }),
+        );
 
         sources
     }
@@ -1190,7 +1095,7 @@ impl<'a> LoweringContext<'a> {
         // - compile the program (if needed)
         // - link with runtime library & artifacts of other C stubs
 
-        let sources = self.native_executable_dependency_paths(artifacts, info, true);
+        let sources = self.native_executable_dependency_paths(artifacts, info);
 
         let opt_level = match self.opt.opt_level {
             OptLevel::Release => CCOptLevel::Speed,
@@ -1243,7 +1148,7 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        let sources = self.native_executable_dependency_paths(artifacts, info, true);
+        let sources = self.native_executable_dependency_paths(artifacts, info);
         let cc = info.effective_native_toolchain.cc().clone();
 
         let dest = artifacts.single_output_path().display().to_string();
@@ -1294,73 +1199,6 @@ impl<'a> LoweringContext<'a> {
             commandline,
         }
         .with_msvc_env(&info.effective_native_toolchain)
-    }
-
-    /// Build the command for `tcc -run` to execute when running, as well as
-    /// putting that into a response file.
-    fn build_tcc_run_driver_command(
-        &self,
-        artifacts: &ActionArtifacts,
-        info: &MakeExecutableInfo,
-        cc: CC,
-    ) -> BuildCommand {
-        let sources = self.native_executable_dependency_paths(artifacts, info, false);
-
-        let cfg = CCConfigBuilder::default()
-            .no_sys_header(true) // -DMOONBIT_NATIVE_NO_SYS_HEADER for TCC
-            .output_ty(CCOutputType::Executable) // base flags akin to "run"
-            .opt_level(match self.opt.opt_level {
-                OptLevel::Release => CCOptLevel::Speed,
-                OptLevel::Debug => CCOptLevel::Debug,
-            })
-            .debug_info(self.opt.debug_symbols)
-            .link_moonbitrun(false) // never link libmoonbitrun.o under tcc -run
-            .define_use_shared_runtime_macro(true) // -DMOONBIT_USE_SHARED_RUNTIME (+ -fPIC on gcc-like)
-            .build()
-            .expect("Failed to build CC configuration for tcc-run");
-
-        let mut cmdline = make_cc_command_resolved_with_link_flags(
-            cc,
-            cfg,
-            &[] as &[&str], // no user flags
-            &info.link_flags,
-            sources.iter().map(|x| x.to_string_lossy().into_owned()),
-            "", // TCC is not MSVC, no need to set special dest dir
-            None,
-            self.opt.compiler_paths(),
-        );
-
-        // The C file from moonc link-core
-        cmdline.push("-run".to_string());
-        let c_file = artifacts.single_dependency_path_matching(|artifact| {
-            matches!(artifact, ArtifactKey::LinkedCore { .. })
-        });
-        cmdline.push(c_file.display().to_string());
-
-        // Note: at this point, we have our TCC command.
-        // However, this command should be executed when the user runs the final
-        // executable, not in this build graph. Thus, we need to put them into
-        // a response file so that `tcc` will run it later.
-        //
-        // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
-        let moonbuild = BINARIES
-            .moonbuild
-            .to_str()
-            .expect("moonbuild path is valid UTF-8");
-        let mut rsp_cmdline = vec![
-            moonbuild.to_string(),
-            "tool".to_string(),
-            "write-tcc-rsp-file".to_string(),
-        ];
-        let rsp_path = artifacts.single_output_path();
-
-        rsp_cmdline.push(rsp_path.display().to_string());
-        rsp_cmdline.extend(cmdline.into_iter().skip(1)); // skip original `tcc` command
-
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: rsp_cmdline.into(),
-        }
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]

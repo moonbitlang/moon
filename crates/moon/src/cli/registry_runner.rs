@@ -141,7 +141,7 @@ fn cached_native_executable(
 }
 
 fn prepare_artifact(
-    mode: crate::run::ExecutionMode<'_>,
+    mode: crate::run::ExecutionMode,
     artifact: &Path,
     experimental_policy: Option<&Path>,
     policy_relay: Option<moonutil::policy_transport::PolicyRelay>,

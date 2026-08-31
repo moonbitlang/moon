@@ -118,10 +118,7 @@ impl<'a> BuildPlanConstructor<'a> {
             return compiler_flags::windows_msvc_native_toolchain(package_cc);
         }
 
-        compiler_flags::effective_native_toolchain(
-            package_cc,
-            self.build_env.tcc_run().map(|config| config.internal_tcc()),
-        )
+        compiler_flags::effective_native_toolchain(package_cc, None)
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
@@ -938,11 +935,6 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
-        // If we're tcc run, also depend on the runtime library
-        if self.build_env.tcc_run().is_some() {
-            self.require_artifact(node, ArtifactKey::RuntimeLibrary);
-        }
-
         // Populate C stub info
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
@@ -993,11 +985,10 @@ impl<'a> BuildPlanConstructor<'a> {
             &mut link_flags,
         );
 
-        let static_archive_fingerprint = (self.build_env.tcc_run().is_none()
-            && effective_native_toolchain
-                .cc()
-                .archiver_updates_existing_archive())
-        .then(|| c_stub_archive_fingerprint(&pkg.c_stub_files));
+        let static_archive_fingerprint = effective_native_toolchain
+            .cc()
+            .archiver_updates_existing_archive()
+            .then(|| c_stub_archive_fingerprint(&pkg.c_stub_files));
 
         let c_info = BuildCStubsInfo {
             effective_native_toolchain,
@@ -1156,7 +1147,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 &effective_native_toolchain,
             ),
             BackendConfig::Native {
-                mode: NativeBackendMode::GeneratedC | NativeBackendMode::TccRun(_),
+                mode: NativeBackendMode::GeneratedC,
                 ..
             } => false,
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
@@ -1567,9 +1558,7 @@ impl<'a> BuildPlanConstructor<'a> {
         })?;
         let source_files = toolchain::runtime_source_paths()
             .map_err(BuildPlanConstructError::FailedToFindRuntimeSources)?;
-        let builds_static_archive = self.build_env.tcc_run().is_none();
-        let simdutf_objects = if builds_static_archive
-            && self.build_env.opt_level == OptLevel::Release
+        let simdutf_objects = if self.build_env.opt_level == OptLevel::Release
             && effective_native_toolchain.cc().can_use_simdutf()
         {
             self.build_env
@@ -1582,11 +1571,10 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             Vec::new()
         };
-        let static_archive_fingerprint = (builds_static_archive
-            && effective_native_toolchain
-                .cc()
-                .archiver_updates_existing_archive())
-        .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
+        let static_archive_fingerprint = effective_native_toolchain
+            .cc()
+            .archiver_updates_existing_archive()
+            .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
         let native_allocator = self
             .build_env
             .backend
@@ -1604,30 +1592,28 @@ impl<'a> BuildPlanConstructor<'a> {
             native_allocator,
         });
 
-        if builds_static_archive {
-            let source_count = self
+        let source_count = self
+            .res
+            .backend
+            .runtime_info
+            .as_ref()
+            .expect("runtime info was just populated")
+            .source_files
+            .len();
+        for index in 0..source_count {
+            let source = &self
                 .res
                 .backend
                 .runtime_info
                 .as_ref()
                 .expect("runtime info was just populated")
-                .source_files
-                .len();
-            for index in 0..source_count {
-                let source = &self
-                    .res
-                    .backend
-                    .runtime_info
-                    .as_ref()
-                    .expect("runtime info was just populated")
-                    .source_files[index];
-                self.require_artifact(
-                    node,
-                    ArtifactKey::RuntimeObject {
-                        source: runtime_source_key(source),
-                    },
-                );
-            }
+                .source_files[index];
+            self.require_artifact(
+                node,
+                ArtifactKey::RuntimeObject {
+                    source: runtime_source_key(source),
+                },
+            );
         }
 
         self.resolved_node(node);
