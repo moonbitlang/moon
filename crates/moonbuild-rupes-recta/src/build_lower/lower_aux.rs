@@ -22,8 +22,8 @@ use std::path::Path;
 
 use moonutil::{
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, NativeAllocator, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, make_archiver_command_resolved, make_cc_command_resolved,
+        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
+        make_archiver_command_resolved, make_cc_command_resolved,
     },
     resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
@@ -253,50 +253,6 @@ impl<'a> super::LoweringContext<'a> {
         let artifact_path = artifacts.single_output_path_matching(|artifact| {
             matches!(artifact, ArtifactKey::RuntimeLibrary)
         });
-
-        if self.opt.backend.uses_shared_runtime() {
-            let resolved_cc = info.effective_native_toolchain.cc().clone();
-            let sources = info
-                .source_files
-                .iter()
-                .map(|source| source.display().to_string())
-                .collect::<Vec<_>>();
-            let cc_cmd = make_cc_command_resolved(
-                resolved_cc,
-                CCConfigBuilder::default()
-                    .no_sys_header(true)
-                    .output_ty(CCOutputType::SharedLib)
-                    .opt_level(CCOptLevel::Speed)
-                    .debug_info(true)
-                    .allow_stacktrace(
-                        self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
-                    )
-                    .define_tinyc_macro(true)
-                    .preserve_frame_pointer(true)
-                    .link_moonbitrun(matches!(info.native_allocator, NativeAllocator::Mimalloc))
-                    .link_libbacktrace(true)
-                    .define_use_shared_runtime_macro(false)
-                    .native_allocator(info.native_allocator)
-                    .build()
-                    .expect("Failed to build CC configuration for shared runtime"),
-                &[] as &[&str],
-                &sources,
-                &self
-                    .artifact_paths
-                    .target_layout()
-                    .runtime_output_dir(self.opt.target_backend())
-                    .display()
-                    .to_string(),
-                Some(&artifact_path.display().to_string()),
-                self.opt.compiler_paths(),
-            );
-
-            return BuildCommand {
-                extra_inputs: info.source_files.clone(),
-                commandline: cc_cmd.into(),
-            }
-            .with_msvc_env(&info.effective_native_toolchain);
-        }
 
         let mut object_files = artifacts.dependency_paths_matching(|artifact| {
             matches!(artifact, ArtifactKey::RuntimeObject { .. })

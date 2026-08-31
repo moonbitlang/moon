@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::{
-    compiler_flags::{CC, NativeAllocator},
+    compiler_flags::NativeAllocator,
     resolution::{ModuleId, ResolvedEnv},
     target::TargetBackend,
 };
@@ -72,10 +72,6 @@ pub enum NativeTarget {
 pub enum NativeBackendMode {
     /// Legacy generated-C native path.
     GeneratedC,
-    /// Dormant native execution through `tcc -run`.
-    /// TODO: Remove after legacy TCC lowering and runtime-launch compatibility
-    /// are deleted.
-    TccRun(TccRunConfig),
     /// Experimental direct object-code native path.
     DirectObject(DirectNativeMode),
 }
@@ -135,14 +131,7 @@ impl NativeBackendMode {
     pub fn direct_native_mode(&self) -> Option<&DirectNativeMode> {
         match self {
             Self::DirectObject(mode) => Some(mode),
-            Self::GeneratedC | Self::TccRun(_) => None,
-        }
-    }
-
-    pub fn tcc_run(&self) -> Option<&TccRunConfig> {
-        match self {
-            Self::TccRun(config) => Some(config),
-            Self::GeneratedC | Self::DirectObject(_) => None,
+            Self::GeneratedC => None,
         }
     }
 }
@@ -161,13 +150,6 @@ impl BackendConfig {
     pub fn direct_native_target(&self) -> Option<NativeTarget> {
         match self {
             Self::Native { mode, .. } => mode.direct_target(),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => None,
-        }
-    }
-
-    pub fn tcc_run(&self) -> Option<&TccRunConfig> {
-        match self {
-            Self::Native { mode, .. } => mode.tcc_run(),
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => None,
         }
     }
@@ -195,25 +177,6 @@ impl DirectNativeMode {
         match self {
             Self::Target(target) => *target,
         }
-    }
-}
-
-/// Configuration for the dormant legacy native `tcc -run` lowering.
-///
-/// Normal native execution, LLVM execution, and all non-native backends do not
-/// carry this value.
-#[derive(Clone, Debug)]
-pub struct TccRunConfig {
-    internal_tcc: CC,
-}
-
-impl TccRunConfig {
-    pub fn new(internal_tcc: CC) -> Self {
-        Self { internal_tcc }
-    }
-
-    pub fn internal_tcc(&self) -> &CC {
-        &self.internal_tcc
     }
 }
 
@@ -306,19 +269,7 @@ pub enum BuildPlanNode {
     /// Build the i-th C file in the C stub list.
     BuildCStub(PackageId, u32), // change into global artifact list if we need non-package ones
 
-    /// Build an archive or link all C stubs for the given package.
-    ///
-    /// Archive building is for non-TCC native targets, so they can be
-    /// referenced during linking.
-    ///
-    /// Linking is for native targets using TCC to compile. TCC can't link with
-    /// Mach-O objects, so in Linux and MacOS we directly link the C stubs into
-    /// a shared library (which is in ELF format) and load it in TCC at runtime.
-    ///
-    /// FIXME: This node is not split into two separate Archive and Link nodes
-    /// because the action is determined by the default C compiler used in this
-    /// build. In theory this should be separated for better clarity, and maybe
-    /// determined by the C compiler overrides for each build target.
+    /// Archive all C stubs for the given package.
     ArchiveOrLinkCStubs(PackageId),
 
     /// Link the `.core` file into an executable or library for the given target.
@@ -330,11 +281,6 @@ pub enum BuildPlanNode {
     /// from `LinkCore` is a C file or object file that needs further compilation
     /// and linking. Wasm and JavaScript `LinkCore` actions provide the final
     /// executable artifact directly.
-    ///
-    /// In TCC mode, since linking is done at the same time as running, this
-    /// step writes a response file containing the linking flags for TCC to use.
-    /// This is to avoid leaking and coupling linking logic into the runtime
-    /// execution logic.
     MakeExecutable(BuildTarget),
 
     /// Generate the macOS dSYM bundle for a linked executable.
@@ -359,7 +305,7 @@ pub enum BuildPlanNode {
     /// Build the i-th runtime C translation unit.
     BuildRuntimeObject(u32),
 
-    /// Archive the runtime objects, or realize the dormant legacy TCC-run runtime.
+    /// Archive the runtime objects into the native runtime library.
     BuildRuntimeLib,
 
     /// Build the virtual package's `.mbti` interface file to get an `.mi` file.

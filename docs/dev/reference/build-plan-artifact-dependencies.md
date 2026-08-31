@@ -77,12 +77,9 @@ interchangeable compiler inputs even though they all currently use `.mi`.
 `ProofWhyml` artifacts; only `Prove` additionally provides `ProofReport`.
 Provider selection belongs to the invocation lifecycle, not artifact identity.
 
-Static archives and the dormant legacy TCC-run shared libraries are two
-physical realizations of the same logical C-stub or runtime library artifact.
-Lowering selects the realization from `BackendConfig`, just as it selects
-`.wasm` or `.wat` for a `LinkedCore` or `Executable` artifact. `RuntimeObject`
-exists only on the static-archive path; the legacy TCC shared-runtime action
-consumes runtime sources directly when that configuration is constructed.
+C-stub and runtime library artifacts are realized as static archives.
+`RuntimeObject` identifies each separately compiled runtime translation unit
+consumed by the runtime archive.
 
 `Executable { package, target_kind }` includes test executables: source,
 inline-test, whitebox-test, and blackbox-test targets have different

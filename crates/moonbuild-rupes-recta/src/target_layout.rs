@@ -60,6 +60,8 @@ pub enum ExecutableArtifact {
     WasmGC { use_wat: bool },
     Js,
     NativeExecutable,
+    // TODO(native): Remove this variant and its `uses_tcc_run` response-file and
+    // shared-library layout branches when `write-tcc-rsp-file` is removed.
     TccRunResponseFile,
     LlvmExecutable,
 }

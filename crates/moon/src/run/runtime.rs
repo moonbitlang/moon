@@ -22,26 +22,21 @@ use std::path::Path;
 use std::process::Command;
 
 use moonbuild::entry::TestArgs;
-use moonbuild_rupes_recta::model::{BackendConfig, NativeBackendMode, TccRunConfig};
+use moonbuild_rupes_recta::model::{BackendConfig, NativeBackendMode};
 
 /// The runtime mode used to execute one built artifact.
 #[derive(Clone, Copy)]
-pub(crate) enum ExecutionMode<'a> {
+pub(crate) enum ExecutionMode {
     MoonRun,
     Node,
     Native,
-    TccRun(&'a TccRunConfig),
 }
 
-impl<'a> From<&'a BackendConfig> for ExecutionMode<'a> {
-    fn from(backend: &'a BackendConfig) -> Self {
+impl From<&BackendConfig> for ExecutionMode {
+    fn from(backend: &BackendConfig) -> Self {
         match backend {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } => Self::MoonRun,
             BackendConfig::Js => Self::Node,
-            BackendConfig::Native {
-                mode: NativeBackendMode::TccRun(config),
-                ..
-            } => Self::TccRun(config),
             BackendConfig::Native {
                 mode: NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_),
                 ..
@@ -66,7 +61,7 @@ impl<'a> From<&'a BackendConfig> for ExecutionMode<'a> {
 /// ### Note
 ///
 pub(crate) fn command_for(
-    mode: ExecutionMode<'_>,
+    mode: ExecutionMode,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> Command {
@@ -74,7 +69,7 @@ pub(crate) fn command_for(
 }
 
 pub(crate) fn command_for_with_moonrun_policy(
-    mode: ExecutionMode<'_>,
+    mode: ExecutionMode,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
     moonrun_policy: Option<&Path>,
@@ -100,15 +95,6 @@ pub(crate) fn command_for_with_moonrun_policy(
             cmd.arg(mbt_executable);
             if let Some(t) = test {
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
-            }
-            cmd
-        }
-        ExecutionMode::TccRun(tcc_run) => {
-            let tcc = tcc_run.internal_tcc();
-            let mut cmd = Command::new(tcc.cc_path());
-            cmd.arg(format!("@{}", mbt_executable.display()));
-            if let Some(t) = test {
-                cmd.arg(t.to_cli_args_for_native());
             }
             cmd
         }

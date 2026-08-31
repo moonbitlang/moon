@@ -27,7 +27,7 @@ use moonutil::{
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
-use super::{BuildOptions, CExecutableRealization, CStubLibraryRealization, LoweringError};
+use super::{BuildOptions, CExecutableRealization, LoweringError};
 use crate::{
     ResolveOutput,
     build_plan::{
@@ -541,9 +541,6 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildCStub { .. } | BuildAction::BuildRuntimeObject { .. }
         ) || matches!(
             action,
-            BuildAction::BuildRuntimeLib { .. } if self.opt.backend.uses_shared_runtime()
-        ) || matches!(
-            action,
             BuildAction::MakeExecutable { .. }
                 if matches!(
                     &self.opt.backend,
@@ -599,11 +596,7 @@ impl<'a> LoweringContext<'a> {
                     .is_none_or(<[_]>::is_empty)
             }
             BuildAction::BuildCStub { info, .. } => info.cc_flags.is_empty(),
-            BuildAction::ArchiveOrLinkCStubs { info, .. } => {
-                self.opt.backend.c_stub_library_realization()
-                    == CStubLibraryRealization::StaticArchive
-                    || info.link_flags.is_empty()
-            }
+            BuildAction::ArchiveOrLinkCStubs { .. } => true,
             BuildAction::LinkCore { target, .. } => {
                 let package = self.get_package(target);
                 let package_link_flags =
@@ -635,7 +628,6 @@ impl<'a> LoweringContext<'a> {
                         info.c_flags.is_empty() && info.link_flags.is_empty()
                     }
                     CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
-                    CExecutableRealization::WriteTccRunResponseFile => true,
                 },
                 BackendConfig::Llvm { .. } => info.c_flags.is_empty() && info.link_flags.is_empty(),
                 BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {

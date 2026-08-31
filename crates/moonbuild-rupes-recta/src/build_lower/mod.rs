@@ -56,7 +56,7 @@ pub use crate::execution_plan::{
 };
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
-pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization};
+pub(crate) use backend::CExecutableRealization;
 
 use command::BuildCommand;
 use context::LoweringContext;
@@ -151,11 +151,7 @@ impl BuildOptions {
             ),
             BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
             BackendConfig::Native { mode, .. } => (
-                if mode.tcc_run().is_some() {
-                    ExecutableArtifact::TccRunResponseFile
-                } else {
-                    ExecutableArtifact::NativeExecutable
-                },
+                ExecutableArtifact::NativeExecutable,
                 if mode.direct_target().is_some() {
                     LinkedCoreArtifact::NativeObject { os }
                 } else {

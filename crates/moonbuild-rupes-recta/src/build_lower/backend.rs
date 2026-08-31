@@ -22,97 +22,30 @@
 //! backend branch for command shape and runtime/linking behavior. Concrete
 //! artifact paths are resolved by `target_layout`.
 
-use crate::model::{BackendConfig, NativeBackendMode};
+use crate::model::NativeBackendMode;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum CExecutableRealization {
     CompileAndLinkGeneratedC,
     LinkDirectObject,
-    WriteTccRunResponseFile,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum CRuntimeRealization {
-    StaticObject,
-    SharedLibraryForTccRun,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum CStubLibraryRealization {
-    StaticArchive,
-    SharedLibraryForTccRun,
-}
-
-impl BackendConfig {
-    pub(crate) fn c_stub_library_realization(&self) -> CStubLibraryRealization {
-        match self {
-            Self::Native { mode, .. } => mode.c_stub_library_realization(),
-            Self::Llvm { .. } => CStubLibraryRealization::StaticArchive,
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
-                unreachable!("C stubs are only realized for C or LLVM backends")
-            }
-        }
-    }
-
-    pub(crate) fn uses_shared_runtime(&self) -> bool {
-        match self {
-            Self::Native { mode, .. } => {
-                mode.runtime_realization() == CRuntimeRealization::SharedLibraryForTccRun
-            }
-            Self::Llvm { .. } => false,
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
-                unreachable!("runtime artifacts are only realized for C or LLVM backends")
-            }
-        }
-    }
 }
 
 impl NativeBackendMode {
     pub(crate) fn executable_realization(&self) -> CExecutableRealization {
         match self {
             NativeBackendMode::GeneratedC => CExecutableRealization::CompileAndLinkGeneratedC,
-            NativeBackendMode::TccRun(_) => CExecutableRealization::WriteTccRunResponseFile,
             NativeBackendMode::DirectObject(_) => CExecutableRealization::LinkDirectObject,
-        }
-    }
-
-    fn runtime_realization(&self) -> CRuntimeRealization {
-        match self {
-            NativeBackendMode::TccRun(_) => CRuntimeRealization::SharedLibraryForTccRun,
-            NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_) => {
-                CRuntimeRealization::StaticObject
-            }
-        }
-    }
-
-    pub(crate) fn c_stub_library_realization(&self) -> CStubLibraryRealization {
-        match self {
-            NativeBackendMode::TccRun(_) => CStubLibraryRealization::SharedLibraryForTccRun,
-            NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_) => {
-                CStubLibraryRealization::StaticArchive
-            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use moonutil::compiler_flags::{ARKind, CC, CCKind, NativeAllocator};
+    use moonutil::compiler_flags::NativeAllocator;
 
-    use crate::model::{DirectNativeMode, TccRunConfig};
+    use crate::model::{BackendConfig, DirectNativeMode};
 
     use super::*;
-
-    fn fake_tcc_run() -> TccRunConfig {
-        TccRunConfig::new(CC {
-            cc_kind: CCKind::Tcc,
-            cc_path: "tcc".to_string(),
-            ar_kind: ARKind::TccAr,
-            ar_path: "tcc".to_string(),
-            target_triple: None,
-            is_env_override: false,
-        })
-    }
 
     #[test]
     fn wasm_backend_carries_wat_setting() {
@@ -122,30 +55,6 @@ mod tests {
         };
 
         assert!(matches!(backend, BackendConfig::Wasm { use_wat: true, .. }));
-    }
-
-    #[test]
-    fn c_tcc_run_realizes_shared_runtime_and_response_file() {
-        let backend = BackendConfig::Native {
-            mode: NativeBackendMode::TccRun(fake_tcc_run()),
-            allocator: NativeAllocator::Default,
-        };
-        let BackendConfig::Native {
-            mode: ref native_mode,
-            ..
-        } = backend
-        else {
-            panic!("native backend should select C lowering")
-        };
-        assert_eq!(
-            native_mode.executable_realization(),
-            CExecutableRealization::WriteTccRunResponseFile
-        );
-        assert_eq!(
-            backend.c_stub_library_realization(),
-            CStubLibraryRealization::SharedLibraryForTccRun
-        );
-        assert!(backend.uses_shared_runtime());
     }
 
     #[test]
@@ -168,11 +77,6 @@ mod tests {
             native_mode.executable_realization(),
             CExecutableRealization::LinkDirectObject
         );
-        assert_eq!(
-            backend.c_stub_library_realization(),
-            CStubLibraryRealization::StaticArchive
-        );
-        assert!(!backend.uses_shared_runtime());
     }
 
     #[test]
@@ -182,10 +86,5 @@ mod tests {
         };
 
         assert!(matches!(backend, BackendConfig::Llvm { .. }));
-        assert_eq!(
-            backend.c_stub_library_realization(),
-            CStubLibraryRealization::StaticArchive
-        );
-        assert!(!backend.uses_shared_runtime());
     }
 }

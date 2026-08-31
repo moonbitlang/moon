@@ -479,8 +479,7 @@ pub struct WasmLinkConfig {
 /// Native C/C++ compilation and linking configuration for MoonBit packages.
 ///
 /// Controls how C stub files and main executables are compiled and linked.
-/// The build system uses these flags differently depending on compilation mode:
-/// normal mode creates static libraries, while TCC mode creates dynamic libraries.
+/// C stub object files are collected into static archives.
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
@@ -499,7 +498,7 @@ pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_flags: Option<String>,
 
-    /// Linker flags for main executable (also used for stub dynamic libraries in TCC mode)
+    /// Linker flags for the main executable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_link_flags: Option<String>,
 
@@ -511,7 +510,7 @@ pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_flags: Option<String>,
 
-    /// Linker flags for C stub linking (only used in TCC mode for dynamic libraries)
+    /// Legacy linker flags for C stubs, retained for manifest compatibility
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_link_flags: Option<String>,
 

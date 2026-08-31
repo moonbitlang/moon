@@ -67,10 +67,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{
-        BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, OperatingSystem, PackageId,
-        TccRunConfig,
-    },
+    model::{BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, OperatingSystem, PackageId},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -471,7 +468,8 @@ pub struct BuildCStubsInfo {
     pub(crate) effective_native_toolchain: Toolchain,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
-    /// Additional flags to pass to the linker (TCC only)
+    /// Legacy C-stub linker flags retained for manifest compatibility.
+    /// The current static-archive realization does not consume them.
     #[allow(unused)]
     pub(crate) link_flags: Vec<String>,
     /// Identity of the ordered static archive member list.
@@ -649,10 +647,6 @@ impl BuildEnvironment {
 
     pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
         self.backend.direct_native_target()
-    }
-
-    pub(crate) fn tcc_run(&self) -> Option<&TccRunConfig> {
-        self.backend.tcc_run()
     }
 }
 
