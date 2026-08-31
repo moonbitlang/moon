@@ -1,4 +1,4 @@
-# Legacy TCC Run Lowering
+# Legacy TCC Run Compatibility
 
 > This document describes dormant compatibility code. TCC run mode is not
 > selectable behavior.
@@ -14,12 +14,14 @@ In particular, setting `MOONBIT_NEW_NATIVE=0` does not enable TCC. Native
 `run` and `test` actions produce ordinary executables through the generated-C
 pipeline.
 
-## Retained legacy lowering
+## Retained compatibility code
 
-The build model, lowering code, and runtime launcher still contain a
-`TccRun` representation while removal is staged. Current command planning does
-not construct that representation, so the flow described below is unreachable
-from the CLI.
+The build model, lowering code, and runtime launcher no longer contain a TCC-run
+mode. A hidden response-file writer and dormant response-file and shared-library
+layout helpers remain while their removal is staged separately. The CLI and
+build graph cannot reach that compatibility code. Explicitly selecting an
+external TCC as the regular C compiler remains supported and is independent of
+the removed mode.
 
 Historically, eligible Linux and macOS debug `run` and `test` invocations used
 the following realization:
@@ -34,6 +36,5 @@ the following realization:
 5. The runtime launcher invoked the bundled TCC with that response file and the
    program arguments.
 
-The response-file, shared-runtime, and shared-stub paths remain implementation
-details of the dormant lowering. They do not describe current native command
-behavior.
+The remaining response-file and shared-library helpers do not describe current
+native command behavior.

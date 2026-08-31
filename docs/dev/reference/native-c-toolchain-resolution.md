@@ -68,11 +68,8 @@ For native backends, `LinkCore` emits:
 Package C stubs are handled separately:
 
 1. each `stub.c` is compiled to an object file
-2. usually, all stub object files in the package are archived together
+2. all stub object files in the package are archived together
 3. the final executable links against that per-package archive
-
-The dormant legacy `NativeTccRun` lowering instead links the stub objects into
-a shared library so `tcc -run` can load them at runtime.
 
 The runtime uses the same explicit multi-step shape for ordinary native builds:
 
@@ -96,13 +93,11 @@ The runtime uses the same explicit multi-step shape for ordinary native builds:
   `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
 
 The `MOONBIT_ALLOCATOR` macro is a runtime compile setting. Moon passes it only
-when compiling the shipped runtime sources or fused shared runtime, not when
-compiling package C stubs or the C file emitted by `moonc link-core`.
+when compiling the shipped runtime sources, not when compiling package C stubs
+or the C file emitted by `moonc link-core`.
 
 During the toolchain transition, Moon falls back to the legacy `lib/runtime.c`
-when the split runtime directory is absent. The dormant legacy `NativeTccRun`
-lowering remains a fused exception: one TCC invocation compiles all runtime
-translation units directly into the shared runtime library.
+when the split runtime directory is absent.
 
 This is why Moon needs both a compiler driver and an archiver.
 
@@ -122,9 +117,6 @@ When a native build step chooses its compiler, the current precedence is:
 2. package-level override (`link.native.cc` or `link.native.stub_cc`)
 3. detected default toolchain
 
-The build model still contains the legacy `NativeTccRun` lowering, but command
-planning no longer selects it.
-
 ## Global Environment Override
 
 - If `MOON_CC` is set, Moon uses it as the compiler for the regular native pipeline.
@@ -135,9 +127,7 @@ planning no longer selects it.
 - For `tcc`, Moon still uses `tcc -ar`, so `MOON_AR` is ignored.
 - `MOON_CC` takes precedence over package-level compiler overrides.
 
-This override is global to the current Moon invocation. The dormant legacy
-`NativeTccRun` lowering hard-codes the internal TCC when that configuration is
-constructed directly, but command planning no longer constructs it.
+This override is global to the current Moon invocation.
 
 ## Package-Level Override
 

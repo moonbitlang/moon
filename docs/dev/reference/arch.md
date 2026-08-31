@@ -501,9 +501,8 @@ Here are some examples:
 - `BuildVirtual(PackageId)` builds the virtual package interface of the given package
   (build targets don't make sense on virtual packages).
 - `BuildRuntimeObject(u32)` compiles one shipped runtime C translation unit.
-- `BuildRuntimeLib` collects the runtime objects into the single runtime
-  library used globally by all consumers in the project. The dormant legacy
-  TCC-run lowering lowers this node directly from all runtime sources instead.
+- `BuildRuntimeLib` collects the runtime objects into the single static runtime
+  library used globally by all consumers in the project.
 
 The full list of backend build-plan nodes is available in
 [its module](/crates/moonbuild-rupes-recta/src/model.rs). Package prebuild keys
