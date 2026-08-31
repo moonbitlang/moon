@@ -15,20 +15,28 @@ behavior can change.
    into one n2 graph. The entire graph must build successfully before any test
    executable starts. This invocation-wide barrier prevents tests for an early
    backend from running when a later backend fails to build.
-3. `run_tests` (in `runtest.rs`) calls `gather_tests`, which pairs those artifacts,
-   sorts them by executable path (to match legacy ordering), and then iterates over
-   each test binary.
-4. Every executable is launched through `run_one_test_executable`. The runner:
-   - Parses the metadata (`MooncGenTestInfo`) to know which files and indices exist.
-   - Applies the CLI filter to build a `TestArgs` payload that lists the test ranges
-     to execute.
+3. `run_tests` (in `runtest.rs`) calls `gather_tests`, which pairs those artifacts and
+   sorts them by executable path (to match legacy ordering). `collect_test_invocations`
+   then turns each pair into a `TestInvocation`: it parses the metadata
+   (`MooncGenTestInfo`) to know which files and indices exist, applies the CLI filter to
+   build the `TestArgs` payload listing the ranges to execute, and drops binaries for
+   which nothing is selected.
+4. Benchmarks are then isolated. When `bench` is true, `isolate_invocations` splits
+   every invocation into one invocation per selected case, so no benchmark shares a
+   process with another. Cases that share a process share a runtime that the earlier
+   ones have already warmed, grown and specialized, which makes a reported time depend
+   on how many cases ran before it — around 10% on wasm-gc. `moon test` keeps one
+   invocation per test binary.
+5. Every invocation is launched through `run_one_test_executable`, which therefore
+   starts a bench executable once per case. The runner:
    - Builds a backend-specific command (see below) and optionally prints it when
      `--verbose` is enabled.
    - Captures the test driver event stream between the
      `MOON_TEST_DELIMITER_{BEGIN,END}` markers. Coverage sections delimited by
      `MOON_COVERAGE_DELIMITER_*` are written to `_build/moonbit_coverage_<timestamp>_<rand>.txt`.
-5. The collected `TestCaseResult`s are merged per build target inside
-   `ReplaceableTestResults`. This structure keeps the latest result per
+6. The collected `TestCaseResult`s are merged per build target inside
+   `ReplaceableTestResults`, so the several invocations of an isolated benchmark run
+   land in one entry. This structure keeps the latest result per
    `(target, file, index)` pair so later reruns can overwrite earlier data. The
    final report is rendered either as compact text (default) or JSON lines (when
    `--test-failure-json` is on).
@@ -187,8 +195,10 @@ Filtering is handled by `TestFilter` (`runtest/filter.rs`). It stores allowed
 
 ### Benchmarks and skips
 
-- `moon bench` reuses the exact same plumbing but passes `bench = true` to the filter,
-  so only benchmark entries (`with_bench_args_tests`) are collected.
+- `moon bench` reuses the same filtering plumbing but passes `bench = true`, so only
+  benchmark entries (`with_bench_args_tests`) are collected. It also changes the process
+  model: every selected case is run in a process of its own (step 4 above) rather than
+  one process per test binary.
 - `--include-skipped` keeps skipped cases in the computed ranges. Without it, skipped
   tests are excluded unless their indices are explicitly listed.
 
