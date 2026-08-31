@@ -92,7 +92,7 @@ Package Dependencies and Testing
 Native Backend
   - native_backend_cc_flags (unix only)
   - native_backend_cc_flags_with_env_override (unix only)
-  - test_native_backend_tcc_run (unix only)
+  - test_native_backend_system_cc_fallback (unix only)
   - test_native_stub_in_pkg_json
   - test_use_cc_for_native_release (unix only)
   - no_main_just_init

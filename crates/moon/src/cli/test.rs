@@ -550,7 +550,7 @@ fn run_test_in_single_file_rr(
     };
 
     let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
-    let mut preconfig = preconfig_compile(
+    let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &build_flags,
@@ -558,9 +558,6 @@ fn run_test_in_single_file_rr(
         target_dir,
         RunMode::Test,
     );
-    // Enable tcc-run to match legacy debug test graph shape
-    preconfig.try_tcc_run = !cmd.profile;
-
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
@@ -710,7 +707,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     // 2. build the compile preconfig,
     // 3. let RR turn resolved packages plus user intent into a graph and filter.
     let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
-    let mut preconfig = preconfig_compile(
+    let preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
         &build_flags,
@@ -722,11 +719,6 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
             RunMode::Test
         },
     );
-
-    // Match the legacy dry-run graph shape for `moon test`.
-    if cmd.run_mode != RunMode::Bench && !cmd.profile {
-        preconfig.try_tcc_run = true;
-    }
 
     let mut filter = TestFilter {
         name_filter: cmd.filter.clone(),
@@ -863,7 +855,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
         ..cmd.build_flags.clone()
     };
-    let mut preconfig = preconfig_compile(
+    let preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
         &build_flags,
@@ -875,10 +867,6 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
             RunMode::Test
         },
     );
-
-    if cmd.run_mode != RunMode::Bench {
-        preconfig.try_tcc_run = true;
-    }
 
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,

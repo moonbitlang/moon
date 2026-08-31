@@ -1,80 +1,39 @@
-# TCC Run Mode
+# Legacy TCC Run Lowering
 
-> This document reflects the state of the repository around 2025.12.
-> Please use the actual implementation as the ultimate source of truth.
->
-> A major portion of this document is written by an LLM.
+> This document describes dormant compatibility code. TCC run mode is not
+> selectable behavior.
 
-Moon can execute the artifacts of the native (C) backend directly through `tcc -run`
-in order to reduce build times.
-This document describes the TCC run mode,
-which keeps the regular MoonBit compilation stages
-but reshapes the native toolchain steps
-so that linking happens at execution time instead of during the build.
+## Current behavior
 
-## When TCC run mode is selected
+Moon no longer selects TCC run mode. When direct native object production is
+disabled or unavailable, Moon selects the Generated-C Native Backend and
+resolves an available system C toolchain. If no system toolchain is available,
+planning reports the normal tool-resolution error.
 
-TCC run mode is considered only in debug builds that target the native backend.
-The planner verifies three conditions before switching to the TCC run flow:
+In particular, setting `MOONBIT_NEW_NATIVE=0` does not enable TCC. Native
+`run` and `test` actions produce ordinary executables through the generated-C
+pipeline.
 
-- The invocation runs on Linux or macOS, where the bundled `tcc` is available.
-- No selected executable package requests custom native compilers or flags.
-  If any selected package opts into its own toolchain, the run falls back to the regular native pipeline.
-- The requested action actually needs a runnable binary (for example, `run` or `test`).
-  Pure build or check requests keep using the standard native backend.
+## Retained legacy lowering
 
-If every gate passes, the planner selects the TCC run mode inside the Native backend configuration.
-Otherwise, nothing changes and the regular linker path is used.
+The build model, lowering code, and runtime launcher still contain a
+`TccRun` representation while removal is staged. Current command planning does
+not construct that representation, so the flow described below is unreachable
+from the CLI.
 
-## How the pipeline diverges
+Historically, eligible Linux and macOS debug `run` and `test` invocations used
+the following realization:
 
-TCC run mode keeps the logical build steps described in the [architecture][] and [build][] references:
+1. `BuildPackage` compiled MoonBit sources into CoreIR and emitted package
+   interfaces.
+2. `LinkCore` gathered transitive dependencies and emitted generated C.
+3. The runtime was built as a shared library, and package C stubs were collected
+   into shared libraries.
+4. `MakeExecutable` wrote a response file containing the `tcc -run` command
+   line instead of linking an executable.
+5. The runtime launcher invoked the bundled TCC with that response file and the
+   program arguments.
 
-[architecture]: ./arch.md
-[build]: ./build.md
-
-1. `BuildPackage` compiles MoonBit sources into CoreIR and emits package interfaces.
-2. `LinkCore` gathers all transitive dependencies
-   to produce a single C artifact for the selected target kind.
-3. Native-specific nodes prepare artifacts for execution.
-
-TCC run keeps the generated-C Native Payload Form, so `LinkCore` emits C.
-It diverges from the regular generated-C realization in the native-specific step:
-
-- The runtime code is compiled into a shared library instead of an object file.
-- Each package's C stubs remain as object files, but are collected into shared libraries (`.so`/`.dylib`).
-- The final `MakeExecutable` node no longer compiles and link the resulting C code.
-  Instead, it writes a response file that captures the full `tcc -run` command line,
-  pointing at the C artifact and the shared libraries prepared above.
-
-### Notes
-
-We emit a shared library instead of a static library or plain object file because TCC,
-on \*nix systems, can only consume ELF.
-On macOS the object files are Mach-O,
-while the shared libraries/executables we care about are ELF,
-so using a shared library in place of an object file lets TCC link against them successfully.
-
-We use a response file so that all concrete build and link details stay inside the build-graph generator.
-The executable runners only see "call `tcc` with `@<response-file>`",
-which avoids leaking flags/paths out of the pipeline
-and keeps the runners loosely coupled to the build system.
-
-On macOS the response file includes the active SDK `usr/lib` search path when `xcrun` resolves it
-to an existing directory, so bundled TCC can find system libraries even when the standalone Command
-Line Tools SDK is not installed. If the SDK path cannot be resolved, Moon leaves the response file
-unchanged and lets the later TCC invocation report any missing library normally.
-
-## Execution at runtime
-
-When `moon` later executes the target,
-it derives the `TccRun` execution mode from the Native backend configuration
-and launches the internal `TCC` with the response file recorded earlier,
-`tcc @<response-file> [args...]`.
-
-This behavior is transparent to the user and the rest of the build system.
-The command and user-provided arguments are generated in the exact same way as other backends.
-
-## Fallback behavior
-
-Any violation of the eligibility rules reverts the pipeline to the regular native backend. This applies per invocation rather than per package: once one package blocks TCC run mode, every target in that run uses the traditional linker path so the build graph stays coherent.
+The response-file, shared-runtime, and shared-stub paths remain implementation
+details of the dormant lowering. They do not describe current native command
+behavior.

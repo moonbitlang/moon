@@ -1,7 +1,5 @@
 use std::cell::OnceCell;
 
-#[cfg(unix)]
-use crate::util;
 use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs};
 
 // Notice the two `this-is-added-by-config-script`
@@ -57,31 +55,6 @@ fn test_prebuild_config_common(dir: TestDir) {
         .get()
         .expect("c stub compilation not found");
     found_link_flags.get().expect("link flags not found");
-}
-
-#[test]
-#[cfg(unix)]
-fn test_prebuild_config_tcc_rspfile_snapshot() {
-    let dir = TestDir::new("prebuild_config_script/tcc_rspfile");
-    let stdout = get_stdout_with_envs(
-        &dir,
-        ["run", "src/main", "--target", "native", "--build-only"],
-        [("MOONBIT_NEW_NATIVE", "0")],
-    );
-    println!("{}", &stdout);
-
-    let artifact_json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("build-only output should be artifact JSON");
-    let artifact_path = artifact_json["artifacts_path"]
-        .as_array()
-        .and_then(|paths| paths.first())
-        .and_then(|path| path.as_str())
-        .expect("build-only output should contain a first artifact path");
-    let artifact_path = artifact_path.replace("$ROOT", &dir.as_ref().display().to_string());
-
-    let rspfile_content =
-        util::replace_dir(&util::read(artifact_path), &dir).replace(".dylib", ".so");
-    snapbox::assert_data_eq!(rspfile_content, snapbox::file!["tcc_rspfile_content.snap"]);
 }
 
 #[test]

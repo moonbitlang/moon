@@ -72,7 +72,9 @@ pub enum NativeTarget {
 pub enum NativeBackendMode {
     /// Legacy generated-C native path.
     GeneratedC,
-    /// Native execution through `tcc -run`.
+    /// Dormant native execution through `tcc -run`.
+    /// TODO: Remove after legacy TCC lowering and runtime-launch compatibility
+    /// are deleted.
     TccRun(TccRunConfig),
     /// Experimental direct object-code native path.
     DirectObject(DirectNativeMode),
@@ -196,7 +198,7 @@ impl DirectNativeMode {
     }
 }
 
-/// Configuration for the optional native `tcc -run` path.
+/// Configuration for the dormant legacy native `tcc -run` lowering.
 ///
 /// Normal native execution, LLVM execution, and all non-native backends do not
 /// carry this value.
@@ -357,7 +359,7 @@ pub enum BuildPlanNode {
     /// Build the i-th runtime C translation unit.
     BuildRuntimeObject(u32),
 
-    /// Archive the runtime objects, or link the shared runtime for TCC-run.
+    /// Archive the runtime objects, or realize the dormant legacy TCC-run runtime.
     BuildRuntimeLib,
 
     /// Build the virtual package's `.mbti` interface file to get an `.mi` file.

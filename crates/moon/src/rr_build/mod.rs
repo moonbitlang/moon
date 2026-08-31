@@ -48,7 +48,6 @@ use moonbuild_rupes_recta::{
     intent::UserIntent,
     model::{
         BackendConfig, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId, TargetKind,
-        TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
@@ -57,7 +56,7 @@ use moonutil::{
     build_options::RunMode,
     cli_support::AutoSyncFlags,
     cli_support::UniversalFlags,
-    compiler_flags::{self, CC},
+    compiler_flags,
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
     features::FeatureGate,
@@ -318,8 +317,6 @@ pub struct CompilePreConfig {
     pub warning_condition: WarningCondition,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
-    /// Attempt to use `tcc -run` when possible
-    pub try_tcc_run: bool,
     warn_list: Option<String>,
 }
 
@@ -339,7 +336,7 @@ impl CompilePreConfig {
         is_core: bool,
         resolve_output: &ResolveOutput,
         requested_artifacts: &[ArtifactKey],
-        user_log: &UserLog,
+        _user_log: &UserLog,
     ) -> anyhow::Result<CompileConfig> {
         info!("Determining compilation configuration");
 
@@ -369,7 +366,7 @@ impl CompilePreConfig {
             },
             TargetBackend::Js => BackendConfig::Js,
             TargetBackend::Native => BackendConfig::Native {
-                mode: self.detect_mode(resolve_output, requested_artifacts, user_log),
+                mode: self.detect_mode(resolve_output, requested_artifacts),
                 allocator: compiler_flags::NativeAllocator::from_env()?,
             },
             TargetBackend::LLVM => BackendConfig::Llvm {
@@ -413,7 +410,6 @@ impl CompilePreConfig {
         &self,
         resolve_output: &ResolveOutput,
         requested_artifacts: &[ArtifactKey],
-        user_log: &UserLog,
     ) -> NativeBackendMode {
         // TODO: Native payload form is selected once per invocation. Before
         // selecting it per executable, key the shared runtime and package C-stub
@@ -451,58 +447,10 @@ impl CompilePreConfig {
                 return NativeBackendMode::GeneratedC;
             }
 
-            info!("Disabling `tcc -run`: new native backend selected");
             return NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target));
         }
 
-        if !self.try_tcc_run {
-            info!("Disabling `tcc -run`: not requested");
-            return NativeBackendMode::GeneratedC;
-        }
-        if self.opt_level != BuildProfile::Debug {
-            info!("Disabling `tcc -run`: only available for debug builds");
-            return NativeBackendMode::GeneratedC;
-        }
-        if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
-            info!("Disabling `tcc -run`: only supported on Linux and macOS");
-            return NativeBackendMode::GeneratedC;
-        }
-        if compiler_flags::has_cc_env_override() {
-            info!("Disabling `tcc -run`: MOON_CC is set");
-            info!("`tcc -run` availability: false");
-            return NativeBackendMode::GeneratedC;
-        }
-        for (package, native) in native_configs {
-            let description = if native.cc.is_some() {
-                Some("toolchain")
-            } else if native.cc_flags.is_some() {
-                Some("compiler flags")
-            } else if native.cc_link_flags.is_some() {
-                Some("linker flags")
-            } else {
-                None
-            };
-            if let Some(description) = description {
-                user_log.warn(format!(
-                    "Package '{}' overrides C/C++ {description}, `tcc -run` will be disabled",
-                    package.fqn
-                ));
-                info!("`tcc -run` availability: false");
-                return NativeBackendMode::GeneratedC;
-            }
-        }
-
-        match CC::internal_tcc() {
-            Ok(internal_tcc) => {
-                info!("`tcc -run` availability: true");
-                NativeBackendMode::TccRun(TccRunConfig::new(internal_tcc))
-            }
-            Err(_) => {
-                user_log.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
-                info!("`tcc -run` availability: false");
-                NativeBackendMode::GeneratedC
-            }
-        }
+        NativeBackendMode::GeneratedC
     }
 }
 
@@ -546,7 +494,6 @@ pub fn preconfig_compile(
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
         info_no_alias: false,
-        try_tcc_run: false,
         warning_condition: if build_flags.deny_warn {
             WarningCondition::Deny
         } else {

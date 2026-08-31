@@ -148,16 +148,7 @@ impl RunOutputVerbosity {
 }
 
 /// Controls how `moon run` builds the executable before it is consumed.
-///
-/// Normal execution preserves the existing debug-native fast path by allowing
-/// `tcc -run`. Consumers that need a standalone executable, such as profilers,
-/// should disable it.
 pub(crate) struct BuildRunExecutableOptions {
-    /// Whether native debug builds may use `tcc -run`.
-    ///
-    /// `tcc -run` executes through `tcc @rspfile` and does not provide the same
-    /// standalone executable shape as regular native execution.
-    try_tcc_run: bool,
     /// Whether dry-run output should include the final executable invocation.
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
@@ -168,7 +159,6 @@ pub(crate) struct BuildRunExecutableOptions {
 impl BuildRunExecutableOptions {
     fn for_run(cli: &UniversalFlags) -> Self {
         Self {
-            try_tcc_run: !cli.dry_run,
             print_dry_run_run_command: true,
             output: RunOutputVerbosity::from_flags(cli),
             default_target_backend: TargetBackend::default(),
@@ -177,9 +167,6 @@ impl BuildRunExecutableOptions {
 
     pub(crate) fn for_profile(cli: &UniversalFlags) -> Self {
         Self {
-            // Profiling needs a stable executable path for xctrace to launch.
-            // The TCC fast path may run directly from generated C instead.
-            try_tcc_run: false,
             // The dry-run output should show the profiled invocation, not the
             // plain executable command that `moon run` would normally print.
             print_dry_run_run_command: false,
@@ -502,7 +489,6 @@ fn build_package_executable(
         mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
-        options.try_tcc_run,
         user_log,
     )?;
     build_executable_from_plan(
@@ -528,7 +514,6 @@ pub(crate) fn plan_run_rr_from_resolved(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: ResolveOutput,
-    try_tcc_run: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let input_path = cmd
@@ -547,7 +532,7 @@ pub(crate) fn plan_run_rr_from_resolved(
             })
             .unwrap_or_default(),
     );
-    let mut preconfig = preconfig_compile(
+    let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
@@ -555,8 +540,6 @@ pub(crate) fn plan_run_rr_from_resolved(
         target_dir,
         RunMode::Run,
     );
-    preconfig.try_tcc_run = try_tcc_run;
-
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
     let planning_context = rr_build::prepare_resolved_build(
@@ -692,7 +675,7 @@ fn build_single_file_executable(
         .or(backend)
         .unwrap_or(options.default_target_backend);
 
-    let mut preconfig = preconfig_compile(
+    let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
@@ -700,8 +683,6 @@ fn build_single_file_executable(
         target_dir,
         RunMode::Run,
     );
-    preconfig.try_tcc_run = options.try_tcc_run;
-
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,

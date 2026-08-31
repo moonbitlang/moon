@@ -212,8 +212,8 @@ Compiling C stubs of a package involves 3 steps:
    nested module or package roots are outside the Package File Set, so headers
    under those boundaries are not discovered automatically.
 2. `ArchiveOrLinkCStubs` -- All C stubs in a package is archived using AR.
-   If [TCC-run mode](./tcc-run.md) is enabled, this instead links the C stubs.
-   This is out of scope of a regular compilation.
+   The dormant [legacy TCC-run lowering](./tcc-run.md) instead links the C
+   stubs. This is out of scope of a regular compilation.
 3. For every package that transitively depends on this package with C stubs,
    the archived compilation output is added to the input list of `MakeExecutable`.
 
@@ -232,8 +232,9 @@ translation unit, or changing the selected SIMDUTF members, therefore uses a
 new archive path instead of letting an update-style archiver retain a removed
 member.
 
-TCC-run mode instead lowers `BuildRuntimeLib` to one compiler invocation that
-builds a shared runtime library directly from all runtime sources.
+The dormant legacy TCC-run lowering instead lowers `BuildRuntimeLib` to one
+compiler invocation that builds a shared runtime library directly from all
+runtime sources.
 
 ### Reading and writing MBTI interfaces
 

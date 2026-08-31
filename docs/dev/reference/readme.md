@@ -21,7 +21,7 @@ This is a reference documentation of the current MoonBuild behavior.
 * [Prebuild tasks](./prebuild.md)
 * [Conditional compilation](./cond-comp.md)
 * [Virtual packages](./virtual-pkg.md)
-* [`tcc -run` mode](./tcc-run.md)
+* [Legacy `tcc -run` lowering](./tcc-run.md)
 * [`moon bundle`](./bundle.md)
 * [`moon install` binary installer behavior](./moon-install-binary.md)
 * [`moon runwasm` behavior](./runwasm.md)
