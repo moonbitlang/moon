@@ -317,9 +317,6 @@ pub struct CompilePreConfig {
     pub warning_condition: WarningCondition,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
-    /// Legacy request to use `tcc -run`.
-    /// TODO: Remove this compatibility input once command callers stop setting it.
-    pub try_tcc_run: bool,
     warn_list: Option<String>,
 }
 
@@ -453,9 +450,6 @@ impl CompilePreConfig {
             return NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target));
         }
 
-        if self.try_tcc_run {
-            info!("Ignoring legacy `tcc -run` request: using the system C toolchain");
-        }
         NativeBackendMode::GeneratedC
     }
 }
@@ -500,7 +494,6 @@ pub fn preconfig_compile(
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
         info_no_alias: false,
-        try_tcc_run: false,
         warning_condition: if build_flags.deny_warn {
             WarningCondition::Deny
         } else {

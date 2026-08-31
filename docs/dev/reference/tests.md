@@ -151,13 +151,6 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
   semantics (`start` inclusive, `end` exclusive) just like the metadata indices.
 - Example argument: `math.mbt:0-5/io.mbt:2-3`.
 
-### Native (tcc-run)
-
-- When the build graph enables `try_tcc_run`, tests can be executed by TCC script mode.
-- Command: `<internal tcc> @<artifact>.rsp <native test args>` where the response file
-  contains the linker steps needed to run the temporary binary. The same CLI payload as
-  native/LLVM is appended so the harness can filter cases.
-
 ## Narrowing which tests run
 
 Filtering is handled by `TestFilter` (`runtest/filter.rs`). It stores allowed

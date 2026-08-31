@@ -502,8 +502,8 @@ Here are some examples:
   (build targets don't make sense on virtual packages).
 - `BuildRuntimeObject(u32)` compiles one shipped runtime C translation unit.
 - `BuildRuntimeLib` collects the runtime objects into the single runtime
-  library used globally by all consumers in the project. TCC-run lowers this
-  node directly from all runtime sources instead.
+  library used globally by all consumers in the project. The dormant legacy
+  TCC-run lowering lowers this node directly from all runtime sources instead.
 
 The full list of backend build-plan nodes is available in
 [its module](/crates/moonbuild-rupes-recta/src/model.rs). Package prebuild keys
