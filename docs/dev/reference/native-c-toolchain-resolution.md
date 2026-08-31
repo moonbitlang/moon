@@ -121,6 +121,9 @@ When a native build step chooses its compiler, the current precedence is:
 2. package-level override (`link.native.cc` or `link.native.stub_cc`)
 3. detected default toolchain
 
+The build model still contains the legacy `NativeTccRun` lowering, but command
+planning no longer selects it.
+
 ## Global Environment Override
 
 - If `MOON_CC` is set, Moon uses it as the compiler for the regular native pipeline.
@@ -164,7 +167,9 @@ hosts, Moon falls back to PATH probing in this order:
 2. `cc`
 3. `gcc`
 4. `clang`
-5. internal `tcc`
+
+Moon does not fall back to a bundled compiler. If no system toolchain is
+available, planning fails with the tool-resolution error.
 
 ## Compiler Kind Detection
 

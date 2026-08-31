@@ -5,7 +5,7 @@ use walkdir::WalkDir;
 use super::unix_graph::{assert_native_backend_graph, prepend_to_path};
 
 #[test]
-fn test_native_backend_tcc_run() {
+fn test_native_backend_system_cc_fallback() {
     let dir = TestDir::new("native_backend/tcc_run");
     let fake_bin = dir.join("fake-toolchain/bin");
     let fake_path = prepend_to_path(&fake_bin);
@@ -32,7 +32,7 @@ fn test_native_backend_tcc_run() {
 }
 
 #[test]
-fn test_native_tcc_run_when_moon_spawned_from_other_dir() {
+fn test_native_system_cc_when_moon_spawned_from_other_dir() {
     let dir = TestDir::new("workspace_basic.in");
     let spawn_dir = dir.join("spawn");
     std::fs::create_dir(&spawn_dir).expect("failed to create spawn directory");
@@ -50,10 +50,10 @@ fn test_native_tcc_run_when_moon_spawned_from_other_dir() {
             "--sort-input",
         ])
         .output()
-        .expect("failed to run native tcc-run tests");
+        .expect("failed to run native tests with the system C compiler");
     assert!(
         output.status.success(),
-        "native tcc-run test failed\nstdout:\n{}\nstderr:\n{}",
+        "native system-CC test failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -61,10 +61,10 @@ fn test_native_tcc_run_when_moon_spawned_from_other_dir() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Total tests: 2, passed: 2, failed: 0."),
-        "native tcc-run test stdout did not contain expected summary\nstdout:\n{stdout}",
+        "native system-CC test stdout did not contain expected summary\nstdout:\n{stdout}",
     );
 
-    let used_tcc_run = WalkDir::new(dir.join("_build/native/debug/test"))
+    let has_tcc_run_response_file = WalkDir::new(dir.join("_build/native/debug/test"))
         .into_iter()
         .filter_map(Result::ok)
         .any(|entry| {
@@ -74,5 +74,8 @@ fn test_native_tcc_run_when_moon_spawned_from_other_dir() {
                 .and_then(|ext| ext.to_str())
                 .is_some_and(|ext| ext == "rspfile")
         });
-    assert!(used_tcc_run, "expected tcc-run response files");
+    assert!(
+        !has_tcc_run_response_file,
+        "did not expect tcc-run response files"
+    );
 }

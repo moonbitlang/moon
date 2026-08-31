@@ -5,6 +5,13 @@
 >
 > A major portion of this document is written by an LLM.
 
+## Status
+
+Moon no longer selects TCC run mode. When direct native object production is
+disabled or unavailable, Moon uses the generated-C pipeline and resolves an
+available system C toolchain. The remaining sections describe the legacy
+lowering that is still present during the staged removal.
+
 Moon can execute the artifacts of the native (C) backend directly through `tcc -run`
 in order to reduce build times.
 This document describes the TCC run mode,
