@@ -9,7 +9,7 @@ mod parallel_msvc;
 #[cfg(unix)]
 mod simdutf;
 #[cfg(unix)]
-mod tcc_run;
+mod system_cc_fallback;
 mod test_filter;
 
 #[cfg(unix)]

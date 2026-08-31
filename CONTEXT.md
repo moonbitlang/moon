@@ -152,7 +152,7 @@ _Avoid_: Generated-C native backend, native backend
 
 **Native Payload Form**:
 The representation produced by MoonBit before the host C compiler or linker is invoked, such as generated C or direct object code.
-_Avoid_: Treating generated C, TCC execution, and direct object linking as the same kind of backend choice
+_Avoid_: Treating generated C and direct object linking as the same kind of backend choice
 
 **Native Toolchain**:
 The selected native compiler/linker used after MoonBit lowering, together with any ABI family, command environment, and runtime-linkage obligations it imposes on runtime, C stubs, and executable linking.

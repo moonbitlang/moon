@@ -118,7 +118,7 @@ impl<'a> BuildPlanConstructor<'a> {
             return compiler_flags::windows_msvc_native_toolchain(package_cc);
         }
 
-        compiler_flags::effective_native_toolchain(package_cc, None)
+        compiler_flags::effective_native_toolchain(package_cc)
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
