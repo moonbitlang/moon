@@ -116,20 +116,22 @@ fn test_moonx_uses_its_own_command_line_interface() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-Run a package from the Mooncakes registry without installing it.
+Run a standalone .mbtx file or a package from the Mooncakes registry without installing it.
 
-Accepted package coordinate forms:
+Accepted input forms:
+  moonx script.mbtx
   moonx user/module/package
   moonx user/module/package@1.2.3
   moonx user/module/package@latest
 
-Pinned coordinates use the requested version directly. `@latest` refreshes the
+Standalone .mbtx files always use the linear-memory Wasm backend. Pinned
+package coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already known to the local registry index.
 
 The native target is deprecated and scheduled for removal after 2026-09-14.
 
-Usage: moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
+Usage: moonx [OPTIONS] <MBTX|PACKAGE> [PROGRAM_ARGS]...
 
 Options:
       --target <TARGET>
@@ -149,6 +151,82 @@ Options:
           Print version
 
 "#]]);
+}
+
+#[test]
+fn test_moonx_runs_mbtx_as_linear_wasm_and_forwards_args() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["moonx_args.mbtx", "--help", "--target", "native", "-V"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+--help
+--target
+native
+-V
+
+"#]])
+        .stderr_eq("");
+
+    assert!(
+        dir.join("_build/wasm/debug/build/single/single.wasm")
+            .is_file()
+    );
+    assert!(!dir.join("_build/wasm-gc").exists());
+}
+
+#[test]
+fn test_moonx_rejects_native_for_mbtx() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .args(["--target", "native", "moonx_args.mbtx"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
+Error: standalone `.mbtx` inputs only support `--target wasm`
+
+"#]]);
+
+    assert!(!dir.join("_build").exists());
+}
+
+#[test]
+fn test_moonx_forwards_experimental_policy_to_mbtx() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    let output = std::process::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "--experimental-policy",
+            "missing-policy.json",
+            "moonx_args.mbtx",
+        ])
+        .output()
+        .expect("failed to run moonx");
+    let stderr = String::from_utf8(output.stderr).expect("moonx stderr should be UTF-8");
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("failed to load sandbox policy"),
+        "expected moonx to forward its policy to moonrun:\n{stderr}"
+    );
 }
 
 #[test]

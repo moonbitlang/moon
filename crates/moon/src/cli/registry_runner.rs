@@ -140,7 +140,8 @@ fn cached_native_executable(
     })
 }
 
-fn prepare_artifact(
+/// Prepare one already-acquired or already-built artifact for final execution.
+pub(crate) fn prepare_artifact(
     mode: crate::run::ExecutionMode,
     artifact: &Path,
     experimental_policy: Option<&Path>,
