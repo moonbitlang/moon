@@ -17,22 +17,23 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::runtime::{Runtime, WorkingDirectory};
-use crate::{source_map, v8};
+use crate::{source_map, v8 as backend};
 use anyhow::Context;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Process-wide engine configuration for the current V8-backed implementation.
+/// Process-wide configuration for the Engine Backend.
 ///
-/// V8 flags are process-global and must be selected before the first run. All
-/// [`Engine`] values in one process therefore need the same configuration.
+/// V8 flags are process-global and must be selected before the first run, so
+/// all V8-backed [`Engine`] values in one process need the same configuration.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EngineConfig {
     pub(crate) stack_size: Option<usize>,
 }
 
 impl EngineConfig {
+    /// Set the maximum guest stack size in KiB.
     pub fn with_stack_size(mut self, stack_size: usize) -> Self {
         self.stack_size = Some(stack_size);
         self
@@ -48,6 +49,12 @@ pub struct RunOptions {
     pub(crate) policy_file: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct TestArgs {
+    pub(crate) package: String,
+    pub(crate) file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
 }
 
 impl RunOptions {
@@ -68,6 +75,14 @@ impl RunOptions {
     pub fn with_test_args(mut self, test_args: impl Into<String>) -> Self {
         self.test_args = Some(test_args.into());
         self
+    }
+
+    pub(crate) fn parsed_test_args(&self) -> anyhow::Result<Option<TestArgs>> {
+        self.test_args
+            .as_deref()
+            .map(serde_json_lenient::from_str)
+            .transpose()
+            .context("invalid MoonBit test arguments")
     }
 
     pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
@@ -103,7 +118,7 @@ pub enum RunOutcome {
 
 struct ModuleData {
     name: String,
-    compiled: v8::CompiledModule,
+    compiled: backend::CompiledModule,
     source_map: Option<String>,
 }
 
@@ -120,7 +135,7 @@ impl Module {
         &self.0.name
     }
 
-    pub(crate) fn compiled(&self) -> &v8::CompiledModule {
+    pub(crate) fn compiled(&self) -> &backend::CompiledModule {
         &self.0.compiled
     }
 
@@ -151,12 +166,14 @@ impl fmt::Debug for Module {
 /// other process-environment access.
 #[derive(Clone, Debug)]
 pub struct Engine {
-    config: EngineConfig,
+    backend: Arc<backend::Engine>,
 }
 
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
-        Self { config }
+        Self {
+            backend: Arc::new(backend::Engine::new(config)),
+        }
     }
 
     /// Compile Wasm bytes into a reusable immutable Module.
@@ -166,7 +183,9 @@ impl Engine {
         bytes: impl AsRef<[u8]>,
     ) -> anyhow::Result<Module> {
         let name = name.into();
-        let compiled = v8::compile(&self.config, bytes.as_ref())
+        let compiled = self
+            .backend
+            .compile(bytes.as_ref())
             .with_context(|| format!("failed to compile `{name}`"))?;
         Ok(Module(Arc::new(ModuleData {
             name,
@@ -186,7 +205,9 @@ impl Engine {
         }
         let bytes = std::fs::read(file).context("failed to read Wasm file")?;
         let name = file.to_string_lossy().into_owned();
-        let compiled = v8::compile(&self.config, &bytes)
+        let compiled = self
+            .backend
+            .compile(&bytes)
             .with_context(|| format!("failed to compile `{name}`"))?;
         Ok(Module(Arc::new(ModuleData {
             name,
@@ -202,8 +223,7 @@ impl Engine {
             options.inherited_policy.as_deref(),
             options.working_directory.clone(),
         )?;
-        v8::run(
-            &self.config,
+        self.backend.run(
             module.name(),
             module.compiled(),
             module.source_map(),

@@ -24,7 +24,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use crate::run_termination::TerminationRequest;
-use crate::runtime::{Runtime, WorkingDirectory};
+use crate::runtime::Runtime;
 
 use super::builder::ObjectExt;
 
@@ -119,10 +119,6 @@ impl V8RunContext {
 
     pub(crate) fn termination_request(&self) -> &TerminationRequest {
         &self.termination_request
-    }
-
-    pub(crate) fn working_directory(&self) -> &WorkingDirectory {
-        self.runtime.working_directory()
     }
 }
 

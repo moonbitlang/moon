@@ -16,234 +16,26 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! V8 adapter for the shared WASIp1 Host state.
+
+use std::any::Any;
+use std::rc::Rc;
+
 use super::builder::ScopeExt;
 use super::context::{self, V8ImportError, V8MemoryBinding, V8RunContext};
-use crate::run_termination::{RunTermination, TerminationRequest};
-use crate::runtime::{Env, Stdio, StdioStream};
-use rand::{RngCore, rngs::OsRng};
-use std::any::Any;
-use std::collections::BTreeMap;
-use std::fs;
-use std::io::{ErrorKind, Read, Seek, Write};
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use crate::wasi::{self, WASI_ERRNO_FAULT, WASI_ERRNO_INVAL, WasiContext, WasiResult};
 
-type WasiErrno = i32;
-type WasiResult<T> = Result<T, WasiErrno>;
-
-const WASI_ERRNO_SUCCESS: WasiErrno = 0;
-const WASI_ERRNO_AGAIN: WasiErrno = 6;
-const WASI_ERRNO_ACCESS: WasiErrno = 2;
-const WASI_ERRNO_BADF: WasiErrno = 8;
-const WASI_ERRNO_EXIST: WasiErrno = 20;
-const WASI_ERRNO_FAULT: WasiErrno = 21;
-const WASI_ERRNO_INVAL: WasiErrno = 28;
-const WASI_ERRNO_IO: WasiErrno = 29;
-const WASI_ERRNO_ISDIR: WasiErrno = 31;
-const WASI_ERRNO_LOOP: WasiErrno = 32;
-const WASI_ERRNO_NOENT: WasiErrno = 44;
-const WASI_ERRNO_NAMETOOLONG: WasiErrno = 37;
-const WASI_ERRNO_NOTDIR: WasiErrno = 54;
-const WASI_ERRNO_NOTEMPTY: WasiErrno = 55;
-const WASI_ERRNO_NOTSUP: WasiErrno = 58;
-const WASI_ERRNO_PIPE: WasiErrno = 64;
-const WASI_ERRNO_NOTCAPABLE: WasiErrno = 76;
-
-const WASI_FD_STDIN: i32 = 0;
-const WASI_FD_STDOUT: i32 = 1;
-const WASI_FD_STDERR: i32 = 2;
-const WASI_FD_PREOPEN_DIR: i32 = 3;
-const WASI_FD_DYNAMIC_START: i32 = 4;
-const WASI_IOVEC_SIZE: usize = 8;
-const WASI_SUBSCRIPTION_SIZE: usize = 48;
-const WASI_EVENT_SIZE: usize = 32;
-const WASI_DIRENT_SIZE: usize = 24;
-
-const WASI_PREOPEN_TYPE_DIR: u8 = 0;
-const WASI_FILETYPE_UNKNOWN: u8 = 0;
-const WASI_FILETYPE_DIRECTORY: u8 = 3;
-const WASI_FILETYPE_REGULAR_FILE: u8 = 4;
-const WASI_FILETYPE_SYMBOLIC_LINK: u8 = 7;
-
-const WASI_FDFLAG_APPEND: i32 = 1;
-const WASI_FDFLAG_DSYNC: i32 = 2;
-const WASI_FDFLAG_NONBLOCK: i32 = 4;
-const WASI_FDFLAG_RSYNC: i32 = 8;
-const WASI_FDFLAG_SYNC: i32 = 16;
-const WASI_KNOWN_FDFLAGS_MASK: i32 = WASI_FDFLAG_APPEND
-    | WASI_FDFLAG_DSYNC
-    | WASI_FDFLAG_NONBLOCK
-    | WASI_FDFLAG_RSYNC
-    | WASI_FDFLAG_SYNC;
-const WASI_SUPPORTED_FDFLAGS_MASK: i32 = WASI_FDFLAG_APPEND;
-
-const WASI_OFLAGS_CREAT: i32 = 1;
-const WASI_OFLAGS_DIRECTORY: i32 = 2;
-const WASI_OFLAGS_EXCL: i32 = 4;
-const WASI_OFLAGS_TRUNC: i32 = 8;
-
-const WASI_LOOKUPFLAG_SYMLINK_FOLLOW: i32 = 1;
-const WASI_KNOWN_LOOKUPFLAGS_MASK: i32 = WASI_LOOKUPFLAG_SYMLINK_FOLLOW;
-const WASI_KNOWN_OFLAGS_MASK: i32 =
-    WASI_OFLAGS_CREAT | WASI_OFLAGS_DIRECTORY | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC;
-
-const WASI_RIGHT_FD_READ: u64 = 1u64 << 1;
-const WASI_RIGHT_FD_WRITE: u64 = 1u64 << 6;
-const WASI_RIGHT_PATH_CREATE_DIRECTORY: u64 = 1u64 << 9;
-const WASI_RIGHT_PATH_CREATE_FILE: u64 = 1u64 << 10;
-const WASI_RIGHT_PATH_OPEN: u64 = 1u64 << 13;
-const WASI_RIGHT_FD_READDIR: u64 = 1u64 << 14;
-const WASI_RIGHT_PATH_READLINK: u64 = 1u64 << 15;
-const WASI_RIGHT_PATH_RENAME_SOURCE: u64 = 1u64 << 16;
-const WASI_RIGHT_PATH_RENAME_TARGET: u64 = 1u64 << 17;
-const WASI_RIGHT_PATH_FILESTAT_GET: u64 = 1u64 << 18;
-const WASI_RIGHT_PATH_FILESTAT_SET_SIZE: u64 = 1u64 << 19;
-const WASI_RIGHT_FD_FILESTAT_GET: u64 = 1u64 << 21;
-const WASI_RIGHT_PATH_REMOVE_DIRECTORY: u64 = 1u64 << 25;
-const WASI_RIGHT_PATH_UNLINK_FILE: u64 = 1u64 << 26;
-const WASI_KNOWN_RIGHTS_MASK: u64 = (1u64 << 30) - 1;
-
-const WASI_EVENTTYPE_CLOCK: u16 = 0;
-const WASI_EVENTTYPE_FD_READ: u16 = 1;
-const WASI_EVENTTYPE_FD_WRITE: u16 = 2;
-
-const WASI_SUBSCRIPTION_TAG_CLOCK: u32 = 0;
-const WASI_SUBSCRIPTION_TAG_FD_READ: u32 = 1;
-const WASI_SUBSCRIPTION_TAG_FD_WRITE: u32 = 2;
-const WASI_SUBCLOCKFLAG_ABSTIME: u32 = 1;
-
-struct DescriptorTable {
-    next_fd: i32,
-    entries: BTreeMap<i32, Arc<Descriptor>>,
-}
-
-impl DescriptorTable {
-    fn new() -> Self {
-        Self {
-            next_fd: WASI_FD_DYNAMIC_START,
-            entries: BTreeMap::new(),
-        }
-    }
-
-    fn insert(&mut self, descriptor: Arc<Descriptor>) -> WasiResult<i32> {
-        let fd = self.next_fd;
-        self.next_fd = self.next_fd.checked_add(1).ok_or(WASI_ERRNO_FAULT)?;
-        self.entries.insert(fd, descriptor);
-        Ok(fd)
-    }
-}
-
-enum DescriptorKind {
-    File(Mutex<fs::File>),
-    Directory(PathBuf),
-}
-
-struct Descriptor {
-    kind: DescriptorKind,
-    rights_base: u64,
-    rights_inheriting: u64,
-}
-
-#[repr(i32)]
-#[derive(Clone, Copy)]
-enum ClockId {
-    Realtime = 0,
-    Monotonic = 1,
-    ProcessCpuTime = 2,
-    ThreadCpuTime = 3,
-}
-
-impl TryFrom<i32> for ClockId {
-    type Error = WasiErrno;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Realtime),
-            1 => Ok(Self::Monotonic),
-            2 => Ok(Self::ProcessCpuTime),
-            3 => Ok(Self::ThreadCpuTime),
-            _ => Err(WASI_ERRNO_INVAL),
-        }
-    }
-}
-
-struct WasiContext {
-    argv: Vec<Vec<u8>>,
-    environment: Arc<Env>,
-    stdio: Arc<Stdio>,
-    preopen_dir_name: Vec<u8>,
-    preopen_dir_host_path: PathBuf,
-    preopen_dir_real_path: PathBuf,
-    descriptors: Mutex<DescriptorTable>,
+struct V8WasiContext {
+    host: WasiContext,
     memory_binding: Rc<V8MemoryBinding>,
-    termination_request: TerminationRequest,
 }
 
-struct DirectoryEntry {
-    name: Vec<u8>,
-    file_type: u8,
-}
+impl std::ops::Deref for V8WasiContext {
+    type Target = WasiContext;
 
-enum SubscriptionData {
-    Clock {
-        id: ClockId,
-        timeout_ns: u64,
-        flags: u32,
-    },
-    FdRead {
-        fd: i32,
-    },
-    FdWrite {
-        fd: i32,
-    },
-}
-
-struct PollSubscription {
-    userdata: u64,
-    data: SubscriptionData,
-}
-
-struct PollEvent {
-    userdata: u64,
-    error: WasiErrno,
-    event_type: u16,
-    nbytes: u64,
-    flags: u32,
-}
-
-enum FdReadPollState {
-    Ready(u64),
-    Pending,
-}
-
-fn encode_c_string(value: impl Into<String>) -> Vec<u8> {
-    let mut bytes = value.into().into_bytes();
-    bytes.push(0);
-    bytes
-}
-
-fn build_argv(wasm_file_name: &str, args: &[String]) -> Vec<Vec<u8>> {
-    let mut argv = Vec::with_capacity(args.len() + 1);
-    argv.push(encode_c_string(wasm_file_name));
-    argv.extend(args.iter().map(|arg| encode_c_string(arg.as_str())));
-    argv
-}
-
-fn collect_environ(environment: &Env) -> Vec<Vec<u8>> {
-    environment
-        .entries()
-        .into_iter()
-        .map(|(key, value)| {
-            encode_c_string(format!(
-                "{}={}",
-                key.to_string_lossy(),
-                value.to_string_lossy()
-            ))
-        })
-        .collect()
+    fn deref(&self) -> &Self::Target {
+        &self.host
+    }
 }
 
 fn read_i32_arg(
@@ -276,445 +68,17 @@ fn read_u64_arg(
     }
 }
 
-fn ptr_to_offset(ptr: u32) -> WasiResult<usize> {
-    usize::try_from(ptr).map_err(|_| WASI_ERRNO_FAULT)
-}
-
-fn checked_range(memory: &[u8], offset: usize, len: usize) -> WasiResult<&[u8]> {
-    let end = offset.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
-    memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)
-}
-
-fn checked_mut_range(memory: &mut [u8], offset: usize, len: usize) -> WasiResult<&mut [u8]> {
-    let end = offset.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
-    memory.get_mut(offset..end).ok_or(WASI_ERRNO_FAULT)
-}
-
-fn write_u16_at(memory: &mut [u8], offset: usize, value: u16) -> WasiResult<()> {
-    checked_mut_range(memory, offset, 2)?.copy_from_slice(&value.to_le_bytes());
-    Ok(())
-}
-
-fn read_u16_at(memory: &[u8], offset: usize) -> WasiResult<u16> {
-    let end = offset.checked_add(2).ok_or(WASI_ERRNO_FAULT)?;
-    let bytes = memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)?;
-    Ok(u16::from_le_bytes(
-        <[u8; 2]>::try_from(bytes).map_err(|_| WASI_ERRNO_FAULT)?,
-    ))
-}
-
-fn write_u32_at(memory: &mut [u8], offset: usize, value: u32) -> WasiResult<()> {
-    checked_mut_range(memory, offset, 4)?.copy_from_slice(&value.to_le_bytes());
-    Ok(())
-}
-
-fn write_u32(memory: &mut [u8], ptr: u32, value: u32) -> WasiResult<()> {
-    write_u32_at(memory, ptr_to_offset(ptr)?, value)
-}
-
-fn read_u32_at(memory: &[u8], offset: usize) -> WasiResult<u32> {
-    let end = offset.checked_add(4).ok_or(WASI_ERRNO_FAULT)?;
-    let bytes = memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)?;
-    Ok(u32::from_le_bytes(
-        <[u8; 4]>::try_from(bytes).map_err(|_| WASI_ERRNO_FAULT)?,
-    ))
-}
-
-fn read_u64_at(memory: &[u8], offset: usize) -> WasiResult<u64> {
-    let end = offset.checked_add(8).ok_or(WASI_ERRNO_FAULT)?;
-    let bytes = memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)?;
-    Ok(u64::from_le_bytes(
-        <[u8; 8]>::try_from(bytes).map_err(|_| WASI_ERRNO_FAULT)?,
-    ))
-}
-
-fn write_u64_at(memory: &mut [u8], offset: usize, value: u64) -> WasiResult<()> {
-    checked_mut_range(memory, offset, 8)?.copy_from_slice(&value.to_le_bytes());
-    Ok(())
-}
-
-fn table_bytes_len(values: &[Vec<u8>]) -> WasiResult<u32> {
-    let total = values.iter().try_fold(0usize, |acc, value| {
-        acc.checked_add(value.len()).ok_or(WASI_ERRNO_FAULT)
-    })?;
-    u32::try_from(total).map_err(|_| WASI_ERRNO_FAULT)
-}
-
-fn write_c_string_table(
-    memory: &mut [u8],
-    values: &[Vec<u8>],
-    pointers_ptr: u32,
-    bytes_ptr: u32,
-) -> WasiResult<()> {
-    let pointers_base = ptr_to_offset(pointers_ptr)?;
-    let mut cursor = ptr_to_offset(bytes_ptr)?;
-
-    for (index, value) in values.iter().enumerate() {
-        let pointer_slot = pointers_base
-            .checked_add(index.checked_mul(4).ok_or(WASI_ERRNO_FAULT)?)
-            .ok_or(WASI_ERRNO_FAULT)?;
-
-        let cursor_u32 = u32::try_from(cursor).map_err(|_| WASI_ERRNO_FAULT)?;
-        write_u32_at(memory, pointer_slot, cursor_u32)?;
-
-        checked_mut_range(memory, cursor, value.len())?.copy_from_slice(value);
-        cursor = cursor.checked_add(value.len()).ok_or(WASI_ERRNO_FAULT)?;
-    }
-
-    Ok(())
-}
-
-fn iovec(memory: &[u8], iovs_ptr: u32, index: u32) -> WasiResult<(usize, usize)> {
-    let base = ptr_to_offset(iovs_ptr)?;
-    let index_offset = usize::try_from(index).map_err(|_| WASI_ERRNO_FAULT)?;
-    let iov_offset = base
-        .checked_add(
-            index_offset
-                .checked_mul(WASI_IOVEC_SIZE)
-                .ok_or(WASI_ERRNO_FAULT)?,
-        )
-        .ok_or(WASI_ERRNO_FAULT)?;
-
-    let buf_ptr = read_u32_at(memory, iov_offset)?;
-    let buf_len = read_u32_at(memory, iov_offset + 4)?;
-    let buf_offset = usize::try_from(buf_ptr).map_err(|_| WASI_ERRNO_FAULT)?;
-    let len = usize::try_from(buf_len).map_err(|_| WASI_ERRNO_FAULT)?;
-    Ok((buf_offset, len))
-}
-
-fn preopen_name() -> Vec<u8> {
-    b".".to_vec()
-}
-
-fn with_descriptor_table<T>(
-    context: &WasiContext,
-    f: impl FnOnce(&mut DescriptorTable) -> WasiResult<T>,
-) -> WasiResult<T> {
-    let mut table = context.descriptors.lock().map_err(|_| WASI_ERRNO_IO)?;
-    f(&mut table)
-}
-
-fn descriptor_for_fd(context: &WasiContext, fd: i32) -> WasiResult<Arc<Descriptor>> {
-    let table = context.descriptors.lock().map_err(|_| WASI_ERRNO_IO)?;
-    table.entries.get(&fd).cloned().ok_or(WASI_ERRNO_BADF)
-}
-
-fn preopen_matches(context: &WasiContext, fd: i32) -> bool {
-    fd == WASI_FD_PREOPEN_DIR && !context.preopen_dir_name.is_empty()
-}
-
-fn dir_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
-    let path = if preopen_matches(context, fd) {
-        context.preopen_dir_host_path.clone()
-    } else {
-        let descriptor = descriptor_for_fd(context, fd)?;
-        match &descriptor.kind {
-            DescriptorKind::Directory(path) => path.clone(),
-            _ => return Err(WASI_ERRNO_BADF),
-        }
-    };
-
-    let real_path = fs::canonicalize(&path).map_err(|error| io_error_to_errno(&error))?;
-    ensure_within_root(&context.preopen_dir_real_path, &real_path)?;
-    Ok(path)
-}
-
-fn dir_real_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
-    let path = dir_path_for_fd(context, fd)?;
-    fs::canonicalize(&path).map_err(|error| io_error_to_errno(&error))
-}
-
-fn file_for_fd(context: &WasiContext, fd: i32) -> WasiResult<Arc<Descriptor>> {
-    let descriptor = descriptor_for_fd(context, fd)?;
-    if matches!(&descriptor.kind, DescriptorKind::File(_)) {
-        Ok(descriptor)
-    } else {
-        Err(WASI_ERRNO_BADF)
-    }
-}
-
-fn validate_known_flag_bits(value: i32, mask: i32) -> WasiResult<()> {
-    if (value & !mask) != 0 {
-        Err(WASI_ERRNO_INVAL)
-    } else {
-        Ok(())
-    }
-}
-
-fn validate_supported_flag_bits(value: i32, supported: i32) -> WasiResult<()> {
-    if (value & !supported) != 0 {
-        Err(WASI_ERRNO_NOTSUP)
-    } else {
-        Ok(())
-    }
-}
-
-fn validate_known_rights(rights: u64) -> WasiResult<()> {
-    if (rights & !WASI_KNOWN_RIGHTS_MASK) != 0 {
-        Err(WASI_ERRNO_INVAL)
-    } else {
-        Ok(())
-    }
-}
-
-fn preopen_rights_base() -> u64 {
-    WASI_RIGHT_PATH_OPEN
-        | WASI_RIGHT_PATH_CREATE_FILE
-        | WASI_RIGHT_FD_READDIR
-        | WASI_RIGHT_PATH_READLINK
-        | WASI_RIGHT_PATH_RENAME_SOURCE
-        | WASI_RIGHT_PATH_RENAME_TARGET
-        | WASI_RIGHT_PATH_FILESTAT_GET
-        | WASI_RIGHT_PATH_FILESTAT_SET_SIZE
-        | WASI_RIGHT_PATH_CREATE_DIRECTORY
-        | WASI_RIGHT_PATH_REMOVE_DIRECTORY
-        | WASI_RIGHT_PATH_UNLINK_FILE
-        | WASI_RIGHT_FD_FILESTAT_GET
-}
-
-fn rights_base_for_fd(context: &WasiContext, fd: i32) -> WasiResult<u64> {
-    match fd {
-        WASI_FD_STDIN => Ok(WASI_RIGHT_FD_READ | WASI_RIGHT_FD_FILESTAT_GET),
-        WASI_FD_STDOUT | WASI_FD_STDERR => Ok(WASI_RIGHT_FD_WRITE | WASI_RIGHT_FD_FILESTAT_GET),
-        _ if preopen_matches(context, fd) => Ok(preopen_rights_base()),
-        _ => Ok(descriptor_for_fd(context, fd)?.rights_base),
-    }
-}
-
-fn rights_inheriting_for_fd(context: &WasiContext, fd: i32) -> WasiResult<u64> {
-    match fd {
-        WASI_FD_STDIN | WASI_FD_STDOUT | WASI_FD_STDERR => Ok(0),
-        _ if preopen_matches(context, fd) => Ok(WASI_KNOWN_RIGHTS_MASK),
-        _ => Ok(descriptor_for_fd(context, fd)?.rights_inheriting),
-    }
-}
-
-fn require_fd_right(context: &WasiContext, fd: i32, right: u64) -> WasiResult<()> {
-    let rights = rights_base_for_fd(context, fd)?;
-    if (rights & right) == right {
-        Ok(())
-    } else {
-        Err(WASI_ERRNO_NOTCAPABLE)
-    }
-}
-
-#[cfg(unix)]
-fn guest_path_from_bytes(path: &[u8]) -> PathBuf {
-    use std::os::unix::ffi::OsStringExt;
-    PathBuf::from(std::ffi::OsString::from_vec(path.to_vec()))
-}
-
-#[cfg(not(unix))]
-fn guest_path_from_bytes(path: &[u8]) -> WasiResult<PathBuf> {
-    let path = std::str::from_utf8(path).map_err(|_| WASI_ERRNO_INVAL)?;
-    Ok(PathBuf::from(path))
-}
-
-fn read_path_from_memory(memory: &[u8], path_ptr: u32, path_len: usize) -> WasiResult<PathBuf> {
-    let path = checked_range(memory, ptr_to_offset(path_ptr)?, path_len)?;
-    if path.contains(&0) {
-        return Err(WASI_ERRNO_INVAL);
-    }
-    #[cfg(unix)]
-    {
-        Ok(guest_path_from_bytes(path))
-    }
-    #[cfg(not(unix))]
-    {
-        guest_path_from_bytes(path)
-    }
-}
-
-fn validate_guest_entry_path(path: &Path) -> WasiResult<()> {
-    path.file_name().map(|_| ()).ok_or(WASI_ERRNO_NOTCAPABLE)
-}
-
-struct ResolvedPath {
-    host_path: PathBuf,
-    boundary_root: PathBuf,
-}
-
-fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<ResolvedPath> {
-    let base = dir_path_for_fd(context, dirfd)?;
-    let boundary_root = dir_real_path_for_fd(context, dirfd)?;
-    let host_path = if path.as_os_str().is_empty() {
-        base
-    } else if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
-    };
-    Ok(ResolvedPath {
-        host_path,
-        boundary_root,
-    })
-}
-
-fn io_error_to_errno(error: &std::io::Error) -> WasiErrno {
-    match error.kind() {
-        ErrorKind::NotFound => WASI_ERRNO_NOENT,
-        ErrorKind::PermissionDenied => WASI_ERRNO_ACCESS,
-        ErrorKind::AlreadyExists => WASI_ERRNO_EXIST,
-        ErrorKind::InvalidInput | ErrorKind::InvalidData => WASI_ERRNO_INVAL,
-        ErrorKind::NotADirectory => WASI_ERRNO_NOTDIR,
-        ErrorKind::IsADirectory => WASI_ERRNO_ISDIR,
-        ErrorKind::DirectoryNotEmpty => WASI_ERRNO_NOTEMPTY,
-        ErrorKind::WouldBlock => WASI_ERRNO_AGAIN,
-        ErrorKind::BrokenPipe => WASI_ERRNO_PIPE,
-        _ => WASI_ERRNO_IO,
-    }
-}
-
-enum PathBoundaryMode {
-    FollowFinal { allow_missing_final: bool },
-    ParentOnly,
-}
-
-fn canonical_nearest_existing_ancestor(path: &Path) -> WasiResult<(PathBuf, bool)> {
-    let immediate_parent = path.parent().unwrap_or(Path::new("."));
-    let mut current = immediate_parent;
-
-    loop {
-        match fs::canonicalize(current) {
-            Ok(real_path) => return Ok((real_path, current == immediate_parent)),
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                let Some(parent) = current.parent() else {
-                    return Err(WASI_ERRNO_NOENT);
-                };
-                if parent == current {
-                    return Err(WASI_ERRNO_NOENT);
-                }
-                current = parent;
-            }
-            Err(error) => return Err(io_error_to_errno(&error)),
-        }
-    }
-}
-
-fn reject_final_symlink(path: &Path) -> WasiResult<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(WASI_ERRNO_LOOP),
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error_to_errno(&error)),
-    }
-}
-
-fn ensure_within_root(root: &Path, path: &Path) -> WasiResult<()> {
-    if path.starts_with(root) {
-        Ok(())
-    } else {
-        Err(WASI_ERRNO_NOTCAPABLE)
-    }
-}
-
-fn enforce_path_boundary(root: &Path, path: &Path, mode: PathBoundaryMode) -> WasiResult<()> {
-    match mode {
-        PathBoundaryMode::FollowFinal {
-            allow_missing_final,
-        } => match fs::canonicalize(path) {
-            Ok(real_path) => ensure_within_root(root, &real_path),
-            Err(error) if error.kind() == ErrorKind::NotFound => match fs::symlink_metadata(path) {
-                Ok(metadata) if metadata.file_type().is_symlink() => Err(WASI_ERRNO_NOTCAPABLE),
-                Ok(_) => Err(WASI_ERRNO_NOENT),
-                Err(metadata_error) if metadata_error.kind() == ErrorKind::NotFound => {
-                    let (ancestor_path, parent_exists) = canonical_nearest_existing_ancestor(path)?;
-                    ensure_within_root(root, &ancestor_path)?;
-                    if allow_missing_final && parent_exists {
-                        Ok(())
-                    } else {
-                        Err(WASI_ERRNO_NOENT)
-                    }
-                }
-                Err(metadata_error) => Err(io_error_to_errno(&metadata_error)),
-            },
-            Err(error) => Err(io_error_to_errno(&error)),
-        },
-        PathBoundaryMode::ParentOnly => {
-            let (ancestor_path, parent_exists) = canonical_nearest_existing_ancestor(path)?;
-            ensure_within_root(root, &ancestor_path)?;
-            if parent_exists {
-                Ok(())
-            } else {
-                Err(WASI_ERRNO_NOENT)
-            }
-        }
-    }
-}
-
-fn entry_file_type(file_type: fs::FileType) -> u8 {
-    if file_type.is_dir() {
-        WASI_FILETYPE_DIRECTORY
-    } else if file_type.is_file() {
-        WASI_FILETYPE_REGULAR_FILE
-    } else if file_type.is_symlink() {
-        WASI_FILETYPE_SYMBOLIC_LINK
-    } else {
-        WASI_FILETYPE_UNKNOWN
-    }
-}
-
-fn collect_directory_entries(path: &Path) -> WasiResult<Vec<DirectoryEntry>> {
-    let mut entries = vec![
-        DirectoryEntry {
-            name: b".".to_vec(),
-            file_type: WASI_FILETYPE_DIRECTORY,
-        },
-        DirectoryEntry {
-            name: b"..".to_vec(),
-            file_type: WASI_FILETYPE_DIRECTORY,
-        },
-    ];
-
-    let host_entries = fs::read_dir(path).map_err(|_| WASI_ERRNO_IO)?;
-    for entry in host_entries {
-        let entry = entry.map_err(|_| WASI_ERRNO_IO)?;
-        #[cfg(unix)]
-        let name = {
-            use std::os::unix::ffi::OsStrExt;
-            entry.file_name().as_bytes().to_vec()
-        };
-        #[cfg(not(unix))]
-        let name = entry
-            .file_name()
-            .to_string_lossy()
-            .into_owned()
-            .into_bytes();
-        let file_type = entry.file_type().map_err(|_| WASI_ERRNO_IO)?;
-        entries.push(DirectoryEntry {
-            name,
-            file_type: entry_file_type(file_type),
-        });
-    }
-
-    Ok(entries)
-}
-
-fn serialize_dirent(entry_index: usize, entry: &DirectoryEntry) -> WasiResult<Vec<u8>> {
-    let next = u64::try_from(entry_index + 1).map_err(|_| WASI_ERRNO_FAULT)?;
-    let name_len = u32::try_from(entry.name.len()).map_err(|_| WASI_ERRNO_FAULT)?;
-
-    let mut bytes = Vec::with_capacity(WASI_DIRENT_SIZE + entry.name.len());
-    bytes.extend_from_slice(&next.to_le_bytes());
-    bytes.extend_from_slice(&0u64.to_le_bytes());
-    bytes.extend_from_slice(&name_len.to_le_bytes());
-    bytes.push(entry.file_type);
-    bytes.extend_from_slice(&[0, 0, 0]);
-    bytes.extend_from_slice(&entry.name);
-    Ok(bytes)
-}
-
-fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s WasiContext {
+fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s V8WasiContext {
     let data = args.data();
     assert!(data.is_external());
     let data: v8::Local<v8::Data> = data.into();
     let ptr = v8::Local::<v8::External>::try_from(data).unwrap().value();
-    unsafe { &*(ptr as *const WasiContext) }
+    unsafe { &*(ptr as *const V8WasiContext) }
 }
 
 fn with_wasi_memory_mut<T>(
     scope: &mut v8::HandleScope,
-    context: &WasiContext,
+    context: &V8WasiContext,
     f: impl FnOnce(&mut [u8]) -> WasiResult<T>,
 ) -> WasiResult<T> {
     context
@@ -725,15 +89,8 @@ fn with_wasi_memory_mut<T>(
         .map_err(|_| WASI_ERRNO_FAULT)?
 }
 
-fn result_to_errno(result: WasiResult<()>) -> WasiErrno {
-    match result {
-        Ok(()) => WASI_ERRNO_SUCCESS,
-        Err(errno) => errno,
-    }
-}
-
 fn finish_with_result(ret: &mut v8::ReturnValue, result: WasiResult<()>) {
-    ret.set_int32(result_to_errno(result));
+    ret.set_int32(wasi::result_to_errno(result));
 }
 
 fn random_get(
@@ -746,10 +103,7 @@ fn random_get(
         let length = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
         with_wasi_memory_mut(scope, context, |memory| {
-            let offset = ptr_to_offset(buffer)?;
-            let length = usize::try_from(length).map_err(|_| WASI_ERRNO_FAULT)?;
-            let destination = checked_mut_range(memory, offset, length)?;
-            OsRng.try_fill_bytes(destination).map_err(|_| WASI_ERRNO_IO)
+            wasi::random_get_impl(memory, buffer, length)
         })
     })();
     finish_with_result(&mut ret, result);
@@ -763,17 +117,7 @@ fn fd_close(
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
         let context = callback_context(&args);
-        if fd <= WASI_FD_PREOPEN_DIR {
-            return Err(WASI_ERRNO_BADF);
-        }
-
-        with_descriptor_table(context, |table| {
-            if table.entries.remove(&fd).is_some() {
-                Ok(())
-            } else {
-                Err(WASI_ERRNO_BADF)
-            }
-        })
+        wasi::fd_close_impl(context, fd)
     })();
 
     finish_with_result(&mut ret, result);
@@ -788,8 +132,7 @@ fn path_open(
         let dirfd = read_i32_arg(scope, &args, 0)?;
         let dirflags = read_i32_arg(scope, &args, 1)?;
         let path_ptr = read_u32_arg(scope, &args, 2)?;
-        let path_len =
-            usize::try_from(read_u32_arg(scope, &args, 3)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let path_len = read_u32_arg(scope, &args, 3)?;
         let oflags = read_i32_arg(scope, &args, 4)?;
         let rights_base = read_u64_arg(scope, &args, 5)?;
         let rights_inheriting = read_u64_arg(scope, &args, 6)?;
@@ -797,86 +140,20 @@ fn path_open(
         let opened_fd_ptr = read_u32_arg(scope, &args, 8)?;
         let context = callback_context(&args);
 
-        validate_known_flag_bits(dirflags, WASI_KNOWN_LOOKUPFLAGS_MASK)?;
-        validate_known_flag_bits(oflags, WASI_KNOWN_OFLAGS_MASK)?;
-        validate_known_flag_bits(fdflags, WASI_KNOWN_FDFLAGS_MASK)?;
-        validate_supported_flag_bits(fdflags, WASI_SUPPORTED_FDFLAGS_MASK)?;
-        validate_known_rights(rights_base)?;
-        validate_known_rights(rights_inheriting)?;
-
-        let create_requested = (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL)) != 0;
-
-        require_fd_right(context, dirfd, WASI_RIGHT_PATH_OPEN)?;
-        if create_requested {
-            require_fd_right(context, dirfd, WASI_RIGHT_PATH_CREATE_FILE)?;
-        }
-        if (oflags & WASI_OFLAGS_TRUNC) != 0 {
-            require_fd_right(context, dirfd, WASI_RIGHT_PATH_FILESTAT_SET_SIZE)?;
-        }
-        let parent_inheriting_rights = rights_inheriting_for_fd(context, dirfd)?;
-        if (rights_base & !parent_inheriting_rights) != 0 {
-            return Err(WASI_ERRNO_NOTCAPABLE);
-        }
-        if (rights_inheriting & !parent_inheriting_rights) != 0 {
-            return Err(WASI_ERRNO_NOTCAPABLE);
-        }
-
-        let path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, path_ptr, path_len)
-        })?;
-        let resolved = resolve_path(context, dirfd, &path)?;
-        enforce_path_boundary(
-            &resolved.boundary_root,
-            &resolved.host_path,
-            PathBoundaryMode::FollowFinal {
-                allow_missing_final: create_requested,
-            },
-        )?;
-        if (dirflags & WASI_LOOKUPFLAG_SYMLINK_FOLLOW) == 0 {
-            reject_final_symlink(&resolved.host_path)?;
-        }
-
-        let descriptor_kind = if (oflags & WASI_OFLAGS_DIRECTORY) != 0 {
-            if (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC)) != 0 {
-                return Err(WASI_ERRNO_INVAL);
-            }
-            let metadata =
-                fs::metadata(&resolved.host_path).map_err(|error| io_error_to_errno(&error))?;
-            if !metadata.is_dir() {
-                return Err(WASI_ERRNO_NOTDIR);
-            }
-            DescriptorKind::Directory(resolved.host_path)
-        } else {
-            let wants_read = (rights_base & WASI_RIGHT_FD_READ) != 0;
-            let wants_write = (rights_base & WASI_RIGHT_FD_WRITE) != 0;
-            let append = (fdflags & WASI_FDFLAG_APPEND) != 0;
-
-            let mut options = fs::OpenOptions::new();
-            options.read(wants_read || !wants_write);
-            // Rust requires write/append when O_CREAT is set. Keep rights enforcement at WASI level.
-            options.write(wants_write || append || create_requested);
-            options.append(append);
-            options.create(create_requested);
-            options.create_new((oflags & WASI_OFLAGS_EXCL) != 0);
-            options.truncate((oflags & WASI_OFLAGS_TRUNC) != 0);
-
-            let file = options
-                .open(resolved.host_path)
-                .map_err(|error| io_error_to_errno(&error))?;
-            DescriptorKind::File(Mutex::new(file))
-        };
-
-        let descriptor = Arc::new(Descriptor {
-            kind: descriptor_kind,
-            rights_base,
-            rights_inheriting,
-        });
-
-        let opened_fd = with_descriptor_table(context, |table| table.insert(descriptor))?;
-        let opened_fd = u32::try_from(opened_fd).map_err(|_| WASI_ERRNO_FAULT)?;
-
         with_wasi_memory_mut(scope, context, |memory| {
-            write_u32(memory, opened_fd_ptr, opened_fd)
+            wasi::path_open_impl(
+                context,
+                memory,
+                dirfd,
+                dirflags,
+                path_ptr,
+                path_len,
+                oflags,
+                rights_base,
+                rights_inheriting,
+                fdflags,
+                opened_fd_ptr,
+            )
         })
     })();
 
@@ -891,45 +168,22 @@ fn path_readlink(
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
         let path_ptr = read_u32_arg(scope, &args, 1)?;
-        let path_len =
-            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let path_len = read_u32_arg(scope, &args, 2)?;
         let buf_ptr = read_u32_arg(scope, &args, 3)?;
-        let buf_len =
-            usize::try_from(read_u32_arg(scope, &args, 4)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let buf_len = read_u32_arg(scope, &args, 4)?;
         let buf_used_ptr = read_u32_arg(scope, &args, 5)?;
         let context = callback_context(&args);
-        require_fd_right(context, dirfd, WASI_RIGHT_PATH_READLINK)?;
-
-        let path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, path_ptr, path_len)
-        })?;
-        let resolved = resolve_path(context, dirfd, &path)?;
-        enforce_path_boundary(
-            &resolved.boundary_root,
-            &resolved.host_path,
-            PathBoundaryMode::ParentOnly,
-        )?;
-        let link_target =
-            fs::read_link(&resolved.host_path).map_err(|error| io_error_to_errno(&error))?;
-        #[cfg(unix)]
-        let link_bytes = {
-            use std::os::unix::ffi::OsStrExt;
-            link_target.as_os_str().as_bytes().to_vec()
-        };
-        #[cfg(not(unix))]
-        let link_bytes = link_target
-            .as_os_str()
-            .to_string_lossy()
-            .into_owned()
-            .into_bytes();
-
         with_wasi_memory_mut(scope, context, |memory| {
-            let out = checked_mut_range(memory, ptr_to_offset(buf_ptr)?, buf_len)?;
-            let used = out.len().min(link_bytes.len());
-            out[..used].copy_from_slice(&link_bytes[..used]);
-            let used_u32 = u32::try_from(used).map_err(|_| WASI_ERRNO_FAULT)?;
-            write_u32(memory, buf_used_ptr, used_u32)?;
-            Ok(())
+            wasi::path_readlink_impl(
+                context,
+                memory,
+                dirfd,
+                path_ptr,
+                path_len,
+                buf_ptr,
+                buf_len,
+                buf_used_ptr,
+            )
         })
     })();
 
@@ -944,22 +198,11 @@ fn path_create_directory(
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
         let path_ptr = read_u32_arg(scope, &args, 1)?;
-        let path_len =
-            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let path_len = read_u32_arg(scope, &args, 2)?;
         let context = callback_context(&args);
-        require_fd_right(context, dirfd, WASI_RIGHT_PATH_CREATE_DIRECTORY)?;
-
-        let path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, path_ptr, path_len)
-        })?;
-        validate_guest_entry_path(&path)?;
-        let resolved = resolve_path(context, dirfd, &path)?;
-        enforce_path_boundary(
-            &resolved.boundary_root,
-            &resolved.host_path,
-            PathBoundaryMode::ParentOnly,
-        )?;
-        fs::create_dir(resolved.host_path).map_err(|error| io_error_to_errno(&error))
+        with_wasi_memory_mut(scope, context, |memory| {
+            wasi::path_create_directory_impl(context, memory, dirfd, path_ptr, path_len)
+        })
     })();
 
     finish_with_result(&mut ret, result);
@@ -973,39 +216,23 @@ fn path_rename(
     let result = (|| -> WasiResult<()> {
         let old_fd = read_i32_arg(scope, &args, 0)?;
         let old_path_ptr = read_u32_arg(scope, &args, 1)?;
-        let old_path_len =
-            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let old_path_len = read_u32_arg(scope, &args, 2)?;
         let new_fd = read_i32_arg(scope, &args, 3)?;
         let new_path_ptr = read_u32_arg(scope, &args, 4)?;
-        let new_path_len =
-            usize::try_from(read_u32_arg(scope, &args, 5)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let new_path_len = read_u32_arg(scope, &args, 5)?;
         let context = callback_context(&args);
-        require_fd_right(context, old_fd, WASI_RIGHT_PATH_RENAME_SOURCE)?;
-        require_fd_right(context, new_fd, WASI_RIGHT_PATH_RENAME_TARGET)?;
-
-        let old_path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, old_path_ptr, old_path_len)
-        })?;
-        let new_path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, new_path_ptr, new_path_len)
-        })?;
-        validate_guest_entry_path(&old_path)?;
-        validate_guest_entry_path(&new_path)?;
-
-        let old_resolved = resolve_path(context, old_fd, &old_path)?;
-        let new_resolved = resolve_path(context, new_fd, &new_path)?;
-        enforce_path_boundary(
-            &old_resolved.boundary_root,
-            &old_resolved.host_path,
-            PathBoundaryMode::ParentOnly,
-        )?;
-        enforce_path_boundary(
-            &new_resolved.boundary_root,
-            &new_resolved.host_path,
-            PathBoundaryMode::ParentOnly,
-        )?;
-        fs::rename(old_resolved.host_path, new_resolved.host_path)
-            .map_err(|error| io_error_to_errno(&error))
+        with_wasi_memory_mut(scope, context, |memory| {
+            wasi::path_rename_impl(
+                context,
+                memory,
+                old_fd,
+                old_path_ptr,
+                old_path_len,
+                new_fd,
+                new_path_ptr,
+                new_path_len,
+            )
+        })
     })();
 
     finish_with_result(&mut ret, result);
@@ -1019,22 +246,11 @@ fn path_remove_directory(
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
         let path_ptr = read_u32_arg(scope, &args, 1)?;
-        let path_len =
-            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let path_len = read_u32_arg(scope, &args, 2)?;
         let context = callback_context(&args);
-        require_fd_right(context, dirfd, WASI_RIGHT_PATH_REMOVE_DIRECTORY)?;
-
-        let path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, path_ptr, path_len)
-        })?;
-        validate_guest_entry_path(&path)?;
-        let resolved = resolve_path(context, dirfd, &path)?;
-        enforce_path_boundary(
-            &resolved.boundary_root,
-            &resolved.host_path,
-            PathBoundaryMode::ParentOnly,
-        )?;
-        fs::remove_dir(resolved.host_path).map_err(|error| io_error_to_errno(&error))
+        with_wasi_memory_mut(scope, context, |memory| {
+            wasi::path_remove_directory_impl(context, memory, dirfd, path_ptr, path_len)
+        })
     })();
 
     finish_with_result(&mut ret, result);
@@ -1048,373 +264,10 @@ fn path_unlink_file(
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
         let path_ptr = read_u32_arg(scope, &args, 1)?;
-        let path_len =
-            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let path_len = read_u32_arg(scope, &args, 2)?;
         let context = callback_context(&args);
-        require_fd_right(context, dirfd, WASI_RIGHT_PATH_UNLINK_FILE)?;
-
-        let path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, path_ptr, path_len)
-        })?;
-        validate_guest_entry_path(&path)?;
-        let resolved = resolve_path(context, dirfd, &path)?;
-        enforce_path_boundary(
-            &resolved.boundary_root,
-            &resolved.host_path,
-            PathBoundaryMode::ParentOnly,
-        )?;
-        fs::remove_file(resolved.host_path).map_err(|error| io_error_to_errno(&error))
-    })();
-
-    finish_with_result(&mut ret, result);
-}
-
-fn parse_poll_subscriptions(
-    memory: &[u8],
-    in_ptr: u32,
-    nsubscriptions: usize,
-) -> WasiResult<Vec<PollSubscription>> {
-    let base = ptr_to_offset(in_ptr)?;
-    let mut subscriptions = Vec::with_capacity(nsubscriptions);
-
-    for index in 0..nsubscriptions {
-        let offset = base
-            .checked_add(
-                index
-                    .checked_mul(WASI_SUBSCRIPTION_SIZE)
-                    .ok_or(WASI_ERRNO_FAULT)?,
-            )
-            .ok_or(WASI_ERRNO_FAULT)?;
-        let userdata = read_u64_at(memory, offset)?;
-        let tag = u32::from(checked_range(memory, offset + 8, 1)?[0]);
-
-        let data = match tag {
-            WASI_SUBSCRIPTION_TAG_CLOCK => {
-                let clock_id_raw = read_u32_at(memory, offset + 16)?;
-                let clock_id =
-                    ClockId::try_from(i32::try_from(clock_id_raw).map_err(|_| WASI_ERRNO_INVAL)?)?;
-                let timeout_ns = read_u64_at(memory, offset + 24)?;
-                let _precision = read_u64_at(memory, offset + 32)?;
-                let flags = u32::from(read_u16_at(memory, offset + 40)?);
-                if (flags & !WASI_SUBCLOCKFLAG_ABSTIME) != 0 {
-                    return Err(WASI_ERRNO_INVAL);
-                }
-                SubscriptionData::Clock {
-                    id: clock_id,
-                    timeout_ns,
-                    flags,
-                }
-            }
-            WASI_SUBSCRIPTION_TAG_FD_READ => {
-                let fd_raw = read_u32_at(memory, offset + 16)?;
-                let fd = i32::try_from(fd_raw).map_err(|_| WASI_ERRNO_INVAL)?;
-                SubscriptionData::FdRead { fd }
-            }
-            WASI_SUBSCRIPTION_TAG_FD_WRITE => {
-                let fd_raw = read_u32_at(memory, offset + 16)?;
-                let fd = i32::try_from(fd_raw).map_err(|_| WASI_ERRNO_INVAL)?;
-                SubscriptionData::FdWrite { fd }
-            }
-            _ => return Err(WASI_ERRNO_INVAL),
-        };
-
-        subscriptions.push(PollSubscription { userdata, data });
-    }
-
-    Ok(subscriptions)
-}
-
-fn normalize_poll_subscriptions(
-    context: &WasiContext,
-    subscriptions: &mut [PollSubscription],
-) -> WasiResult<()> {
-    for subscription in subscriptions {
-        if let SubscriptionData::Clock {
-            id,
-            timeout_ns,
-            flags,
-        } = &mut subscription.data
-            && (*flags & WASI_SUBCLOCKFLAG_ABSTIME) == 0
-        {
-            let now = clock_now_ns(context, *id)?;
-            *timeout_ns = now.saturating_add(*timeout_ns);
-            *flags |= WASI_SUBCLOCKFLAG_ABSTIME;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn poll_stdin_with_timeout(stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
-    let timeout_ms = match timeout {
-        Some(duration) => {
-            let millis = duration.as_millis();
-            i32::try_from(millis.min(i32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
-        }
-        None => -1,
-    };
-    let mut pollfd = libc::pollfd {
-        fd: stdio
-            .raw(StdioStream::Stdin)
-            .map_err(|error| io_error_to_errno(&error))?,
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    loop {
-        // SAFETY: `pollfd` points to a valid single-element array for the
-        // duration of the call.
-        let ready_count = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
-        if ready_count >= 0 {
-            return Ok(ready_count > 0
-                && (pollfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0);
-        }
-
-        let error = std::io::Error::last_os_error();
-        if error.kind() == ErrorKind::Interrupted {
-            continue;
-        }
-        if error.raw_os_error() == Some(libc::EPERM) {
-            return Ok(true);
-        }
-        return Err(io_error_to_errno(&error));
-    }
-}
-
-#[cfg(windows)]
-fn poll_stdin_with_timeout(stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
-    use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
-    use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
-
-    let timeout_ms = match timeout {
-        Some(duration) => {
-            let millis = duration.as_millis();
-            u32::try_from(millis.min(u32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
-        }
-        None => INFINITE,
-    };
-    let stdin_handle = stdio
-        .raw(StdioStream::Stdin)
-        .map_err(|error| io_error_to_errno(&error))?;
-    // SAFETY: `stdin_handle` is a non-owning handle observed from the Runtime
-    // Stdio immediately before this wait.
-    match unsafe { WaitForSingleObject(stdin_handle, timeout_ms) } {
-        WAIT_OBJECT_0 => Ok(true),
-        WAIT_TIMEOUT => Ok(false),
-        WAIT_FAILED => Err(io_error_to_errno(&std::io::Error::last_os_error())),
-        _ => Ok(true),
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-fn poll_stdin_with_timeout(_stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
-    if let Some(duration) = timeout
-        && duration > Duration::ZERO
-    {
-        thread::sleep(duration);
-    }
-    Ok(true)
-}
-
-fn poll_fd_read_state(context: &WasiContext, fd: i32) -> WasiResult<FdReadPollState> {
-    match fd {
-        WASI_FD_STDIN => {
-            if poll_stdin_with_timeout(&context.stdio, Some(Duration::ZERO))? {
-                Ok(FdReadPollState::Ready(1))
-            } else {
-                Ok(FdReadPollState::Pending)
-            }
-        }
-        WASI_FD_STDOUT | WASI_FD_STDERR => Err(WASI_ERRNO_BADF),
-        _ => {
-            let descriptor = file_for_fd(context, fd)?;
-            let DescriptorKind::File(file) = &descriptor.kind else {
-                return Err(WASI_ERRNO_BADF);
-            };
-            let mut file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
-            let metadata = file.metadata().map_err(|error| io_error_to_errno(&error))?;
-            if metadata.is_file() {
-                let position = file
-                    .stream_position()
-                    .map_err(|error| io_error_to_errno(&error))?;
-                let remaining = metadata.len().saturating_sub(position);
-                Ok(FdReadPollState::Ready(remaining))
-            } else {
-                Ok(FdReadPollState::Ready(metadata.len().max(1)))
-            }
-        }
-    }
-}
-
-fn poll_fd_write_nbytes(context: &WasiContext, fd: i32) -> WasiResult<u64> {
-    match fd {
-        WASI_FD_STDIN => Err(WASI_ERRNO_BADF),
-        WASI_FD_STDOUT | WASI_FD_STDERR => Ok(64 * 1024),
-        _ => {
-            let descriptor = file_for_fd(context, fd)?;
-            let DescriptorKind::File(_) = &descriptor.kind else {
-                return Err(WASI_ERRNO_BADF);
-            };
-            Ok(64 * 1024)
-        }
-    }
-}
-
-fn collect_poll_events(
-    context: &WasiContext,
-    subscriptions: &[PollSubscription],
-) -> WasiResult<(Vec<PollEvent>, Option<u64>, bool)> {
-    let mut events = Vec::new();
-    let mut min_remaining_ns: Option<u64> = None;
-    let mut pending_stdin_read = false;
-
-    for subscription in subscriptions {
-        match subscription.data {
-            SubscriptionData::Clock {
-                id,
-                timeout_ns,
-                flags,
-            } => {
-                let now = clock_now_ns(context, id)?;
-                let deadline = if (flags & WASI_SUBCLOCKFLAG_ABSTIME) != 0 {
-                    timeout_ns
-                } else {
-                    now.saturating_add(timeout_ns)
-                };
-
-                if now >= deadline {
-                    events.push(PollEvent {
-                        userdata: subscription.userdata,
-                        error: WASI_ERRNO_SUCCESS,
-                        event_type: WASI_EVENTTYPE_CLOCK,
-                        nbytes: 0,
-                        flags: 0,
-                    });
-                } else {
-                    let remaining = deadline - now;
-                    min_remaining_ns = Some(match min_remaining_ns {
-                        Some(current) => current.min(remaining),
-                        None => remaining,
-                    });
-                }
-            }
-            SubscriptionData::FdRead { fd } => {
-                let read_result = (|| -> WasiResult<FdReadPollState> {
-                    require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
-                    poll_fd_read_state(context, fd)
-                })();
-                match read_result {
-                    Ok(FdReadPollState::Ready(nbytes)) => {
-                        events.push(PollEvent {
-                            userdata: subscription.userdata,
-                            error: WASI_ERRNO_SUCCESS,
-                            event_type: WASI_EVENTTYPE_FD_READ,
-                            nbytes,
-                            flags: 0,
-                        });
-                    }
-                    Ok(FdReadPollState::Pending) => {
-                        pending_stdin_read = true;
-                    }
-                    Err(error) => {
-                        events.push(PollEvent {
-                            userdata: subscription.userdata,
-                            error,
-                            event_type: WASI_EVENTTYPE_FD_READ,
-                            nbytes: 0,
-                            flags: 0,
-                        });
-                    }
-                }
-            }
-            SubscriptionData::FdWrite { fd } => {
-                let write_result = (|| -> WasiResult<u64> {
-                    require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
-                    poll_fd_write_nbytes(context, fd)
-                })();
-                match write_result {
-                    Ok(nbytes) => {
-                        events.push(PollEvent {
-                            userdata: subscription.userdata,
-                            error: WASI_ERRNO_SUCCESS,
-                            event_type: WASI_EVENTTYPE_FD_WRITE,
-                            nbytes,
-                            flags: 0,
-                        });
-                    }
-                    Err(error) => {
-                        events.push(PollEvent {
-                            userdata: subscription.userdata,
-                            error,
-                            event_type: WASI_EVENTTYPE_FD_WRITE,
-                            nbytes: 0,
-                            flags: 0,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    Ok((events, min_remaining_ns, pending_stdin_read))
-}
-
-#[allow(dead_code)]
-fn poll_oneoff_impl(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = (|| -> WasiResult<()> {
-        let in_ptr = read_u32_arg(scope, &args, 0)?;
-        let out_ptr = read_u32_arg(scope, &args, 1)?;
-        let nsubscriptions_u32 = read_u32_arg(scope, &args, 2)?;
-        let nevents_ptr = read_u32_arg(scope, &args, 3)?;
-        if nsubscriptions_u32 == 0 {
-            return Err(WASI_ERRNO_INVAL);
-        }
-        let nsubscriptions = usize::try_from(nsubscriptions_u32).map_err(|_| WASI_ERRNO_INVAL)?;
-        let context = callback_context(&args);
-
-        let mut subscriptions = with_wasi_memory_mut(scope, context, |memory| {
-            parse_poll_subscriptions(memory, in_ptr, nsubscriptions)
-        })?;
-        normalize_poll_subscriptions(context, &mut subscriptions)?;
-
-        let (mut events, mut min_remaining_ns, mut pending_stdin_read) =
-            collect_poll_events(context, &subscriptions)?;
-        while events.is_empty() {
-            if pending_stdin_read {
-                let timeout = min_remaining_ns.map(Duration::from_nanos);
-                let _ = poll_stdin_with_timeout(&context.stdio, timeout)?;
-            } else if let Some(wait_ns) = min_remaining_ns {
-                if wait_ns > 0 {
-                    thread::sleep(Duration::from_nanos(wait_ns));
-                }
-            } else {
-                break;
-            }
-
-            (events, min_remaining_ns, pending_stdin_read) =
-                collect_poll_events(context, &subscriptions)?;
-        }
-
         with_wasi_memory_mut(scope, context, |memory| {
-            let out_base = ptr_to_offset(out_ptr)?;
-            for (index, event) in events.iter().enumerate() {
-                let offset = out_base
-                    .checked_add(index.checked_mul(WASI_EVENT_SIZE).ok_or(WASI_ERRNO_FAULT)?)
-                    .ok_or(WASI_ERRNO_FAULT)?;
-                checked_mut_range(memory, offset, WASI_EVENT_SIZE)?.fill(0);
-                write_u64_at(memory, offset, event.userdata)?;
-                let error_code = u16::try_from(event.error).map_err(|_| WASI_ERRNO_FAULT)?;
-                write_u16_at(memory, offset + 8, error_code)?;
-                write_u16_at(memory, offset + 10, event.event_type)?;
-                write_u64_at(memory, offset + 16, event.nbytes)?;
-                write_u32_at(memory, offset + 24, event.flags)?;
-            }
-            let nevents = u32::try_from(events.len()).map_err(|_| WASI_ERRNO_FAULT)?;
-            write_u32(memory, nevents_ptr, nevents)?;
-            Ok(())
+            wasi::path_unlink_file_impl(context, memory, dirfd, path_ptr, path_len)
         })
     })();
 
@@ -1430,18 +283,8 @@ fn fd_prestat_get(
         let fd = read_i32_arg(scope, &args, 0)?;
         let prestat_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
-        if !preopen_matches(context, fd) {
-            return Err(WASI_ERRNO_BADF);
-        }
-
-        let preopen_name_len =
-            u32::try_from(context.preopen_dir_name.len()).map_err(|_| WASI_ERRNO_FAULT)?;
         with_wasi_memory_mut(scope, context, |memory| {
-            let prestat = checked_mut_range(memory, ptr_to_offset(prestat_ptr)?, 8)?;
-            prestat.fill(0);
-            prestat[0] = WASI_PREOPEN_TYPE_DIR;
-            prestat[4..8].copy_from_slice(&preopen_name_len.to_le_bytes());
-            Ok(())
+            wasi::fd_prestat_get_impl(context, memory, fd, prestat_ptr)
         })
     })();
 
@@ -1456,22 +299,10 @@ fn fd_prestat_dir_name(
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
         let path_ptr = read_u32_arg(scope, &args, 1)?;
-        let path_len =
-            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let path_len = read_u32_arg(scope, &args, 2)?;
         let context = callback_context(&args);
-        if !preopen_matches(context, fd) {
-            return Err(WASI_ERRNO_BADF);
-        }
-
-        let name = &context.preopen_dir_name;
-        if path_len < name.len() {
-            return Err(WASI_ERRNO_NAMETOOLONG);
-        }
-
         with_wasi_memory_mut(scope, context, |memory| {
-            let path_buf = checked_mut_range(memory, ptr_to_offset(path_ptr)?, path_len)?;
-            path_buf[..name.len()].copy_from_slice(name);
-            Ok(())
+            wasi::fd_prestat_dir_name_impl(context, memory, fd, path_ptr, path_len)
         })
     })();
 
@@ -1486,38 +317,12 @@ fn fd_readdir(
     let result = (|| -> WasiResult<()> {
         let fd = read_i32_arg(scope, &args, 0)?;
         let buf_ptr = read_u32_arg(scope, &args, 1)?;
-        let buf_len =
-            usize::try_from(read_u32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
+        let buf_len = read_u32_arg(scope, &args, 2)?;
         let cookie = read_u64_arg(scope, &args, 3)?;
         let buf_used_ptr = read_u32_arg(scope, &args, 4)?;
         let context = callback_context(&args);
-        require_fd_right(context, fd, WASI_RIGHT_FD_READDIR)?;
-        let dir_path = dir_path_for_fd(context, fd)?;
-        let entries = collect_directory_entries(&dir_path)?;
-        let start = usize::try_from(cookie).map_err(|_| WASI_ERRNO_INVAL)?;
-
         with_wasi_memory_mut(scope, context, |memory| {
-            let buf = checked_mut_range(memory, ptr_to_offset(buf_ptr)?, buf_len)?;
-            let mut used = 0usize;
-
-            for (entry_index, entry) in entries.iter().enumerate().skip(start) {
-                if used == buf_len {
-                    break;
-                }
-                let serialized = serialize_dirent(entry_index, entry)?;
-                let remaining = buf_len.checked_sub(used).ok_or(WASI_ERRNO_FAULT)?;
-                let to_copy = remaining.min(serialized.len());
-                let end = used.checked_add(to_copy).ok_or(WASI_ERRNO_FAULT)?;
-                buf[used..end].copy_from_slice(&serialized[..to_copy]);
-                used = end;
-                if to_copy < serialized.len() {
-                    break;
-                }
-            }
-
-            let used_u32 = u32::try_from(used).map_err(|_| WASI_ERRNO_FAULT)?;
-            write_u32(memory, buf_used_ptr, used_u32)?;
-            Ok(())
+            wasi::fd_readdir_impl(context, memory, fd, buf_ptr, buf_len, cookie, buf_used_ptr)
         })
     })();
 
@@ -1534,13 +339,8 @@ fn args_sizes_get(
         let argv_buf_size_ptr = read_u32_arg(scope, &args, 1)?;
 
         let context = callback_context(&args);
-        let argc = u32::try_from(context.argv.len()).map_err(|_| WASI_ERRNO_FAULT)?;
-        let argv_buf_size = table_bytes_len(&context.argv)?;
-
         with_wasi_memory_mut(scope, context, |memory| {
-            write_u32(memory, argc_ptr, argc)?;
-            write_u32(memory, argv_buf_size_ptr, argv_buf_size)?;
-            Ok(())
+            wasi::args_sizes_get_impl(context, memory, argc_ptr, argv_buf_size_ptr)
         })
     })();
 
@@ -1558,7 +358,7 @@ fn args_get(
         let context = callback_context(&args);
 
         with_wasi_memory_mut(scope, context, |memory| {
-            write_c_string_table(memory, &context.argv, argv_ptr, argv_buf_ptr)
+            wasi::args_get_impl(context, memory, argv_ptr, argv_buf_ptr)
         })
     })();
 
@@ -1575,14 +375,8 @@ fn environ_sizes_get(
         let environ_buf_size_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
 
-        let environ = collect_environ(&context.environment);
-        let environc = u32::try_from(environ.len()).map_err(|_| WASI_ERRNO_FAULT)?;
-        let environ_buf_size = table_bytes_len(&environ)?;
-
         with_wasi_memory_mut(scope, context, |memory| {
-            write_u32(memory, environc_ptr, environc)?;
-            write_u32(memory, environ_buf_size_ptr, environ_buf_size)?;
-            Ok(())
+            wasi::environ_sizes_get_impl(context, memory, environc_ptr, environ_buf_size_ptr)
         })
     })();
 
@@ -1599,9 +393,8 @@ fn environ_get(
         let environ_buf_ptr = read_u32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
 
-        let environ = collect_environ(&context.environment);
         with_wasi_memory_mut(scope, context, |memory| {
-            write_c_string_table(memory, &environ, environ_ptr, environ_buf_ptr)
+            wasi::environ_get_impl(context, memory, environ_ptr, environ_buf_ptr)
         })
     })();
 
@@ -1614,10 +407,7 @@ fn proc_exit(
     mut _ret: v8::ReturnValue,
 ) {
     let code = args.get(0).uint32_value(scope).unwrap_or(1);
-    let code = i32::try_from(code).unwrap_or(1);
-    callback_context(&args)
-        .termination_request
-        .request(RunTermination::Exit(code));
+    wasi::proc_exit_impl(callback_context(&args), code);
     scope.terminate_execution();
 }
 
@@ -1632,60 +422,8 @@ fn fd_write(
         let iovs_len = read_u32_arg(scope, &args, 2)?;
         let nwritten_ptr = read_u32_arg(scope, &args, 3)?;
         let context = callback_context(&args);
-        require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
-        let descriptor = if fd > WASI_FD_STDERR {
-            Some(file_for_fd(context, fd)?)
-        } else {
-            None
-        };
-
         with_wasi_memory_mut(scope, context, |memory| {
-            let mut total_written: usize = 0;
-
-            match fd {
-                WASI_FD_STDOUT => {
-                    context.stdio.with_stdout(|stdout| -> WasiResult<()> {
-                        for index in 0..iovs_len {
-                            let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                            let bytes = checked_mut_range(memory, buf_offset, len)?;
-                            stdout.write_all(bytes).map_err(|_| WASI_ERRNO_IO)?;
-                            total_written =
-                                total_written.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
-                        }
-                        stdout.flush().map_err(|_| WASI_ERRNO_IO)
-                    })?;
-                }
-                WASI_FD_STDERR => {
-                    context.stdio.with_stderr(|stderr| -> WasiResult<()> {
-                        for index in 0..iovs_len {
-                            let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                            let bytes = checked_mut_range(memory, buf_offset, len)?;
-                            stderr.write_all(bytes).map_err(|_| WASI_ERRNO_IO)?;
-                            total_written =
-                                total_written.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
-                        }
-                        stderr.flush().map_err(|_| WASI_ERRNO_IO)
-                    })?;
-                }
-                _ => {
-                    let descriptor = descriptor.as_ref().ok_or(WASI_ERRNO_BADF)?;
-                    let DescriptorKind::File(file) = &descriptor.kind else {
-                        return Err(WASI_ERRNO_BADF);
-                    };
-                    let mut file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
-                    for index in 0..iovs_len {
-                        let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                        let bytes = checked_mut_range(memory, buf_offset, len)?;
-                        file.write_all(bytes)
-                            .map_err(|error| io_error_to_errno(&error))?;
-                        total_written = total_written.checked_add(len).ok_or(WASI_ERRNO_FAULT)?;
-                    }
-                }
-            }
-
-            let nwritten = u32::try_from(total_written).map_err(|_| WASI_ERRNO_FAULT)?;
-            write_u32(memory, nwritten_ptr, nwritten)?;
-            Ok(())
+            wasi::fd_write_impl(context, memory, fd, iovs_ptr, iovs_len, nwritten_ptr)
         })
     })();
 
@@ -1703,70 +441,12 @@ fn fd_read(
         let iovs_len = read_u32_arg(scope, &args, 2)?;
         let nread_ptr = read_u32_arg(scope, &args, 3)?;
         let context = callback_context(&args);
-        require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
-        let descriptor = if fd > WASI_FD_STDERR {
-            Some(file_for_fd(context, fd)?)
-        } else {
-            None
-        };
-
         with_wasi_memory_mut(scope, context, |memory| {
-            let mut total_read: usize = 0;
-            match fd {
-                WASI_FD_STDIN => {
-                    context.stdio.with_stdin(|stdin| -> WasiResult<()> {
-                        for index in 0..iovs_len {
-                            let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                            if len == 0 {
-                                continue;
-                            }
-                            let buffer = checked_mut_range(memory, buf_offset, len)?;
-                            let read_len = stdin.read(buffer).map_err(|_| WASI_ERRNO_IO)?;
-                            total_read =
-                                total_read.checked_add(read_len).ok_or(WASI_ERRNO_FAULT)?;
-
-                            if read_len < len {
-                                break;
-                            }
-                        }
-                        Ok(())
-                    })?;
-                }
-                _ => {
-                    let descriptor = descriptor.as_ref().ok_or(WASI_ERRNO_BADF)?;
-                    let DescriptorKind::File(file) = &descriptor.kind else {
-                        return Err(WASI_ERRNO_BADF);
-                    };
-                    let mut file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
-                    for index in 0..iovs_len {
-                        let (buf_offset, len) = iovec(memory, iovs_ptr, index)?;
-                        if len == 0 {
-                            continue;
-                        }
-                        let buffer = checked_mut_range(memory, buf_offset, len)?;
-                        let read_len = file
-                            .read(buffer)
-                            .map_err(|error| io_error_to_errno(&error))?;
-                        total_read = total_read.checked_add(read_len).ok_or(WASI_ERRNO_FAULT)?;
-
-                        if read_len < len {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            let nread = u32::try_from(total_read).map_err(|_| WASI_ERRNO_FAULT)?;
-            write_u32(memory, nread_ptr, nread)?;
-            Ok(())
+            wasi::fd_read_impl(context, memory, fd, iovs_ptr, iovs_len, nread_ptr)
         })
     })();
 
     finish_with_result(&mut ret, result);
-}
-
-fn clock_now_ns(_context: &WasiContext, _clock_id: ClockId) -> WasiResult<u64> {
-    Err(WASI_ERRNO_NOTSUP)
 }
 
 fn set_wasi_func_impl<'s>(
@@ -1791,33 +471,24 @@ macro_rules! set_wasi_func {
     };
 }
 
-pub(crate) fn init_env<'s>(
+pub(super) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
-    environment: Arc<Env>,
     run_context: &V8RunContext,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
-    let preopen_dir_host_path = run_context
-        .working_directory()
-        .current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let preopen_dir_real_path =
-        fs::canonicalize(&preopen_dir_host_path).unwrap_or_else(|_| preopen_dir_host_path.clone());
-    let context = Box::new(WasiContext {
-        argv: build_argv(wasm_file_name, args),
-        environment,
-        stdio: Arc::clone(run_context.runtime().stdio()),
-        preopen_dir_name: preopen_name(),
-        preopen_dir_host_path,
-        preopen_dir_real_path,
-        descriptors: Mutex::new(DescriptorTable::new()),
+    let context = Box::new(V8WasiContext {
+        host: WasiContext::new(
+            wasm_file_name,
+            args,
+            run_context.runtime(),
+            run_context.termination_request().clone(),
+        ),
         memory_binding: Rc::clone(run_context.memory_binding()),
-        termination_request: run_context.termination_request().clone(),
     });
-    let context_ptr = &*context as *const WasiContext as *mut std::ffi::c_void;
+    let context_ptr = &*context as *const V8WasiContext as *mut std::ffi::c_void;
 
     set_wasi_func!(obj, scope, context_ptr, args_get);
     set_wasi_func!(obj, scope, context_ptr, args_sizes_get);
@@ -1839,372 +510,4 @@ pub(crate) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, proc_exit);
 
     dtors.push(context);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_context(root: &Path) -> WasiContext {
-        WasiContext {
-            argv: Vec::new(),
-            environment: Arc::new(Env::owned([]).unwrap()),
-            stdio: Arc::new(Stdio::Ambient),
-            preopen_dir_name: preopen_name(),
-            preopen_dir_host_path: root.to_path_buf(),
-            preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
-            descriptors: Mutex::new(DescriptorTable::new()),
-            memory_binding: Rc::new(V8MemoryBinding::new()),
-            termination_request: TerminationRequest::default(),
-        }
-    }
-
-    #[test]
-    fn wasi_environment_uses_current_run_environment() {
-        let environment = Env::owned([
-            ("MOONRUN_WASI_ADD".into(), "initial".into()),
-            ("MOONRUN_WASI_REMOVE".into(), "removed".into()),
-        ])
-        .unwrap();
-        environment
-            .set("MOONRUN_WASI_ADD".into(), "updated".into())
-            .unwrap();
-        environment.unset("MOONRUN_WASI_REMOVE".as_ref()).unwrap();
-
-        assert_eq!(
-            collect_environ(&environment),
-            vec![b"MOONRUN_WASI_ADD=updated\0".to_vec()]
-        );
-    }
-
-    #[test]
-    fn preopen_resolution_allows_dotdot_that_stays_inside() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(root.join("inside")).expect("create inside dir");
-        fs::write(root.join("file.txt"), b"inside").expect("write inside file");
-
-        let context = test_context(&root);
-        let resolved = resolve_path(
-            &context,
-            WASI_FD_PREOPEN_DIR,
-            Path::new("inside/../file.txt"),
-        )
-        .expect("resolve path");
-
-        assert!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn preopen_resolution_rejects_dotdot_escape_after_resolving() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::write(temp.path().join("outside.txt"), b"outside").expect("write outside file");
-
-        let context = test_context(&root);
-        let resolved = resolve_path(&context, WASI_FD_PREOPEN_DIR, Path::new("../outside.txt"))
-            .expect("resolve path");
-
-        assert_eq!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
-
-    #[test]
-    fn absolute_paths_are_allowed_only_inside_dirfd_root() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let subdir = root.join("subdir");
-        let sibling = root.join("sibling");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&subdir).expect("create subdir");
-        fs::create_dir(&sibling).expect("create sibling");
-        fs::write(sibling.join("file.txt"), b"sibling").expect("write sibling file");
-
-        let context = test_context(&root);
-
-        let preopen_resolved =
-            resolve_path(&context, WASI_FD_PREOPEN_DIR, &sibling.join("file.txt"))
-                .expect("resolve absolute path from preopen");
-        assert!(
-            enforce_path_boundary(
-                &preopen_resolved.boundary_root,
-                &preopen_resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            )
-            .is_ok()
-        );
-
-        let subdir_fd = with_descriptor_table(&context, |table| {
-            table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
-                rights_base: preopen_rights_base(),
-                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
-            }))
-        })
-        .expect("insert subdir descriptor");
-        let subdir_resolved =
-            resolve_path(&context, subdir_fd, &sibling.join("file.txt")).expect("resolve path");
-        assert_eq!(
-            enforce_path_boundary(
-                &subdir_resolved.boundary_root,
-                &subdir_resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
-
-    #[test]
-    fn directory_fd_resolution_cannot_escape_to_sibling() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let subdir = root.join("subdir");
-        let sibling = root.join("sibling");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&subdir).expect("create subdir");
-        fs::create_dir(&sibling).expect("create sibling");
-        fs::write(sibling.join("file.txt"), b"sibling").expect("write sibling file");
-
-        let context = test_context(&root);
-        let subdir_fd = with_descriptor_table(&context, |table| {
-            table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
-                rights_base: preopen_rights_base(),
-                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
-            }))
-        })
-        .expect("insert subdir descriptor");
-        let resolved =
-            resolve_path(&context, subdir_fd, Path::new("../sibling/file.txt")).expect("resolve");
-
-        assert_eq!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
-
-    #[test]
-    fn directory_fd_missing_sibling_child_is_notcapable() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let subdir = root.join("subdir");
-        let sibling = root.join("sibling");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&subdir).expect("create subdir");
-        fs::create_dir(&sibling).expect("create sibling");
-
-        let context = test_context(&root);
-        let subdir_fd = with_descriptor_table(&context, |table| {
-            table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
-                rights_base: preopen_rights_base(),
-                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
-            }))
-        })
-        .expect("insert subdir descriptor");
-        let resolved =
-            resolve_path(&context, subdir_fd, Path::new("../sibling/not-there")).expect("resolve");
-
-        assert_eq!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
-
-    #[test]
-    fn directory_fd_missing_escaped_parent_is_notcapable() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let subdir = root.join("subdir");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&subdir).expect("create subdir");
-
-        let context = test_context(&root);
-        let subdir_fd = with_descriptor_table(&context, |table| {
-            table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
-                rights_base: preopen_rights_base(),
-                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
-            }))
-        })
-        .expect("insert subdir descriptor");
-        let resolved =
-            resolve_path(&context, subdir_fd, Path::new("../missing/file")).expect("resolve");
-
-        assert_eq!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-        assert_eq!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::ParentOnly,
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
-
-    #[test]
-    fn directory_fd_missing_inside_parent_is_noent() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let subdir = root.join("subdir");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&subdir).expect("create subdir");
-
-        let context = test_context(&root);
-        let subdir_fd = with_descriptor_table(&context, |table| {
-            table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
-                rights_base: preopen_rights_base(),
-                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
-            }))
-        })
-        .expect("insert subdir descriptor");
-        let resolved =
-            resolve_path(&context, subdir_fd, Path::new("missing/file")).expect("resolve");
-
-        assert_eq!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOENT)
-        );
-        assert_eq!(
-            enforce_path_boundary(
-                &resolved.boundary_root,
-                &resolved.host_path,
-                PathBoundaryMode::ParentOnly,
-            ),
-            Err(WASI_ERRNO_NOENT)
-        );
-    }
-
-    #[test]
-    fn boundary_check_rejects_prefix_lookalike_sibling() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let sibling = temp.path().join("root-sibling");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&sibling).expect("create sibling");
-        fs::write(sibling.join("file.txt"), b"outside").expect("write sibling file");
-
-        let context = test_context(&root);
-
-        assert_eq!(
-            enforce_path_boundary(
-                &context.preopen_dir_real_path,
-                &sibling.join("file.txt"),
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
-
-    #[test]
-    fn boundary_check_allows_missing_file_only_when_parent_is_inside() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let sibling = temp.path().join("sibling");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&sibling).expect("create sibling");
-
-        let context = test_context(&root);
-
-        assert!(
-            enforce_path_boundary(
-                &context.preopen_dir_real_path,
-                &root.join("new.txt"),
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: true,
-                },
-            )
-            .is_ok()
-        );
-        assert_eq!(
-            enforce_path_boundary(
-                &context.preopen_dir_real_path,
-                &sibling.join("new.txt"),
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: true,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn boundary_check_rejects_symlink_escape() {
-        use std::os::unix::fs::symlink;
-
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let root = temp.path().join("root");
-        let sibling = temp.path().join("sibling");
-        fs::create_dir(&root).expect("create preopen root");
-        fs::create_dir(&sibling).expect("create sibling");
-        fs::write(sibling.join("file.txt"), b"outside").expect("write sibling file");
-        symlink(sibling.join("file.txt"), root.join("link.txt")).expect("create symlink");
-
-        let context = test_context(&root);
-
-        assert_eq!(
-            enforce_path_boundary(
-                &context.preopen_dir_real_path,
-                &root.join("link.txt"),
-                PathBoundaryMode::FollowFinal {
-                    allow_missing_final: false,
-                },
-            ),
-            Err(WASI_ERRNO_NOTCAPABLE)
-        );
-    }
 }
