@@ -1,0 +1,10 @@
+import {
+  "moonbitlang/core/env",
+}
+
+fn main {
+  let args = @env.args()
+  for i = 1; i < args.length(); i = i + 1 {
+    println(args[i])
+  }
+}

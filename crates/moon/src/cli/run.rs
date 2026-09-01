@@ -31,14 +31,14 @@ use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::project::{PackageDirs, ProjectProbe};
+use moonutil::project::{PackageDirs, ProjectProbe, SourceTargetDirs, WorkspaceEnv};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
     cache::{CacheKind, resolve_cache_root},
     constants::is_moon_pkg_exist,
     locks::lock_directory,
-    target::TargetBackend,
-    user_log::UserLog,
+    target::{SurfaceTarget, TargetBackend},
+    user_log::{UserLog, user_log_level},
 };
 use tracing::{Level, instrument};
 
@@ -442,6 +442,58 @@ pub(crate) fn build_run_executable(
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
     build_package_executable(cli, cmd, selected_target_backend, options, output)
+}
+
+/// Build a persistent standalone source as linear-memory Wasm.
+///
+/// The returned artifact is ready for a caller-owned execution path; no build
+/// lock remains held after this function returns.
+pub(crate) fn build_standalone_wasm(input: String, verbose: bool) -> anyhow::Result<PathBuf> {
+    // TODO(moonx-standalone-build-interface): Remove this command-layer adapter
+    // once standalone build planning accepts explicit source, backend, sync,
+    // and output options without UniversalFlags and RunSubcommand.
+    let cli = UniversalFlags {
+        source_tgt_dir: SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        },
+        workspace_env: WorkspaceEnv::default(),
+        quiet: !verbose,
+        verbose,
+        trace: false,
+        dry_run: false,
+        build_graph: false,
+        unstable_feature: ""
+            .parse()
+            .expect("empty unstable feature set must be valid"),
+    };
+    let cmd = RunSubcommand {
+        package_or_mbt_file: Some(input),
+        command: None,
+        build_flags: BuildFlags {
+            target: vec![SurfaceTarget::Wasm],
+            ..BuildFlags::default()
+        },
+        args: Vec::new(),
+        moonrun_policy: None,
+        auto_sync_flags: AutoSyncFlags { frozen: false },
+        build_only: false,
+        profile: false,
+    };
+    let output = CommandOutput::new(user_log_level(verbose, !verbose));
+    let mut built = build_run_executable(
+        &cli,
+        &cmd,
+        BuildRunExecutableOptions::for_run(&cli),
+        &output,
+    )?;
+    built.ensure_build_success()?;
+    anyhow::ensure!(
+        built.backend.target_backend() == TargetBackend::Wasm,
+        "standalone `.mbtx` build did not produce linear-memory Wasm"
+    );
+    built.release_lock();
+    Ok(built.executable)
 }
 
 #[instrument(skip_all)]

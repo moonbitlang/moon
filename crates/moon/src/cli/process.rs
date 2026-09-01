@@ -62,9 +62,9 @@ fn delegate_with_policy_relay(
     relay: moonutil::policy_transport::PolicyRelay,
 ) -> anyhow::Result<ExitStatus> {
     install_ctrl_c_passthrough_handler()?;
-    // Moonx reaches this point after registry acquisition and does not start
-    // other children. Keep Windows' process-wide inheritable-handle window to
-    // the CreateProcess call itself.
+    // Moonx reaches this point after registry acquisition or standalone build
+    // work and does not start other children. Keep Windows' process-wide
+    // inheritable-handle window to the CreateProcess call itself.
     let relay = relay.attach_to(cmd)?;
     let child = cmd.spawn();
     let isolation = relay.finish();

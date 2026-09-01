@@ -16,9 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, path::Path, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
+use mooncake::registry::RegistryClient;
 use moonutil::user_log::UserLog;
 
 use super::registry_runner::{self, RegistryRunTarget};
@@ -38,20 +39,22 @@ pub(crate) enum MoonxTarget {
 #[derive(Debug, Parser)]
 #[command(
     name = "moonx",
-    about = "Run a package from the Mooncakes registry without installing it",
-    long_about = r#"Run a package from the Mooncakes registry without installing it.
+    about = "Run a .mbtx file or a package from the Mooncakes registry",
+    long_about = r#"Run a standalone .mbtx file or a package from the Mooncakes registry without installing it.
 
-Accepted package coordinate forms:
+Accepted input forms:
+  moonx script.mbtx
   moonx user/module/package
   moonx user/module/package@1.2.3
   moonx user/module/package@latest
 
-Pinned coordinates use the requested version directly. `@latest` refreshes the
+Standalone .mbtx files always use the linear-memory Wasm backend. Pinned
+package coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already known to the local registry index.
 
 The native target is deprecated and scheduled for removal after 2026-09-14."#,
-    override_usage = "moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...",
+    override_usage = "moonx [OPTIONS] <MBTX|PACKAGE> [PROGRAM_ARGS]...",
     version
 )]
 pub(crate) struct MoonxCli {
@@ -67,11 +70,11 @@ pub(crate) struct MoonxCli {
     pub verbose: bool,
 
     #[command(subcommand)]
-    package: MoonxPackage,
+    input: MoonxInput,
 }
 
 #[derive(Debug, Subcommand)]
-enum MoonxPackage {
+enum MoonxInput {
     #[command(external_subcommand)]
     External(Vec<String>),
 }
@@ -81,7 +84,7 @@ pub(crate) struct MoonxInvocation {
     pub(crate) target: MoonxTarget,
     pub(crate) experimental_policy: Option<PathBuf>,
     pub(crate) verbose: bool,
-    package: String,
+    input: String,
     args: Vec<String>,
 }
 
@@ -93,8 +96,8 @@ pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
 
 pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
     let cli = MoonxCli::try_parse_from(raw_args)?;
-    let MoonxPackage::External(package_and_args) = cli.package;
-    let (package, args) = package_and_args
+    let MoonxInput::External(input_and_args) = cli.input;
+    let (input, args) = input_and_args
         .split_first()
         .expect("external subcommand always contains its name");
     // External subcommands preserve `--`; moonx treats one leading occurrence as a separator.
@@ -106,7 +109,7 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
         target: cli.target,
         experimental_policy: cli.experimental_policy,
         verbose: cli.verbose,
-        package: package.clone(),
+        input: input.clone(),
         args: args.to_vec(),
     })
 }
@@ -115,14 +118,38 @@ pub(crate) fn prepare(
     invocation: MoonxInvocation,
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {
-    let quiet = !invocation.verbose;
-    let target = match invocation.target {
-        MoonxTarget::Wasm => RegistryRunTarget::Wasm {
-            experimental_policy: invocation.experimental_policy,
-            policy_relay: moonutil::policy_transport::PolicyTransfer::take_from_env()?
-                .map(moonutil::policy_transport::PolicyTransfer::into_relay),
-        },
-        MoonxTarget::Native if invocation.experimental_policy.is_some() => {
+    let MoonxInvocation {
+        target,
+        experimental_policy,
+        verbose,
+        input,
+        args,
+    } = invocation;
+    let quiet = !verbose;
+
+    match target {
+        MoonxTarget::Wasm => {
+            let policy_relay = moonutil::policy_transport::PolicyTransfer::take_from_env()?
+                .map(moonutil::policy_transport::PolicyTransfer::into_relay);
+            let wasm_path = if is_mbtx_input(&input) {
+                super::run::build_standalone_wasm(input, verbose)?
+            } else {
+                RegistryClient::configured().acquire_executable_wasm(&input, user_log)?
+            };
+
+            registry_runner::prepare_artifact(
+                crate::run::ExecutionMode::MoonRun,
+                &wasm_path,
+                experimental_policy.as_deref(),
+                policy_relay,
+                &args,
+                user_log,
+            )
+        }
+        MoonxTarget::Native if is_mbtx_input(&input) => {
+            anyhow::bail!("standalone `.mbtx` inputs only support `--target wasm`")
+        }
+        MoonxTarget::Native if experimental_policy.is_some() => {
             anyhow::bail!("--experimental-policy is only valid with `--target wasm`")
         }
         MoonxTarget::Native => {
@@ -130,17 +157,22 @@ pub(crate) fn prepare(
             // valid relay without letting an ambient malformed marker change
             // native behavior.
             moonutil::policy_transport::PolicyTransfer::discard_from_env();
-            RegistryRunTarget::Native
+            registry_runner::prepare(
+                input,
+                RegistryRunTarget::Native,
+                args,
+                quiet,
+                verbose,
+                user_log,
+            )
         }
-    };
-    registry_runner::prepare(
-        invocation.package,
-        target,
-        invocation.args,
-        quiet,
-        invocation.verbose,
-        user_log,
-    )
+    }
+}
+
+fn is_mbtx_input(input: &str) -> bool {
+    Path::new(input)
+        .extension()
+        .is_some_and(|extension| extension == "mbtx")
 }
 
 #[cfg(test)]
@@ -178,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn requires_package() {
+    fn requires_input() {
         let error = MoonxCli::try_parse_from(["moonx"]).unwrap_err();
         assert_eq!(
             error.kind(),
@@ -187,11 +219,19 @@ mod tests {
     }
 
     #[test]
-    fn forwards_help_and_version_flags_after_package() {
+    fn recognizes_standalone_mbtx_inputs() {
+        assert!(is_mbtx_input("script.mbtx"));
+        assert!(is_mbtx_input("path/to/script.mbtx"));
+        assert!(!is_mbtx_input("user/module/package"));
+        assert!(!is_mbtx_input("script.mbt"));
+    }
+
+    #[test]
+    fn forwards_help_and_version_flags_after_input() {
         for flag in ["-h", "--help", "-V", "--version"] {
             let cli = MoonxCli::try_parse_from(["moonx", "user/module", flag]).unwrap();
-            let MoonxPackage::External(package_and_args) = cli.package;
-            assert_eq!(package_and_args, ["user/module", flag]);
+            let MoonxInput::External(input_and_args) = cli.input;
+            assert_eq!(input_and_args, ["user/module", flag]);
         }
     }
 }

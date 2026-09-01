@@ -97,7 +97,8 @@ fn prepare_delegate(invocation: DelegatedInvocation) -> anyhow::Result<Command> 
 
 fn run_moonx(invocation: super::moonx::MoonxInvocation) -> i32 {
     // moonx intentionally has no Moon tracing or workspace bootstrap. It owns
-    // registry preparation, then returns the final program as a process action.
+    // standalone or registry preparation, then returns the final program as a
+    // process action.
     if matches!(invocation.target, super::moonx::MoonxTarget::Native) {
         UserLog::new(log::LevelFilter::Warn).warn(super::moonx::NATIVE_TARGET_DEPRECATION_WARNING);
     }
