@@ -71,6 +71,79 @@ fn test_single_file_mbtx_check() {
 }
 
 #[test]
+fn test_single_file_mbtx_build() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(&dir, ["build", "moonx_args.mbtx", "--dry-run"]);
+
+    assert!(stdout.contains("moonx_args.mbtx"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("-ignore-import-declaration"),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("moonc link-core"), "stdout: {stdout}");
+    assert!(stdout.contains("_build/wasm/"), "stdout: {stdout}");
+    assert!(!stdout.contains("moonrun"), "stdout: {stdout}");
+}
+
+#[test]
+fn test_single_file_mbtx_build_accepts_multiple_targets() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let _ = get_stdout(&dir, ["build", "moonx_args.mbtx", "--target", "wasm,js"]);
+
+    assert!(
+        dir.join("_build/wasm/debug/build/single/single.wasm")
+            .is_file()
+    );
+    assert!(dir.join("_build/js/debug/build/single/single.js").is_file());
+}
+
+#[test]
+fn test_project_mbtx_builds_standalone_input() {
+    let dir = TestDir::new("test_filter/test_filter");
+    fs::write(
+        dir.join("A/script.mbtx"),
+        r#"fn main {
+  println("hello")
+}
+"#,
+    )
+    .unwrap();
+
+    let stdout = get_stdout(
+        &dir,
+        ["build", "A/script.mbtx", "--target", "wasm", "--dry-run"],
+    );
+
+    assert!(stdout.contains("script.mbtx"), "stdout: {stdout}");
+    assert!(!stdout.contains("hello.mbt"), "stdout: {stdout}");
+}
+
+#[test]
+fn test_project_mbtx_check_uses_standalone_input() {
+    let dir = TestDir::new("test_filter/test_filter");
+    fs::write(
+        dir.join("A/script.mbtx"),
+        r#"fn main {
+  println("hello")
+}
+"#,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .args(["check", "A/script.mbtx", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let metadata =
+        standalone_scoped_packages_json_path(dir.join("A"), "wasm", "debug", "script.mbtx");
+    assert!(
+        metadata.is_file(),
+        "standalone check should publish file-scoped package metadata"
+    );
+}
+
+#[test]
 fn test_single_file_mbtx_run_does_not_warn_about_supported_targets() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stderr = get_stderr(&dir, ["run", "import_ok.mbtx"]);

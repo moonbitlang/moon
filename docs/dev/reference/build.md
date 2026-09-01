@@ -33,6 +33,11 @@ original `.mbtx` input is kept as a regular, unconditional source file. Both
 when lowering that synthetic package. This does not make `.mbtx` a source
 extension discovered in ordinary packages.
 
+`moon build <file.mbtx>` and `moon check <file.mbtx>` always select this
+standalone representation, even when the file is located under an ordinary
+package root. Each command accepts one standalone `.mbtx` path and supports
+single- and multi-backend target selection; watch mode remains project-only.
+
 ### Build targets
 
 Source files may also be conditionally included into the build --

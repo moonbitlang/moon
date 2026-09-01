@@ -108,7 +108,7 @@ Build the current package
 
 ###### **Arguments:**
 
-* `<PATH>` — Paths to the packages that should be built
+* `<PATH>` — Paths to the packages that should be built, or one standalone `.mbtx` file
 
 ###### **Options:**
 
@@ -148,7 +148,7 @@ Check the current package, but don't build object files
 
 ###### **Arguments:**
 
-* `<PATH>` — Filesystem path to a package directory or `.mbt` / `.mbt.md` file
+* `<PATH>` — Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
 
 ###### **Options:**
 

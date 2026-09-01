@@ -90,6 +90,24 @@ pub(crate) use version::*;
 pub(crate) use whoami::*;
 pub(crate) use work::{WorkSubcommand, work_cli};
 
+fn standalone_mbtx_path<'a>(
+    paths: &'a [std::path::PathBuf],
+    command: &str,
+) -> anyhow::Result<Option<&'a std::path::Path>> {
+    let Some(path) = paths.iter().find(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "mbtx")
+    }) else {
+        return Ok(None);
+    };
+
+    anyhow::ensure!(
+        paths.len() == 1,
+        "standalone `.mbtx` `{command}` expects exactly one `PATH`"
+    );
+    Ok(Some(path))
+}
+
 #[derive(Debug, clap::Parser)]
 #[clap(
     name = "moon",
