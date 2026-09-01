@@ -13,9 +13,9 @@ fn test_native_abort_trace() {
     let expected_stderr = if exits_via_signal {
         snapbox::str![[r#"
 PanicError
-    at @moonbitlang/core/option.Option::unwrap[Int] ([CORE_PATH]/builtin/option.mbt:[..])
-    at @username/scratch/cmd/main.g ([..]/cmd/main/main.mbt:[..])
-    at @username/scratch/cmd/main.f ([..]/cmd/main/main.mbt:[..])
+    at [..]Option::unwrap[..]Int[..] ([CORE_PATH]/builtin/option.mbt:[..])
+    at [..]username/scratch/cmd/main.g ([..]/cmd/main/main.mbt:[..])
+    at [..]username/scratch/cmd/main.f ([..]/cmd/main/main.mbt:[..])
     at moonbit_main ([..]/cmd/main/main.mbt:[..])
     at main ([..]/cmd/main/main.mbt:[..])
 ...
