@@ -312,6 +312,7 @@ The `-lm` behavior belongs to this semantic layer, not just to executable lookup
 ### Compile
 
 `make_cc_command*` uses `cc_path` for compile steps (`-c` or `/c`) and backend-specific flags.
+MSVC-style compile commands pass `/std:c11`.
 For TCC on macOS, Moon also passes the active SDK `usr/lib` path reported by
 `xcrun --sdk macosx --show-sdk-path` when it resolves to an existing directory.
 If `xcrun` is missing or returns an unusable path, Moon omits the extra `-L` flag instead of
