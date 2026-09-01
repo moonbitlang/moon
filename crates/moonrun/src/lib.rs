@@ -18,9 +18,9 @@
 
 //! Embeddable execution support for MoonBit Wasm programs.
 //!
-//! The interface is experimental. It currently separates guest termination
-//! from host-process termination, while retaining Moonrun's existing V8 and
-//! process-scoped host integrations.
+//! The interface is experimental. It separates guest termination from
+//! host-process termination while retaining Moonrun's existing process-scoped
+//! host integrations.
 
 mod async_api;
 mod async_host;
@@ -28,6 +28,7 @@ mod async_sys;
 mod engine;
 mod filesystem;
 mod guest_memory;
+mod memory_sanitizer;
 mod network;
 mod policy;
 mod process;
@@ -38,6 +39,7 @@ mod source_map;
 mod sqlite;
 mod util;
 mod v8;
+mod wasi;
 
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
 pub use runtime::WorkingDirectory;

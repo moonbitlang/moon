@@ -19,7 +19,7 @@
 //! Host imports installed by Moonrun's current V8 backend.
 
 use super::builder::{ArgsExt, ObjectExt, ScopeExt};
-use super::{context, wasi};
+use super::context;
 use crate::runtime::Stdio;
 use crate::{async_api, filesystem, run_termination, sqlite, util};
 use rand::Rng;
@@ -426,15 +426,7 @@ pub(crate) fn install(
 
     {
         let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
-        wasi::init_env(
-            wasi,
-            scope,
-            wasm_file_name,
-            args,
-            Arc::clone(&environment),
-            &v8_context,
-            dtors,
-        );
+        super::wasi::init_env(wasi, scope, wasm_file_name, args, &v8_context, dtors);
     }
 
     // All V8 callbacks are unreachable after the single-shot run returns, so

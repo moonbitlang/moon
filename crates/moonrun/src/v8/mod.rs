@@ -38,6 +38,39 @@ const JS_GLUE: &str = include_str!(concat!(
 
 pub(crate) struct CompiledModule(v8::CompiledWasmModule);
 
+#[derive(Clone, Debug)]
+pub(crate) struct Engine {
+    config: EngineConfig,
+}
+
+impl Engine {
+    pub(crate) fn new(config: EngineConfig) -> Self {
+        Self { config }
+    }
+
+    pub(crate) fn compile(&self, bytes: &[u8]) -> anyhow::Result<CompiledModule> {
+        compile(&self.config, bytes)
+    }
+
+    pub(crate) fn run(
+        &self,
+        module_name: &str,
+        module: &CompiledModule,
+        source_map: Option<&str>,
+        options: RunOptions,
+        runtime: Runtime,
+    ) -> anyhow::Result<RunOutcome> {
+        run(
+            &self.config,
+            module_name,
+            module,
+            source_map,
+            options,
+            runtime,
+        )
+    }
+}
+
 pub(crate) fn initialize(config: &EngineConfig) -> anyhow::Result<()> {
     static ACTIVE_CONFIG: OnceLock<EngineConfig> = OnceLock::new();
 
@@ -142,19 +175,22 @@ pub(crate) fn run(
     let global_proxy = scope.get_current_context().global(scope);
     let wasm_module = v8::WasmModuleObject::from_compiled_module(scope, &module.0)
         .context("failed to load compiled WebAssembly module into the run isolate")?;
-    let memory_sanitizer = memory_sanitizer::MemorySanitizer::default();
+    let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
 
     let mut dtors = Vec::new();
     let termination_request =
         host_imports::install(&mut dtors, scope, module_name, &options.args, runtime);
 
     let memory_sanitizer_imports =
-        global_proxy.child(scope, memory_sanitizer::MEMORY_SANITIZER_MODULE);
-    memory_sanitizer::init_env(memory_sanitizer_imports, scope, &memory_sanitizer);
+        global_proxy.child(scope, crate::memory_sanitizer::MEMORY_SANITIZER_MODULE);
+    self::memory_sanitizer::init_env(
+        memory_sanitizer_imports,
+        scope,
+        &memory_sanitizer,
+        &mut dtors,
+    );
 
-    if let Some(ref test_args) = options.test_args {
-        let test_args = serde_json_lenient::from_str::<TestArgs>(test_args)
-            .context("invalid MoonBit test arguments")?;
+    if let Some(test_args) = options.parsed_test_args()? {
         let file_and_index = test_args.file_and_index;
 
         let mut test_params: Vec<[String; 2]> = vec![];
@@ -233,12 +269,6 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
         false,
         None,
     )
-}
-
-#[derive(serde::Deserialize)]
-struct TestArgs {
-    package: String,
-    file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
 }
 
 #[cfg(test)]
