@@ -996,12 +996,6 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Define MOONBIT_ALLOW_STACKTRACE
     pub allow_stacktrace: bool,
-    #[builder(default = false)]
-    // Define __TINYC__
-    pub define_tinyc_macro: bool,
-    #[builder(default = false)]
-    // Preserve frame pointers for backtrace walkers.
-    pub preserve_frame_pointer: bool,
     // Define MOONBIT_USE_SHARED_RUNTIME
     // It's non-op on Linux and MacOS
     // But on Windows, it will mark runtime function declarations
@@ -1576,24 +1570,14 @@ fn add_cc_optimization_flags(
 }
 
 fn add_cc_build_system_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.is_msvc() {
-        if config.allow_stacktrace {
-            buf.push("/DMOONBIT_ALLOW_STACKTRACE".to_string());
-        }
-        if config.define_tinyc_macro {
-            buf.push("/D__TINYC__".to_string());
-        }
-    } else if cc.is_gcc_like() {
-        if config.allow_stacktrace {
-            buf.push("-DMOONBIT_ALLOW_STACKTRACE".to_string());
-        }
-        if config.define_tinyc_macro {
-            buf.push("-D__TINYC__".to_string());
-        }
+    if !config.allow_stacktrace {
+        return;
     }
 
-    if config.preserve_frame_pointer && cc.is_full_featured_gcc_like() {
-        buf.push("-fno-omit-frame-pointer".to_string());
+    if cc.is_msvc() {
+        buf.push("/DMOONBIT_ALLOW_STACKTRACE".to_string());
+    } else if cc.is_gcc_like() {
+        buf.push("-DMOONBIT_ALLOW_STACKTRACE".to_string());
     }
 }
 
@@ -1894,8 +1878,6 @@ mod tests {
             output_ty: OutputType::Executable,
             opt_level: OptLevel::Speed,
             allow_stacktrace: false,
-            define_tinyc_macro: false,
-            preserve_frame_pointer: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
             native_allocator: None,
