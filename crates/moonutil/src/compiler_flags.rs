@@ -20,14 +20,33 @@ use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
-#[cfg(windows)]
-use std::sync::OnceLock;
 use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Command,
 };
+
+mod msvc;
+
+#[cfg(all(test, windows))]
+use msvc::windows_msvc_host_target_triple;
+pub use msvc::{
+    WINDOWS_MSVC_C_STANDARD_FLAG, WINDOWS_MSVC_DEFAULT_LIBS, WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+    has_incompatible_windows_msvc_env_override, resolve_windows_msvc_toolchain,
+    windows_msvc_native_toolchain,
+};
+use msvc::{
+    add_cc_linker_flags as add_cc_msvc_linker_flags,
+    add_cc_runtime_flags as add_cc_msvc_runtime_flags,
+    add_cc_specific_flags as add_cc_msvc_specific_flags,
+    add_linker_runtime as add_linker_msvc_runtime,
+    add_linker_specific_flags as add_linker_msvc_specific_flags, default_librarian,
+};
+#[cfg(windows)]
+use msvc::{discovered_windows_msvc_toolchain, resolve_msvc_toolchain_override};
+#[cfg(test)]
+use msvc::{ensure_windows_msvc_compatible, windows_msvc_toolchain_with_package_override};
 
 const ENV_MOON_CC: &str = "MOON_CC";
 const ENV_MOON_AR: &str = "MOON_AR";
@@ -271,155 +290,6 @@ const CAN_USE_MOONBITRUN: bool = false;
 // backend still needs a no-stdlib runtime build there, plus an /MT vs /MD call.
 const CAN_USE_SIMDUTF: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
-pub const WINDOWS_MSVC_DEFAULT_LIBS: &[&str] = &[
-    "libcmt.lib",
-    "oldnames.lib",
-    "kernel32.lib",
-    "shell32.lib",
-    "user32.lib",
-    "dbghelp.lib",
-    "uuid.lib",
-];
-pub const WINDOWS_MSVC_STATIC_RUNTIME_FLAG: &str = "/MT";
-pub const WINDOWS_MSVC_C_STANDARD_FLAG: &str = "/std:c11";
-
-#[cfg(windows)]
-static WINDOWS_MSVC_TOOLCHAIN: OnceLock<Option<DiscoveredMsvcToolchain>> = OnceLock::new();
-
-#[derive(Clone, Debug)]
-struct DiscoveredMsvcToolchain {
-    cc: CC,
-    environment: MsvcEnvironment,
-}
-
-#[cfg(windows)]
-fn windows_msvc_host_target_triple() -> Option<String> {
-    let arch = env::consts::ARCH;
-    match arch {
-        "x86_64" | "aarch64" => Some(format!("{arch}-pc-windows-msvc")),
-        _ => None,
-    }
-}
-
-#[cfg(windows)]
-fn find_windows_msvc_toolchain(target: &str) -> Option<DiscoveredMsvcToolchain> {
-    let tool = find_msvc_tools::find_tool(target, "cl.exe")
-        .or_else(|| find_msvc_tools::find_tool(target, "clang-cl.exe"))?;
-    let cc = CC::try_from_path(&tool.path().display().to_string()).ok()?;
-    if !Path::new(&cc.ar_path).is_file() {
-        return None;
-    }
-    Some(DiscoveredMsvcToolchain {
-        cc,
-        environment: MsvcEnvironment {
-            command_env: tool
-                .env()
-                .into_iter()
-                .map(|(key, value)| {
-                    (
-                        key.to_string_lossy().into_owned(),
-                        value.to_string_lossy().into_owned(),
-                    )
-                })
-                .collect(),
-        },
-    })
-}
-
-fn resolve_windows_msvc_discovery() -> anyhow::Result<DiscoveredMsvcToolchain> {
-    #[cfg(not(windows))]
-    {
-        anyhow::bail!("Windows MSVC environment resolution is only supported on Windows")
-    }
-
-    #[cfg(windows)]
-    {
-        let target = windows_msvc_host_target_triple()
-            .context("Windows MSVC discovery currently supports 64-bit x64 and ARM64 hosts")?;
-
-        WINDOWS_MSVC_TOOLCHAIN
-            .get_or_init(|| find_windows_msvc_toolchain(&target))
-            .clone()
-            .with_context(|| {
-                "Windows native backend requires MSVC Build Tools with C++ tools and Windows SDK"
-            })
-    }
-}
-
-fn discovered_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
-    let discovered = resolve_windows_msvc_discovery()?;
-    Ok(Toolchain::from_path_probe(discovered.cc).with_msvc_environment(discovered.environment))
-}
-
-pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
-    resolve_native_toolchain_executables(discovered_windows_msvc_toolchain()?)
-}
-
-fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
-    if cc.is_msvc() {
-        Ok(())
-    } else {
-        anyhow::bail!(
-            "Windows native backend requires an MSVC cl-compatible compiler driver such as cl.exe or clang-cl.exe; found {}",
-            cc.cc_path
-        )
-    }
-}
-
-pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref().filter(|cc| cc.is_msvc()) {
-        let override_toolchain = Toolchain::from_env_override(env_cc.clone());
-        let resolved = if is_path_like_tool(&env_cc.cc_path) {
-            override_toolchain
-        } else {
-            let discovered = discovered_windows_msvc_toolchain()?;
-            resolve_msvc_toolchain_override(override_toolchain, &discovered)
-        };
-        return windows_msvc_toolchain_with_package_override(resolved, package_cc);
-    }
-
-    if let Some(package_cc) = package_cc {
-        ensure_windows_msvc_compatible(package_cc)?;
-    }
-
-    let resolved = discovered_windows_msvc_toolchain()?;
-    windows_msvc_toolchain_with_package_override(resolved, package_cc)
-}
-
-pub fn has_incompatible_windows_msvc_env_override() -> bool {
-    ENV_CC.as_ref().is_some_and(|cc| !cc.is_msvc())
-}
-
-fn windows_msvc_toolchain_with_package_override(
-    resolved: Toolchain,
-    package_cc: Option<&CC>,
-) -> anyhow::Result<Toolchain> {
-    let mut toolchain = resolved.with_package_override(package_cc);
-    ensure_windows_msvc_compatible(toolchain.cc())?;
-
-    if toolchain.source() == ToolchainSource::PackageOverride {
-        toolchain = resolve_msvc_toolchain_override(toolchain, &resolved);
-    }
-
-    resolve_native_toolchain_executables(toolchain)
-}
-
-// A bare override selects the discovered toolchain as a whole. Path-like overrides
-// remain self-contained so they cannot inherit an environment for another installation.
-fn resolve_msvc_toolchain_override(mut toolchain: Toolchain, resolved: &Toolchain) -> Toolchain {
-    if is_path_like_tool(&toolchain.cc.cc_path) {
-        return toolchain;
-    }
-
-    toolchain.cc.cc_path.clone_from(&resolved.cc.cc_path);
-    toolchain.cc.ar_path.clone_from(&resolved.cc.ar_path);
-
-    match resolved.msvc_environment() {
-        Some(environment) => toolchain.with_msvc_environment(environment.clone()),
-        None => toolchain,
-    }
-}
-
 fn is_path_like_tool(tool: &str) -> bool {
     let path = Path::new(tool);
     let has_parent = path
@@ -621,27 +491,6 @@ impl CC {
         CC::resolve_reported_prog_path(&prog)
     }
 
-    fn default_msvc_librarian(cc_path: &Path) -> String {
-        let lib = CC::resolve_tool_path(cc_path, "lib.exe");
-        if Path::new(&lib).is_file() {
-            return lib;
-        }
-
-        let compiler_name = cc_path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if CC::strip_exe_suffix(&compiler_name).ends_with("clang-cl") {
-            let llvm_lib = CC::resolve_tool_path(cc_path, "llvm-lib.exe");
-            if Path::new(&llvm_lib).is_file() {
-                return llvm_lib;
-            }
-        }
-
-        lib
-    }
-
     fn with_default_platform_archiver(mut self) -> Self {
         #[cfg(target_os = "macos")]
         if self.targets_apple_darwin()
@@ -715,7 +564,7 @@ impl CC {
     ) -> anyhow::Result<Self> {
         let target_triple = CC::probe_target_triple(cc_path, cc_kind);
         let (ar_kind, ar_path) = match cc_kind {
-            CCKind::Msvc => (ARKind::MsvcLib, CC::default_msvc_librarian(cc_path)),
+            CCKind::Msvc => (ARKind::MsvcLib, default_librarian(cc_path)),
             CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => (
                 CC::classify_gcc_like_archiver(ar_name, target_triple.as_deref()),
                 CC::resolve_tool_path(cc_path, ar_name),
@@ -1227,13 +1076,6 @@ fn add_linker_shared_lib_flags(
     }
 }
 
-// Linker compiler-specific flags
-fn add_linker_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>) {
-    if cc.is_msvc() {
-        buf.push("/nologo".to_string());
-    }
-}
-
 // Linker compiler-specific handling for moonbitrun
 fn add_linker_moonbitrun(
     cc: &CC,
@@ -1261,27 +1103,6 @@ fn add_linker_common_libraries<P: AsRef<Path>>(
             buf.push("-lruntime".to_string());
             buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
         }
-    }
-}
-
-fn add_linker_msvc_runtime<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
-    lpath: &str,
-) {
-    if cc.is_msvc() {
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push(
-                dyn_lib_path
-                    .as_ref()
-                    .join("libruntime.lib")
-                    .display()
-                    .to_string(),
-            );
-        }
-        buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
     }
 }
 
@@ -1476,30 +1297,6 @@ fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) 
     }
 }
 
-// Compiler-specific flags grouped together
-fn add_cc_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
-    if !cc.is_msvc() {
-        return;
-    }
-
-    buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
-
-    // MSVC-specific misc options
-    if !has_user_flags {
-        buf.push("/utf-8".to_string());
-        buf.push("/wd4819".to_string());
-    }
-    buf.push("/nologo".to_string());
-}
-
-fn add_cc_msvc_runtime_flags(cc: &CC, toolchain: Option<&Toolchain>, buf: &mut Vec<String>) {
-    if cc.is_msvc()
-        && let Some(crt) = toolchain.and_then(Toolchain::msvc_crt_policy)
-    {
-        buf.push(crt.compiler_flag().to_string());
-    }
-}
-
 fn add_cc_gcc_like_specific_flags(cc: &CC, buf: &mut Vec<String>) {
     // the below flags are needed, ref: https://github.com/moonbitlang/core/issues/1594#issuecomment-2649652455
     if cc.is_full_featured_gcc_like() {
@@ -1635,13 +1432,6 @@ fn add_cc_moonbitrun(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, paths: &
 fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if cc.should_link_libm() && config.output_ty != OutputType::Object {
         buf.push("-lm".to_string());
-    }
-}
-
-fn add_cc_msvc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
-    if cc.is_msvc() && config.output_ty != OutputType::Object {
-        buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
     }
 }
 
