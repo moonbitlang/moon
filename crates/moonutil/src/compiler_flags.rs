@@ -27,10 +27,12 @@ use std::{
     process::Command,
 };
 
+mod archiver;
 mod gcc_like;
 mod msvc;
 mod tcc;
 
+pub use archiver::{make_archiver_command, make_archiver_command_resolved};
 #[cfg(all(test, target_os = "macos"))]
 use gcc_like::resolve_apple_libtool_path;
 use gcc_like::{
@@ -823,30 +825,6 @@ impl CompilerPaths {
     }
 }
 
-// Helper functions for archiver command building
-fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
-    match cc.ar_kind {
-        ARKind::MsvcLib => {
-            buf.push("/nologo".to_string());
-            buf.push(format!("/Out:{dest}"));
-        }
-        ARKind::AppleLibtool => {
-            buf.push("-static".to_string());
-            buf.push("-o".to_string());
-            buf.push(dest.to_string());
-        }
-        ARKind::GnuAr | ARKind::LlvmAr => {
-            buf.push("-r".to_string());
-            buf.push("-c".to_string());
-            buf.push("-s".to_string());
-            buf.push(dest.to_string());
-        }
-        ARKind::TccAr => {
-            tcc::add_archiver_flags(buf, dest);
-        }
-    }
-}
-
 fn moonbitrun_object(
     cc: &CC,
     enabled: bool,
@@ -859,57 +837,6 @@ fn moonbitrun_object(
             .display()
             .to_string()
     })
-}
-
-// Archiver compiler-specific handling for moonbitrun
-fn add_archiver_moonbitrun(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &ArchiverConfig,
-    paths: &CompilerPaths,
-) {
-    if let Some(object) = moonbitrun_object(
-        cc,
-        config.archive_moonbitrun,
-        config.native_allocator,
-        &paths.lib_path,
-    ) {
-        buf.push(object);
-    }
-}
-
-pub fn make_archiver_command<S>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: ArchiverConfig,
-    src: &[S],
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let paths = CompilerPaths::from_moon_dirs();
-    make_archiver_command_resolved(resolved_cc, config, src, dest, &paths)
-}
-
-pub fn make_archiver_command_resolved<S>(
-    cc: CC,
-    config: ArchiverConfig,
-    src: &[S],
-    dest: &str,
-    paths: &CompilerPaths,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let mut buf = vec![cc.ar_path.clone()];
-
-    add_archiver_flags(&cc, &mut buf, dest);
-    add_archiver_moonbitrun(&cc, &mut buf, &config, paths);
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
-
-    buf
 }
 
 // Helper functions for linker command building
