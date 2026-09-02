@@ -681,7 +681,7 @@ pub(crate) fn plan_resolved_build_from_intent(
 /// Plan dependency-package and synthesized script-package work independently.
 ///
 /// This entry point is intentionally used only by standalone `.mbt`/`.mbtx`
-/// execution. Normal workspace commands continue through
+/// builds. Normal workspace commands continue through
 /// [`plan_resolved_build_from_intent`].
 #[allow(clippy::too_many_arguments)]
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -1071,7 +1071,7 @@ pub struct BuildInput {
     db_path: PathBuf,
 }
 
-/// Dependency-package and script-package inputs for standalone execution.
+/// Dependency-package and script-package inputs for a standalone build.
 ///
 /// Keeping this orchestration outside [`BuildInput`] lets ordinary workspace
 /// execution remain a single-graph operation.
@@ -1079,6 +1079,24 @@ pub struct BuildInput {
 pub struct StandaloneBuildInput {
     dependencies: Option<BuildInput>,
     script: BuildInput,
+}
+
+impl StandaloneBuildInput {
+    fn compose(inputs: Vec<Self>) -> anyhow::Result<Self> {
+        let mut dependencies = Vec::new();
+        let mut scripts = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            dependencies.extend(input.dependencies);
+            scripts.push(input.script);
+        }
+
+        Ok(Self {
+            dependencies: (!dependencies.is_empty())
+                .then(|| BuildInput::compose(dependencies))
+                .transpose()?,
+            script: BuildInput::compose(scripts)?,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1173,6 +1191,12 @@ struct N2ExecutionInput {
 
 pub(crate) fn compose_build_inputs(inputs: Vec<BuildInput>) -> anyhow::Result<BuildInput> {
     BuildInput::compose(inputs)
+}
+
+pub(crate) fn compose_standalone_build_inputs(
+    inputs: Vec<StandaloneBuildInput>,
+) -> anyhow::Result<StandaloneBuildInput> {
+    StandaloneBuildInput::compose(inputs)
 }
 
 struct CapturedBuildExecution {

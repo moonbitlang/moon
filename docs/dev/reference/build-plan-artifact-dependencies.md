@@ -332,13 +332,16 @@ consume `ExecutionPlan` directly: each input path resolves to its declared
 output and producer action, while requested artifacts and physical-only outputs
 retain the distinct root semantics that n2 otherwise flattens into file IDs.
 
-## Standalone script boundary
+## Standalone build boundary
 
-Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`
-and lowers it once into one `ExecutionPlan`. Dependency preparation and script
-execution are two `ActionId` selections over that plan. Following artifact
+Standalone `.mbt` and `.mbtx` execution, and standalone `.mbtx` compilation
+through `moon build`, start from one complete `BuildPlan` per Target Backend
+and lower it once into one `ExecutionPlan`. Dependency preparation and script
+compilation are two `ActionId` selections over that plan. Following artifact
 providers to a fixed point includes package-less prerequisites such as the
-runtime library and runtime objects.
+runtime library and runtime objects. Multi-backend standalone builds compose
+dependency selections separately from script selections so the phase ordering
+remains explicit.
 
 The dependency graph executes first, followed by the script graph. Both use the
 target directory's `.moon_db`; n2 ignores records whose outputs do not belong

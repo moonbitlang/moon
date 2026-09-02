@@ -20,6 +20,7 @@ use anyhow::Context;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
+use moonutil::cache::{CacheKind, resolve_cache_root};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::locks::lock_directory;
@@ -62,7 +63,7 @@ impl ResolvedBuildSelection {
 /// Build the current package
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct BuildSubcommand {
-    /// Paths to the packages that should be built.
+    /// Paths to the packages that should be built, or one standalone `.mbtx` file.
     #[clap(name = "PATH", conflicts_with("package"))]
     pub path: Vec<PathBuf>,
 
@@ -87,6 +88,23 @@ pub(crate) fn run_build(
     cmd: BuildSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let targets = lower_surface_targets(&cmd.build_flags.target);
+    if let Some(path) = super::standalone_mbtx_path(&cmd.path, "moon build")? {
+        anyhow::ensure!(
+            !cmd.watch,
+            "standalone `.mbtx` `moon build` does not support `--watch`"
+        );
+        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+        return run_build_for_single_file_rr(
+            cli,
+            &cmd,
+            &single_file.file_path,
+            &single_file.package_dirs,
+            &targets,
+            output,
+        );
+    }
+
     let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
@@ -96,9 +114,6 @@ pub(crate) fn run_build(
     if cmd.build_flags.target.is_empty() {
         return run_build_internal(cli, &cmd, &dirs, None, output);
     }
-    let surface_targets = cmd.build_flags.target.clone();
-    let targets = lower_surface_targets(&surface_targets);
-
     // Watch reruns must synchronize and resolve fresh project state each time.
     if cmd.watch {
         let mut ret_value = 0;
@@ -122,6 +137,119 @@ pub(crate) fn run_build(
                 _ => format!("failed to run build for targets {targets:?}"),
             })?;
     Ok(if result.ok { 0 } else { 1 })
+}
+
+/// Resolve one standalone `.mbtx` input and build it for every selected Target Backend.
+#[allow(clippy::too_many_arguments)]
+fn run_build_for_single_file_rr(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    single_file_path: &Path,
+    dirs: &PackageDirs,
+    selected_target_backends: &[TargetBackend],
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = dirs;
+    std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
+
+    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    )
+    .with_dependency_source_cache(
+        resolve_cache_root(CacheKind::DependencySources)
+            .context("Failed to resolve the module dependency graph")?,
+    );
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
+        &resolve_config,
+        dirs,
+        single_file_path,
+        true,
+        user_log,
+    )?;
+    let target_backends = if selected_target_backends.is_empty() {
+        vec![cmd.build_flags.resolve_single_target_backend()?.or(backend)]
+    } else {
+        selected_target_backends.iter().copied().map(Some).collect()
+    };
+
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(target_dir, user_log)?;
+    }
+
+    let package = rr_build::local_packages(&resolved)
+        .next()
+        .context("single-file project must resolve exactly one local package")?;
+    let mut planned_runs = Vec::with_capacity(target_backends.len());
+    for target_backend in target_backends {
+        let preconfig = preconfig_compile(
+            &cmd.auto_sync_flags,
+            cli,
+            &cmd.build_flags,
+            target_backend,
+            target_dir,
+            RunMode::Build,
+        );
+        let planning_context = rr_build::prepare_resolved_build(
+            &preconfig,
+            &cli.unstable_feature,
+            target_dir,
+            user_log,
+            &resolved,
+        )?;
+        planned_runs.push(rr_build::plan_resolved_standalone_build_from_intent(
+            preconfig,
+            &cli.unstable_feature,
+            user_log,
+            planning_context,
+            vec![UserIntent::Build(package)].into(),
+            package,
+            mooncake_bin_dir,
+            resolved.clone(),
+        )?);
+    }
+
+    let ok = if cli.dry_run {
+        output.write_result(|writer| {
+            let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
+            let build_input = rr_build::compose_standalone_build_inputs(build_inputs)
+                .map_err(std::io::Error::other)?;
+            rr_build::write_standalone_dry_run(
+                writer,
+                &build_input,
+                build_metas.iter().flat_map(|meta| meta.artifacts.values()),
+                source_dir,
+                target_dir,
+            )?;
+            Ok::<_, std::io::Error>(())
+        })?;
+        true
+    } else {
+        for (build_meta, _) in &planned_runs {
+            rr_build::generate_all_pkgs_json(build_meta)?;
+        }
+        let build_input = rr_build::compose_standalone_build_inputs(
+            planned_runs
+                .into_iter()
+                .map(|(_, build_input)| build_input)
+                .collect(),
+        )?;
+        let config = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+        let result =
+            rr_build::execute_standalone_build(&config, build_input, target_dir, user_log)?;
+        result.print_info(cli.quiet, "building")?;
+        result.successful()
+    };
+    Ok(if ok { 0 } else { 1 })
 }
 
 #[instrument(skip_all)]

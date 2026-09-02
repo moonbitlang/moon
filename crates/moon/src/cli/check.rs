@@ -279,7 +279,7 @@ pub(crate) struct CheckSubcommand {
     #[clap(long)]
     pub explain: bool,
 
-    /// Filesystem path to a package directory or `.mbt` / `.mbt.md` file
+    /// Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
     #[clap(conflicts_with = "watch", name = "PATH", group = "package_selector")]
     pub path: Vec<PathBuf>,
 
@@ -415,16 +415,20 @@ fn run_check_impl(
         }
     }
 
-    // Check if we're running within a project
-    let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let (mut dirs, single_file) = match query.probe_project()? {
-        ProjectProbe::Found(_) => {
-            let dirs = query.select(user_log)?.package_dirs()?;
-            (dirs, None)
-        }
-        ProjectProbe::NotFound(not_found) => {
-            // Now we're talking about real single-file scenario.
-            match cmd.path.as_slice() {
+    let (mut dirs, single_file) = if let Some(path) =
+        super::standalone_mbtx_path(&cmd.path, "moon check")?
+    {
+        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+        (single_file.package_dirs, Some(single_file.file_path))
+    } else {
+        // Check if we're running within a project.
+        let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
+        match query.probe_project()? {
+            ProjectProbe::Found(_) => {
+                let dirs = query.select(user_log)?.package_dirs()?;
+                (dirs, None)
+            }
+            ProjectProbe::NotFound(not_found) => match cmd.path.as_slice() {
                 [path] => {
                     let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
                     (single_file.package_dirs, Some(single_file.file_path))
@@ -433,7 +437,7 @@ fn run_check_impl(
                 _ => {
                     anyhow::bail!("standalone single-file `moon check` expects exactly one `PATH`");
                 }
-            }
+            },
         }
     };
     let watch_ignored_subtree = dirs.target_dir.clone();

@@ -311,6 +311,11 @@ The concrete declaration of the synthesized module/package is out of scope for t
 please consult the relevant code for the actual implementation.
 Subcommands that do not support single-file mode simply fails with an error.
 
+An explicit `.mbtx` path selects single-file mode for `moon build` and
+`moon check` even when the path is inside an ordinary package. The `.mbtx`
+file is therefore the synthetic package's source; it is not interpreted as a
+selector for the containing package.
+
 ## Module dependency management
 
 There are two types of dependencies in a module.
