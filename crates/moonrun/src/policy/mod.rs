@@ -87,14 +87,22 @@ impl Policy {
     }
 }
 
-/// Load the legacy policy document into its two construction-time outputs.
+/// Load a policy document into its two construction-time outputs.
 ///
 /// The source format still colocates environment provisioning with operational
 /// authorization. Splitting them here prevents that historical file layout
 /// from making provisioning part of the realized `Policy`.
+#[cfg(test)]
 pub(crate) fn load_file(path: &Path) -> anyhow::Result<(Policy, EnvProvisioning)> {
+    load_file_with_source_dir(path, None)
+}
+
+pub(crate) fn load_file_with_source_dir(
+    path: &Path,
+    source_dir: Option<&Path>,
+) -> anyhow::Result<(Policy, EnvProvisioning)> {
     let config = PolicyConfig::from_file(path)?;
-    let config_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let config_dir = source_dir.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
     realize_config(config, config_dir)
 }
 
@@ -265,6 +273,33 @@ mod tests {
         assert_eq!(config.net.unwrap().dns, ["example.com"]);
         assert_eq!(config.env.unwrap().from_host, ["PATH"]);
         assert!(config.process.unwrap().spawn);
+    }
+
+    #[test]
+    fn embedded_policy_can_resolve_roots_from_its_logical_source_directory() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let allowed = source_dir.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+
+        let temporary_source_dir = tempfile::tempdir().unwrap();
+        let temporary_source = temporary_source_dir.path().join("stdin.mbtx");
+        std::fs::write(
+            &temporary_source,
+            r#"// policy:
+//   fs:
+//     read:
+//       - allowed
+
+fn main {}
+"#,
+        )
+        .unwrap();
+
+        let (policy, _) =
+            load_file_with_source_dir(&temporary_source, Some(source_dir.path())).unwrap();
+        let allowed = std::fs::canonicalize(allowed).unwrap();
+
+        check_ambient_open(policy, allowed.as_os_str(), 0, 0, false).unwrap();
     }
 
     #[test]

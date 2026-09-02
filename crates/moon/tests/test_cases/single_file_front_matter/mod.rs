@@ -65,6 +65,101 @@ fn test_single_file_mbtx_run() {
 }
 
 #[test]
+fn test_single_file_mbtx_run_uses_embedded_yaml_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+
+    moon_cmd(&dir)
+        .args(["run", "embedded_policy.mbtx", "--target", "wasm"])
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
+}
+
+#[test]
+fn test_single_file_mbtx_dry_run_forwards_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "embedded_policy.mbtx",
+            "--target",
+            "wasm",
+            "--dry-run",
+        ],
+    );
+
+    assert!(
+        stdout.lines().last().is_some_and(|line| {
+            line.contains("--policy") && line.contains("embedded_policy.mbtx")
+        }),
+        "expected the script itself to be forwarded as the policy source:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_stdin_mbtx_uses_embedded_yaml_policy() {
+    let fixture_dir = TestDir::new("moon_test_single_file.in");
+    let dir = TestDir::new_empty();
+    let source = fs::read_to_string(fixture_dir.join("embedded_policy.mbtx")).unwrap();
+
+    moon_cmd(&dir)
+        .args(["run", "-", "--target", "wasm"])
+        .stdin(source)
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
+}
+
+#[test]
+fn test_stdin_mbtx_policy_keeps_the_invocation_directory() {
+    let fixture_dir = TestDir::new("moon_test_single_file.in");
+    let dir = TestDir::new_empty();
+    let source = fs::read_to_string(fixture_dir.join("embedded_policy.mbtx")).unwrap();
+    let output = moon_cmd(&dir)
+        .args(["run", "-", "--target", "wasm", "--dry-run"])
+        .stdin(source)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+
+    assert!(
+        stdout.lines().last().is_some_and(|line| {
+            line.contains("--policy")
+                && line.contains("stdin.mbtx")
+                && line.contains("--policy-source-dir")
+        }),
+        "expected stdin to preserve the logical policy source directory:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_single_file_mbtx_explicit_policy_overrides_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    fs::write(
+        dir.join("explicit-policy.json"),
+        r#"{"env":{"set":{"MBTX_POLICY":"explicit"}}}"#,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .args([
+            "run",
+            "embedded_policy.mbtx",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+            "explicit-policy.json",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("explicit\n");
+}
+
+#[test]
 fn test_single_file_mbtx_check() {
     let dir = TestDir::new("moon_test_single_file.in");
     let _ = get_stdout(&dir, ["check", "import_ok.mbtx"]);

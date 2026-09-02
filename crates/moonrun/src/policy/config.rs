@@ -81,6 +81,18 @@ pub(super) struct ProcessRuleConfig {
 
 impl PolicyConfig {
     pub(super) fn from_file(path: &Path) -> anyhow::Result<Self> {
+        if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("mbtx"))
+        {
+            return moonutil::front_matter::parse_mbtx_policy(path)?.with_context(|| {
+                format!(
+                    ".mbtx policy source {} has no `// policy:` front matter",
+                    path.display()
+                )
+            });
+        }
+
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read policy {}", path.display()))?;
         if path
@@ -165,6 +177,30 @@ spawn = true
             Some("test")
         );
         assert!(config.process.unwrap().spawn);
+    }
+
+    #[test]
+    fn parses_yaml_policy_from_mbtx_front_matter() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("script.mbtx");
+        std::fs::write(
+            &policy_file,
+            r#"// policy:
+//   env:
+//     set:
+//       APP_ENV: embedded
+
+fn main {}
+"#,
+        )
+        .unwrap();
+
+        let config = PolicyConfig::from_file(&policy_file).unwrap();
+
+        assert_eq!(
+            config.env.unwrap().set.get("APP_ENV").map(String::as_str),
+            Some("embedded")
+        );
     }
 
     #[test]

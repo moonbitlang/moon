@@ -154,6 +154,9 @@ pub(crate) struct BuildRunExecutableOptions {
     output: RunOutputVerbosity,
     /// Backend to use when neither CLI flags nor single-file metadata selects one.
     default_target_backend: TargetBackend,
+    /// Synthetic stdin and inline sources live in a temporary directory, but
+    /// relative embedded-policy paths retain the invocation directory.
+    embedded_policy_source_dir: Option<PathBuf>,
 }
 
 impl BuildRunExecutableOptions {
@@ -162,6 +165,7 @@ impl BuildRunExecutableOptions {
             print_dry_run_run_command: true,
             output: RunOutputVerbosity::from_flags(cli),
             default_target_backend: TargetBackend::default(),
+            embedded_policy_source_dir: None,
         }
     }
 
@@ -172,8 +176,14 @@ impl BuildRunExecutableOptions {
             print_dry_run_run_command: false,
             output: RunOutputVerbosity::from_flags(cli),
             default_target_backend: TargetBackend::default(),
+            embedded_policy_source_dir: None,
         }
     }
+}
+
+pub(crate) struct EmbeddedMbtxPolicy {
+    source: PathBuf,
+    source_dir_override: Option<PathBuf>,
 }
 
 /// A built executable plus the state needed to consume it.
@@ -189,6 +199,7 @@ pub(crate) struct RunExecutable {
     pub(crate) backend: BackendConfig,
     pub(crate) opt_level: moonutil::cond_expr::OptLevel,
     pub(crate) target_dir: PathBuf,
+    pub(crate) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
     lock: Option<std::fs::File>,
@@ -197,6 +208,7 @@ pub(crate) struct RunExecutable {
 struct BuildExecutableFromPlanOptions {
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
+    embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
 }
 
 enum RunBuildInput {
@@ -268,9 +280,13 @@ fn run_source_as_single_file(
     source: String,
     temp_name: &str,
     source_name: &str,
-    options: BuildRunExecutableOptions,
+    mut options: BuildRunExecutableOptions,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    options.embedded_policy_source_dir = Some(
+        std::env::current_dir()
+            .with_context(|| format!("failed to resolve {source_name} policy source directory"))?,
+    );
     let temp_dir = tempfile::TempDir::new()
         .with_context(|| format!("failed to create temporary directory for {source_name} run"))?;
     let input_path = temp_dir.path().join(temp_name);
@@ -353,6 +369,7 @@ fn build_wasm_file_executable_from_arg(
         backend: BackendConfig::WasmGc { use_wat: false },
         opt_level: moonutil::cond_expr::OptLevel::Debug,
         target_dir: print_dir.clone(),
+        embedded_mbtx_policy: None,
         source_dir: print_dir,
         build_exit_code: (!cli.dry_run).then_some(0),
         lock: None,
@@ -448,7 +465,10 @@ pub(crate) fn build_run_executable(
 ///
 /// The returned artifact is ready for a caller-owned execution path; no build
 /// lock remains held after this function returns.
-pub(crate) fn build_standalone_wasm(input: String, verbose: bool) -> anyhow::Result<PathBuf> {
+pub(crate) fn build_standalone_wasm(
+    input: String,
+    verbose: bool,
+) -> anyhow::Result<StandaloneWasm> {
     // TODO(moonx-standalone-build-interface): Remove this command-layer adapter
     // once standalone build planning accepts explicit source, backend, sync,
     // and output options without UniversalFlags and RunSubcommand.
@@ -493,7 +513,15 @@ pub(crate) fn build_standalone_wasm(input: String, verbose: bool) -> anyhow::Res
         "standalone `.mbtx` build did not produce linear-memory Wasm"
     );
     built.release_lock();
-    Ok(built.executable)
+    Ok(StandaloneWasm {
+        executable: built.executable,
+        embedded_mbtx_policy: built.embedded_mbtx_policy,
+    })
+}
+
+pub(crate) struct StandaloneWasm {
+    pub(crate) executable: PathBuf,
+    pub(crate) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
 }
 
 #[instrument(skip_all)]
@@ -553,6 +581,7 @@ fn build_package_executable(
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
+            embedded_mbtx_policy: None,
         },
         output,
     )
@@ -623,16 +652,32 @@ fn get_run_cmd(
     build_meta: &rr_build::BuildMeta,
     argv: &[String],
     moonrun_policy: Option<&Path>,
+    policy_source_dir: Option<&Path>,
 ) -> std::process::Command {
     let executable = get_run_executable(build_meta);
-    let mut cmd = crate::run::command_for_with_moonrun_policy(
+    let mut cmd = crate::run::command_for_with_moonrun_policy_source_dir(
         crate::run::ExecutionMode::from(&build_meta.backend),
         executable,
         None,
         moonrun_policy,
+        policy_source_dir,
     );
     cmd.args(argv);
     cmd
+}
+
+pub(crate) fn effective_moonrun_policy<'a>(
+    cli_policy: Option<&'a Path>,
+    embedded_policy: Option<&'a EmbeddedMbtxPolicy>,
+) -> (Option<&'a Path>, Option<&'a Path>) {
+    match (cli_policy, embedded_policy) {
+        (Some(policy), _) => (Some(policy), None),
+        (None, Some(policy)) => (
+            Some(policy.source.as_path()),
+            policy.source_dir_override.as_deref(),
+        ),
+        (None, None) => (None, None),
+    }
 }
 
 /// Extract the single executable artifact emitted for a `UserIntent::Run` plan.
@@ -691,6 +736,17 @@ fn build_single_file_executable(
     options: BuildRunExecutableOptions,
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
+    let embedded_mbtx_policy = if input_path.extension().is_some_and(|ext| ext == "mbtx")
+        && moonutil::front_matter::parse_mbtx_policy::<serde::de::IgnoredAny>(&input_path)?
+            .is_some()
+    {
+        Some(EmbeddedMbtxPolicy {
+            source: input_path.clone(),
+            source_dir_override: options.embedded_policy_source_dir.clone(),
+        })
+    } else {
+        None
+    };
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -772,6 +828,7 @@ fn build_single_file_executable(
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
+            embedded_mbtx_policy,
         },
         output,
     )
@@ -791,6 +848,10 @@ fn build_executable_from_plan(
     options: BuildExecutableFromPlanOptions,
     output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
+    let (moonrun_policy, policy_source_dir) = effective_moonrun_policy(
+        cmd.moonrun_policy.as_deref(),
+        options.embedded_mbtx_policy.as_ref(),
+    );
     let user_log = output.user_log();
     if cli.dry_run {
         output.write_result(|writer| {
@@ -812,7 +873,7 @@ fn build_executable_from_plan(
             }
 
             if options.print_dry_run_run_command {
-                let run_cmd = get_run_cmd(build_meta, &cmd.args, cmd.moonrun_policy.as_deref());
+                let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);
                 writeln!(
                     writer,
                     "{}",
@@ -826,6 +887,7 @@ fn build_executable_from_plan(
             backend: build_meta.backend.clone(),
             opt_level: build_meta.opt_level,
             target_dir: target_dir.to_path_buf(),
+            embedded_mbtx_policy: options.embedded_mbtx_policy,
             source_dir: source_dir.to_path_buf(),
             build_exit_code: None,
             lock: None,
@@ -853,6 +915,7 @@ fn build_executable_from_plan(
         backend: build_meta.backend.clone(),
         opt_level: build_meta.opt_level,
         target_dir: target_dir.to_path_buf(),
+        embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
         build_exit_code: Some(build_result.return_code_for_success()),
         lock: Some(lock),
@@ -881,11 +944,16 @@ fn run_executable(
         return Ok(build_exit_code);
     }
 
-    let mut run_cmd = crate::run::command_for_with_moonrun_policy(
+    let (moonrun_policy, policy_source_dir) = effective_moonrun_policy(
+        cmd.moonrun_policy.as_deref(),
+        executable.embedded_mbtx_policy.as_ref(),
+    );
+    let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
         crate::run::ExecutionMode::from(&executable.backend),
         executable.executable.as_path(),
         None,
-        cmd.moonrun_policy.as_deref(),
+        moonrun_policy,
+        policy_source_dir,
     );
     run_cmd.args(&cmd.args);
     let user_log = output.user_log();

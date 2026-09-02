@@ -94,6 +94,7 @@ pub(crate) fn prepare(
                 crate::run::ExecutionMode::MoonRun,
                 &wasm_path,
                 experimental_policy.as_deref(),
+                None,
                 policy_relay,
                 &args,
                 user_log,
@@ -105,6 +106,7 @@ pub(crate) fn prepare(
             prepare_artifact(
                 crate::run::ExecutionMode::Native,
                 &executable,
+                None,
                 None,
                 None,
                 &args,
@@ -145,12 +147,18 @@ pub(crate) fn prepare_artifact(
     mode: crate::run::ExecutionMode,
     artifact: &Path,
     experimental_policy: Option<&Path>,
+    policy_source_dir: Option<&Path>,
     policy_relay: Option<moonutil::policy_transport::PolicyRelay>,
     args: &[String],
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {
-    let mut run_cmd =
-        crate::run::command_for_with_moonrun_policy(mode, artifact, None, experimental_policy);
+    let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
+        mode,
+        artifact,
+        None,
+        experimental_policy,
+        policy_source_dir,
+    );
     run_cmd.args(args);
 
     if user_log.is_enabled(log::Level::Info) {
@@ -184,6 +192,7 @@ mod tests {
         let action = prepare_artifact(
             crate::run::ExecutionMode::MoonRun,
             Path::new("artifact.wasm"),
+            None,
             None,
             None,
             &[],

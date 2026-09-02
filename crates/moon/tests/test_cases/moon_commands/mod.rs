@@ -230,6 +230,22 @@ fn test_moonx_forwards_experimental_policy_to_mbtx() {
 }
 
 #[test]
+fn test_moonx_uses_embedded_mbtx_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .arg("embedded_policy.mbtx")
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
+}
+
+#[test]
 fn test_moonx_validates_native_options_before_discarding_an_inherited_marker() {
     let dir = TestDir::new_empty();
     let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");

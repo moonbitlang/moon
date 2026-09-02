@@ -131,16 +131,25 @@ pub(crate) fn prepare(
         MoonxTarget::Wasm => {
             let policy_relay = moonutil::policy_transport::PolicyTransfer::take_from_env()?
                 .map(moonutil::policy_transport::PolicyTransfer::into_relay);
-            let wasm_path = if is_mbtx_input(&input) {
-                super::run::build_standalone_wasm(input, verbose)?
+            let (wasm_path, embedded_policy) = if is_mbtx_input(&input) {
+                let built = super::run::build_standalone_wasm(input, verbose)?;
+                (built.executable, built.embedded_mbtx_policy)
             } else {
-                RegistryClient::configured().acquire_executable_wasm(&input, user_log)?
+                (
+                    RegistryClient::configured().acquire_executable_wasm(&input, user_log)?,
+                    None,
+                )
             };
+            let (policy, policy_source_dir) = super::run::effective_moonrun_policy(
+                experimental_policy.as_deref(),
+                embedded_policy.as_ref(),
+            );
 
             registry_runner::prepare_artifact(
                 crate::run::ExecutionMode::MoonRun,
                 &wasm_path,
-                experimental_policy.as_deref(),
+                policy,
+                policy_source_dir,
                 policy_relay,
                 &args,
                 user_log,
