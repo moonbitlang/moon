@@ -18,7 +18,6 @@
 
 pub(crate) mod builder;
 pub(crate) mod context;
-mod demangle;
 mod host_imports;
 mod memory_sanitizer;
 mod wasi;
@@ -29,23 +28,22 @@ use crate::engine::{
 };
 use crate::run_termination::TerminationRequest;
 use crate::runtime::Runtime;
+use crate::source_map::SourceMap;
+use crate::wasm_diagnostic::{self, DiagnosticLine};
 use anyhow::Context;
-use builder::{ObjectExt, ScopeExt};
+use builder::ScopeExt;
 use std::sync::{Arc, OnceLock};
 
 const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
-const JS_GLUE: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/template/js_glue.js"
-));
 
 pub(crate) struct CompiledModule(v8::CompiledWasmModule);
 
 #[derive(Clone, Copy)]
-struct FailureContext<'s> {
+struct ExceptionClassifier<'s, 'm> {
     runtime_error: v8::Local<'s, v8::Object>,
     wasm_exception: v8::Local<'s, v8::Object>,
-    formatter: v8::Local<'s, v8::Function>,
+    source_map: Option<&'m SourceMap>,
+    no_stack_trace: bool,
 }
 
 enum CallOutcome<'s> {
@@ -56,19 +54,15 @@ enum CallOutcome<'s> {
 fn classify_exception<'s>(
     scope: &mut v8::HandleScope<'s>,
     exception: v8::Local<'s, v8::Value>,
-    failure: FailureContext<'s>,
+    classifier: ExceptionClassifier<'s, '_>,
 ) -> anyhow::Result<BackendCallOutcome> {
-    let guest_failure = exception.instance_of(scope, failure.runtime_error).unwrap()
+    let guest_failure = exception
+        .instance_of(scope, classifier.runtime_error)
+        .unwrap()
         || exception
-            .instance_of(scope, failure.wasm_exception)
+            .instance_of(scope, classifier.wasm_exception)
             .unwrap();
-    let receiver = v8::undefined(scope).into();
-    let formatted = failure
-        .formatter
-        .call(scope, receiver, &[exception])
-        .and_then(|value| value.to_string(scope))
-        .context("Moonrun's V8 error formatter failed")?
-        .to_rust_string_lossy(scope);
+    let formatted = format_exception(scope, exception, classifier)?;
     if guest_failure {
         Ok(BackendCallOutcome::GuestFailure(formatted))
     } else {
@@ -79,10 +73,71 @@ fn classify_exception<'s>(
     }
 }
 
+fn format_exception(
+    scope: &mut v8::HandleScope,
+    exception: v8::Local<v8::Value>,
+    classifier: ExceptionClassifier<'_, '_>,
+) -> anyhow::Result<String> {
+    let stack_key = scope.string("stack");
+    let stack = exception
+        .to_object(scope)
+        .and_then(|object| object.get(scope, stack_key.into()))
+        .filter(|value| !value.is_null_or_undefined())
+        .and_then(|value| value.to_string(scope))
+        .or_else(|| exception.to_string(scope))
+        .context("Moonrun could not read the V8 exception stack")?
+        .to_rust_string_lossy(scope);
+    let lines = stack
+        .split('\n')
+        .filter(|line| !line.contains(BUILTIN_SCRIPT_ORIGIN_PREFIX))
+        .map(parse_stack_line);
+    Ok(wasm_diagnostic::render(
+        lines,
+        classifier.source_map,
+        classifier.no_stack_trace,
+    ))
+}
+
+fn parse_stack_line(line: &str) -> DiagnosticLine {
+    let body = line.trim_start();
+    let indentation = &line[..line.len() - body.len()];
+    let Some(frame) = body.strip_prefix("at ") else {
+        return DiagnosticLine::Text(line.to_owned());
+    };
+
+    if let Some(frame) = frame.strip_suffix(')')
+        && let Some((function, location)) = frame.rsplit_once(" (")
+    {
+        let module_offset = location
+            .trim_end()
+            .rsplit_once(":0x")
+            .map(|(_, offset)| offset)
+            .filter(|offset| {
+                !offset.is_empty() && offset.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+            .and_then(|offset| usize::from_str_radix(offset, 16).ok());
+        return DiagnosticLine::Frame {
+            indentation: indentation.to_owned(),
+            function: function.to_owned(),
+            module_offset,
+        };
+    }
+
+    let function = frame.trim_end();
+    if !function.is_empty() && !function.chars().any(char::is_whitespace) {
+        return DiagnosticLine::Frame {
+            indentation: indentation.to_owned(),
+            function: function.to_owned(),
+            module_offset: None,
+        };
+    }
+    DiagnosticLine::Text(line.to_owned())
+}
+
 fn invoke<'s>(
     scope: &mut v8::HandleScope<'s>,
     termination_request: &TerminationRequest,
-    failure: FailureContext<'s>,
+    classifier: ExceptionClassifier<'s, '_>,
     call: impl FnOnce(&mut v8::HandleScope<'s>) -> Option<v8::Local<'s, v8::Value>>,
 ) -> anyhow::Result<CallOutcome<'s>> {
     let scope = &mut v8::TryCatch::new(scope);
@@ -102,35 +157,9 @@ fn invoke<'s>(
     let exception = scope
         .exception()
         .context("V8 execution failed without an exception")?;
-    scope.reset();
     Ok(CallOutcome::Stopped(classify_exception(
-        scope, exception, failure,
+        scope, exception, classifier,
     )?))
-}
-
-fn call_function<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    function: v8::Local<'s, v8::Function>,
-    arguments: &[v8::Local<'s, v8::Value>],
-    termination_request: &TerminationRequest,
-    failure: FailureContext<'s>,
-) -> anyhow::Result<CallOutcome<'s>> {
-    invoke(scope, termination_request, failure, |scope| {
-        let receiver = v8::undefined(scope).into();
-        function.call(scope, receiver, arguments)
-    })
-}
-
-fn construct<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    constructor: v8::Local<'s, v8::Function>,
-    arguments: &[v8::Local<'s, v8::Value>],
-    termination_request: &TerminationRequest,
-    failure: FailureContext<'s>,
-) -> anyhow::Result<CallOutcome<'s>> {
-    invoke(scope, termination_request, failure, |scope| {
-        constructor.new_instance(scope, arguments).map(Into::into)
-    })
 }
 
 fn call_export<'s>(
@@ -138,14 +167,16 @@ fn call_export<'s>(
     function: v8::Local<'s, v8::Function>,
     arguments: &[v8::Local<'s, v8::Value>],
     termination_request: &TerminationRequest,
-    failure: FailureContext<'s>,
+    classifier: ExceptionClassifier<'s, '_>,
 ) -> anyhow::Result<BackendCallOutcome> {
-    Ok(
-        match call_function(scope, function, arguments, termination_request, failure)? {
-            CallOutcome::Returned(_) => BackendCallOutcome::Completed,
-            CallOutcome::Stopped(outcome) => outcome,
-        },
-    )
+    let outcome = invoke(scope, termination_request, classifier, |scope| {
+        let receiver = v8::undefined(scope).into();
+        function.call(scope, receiver, arguments)
+    })?;
+    Ok(match outcome {
+        CallOutcome::Returned(_) => BackendCallOutcome::Completed,
+        CallOutcome::Stopped(outcome) => outcome,
+    })
 }
 
 fn exported_function<'s>(
@@ -181,7 +212,7 @@ impl Engine {
         &self,
         module_name: &str,
         module: &CompiledModule,
-        source_map: Option<&str>,
+        source_map: Option<&SourceMap>,
         options: RunOptions,
         runtime: Runtime,
     ) -> anyhow::Result<BackendRunOutcome> {
@@ -283,7 +314,7 @@ pub(crate) fn run(
     config: &EngineConfig,
     module_name: &str,
     module: &CompiledModule,
-    source_map: Option<&str>,
+    source_map: Option<&SourceMap>,
     options: RunOptions,
     runtime: Runtime,
 ) -> anyhow::Result<BackendRunOutcome> {
@@ -294,9 +325,6 @@ pub(crate) fn run(
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
-
-    let mut entrypoint_source =
-        format!(r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{BUILTIN_SCRIPT_ORIGIN_PREFIX}";"#);
 
     let global_proxy = scope.get_current_context().global(scope);
     let webassembly_key = scope.string("WebAssembly");
@@ -321,83 +349,31 @@ pub(crate) fn run(
     let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
     let stdio = Arc::clone(runtime.stdio());
 
-    let mut dtors = Vec::new();
-    let termination_request =
-        host_imports::install(&mut dtors, scope, module_name, &options.args, runtime);
-    let v8_imports_key = scope.string("__moonrun_v8_import");
-    let v8_imports =
-        v8::Local::<v8::Object>::try_from(global_proxy.get(scope, v8_imports_key.into()).unwrap())
-            .unwrap();
-
-    let memory_sanitizer_imports =
-        global_proxy.child(scope, crate::memory_sanitizer::MEMORY_SANITIZER_MODULE);
-    self::memory_sanitizer::init_env(
-        memory_sanitizer_imports,
+    let installed_imports = host_imports::install(
         scope,
+        module_name,
+        &options.args,
+        runtime,
         &memory_sanitizer,
-        &mut dtors,
-    );
+    )?;
+    let module_imports = installed_imports.module_imports;
+    let termination_request = &installed_imports.termination_request;
+    let memory_binding = &installed_imports.memory_binding;
 
-    entrypoint_source.push_str(&format!(
-        "const no_stack_trace = {};",
-        options.no_stack_trace
-    ));
-    entrypoint_source.push_str(demangle::DEMANGLE_JS_TEMPLATE);
-    entrypoint_source.push('\n');
-    entrypoint_source.push_str(JS_GLUE);
-
-    let code = scope.string(&entrypoint_source);
-    let script_origin = create_script_origin(scope, "wasm_mode_entry");
-    let mut source = v8::script_compiler::Source::new(code, Some(&script_origin));
-    let source_map_argument = scope.string("source_map");
-    let entry = v8::script_compiler::compile_function(
-        scope,
-        &mut source,
-        &[source_map_argument],
-        &[],
-        v8::script_compiler::CompileOptions::NoCompileOptions,
-        v8::script_compiler::NoCacheReason::BecauseCachingDisabled,
-    )
-    .context("failed to compile Moonrun's Wasm entrypoint")?;
-    let source_map = source_map
-        .map(|source_map| scope.string(source_map).into())
-        .unwrap_or_else(|| v8::undefined(scope).into());
-    {
-        let scope = &mut v8::TryCatch::new(scope);
-        let receiver = v8::undefined(scope).into();
-        if entry.call(scope, receiver, &[source_map]).is_none() {
-            let error = scope
-                .stack_trace()
-                .or_else(|| scope.exception())
-                .context("Moonrun's V8 setup failed without an exception")?
-                .to_rust_string_lossy(scope);
-            anyhow::bail!("failed to initialize Moonrun's V8 adapter: {error}");
-        }
-    }
-
-    let formatter_key = scope.string("format_run_error");
-    let formatter =
-        v8::Local::<v8::Function>::try_from(v8_imports.get(scope, formatter_key.into()).unwrap())
-            .unwrap();
-    let module_imports_key = scope.string("module_imports");
-    let module_imports = v8::Local::<v8::Object>::try_from(
-        v8_imports.get(scope, module_imports_key.into()).unwrap(),
-    )
-    .unwrap();
-    let failure = FailureContext {
+    let classifier = ExceptionClassifier {
         runtime_error,
         wasm_exception,
-        formatter,
+        source_map,
+        no_stack_trace: options.no_stack_trace,
     };
 
     let result = (|| -> anyhow::Result<BackendRunOutcome> {
-        let instance = match construct(
-            scope,
-            instance_constructor,
-            &[wasm_module.into(), module_imports.into()],
-            &termination_request,
-            failure,
-        )
+        let instance_arguments = [wasm_module.into(), module_imports.into()];
+        let instance = match invoke(scope, termination_request, classifier, |scope| {
+            instance_constructor
+                .new_instance(scope, &instance_arguments)
+                .map(Into::into)
+        })
         .with_context(|| format!("failed to instantiate `{module_name}`"))?
         {
             CallOutcome::Returned(instance) => v8::Local::<v8::Object>::try_from(instance).unwrap(),
@@ -411,22 +387,9 @@ pub(crate) fn run(
         let memory_key = scope.string("memory");
         let memory = exports.get(scope, memory_key.into()).unwrap();
         if let Ok(memory) = v8::Local::<v8::WasmMemoryObject>::try_from(memory) {
-            let bind_memory_key = scope.string("bind_memory");
-            let bind_memory = v8::Local::<v8::Function>::try_from(
-                v8_imports.get(scope, bind_memory_key.into()).unwrap(),
-            )
-            .unwrap();
-            if let CallOutcome::Stopped(outcome) = call_function(
-                scope,
-                bind_memory,
-                &[memory.into()],
-                &termination_request,
-                failure,
-            )
-            .context("failed to bind the exported WebAssembly memory")?
-            {
-                return complete_run_call(outcome, &stdio);
-            }
+            memory_binding
+                .bind(scope, memory)
+                .map_err(|error| anyhow::anyhow!("failed to bind exported memory: {error:?}"))?;
         }
 
         if let Some(test_args) = test_args {
@@ -448,58 +411,28 @@ pub(crate) fn run(
                         scope,
                         execute,
                         &[file, index],
-                        &termination_request,
-                        failure,
+                        termination_request,
+                        classifier,
                     )
                     .context("failed to execute a MoonBit test")
                 },
                 |scope| {
-                    call_export(scope, finish, &[], &termination_request, failure)
+                    call_export(scope, finish, &[], termination_request, classifier)
                         .context("failed to finish the MoonBit test driver")
                 },
             )
         } else if let Some(start) = exported_function(scope, exports, "_start")? {
-            let outcome = call_export(scope, start, &[], &termination_request, failure)?;
+            let outcome = call_export(scope, start, &[], termination_request, classifier)?;
             complete_run_call(outcome, &stdio)
         } else {
             Ok(BackendRunOutcome::Completed)
         }
     })();
-    drop(dtors);
+    drop(installed_imports);
 
     let outcome = result?;
     if matches!(outcome, BackendRunOutcome::Completed) {
         memory_sanitizer.check_for_leaks()?;
     }
     Ok(outcome)
-}
-
-fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
-    let name = format!("{BUILTIN_SCRIPT_ORIGIN_PREFIX}{name}");
-    let name = scope.string(&name);
-    v8::ScriptOrigin::new(
-        scope,
-        name.into(),
-        0,
-        0,
-        false,
-        0,
-        None,
-        false,
-        false,
-        false,
-        None,
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::JS_GLUE;
-
-    #[test]
-    fn js_glue_does_not_own_runtime_values() {
-        assert!(!JS_GLUE.contains("__moonbit_run_env"));
-        assert!(!JS_GLUE.contains("function env_get_var"));
-        assert!(!JS_GLUE.contains("function args_get"));
-    }
 }

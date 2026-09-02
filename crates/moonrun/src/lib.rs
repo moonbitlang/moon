@@ -40,6 +40,7 @@ mod sqlite;
 mod util;
 mod v8;
 mod wasi;
+mod wasm_diagnostic;
 
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
 pub use runtime::WorkingDirectory;

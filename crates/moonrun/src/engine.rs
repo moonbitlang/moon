@@ -202,7 +202,7 @@ pub(crate) fn run_test_driver<D>(
 struct ModuleData {
     name: String,
     compiled: backend::CompiledModule,
-    source_map: Option<String>,
+    source_map: Option<source_map::SourceMap>,
 }
 
 /// An immutable Wasm module compiled by an [`Engine`].
@@ -222,8 +222,8 @@ impl Module {
         &self.0.compiled
     }
 
-    pub(crate) fn source_map(&self) -> Option<&str> {
-        self.0.source_map.as_deref()
+    pub(crate) fn source_map(&self) -> Option<&source_map::SourceMap> {
+        self.0.source_map.as_ref()
     }
 }
 
@@ -385,6 +385,12 @@ mod tests {
         std::fs::remove_file(wasm_path).unwrap();
         std::fs::remove_file(map_path).unwrap();
 
-        assert_eq!(module.source_map(), Some(source_map));
+        assert_eq!(
+            module.source_map().and_then(|map| map.position(0)),
+            Some(source_map::SourcePosition {
+                file: "main.mbt",
+                line: 1,
+            })
+        );
     }
 }

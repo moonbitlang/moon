@@ -49,7 +49,7 @@ impl V8MemoryBinding {
         }
     }
 
-    fn bind(
+    pub(crate) fn bind(
         &self,
         scope: &mut v8::HandleScope,
         memory: v8::Local<v8::WasmMemoryObject>,
@@ -134,46 +134,6 @@ pub(crate) unsafe fn callback_context<'s, T>(args: &v8::FunctionCallbackArgument
     let data: v8::Local<v8::Data> = data.into();
     let pointer = v8::Local::<v8::External>::try_from(data).unwrap().value();
     unsafe { &*(pointer as *const T) }
-}
-
-fn memory_binding<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s V8MemoryBinding {
-    // SAFETY: `register_memory_binder` installs only a `V8MemoryBinding`
-    // pointer and its owner retains that binding for the complete V8 run.
-    unsafe { callback_context(args) }
-}
-
-fn bind_memory(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _ret: v8::ReturnValue,
-) {
-    let result = (|| {
-        if args.length() != 1 {
-            return Err(V8ImportError::InvalidArgument);
-        }
-        let memory = v8::Local::<v8::WasmMemoryObject>::try_from(args.get(0))
-            .map_err(|_| V8ImportError::InvalidArgument)?;
-        memory_binding(&args).bind(scope, memory)
-    })();
-    if let Err(error) = result {
-        throw_import_error(scope, "__moonrun_v8_import", "bind_memory", error);
-    }
-}
-
-/// Register the bootstrap hook that binds the instance's exported memory.
-///
-/// The JS runner can obtain an exported memory only after instantiation. Until
-/// it calls this hook, memory-consuming imports fail with `Fault`.
-/// # Safety
-///
-/// `binding` must remain valid whenever the registered callback can be
-/// invoked.
-pub(crate) unsafe fn register_memory_binder<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    binding: *const V8MemoryBinding,
-) {
-    register_func(obj, scope, "bind_memory", bind_memory, binding);
 }
 
 pub(crate) struct ImportArgs<'a, 'scope, 'args> {

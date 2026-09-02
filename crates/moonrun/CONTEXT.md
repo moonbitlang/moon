@@ -180,7 +180,10 @@ All Handle kinds share the slotmap null Host Key. An ABI that needs to create or
 _Avoid_: resource payload, raw pointer, per-API key
 
 **V8 Memory Binding**:
-The V8 adapter's retained handle to the instance's exact exported memory. The JavaScript runner binds it once after instantiation, and every memory-consuming import reacquires the current backing buffer before borrowing Guest Memory. Imports invoked by a wasm start function cannot use this post-instantiation binding.
+The V8 adapter's retained handle to the instance's exact exported memory. The
+adapter binds it once after instantiation, and every memory-consuming import
+reacquires the current backing buffer before borrowing Guest Memory. Imports
+invoked by a wasm start function cannot use this post-instantiation binding.
 _Avoid_: Guest Memory, Host memory, generic runtime memory
 
 **V8 Run Context**:
@@ -222,10 +225,10 @@ _Avoid_: Conceptual parity, best-effort compatibility
 
 **Guest Failure**:
 An uncaught Wasm trap or exception observed by an Engine Backend. The backend
-formats its engine-specific diagnostic, then the common Engine maps the failure
-to the public unsuccessful Run outcome. A Guest Failure is distinct from a Host
-Error raised by a Wasm Adapter and from Run Termination explicitly requested by
-guest code.
+extracts engine-specific diagnostic frames, the shared Wasm diagnostic renderer
+formats them, and the common Engine maps the failure to the public unsuccessful
+Run outcome. A Guest Failure is distinct from a Host Error raised by a Wasm
+Adapter and from Run Termination explicitly requested by guest code.
 _Avoid_: Run Termination, Host Error, implicit exit request
 
 **Run Termination**:
