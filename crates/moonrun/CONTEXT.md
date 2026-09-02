@@ -220,6 +220,14 @@ The observable behavior of `moonbitlang/async` native execution that moonrun sho
 For normal MoonBit async paths, moonrun should stay strictly native-shaped and avoid adding observable intermediate states. Extra validation exists at the async boundary to reject stale or unexpected calls from an Untrusted Guest before they can violate moonrun's Rust or OS ownership invariants.
 _Avoid_: Conceptual parity, best-effort compatibility
 
+**Guest Failure**:
+An uncaught Wasm trap or exception observed by an Engine Backend. The backend
+formats its engine-specific diagnostic, then the common Engine maps the failure
+to the public unsuccessful Run outcome. A Guest Failure is distinct from a Host
+Error raised by a Wasm Adapter and from Run Termination explicitly requested by
+guest code.
+_Avoid_: Run Termination, Host Error, implicit exit request
+
 **Run Termination**:
 A per-Wasm-run outcome requested by guest code, either an exit code or termination by signal. A runtime adapter records Run Termination and interrupts guest execution without terminating its embedding process; only the outer CLI adapter applies the outcome after guest and host state have been torn down.
 _Avoid_: Host exit, import-side exit, process-global termination state

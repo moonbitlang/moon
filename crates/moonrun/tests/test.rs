@@ -274,7 +274,6 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
-    at throw
     at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
@@ -294,7 +293,6 @@ Total tests: 1, passed: 0, failed: 1.
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort method") failed: Error
-    at throw
     at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt[LINE_NUMBER]
@@ -942,7 +940,6 @@ previous allocation stack:
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/duplicate_alloc.allocate_once
     at @__moonbit_main
-    at <anonymous>
 ...
 "#]]);
 }
@@ -999,7 +996,6 @@ allocation stack:
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/leak.leak_object
     at @__moonbit_main
-    at <anonymous>
 ...
 "#]]);
 }
