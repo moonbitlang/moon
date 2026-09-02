@@ -178,6 +178,17 @@ MoonBit appends `.exe` unless the requested program already ends in `.exe` or
 Allowing a shell, interpreter, package runner, or extensible tool can permit much
 more than the visible argument prefix suggests.
 
+As an experimental feature, standalone `.mbtx` scripts can carry the same
+policy inline as YAML; this format may change. Put a leading `// policy:` block
+at the start of the script and prefix every YAML line with `//`, without `---`
+delimiters. `moon run` and `moonx` detect this block and use the script itself
+as the policy source. Explicit command-line policy paths override the embedded
+policy; inherited policies cannot be replaced by either. An embedded block is
+parsed only when it is the effective policy for Wasm execution; overridden,
+non-Wasm, and build-only paths do not validate its YAML.
+For `moon run -` and `moon run -e`, relative filesystem roots resolve from the
+directory where Moon was invoked rather than the temporary source directory.
+
 A native child receives the host user's ambient filesystem, network, and process
 access. The `fs` and `net` objects do not sandbox child processes. PID-based
 process operations are restricted to children spawned by the current moonrun

@@ -74,6 +74,16 @@ pub(crate) fn command_for_with_moonrun_policy(
     test: Option<&TestArgs>,
     moonrun_policy: Option<&Path>,
 ) -> Command {
+    command_for_with_moonrun_policy_source_dir(mode, mbt_executable, test, moonrun_policy, None)
+}
+
+pub(crate) fn command_for_with_moonrun_policy_source_dir(
+    mode: ExecutionMode,
+    mbt_executable: &Path,
+    test: Option<&TestArgs>,
+    moonrun_policy: Option<&Path>,
+    policy_source_dir: Option<&Path>,
+) -> Command {
     match mode {
         ExecutionMode::MoonRun => {
             let mut cmd = Command::new(&*moonutil::toolchain::BINARIES.moonrun);
@@ -84,6 +94,11 @@ pub(crate) fn command_for_with_moonrun_policy(
             if let Some(policy) = moonrun_policy {
                 cmd.arg("--policy");
                 cmd.arg(policy);
+            }
+            if let Some(source_dir) = policy_source_dir {
+                debug_assert!(moonrun_policy.is_some());
+                cmd.arg("--policy-source-dir");
+                cmd.arg(source_dir);
             }
             cmd.arg(mbt_executable);
             cmd.arg("--");

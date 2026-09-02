@@ -74,6 +74,10 @@ Process spawning is disabled by default. process.allow entries match the exact r
 Setting process.spawn to true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes. Scoped rules authorize the logical request, not the executable eventually selected through PATH or other OS lookup."#
     )]
     policy: Option<PathBuf>,
+
+    /// Override the directory used to resolve relative policy paths.
+    #[clap(long, value_name = "PATH", hide = true, requires = "policy")]
+    policy_source_dir: Option<PathBuf>,
 }
 
 fn get_moonrun_version() -> String {
@@ -106,7 +110,10 @@ fn main() -> anyhow::Result<()> {
     if let Some(policy) = inherited_policy {
         options = options.with_inherited_policy(policy);
     } else if let Some(policy) = matches.policy {
-        options = options.with_policy_file(policy);
+        options = match matches.policy_source_dir {
+            Some(source_dir) => options.with_policy_file_source_dir(policy, source_dir),
+            None => options.with_policy_file(policy),
+        };
     }
 
     match Engine::new(engine_config).run_file(matches.path, options)? {

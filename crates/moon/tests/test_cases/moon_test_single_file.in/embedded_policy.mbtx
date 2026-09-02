@@ -1,0 +1,12 @@
+// policy:
+//   env:
+//     set:
+//       MBTX_POLICY: embedded
+
+import {
+  "moonbitlang/core/env",
+}
+
+fn main {
+  println(@env.get_env_var("MBTX_POLICY").unwrap_or("missing"))
+}

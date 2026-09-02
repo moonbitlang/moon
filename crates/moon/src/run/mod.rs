@@ -29,7 +29,10 @@ pub(crate) use runtest::{
     PackageFilter, TestFilter, TestIndex, TestOutlineEntry, collect_test_invocations,
     collect_test_outline, perform_promotion, run_tests,
 };
-pub(crate) use runtime::{ExecutionMode, command_for, command_for_with_moonrun_policy};
+pub(crate) use runtime::{
+    ExecutionMode, command_for, command_for_with_moonrun_policy,
+    command_for_with_moonrun_policy_source_dir,
+};
 
 use std::sync::OnceLock;
 

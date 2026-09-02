@@ -120,6 +120,7 @@ pub(crate) struct Runtime {
 impl Runtime {
     pub(crate) fn new(
         policy_file: Option<&Path>,
+        policy_source_dir: Option<&Path>,
         inherited_policy: Option<&[u8]>,
         working_directory: WorkingDirectory,
     ) -> anyhow::Result<Self> {
@@ -130,7 +131,8 @@ impl Runtime {
                 (policy, Some(env))
             }
             (None, Some(path)) => {
-                let (policy, env) = policy::load_file(path).context(
+                let (policy, env) = policy::load_file_with_source_dir(path, policy_source_dir)
+                    .context(
                     "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
                 )?;
                 (policy, Some(env))

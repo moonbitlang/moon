@@ -230,6 +230,77 @@ fn test_moonx_forwards_experimental_policy_to_mbtx() {
 }
 
 #[test]
+fn test_moonx_uses_embedded_mbtx_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .arg("embedded_policy.mbtx")
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
+}
+
+#[test]
+fn test_moonx_explicit_policy_skips_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+    std::fs::write(
+        dir.join("explicit-policy.json"),
+        r#"{"env":{"set":{"MBTX_POLICY":"explicit"}}}"#,
+    )
+    .unwrap();
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "--experimental-policy",
+            "explicit-policy.json",
+            "malformed_embedded_policy.mbtx",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("explicit\n");
+}
+
+#[test]
+fn test_moonx_inherited_policy_skips_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+    let inherited_policy = dir.join("inherited-policy.json");
+    std::fs::write(
+        &inherited_policy,
+        r#"{"env":{"set":{"MBTX_POLICY":"inherited"}}}"#,
+    )
+    .unwrap();
+    let transfer = moonutil::policy_transport::PolicyTransfer::from_file(
+        std::fs::File::open(inherited_policy).unwrap(),
+    )
+    .unwrap();
+    let mut command = std::process::Command::new(&moonx);
+    command
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .arg("malformed_embedded_policy.mbtx");
+    let relay = transfer.into_relay().attach_to(&mut command).unwrap();
+
+    snapbox::cmd::Command::from_std(command)
+        .assert()
+        .success()
+        .stdout_eq("inherited\n");
+    relay.finish().unwrap();
+}
+
+#[test]
 fn test_moonx_validates_native_options_before_discarding_an_inherited_marker() {
     let dir = TestDir::new_empty();
     let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");

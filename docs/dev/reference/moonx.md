@@ -81,6 +81,33 @@ acquisition or building. Program arguments are forwarded to the final
 `moonrun`, and `--experimental-policy` has the same meaning as for a registry
 Wasm artifact.
 
+As an experimental feature, a script may embed its Moonrun Policy as YAML in a
+leading line-comment front matter block. This format may change. The block
+starts with `// policy:` and ends at the first non-comment, MoonBit doc-comment,
+or unindented comment line. Each `//` prefix and one following space are removed
+before parsing. For example:
+
+```moonbit
+// policy:
+//   env:
+//     from_host: [PATH]
+//   fs:
+//     read: [.]
+
+fn main {
+  // ...
+}
+```
+
+The `.mbtx` path itself is passed to Moonrun as the policy source, so relative
+filesystem roots are resolved from the script's directory. For `moon run -`
+and `moon run -e`, Moon writes the source to a temporary `.mbtx` but retains the
+invocation directory as the logical policy source directory. An explicit
+`--experimental-policy` takes precedence over embedded policy. An inherited
+policy remains host-owned and takes precedence over both. An embedded block is
+parsed only when it is the effective policy for Wasm execution; overridden,
+non-Wasm, and build-only paths do not validate its YAML.
+
 Moonx consumes an inherited policy handle before resolving `.mbtx`
 dependencies and relays it only to the final `moonrun` process. Registry and
 build subprocesses therefore cannot observe the reserved marker or inherit the
