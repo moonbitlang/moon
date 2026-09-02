@@ -80,6 +80,7 @@ escargot.workspace = true
 moon-test-util = { path = "../moon-test-util" }
 snapbox.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "time"] }
+wat = "1.255.0"
 
 [[bin]]
 name = "moonrun"

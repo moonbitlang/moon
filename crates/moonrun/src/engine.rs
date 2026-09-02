@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::runtime::{Runtime, WorkingDirectory};
+use crate::run_termination::RunTermination;
+use crate::runtime::{Runtime, Stdio, WorkingDirectory};
 use crate::{source_map, v8 as backend};
 use anyhow::Context;
 use std::fmt;
@@ -114,6 +115,88 @@ pub enum RunOutcome {
     Completed,
     Exited(i32),
     KilledBySignal(i32),
+}
+
+/// Backend result before the public runner applies Moonrun's common lifecycle
+/// policy. Guest failures are deliberately distinct from terminations requested
+/// by guest code.
+pub(crate) enum BackendRunOutcome {
+    Completed,
+    GuestFailure,
+    Terminated(RunTermination),
+}
+
+/// Result of one backend call into guest code. Guest diagnostics are formatted
+/// by the backend before common run or test-driver policy consumes them.
+pub(crate) enum BackendCallOutcome {
+    Completed,
+    GuestFailure(String),
+    Terminated(RunTermination),
+}
+
+#[derive(serde::Serialize)]
+struct TestFailure<'a> {
+    r#type: &'static str,
+    file: &'a str,
+    index: u32,
+    message: &'a str,
+}
+
+pub(crate) fn complete_run_call(
+    outcome: BackendCallOutcome,
+    stdio: &Stdio,
+) -> anyhow::Result<BackendRunOutcome> {
+    match outcome {
+        BackendCallOutcome::Completed => Ok(BackendRunOutcome::Completed),
+        BackendCallOutcome::GuestFailure(message) => {
+            stdio.with_stderr(|stderr| writeln!(stderr, "{message}"))?;
+            Ok(BackendRunOutcome::GuestFailure)
+        }
+        BackendCallOutcome::Terminated(termination) => {
+            Ok(BackendRunOutcome::Terminated(termination))
+        }
+    }
+}
+
+/// Run the backend-neutral MoonBit test-driver lifecycle. Backends provide
+/// only the representation-specific calls and formatted guest diagnostics.
+pub(crate) fn run_test_driver<D>(
+    driver: &mut D,
+    test_args: TestArgs,
+    stdio: &Stdio,
+    mut execute: impl FnMut(&mut D, &str, u32) -> anyhow::Result<BackendCallOutcome>,
+    finish: impl FnOnce(&mut D) -> anyhow::Result<BackendCallOutcome>,
+) -> anyhow::Result<BackendRunOutcome> {
+    let TestArgs {
+        package: _package,
+        file_and_index,
+    } = test_args;
+    for (file, ranges) in file_and_index {
+        for index in ranges.into_iter().flatten() {
+            match execute(driver, &file, index)? {
+                BackendCallOutcome::Completed => {}
+                BackendCallOutcome::GuestFailure(message) => {
+                    let result = TestFailure {
+                        r#type: "result",
+                        file: &file,
+                        index,
+                        message: &message,
+                    };
+                    stdio.with_stdout(|stdout| {
+                        writeln!(stdout, "----- BEGIN MOON TEST RESULT -----")?;
+                        serde_json::to_writer(&mut *stdout, &result)?;
+                        writeln!(stdout)?;
+                        writeln!(stdout, "----- END MOON TEST RESULT -----")?;
+                        Ok::<(), anyhow::Error>(())
+                    })?;
+                }
+                BackendCallOutcome::Terminated(termination) => {
+                    return Ok(BackendRunOutcome::Terminated(termination));
+                }
+            }
+        }
+    }
+    complete_run_call(finish(driver)?, stdio)
 }
 
 struct ModuleData {
@@ -223,13 +306,21 @@ impl Engine {
             options.inherited_policy.as_deref(),
             options.working_directory.clone(),
         )?;
-        self.backend.run(
+        let outcome = self.backend.run(
             module.name(),
             module.compiled(),
             module.source_map(),
             options,
             runtime,
-        )
+        )?;
+        Ok(match outcome {
+            BackendRunOutcome::Completed => RunOutcome::Completed,
+            BackendRunOutcome::GuestFailure => RunOutcome::Exited(1),
+            BackendRunOutcome::Terminated(RunTermination::Exit(code)) => RunOutcome::Exited(code),
+            BackendRunOutcome::Terminated(RunTermination::KilledBySignal(signal)) => {
+                RunOutcome::KilledBySignal(signal)
+            }
+        })
     }
 
     /// Load and synchronously execute one Wasm file.

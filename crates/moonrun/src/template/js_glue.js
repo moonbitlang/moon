@@ -277,10 +277,23 @@ function formatStackLine(line) {
     return line;
 }
 
+function formatRunError(error) {
+    const stack = error && error.stack ? error.stack.toString() : String(error);
+    const lines = [];
+    for (const line of stack.split('\n')) {
+        if (!line.includes(BUILTIN_SCRIPT_ORIGIN_PREFIX)) {
+            lines.push(formatStackLine(line));
+        }
+        if (no_stack_trace) {
+            break;
+        }
+    }
+    return lines.join('\n');
+}
+
 // WASM instantiation + test harness.
 const tag = new WebAssembly.Tag({ parameters: [] });
 const console = {
-    elog: (x) => console_elog(x),
     log: (x) => console_log(x),
 };
 const ffiBytesMemory = new WebAssembly.Memory({ initial: 1 });
@@ -327,51 +340,5 @@ const spectest = {
     },
 };
 
-try {
-    if (!(module instanceof WebAssembly.Module)) {
-        throw new Error(`failed to load compiled wasm module: ${module_name}`);
-    }
-    let instance = new WebAssembly.Instance(module, spectest);
-    const memory = instance.exports.memory;
-    if (memory instanceof WebAssembly.Memory) {
-        __moonrun_v8_import.bind_memory(memory);
-    }
-    if (test_mode) {
-        for (param of testParams) {
-            try {
-                instance.exports.moonbit_test_driver_internal_execute(param[0], parseInt(param[1]));
-            } catch (e) {
-                const stack = e && e.stack ? e.stack.toString() : String(e);
-                const formatted = stack.split('\n').map(formatStackLine).join('\n');
-                console.log("----- BEGIN MOON TEST RESULT -----")
-                console.log(JSON.stringify({
-                    type: "result",
-                    file: param[0],
-                    index: parseInt(param[1]),
-                    message: formatted,
-                }));
-                console.log("----- END MOON TEST RESULT -----")
-            }
-        }
-        instance.exports.moonbit_test_driver_finish();
-    }
-    else {
-        if (instance.exports._start) {
-            instance.exports._start();
-        }
-    }
-}
-catch (e) {
-    const stack = e && e.stack ? e.stack.toString() : String(e);
-    for (const line of stack.split('\n')) {
-        const formatted = formatStackLine(line);
-        if (!line.includes(BUILTIN_SCRIPT_ORIGIN_PREFIX)) {
-            console.elog(formatted);
-        }
-        if (no_stack_trace) {
-            break;
-        }
-    }
-    __moonbit_sys_unstable.exit(1);
-
-}
+__moonrun_v8_import.format_run_error = formatRunError;
+__moonrun_v8_import.module_imports = spectest;

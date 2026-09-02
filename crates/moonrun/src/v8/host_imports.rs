@@ -144,19 +144,6 @@ fn print_char(
     ret.set_undefined()
 }
 
-fn console_elog(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let arg = args.string_lossy(scope, 0);
-    run_context(&args)
-        .runtime()
-        .stdio()
-        .with_stderr(|stderr| writeln!(stderr, "{arg}"))
-        .unwrap();
-}
-
 fn console_log(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -390,13 +377,6 @@ pub(crate) fn install(
             scope,
             "console_log",
             console_log,
-            v8_context_ptr,
-        );
-        context::register_func(
-            global_proxy,
-            scope,
-            "console_elog",
-            console_elog,
             v8_context_ptr,
         );
     }
