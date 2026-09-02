@@ -28,6 +28,7 @@ use std::{
 };
 
 mod msvc;
+mod tcc;
 
 #[cfg(all(test, windows))]
 use msvc::windows_msvc_host_target_triple;
@@ -47,6 +48,10 @@ use msvc::{
 use msvc::{discovered_windows_msvc_toolchain, resolve_msvc_toolchain_override};
 #[cfg(test)]
 use msvc::{ensure_windows_msvc_compatible, windows_msvc_toolchain_with_package_override};
+use tcc::{
+    add_cc_specific_flags as add_cc_tcc_specific_flags,
+    add_macos_sdk_library_path as add_tcc_macos_sdk_library_path,
+};
 
 const ENV_MOON_CC: &str = "MOON_CC";
 const ENV_MOON_AR: &str = "MOON_AR";
@@ -309,7 +314,7 @@ fn resolve_native_toolchain_executables_with(
         .to_string();
 
     if toolchain.cc.is_tcc() {
-        toolchain.cc.ar_path.clone_from(&toolchain.cc.cc_path);
+        tcc::resolve_archiver_path(&mut toolchain.cc);
         return Ok(toolchain);
     }
 
@@ -569,7 +574,7 @@ impl CC {
                 CC::classify_gcc_like_archiver(ar_name, target_triple.as_deref()),
                 CC::resolve_tool_path(cc_path, ar_name),
             ),
-            CCKind::Tcc => (ARKind::TccAr, cc_path.display().to_string()),
+            CCKind::Tcc => tcc::default_archiver(cc_path),
         };
         Ok(CC::new(
             cc_kind,
@@ -941,10 +946,7 @@ fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
             buf.push(dest.to_string());
         }
         ARKind::TccAr => {
-            // tcc doesn't have a separate archiver command.
-            buf.push("-ar".to_string());
-            buf.push("rcs".to_string());
-            buf.push(dest.to_string());
+            tcc::add_archiver_flags(buf, dest);
         }
     }
 }
@@ -1207,40 +1209,6 @@ fn resolve_apple_libtool_path() -> Option<PathBuf> {
     libtool.is_file().then_some(libtool)
 }
 
-#[cfg(target_os = "macos")]
-fn resolve_macos_sdk_lib_path() -> Option<PathBuf> {
-    let output = Command::new("xcrun")
-        .args(["--sdk", "macosx", "--show-sdk-path"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let sdk_root = String::from_utf8_lossy(&output.stdout);
-    let sdk_root = sdk_root.lines().next()?.trim();
-    if sdk_root.is_empty() {
-        return None;
-    }
-
-    let sdk_lib_path = Path::new(sdk_root).join("usr").join("lib");
-    sdk_lib_path.is_dir().then_some(sdk_lib_path)
-}
-
-#[cfg(target_os = "macos")]
-static MACOS_SDK_LIB_PATH: std::sync::LazyLock<Option<PathBuf>> =
-    std::sync::LazyLock::new(resolve_macos_sdk_lib_path);
-
-#[cfg(target_os = "macos")]
-fn add_tcc_macos_sdk_library_path(buf: &mut Vec<String>) {
-    if let Some(sdk_lib_path) = MACOS_SDK_LIB_PATH.as_ref() {
-        buf.push(format!("-L{}", sdk_lib_path.display()));
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn add_tcc_macos_sdk_library_path(_buf: &mut Vec<String>) {}
-
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
     if cc.is_msvc() {
         buf.push(format!("/I{ipath}"));
@@ -1308,21 +1276,6 @@ fn add_cc_gcc_like_specific_flags(cc: &CC, buf: &mut Vec<String>) {
         {
             buf.push("-Wno-unused-value".to_string());
         }
-    }
-}
-
-fn add_cc_tcc_specific_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if !cc.is_tcc() {
-        return;
-    }
-
-    if config.no_sys_header {
-        buf.push("-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string());
-    } else {
-        eprintln!(
-            "{}: Use tcc without set MOONBIT_NATIVE_NO_SYS_HEADER.",
-            "Warning".yellow().bold(),
-        );
     }
 }
 
