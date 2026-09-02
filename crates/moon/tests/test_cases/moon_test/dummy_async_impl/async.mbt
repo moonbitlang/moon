@@ -111,4 +111,4 @@ pub fn run_async_main(f : async () -> Unit) -> Unit {
 fn run_async(f : async () -> Unit noraise) -> Unit = "%async.run"
 
 ///|
-async fn[T] suspend(f : ((T) -> Unit) -> Unit) -> T noraise = "%async.suspend"
+async fn[T] suspend(f : ((T) -> Unit) -> Unit) -> T noraise + nocancel = "%async.suspend"

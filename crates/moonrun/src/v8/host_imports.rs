@@ -22,18 +22,32 @@ use super::builder::{ArgsExt, ObjectExt, ScopeExt};
 use super::context;
 use crate::runtime::Stdio;
 use crate::{async_api, filesystem, run_termination, sqlite, util};
+use anyhow::Context;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::any::Any;
+use std::cell::Cell;
 use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::{cell::Cell, time::Instant};
+use std::time::Instant;
+
+const JS_GLUE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/template/js_glue.js"
+));
 
 struct PrintEnv {
     dangling_high_half: Cell<Option<u32>>,
     stdio: Arc<Stdio>,
+}
+
+pub(super) struct InstalledImports<'s> {
+    pub(super) module_imports: v8::Local<'s, v8::Object>,
+    pub(super) termination_request: run_termination::TerminationRequest,
+    pub(super) memory_binding: Rc<context::V8MemoryBinding>,
+    _retained_callback_state: Vec<Box<dyn Any>>,
 }
 
 fn run_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s context::V8RunContext {
@@ -112,30 +126,24 @@ fn print_char(
     let arg = args.get(0);
     let c = arg.integer_value(scope).unwrap() as u32;
     if (0xd800..=0xdbff).contains(&c) {
-        // high surrogate
         let high = c - 0xd800;
         if print_env.dangling_high_half.get().is_some() {
-            // Print previous char as invalid unicode
             print_env
                 .stdio
-                .with_stdout(|stdout| write!(stdout, "{}", std::char::from_u32(0xfffd).unwrap()))
+                .with_stdout(|stdout| write!(stdout, "\u{fffd}"))
                 .unwrap();
         }
         print_env.dangling_high_half.set(Some(high));
     } else {
-        let c = {
-            if (0xdc00..=0xdfff).contains(&c) {
-                // low surrogate
-                if let Some(high) = print_env.dangling_high_half.take() {
-                    0x10000 + (high << 10) + (c - 0xdc00)
-                } else {
-                    0xfffd
-                }
-            } else {
-                c
-            }
+        let c = if (0xdc00..=0xdfff).contains(&c) {
+            print_env
+                .dangling_high_half
+                .take()
+                .map_or(0xfffd, |high| 0x10000 + (high << 10) + (c - 0xdc00))
+        } else {
+            c
         };
-        let c = std::char::from_u32(c).unwrap();
+        let c = char::from_u32(c).unwrap();
         print_env
             .stdio
             .with_stdout(|stdout| write!(stdout, "{c}"))
@@ -157,23 +165,22 @@ fn console_log(
         .unwrap();
 }
 
-fn get_array_buffer_ptr(ab: v8::Local<v8::ArrayBuffer>) -> *mut u8 {
-    unsafe { std::mem::transmute(ab.data()) }
-}
-
-fn read_utf8_char(stdio: &Stdio) -> io::Result<Option<char>> {
-    let mut buffer = [0; 4];
-    stdio.with_stdin(|stdin| {
-        let size = stdin.read(&mut buffer[0..1])?;
-        if size == 0 {
+fn read_char(
+    _scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let result = run_context(&args).runtime().stdio().with_stdin(|stdin| {
+        let mut buffer = [0; 4];
+        if stdin.read(&mut buffer[..1])? == 0 {
             return Ok(None);
         }
 
         let num_bytes = match buffer[0] {
-            0..=0x7F => 1,
-            0xC0..=0xDF => 2,
-            0xE0..=0xEF => 3,
-            0xF0..=0xF7 => 4,
+            0..=0x7f => 1,
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf7 => 4,
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -181,27 +188,17 @@ fn read_utf8_char(stdio: &Stdio) -> io::Result<Option<char>> {
                 ));
             }
         };
-
         if num_bytes > 1 {
             stdin.read_exact(&mut buffer[1..num_bytes])?;
         }
 
-        let char = std::str::from_utf8(&buffer[..num_bytes])
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        std::str::from_utf8(&buffer[..num_bytes])
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
             .chars()
             .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no character found"))?;
-
-        Ok(Some(char))
-    })
-}
-
-fn read_char(
-    _scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = read_utf8_char(run_context(&args).runtime().stdio());
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no character found"))
+            .map(Some)
+    });
     match result {
         Ok(Some(c)) => {
             ret.set_int32(c as i32);
@@ -229,8 +226,11 @@ fn read_bytes_from_stdin(
     } else {
         let array_buffer = v8::ArrayBuffer::new(scope, size);
         let uint8_array = v8::Uint8Array::new(scope, array_buffer, 0, size).unwrap();
+        // SAFETY: V8 owns a writable allocation of `size` bytes for this
+        // ArrayBuffer, and `buffer` contains exactly `size` initialized bytes.
         unsafe {
-            std::ptr::copy(buffer.as_ptr(), get_array_buffer_ptr(array_buffer), size);
+            let array_buffer_ptr: *mut u8 = std::mem::transmute(array_buffer.data());
+            std::ptr::copy(buffer.as_ptr(), array_buffer_ptr, size);
         }
         ret.set(uint8_array.into());
     }
@@ -330,14 +330,18 @@ fn is_windows(
     ret.set_int32(result)
 }
 
-pub(crate) fn install(
-    dtors: &mut Vec<Box<dyn Any>>,
-    scope: &mut v8::HandleScope,
+/// Build the complete import object and retain the V8 adapter state required
+/// after instantiation. Callers do not need to know which imports are Rust
+/// callbacks and which require native JavaScript values.
+pub(super) fn install<'s>(
+    scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
     runtime: crate::runtime::Runtime,
-) -> run_termination::TerminationRequest {
-    let global_proxy = scope.get_current_context().global(scope);
+    memory_sanitizer: &crate::memory_sanitizer::MemorySanitizer,
+) -> anyhow::Result<InstalledImports<'s>> {
+    let module_imports = v8::Object::new(scope);
+    let mut retained_callback_state = Vec::<Box<dyn Any>>::new();
     let termination_request = run_termination::TerminationRequest::default();
     let environment = Arc::clone(runtime.environment());
     let filesystem = Arc::clone(runtime.filesystem());
@@ -346,43 +350,30 @@ pub(crate) fn install(
         termination_request.clone(),
     ));
     let v8_context_ptr = &*v8_context as *const context::V8RunContext;
-    let v8_import_runtime = global_proxy.child(scope, "__moonrun_v8_import");
-    // SAFETY: `dtors` retains `v8_context` throughout guest execution. The
-    // single-shot runner does not re-enter V8 after dropping `dtors`.
-    unsafe {
-        context::register_memory_binder(
-            v8_import_runtime,
-            scope,
-            Rc::as_ptr(v8_context.memory_binding()),
-        )
-    };
+    let memory_binding = Rc::clone(v8_context.memory_binding());
 
     let print_env_box = Box::new(PrintEnv {
         dangling_high_half: Cell::new(None),
         stdio: Arc::clone(v8_context.runtime().stdio()),
     });
-    let identifier = scope.string("print");
     let print_env = &*print_env_box as *const PrintEnv;
     let print_env = v8::External::new(scope, print_env as *mut std::ffi::c_void);
     let value = v8::Function::builder(print_char)
         .data(print_env.into())
         .build(scope)
         .unwrap();
-    global_proxy.set(scope, identifier.into(), value.into());
-    dtors.push(print_env_box);
+    let spectest = module_imports.child(scope, "spectest");
+    spectest.set_value(scope, "print_char", value.into());
+    context::register_func(spectest, scope, "read_char", read_char, v8_context_ptr);
+    let moonbit = module_imports.child(scope, "moonbit");
+    moonbit.set_value(scope, "string_to_js_string", value.into());
+    retained_callback_state.push(print_env_box);
+
+    let console = module_imports.child(scope, "console");
+    context::register_func(console, scope, "log", console_log, v8_context_ptr);
 
     {
-        context::register_func(
-            global_proxy,
-            scope,
-            "console_log",
-            console_log,
-            v8_context_ptr,
-        );
-    }
-
-    {
-        let time = global_proxy.child(scope, "__moonbit_time_unstable");
+        let time = module_imports.child(scope, "__moonbit_time_unstable");
         time.set_func(scope, "instant_now", instant_now);
         time.set_func(
             scope,
@@ -393,29 +384,38 @@ pub(crate) fn install(
     }
 
     {
-        let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
-        // SAFETY: the same lifetime invariant as the memory binding above.
+        let async_runtime = module_imports.child(scope, async_api::MOONBIT_ASYNC_MODULE);
+        // SAFETY: the installed imports retain `v8_context` throughout guest
+        // execution.
         unsafe { async_api::init_env(async_runtime, scope, v8_context_ptr) };
     }
 
     {
-        let sqlite = global_proxy.child(scope, sqlite::v8::MOONBIT_SQLITE_MODULE);
-        // SAFETY: the same lifetime invariant as the memory binding above.
+        let sqlite = module_imports.child(scope, sqlite::v8::MOONBIT_SQLITE_MODULE);
+        // SAFETY: the same lifetime invariant as the async adapter above.
         unsafe { sqlite::v8::init_env(sqlite, scope, v8_context_ptr) };
     }
 
     {
-        let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
-        super::wasi::init_env(wasi, scope, wasm_file_name, args, &v8_context, dtors);
+        let wasi = module_imports.child(scope, "wasi_snapshot_preview1");
+        super::wasi::init_env(
+            wasi,
+            scope,
+            wasm_file_name,
+            args,
+            &v8_context,
+            &mut retained_callback_state,
+        );
     }
 
     // All V8 callbacks are unreachable after the single-shot run returns, so
-    // retaining this one box in `dtors` covers every pointer registered above.
-    dtors.push(v8_context);
+    // retaining this one box in the installed imports covers every pointer
+    // registered above.
+    retained_callback_state.push(v8_context);
 
     // API for the fs module
     {
-        let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
+        let obj = module_imports.child(scope, "__moonbit_fs_unstable");
         filesystem::v8::init_env(
             obj,
             scope,
@@ -423,11 +423,11 @@ pub(crate) fn install(
             args,
             environment,
             filesystem,
-            dtors,
+            &mut retained_callback_state,
         );
     }
     {
-        let io = global_proxy.child(scope, "__moonbit_io_unstable");
+        let io = module_imports.child(scope, "__moonbit_io_unstable");
         context::register_func(
             io,
             scope,
@@ -441,13 +441,13 @@ pub(crate) fn install(
     }
 
     {
-        let rand = global_proxy.child(scope, "__moonbit_rand_unstable");
+        let rand = module_imports.child(scope, "__moonbit_rand_unstable");
         rand.set_func(scope, "stdrng_seed_from_u64", stdrng_seed_from_u64);
         rand.set_func(scope, "stdrng_gen_range", stdrng_gen_range);
     }
 
     {
-        let sys = global_proxy.child(scope, "__moonbit_sys_unstable");
+        let sys = module_imports.child(scope, "__moonbit_sys_unstable");
         let exit_request = Box::new(termination_request.clone());
         let exit_request_ptr = &*exit_request as *const run_termination::TerminationRequest;
         let exit_request_data = v8::External::new(scope, exit_request_ptr as *mut std::ffi::c_void);
@@ -457,7 +457,68 @@ pub(crate) fn install(
             .unwrap();
         sys.set_value(scope, "exit", exit_function.into());
         sys.set_func(scope, "is_windows", is_windows);
-        dtors.push(exit_request);
+        retained_callback_state.push(exit_request);
     }
-    termination_request
+
+    let memory_sanitizer_imports =
+        module_imports.child(scope, crate::memory_sanitizer::MEMORY_SANITIZER_MODULE);
+    super::memory_sanitizer::init_env(
+        memory_sanitizer_imports,
+        scope,
+        memory_sanitizer,
+        &mut retained_callback_state,
+    );
+
+    // These imports must be JavaScript values rather than Rust callbacks:
+    // strings and arrays cross the Wasm boundary as native JS values, while
+    // exception and ffi-bytes depend directly on WebAssembly's JS interface.
+    let code = scope.string(JS_GLUE);
+    let origin_name = format!("{}wasm_mode_entry", super::BUILTIN_SCRIPT_ORIGIN_PREFIX);
+    let origin_name = scope.string(&origin_name);
+    let script_origin = v8::ScriptOrigin::new(
+        scope,
+        origin_name.into(),
+        0,
+        0,
+        false,
+        0,
+        None,
+        false,
+        false,
+        false,
+        None,
+    );
+    let mut source = v8::script_compiler::Source::new(code, Some(&script_origin));
+    let module_imports_parameter = scope.string("module_imports");
+    let entry = v8::script_compiler::compile_function(
+        scope,
+        &mut source,
+        &[module_imports_parameter],
+        &[],
+        v8::script_compiler::CompileOptions::NoCompileOptions,
+        v8::script_compiler::NoCacheReason::BecauseCachingDisabled,
+    )
+    .context("failed to compile Moonrun's V8 imports")?;
+    {
+        let scope = &mut v8::TryCatch::new(scope);
+        let receiver = v8::undefined(scope).into();
+        if entry
+            .call(scope, receiver, &[module_imports.into()])
+            .is_none()
+        {
+            let error = scope
+                .stack_trace()
+                .or_else(|| scope.exception())
+                .context("Moonrun's V8 import setup failed without an exception")?
+                .to_rust_string_lossy(scope);
+            anyhow::bail!("failed to initialize Moonrun's V8 imports: {error}");
+        }
+    }
+
+    Ok(InstalledImports {
+        module_imports,
+        termination_request,
+        memory_binding,
+        _retained_callback_state: retained_callback_state,
+    })
 }
