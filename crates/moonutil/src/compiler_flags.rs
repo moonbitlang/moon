@@ -27,9 +27,16 @@ use std::{
     process::Command,
 };
 
+mod gcc_like;
 mod msvc;
 mod tcc;
 
+#[cfg(all(test, target_os = "macos"))]
+use gcc_like::resolve_apple_libtool_path;
+use gcc_like::{
+    add_cc_common_libraries, add_cc_specific_flags as add_cc_gcc_like_specific_flags,
+    add_linker_common_libraries,
+};
 #[cfg(all(test, windows))]
 use msvc::windows_msvc_host_target_triple;
 pub use msvc::{
@@ -448,117 +455,6 @@ impl CC {
             cc_dir.join(tool).display().to_string()
         } else {
             tool.to_string()
-        }
-    }
-
-    fn probe_prog_name(cc_path: &Path, name: &str) -> Option<String> {
-        let output = Command::new(cc_path)
-            .arg(format!("-print-prog-name={name}"))
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let prog = String::from_utf8_lossy(&output.stdout);
-        let prog = prog.lines().next()?.trim();
-        (!prog.is_empty()).then(|| prog.to_string())
-    }
-
-    fn resolve_reported_prog_path(prog: &str) -> Option<String> {
-        let prog_path = Path::new(prog);
-        let has_non_empty_parent = prog_path
-            .parent()
-            .is_some_and(|parent| !parent.as_os_str().is_empty());
-
-        if prog_path.is_absolute() || has_non_empty_parent {
-            if prog_path.is_file() {
-                return Some(prog.to_string());
-            }
-
-            #[cfg(windows)]
-            if prog_path.extension().is_none() {
-                let exe_path = prog_path.with_extension("exe");
-                if exe_path.is_file() {
-                    return Some(exe_path.display().to_string());
-                }
-            }
-
-            return None;
-        }
-
-        which::which(prog)
-            .ok()
-            .map(|path| path.display().to_string())
-    }
-
-    fn probe_existing_prog_name(cc_path: &Path, name: &str) -> Option<String> {
-        let prog = CC::probe_prog_name(cc_path, name)?;
-        CC::resolve_reported_prog_path(&prog)
-    }
-
-    fn with_default_platform_archiver(mut self) -> Self {
-        #[cfg(target_os = "macos")]
-        if self.targets_apple_darwin()
-            && !self.is_tcc()
-            && let Some(libtool) = resolve_apple_libtool_path()
-        {
-            self.ar_kind = ARKind::AppleLibtool;
-            self.ar_path = libtool.display().to_string();
-            return self;
-        }
-
-        if matches!(self.cc_kind, CCKind::Clang)
-            && self.targets_msvc()
-            && let Some(llvm_lib) =
-                CC::probe_existing_prog_name(Path::new(&self.cc_path), "llvm-lib")
-        {
-            self.ar_kind = ARKind::MsvcLib;
-            self.ar_path = llvm_lib;
-        }
-
-        self
-    }
-
-    fn is_llvm_ar_name(ar_name_or_path: &str) -> bool {
-        let file_name = Path::new(ar_name_or_path)
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or(ar_name_or_path)
-            .to_ascii_lowercase();
-        CC::strip_exe_suffix(&file_name) == "llvm-ar"
-    }
-
-    fn is_msvc_librarian_name(ar_name_or_path: &str) -> bool {
-        let file_name = Path::new(ar_name_or_path)
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or(ar_name_or_path)
-            .to_ascii_lowercase();
-        matches!(CC::strip_exe_suffix(&file_name), "lib" | "llvm-lib")
-    }
-
-    fn is_apple_libtool_name(ar_name_or_path: &str) -> bool {
-        let file_name = Path::new(ar_name_or_path)
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or(ar_name_or_path)
-            .to_ascii_lowercase();
-        CC::strip_exe_suffix(&file_name) == "libtool"
-    }
-
-    fn classify_gcc_like_archiver(ar_name_or_path: &str, target_triple: Option<&str>) -> ARKind {
-        if target_triple.is_some_and(|target| target.contains("msvc"))
-            && CC::is_msvc_librarian_name(ar_name_or_path)
-        {
-            ARKind::MsvcLib
-        } else if target_triple.is_some_and(|target| target.contains("apple-darwin"))
-            && CC::is_apple_libtool_name(ar_name_or_path)
-        {
-            ARKind::AppleLibtool
-        } else if CC::is_llvm_ar_name(ar_name_or_path) {
-            ARKind::LlvmAr
-        } else {
-            ARKind::GnuAr
         }
     }
 
@@ -1092,22 +988,6 @@ fn add_linker_moonbitrun(
     }
 }
 
-fn add_linker_common_libraries<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
-) {
-    if cc.is_gcc_like() {
-        if cc.should_link_libm() {
-            buf.push("-lm".to_string());
-        }
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push("-lruntime".to_string());
-            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
-        }
-    }
-}
-
 pub fn make_linker_command<S, P>(
     cc: CC,
     user_cc: Option<CC>,
@@ -1194,21 +1074,6 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
     }
 }
 
-#[cfg(target_os = "macos")]
-fn resolve_apple_libtool_path() -> Option<PathBuf> {
-    let output = Command::new("xcrun")
-        .args(["--find", "libtool"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let libtool = String::from_utf8_lossy(&output.stdout);
-    let libtool = PathBuf::from(libtool.lines().next()?.trim());
-    libtool.is_file().then_some(libtool)
-}
-
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
     if cc.is_msvc() {
         buf.push(format!("/I{ipath}"));
@@ -1261,20 +1126,6 @@ fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) 
             buf.push("/c".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-c".to_string());
-        }
-    }
-}
-
-fn add_cc_gcc_like_specific_flags(cc: &CC, buf: &mut Vec<String>) {
-    // the below flags are needed, ref: https://github.com/moonbitlang/core/issues/1594#issuecomment-2649652455
-    if cc.is_full_featured_gcc_like() {
-        buf.push("-fwrapv".to_string());
-        buf.push("-fno-strict-aliasing".to_string());
-        // Apple clang is usually detected as SystemCC on macOS.
-        if matches!(cc.cc_kind, CCKind::Clang)
-            || (cfg!(target_os = "macos") && matches!(cc.cc_kind, CCKind::SystemCC))
-        {
-            buf.push("-Wno-unused-value".to_string());
         }
     }
 }
@@ -1379,12 +1230,6 @@ fn add_cc_moonbitrun(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, paths: &
         &paths.lib_path,
     ) {
         buf.push(object);
-    }
-}
-
-fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.should_link_libm() && config.output_ty != OutputType::Object {
-        buf.push("-lm".to_string());
     }
 }
 
