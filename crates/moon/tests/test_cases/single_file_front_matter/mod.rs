@@ -160,6 +160,73 @@ fn test_single_file_mbtx_explicit_policy_overrides_embedded_policy() {
 }
 
 #[test]
+fn test_single_file_mbtx_explicit_policy_skips_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    fs::write(
+        dir.join("explicit-policy.json"),
+        r#"{"env":{"set":{"MBTX_POLICY":"explicit"}}}"#,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .args([
+            "run",
+            "malformed_embedded_policy.mbtx",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+            "explicit-policy.json",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("explicit\n");
+}
+
+#[test]
+fn test_single_file_mbtx_non_wasm_paths_skip_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+
+    for target in ["js", "native"] {
+        moon_cmd(&dir)
+            .args([
+                "run",
+                "malformed_embedded_policy.mbtx",
+                "--target",
+                target,
+                "--dry-run",
+            ])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn test_single_file_mbtx_build_only_skips_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+
+    moon_cmd(&dir)
+        .args([
+            "run",
+            "malformed_embedded_policy.mbtx",
+            "--target",
+            "wasm",
+            "--build-only",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_single_file_mbtx_rejects_effective_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+
+    moon_cmd(&dir)
+        .args(["run", "malformed_embedded_policy.mbtx", "--target", "wasm"])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn test_single_file_mbtx_check() {
     let dir = TestDir::new("moon_test_single_file.in");
     let _ = get_stdout(&dir, ["check", "import_ok.mbtx"]);

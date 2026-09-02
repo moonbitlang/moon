@@ -104,7 +104,9 @@ filesystem roots are resolved from the script's directory. For `moon run -`
 and `moon run -e`, Moon writes the source to a temporary `.mbtx` but retains the
 invocation directory as the logical policy source directory. An explicit
 `--experimental-policy` takes precedence over embedded policy. An inherited
-policy remains host-owned and takes precedence over both.
+policy remains host-owned and takes precedence over both. An embedded block is
+parsed only when it is the effective policy for Wasm execution; overridden,
+non-Wasm, and build-only paths do not validate its YAML.
 
 Moonx consumes an inherited policy handle before resolving `.mbtx`
 dependencies and relays it only to the final `moonrun` process. Registry and

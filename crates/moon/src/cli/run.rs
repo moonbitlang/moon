@@ -737,8 +737,7 @@ fn build_single_file_executable(
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let embedded_mbtx_policy = if input_path.extension().is_some_and(|ext| ext == "mbtx")
-        && moonutil::front_matter::parse_mbtx_policy::<serde::de::IgnoredAny>(&input_path)?
-            .is_some()
+        && moonutil::front_matter::has_mbtx_policy(&input_path)?
     {
         Some(EmbeddedMbtxPolicy {
             source: input_path.clone(),

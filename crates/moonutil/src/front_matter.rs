@@ -86,6 +86,17 @@ pub fn parse_mbtx_policy<T: DeserializeOwned>(
     Ok(Some(front_matter.policy))
 }
 
+/// Detect an embedded `.mbtx` policy without validating its YAML contents.
+///
+/// Policy selection happens in the invoking command. Keeping detection
+/// separate from parsing lets an explicit or inherited policy override a
+/// malformed embedded block and avoids parsing policies on non-Wasm paths.
+pub fn has_mbtx_policy(single_file_path: &Path) -> anyhow::Result<bool> {
+    let content = std::fs::read_to_string(single_file_path)
+        .with_context(|| format!("failed to read .mbtx file `{}`", single_file_path.display()))?;
+    Ok(extract_mbtx_front_matter(&content).is_some())
+}
+
 fn extract_mbtx_front_matter(content: &str) -> Option<String> {
     let content = content.strip_prefix('\u{feff}').unwrap_or(content);
     let mut lines = content.lines().skip_while(|line| line.trim().is_empty());
@@ -184,6 +195,16 @@ fn main {}
             extract_mbtx_front_matter("// An ordinary comment.\nfn main {}\n"),
             None
         );
+    }
+
+    #[test]
+    fn detects_malformed_policy_without_parsing_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("malformed.mbtx");
+        std::fs::write(&source, "// policy:\n//   env: [\n\nfn main {}\n").unwrap();
+
+        assert!(super::has_mbtx_policy(&source).unwrap());
+        assert!(super::parse_mbtx_policy::<serde::de::IgnoredAny>(&source).is_err());
     }
 
     #[test]
