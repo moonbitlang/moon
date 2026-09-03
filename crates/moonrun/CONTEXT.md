@@ -235,6 +235,34 @@ _Avoid_: Run Termination, Host Error, implicit exit request
 A per-Wasm-run outcome requested by guest code, either an exit code or termination by signal. A runtime adapter records Run Termination and interrupts guest execution without terminating its embedding process; only the outer CLI adapter applies the outcome after guest and host state have been torn down.
 _Avoid_: Host exit, import-side exit, process-global termination state
 
+**Run Signals**:
+The destination for signals injected into one Run. It owns that guest's
+cancellation-signal selection and a channel shared with that Run's virtual
+signal-wait Job. A Signal Sender selects one Run by owning the sending half; it
+never raises an operating-system signal. On Unix the channel is a nonblocking
+self-pipe with a pending-signal mask: the pipe wakes the Job, the mask coalesces
+standard signals, and the Job publishes them to the Run's Completion target.
+The virtual Job supplies the thread pool's native-shaped optional cancellation
+hook, which records cancellation and wakes the same pipe without a timing race.
+Ordinary Unix Jobs retain the default `SIGUSR2` interruption path. Signals sent
+before the guest registration and virtual waiter are ready are not retained.
+Forced interruption and broader Run lifecycle belong to a later control layer
+rather than this delivery seam.
+_Avoid_: process signal handler, global completion target, Run lifecycle
+
+**Process Signals**:
+The CLI-only adapter that owns process-global operating-system signal capture.
+It is installed once before Engine initialization and lives until process
+exit. On Unix, the CLI blocks its managed signals before creating other
+threads, a dedicated `sigwait` thread consumes them, and child processes use
+the signal mask preserved before broker installation. On Windows, one
+console-control handler performs the same forwarding role. The adapter
+directly forwards each captured signal to the CLI Run's Signal Sender. If that
+Run does not accept the signal, the adapter
+applies the process's existing platform behavior. The library Engine never
+installs this adapter.
+_Avoid_: Runtime signal handler, Engine signal handler, global Run target
+
 **Loaded Module**:
 A shareable, immutable guest program prepared once by one Engine. Multiple Runs
 can execute one Loaded Module without preparing its source again. It carries
@@ -265,9 +293,9 @@ _Avoid_: Host state, native-stub implementation
 
 **Async Host**:
 Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace, materializes its reserved standard-stream Resources from the Runtime Stdio, and contains no SQLite state.
-It also owns guest cancellation-signal registration and the completion target
-used for signal delivery. It constructs Unix signal-wait Jobs backed by the
-raw signal operation in Async Sys.
+It owns one Run Signal receiver, translates guest cancellation registration
+into that receiver's interest, and constructs the Unix virtual signal-wait Job
+against the Run's Completion target.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
@@ -296,16 +324,15 @@ _Avoid_: SQLite API, Async Host, V8 SQLite
 The V8-free native-stub port layer. Ports carry provenance for the native source
 path and symbol they track. Reusable operating-system operations remain here;
 Job implementations live with their owning domain. Poller files are direct
-ports behind the wasm `poll/*` imports. Process-global signal masks, the Unix
-signal-wait primitive, and Windows console handler mechanisms are raw ports;
-guest cancellation registration and delivery coordination belong to Async Host.
+ports behind the wasm `poll/*` imports. Signal support here is limited to
+platform signal values and Unix signal-mask operations; process capture
+belongs to the CLI and guest delivery belongs to Run Signals.
 _Avoid_: V8 adapter, placeholder unsupported imports
 
 **Thread Pool**:
 The shared host facility that schedules Jobs outside the guest coroutine loop.
 It owns the common Job result envelope, Workers, and Completion delivery. It
-does not interpret Filesystem, Network, or Process Job semantics, and does not
-implement the Unix signal-wait primitive.
+does not interpret Filesystem, Network, Process, or Run Signal semantics.
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:

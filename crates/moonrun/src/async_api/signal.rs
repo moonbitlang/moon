@@ -40,6 +40,8 @@ pub(super) fn set_global_cancellation_signals(
     signals: u32,
     signals_len: u32,
 ) -> crate::async_host::AsyncHostResult<()> {
+    // "global" is the upstream guest ABI name. Moonrun scopes the resulting
+    // registration to this Import Context's Run.
     let all_signals = context.with_memory_mut(|memory| read_i32_array(memory, all_signals, all_signals_len))?;
     let signals = context.with_memory_mut(|memory| read_i32_array(memory, signals, signals_len))?;
     context

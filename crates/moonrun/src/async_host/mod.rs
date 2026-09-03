@@ -57,6 +57,7 @@ use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
+use crate::run_signal::SignalReceiver;
 pub(crate) use crate::runtime::HostKey as HandleKey;
 use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream};
 
@@ -1173,18 +1174,22 @@ pub(crate) struct AsyncHost {
     process_envs: RefCell<SecondaryMap<HandleKey, HostProcessEnv>>,
     process_env_builders: RefCell<SecondaryMap<HandleKey, HostProcessEnvBuilder>>,
     process: HostProcess,
+    #[cfg(unix)]
+    child_signal_mask: libc::sigset_t,
     #[cfg(windows)]
     io_results: RefCell<IoResultTable>,
     jobs: RefCell<JobTable>,
     workers: InstanceWorkers,
     polls: RefCell<PollTable>,
     thread_pool_completions: RefCell<ThreadPoolCompletions>,
+    signals: SignalReceiver,
     handles: RefCell<HandleTable>,
     tls_connections: RefCell<SecondaryMap<HandleKey, tls::TlsHandle>>,
     tls_error: RefCell<Option<String>>,
 }
 
 impl AsyncHost {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         environment: Arc<Env>,
         stdio: &Stdio,
@@ -1192,6 +1197,8 @@ impl AsyncHost {
         network: HostNetwork,
         process: HostProcess,
         keys: Rc<RefCell<HostKeys>>,
+        signals: SignalReceiver,
+        #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> Self {
         Self {
             filesystem,
@@ -1207,12 +1214,15 @@ impl AsyncHost {
             process_envs: RefCell::new(SecondaryMap::new()),
             process_env_builders: RefCell::new(SecondaryMap::new()),
             process,
+            #[cfg(unix)]
+            child_signal_mask,
             #[cfg(windows)]
             io_results: RefCell::new(IoResultTable::default()),
             jobs: RefCell::new(JobTable::default()),
             workers: InstanceWorkers::new(),
             polls: RefCell::new(PollTable::default()),
             thread_pool_completions: RefCell::new(ThreadPoolCompletions::default()),
+            signals,
             handles: RefCell::new(HandleTable::with_keys(keys, stdio)),
             tls_connections: RefCell::new(SecondaryMap::new()),
             tls_error: RefCell::new(None),
@@ -1699,23 +1709,23 @@ impl AsyncHost {
         })
     }
 
-    /// Apply the guest's cancellation-signal selection.
-    ///
-    /// The current raw implementation is process-global. Keeping that detail
-    /// behind the Async Host lets the guest adapter remain unchanged when
-    /// signal interest and delivery become per-Run state.
     pub(crate) fn set_cancellation_signals(
         &self,
         all_signals: &[i32],
         signals: &[i32],
     ) -> AsyncHostResult<()> {
-        crate::async_sys::signal::set_global_cancellation_signals(all_signals, signals)
+        crate::async_sys::signal::set_global_cancellation_signals(
+            &self.signals,
+            all_signals,
+            signals,
+        )
     }
 
     #[cfg(unix)]
     pub(crate) fn make_sigwait_job(&self, signals: Vec<i32>) -> AsyncHostResult<HostHandle> {
         let notifier = self.thread_pool_notifier()?;
-        self.insert_job(crate::async_sys::signal::SigwaitJob::new(signals, notifier))
+        let job = crate::async_sys::signal::make_sigwait_job(&self.signals, &signals, notifier)?;
+        self.insert_job(job)
     }
 
     #[cfg(windows)]
@@ -1725,7 +1735,11 @@ impl AsyncHost {
         } else {
             None
         };
-        crate::async_sys::signal::set_console_control_handler(enabled, completion_target)
+        crate::async_sys::signal::set_console_control_handler(
+            &self.signals,
+            enabled,
+            completion_target,
+        )
     }
 
     pub(crate) fn init_thread_pool(&self, poll_handle: u64) -> AsyncHostResult<HostHandle> {
@@ -3783,7 +3797,9 @@ impl AsyncHost {
     pub(crate) fn thread_pool_child_signal_mask(&self) -> AsyncHostResult<libc::sigset_t> {
         self.thread_pool_completions
             .borrow()
-            .old_signal_mask
+            .source
+            .is_some()
+            .then_some(self.child_signal_mask)
             .ok_or(AsyncHostError::Badf)
     }
 
@@ -4404,6 +4420,12 @@ mod tests {
             working_directory,
             Arc::clone(&stdio),
         );
+        #[cfg(unix)]
+        let child_signal_mask = {
+            let mut mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+            assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
+            mask
+        };
         AsyncHost::new(
             environment,
             &stdio,
@@ -4411,6 +4433,9 @@ mod tests {
             network,
             process,
             Rc::new(RefCell::new(HostKeys::default())),
+            crate::signal_channel().1,
+            #[cfg(unix)]
+            child_signal_mask,
         )
     }
 
@@ -5106,6 +5131,37 @@ mod tests {
 
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn thread_pool_exposes_its_concrete_child_signal_mask_only_while_active() {
+        let mut child_signal_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+        assert_eq!(unsafe { libc::sigemptyset(&mut child_signal_mask) }, 0);
+        assert_eq!(
+            unsafe { libc::sigaddset(&mut child_signal_mask, libc::SIGINT) },
+            0
+        );
+
+        let mut host = default_host();
+        host.child_signal_mask = child_signal_mask;
+        assert!(matches!(
+            host.thread_pool_child_signal_mask(),
+            Err(AsyncHostError::Badf)
+        ));
+
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+
+        let child = host.thread_pool_child_signal_mask().unwrap();
+        assert_eq!(unsafe { libc::sigismember(&child, libc::SIGINT) }, 1);
+        assert_eq!(unsafe { libc::sigismember(&child, libc::SIGTERM) }, 0);
+
+        host.destroy_thread_pool();
+        assert!(matches!(
+            host.thread_pool_child_signal_mask(),
+            Err(AsyncHostError::Badf)
+        ));
     }
 
     #[cfg(unix)]

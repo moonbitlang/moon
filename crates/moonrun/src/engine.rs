@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::run_signal::{SignalReceiver, signal_channel};
 use crate::run_termination::RunTermination;
 use crate::runtime::{Runtime, Stdio, WorkingDirectory};
 use crate::{source_map, v8 as backend};
@@ -51,6 +52,8 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
+    #[cfg(unix)]
+    pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
 
 #[derive(serde::Deserialize)]
@@ -122,6 +125,28 @@ impl RunOptions {
         self.working_directory = working_directory;
         self
     }
+
+    /// Preserve the calling thread's current signal mask for child processes.
+    ///
+    /// This is CLI plumbing: it snapshots the mask before the process signal
+    /// broker blocks its managed signals in every subsequently created thread.
+    #[cfg(unix)]
+    #[doc(hidden)]
+    pub fn preserve_current_signal_mask_for_children(mut self) -> anyhow::Result<Self> {
+        self.preserved_child_signal_mask = Some(current_signal_mask()?);
+        Ok(self)
+    }
+}
+
+#[cfg(unix)]
+fn current_signal_mask() -> anyhow::Result<libc::sigset_t> {
+    let mut signal_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+    let error =
+        unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, std::ptr::null(), &mut signal_mask) };
+    if error != 0 {
+        return Err(std::io::Error::from_raw_os_error(error).into());
+    }
+    Ok(signal_mask)
 }
 
 /// The observable result of one MoonBit Wasm run.
@@ -256,12 +281,13 @@ impl fmt::Debug for Module {
 /// on the calling thread. It does not create threads or retain run lifecycle
 /// state; callers choose execution placement and manage lifecycle.
 ///
-/// The current implementation still uses process stdio and signal
-/// compatibility behavior. Environment and working-directory behavior are
-/// selected per run, but unrestricted environment access and the only current
-/// working-directory mode remain process-scoped. In particular, unrestricted
-/// guest environment mutations write through to the process and must not race
-/// other process-environment access.
+/// The current implementation still uses process stdio. Environment and
+/// working-directory behavior are selected per run, but unrestricted
+/// environment access and the only current working-directory mode remain
+/// process-scoped. Operating-system signal capture is left to the caller; a
+/// signal channel can direct cooperative delivery to one Run. In particular,
+/// unrestricted guest environment mutations write through to the process and
+/// must not race other process-environment access.
 #[derive(Clone, Debug)]
 pub struct Engine {
     backend: Arc<backend::Engine>,
@@ -316,11 +342,33 @@ impl Engine {
 
     /// Execute one run synchronously on the calling thread.
     pub fn run(&self, module: &Module, options: RunOptions) -> anyhow::Result<RunOutcome> {
+        self.run_with_signal_receiver(module, options, signal_channel().1)
+    }
+
+    /// Execute one run with a caller-provided signal receiver.
+    ///
+    /// Delivery is cooperative: the guest must first register interest and
+    /// start its async signal waiter. Signals are not retained before that
+    /// point and cannot yet forcibly interrupt guest execution.
+    pub fn run_with_signal_receiver(
+        &self,
+        module: &Module,
+        options: RunOptions,
+        signals: SignalReceiver,
+    ) -> anyhow::Result<RunOutcome> {
+        #[cfg(unix)]
+        let child_signal_mask = match options.preserved_child_signal_mask {
+            Some(signal_mask) => signal_mask,
+            None => current_signal_mask()?,
+        };
         let runtime = Runtime::new(
             options.policy_file.as_deref(),
             options.policy_source_dir.as_deref(),
             options.inherited_policy.as_deref(),
             options.working_directory.clone(),
+            signals,
+            #[cfg(unix)]
+            child_signal_mask,
         )?;
         let outcome = self.backend.run(
             module.name(),

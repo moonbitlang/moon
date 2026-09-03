@@ -37,6 +37,7 @@ use crate::filesystem::HostFs;
 use crate::network::HostNetwork;
 use crate::policy::{self, Policy};
 use crate::process::HostProcess;
+use crate::run_signal::SignalReceiver;
 use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
@@ -124,6 +125,8 @@ impl Runtime {
         policy_source_dir: Option<&Path>,
         inherited_policy: Option<&[u8]>,
         working_directory: WorkingDirectory,
+        signals: SignalReceiver,
+        #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
         let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
             (Some(contents), _) => {
@@ -171,6 +174,9 @@ impl Runtime {
             network,
             process,
             Rc::clone(&keys),
+            signals,
+            #[cfg(unix)]
+            child_signal_mask,
         );
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {

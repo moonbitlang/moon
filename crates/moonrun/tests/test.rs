@@ -725,7 +725,7 @@ fn test_moonrun_async_main_preserves_signal_termination() {
         .expect("capture stderr")
         .read_to_string(&mut stderr)
         .expect("read stderr");
-    assert_eq!(remaining_stdout, "");
+    assert_eq!(remaining_stdout, "cleanup\n");
     assert_eq!(stderr, "");
     #[cfg(unix)]
     assert_eq!(status.signal(), Some(libc::SIGINT));
