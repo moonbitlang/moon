@@ -27,9 +27,7 @@ rust-version.workspace = true
 [dependencies]
 anstream.workspace = true
 anstyle.workspace = true
-arcstr.workspace = true
 moonutil.workspace = true
-mooncake.workspace = true
 n2.workspace = true
 clap.workspace = true
 serde.workspace = true
@@ -38,16 +36,10 @@ anyhow.workspace = true
 colored.workspace = true
 dunce.workspace = true
 indexmap.workspace = true
-petgraph.workspace = true
-walkdir.workspace = true
-tempfile.workspace = true
 ctrlc.workspace = true
 similar.workspace = true
 line-index.workspace = true
-which.workspace = true
-home.workspace = true
 tokio.workspace = true
-self-replace.workspace = true
 text-size.workspace = true
 log.workspace = true
 hyper.workspace = true
@@ -56,19 +48,17 @@ hyper-staticfile.workspace = true
 http.workspace = true
 dialoguer.workspace = true
 reqwest.workspace = true
-semver.workspace = true
-chrono.workspace = true
-zip.workspace = true
-thiserror.workspace = true
-rand.workspace = true
-json-structural-diff = { version = "0.1.0", features = ["colorize"] }
+json-structural-diff.workspace = true
 base64.workspace = true
-shlex.workspace = true
 serde_json.workspace = true
-regex.workspace = true
 ariadne.workspace = true
-handlebars = { version = "6.3.2", default-features = false }
+handlebars.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }
 
 [dev-dependencies]
 expect-test.workspace = true
+tempfile.workspace = true
+
+[target."cfg(windows)".dependencies]
+self-replace.workspace = true
+tempfile.workspace = true

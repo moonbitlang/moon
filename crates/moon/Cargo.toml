@@ -42,7 +42,6 @@ colored.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
 serde_json.workspace = true
-dialoguer.workspace = true
 dunce.workspace = true
 ctrlc.workspace = true
 home.workspace = true
@@ -50,7 +49,7 @@ which.workspace = true
 chrono.workspace = true
 log.workspace = true
 walkdir.workspace = true
-notify = "6.1.1"
+notify.workspace = true
 tokio = { workspace = true, features = ["rt", "signal"] }
 tokio-util.workspace = true
 clap_complete.workspace = true
@@ -63,8 +62,6 @@ shlex.workspace = true
 derive_builder.workspace = true
 sha2.workspace = true
 blake3.workspace = true
-similar.workspace = true
-reqwest.workspace = true
 
 ignore.workspace = true
 
@@ -76,6 +73,7 @@ tracing-chrome.workspace = true
 libc.workspace = true
 
 [target."cfg(windows)".dependencies.windows-sys]
+workspace = true
 features = [
     "Win32_Foundation",
     "Win32_Security",
@@ -83,23 +81,20 @@ features = [
     "Win32_System_JobObjects",
     "Win32_System_Threading",
 ]
-version = "0.59.0"
 
 [target."cfg(windows)".dependencies]
-junction = "1"
+junction.workspace = true
 
 [dev-dependencies]
-tempfile = "3.6.0"
 regex.workspace = true
 snapbox = { workspace = true, features = ["regex"] }
 expect-test.workspace = true
 escargot.workspace = true
-clap-markdown = "0.1.4"
+clap-markdown.workspace = true
 similar.workspace = true
-colored.workspace = true
 libc.workspace = true
 moonbuild-debug.workspace = true
-moon-test-util = { path = "../moon-test-util" }
+moon-test-util.workspace = true
 zip.workspace = true
 
 

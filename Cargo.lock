@@ -114,9 +114,6 @@ name = "arcstr"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03918c3dbd7701a85c6b9887732e2921175f26c350b4563841d0958c21d57e6d"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "argh"
@@ -851,7 +848,6 @@ dependencies = [
  "console 0.15.8",
  "shell-words",
  "thiserror 1.0.63",
- "zeroize",
 ]
 
 [[package]]
@@ -922,15 +918,6 @@ name = "encode_unicode"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
-
-[[package]]
-name = "encoding_rs"
-version = "0.8.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
-dependencies = [
- "cfg-if",
-]
 
 [[package]]
 name = "env_filter"
@@ -1963,7 +1950,6 @@ dependencies = [
  "colored",
  "ctrlc",
  "derive_builder",
- "dialoguer",
  "dunce",
  "escargot",
  "expect-test",
@@ -1984,7 +1970,6 @@ dependencies = [
  "petgraph",
  "rand 0.8.6",
  "regex",
- "reqwest",
  "semver",
  "serde",
  "serde_json",
@@ -2027,10 +2012,8 @@ dependencies = [
  "anstream",
  "anstyle",
  "anyhow",
- "arcstr",
  "ariadne",
  "base64",
- "chrono",
  "clap",
  "colored",
  "ctrlc",
@@ -2038,7 +2021,6 @@ dependencies = [
  "dunce",
  "expect-test",
  "handlebars",
- "home",
  "http",
  "hyper",
  "hyper-staticfile",
@@ -2047,28 +2029,18 @@ dependencies = [
  "json-structural-diff",
  "line-index",
  "log",
- "mooncake",
  "moonutil",
  "n2",
- "petgraph",
- "rand 0.8.6",
- "regex",
  "reqwest",
  "self-replace",
- "semver",
  "serde",
  "serde_json",
  "serde_json_lenient",
- "shlex",
  "similar",
  "tempfile",
  "text-size",
- "thiserror 1.0.63",
  "tokio",
  "toml",
- "walkdir",
- "which 6.0.2",
- "zip",
 ]
 
 [[package]]
@@ -2086,7 +2058,6 @@ dependencies = [
 name = "moonbuild-rupes-recta"
 version = "0.1.0"
 dependencies = [
- "aho-corasick",
  "anyhow",
  "arcstr",
  "dunce",
@@ -2116,8 +2087,6 @@ dependencies = [
  "arcstr",
  "bytes",
  "clap",
- "colored",
- "dialoguer",
  "dunce",
  "expect-test",
  "form_urlencoded",
@@ -2767,7 +2736,6 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64",
  "bytes",
- "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
@@ -2780,8 +2748,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime",
- "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -2794,14 +2760,12 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
- "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
  "web-sys",
  "webpki-roots",
 ]
@@ -3927,19 +3891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-streams"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e072d4e72f700fb3443d8fe94a39315df013eef1104903cdb0a2abd322bbecd"
-dependencies = [
- "futures-util",
- "js-sys",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "wasmparser"
 version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4623,7 +4574,6 @@ dependencies = [
  "clap",
  "dunce",
  "serde",
- "serde_json",
  "toml",
  "walkdir",
 ]
