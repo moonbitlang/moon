@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#![cfg(feature = "v8")]
+
 fn compile(name: &str, source: &str) -> (moonrun::Engine, moonrun::Module) {
     let engine = moonrun::Engine::default();
     let module = engine

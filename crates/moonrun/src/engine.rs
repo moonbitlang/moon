@@ -19,16 +19,21 @@
 use crate::run_signal::{SignalReceiver, signal_channel};
 use crate::run_termination::RunTermination;
 use crate::runtime::{Runtime, Stdio, WorkingDirectory};
-use crate::{source_map, v8 as backend};
+use crate::source_map;
+#[cfg(feature = "v8")]
+use crate::v8 as backend;
+#[cfg(all(not(feature = "v8"), feature = "wasmtime"))]
+use crate::wasmtime as backend;
 use anyhow::Context;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Process-wide configuration for the Engine Backend.
+/// Process-wide configuration for the selected Engine Backend.
 ///
 /// V8 flags are process-global and must be selected before the first run, so
 /// all V8-backed [`Engine`] values in one process need the same configuration.
+/// A Wasmtime-backed Engine owns its corresponding Wasmtime engine state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EngineConfig {
     pub(crate) stack_size: Option<usize>,

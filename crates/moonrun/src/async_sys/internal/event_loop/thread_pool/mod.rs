@@ -22,9 +22,11 @@ mod sleep;
 mod types;
 mod worker;
 
-pub(crate) use jobs::{
-    errno_is_cancelled, get_platform, job_get_err, job_get_ret, make_failed_job, make_sleep_job,
-};
+#[cfg(any(feature = "v8", test))]
+pub(crate) use jobs::make_sleep_job;
+#[cfg(feature = "v8")]
+pub(crate) use jobs::{errno_is_cancelled, get_platform};
+pub(crate) use jobs::{job_get_err, job_get_ret, make_failed_job};
 pub(crate) use runner::run_host_job;
 pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable};
 #[cfg(unix)]
