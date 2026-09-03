@@ -110,6 +110,15 @@ fn sqlite3_extended_errcode(database : UInt64) -> Int = "moonbitlang/sqlite" "sq
 fn sqlite3_changes64(database : UInt64) -> Int64 = "moonbitlang/sqlite" "sqlite3_changes64"
 
 ///|
+fn sqlite3_db_mutex(database : UInt64) -> UInt64 = "moonbitlang/sqlite" "sqlite3_db_mutex"
+
+///|
+fn sqlite3_mutex_enter(mutex : UInt64) -> Unit = "moonbitlang/sqlite" "sqlite3_mutex_enter"
+
+///|
+fn sqlite3_mutex_leave(mutex : UInt64) -> Unit = "moonbitlang/sqlite" "sqlite3_mutex_leave"
+
+///|
 fn sqlite3_close(database : UInt64) -> Int = "moonbitlang/sqlite" "sqlite3_close"
 
 ///|
@@ -272,6 +281,8 @@ fn execute(
 ///|
 fn main raise {
   let null_handle = sqlite3_null_handle()
+  sqlite3_mutex_enter(null_handle)
+  sqlite3_mutex_leave(null_handle)
   assert_true(
     sqlite3_close(null_handle) == SQLITE_OK,
     msg="sqlite3_close(NULL) failed",
@@ -385,6 +396,19 @@ fn main raise {
     database != null_handle,
     msg="memory database returned a null handle",
   )
+  let database_mutex = sqlite3_db_mutex(database)
+  assert_true(
+    database_mutex != null_handle,
+    msg="serialized database returned a null mutex",
+  )
+  assert_true(
+    sqlite3_db_mutex(database) == database_mutex,
+    msg="database mutex handle was not stable",
+  )
+  sqlite3_mutex_enter(database_mutex)
+  sqlite3_mutex_enter(database_mutex)
+  sqlite3_mutex_leave(database_mutex)
+  sqlite3_mutex_leave(database_mutex)
 
   execute(database, "PRAGMA encoding='UTF-16le'", null_handle)
 

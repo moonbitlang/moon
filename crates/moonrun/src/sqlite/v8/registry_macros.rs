@@ -61,42 +61,35 @@ macro_rules! decode_sqlite_args {
     }};
 }
 
+macro_rules! set_sqlite_import_return {
+    ($scope:ident, $ret:ident, i32, $value:expr) => {
+        $ret.set_int32($value)
+    };
+    ($scope:ident, $ret:ident, u32, $value:expr) => {
+        $ret.set_int32($value as i32)
+    };
+    ($scope:ident, $ret:ident, i64, $value:expr) => {
+        $ret.set(v8::BigInt::new_from_i64($scope, $value).into())
+    };
+    ($scope:ident, $ret:ident, f64, $value:expr) => {
+        $ret.set(v8::Number::new($scope, $value).into())
+    };
+    ($scope:ident, $ret:ident, u64, $value:expr) => {
+        $ret.set(v8::BigInt::new_from_u64($scope, $value).into())
+    };
+    ($scope:ident, $ret:ident, void, $value:expr) => {{
+        // Keep the generated callback uniform; wasm ignores the JavaScript
+        // return value for a void import.
+        let _ = ($value, &mut $ret);
+    }};
+}
+
 macro_rules! finish_sqlite_import {
-    ($scope:ident, $ret:ident, $name:expr, i32, $result:expr) => {
+    ($scope:ident, $ret:ident, $name:expr, $ret_ty:ident, $result:expr) => {
         match $result {
-            Ok(value) => $ret.set_int32(value),
-            Err(error) => {
-                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
-            }
-        }
-    };
-    ($scope:ident, $ret:ident, $name:expr, u32, $result:expr) => {
-        match $result {
-            Ok(value) => $ret.set_int32(value as i32),
-            Err(error) => {
-                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
-            }
-        }
-    };
-    ($scope:ident, $ret:ident, $name:expr, i64, $result:expr) => {
-        match $result {
-            Ok(value) => $ret.set(v8::BigInt::new_from_i64($scope, value).into()),
-            Err(error) => {
-                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
-            }
-        }
-    };
-    ($scope:ident, $ret:ident, $name:expr, f64, $result:expr) => {
-        match $result {
-            Ok(value) => $ret.set(v8::Number::new($scope, value).into()),
-            Err(error) => {
-                crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
-            }
-        }
-    };
-    ($scope:ident, $ret:ident, $name:expr, u64, $result:expr) => {
-        match $result {
-            Ok(value) => $ret.set(v8::BigInt::new_from_u64($scope, value).into()),
+            Ok(value) => $crate::sqlite::v8::registry_macros::set_sqlite_import_return!(
+                $scope, $ret, $ret_ty, value
+            ),
             Err(error) => {
                 crate::v8::context::throw_import_error($scope, MOONBIT_SQLITE_MODULE, $name, error)
             }
@@ -240,5 +233,5 @@ macro_rules! declare_sqlite_imports {
 
 pub(super) use {
     declare_sqlite_imports, decode_sqlite_args, decode_wasm_arg, finish_sqlite_import,
-    invoke_sqlite_import, register_sqlite_import, wasm_arg_count,
+    invoke_sqlite_import, register_sqlite_import, set_sqlite_import_return, wasm_arg_count,
 };

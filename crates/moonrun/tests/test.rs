@@ -860,6 +860,16 @@ Sandbox policy blocked file read: "denied/database.sqlite"
 Error: moonbitlang/sqlite.sqlite3_close failed: InvalidHandle
 [..]
 "#]]);
+
+    let entered_mutex_wasm = dir.join("_build/wasm/debug/build/entered_mutex/entered_mutex.wasm");
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&entered_mutex_wasm)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbitlang/sqlite.sqlite3_close failed: Fault
+[..]
+"#]]);
 }
 
 #[test]

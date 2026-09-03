@@ -23,6 +23,7 @@ pub(crate) mod v8;
 mod bind;
 mod column;
 mod connection;
+mod mutex;
 mod policy;
 mod statement;
 
@@ -65,6 +66,7 @@ pub(crate) struct SqliteHost {
     filesystem: Arc<HostFs>,
     keys: Rc<RefCell<HostKeys>>,
     databases: RefCell<SecondaryMap<HostKey, Database>>,
+    mutexes: RefCell<SecondaryMap<HostKey, mutex::DatabaseMutex>>,
     statements: RefCell<SecondaryMap<HostKey, Statement>>,
 }
 
@@ -74,6 +76,7 @@ impl SqliteHost {
             filesystem,
             keys,
             databases: RefCell::new(SecondaryMap::new()),
+            mutexes: RefCell::new(SecondaryMap::new()),
             statements: RefCell::new(SecondaryMap::new()),
         }
     }
@@ -95,6 +98,9 @@ impl SqliteHost {
 
 impl Drop for SqliteHost {
     fn drop(&mut self) {
+        // A guest may terminate between a balanced enter/leave pair. Release
+        // those recursive entries before SQLite destroys connection mutexes.
+        self.release_entered_mutexes();
         // Statements hold their connections open, so destroy them first.
         for statement in self.statements.get_mut().values() {
             unsafe { ffi::sqlite3_finalize(statement.pointer.as_ptr()) };

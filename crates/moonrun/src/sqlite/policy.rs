@@ -70,9 +70,11 @@ pub(super) fn ensure_valid_database(
     Ok(())
 }
 
-/// Preserve SQLite's access-mode bits and remove every extension flag.
-pub(super) fn ensure_open_flags(flags: i32) -> i32 {
+/// Preserve SQLite's access-mode bits, force serialized connection access, and
+/// remove every other extension flag.
+pub(super) fn normalize_open_flags(flags: i32) -> i32 {
     flags & (ffi::SQLITE_OPEN_READONLY | ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE)
+        | ffi::SQLITE_OPEN_FULLMUTEX
 }
 
 /// Install the complete MVP SQL policy before guest SQL can be prepared.
@@ -138,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn open_flags_preserve_only_access_modes() {
+    fn open_flags_preserve_access_modes_and_strip_unknown_bits() {
         for flags in [
             ffi::SQLITE_OPEN_READONLY,
             ffi::SQLITE_OPEN_READWRITE,
@@ -146,13 +148,23 @@ mod tests {
             ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE | 0x4000_0000,
         ] {
             assert_eq!(
-                ensure_open_flags(flags),
+                normalize_open_flags(flags),
                 flags
                     & (ffi::SQLITE_OPEN_READONLY
                         | ffi::SQLITE_OPEN_READWRITE
                         | ffi::SQLITE_OPEN_CREATE)
+                    | ffi::SQLITE_OPEN_FULLMUTEX
             );
         }
+    }
+
+    #[test]
+    fn open_flags_replace_no_mutex_with_full_mutex() {
+        let flags = ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_NOMUTEX;
+        assert_eq!(
+            normalize_open_flags(flags),
+            ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_FULLMUTEX
+        );
     }
 
     #[test]

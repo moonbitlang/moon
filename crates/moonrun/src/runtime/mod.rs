@@ -71,6 +71,7 @@ pub(crate) enum HostResourceKind {
     #[cfg(windows)]
     IoResult,
     SqliteDatabase,
+    SqliteDatabaseMutex,
     SqliteStatement,
 }
 

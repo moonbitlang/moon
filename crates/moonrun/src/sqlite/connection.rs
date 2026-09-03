@@ -22,9 +22,9 @@ use std::ptr::{self, NonNull};
 use libsqlite3_sys as ffi;
 use slotmap::Key;
 
-use super::policy::{ensure_open_flags, ensure_valid_database, install_authorizer};
+use super::policy::{ensure_valid_database, install_authorizer, normalize_open_flags};
 use super::{SqliteHost, SqliteHostError, SqliteHostResult};
-use crate::runtime::{HostResourceKind, null_handle};
+use crate::runtime::{HostKey, HostResourceKind, null_handle};
 
 // `libsqlite3-sys` intentionally omits SQLite's UTF-16 convenience APIs from
 // its generated bindings. The bundled SQLite library still exports them.
@@ -35,21 +35,49 @@ unsafe extern "C" {
 #[derive(Clone, Copy)]
 pub(super) enum Database {
     /// The connection opened and the Host policy was installed.
-    Ready(NonNull<ffi::sqlite3>),
+    Ready {
+        pointer: NonNull<ffi::sqlite3>,
+        mutex: Option<HostKey>,
+    },
     /// SQLite returned a connection together with an error. It remains valid
     /// only for reading the error and closing the connection.
     Failed(NonNull<ffi::sqlite3>),
 }
 
 impl Database {
+    fn ready(pointer: NonNull<ffi::sqlite3>) -> Self {
+        Self::Ready {
+            pointer,
+            mutex: None,
+        }
+    }
+
     pub(super) fn pointer(self) -> NonNull<ffi::sqlite3> {
         match self {
-            Self::Ready(pointer) | Self::Failed(pointer) => pointer,
+            Self::Ready { pointer, .. } | Self::Failed(pointer) => pointer,
         }
     }
 
     pub(super) fn is_ready(self) -> bool {
-        matches!(self, Self::Ready(_))
+        matches!(self, Self::Ready { .. })
+    }
+
+    pub(super) fn mutex(self) -> Option<HostKey> {
+        match self {
+            Self::Ready { mutex, .. } => mutex,
+            Self::Failed(_) => None,
+        }
+    }
+
+    pub(super) fn set_mutex(&mut self, mutex: HostKey) {
+        let Self::Ready {
+            mutex: database_mutex,
+            ..
+        } = self
+        else {
+            unreachable!("failed database cannot have a mutex Handle");
+        };
+        *database_mutex = Some(mutex);
     }
 }
 
@@ -63,7 +91,7 @@ pub(crate) struct OpenOutcome {
 
 impl SqliteHost {
     pub(crate) fn open_v2(&self, filename: &CStr, flags: i32, vfs: u64) -> OpenOutcome {
-        let flags = ensure_open_flags(flags);
+        let flags = normalize_open_flags(flags);
         if let Err(code) = ensure_valid_database(&self.filesystem, filename, flags, vfs) {
             return OpenOutcome {
                 code,
@@ -88,7 +116,7 @@ impl SqliteHost {
         };
 
         let database = if code == ffi::SQLITE_OK {
-            Database::Ready(database)
+            Database::ready(database)
         } else {
             Database::Failed(database)
         };
@@ -146,6 +174,9 @@ impl SqliteHost {
         }
         let database_handle = database;
         let database = self.database(database_handle)?;
+        if self.database_mutex_is_entered(database) {
+            return Err(SqliteHostError::InvalidInput);
+        }
         let pointer = database.pointer();
         let code = unsafe { ffi::sqlite3_close(pointer.as_ptr()) };
         if code == ffi::SQLITE_OK {
@@ -165,12 +196,15 @@ impl SqliteHost {
         key.data().as_ffi()
     }
 
-    pub(super) fn database(&self, handle: u64) -> SqliteHostResult<Database> {
-        let key = self
-            .keys
+    pub(super) fn database_key(&self, handle: u64) -> SqliteHostResult<HostKey> {
+        self.keys
             .borrow()
             .key(handle, HostResourceKind::SqliteDatabase)
-            .ok_or(SqliteHostError::InvalidHandle)?;
+            .ok_or(SqliteHostError::InvalidHandle)
+    }
+
+    pub(super) fn database(&self, handle: u64) -> SqliteHostResult<Database> {
+        let key = self.database_key(handle)?;
         self.databases
             .borrow()
             .get(key)
@@ -179,16 +213,13 @@ impl SqliteHost {
     }
 
     fn remove_database(&self, handle: u64) -> SqliteHostResult<Database> {
-        let key = self
-            .keys
-            .borrow()
-            .key(handle, HostResourceKind::SqliteDatabase)
-            .ok_or(SqliteHostError::InvalidHandle)?;
+        let key = self.database_key(handle)?;
         let database = self
             .databases
             .borrow_mut()
             .remove(key)
             .ok_or(SqliteHostError::InvalidHandle)?;
+        self.remove_database_mutex(database);
         let removed = self.keys.borrow_mut().remove(key);
         debug_assert_eq!(removed, Some(HostResourceKind::SqliteDatabase));
         Ok(database)

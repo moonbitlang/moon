@@ -161,7 +161,7 @@ another execution implementation exists.
 _Avoid_: Host Process, process adapter interface, virtual process
 
 **Handle**:
-An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, Completion Source, SQLite Database, or SQLite Statement.
+An opaque value held by MoonBit code that names a moonrun-owned object, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, Completion Source, SQLite Database, SQLite Database Mutex, or SQLite Statement.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
 
 **Runtime**:
@@ -271,18 +271,25 @@ raw signal operation in Async Sys.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
-The V8-facing `moonbitlang/sqlite` adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. UTF-8 filenames use a backing Bytes value plus its byte length; the adapter bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
+The V8-facing `moonbitlang/sqlite` adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. A SQLite Database Mutex is a stable, lifetime-checked Handle owned by its Database; the null Handle preserves SQLite's mutex no-op behavior when a connection has no mutex. UTF-8 filenames use a backing Bytes value plus its byte length; the adapter bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
 _Avoid_: SQLite Host, SQLite wrapper SDK
 
 **SQLite Host**:
 The backend-neutral SQLite implementation owned by one Runtime. It owns SQLite
 admission rules and operations, uses the Runtime's shared Host Key namespace,
-and contains the Database and Statement pointer maps, teardown, and leak
-accounting. File-backed admission currently asks the Host Filesystem to
-interpret and authorize its filesystem intents before SQLite's default VFS
-reinterprets the filename; SQLite flags, VFS selection, authorizer behavior,
-and FFI remain SQLite Host semantics. Wasm runtime adapters lower their own
-memory and scalar representations before crossing its interface.
+and contains the Database, Database Mutex, and Statement state, teardown, and
+leak accounting. Its Database Mutex depth counts recursive entries made through
+the SQLite Host interface, not SQLite's internal mutex ownership. This protects
+the Database lifetime from unbalanced guest calls: the Host rejects unmatched
+leaves and Database close while entries remain, and releases those entries
+during same-thread Runtime teardown before SQLite destroys the mutex.
+File-backed admission currently asks the Host Filesystem to interpret and
+authorize its filesystem intents before SQLite's default VFS reinterprets the
+filename; SQLite flags, VFS selection, authorizer behavior, and FFI remain
+SQLite Host semantics. The Host forces `SQLITE_OPEN_FULLMUTEX` so callers get a
+serialized connection without coordinating SQLite open flags themselves. Wasm
+runtime adapters lower their own memory and scalar representations before
+crossing its interface.
 _Avoid_: SQLite API, Async Host, V8 SQLite
 
 **Async Sys**:
