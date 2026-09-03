@@ -68,16 +68,30 @@ let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
 The current implementation remains V8-backed and still inherits process stdio,
-environment, working directory, and signal compatibility behavior. A Run can
-make its working-directory selection explicit with
+environment, and working-directory behavior. The library does not install an
+operating-system signal handler. Callers may create a `signal_channel`, pass
+its receiver to `Engine::run_with_signal_receiver`, and send signals to that
+Run after its guest async handler is ready. This is cooperative delivery only:
+signals are not retained before registration and cannot yet forcibly interrupt
+guest execution. The `moonrun` CLI owns a process-lifetime adapter and forwards
+accepted signals directly through such a channel. On Unix it blocks its managed
+signals before creating the Engine and receives them on a `sigwait` thread;
+spawned guest processes retain the signal mask from before that block. Each
+Run's guest signal-wait Job is virtual: it receives forwarded signals through
+the Run channel rather than competing for process-wide signals. It supplies the
+same optional cancellation hook supported by the native Job model, recording
+cancellation before waking its blocking pipe read. Ordinary Unix Jobs retain
+the thread pool's `pthread_kill(SIGUSR2)` path. If the Run does not accept a
+signal, the adapter applies the process's existing signal behavior.
+
+A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the
 existing process-global behavior. No isolated or captured working-directory
 mode is available yet. Compiled modules reuse their prepared representation
 while each run currently creates a fresh Runtime that owns its environment,
 policy, working-directory selection, and domain state alongside fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
-responsibility. Moonrun does not yet expose an interruption mechanism for a
-running guest.
+responsibility.
 
 ## Memory Leak Reporting
 

@@ -16,9 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-///|
-async fn main {
-  println("ready")
-  defer println("cleanup")
-  @async.sleep(60_000)
-}
+mod process_signals;
+
+pub(super) use process_signals::ProcessSignals;

@@ -16,14 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Raw process-global signal mechanisms ported from `moonbitlang/async`, split
-//! by host platform. Guest cancellation registration and delivery coordination
-//! belong to the Async Host.
+//! Platform signal values and Unix worker signal-mask management.
+//!
+//! Process signal capture belongs to the CLI. Guest signal registration and
+//! completion delivery belong to one Run.
 
 use crate::async_host::AsyncHostResult;
 #[cfg(windows)]
 use crate::async_sys::internal::event_loop::poll::CompletionPort;
 use crate::async_sys::ported_fns;
+use crate::run_signal::SignalReceiver;
 
 #[cfg(unix)]
 mod unix;
@@ -37,8 +39,8 @@ use windows as platform;
 
 #[cfg(unix)]
 pub(crate) use unix::{
-    SigwaitJob, init_thread_pool_signal_mask, restore_thread_pool_signal_mask,
-    set_worker_thread_signal_mask,
+    SigwaitJob, SigwaitTarget, init_thread_pool_signal_mask, make_sigwait_job,
+    restore_thread_pool_signal_mask, set_worker_thread_signal_mask,
 };
 
 ported_fns! {
@@ -47,10 +49,11 @@ ported_fns! {
         original = "moonbitlang_async_set_global_cancellation_signals"
     )]
     pub(crate) fn set_global_cancellation_signals(
+        receiver: &SignalReceiver,
         all_signals: &[i32],
         signals: &[i32],
     ) -> AsyncHostResult<()> {
-        platform::set_global_cancellation_signals(all_signals, signals)
+        platform::set_global_cancellation_signals(receiver, all_signals, signals)
     }
 
     #[ported(
@@ -59,10 +62,11 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn set_console_control_handler(
+        receiver: &SignalReceiver,
         add: bool,
         completion_target: Option<CompletionPort>,
     ) -> AsyncHostResult<i32> {
-        windows::set_console_control_handler(add, completion_target)
+        windows::set_console_control_handler(receiver, add, completion_target)
     }
 }
 

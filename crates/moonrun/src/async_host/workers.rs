@@ -194,6 +194,63 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn signal_wait_worker_cancellation_is_durable_before_the_job_waits() {
+        use std::os::fd::RawFd;
+        use std::sync::Arc;
+
+        let workers = InstanceWorkers::new();
+        let worker = key(1);
+        let (_sender, receiver) = crate::signal_channel();
+        let (notifier, notifier_fd): (_, RawFd) =
+            crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier::new().unwrap();
+        let wait_job = crate::async_sys::signal::make_sigwait_job(
+            &receiver,
+            &[libc::SIGINT],
+            Arc::new(notifier),
+        )
+        .unwrap();
+        let worker_job =
+            HostWorkerJob::new(WorkerCompletionId::from_abi(7), key(2), wait_job.into());
+        let (completed, completion) = mpsc::channel();
+        let (started, worker_started) = mpsc::sync_channel(0);
+        let (proceed, worker_may_proceed) = mpsc::sync_channel(0);
+
+        workers
+            .spawn(
+                worker,
+                worker_job,
+                move |job| {
+                    started.send(()).unwrap();
+                    worker_may_proceed.recv().unwrap();
+                    thread_pool::run_host_job(&mut job.job);
+                },
+                move |completion_id| completed.send(completion_id).unwrap(),
+            )
+            .unwrap();
+
+        worker_started.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(workers.cancel(worker), Ok(0));
+        proceed.send(()).unwrap();
+
+        let first_completion = completion.recv_timeout(Duration::from_secs(1));
+        if first_completion.is_err() {
+            // Release the old implementation so a failing assertion does not
+            // leave its Worker blocked in read(2).
+            assert_eq!(workers.cancel(worker), Ok(0));
+            completion.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        let completion_id = first_completion.expect("the first cancellation was lost");
+        assert_eq!(completion_id, WorkerCompletionId::from_abi(7));
+        let result = workers.try_recv_completed().unwrap();
+        assert_eq!(result.job.ret(), 0);
+        assert_eq!(result.job.err(), 0);
+
+        drop(workers.destroy());
+        assert_eq!(unsafe { libc::close(notifier_fd) }, 0);
+    }
+
     #[test]
     fn worker_handles_are_scoped_to_one_instance() {
         let first = InstanceWorkers::new();

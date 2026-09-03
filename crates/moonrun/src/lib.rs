@@ -33,6 +33,7 @@ mod network;
 mod policy;
 mod process;
 mod resource;
+mod run_signal;
 mod run_termination;
 mod runtime;
 mod source_map;
@@ -43,4 +44,5 @@ mod wasi;
 mod wasm_diagnostic;
 
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
+pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use runtime::WorkingDirectory;

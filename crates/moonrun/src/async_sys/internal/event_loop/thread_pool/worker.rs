@@ -29,6 +29,8 @@ use crate::resource::ResourceRef;
 use std::os::unix::thread::JoinHandleExt;
 
 use super::Job;
+#[cfg(unix)]
+use super::JobCancellation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorkerCompletionId(i32);
@@ -93,8 +95,15 @@ pub(crate) enum WorkerCancellationTarget {
 #[derive(Debug)]
 struct HostWorkerState {
     job: Option<HostWorkerJob>,
+    // Rust moves the active Job out of this state. Retain only its optional
+    // native-shaped cancellation hook, and distinguish it from a queued Job
+    // whose hook must replace this one before that Job can start.
+    #[cfg(unix)]
+    cancel_override: Option<JobCancellation>,
     #[cfg(windows)]
     running_cancel: RunningCancellation,
+    #[cfg(unix)]
+    running: bool,
     waiting: bool,
     terminating: bool,
 }
@@ -153,12 +162,18 @@ impl HostWorkerHandle {
     ) -> Self {
         #[cfg(unix)]
         init_worker_signal_handler();
+        #[cfg(unix)]
+        let init_cancel = init_job.job.cancellation_override();
 
         let shared = Arc::new(HostWorkerShared {
             state: Mutex::new(HostWorkerState {
                 job: Some(init_job),
+                #[cfg(unix)]
+                cancel_override: init_cancel,
                 #[cfg(windows)]
                 running_cancel: RunningCancellation::Idle,
+                #[cfg(unix)]
+                running: false,
                 waiting: false,
                 terminating: false,
             }),
@@ -181,6 +196,12 @@ impl HostWorkerHandle {
                         state = worker_shared.wakeup.wait(state).unwrap();
                     }
                     let job = (!state.terminating).then(|| state.job.take()).flatten();
+                    #[cfg(unix)]
+                    {
+                        state.running = job.is_some();
+                        state.cancel_override =
+                            job.as_ref().and_then(|job| job.job.cancellation_override());
+                    }
                     #[cfg(windows)]
                     {
                         state.running_cancel = match job.as_ref() {
@@ -197,6 +218,14 @@ impl HostWorkerHandle {
 
                 let terminating = {
                     let mut state = worker_shared.state.lock().unwrap();
+                    #[cfg(unix)]
+                    {
+                        state.running = false;
+                        state.cancel_override = state
+                            .job
+                            .as_ref()
+                            .and_then(|next_job| next_job.job.cancellation_override());
+                    }
                     #[cfg(windows)]
                     {
                         state.running_cancel = RunningCancellation::Idle;
@@ -238,13 +267,26 @@ impl HostWorkerHandle {
         }
         let previous_job = state.job.take();
         state.job = job;
+        #[cfg(unix)]
+        if !state.running {
+            state.cancel_override = state
+                .job
+                .as_ref()
+                .and_then(|job| job.job.cancellation_override());
+        }
         state.waiting = false;
         self.shared.wakeup.notify_one();
         previous_job
     }
 
     pub(crate) fn enter_idle(&self) -> Option<HostWorkerJob> {
-        self.shared.state.lock().unwrap().job.take()
+        let mut state = self.shared.state.lock().unwrap();
+        let job = state.job.take();
+        #[cfg(unix)]
+        if !state.running {
+            state.cancel_override = None;
+        }
+        job
     }
 
     #[cfg(windows)]
@@ -266,9 +308,15 @@ impl HostWorkerHandle {
     pub(crate) fn cancel(&self) -> AsyncHostResult<i32> {
         #[cfg(unix)]
         {
-            let state = self.shared.state.lock().unwrap();
-            if state.waiting {
-                return Ok(1);
+            let cancel = {
+                let state = self.shared.state.lock().unwrap();
+                if state.waiting {
+                    return Ok(1);
+                }
+                state.cancel_override.clone()
+            };
+            if let Some(cancel) = cancel {
+                return cancel.cancel();
             }
             let Some(thread) = &self.thread else {
                 return Err(crate::async_host::AsyncHostError::Badf);

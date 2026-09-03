@@ -27,6 +27,8 @@ pub(crate) use jobs::{
 };
 pub(crate) use runner::run_host_job;
 pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable};
+#[cfg(unix)]
+pub(crate) use types::{JobCancellation, JobCancellationOverride};
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
     free_worker, spawn_worker, wake_worker, worker_enter_idle,

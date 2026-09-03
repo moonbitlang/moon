@@ -16,8 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod cli;
+
 use clap::Parser;
-use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome};
+use cli::ProcessSignals;
+use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome, signal_channel};
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Parser)]
@@ -115,8 +118,18 @@ fn main() -> anyhow::Result<()> {
             None => options.with_policy_file(policy),
         };
     }
+    #[cfg(unix)]
+    {
+        options = options.preserve_current_signal_mask_for_children()?;
+    }
 
-    match Engine::new(engine_config).run_file(matches.path, options)? {
+    let (signal_sender, signal_receiver) = signal_channel();
+    let _process_signals = ProcessSignals::install(signal_sender)?;
+    let engine = Engine::new(engine_config);
+    let module = engine.load_file(matches.path)?;
+    let outcome = engine.run_with_signal_receiver(&module, options, signal_receiver);
+
+    match outcome? {
         RunOutcome::Completed => Ok(()),
         RunOutcome::Exited(code) => std::process::exit(code),
         RunOutcome::KilledBySignal(signal) => {

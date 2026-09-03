@@ -23,9 +23,23 @@ use crate::async_sys::signal::SigwaitJob;
 use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
 use crate::process::Job as ProcessJob;
+#[cfg(unix)]
+use std::sync::Arc;
 
 pub(crate) type ResourceHandle = u64;
 pub(crate) type HostHandle = ResourceHandle;
+
+/// A Job-specific replacement for the platform's default Worker cancellation.
+///
+/// This is the Rust equivalent of native `struct job::cancel_handler`: most
+/// Jobs do not provide one and are cancelled through the Worker thread.
+#[cfg(unix)]
+pub(crate) trait JobCancellationOverride: std::fmt::Debug + Send + Sync {
+    fn cancel(&self) -> AsyncHostResult<i32>;
+}
+
+#[cfg(unix)]
+pub(crate) type JobCancellation = Arc<dyn JobCancellationOverride>;
 
 /// A host operation following the `moonbitlang/async` native Job contract.
 ///
@@ -89,6 +103,14 @@ impl Job {
     pub(crate) fn cancellation_resource(&self) -> Option<crate::resource::ResourceRef> {
         match &self.payload {
             JobPayload::Process(job) => job.cancellation_resource(),
+            _ => None,
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn cancellation_override(&self) -> Option<JobCancellation> {
+        match &self.payload {
+            JobPayload::Signal(job) => Some(job.cancellation_override()),
             _ => None,
         }
     }
