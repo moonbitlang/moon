@@ -37,7 +37,9 @@ use crate::policy::{PolicyInheritance, ProcessPolicy};
 use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
-pub(crate) use job::{Job, SpawnOptions};
+pub(crate) use job::Job;
+#[cfg(any(feature = "v8", test))]
+pub(crate) use job::SpawnOptions;
 
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]

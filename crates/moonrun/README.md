@@ -2,7 +2,8 @@
 
 # moonrun
 
-Moonrun is the WebAssembly runtime for MoonBit, utilizing V8 at its core to offer an efficient and flexible environment for executing WASM.
+Moonrun is the WebAssembly runtime for MoonBit. Shipping builds use V8, while a
+Wasmtime 48 backend is available as a compile-time development feature.
 
 ## Platform Support
 
@@ -17,6 +18,21 @@ To build the project, ensure that Rust and Cargo are installed. Then execute:
 ```
 cargo build
 ```
+
+The default `moonrun` build selects V8. To build the Wasmtime backend:
+
+```sh
+cargo build -p moonrun --no-default-features --features wasmtime
+```
+
+V8 remains selected when both engine features are enabled; select Wasmtime by
+disabling default features as shown above. Wasmtime supports both `wasm` and
+`wasm-gc`, including JS-string builtins with `_` imported string constants, the
+MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface as
+V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy; both
+engine adapters invoke the same shared WASIp1 host operations. The remaining
+Moonrun host-import adapters, including async and SQLite, will follow in a
+separate change.
 
 ## Running
 

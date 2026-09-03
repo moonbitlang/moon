@@ -23,6 +23,7 @@
 //! WASI has its own descriptor and preopen capability model and does not pass
 //! through this module.
 
+#[cfg(feature = "v8")]
 pub(crate) mod v8;
 
 mod job;
