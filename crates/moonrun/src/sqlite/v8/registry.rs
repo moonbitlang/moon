@@ -48,6 +48,9 @@ declare_sqlite_imports! {
     SqliteHost::extended_errcode(database: u64)
         -> i32 => "sqlite3_extended_errcode";
     SqliteHost::changes64(database: u64) -> i64 => "sqlite3_changes64";
+    SqliteHost::db_mutex(database: u64) -> u64 => "sqlite3_db_mutex";
+    SqliteHost::mutex_enter(mutex: u64) -> void => "sqlite3_mutex_enter";
+    SqliteHost::mutex_leave(mutex: u64) -> void => "sqlite3_mutex_leave";
     SqliteHost::close(database: u64) -> i32 => "sqlite3_close";
 
     statement::prepare16_v2(
