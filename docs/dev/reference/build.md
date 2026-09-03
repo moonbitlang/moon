@@ -101,7 +101,9 @@ default optimization profile by subcommand:
 
 This policy is centralized in `BuildFlags::effective_profile()` in
 `crates/moon/src/cli.rs`. Individual commands may still layer additional
-symbol or strip behavior on top of that default profile.
+symbol or strip behavior on top of that default profile. A default `moon run`
+for the Native target backend keeps `-O0` and stack-trace metadata but omits
+full `-g` debug information; explicit `--debug` or `--no-strip` retains it.
 
 When actually building a package, the pipeline has 2 or 3 main steps depending on the backend:
 

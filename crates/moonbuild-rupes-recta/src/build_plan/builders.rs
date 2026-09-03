@@ -75,10 +75,10 @@ fn should_generate_llvm_dsym(debug_symbols: bool, os: OperatingSystem) -> bool {
 
 fn should_generate_direct_native_dsym(
     mode: &DirectNativeMode,
-    debug_symbols: bool,
+    source_info: bool,
     toolchain: &Toolchain,
 ) -> bool {
-    debug_symbols
+    source_info
         && mode.target() == NativeTarget::Aarch64AppleDarwin
         && toolchain.cc().targets_apple_darwin()
 }
@@ -1143,7 +1143,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 ..
             } => should_generate_direct_native_dsym(
                 mode,
-                self.build_env.debug_symbols,
+                self.build_env.debug_symbols
+                    || (self.build_env.action == RunMode::Run
+                        && self.build_env.opt_level == OptLevel::Debug),
                 &effective_native_toolchain,
             ),
             BackendConfig::Native {
