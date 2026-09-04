@@ -37,7 +37,17 @@ pub(crate) fn render(
     no_stack_trace: bool,
 ) -> String {
     let mut result = String::new();
-    for (index, line) in lines.into_iter().enumerate() {
+    // Compiler-generated export wrappers are backend presentation details, not
+    // useful MoonBit frames. Apply this policy after backend extraction so V8
+    // and Wasmtime cannot disagree about whether to show them.
+    let lines = lines.into_iter().filter(|line| match line {
+        DiagnosticLine::Frame { function, .. } => {
+            !moonutil::demangle::demangle_mangled_function_name(function)
+                .contains(".moonbit_test_driver_internal_execute_wrapper/")
+        }
+        DiagnosticLine::Text(_) => true,
+    });
+    for (index, line) in lines.enumerate() {
         if no_stack_trace && index != 0 {
             break;
         }
@@ -100,5 +110,30 @@ mod tests {
             true,
         );
         assert_eq!(diagnostic, "Error");
+    }
+
+    #[test]
+    fn hides_generated_test_driver_wrapper_frames() {
+        let diagnostic = render(
+            [
+                DiagnosticLine::Text("Error".to_owned()),
+                DiagnosticLine::Frame {
+                    indentation: "    ".to_owned(),
+                    function: "@pkg.moonbit_test_driver_internal_execute_wrapper/12".to_owned(),
+                    module_offset: None,
+                },
+                DiagnosticLine::Frame {
+                    indentation: "    ".to_owned(),
+                    function: "@pkg.moonbit_test_driver_internal_execute".to_owned(),
+                    module_offset: None,
+                },
+            ],
+            None,
+            false,
+        );
+        assert_eq!(
+            diagnostic,
+            "Error\n    at @pkg.moonbit_test_driver_internal_execute"
+        );
     }
 }
