@@ -26,13 +26,13 @@ cargo build -p moonrun --no-default-features --features wasmtime
 ```
 
 V8 remains selected when both engine features are enabled; select Wasmtime by
-disabling default features as shown above. Wasmtime supports both `wasm` and
-`wasm-gc`, including JS-string builtins with `_` imported string constants, the
-MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface as
-V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy; both
-engine adapters invoke the same shared WASIp1 host operations. The remaining
-Moonrun host-import adapters, including async and SQLite, will follow in a
-separate change.
+disabling default features as shown above. Both engines use the same Moonrun
+Host Domains for async operations, filesystem and environment access, SQLite,
+memory-sanitizer state, policy, and termination. Wasmtime supports both `wasm`
+and `wasm-gc`, including JS-string builtins with `_` imported string constants,
+the MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface
+as V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy;
+both engine adapters invoke the same shared WASIp1 host operations.
 
 ## Running
 
@@ -83,22 +83,24 @@ the stable program name used for guest arguments and diagnostics:
 let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
-The current implementation remains V8-backed and still inherits process stdio,
-environment, and working-directory behavior. The library does not install an
-operating-system signal handler. Callers may create a `signal_channel`, pass
-its receiver to `Engine::run_with_signal_receiver`, and send signals to that
-Run after its guest async handler is ready. This is cooperative delivery only:
-signals are not retained before registration and cannot yet forcibly interrupt
-guest execution. The `moonrun` CLI owns a process-lifetime adapter and forwards
-accepted signals directly through such a channel. On Unix it blocks its managed
-signals before creating the Engine and receives them on a `sigwait` thread;
-spawned guest processes retain the signal mask from before that block. Each
-Run's guest signal-wait Job is virtual: it receives forwarded signals through
-the Run channel rather than competing for process-wide signals. It supplies the
-same optional cancellation hook supported by the native Job model, recording
-cancellation before waking its blocking pipe read. Ordinary Unix Jobs retain
-the thread pool's `pthread_kill(SIGUSR2)` path. If the Run does not accept a
-signal, the adapter applies the process's existing signal behavior.
+The shipping configuration remains V8-backed; the Wasmtime feature provides
+the same library surface at compile time. Both configurations inherit process
+stdio, environment, and working-directory behavior. The library does not
+install an operating-system signal handler. Callers may create a
+`signal_channel`, pass its receiver to `Engine::run_with_signal_receiver`, and
+send signals to that Run after its guest async handler is ready. This is
+cooperative delivery only: signals are not retained before registration and
+cannot yet forcibly interrupt guest execution. The `moonrun` CLI owns a
+process-lifetime adapter and forwards accepted signals directly through such a
+channel. On Unix it blocks its managed signals before creating the Engine and
+receives them on a `sigwait` thread; spawned guest processes retain the signal
+mask from before that block. Each Run's guest signal-wait Job is virtual: it
+receives forwarded signals through the Run channel rather than competing for
+process-wide signals. It supplies the same optional cancellation hook supported
+by the native Job model, recording cancellation before waking its blocking pipe
+read. Ordinary Unix Jobs retain the thread pool's `pthread_kill(SIGUSR2)` path.
+If the Run does not accept a signal, the adapter applies the process's existing
+signal behavior.
 
 A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the

@@ -18,7 +18,7 @@
 
 //! V8 adapter for the temporary whole-file filesystem imports.
 
-use crate::filesystem::{FsOperationResults, HostFs};
+use crate::filesystem::{FsOperationResults, HostFs, HostFsError};
 use crate::util::get_ref;
 use crate::v8::builder::{ArgsExt, ObjectExt, ScopeExt};
 use std::any::Any;
@@ -91,7 +91,7 @@ fn write_bytes_to_file(
         .filesystem
         .write_bytes_to_file(&path, || {
             let array = v8::Local::<v8::Uint8Array>::try_from(args.get(1)).unwrap();
-            copy_uint8_array(array)
+            Ok::<_, HostFsError>(copy_uint8_array(array))
         })
         .unwrap_or_else(|error| panic!("{error}"));
     ret.set_undefined();

@@ -16,15 +16,25 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::context::{SqliteError, with_memory_context};
+use super::context::SqliteError;
+#[cfg(feature = "v8")]
+use super::context::with_memory_context;
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+use super::context::with_wasmtime_context;
 use super::registry_macros::declare_sqlite_imports;
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+use super::registry_macros::{
+    decode_wasmtime_arg, finish_wasmtime_sqlite_import, invoke_wasmtime_sqlite_import,
+    wasmtime_arg_type, wasmtime_return_type,
+};
 use super::{bind, column, connection, statement};
+#[cfg(feature = "v8")]
 use crate::v8::context::{ImportArgs, V8ImportError, V8RunContext};
 
 pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
 
 // This is the complete `moonbitlang/sqlite` ABI surface. The declaration
-// generates both the V8 callbacks and their registration, so adding a symbol
+// generates each engine's callbacks and registration, so adding a symbol
 // cannot update one without the other. Each entry names its implementation
 // target; the registry does not expose how the macro reaches that target.
 declare_sqlite_imports! {

@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(feature = "v8")]
 macro_rules! decode_wasm_arg {
     ($args:ident, i32) => {
         $args.next_i32()
@@ -34,15 +35,17 @@ macro_rules! decode_wasm_arg {
     };
 }
 
+#[cfg(feature = "v8")]
 macro_rules! wasm_arg_count {
     () => {
         0_i32
     };
     ($head:ident $(, $tail:ident)*) => {
-        1_i32 + $crate::sqlite::v8::registry_macros::wasm_arg_count!($($tail),*)
+        1_i32 + $crate::sqlite::wasm::registry_macros::wasm_arg_count!($($tail),*)
     };
 }
 
+#[cfg(feature = "v8")]
 macro_rules! decode_sqlite_args {
     ($scope:ident, $args:ident,) => {
         Ok::<(), V8ImportError>(())
@@ -51,7 +54,7 @@ macro_rules! decode_sqlite_args {
         let mut import_args = ImportArgs::new($scope, &$args);
         (|| -> Result<_, V8ImportError> {
             $(
-                let $arg = $crate::sqlite::v8::registry_macros::decode_wasm_arg!(
+                let $arg = $crate::sqlite::wasm::registry_macros::decode_wasm_arg!(
                     import_args,
                     $arg_ty
                 )?;
@@ -61,6 +64,7 @@ macro_rules! decode_sqlite_args {
     }};
 }
 
+#[cfg(feature = "v8")]
 macro_rules! set_sqlite_import_return {
     ($scope:ident, $ret:ident, i32, $value:expr) => {
         $ret.set_int32($value)
@@ -84,10 +88,11 @@ macro_rules! set_sqlite_import_return {
     }};
 }
 
+#[cfg(feature = "v8")]
 macro_rules! finish_sqlite_import {
     ($scope:ident, $ret:ident, $name:expr, $ret_ty:ident, $result:expr) => {
         match $result {
-            Ok(value) => $crate::sqlite::v8::registry_macros::set_sqlite_import_return!(
+            Ok(value) => $crate::sqlite::wasm::registry_macros::set_sqlite_import_return!(
                 $scope, $ret, $ret_ty, value
             ),
             Err(error) => {
@@ -97,6 +102,7 @@ macro_rules! finish_sqlite_import {
     };
 }
 
+#[cfg(feature = "v8")]
 macro_rules! invoke_sqlite_import {
     (
         $scope:ident,
@@ -142,6 +148,7 @@ macro_rules! invoke_sqlite_import {
     }};
 }
 
+#[cfg(feature = "v8")]
 macro_rules! register_sqlite_import {
     (
         $obj:ident,
@@ -157,11 +164,11 @@ macro_rules! register_sqlite_import {
             mut ret: v8::ReturnValue,
         ) {
             let result = if args.length()
-                != $crate::sqlite::v8::registry_macros::wasm_arg_count!($($arg_ty),*)
+                != $crate::sqlite::wasm::registry_macros::wasm_arg_count!($($arg_ty),*)
             {
                 Err(SqliteError::from(V8ImportError::InvalidArgument))
             } else {
-                let decoded = $crate::sqlite::v8::registry_macros::decode_sqlite_args!(
+                let decoded = $crate::sqlite::wasm::registry_macros::decode_sqlite_args!(
                     scope,
                     args,
                     $($arg : $arg_ty),*
@@ -169,7 +176,7 @@ macro_rules! register_sqlite_import {
 
                 match decoded {
                     Ok(($($arg,)*)) => {
-                        $crate::sqlite::v8::registry_macros::invoke_sqlite_import!(
+                        $crate::sqlite::wasm::registry_macros::invoke_sqlite_import!(
                             scope,
                             args,
                             $module::$callback,
@@ -180,7 +187,7 @@ macro_rules! register_sqlite_import {
                 }
             };
 
-            $crate::sqlite::v8::registry_macros::finish_sqlite_import!(
+            $crate::sqlite::wasm::registry_macros::finish_sqlite_import!(
                 scope,
                 ret,
                 $wasm_symbol,
@@ -199,6 +206,160 @@ macro_rules! register_sqlite_import {
     }};
 }
 
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! wasmtime_arg_type {
+    (i32) => {
+        i32
+    };
+    (u32) => {
+        i32
+    };
+    (i64) => {
+        i64
+    };
+    (u64) => {
+        i64
+    };
+    (f64) => {
+        f64
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! decode_wasmtime_arg {
+    ($arg:ident, i32) => {
+        $arg
+    };
+    ($arg:ident, u32) => {
+        $arg as u32
+    };
+    ($arg:ident, i64) => {
+        $arg
+    };
+    ($arg:ident, u64) => {
+        $arg as u64
+    };
+    ($arg:ident, f64) => {
+        $arg
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! wasmtime_return_type {
+    (void) => {
+        ()
+    };
+    (i32) => {
+        i32
+    };
+    (u32) => {
+        i32
+    };
+    (i64) => {
+        i64
+    };
+    (u64) => {
+        i64
+    };
+    (f64) => {
+        f64
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! finish_wasmtime_sqlite_import {
+    ($name:expr, void, $result:expr) => {
+        $result.map_err(|error| {
+            wasmtime::format_err!("{}.{} failed: {error:?}", MOONBIT_SQLITE_MODULE, $name)
+        })
+    };
+    ($name:expr, i32, $result:expr) => {
+        $result.map_err(|error| {
+            wasmtime::format_err!("{}.{} failed: {error:?}", MOONBIT_SQLITE_MODULE, $name)
+        })
+    };
+    ($name:expr, u32, $result:expr) => {
+        $result.map(|value| value as i32).map_err(|error| {
+            wasmtime::format_err!("{}.{} failed: {error:?}", MOONBIT_SQLITE_MODULE, $name)
+        })
+    };
+    ($name:expr, i64, $result:expr) => {
+        $result.map_err(|error| {
+            wasmtime::format_err!("{}.{} failed: {error:?}", MOONBIT_SQLITE_MODULE, $name)
+        })
+    };
+    ($name:expr, u64, $result:expr) => {
+        $result.map(|value| value as i64).map_err(|error| {
+            wasmtime::format_err!("{}.{} failed: {error:?}", MOONBIT_SQLITE_MODULE, $name)
+        })
+    };
+    ($name:expr, f64, $result:expr) => {
+        $result.map_err(|error| {
+            wasmtime::format_err!("{}.{} failed: {error:?}", MOONBIT_SQLITE_MODULE, $name)
+        })
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! invoke_wasmtime_sqlite_import {
+    (
+        $caller:ident,
+        Runtime::$callback:ident,
+        ($($arg:ident),*)
+    ) => {
+        Ok::<_, SqliteError>($caller.data().runtime().$callback($($arg),*))
+    };
+    (
+        $caller:ident,
+        SqliteHost::$callback:ident,
+        ($($arg:ident),*)
+    ) => {
+        $caller
+            .data()
+            .runtime()
+            .sqlite()
+            .$callback($($arg),*)
+            .map_err(SqliteError::from)
+    };
+    (
+        $caller:ident,
+        $module:ident::$callback:ident,
+        ($($arg:ident),*)
+    ) => {
+        with_wasmtime_context(&mut $caller, |context| {
+            $module::$callback(context, $($arg),*)
+        })
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! register_wasmtime_sqlite_import {
+    (
+        $linker:ident,
+        $module:ident::$callback:ident(
+            $($arg:ident : $arg_ty:ident),* $(,)?
+        ) -> $ret_ty:ident => $wasm_symbol:literal
+    ) => {{
+        $linker.func_wrap(
+            MOONBIT_SQLITE_MODULE,
+            $wasm_symbol,
+            |caller: wasmtime::Caller<'_, crate::wasmtime::StoreData>
+                $(, $arg: wasmtime_arg_type!($arg_ty))*|
+                -> wasmtime::Result<wasmtime_return_type!($ret_ty)> {
+                #[allow(unused_mut)]
+                let mut caller = caller;
+                $(let $arg = decode_wasmtime_arg!($arg, $arg_ty);)*
+                let result = invoke_wasmtime_sqlite_import!(
+                    caller,
+                    $module::$callback,
+                    ($($arg),*)
+                );
+                finish_wasmtime_sqlite_import!($wasm_symbol, $ret_ty, result)
+            },
+        )?;
+    }};
+}
+
 macro_rules! declare_sqlite_imports {
     ($(
         $(#[$meta:meta])*
@@ -212,6 +373,7 @@ macro_rules! declare_sqlite_imports {
         ///
         /// `context_ptr` must remain valid whenever a registered callback can
         /// be invoked.
+        #[cfg(feature = "v8")]
         pub(super) unsafe fn register_imports<'s>(
             obj: v8::Local<'s, v8::Object>,
             scope: &mut v8::HandleScope<'s>,
@@ -219,7 +381,7 @@ macro_rules! declare_sqlite_imports {
         ) {
             $(
                 $(#[$meta])*
-                $crate::sqlite::v8::registry_macros::register_sqlite_import!(
+                $crate::sqlite::wasm::registry_macros::register_sqlite_import!(
                     obj,
                     scope,
                     context_ptr,
@@ -228,10 +390,31 @@ macro_rules! declare_sqlite_imports {
                 );
             )*
         }
+        #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+        pub(crate) fn register_wasmtime_imports(
+            linker: &mut wasmtime::Linker<crate::wasmtime::StoreData>,
+        ) -> wasmtime::Result<()> {
+            $(
+                $(#[$meta])*
+                $crate::sqlite::wasm::registry_macros::register_wasmtime_sqlite_import!(
+                    linker,
+                    $module::$callback($($arg : $arg_ty),*)
+                        -> $ret_ty => $wasm_symbol
+                );
+            )*
+            Ok(())
+        }
     };
 }
 
+pub(super) use declare_sqlite_imports;
+#[cfg(feature = "v8")]
 pub(super) use {
-    declare_sqlite_imports, decode_sqlite_args, decode_wasm_arg, finish_sqlite_import,
-    invoke_sqlite_import, register_sqlite_import, set_sqlite_import_return, wasm_arg_count,
+    decode_sqlite_args, decode_wasm_arg, finish_sqlite_import, invoke_sqlite_import,
+    register_sqlite_import, set_sqlite_import_return, wasm_arg_count,
+};
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+pub(super) use {
+    decode_wasmtime_arg, finish_wasmtime_sqlite_import, invoke_wasmtime_sqlite_import,
+    register_wasmtime_sqlite_import, wasmtime_arg_type, wasmtime_return_type,
 };

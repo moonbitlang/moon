@@ -1,0 +1,9 @@
+{
+  "is-main": true,
+  "link": {
+    "wasm-gc": {
+      "use-js-builtin-string": true,
+      "imported-string-constants": "_"
+    }
+  }
+}

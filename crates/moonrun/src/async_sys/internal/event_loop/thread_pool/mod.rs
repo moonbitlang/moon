@@ -22,9 +22,9 @@ mod sleep;
 mod types;
 mod worker;
 
-#[cfg(any(feature = "v8", test))]
+#[cfg(any(feature = "v8", feature = "wasmtime", test))]
 pub(crate) use jobs::make_sleep_job;
-#[cfg(feature = "v8")]
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
 pub(crate) use jobs::{errno_is_cancelled, get_platform};
 pub(crate) use jobs::{job_get_err, job_get_ret, make_failed_job};
 pub(crate) use runner::run_host_job;

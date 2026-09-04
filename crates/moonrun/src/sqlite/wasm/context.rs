@@ -20,6 +20,7 @@ use std::ffi::CString;
 
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::sqlite::{SqliteHost, SqliteHostError};
+#[cfg(feature = "v8")]
 use crate::v8::context::{V8ImportError, V8RunContext};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +32,7 @@ pub(super) enum SqliteError {
 
 pub(super) type SqliteResult<T> = Result<T, SqliteError>;
 
+#[cfg(feature = "v8")]
 pub(super) fn with_memory_context<T>(
     scope: &mut v8::HandleScope,
     context: &V8RunContext,
@@ -42,6 +44,33 @@ pub(super) fn with_memory_context<T>(
             memory,
         })
     })
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+pub(super) fn with_wasmtime_context<T>(
+    caller: &mut wasmtime::Caller<'_, crate::wasmtime::StoreData>,
+    f: impl FnOnce(&mut ImportContext<'_>) -> SqliteResult<T>,
+) -> SqliteResult<T> {
+    let memory = caller
+        .get_export("memory")
+        .and_then(wasmtime::Extern::into_memory);
+    match memory {
+        Some(memory) => {
+            let (memory, data) = memory.data_and_store_mut(&mut *caller);
+            f(&mut ImportContext {
+                host: data.runtime().sqlite(),
+                memory,
+            })
+        }
+        None => {
+            let data = caller.data_mut();
+            let mut empty = [];
+            f(&mut ImportContext {
+                host: data.runtime().sqlite(),
+                memory: &mut empty,
+            })
+        }
+    }
 }
 
 pub(super) struct ImportContext<'a> {
@@ -171,6 +200,7 @@ impl From<GuestMemoryError> for SqliteError {
     }
 }
 
+#[cfg(feature = "v8")]
 impl From<V8ImportError> for SqliteError {
     fn from(_error: V8ImportError) -> Self {
         Self::Fault
