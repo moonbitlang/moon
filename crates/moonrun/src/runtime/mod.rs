@@ -42,7 +42,7 @@ use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
 pub(crate) use environment_provisioning::EnvProvisioning;
-pub(crate) use stdio::{Stdio, StdioStream};
+pub(crate) use stdio::{Stdio, StdioStream, Utf16Writer};
 pub use working_directory::WorkingDirectory;
 
 new_key_type! {

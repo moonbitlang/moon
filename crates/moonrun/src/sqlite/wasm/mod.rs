@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! V8-facing, synchronous adapter for the SQLite Host interface.
+//! Synchronous Wasm adapter for the SQLite Host interface.
 //!
 //! The `sqlite3_*` imports keep SQLite-shaped operations while adapting native
 //! pointers to a portable wasm ABI. Guest-memory pointers are unsigned wasm
@@ -33,7 +33,7 @@
 //! columns use length-and-copy pairs instead of exposing borrowed native
 //! pointers. Column names follow the same length-and-copy convention. SQLite
 //! behavior and policy belong to the parent `sqlite` module; this adapter only
-//! lowers V8 values and Guest Memory.
+//! lowers engine values and Guest Memory.
 //! Callback-bearing extension APIs, varargs, process-global configuration,
 //! custom VFSes, and file-backed databases are outside the MVP.
 

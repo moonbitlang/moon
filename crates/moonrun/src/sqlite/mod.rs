@@ -19,7 +19,7 @@
 //! SQLite behavior, lifetime state, admission rules, and runtime adapters.
 
 #[cfg(feature = "v8")]
-pub(crate) mod v8;
+pub(crate) mod wasm;
 
 mod bind;
 mod column;
