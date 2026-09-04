@@ -46,7 +46,6 @@ const EXECUTABLE_OVERRIDES: &[&str] = &[
     "MOONINFO_OVERRIDE",
     "MOONRUN_OVERRIDE",
     "MOON_CRAM_OVERRIDE",
-    "MOON_COVE_REPORT_OVERRIDE",
     "MOON_NODE_OVERRIDE",
 ];
 
@@ -70,14 +69,20 @@ pub(crate) fn configured_binary_overrides() -> Vec<(&'static str, PathBuf)> {
         .collect()
 }
 
-fn moon_executable(binary_name: &str, env_var: &str) -> PathBuf {
+fn moon_executable(binary_name: &str, env_var: Option<&str>) -> PathBuf {
     let current_dir =
         std::env::current_dir().expect("failed to get current directory for executable resolution");
     moon_executable_in(binary_name, env_var, &current_dir)
 }
 
-fn moon_executable_in(binary_name: &str, env_var: &str, current_dir: &std::path::Path) -> PathBuf {
-    if let Some(path) = std::env::var_os(env_var) {
+fn moon_executable_in(
+    binary_name: &str,
+    env_var: Option<&str>,
+    current_dir: &std::path::Path,
+) -> PathBuf {
+    if let Some(env_var) = env_var
+        && let Some(path) = std::env::var_os(env_var)
+    {
         return crate::toolchain::resolve_executable_in(&path, current_dir).unwrap_or_else(|_| {
             // Keep unresolved overrides intact so each command preserves its
             // existing user-facing error path.
@@ -112,19 +117,26 @@ fn moon_executable_in(binary_name: &str, env_var: &str, current_dir: &std::path:
         return in_path;
     }
 
-    panic!(
-        "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
-         Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
-        in_toolchain.display()
-    )
+    match env_var {
+        Some(env_var) => panic!(
+            "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
+             Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
+            in_toolchain.display()
+        ),
+        None => panic!(
+            "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
+             Install the MoonBit toolchain.",
+            in_toolchain.display()
+        ),
+    }
 }
 
 pub fn moon_cram_in(current_dir: &std::path::Path) -> PathBuf {
-    moon_executable_in("moon-cram", "MOON_CRAM_OVERRIDE", current_dir)
+    moon_executable_in("moon-cram", Some("MOON_CRAM_OVERRIDE"), current_dir)
 }
 
 pub fn mooncake_in(current_dir: &std::path::Path) -> PathBuf {
-    moon_executable_in("mooncake", "MOONCAKE_OVERRIDE", current_dir)
+    moon_executable_in("mooncake", Some("MOONCAKE_OVERRIDE"), current_dir)
 }
 
 fn moon_payload(file_name: &str, env_var: &str) -> PathBuf {
@@ -182,6 +194,7 @@ pub struct CachedBinaries {
     pub moonyacc: LazyLock<PathBuf>,
     pub moon_cram: LazyLock<PathBuf>,
     pub moon_cove_report: LazyLock<PathBuf>,
+    pub moonx: LazyLock<PathBuf>,
     pub node: LazyLock<Option<PathBuf>>,
     pub python: LazyLock<Option<PathBuf>>,
     pub git: LazyLock<Option<PathBuf>>,
@@ -202,20 +215,19 @@ impl CachedBinaries {
 }
 
 pub static BINARIES: CachedBinaries = CachedBinaries {
-    moonbuild: LazyLock::new(|| moon_executable("moon", "MOON_OVERRIDE")),
-    moonc: LazyLock::new(|| moon_executable("moonc", "MOONC_OVERRIDE")),
-    mooncake: LazyLock::new(|| moon_executable("mooncake", "MOONCAKE_OVERRIDE")),
-    moon_ide: LazyLock::new(|| moon_executable("moon-ide", "MOON_IDE_OVERRIDE")),
-    moondoc: LazyLock::new(|| moon_executable("moondoc", "MOONDOC_OVERRIDE")),
-    moonfmt: LazyLock::new(|| moon_executable("moonfmt", "MOONFMT_OVERRIDE")),
-    mooninfo: LazyLock::new(|| moon_executable("mooninfo", "MOONINFO_OVERRIDE")),
+    moonbuild: LazyLock::new(|| moon_executable("moon", Some("MOON_OVERRIDE"))),
+    moonc: LazyLock::new(|| moon_executable("moonc", Some("MOONC_OVERRIDE"))),
+    mooncake: LazyLock::new(|| moon_executable("mooncake", Some("MOONCAKE_OVERRIDE"))),
+    moon_ide: LazyLock::new(|| moon_executable("moon-ide", Some("MOON_IDE_OVERRIDE"))),
+    moondoc: LazyLock::new(|| moon_executable("moondoc", Some("MOONDOC_OVERRIDE"))),
+    moonfmt: LazyLock::new(|| moon_executable("moonfmt", Some("MOONFMT_OVERRIDE"))),
+    mooninfo: LazyLock::new(|| moon_executable("mooninfo", Some("MOONINFO_OVERRIDE"))),
     moonlex: LazyLock::new(|| moon_payload("moonlex.wasm", "MOONLEX_OVERRIDE")),
-    moonrun: LazyLock::new(|| moon_executable("moonrun", "MOONRUN_OVERRIDE")),
+    moonrun: LazyLock::new(|| moon_executable("moonrun", Some("MOONRUN_OVERRIDE"))),
     moonyacc: LazyLock::new(|| moon_payload("moonyacc.wasm", "MOONYACC_OVERRIDE")),
-    moon_cram: LazyLock::new(|| moon_executable("moon-cram", "MOON_CRAM_OVERRIDE")),
-    moon_cove_report: LazyLock::new(|| {
-        moon_executable("moon_cove_report", "MOON_COVE_REPORT_OVERRIDE")
-    }),
+    moon_cram: LazyLock::new(|| moon_executable("moon-cram", Some("MOON_CRAM_OVERRIDE"))),
+    moon_cove_report: LazyLock::new(|| moon_executable("moon_cove_report", None)),
+    moonx: LazyLock::new(|| moon_executable("moonx", None)),
     node: LazyLock::new(|| optional_executable(&["node.cmd", "node"], "MOON_NODE_OVERRIDE")),
     python: LazyLock::new(|| optional_executable(&["python", "python3"], "MOON_PYTHON_OVERRIDE")),
     git: LazyLock::new(|| optional_executable(&["git"], "MOON_GIT_OVERRIDE")),
@@ -236,6 +248,6 @@ mod tests {
             "__MISSING_MOONBIT_TOOL_OVERRIDE_FOR_BINARY_RESOLUTION_TEST_{}__",
             std::process::id()
         );
-        moon_executable(&binary_name, &env_var);
+        moon_executable(&binary_name, Some(&env_var));
     }
 }

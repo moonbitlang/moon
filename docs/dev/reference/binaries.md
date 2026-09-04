@@ -9,6 +9,9 @@ MoonBit tool executables are selected in this order:
 2. the executable under the resolved toolchain root
 3. an executable found through `PATH`
 
+`moonx` and `moon_cove_report` have no executable override, so their lookup
+starts at step 2.
+
 Override values use the same platform executable lookup as other tool names.
 They may be bare names, explicit relative paths, or absolute paths. Successful
 resolution always produces an absolute path, including when `PATH` itself

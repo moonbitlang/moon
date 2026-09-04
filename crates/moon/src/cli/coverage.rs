@@ -18,7 +18,11 @@
 
 //! CLI and utilities related to code coverage.
 
-use std::{ffi::OsStr, io::Write, path::Path};
+use std::{
+    ffi::{OsStr, OsString},
+    io::Write,
+    path::Path,
+};
 
 use anyhow::Context;
 use clap::Parser;
@@ -26,6 +30,11 @@ use moonutil::{command_output::CommandOutput, project::PackageDirs, user_log::Us
 use walkdir::WalkDir;
 
 use super::{TestSubcommand, UniversalFlags, run_test};
+
+const MOON_COVE_PACKAGE: &str = "moonbitlang/moon_cove";
+const DEFAULT_MOON_COVE_REPORT_VERSION: &str = "0.3.1";
+const MOON_COVE_REPORT_ENABLED_ENV: &str = "MOON_COVE_REPORT_ENABLED";
+const MOON_COVE_REPORT_VERSION_ENV: &str = "MOON_COVE_REPORT_VERSION";
 
 #[derive(Debug, clap::Parser, Default)]
 #[clap(
@@ -54,6 +63,11 @@ pub(crate) enum CoverageSubcommands {
 }
 
 /// Code coverage utilities
+///
+/// Set `MOON_COVE_REPORT_ENABLED=1` (or `true`) to run
+/// `moonbitlang/moon_cove` through `moonx`. `MOON_COVE_REPORT_VERSION`
+/// optionally selects its version and defaults to 0.3.1. When disabled, Moon
+/// uses the toolchain's `moon_cove_report`.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct CoverageSubcommand {
     #[clap(subcommand)]
@@ -70,7 +84,7 @@ pub(crate) struct CoverageAnalyzeSubcommand {
     #[clap(short, long, hide = true, allow_hyphen_values = true)]
     pub test_flag: Vec<String>,
 
-    /// Extra flags passed directly to `moon_cove_report`
+    /// Extra flags passed directly to the selected coverage reporter
     #[arg(last = true, global = true, name = "EXTRA_FLAGS")]
     extra_flags: Vec<String>,
 }
@@ -185,8 +199,27 @@ fn coverage_report_command(
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     cwd: &Path,
 ) -> std::process::Command {
-    let mut cmd = std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_cove_report);
+    let use_moon_cove = std::env::var_os(MOON_COVE_REPORT_ENABLED_ENV)
+        .and_then(|value| value.into_string().ok())
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+
+    let mut cmd = if use_moon_cove {
+        let version = std::env::var_os(MOON_COVE_REPORT_VERSION_ENV)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_MOON_COVE_REPORT_VERSION.into());
+        let mut coordinate = OsString::from(MOON_COVE_PACKAGE);
+        coordinate.push("@");
+        coordinate.push(version);
+
+        let mut cmd = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonx);
+        cmd.args(["--target", "wasm"]).arg(coordinate).arg("--");
+        cmd
+    } else {
+        std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_cove_report)
+    };
     cmd.current_dir(cwd);
+    cmd.env_remove(MOON_COVE_REPORT_ENABLED_ENV);
+    cmd.env_remove(MOON_COVE_REPORT_VERSION_ENV);
     cmd.args(args);
     cmd
 }
