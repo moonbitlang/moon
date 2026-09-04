@@ -288,7 +288,9 @@ torn down.
 _Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
 **Async API**:
-The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm ABI values, reacquires guest memory, sets return values, and reports traps.
+The `moonbitlang/async` Wasm Adapter that registers imports through an Engine
+Backend, decodes wasm ABI values, reacquires Guest Memory, sets return values,
+and reports Host Errors.
 _Avoid_: Host state, native-stub implementation
 
 **Async Host**:
@@ -299,7 +301,7 @@ against the Run's Completion target.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
-The V8-facing `moonbitlang/sqlite` adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. A SQLite Database Mutex is a stable, lifetime-checked Handle owned by its Database; the null Handle preserves SQLite's mutex no-op behavior when a connection has no mutex. UTF-8 filenames use a backing Bytes value plus its byte length; the adapter bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
+The `moonbitlang/sqlite` Wasm Adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. A SQLite Database Mutex is a stable, lifetime-checked Handle owned by its Database; the null Handle preserves SQLite's mutex no-op behavior when a connection has no mutex. UTF-8 filenames use a backing Bytes value plus its byte length; the adapter bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
 _Avoid_: SQLite Host, SQLite wrapper SDK
 
 **SQLite Host**:

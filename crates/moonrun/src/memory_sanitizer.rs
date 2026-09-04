@@ -171,7 +171,11 @@ pub(crate) struct SanitizerStack {
 
 impl SanitizerStack {
     pub(crate) fn new(frames: Vec<SanitizerStackFrame>) -> Self {
-        Self { frames }
+        // Embedding frames differ between engines and do not describe guest
+        // allocations. Keep only the Wasm call stack at this shared boundary.
+        Self {
+            frames: frames.into_iter().filter(|frame| frame.is_wasm).collect(),
+        }
     }
 
     fn write_to(&self, f: &mut impl std::fmt::Write, title: &str) -> std::fmt::Result {
@@ -241,6 +245,15 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn sanitizer_stacks_omit_embedding_frames() {
+        let actual = SanitizerStack::new(vec![
+            SanitizerStackFrame::new("<anonymous>".to_owned(), false),
+            SanitizerStackFrame::new("guest".to_owned(), true),
+        ]);
+        assert_eq!(actual, stack("guest"));
     }
 
     #[test]
