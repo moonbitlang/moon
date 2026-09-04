@@ -154,10 +154,10 @@ mod tests {
     fn event_list_get_rejects_missing_event() {
         let poll = poll_create().unwrap();
 
-        assert_eq!(
-            event_list_get(&poll, 0).copied(),
+        assert!(matches!(
+            event_list_get(&poll, 0),
             Err(AsyncHostError::Fault)
-        );
+        ));
     }
 
     #[test]

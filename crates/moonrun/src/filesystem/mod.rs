@@ -54,6 +54,8 @@ impl fmt::Display for HostFsError {
     }
 }
 
+impl std::error::Error for HostFsError {}
+
 impl HostFsError {
     fn permission_denied(path: &str) -> Self {
         Self {
@@ -144,16 +146,19 @@ impl HostFs {
             .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")))
     }
 
-    pub(crate) fn write_bytes_to_file(
+    pub(crate) fn write_bytes_to_file<E>(
         &self,
         path: &str,
-        contents: impl FnOnce() -> Vec<u8>,
-    ) -> Result<(), HostFsError> {
+        contents: impl FnOnce() -> Result<Vec<u8>, E>,
+    ) -> Result<(), E>
+    where
+        E: From<HostFsError>,
+    {
         self.ensure_write(path)?;
         // Decode guest-owned contents only after authorization, matching the
         // existing import's observable failure order for untrusted guests.
-        std::fs::write(path, contents())
-            .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")))
+        std::fs::write(path, contents()?)
+            .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")).into())
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), HostFsError> {
@@ -673,6 +678,16 @@ mod tests {
         let host = host_fs(policy, Arc::new(Env::ambient()));
         let mut results = FsOperationResults::default();
         let converted = Cell::new(false);
+
+        let error = host
+            .write_bytes_to_file("denied.bin", || {
+                converted.set(true);
+                Ok::<_, HostFsError>(Vec::new())
+            })
+            .unwrap_err();
+
+        assert!(!converted.get());
+        assert_eq!(error.to_string(), "Permission denied: denied.bin");
 
         let status = host.write_bytes_to_file_new(&mut results, "denied.bin", || {
             converted.set(true);
