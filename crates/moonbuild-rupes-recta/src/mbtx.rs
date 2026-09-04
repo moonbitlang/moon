@@ -274,6 +274,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_mbtx_imports_supports_import_all_alias() {
+        let input = r#"import {
+  "moonbitlang/x@0.4.38/stack" *,
+}
+
+        fn main {}
+"#;
+        let imports = parse_imports_from_source(input).expect("import should decode");
+        assert_eq!(imports.imports.len(), 1);
+        assert_eq!(imports.imports[0].get_path(), "moonbitlang/x/stack");
+        assert!(imports.deps.contains_key("moonbitlang/x"));
+        assert!(matches!(
+            &imports.imports[0],
+            Import::Alias {
+                alias: Some(alias),
+                ..
+            } if alias == "*"
+        ));
+    }
+
+    #[test]
     fn extract_mbtx_import_source_returns_none_without_import() {
         let input = "fn main { println(\"ok\") }\n";
         assert_eq!(extract_mbtx_import_source(input), None);
