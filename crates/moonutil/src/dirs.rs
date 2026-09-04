@@ -76,7 +76,8 @@ pub struct SourceTargetDirs {
     #[arg(short = 'C', value_name = "DIR")]
     pub cwd: Option<PathBuf>,
 
-    /// The target directory. Defaults to `<project-root>/_build`.
+    /// The target directory. Defaults to `<project-root>/_build`, or
+    /// `<source-dir>/_build/<file-name>` for a standalone file.
     #[clap(long, global = true)]
     pub target_dir: Option<PathBuf>,
 }
@@ -150,7 +151,19 @@ impl SourceTargetDirs {
             .context("file path must have a parent directory")
             .map(Path::to_path_buf)
             .map_err(PackageDirsError::from)?;
+        // Keep the complete filename so supported source extensions with the
+        // same stem cannot share build state.
+        let file_name = file_path
+            .file_name()
+            .context("file path must have a file name")
+            .map_err(PackageDirsError::from)?;
         let package_dirs = self.source_root_package_dirs(source_dir)?;
+        let target_dir = prepare_target_dir(package_dirs.target_dir.join(file_name))?;
+        let package_dirs = PackageDirs {
+            mooncake_bin_dir: target_dir.join(MOON_BIN_DIR),
+            target_dir,
+            ..package_dirs
+        };
         Ok(SingleFilePackageDirs {
             file_path,
             package_dirs,
@@ -191,6 +204,10 @@ fn resolve_target_dir(
     let target_dir = configured_target_dir
         .map(Path::to_path_buf)
         .unwrap_or_else(|| project_root.join(BUILD_DIR));
+    prepare_target_dir(target_dir)
+}
+
+fn prepare_target_dir(target_dir: PathBuf) -> Result<PathBuf, PackageDirsError> {
     if !target_dir.exists() {
         std::fs::create_dir_all(&target_dir)
             .context("failed to create target directory")
@@ -812,6 +829,62 @@ mod tests {
         assert_eq!(
             dirs.mooncake_bin_dir,
             canonical(project.path().join("tmp-target")).join(MOON_BIN_DIR)
+        );
+    }
+
+    #[test]
+    fn single_file_package_dirs_scope_target_to_complete_filename() {
+        let project = tempfile::tempdir().expect("create test project");
+        write_file(&project.path().join("first.mbt"), "fn main {}\n");
+        write_file(&project.path().join("second.mbtx"), "fn main {}\n");
+        let source_target_dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        };
+
+        let first = source_target_dirs
+            .single_file_package_dirs(project.path().join("first.mbt"))
+            .unwrap();
+        let second = source_target_dirs
+            .single_file_package_dirs(project.path().join("second.mbtx"))
+            .unwrap();
+
+        assert_eq!(
+            first.package_dirs.target_dir,
+            canonical(project.path().join("_build/first.mbt"))
+        );
+        assert_eq!(
+            second.package_dirs.target_dir,
+            canonical(project.path().join("_build/second.mbtx"))
+        );
+        assert_ne!(
+            first.package_dirs.target_dir,
+            second.package_dirs.target_dir
+        );
+    }
+
+    #[test]
+    fn single_file_package_dirs_scope_configured_target_to_filename() {
+        let project = tempfile::tempdir().expect("create test project");
+        write_file(
+            &project.path().join("main.mbt.md"),
+            "```mbt\nfn main {}\n```\n",
+        );
+
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: Some(project.path().join("target")),
+        }
+        .single_file_package_dirs(project.path().join("main.mbt.md"))
+        .unwrap();
+
+        assert_eq!(
+            dirs.package_dirs.target_dir,
+            canonical(project.path().join("target/main.mbt.md"))
+        );
+        assert_eq!(
+            dirs.package_dirs.mooncake_bin_dir,
+            dirs.package_dirs.target_dir.join(MOON_BIN_DIR)
         );
     }
 

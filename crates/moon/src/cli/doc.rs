@@ -193,7 +193,7 @@ pub(crate) fn run_doc_rr(
     // before executing the build
     rr_build::generate_all_pkgs_json(&build_meta)?;
     // Generate metadata for `moondoc`
-    rr_build::generate_metadata(source_dir, &build_meta, &build_graph, None)?;
+    rr_build::generate_metadata(source_dir, &build_meta, &build_graph)?;
 
     // Execute the build
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);

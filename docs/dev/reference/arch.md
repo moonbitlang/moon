@@ -192,6 +192,13 @@ forward instead of letting later phases infer it again. In particular:
 - package and module directories come from discovery results, not from later
   path guessing.
 
+Standalone-file commands scope this target directory by the input's complete
+filename, including its extension. The default is
+`<source-dir>/_build/<filename>`; an explicit `--target-dir <dir>` produces
+`<dir>/<filename>`. This keeps the synthetic package artifacts, metadata,
+dependency binaries, lock, and n2 database for different files from
+overlapping.
+
 Source directory, `.mooncakes` directory, target directory, and optional project
 manifest path are user/config facts from project discovery. The synced
 dependency result is derived data: it contains the resolved module
@@ -646,13 +653,13 @@ and conditional metadata for all package files. This first migration step only
 relocates that document behind the selector; backend/profile projection and
 removal of redundant legacy fields are deferred to a follow-up change.
 
-Standalone-file checks similarly publish their selector and scoped document,
-and replace the shared backend index:
+Standalone-file checks publish the same relative metadata layout within their
+filename-scoped target directory:
 
 ```text
-_build/<filename>.packages.json
-_build/index.json
-_build/<backend>/<profile>/check/<filename>.packages.json
+_build/<filename>/packages.json
+_build/<filename>/index.json
+_build/<filename>/<backend>/<profile>/check/packages.json
 ```
 
 Project checks without a package or path selector publish metadata; focused

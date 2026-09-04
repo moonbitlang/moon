@@ -149,7 +149,8 @@ impl TargetLayoutMode {
 /// Target folder layout for generated artifacts.
 #[derive(Clone, Debug)]
 pub struct TargetLayout {
-    /// The base target directory, usually `<project-root>/_build`.
+    /// The base target directory, usually `<project-root>/_build` or
+    /// `<source-dir>/_build/<file-name>` for a standalone file.
     target_base_dir: PathBuf,
     mode: TargetLayoutMode,
     /// The optimization level, debug or release.
@@ -597,7 +598,7 @@ impl TargetLayout {
 
     /// Returns the universal `packages.json` selector path.
     pub fn packages_selector_path(&self) -> PathBuf {
-        packages_metadata_path(self.target_base_dir.clone(), None)
+        self.target_base_dir.join(PACKAGES_JSON)
     }
 
     /// Returns the backend inventory path shared by package metadata consumers.
@@ -605,25 +606,9 @@ impl TargetLayout {
         self.target_base_dir.join(PACKAGES_INDEX_JSON)
     }
 
-    /// Returns the universal metadata selector path for a standalone source
-    /// file.
-    pub fn standalone_packages_selector_path(&self, source_filename: &str) -> PathBuf {
-        packages_metadata_path(self.target_base_dir.clone(), Some(source_filename))
-    }
-
     /// Returns the backend/profile/run-mode-scoped `packages.json` path.
     pub fn packages_json_path(&self, backend: TargetBackend) -> PathBuf {
-        packages_metadata_path(self.run_mode_dir(backend), None)
-    }
-
-    /// Returns the backend/profile/run-mode-scoped metadata path for a
-    /// standalone source file.
-    pub fn standalone_packages_json_path(
-        &self,
-        backend: TargetBackend,
-        source_filename: &str,
-    ) -> PathBuf {
-        packages_metadata_path(self.run_mode_dir(backend), Some(source_filename))
+        self.run_mode_dir(backend).join(PACKAGES_JSON)
     }
 
     /// Returns the n2 database shared by executions in this target directory.
@@ -634,14 +619,6 @@ impl TargetLayout {
     pub fn n2_db_path(&self) -> PathBuf {
         self.target_base_dir.join(".moon_db")
     }
-}
-
-fn packages_metadata_path(mut dir: PathBuf, source_filename: Option<&str>) -> PathBuf {
-    match source_filename {
-        Some(source_filename) => dir.push(format!("{source_filename}.{PACKAGES_JSON}")),
-        None => dir.push(PACKAGES_JSON),
-    }
-    dir
 }
 
 #[derive(Clone, Debug)]
@@ -1736,16 +1713,8 @@ mod tests {
             PathBuf::from("_build/index.json")
         );
         assert_eq!(
-            layout.standalone_packages_selector_path("main.mbt"),
-            PathBuf::from("_build/main.mbt.packages.json")
-        );
-        assert_eq!(
             layout.packages_json_path(TargetBackend::WasmGC),
             PathBuf::from("_build/wasm-gc/debug/check/packages.json")
-        );
-        assert_eq!(
-            layout.standalone_packages_json_path(TargetBackend::WasmGC, "main.mbt"),
-            PathBuf::from("_build/wasm-gc/debug/check/main.mbt.packages.json")
         );
     }
 

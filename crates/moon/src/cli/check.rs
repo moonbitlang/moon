@@ -619,8 +619,7 @@ fn run_check_for_single_file_rr(
         );
     }
 
-    let filename = single_file_path.file_name().and_then(|name| name.to_str());
-    run_planned_checks(cli, cmd, dirs, planned_runs, true, filename, output, json)
+    run_planned_checks(cli, cmd, dirs, planned_runs, true, output, json)
         .map(|ok| if ok { 0 } else { 1 })
 }
 
@@ -787,7 +786,6 @@ fn run_check_normal_rr_from_resolved(
         dirs,
         planned_runs,
         cmd.package_path.is_none() && cmd.path.is_empty(),
-        None,
         output,
         json,
     )?;
@@ -803,14 +801,12 @@ fn run_check_normal_rr_from_resolved(
 /// end.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run check.
-#[allow(clippy::too_many_arguments)]
 fn run_planned_checks(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     planned_runs: Vec<(rr_build::BuildMeta, rr_build::BuildInput)>,
     publish_metadata: bool,
-    metadata_filename: Option<&str>,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<bool> {
@@ -851,7 +847,7 @@ fn run_planned_checks(
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(build_meta)?;
         if publish_metadata {
-            rr_build::generate_metadata(source_dir, build_meta, build_input, metadata_filename)?;
+            rr_build::generate_metadata(source_dir, build_meta, build_input)?;
         }
     }
     if publish_metadata {
@@ -862,7 +858,7 @@ fn run_planned_checks(
             .last()
             .expect("non-empty planned runs were checked above")
             .0;
-        rr_build::generate_metadata_selector(selected, metadata_filename)?;
+        rr_build::generate_metadata_selector(selected)?;
         rr_build::generate_metadata_index(planned_runs.iter().map(|(build_meta, _)| build_meta))?;
     }
 
