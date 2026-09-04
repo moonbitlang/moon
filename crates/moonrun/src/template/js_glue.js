@@ -128,6 +128,12 @@ module_imports["ffi-bytes"] = {
     fill: (bytes, start, value, len) => bytes.fill(value, start, start + len),
     length: (bytes) => bytes.length,
     equals: (a, b) => a.length === b.length && a.every((val, index) => val === b[index]) ? 1 : 0,
-    asString: (bytes, start, len) => String.fromCharCode(...bytes.subarray(start, start + len).reduce((acc, byte, i) => i % 2 == 0 ? [...acc, byte | (bytes[i + start + 1] << 8)] : acc, [])),
+    asString: (bytes, start, len) => {
+        const slice = bytes.subarray(start, start + len);
+        return String.fromCharCode(...Array.from(
+            { length: Math.floor(slice.length / 2) },
+            (_, i) => slice[i * 2] | (slice[i * 2 + 1] << 8),
+        ));
+    },
     memory: ffiBytesMemory,
 };
