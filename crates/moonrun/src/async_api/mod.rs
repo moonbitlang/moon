@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! V8-facing `moonbitlang/async` import adapter.
+//! `moonbitlang/async` Wasm adapter.
 //!
 //! This layer owns the canonical wasm import list, decodes wasm ABI values from
 //! callback arguments, acquires guest memory, sets return values, and reports
