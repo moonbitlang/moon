@@ -49,4 +49,3 @@ dunce.workspace = true
 [dev-dependencies]
 expect-test.workspace = true
 petgraph.workspace = true
-test-log.workspace = true
