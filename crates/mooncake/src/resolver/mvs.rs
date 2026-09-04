@@ -237,6 +237,11 @@ fn workspace_version_override_warning(
     ))
 }
 
+#[tracing::instrument(
+    level = "debug",
+    skip_all,
+    fields(root_count = res.input_module_ids().len())
+)]
 fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog) -> bool {
     let workspace_roots = res
         .input_module_ids()
@@ -262,9 +267,9 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
 
     // Collect all version constraints for each dependency.
     let mut working_list = vec![];
-    let mut visited = HashSet::new();
-
-    log::debug!("Begin MVS solving");
+    // Roots are scheduled below, so mark them visited before traversal to prevent
+    // dependency edges back to a root from scheduling it a second time.
+    let mut visited = root_sources.clone();
 
     working_list.extend(res.input_module_ids().iter().map(|&id| {
         (
@@ -272,16 +277,15 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
             Arc::clone(res.module_info(id)),
         )
     }));
-    if log::log_enabled!(log::Level::Debug) {
+    if tracing::enabled!(tracing::Level::DEBUG) {
         for &id in res.input_module_ids() {
-            log::debug!("MVS root item: {}", res.module_source(id));
-            visited.insert(res.module_source(id).clone());
+            tracing::debug!(module = %res.module_source(id), "registered root module");
         }
     }
 
     // Do a DFS in the graph
     while let Some((source, module)) = working_list.pop() {
-        log::debug!("-- Solving for {}", source);
+        tracing::debug!(module = %source, "visiting module dependencies");
         let bin_deps = root_sources.contains(&source).then(|| {
             module
                 .bin_deps
@@ -316,20 +320,19 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
     }
 
     if env.any_errors() {
-        log::warn!("Errors in MVS dependency solving, bailing out.");
         return false;
     }
 
-    log::debug!("Selecting minimal version for each set of compatible versions");
+    tracing::debug!("selecting minimal version for each compatibility set");
 
     // Select the minimal version of each compatible version set.
     let mut settled_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
     for (name, versions) in gathered_versions {
-        log::debug!("-- Module {}", name);
+        let _span = tracing::debug_span!("select_module_version", module = %name).entered();
 
         let mut versions = versions.into_iter().map(|x| x.0);
         let mut curr = versions.next().unwrap();
-        log::debug!("---- seen {}", curr);
+        tracing::debug!(version = %curr, "considering version");
         for v in versions {
             if same_mvs_compatibility_set(curr.version(), v.version()) {
                 // v >= curr, as implied by btreeset
@@ -337,7 +340,7 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
                 warn_about_skipped_local_or_git_dep(&curr, user_log);
                 curr = v;
             } else {
-                log::debug!("---- selected {}", curr);
+                tracing::debug!(version = %curr, "selected version");
                 settled_versions
                     .entry(name.clone())
                     .or_default()
@@ -345,25 +348,28 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
                 // This starts a new incompatible set.
                 curr = v;
             }
-            log::debug!("---- seen {}", curr);
+            tracing::debug!(version = %curr, "considering version");
         }
         // There's one last version left to be inserted
-        log::debug!("---- selected {}", curr);
+        tracing::debug!(version = %curr, "selected version");
         settled_versions
             .entry(name)
             .or_default()
             .insert(curr.into());
     }
 
-    log::debug!("Building result dependency graph");
+    tracing::debug!("building resolved dependency graph");
 
     // And finally, build the dependency graph
-    log::debug!("-- Reusing root modules");
     let mut working_list = res
         .input_module_ids()
         .iter()
         .map(|&id| {
-            log::debug!("---- {} -> {:?}", res.module_source(id), id);
+            tracing::debug!(
+                module = %res.module_source(id),
+                module_id = ?id,
+                "reusing root module"
+            );
             (
                 Arc::clone(res.module_info(id)),
                 res.module_source(id).clone(),
@@ -376,7 +382,6 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
         .map(|&id| (res.module_source(id).clone(), id))
         .collect::<HashMap<_, _>>();
 
-    log::debug!("-- Inserting dependencies");
     while let Some((module, module_source)) = working_list.pop() {
         let pkg = module_source;
 
@@ -430,12 +435,17 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
             } else {
                 let dep_module = env.get(resolved).unwrap();
                 let id = res.add_module(resolved.clone(), Arc::clone(&dep_module));
-                log::debug!("---- {} -> {:?}", resolved, id);
+                tracing::debug!(module = %resolved, module_id = ?id, "inserted resolved module");
                 visited.insert(resolved.clone(), id);
                 working_list.push((dep_module, resolved.clone()));
                 id
             };
-            log::debug!("---- {}.deps[{}] = {}", pkg, dep_name, resolved);
+            tracing::debug!(
+                dependant = %pkg,
+                dependency = %dep_name,
+                resolved = %resolved,
+                "inserted dependency edge"
+            );
 
             // Add dependency
             res.add_dependency(
@@ -450,11 +460,8 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
     }
 
     if env.any_errors() {
-        log::warn!("Errors while building resolved dependency graph, bailing out.");
         return false;
     }
-
-    log::debug!("Finished MVS solving");
 
     true
 }
@@ -471,10 +478,10 @@ fn resolve_pkg(
         if let Some(warning) = workspace_version_override_warning(req, dependant, source) {
             user_log.warn(warning);
         }
-        log::debug!(
-            "---- Dependency {} resolved to workspace module {}",
-            pkg_name,
-            source
+        tracing::debug!(
+            dependency = %pkg_name,
+            resolved = %source,
+            "resolved dependency to workspace module"
         );
         return Ok((source.clone(), Arc::clone(module)));
     }
@@ -549,11 +556,11 @@ fn resolve_pkg(
     // to resolving from a registry.
     let (version, module) =
         select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req, user_log)?;
-    log::debug!(
-        "---- Dependency {}, required {:?}, selected {}",
-        pkg_name,
-        req,
-        version
+    tracing::debug!(
+        dependency = %pkg_name,
+        required = ?req,
+        selected = %version,
+        "resolved registry dependency"
     );
     let ms = ModuleSource::new_full(pkg_name.clone(), version, ModuleSourceKind::Registry);
     Ok((ms, module))
@@ -565,7 +572,6 @@ mod test {
     use moonutil::resolution::ModuleId;
     use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
-    use test_log::test;
 
     use super::*;
     use crate::registry::Registry;
@@ -1149,6 +1155,38 @@ mod test {
 
         assert_depends_on_source(&result, &app_src, &shared_src);
         assert_no_depends_on_source(&result, &app_src, &"dep/shared@0.2.0".parse().unwrap());
+    }
+
+    #[test]
+    fn test_workspace_roots_are_not_reprocessed() {
+        let registry = MockRegistry::new();
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let app = Arc::new(create_mock_module(
+            "workspace/app",
+            "0.1.0",
+            [("workspace/lib", "0.2.0")],
+        ));
+        let lib = Arc::new(create_mock_module(
+            "workspace/lib",
+            "0.1.0",
+            [("workspace/app", "0.2.0")],
+        ));
+        let roots = create_mock_workspace_roots([
+            ("/workspace/app", Arc::clone(&app)),
+            ("/workspace/lib", Arc::clone(&lib)),
+        ]);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+        let status = resolver.resolve(&mut env, &mut result_env, &user_log);
+
+        assert!(status, "Resolve failed");
+        assert_eq!(
+            capture.take().len(),
+            2,
+            "each incompatible workspace dependency should warn exactly once",
+        );
     }
 
     #[test]

@@ -104,7 +104,6 @@ text-size = "1.1.1"
 unicode-width = "0.1.13"
 log = "0.4.20"
 thiserror = "1.0"
-test-log = "0.2"
 ariadne = { version = "0.5.1", features = ["auto-color"] }
 clap_complete = { version = "4.5.4" }
 clap-markdown = "0.1.4"
