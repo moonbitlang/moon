@@ -18,9 +18,63 @@
 
 use moonbuild_debug::graph::ENV_VAR;
 
-use crate::{TestDir, build_graph::compare_graphs, get_stdout, get_stdout_with_envs};
+use crate::{TestDir, build_graph::compare_graphs, get_stdout, get_stdout_with_envs, moon_cmd};
 
 use super::*;
+
+#[test]
+fn test_coverage_report_with_moon_cove() {
+    let dir = TestDir::new("test_coverage.in");
+    let assert = moon_cmd(&dir)
+        .env("MOON_COVE_REPORT_ENABLED", "true")
+        .env_remove("MOON_COVE_REPORT_VERSION")
+        .args(["coverage", "report", "--dry-run", "-f=summary"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let stdout = stdout.replace("moonx.exe", "moonx");
+
+    assert!(
+        stdout.contains("moonx --target wasm moonbitlang/moon_cove@0.3.1 -- -f=summary"),
+        "coverage report should delegate through moonx:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_coverage_report_with_moon_cove_version() {
+    let dir = TestDir::new("test_coverage.in");
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["coverage", "report", "--dry-run", "-f=summary"],
+        [
+            ("MOON_COVE_REPORT_ENABLED", "1"),
+            ("MOON_COVE_REPORT_VERSION", "0.4.0"),
+        ],
+    );
+    let stdout = stdout.replace("moonx.exe", "moonx");
+
+    assert!(
+        stdout.contains("moonx --target wasm moonbitlang/moon_cove@0.4.0 -- -f=summary"),
+        "coverage report should use the requested moon_cove version:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_coverage_report_version_does_not_enable_moon_cove() {
+    let dir = TestDir::new("test_coverage.in");
+    let assert = moon_cmd(&dir)
+        .env_remove("MOON_COVE_REPORT_ENABLED")
+        .env("MOON_COVE_REPORT_VERSION", "0.4.0")
+        .args(["coverage", "report", "--dry-run", "-f=summary"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    assert!(
+        stdout.contains("moon_cove_report -f=summary"),
+        "the version alone should keep using moon_cove_report:\n{stdout}"
+    );
+}
 
 #[test]
 fn test_moon_coverage_analyze() {

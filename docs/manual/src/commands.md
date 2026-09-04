@@ -724,6 +724,8 @@ Update the package registry index
 
 Code coverage utilities
 
+Set `MOON_COVE_REPORT_ENABLED=1` (or `true`) to run `moonbitlang/moon_cove` through `moonx`. `MOON_COVE_REPORT_VERSION` optionally selects its version and defaults to 0.3.1. When disabled, Moon uses the toolchain's `moon_cove_report`.
+
 **Usage:** `moon coverage <COMMAND>`
 
 ###### **Subcommands:**
@@ -742,7 +744,7 @@ Run test with instrumentation and report coverage
 
 ###### **Arguments:**
 
-* `<EXTRA_FLAGS>` — Extra flags passed directly to `moon_cove_report`
+* `<EXTRA_FLAGS>` — Extra flags passed directly to the selected coverage reporter
 
 ###### **Options:**
 

@@ -41,6 +41,12 @@ behavior can change.
    final report is rendered either as compact text (default) or JSON lines (when
    `--test-failure-json` is on).
 
+Coverage uses the toolchain's `moon_cove_report` by default. Setting
+`MOON_COVE_REPORT_ENABLED=1` (or `true`) switches reporting to `moonx --target
+wasm moonbitlang/moon_cove@<version> -- ...`. The optional
+`MOON_COVE_REPORT_VERSION` defaults to `0.3.1` and does not enable `moon_cove`
+by itself.
+
 ## Expect / snapshot promotion loop
 
 > TODO: this behavior is suboptimal. See:
