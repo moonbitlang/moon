@@ -15,7 +15,7 @@ fn main {
   // Check values from 0 to iter-1 in the AVL tree
   let mut j = 0
   while j < iter {
-    if not(v.mem(j)) {
+    if !v.mem(j) {
       println("impossible")
     }
     j = j + 1
