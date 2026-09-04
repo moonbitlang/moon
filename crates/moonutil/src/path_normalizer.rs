@@ -98,7 +98,7 @@ impl PathNormalizer {
     pub fn normalize_command_program(&self, program: &str) -> String {
         let raw_program = program.replace('\\', "/");
         if let Some(alias) = Self::exact_alias(&self.override_aliases, &raw_program) {
-            return alias;
+            return alias.clone();
         }
         if let Some((path, alias)) = &self.current_program_alias
             && path == &raw_program
@@ -135,7 +135,10 @@ impl PathNormalizer {
 
     pub fn normalize_command_arg(&self, value: &str) -> String {
         let value = value.replace('\\', "/");
-        let value = Self::exact_alias(&self.override_aliases, &value).unwrap_or(value);
+        let mut value = Self::replace_complete_tokens(value, &self.override_aliases);
+        if let Some(alias) = &self.current_program_alias {
+            value = Self::replace_complete_tokens(value, std::slice::from_ref(alias));
+        }
         let value = if let Some(root) = &self.project_root {
             Self::replace_path_prefix(value, &Self::display_path(root), ".")
         } else {
@@ -147,7 +150,7 @@ impl PathNormalizer {
     pub fn normalize_path(&self, path: &str) -> String {
         let normalized = path.replace('\\', "/");
         if let Some(masked) = Self::exact_alias(&self.override_aliases, &normalized) {
-            return self.mask_roots(masked);
+            return self.mask_roots(masked.clone());
         }
         let path_obj = Path::new(path);
         if let Some(root) = &self.project_root
@@ -163,10 +166,10 @@ impl PathNormalizer {
         self.normalize_path(&normalized_path.to_string_lossy())
     }
 
-    fn exact_alias(aliases: &[(String, String)], value: &str) -> Option<String> {
+    fn exact_alias<'a>(aliases: &'a [(String, String)], value: &str) -> Option<&'a String> {
         aliases
             .iter()
-            .find_map(|(from, to)| (value == from).then(|| to.clone()))
+            .find_map(|(from, to)| (value == from).then_some(to))
     }
 
     fn mask_roots(&self, mut value: String) -> String {
@@ -197,25 +200,66 @@ impl PathNormalizer {
         }
     }
 
+    fn replace_complete_tokens(mut value: String, aliases: &[(String, String)]) -> String {
+        for (path, alias) in aliases {
+            if path.is_empty() {
+                continue;
+            }
+            let mut cursor = 0;
+            while let Some(offset) = value[cursor..].find(path) {
+                let start = cursor + offset;
+                let end = start + path.len();
+                let before = value[..start].chars().next_back();
+                let after = value[end..].chars().next();
+                if Self::is_shell_token_boundary(before) && Self::is_shell_token_boundary(after) {
+                    value.replace_range(start..end, alias);
+                    cursor = start + alias.len();
+                } else {
+                    cursor = end;
+                }
+            }
+        }
+        value
+    }
+
+    fn is_shell_token_boundary(character: Option<char>) -> bool {
+        character.is_none_or(|character| {
+            character.is_whitespace()
+                || matches!(
+                    character,
+                    '\'' | '"' | '|' | '&' | ';' | '(' | ')' | '<' | '>'
+                )
+        })
+    }
+
     fn replace_path_prefix(mut value: String, path: &str, replacement: &str) -> String {
         let path = path.trim_end_matches('/');
         if path.is_empty() {
             return value;
         }
-        // Roots are already path-like, so only their trailing boundary is
-        // ambiguous. This keeps compact flags such as `-I/path` working while
-        // avoiding textual prefixes such as `/tmp/home` in `/tmp/homebrew`.
-        let path_list_separator = if cfg!(windows) { ';' } else { ':' };
-        for separator in ['/', path_list_separator] {
-            value = value.replace(
-                &format!("{path}{separator}"),
-                &format!("{replacement}{separator}"),
-            );
+        // Roots may appear inside path lists and path-bearing compiler flags.
+        // Requiring both boundaries avoids treating ordinary text as a path.
+        let mut cursor = 0;
+        while let Some(offset) = value[cursor..].find(path) {
+            let start = cursor + offset;
+            let end = start + path.len();
+            let before = &value[..start];
+            let after = value[end..].chars().next();
+            let leading_boundary = Self::is_shell_token_boundary(before.chars().next_back())
+                || before.ends_with(['=', ':', ';', ','])
+                || ["-I", "-L", "/I", "/Fo", "/Fe", "/Fd", "@"]
+                    .iter()
+                    .any(|prefix| before.ends_with(prefix));
+            let trailing_boundary = Self::is_shell_token_boundary(after)
+                || after.is_some_and(|character| matches!(character, '/' | ':' | ';' | ','));
+            if leading_boundary && trailing_boundary {
+                value.replace_range(start..end, replacement);
+                cursor = start + replacement.len();
+            } else {
+                cursor = end;
+            }
         }
         value
-            .strip_suffix(path)
-            .map(|prefix| format!("{prefix}{replacement}"))
-            .unwrap_or(value)
     }
 
     fn display_path(path: &Path) -> String {
@@ -292,6 +336,72 @@ mod tests {
     }
 
     #[test]
+    fn renders_environment_aliases_as_symbolic_literals() {
+        let temp = tempfile::tempdir().unwrap();
+        let toolchain_root = PathNormalizer::display_path(&temp.path().join("toolchain"));
+        let moon_home = PathNormalizer::display_path(&temp.path().join("home"));
+        let override_program =
+            PathNormalizer::display_path(&temp.path().join("custom compiler/moonc"));
+        let normalizer = normalizer(
+            &toolchain_root,
+            &moon_home,
+            vec![(override_program.clone(), "$MOONC_OVERRIDE".to_owned())],
+            None,
+        );
+        let stdlib = format!("{moon_home}/lib/core");
+        let command = crate::shlex::join_native(
+            [override_program.as_str(), "--std-path", stdlib.as_str()].into_iter(),
+        );
+
+        assert_eq!(
+            normalizer.normalize_command(&command),
+            "'$MOONC_OVERRIDE' --std-path '$MOON_HOME/lib/core'"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("exec {override_program} --version")),
+            "exec $MOONC_OVERRIDE --version"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("--compiler={override_program}")),
+            format!("--compiler={override_program}")
+        );
+    }
+
+    #[test]
+    fn normalizes_the_current_program_when_it_is_a_complete_shell_token() {
+        let temp = tempfile::tempdir().unwrap();
+        let toolchain_root = PathNormalizer::display_path(&temp.path().join("toolchain"));
+        let moon_home = PathNormalizer::display_path(&temp.path().join("home"));
+        let current_program = PathNormalizer::display_path(&temp.path().join("build/moon"));
+        let normalizer = normalizer(
+            &toolchain_root,
+            &moon_home,
+            vec![],
+            Some((current_program.clone(), "moon".to_owned())),
+        );
+        let shell_command = format!("{current_program} tool embed -i input -o output");
+        let command = crate::shlex::join_native(
+            [
+                current_program.as_str(),
+                "tool",
+                "exec",
+                "--shell",
+                shell_command.as_str(),
+            ]
+            .into_iter(),
+        );
+
+        assert_eq!(
+            normalizer.normalize_command(&command),
+            "moon tool exec --shell 'moon tool embed -i input -o output'"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("{current_program}-helper")),
+            format!("{current_program}-helper")
+        );
+    }
+
+    #[test]
     fn masks_only_complete_overrides_and_path_root_boundaries() {
         let temp = tempfile::tempdir().unwrap();
         let workspace = PathNormalizer::display_path(&dunce::canonicalize(".").unwrap());
@@ -320,6 +430,8 @@ mod tests {
         for root in [&workspace, &toolchain, &moon_home] {
             let sibling = format!("{root}-cache/data");
             assert_eq!(normalizer.normalize_command_arg(&sibling), sibling);
+            let embedded = format!("prefix{root}/lib");
+            assert_eq!(normalizer.normalize_command_arg(&embedded), embedded);
         }
         assert_eq!(
             normalizer.normalize_command_arg(&format!("--root={toolchain}/lib")),
@@ -334,12 +446,21 @@ mod tests {
             "/Fo./_build/main.o"
         );
         assert_eq!(
+            normalizer
+                .normalize_command_arg(&format!("-Wl,-rpath,{workspace}/_build/native/debug/test")),
+            "-Wl,-rpath,./_build/native/debug/test"
+        );
+        assert_eq!(
             normalizer.normalize_command_arg(&format!("--home={moon_home}")),
             "--home=$MOON_HOME"
         );
         assert_eq!(
             normalizer.normalize_command_arg(&format!("--home={moon_home}/lib")),
             "--home=$MOON_HOME/lib"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("tool --root '{toolchain}/lib'")),
+            "tool --root '$MOON_TOOLCHAIN_ROOT/lib'"
         );
 
         let separator = if cfg!(windows) { ';' } else { ':' };
@@ -376,6 +497,32 @@ mod tests {
         assert_eq!(
             normalizer.normalize_command_program(&format!("{toolchain_spelling}/bin/moonc.exe")),
             "moonc"
+        );
+    }
+
+    #[test]
+    fn matches_windows_paths_at_shell_and_compiler_option_boundaries() {
+        let normalizer = normalizer(
+            "C:/Moon/toolchain",
+            "C:/Moon/home",
+            vec![(
+                "C:/Tools/moonc.exe".to_owned(),
+                "$MOONC_OVERRIDE".to_owned(),
+            )],
+            None,
+        );
+
+        assert_eq!(
+            normalizer.normalize_command_arg(r#"& "C:\Tools\moonc.exe" check"#),
+            r#"& "$MOONC_OVERRIDE" check"#
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(r#"/LIBPATH:C:\Moon\toolchain\lib"#),
+            "/LIBPATH:$MOON_TOOLCHAIN_ROOT/lib"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(r#"prefixC:\Moon\toolchain\lib"#),
+            "prefixC:/Moon/toolchain/lib"
         );
     }
 
