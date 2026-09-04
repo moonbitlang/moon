@@ -20,15 +20,13 @@
 
 use super::builder::{ArgsExt, ObjectExt, ScopeExt};
 use super::context;
-use crate::runtime::Stdio;
+use crate::runtime::{Stdio, Utf16Writer};
 use crate::{async_api, filesystem, run_termination, sqlite, util};
 use anyhow::Context;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::any::Any;
-use std::cell::Cell;
-use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -39,7 +37,7 @@ const JS_GLUE: &str = include_str!(concat!(
 ));
 
 struct PrintEnv {
-    dangling_high_half: Cell<Option<u32>>,
+    writer: Utf16Writer,
     stdio: Arc<Stdio>,
 }
 
@@ -123,32 +121,13 @@ fn print_char(
         unsafe { &*(ptr as *const PrintEnv) }
     };
 
-    let arg = args.get(0);
-    let c = arg.integer_value(scope).unwrap() as u32;
-    if (0xd800..=0xdbff).contains(&c) {
-        let high = c - 0xd800;
-        if print_env.dangling_high_half.get().is_some() {
-            print_env
-                .stdio
-                .with_stdout(|stdout| write!(stdout, "\u{fffd}"))
-                .unwrap();
-        }
-        print_env.dangling_high_half.set(Some(high));
-    } else {
-        let c = if (0xdc00..=0xdfff).contains(&c) {
-            print_env
-                .dangling_high_half
-                .take()
-                .map_or(0xfffd, |high| 0x10000 + (high << 10) + (c - 0xdc00))
-        } else {
-            c
-        };
-        let c = char::from_u32(c).unwrap();
-        print_env
-            .stdio
-            .with_stdout(|stdout| write!(stdout, "{c}"))
-            .unwrap();
-    }
+    print_env
+        .writer
+        .write_stdout(
+            &print_env.stdio,
+            args.get(0).integer_value(scope).unwrap() as u32,
+        )
+        .unwrap();
     ret.set_undefined()
 }
 
@@ -170,35 +149,7 @@ fn read_char(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let result = run_context(&args).runtime().stdio().with_stdin(|stdin| {
-        let mut buffer = [0; 4];
-        if stdin.read(&mut buffer[..1])? == 0 {
-            return Ok(None);
-        }
-
-        let num_bytes = match buffer[0] {
-            0..=0x7f => 1,
-            0xc0..=0xdf => 2,
-            0xe0..=0xef => 3,
-            0xf0..=0xf7 => 4,
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid UTF-8 first byte",
-                ));
-            }
-        };
-        if num_bytes > 1 {
-            stdin.read_exact(&mut buffer[1..num_bytes])?;
-        }
-
-        std::str::from_utf8(&buffer[..num_bytes])
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
-            .chars()
-            .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no character found"))
-            .map(Some)
-    });
+    let result = run_context(&args).runtime().stdio().read_utf8_char();
     match result {
         Ok(Some(c)) => {
             ret.set_int32(c as i32);
@@ -353,7 +304,7 @@ pub(super) fn install<'s>(
     let memory_binding = Rc::clone(v8_context.memory_binding());
 
     let print_env_box = Box::new(PrintEnv {
-        dangling_high_half: Cell::new(None),
+        writer: Utf16Writer::default(),
         stdio: Arc::clone(v8_context.runtime().stdio()),
     });
     let print_env = &*print_env_box as *const PrintEnv;
@@ -391,9 +342,9 @@ pub(super) fn install<'s>(
     }
 
     {
-        let sqlite = module_imports.child(scope, sqlite::v8::MOONBIT_SQLITE_MODULE);
+        let sqlite = module_imports.child(scope, sqlite::wasm::MOONBIT_SQLITE_MODULE);
         // SAFETY: the same lifetime invariant as the async adapter above.
-        unsafe { sqlite::v8::init_env(sqlite, scope, v8_context_ptr) };
+        unsafe { sqlite::wasm::init_env(sqlite, scope, v8_context_ptr) };
     }
 
     {

@@ -23,10 +23,10 @@ use crate::v8::context::{ImportArgs, V8ImportError, V8RunContext};
 
 pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
 
-// This is the complete `moonbitlang/sqlite` ABI surface. The declaration
-// generates both the V8 callbacks and their registration, so adding a symbol
-// cannot update one without the other. Each entry names its implementation
-// target; the registry does not expose how the macro reaches that target.
+// This is the complete `moonbitlang/sqlite` ABI surface. The declaration keeps
+// callbacks and registration generated together, so adding a symbol cannot
+// update one without the other. Each entry names its implementation target;
+// the registry does not expose how the macro reaches that target.
 declare_sqlite_imports! {
     Runtime::null_handle() -> u64 => "sqlite3_null_handle";
 
