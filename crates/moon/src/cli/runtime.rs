@@ -225,7 +225,7 @@ fn dispatch(
         Prove(command) => super::run_prove(&flags, &command, output).map(Into::into),
         Clean(command) => super::run_clean(&flags, &command, output.user_log()).map(Into::into),
         Cram(command) => super::run_cram(&flags, command, output),
-        Coverage(command) => super::run_coverage(flags, command, output).map(Into::into),
+        Coverage(command) => super::run_coverage(flags, command, output),
         Doc(command) => super::run_doc(flags, command, output).map(Into::into),
         Fetch(command) => super::fetch_cli(flags, command, output.user_log()).map(Into::into),
         Work(command) => super::work_cli(flags, command, output.user_log()).map(Into::into),

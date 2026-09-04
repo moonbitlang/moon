@@ -18,9 +18,45 @@
 
 use moonbuild_debug::graph::ENV_VAR;
 
-use crate::{TestDir, build_graph::compare_graphs, get_stdout, get_stdout_with_envs};
+use crate::{TestDir, build_graph::compare_graphs, get_stdout, get_stdout_with_envs, moon_cmd};
 
 use super::*;
+
+#[test]
+fn test_coverage_report_with_moon_cove() {
+    let dir = TestDir::new("test_coverage.in");
+    moon_cmd(&dir)
+        .env("MOON_COVE_REPORT_ENABLED", "true")
+        .env_remove("MOON_COVE_REPORT_VERSION")
+        .args(["coverage", "report", "--dry-run", "-f=summary"])
+        .assert()
+        .success()
+        .stdout_eq("(cd [..] && moonx --target wasm moonbitlang/moon_cove@0.3.1 -- -f=summary)\n");
+}
+
+#[test]
+fn test_coverage_report_with_moon_cove_version() {
+    let dir = TestDir::new("test_coverage.in");
+    moon_cmd(&dir)
+        .env("MOON_COVE_REPORT_ENABLED", "1")
+        .env("MOON_COVE_REPORT_VERSION", "0.4.0")
+        .args(["coverage", "report", "--dry-run", "-f=summary"])
+        .assert()
+        .success()
+        .stdout_eq("(cd [..] && moonx --target wasm moonbitlang/moon_cove@0.4.0 -- -f=summary)\n");
+}
+
+#[test]
+fn test_coverage_report_version_does_not_enable_moon_cove() {
+    let dir = TestDir::new("test_coverage.in");
+    moon_cmd(&dir)
+        .env_remove("MOON_COVE_REPORT_ENABLED")
+        .env("MOON_COVE_REPORT_VERSION", "0.4.0")
+        .args(["coverage", "report", "--dry-run", "-f=summary"])
+        .assert()
+        .success()
+        .stdout_eq("(cd [..] && [..]moon_cove_report[..] -f=summary)\n");
+}
 
 #[test]
 fn test_moon_coverage_analyze() {
