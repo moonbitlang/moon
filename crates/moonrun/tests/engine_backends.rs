@@ -34,6 +34,40 @@ fn engine_backend_reuses_compiled_modules() {
 }
 
 #[test]
+fn engine_backends_support_legacy_spectest_read_char() {
+    let wasm = tempfile::Builder::new()
+        .prefix("spectest-read-char.")
+        .suffix(".wasm")
+        .tempfile()
+        .unwrap();
+    std::fs::write(
+        wasm.path(),
+        wat::parse_str(
+            r#"(module
+                (import "spectest" "read_char" (func $read_char (result i32)))
+                (import "spectest" "print_char" (func $print_char (param i32)))
+                (func (export "_start")
+                    call $read_char
+                    call $print_char
+                    call $read_char
+                    i32.const -1
+                    i32.ne
+                    if unreachable end))"#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(wasm.path())
+        .stdin("λ")
+        .assert()
+        .success()
+        .stdout_eq("λ")
+        .stderr_eq("");
+}
+
+#[test]
 fn engine_backends_support_js_string_builtins() {
     let engine = moonrun::Engine::default();
     let js_strings = engine
@@ -258,26 +292,6 @@ fn engine_backends_support_test_driver_string_bridge() {
 }
 
 #[test]
-fn engine_backends_support_explicit_exit() {
-    let engine = moonrun::Engine::default();
-    let exit = engine
-        .compile(
-            "exit.wasm",
-            wat::parse_str(
-                r#"(module
-                    (import "__moonbit_sys_unstable" "exit" (func $exit (param i32)))
-                    (func (export "_start") i32.const 7 call $exit))"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    assert_eq!(
-        engine.run(&exit, moonrun::RunOptions::default()).unwrap(),
-        moonrun::RunOutcome::Exited(7)
-    );
-}
-
-#[test]
 fn engine_backends_support_repeated_imports() {
     let engine = moonrun::Engine::default();
     let module = engine
@@ -305,102 +319,6 @@ fn engine_backends_support_repeated_imports() {
     );
 }
 
-#[test]
-fn engine_backend_handles_start_section_traps_as_guest_failures() {
-    let engine = moonrun::Engine::default();
-    let module = engine
-        .compile(
-            "start-trap.wasm",
-            wat::parse_str(
-                r#"(module
-                    (func $module_start unreachable)
-                    (start $module_start))"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-
-    assert_eq!(
-        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
-        moonrun::RunOutcome::Exited(1)
-    );
-}
-
-#[test]
-fn engine_backend_handles_wasm_exceptions_as_guest_failures() {
-    let engine = moonrun::Engine::default();
-    let module = engine
-        .compile(
-            "exception.wasm",
-            wat::parse_str(
-                r#"(module
-                    (import "exception" "tag" (tag $tag))
-                    (import "exception" "throw" (func $throw))
-                    (func (export "_start") call $throw))"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-
-    assert_eq!(
-        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
-        moonrun::RunOutcome::Exited(1)
-    );
-}
-
-#[test]
-fn engine_backend_handles_js_string_builtin_traps_as_guest_failures() {
-    let engine = moonrun::Engine::default();
-    let module = engine
-        .compile(
-            "js-string-trap.wasm",
-            wat::parse_str(
-                r#"(module
-                    (import "wasm:js-string" "fromCodePoint"
-                        (func $from_code_point (param i32) (result (ref extern))))
-                    (func (export "_start")
-                        i32.const -1
-                        call $from_code_point
-                        drop))"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-
-    assert_eq!(
-        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
-        moonrun::RunOutcome::Exited(1)
-    );
-}
-
-#[test]
-fn engine_backend_handles_test_driver_finish_traps_as_guest_failures() {
-    let engine = moonrun::Engine::default();
-    let module = engine
-        .compile(
-            "finish-trap.wasm",
-            wat::parse_str(
-                r#"(module
-                    (func (export "moonbit_test_driver_internal_execute")
-                        (param externref i32))
-                    (func (export "moonbit_test_driver_finish") unreachable))"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-
-    assert_eq!(
-        engine
-            .run(
-                &module,
-                moonrun::RunOptions::default()
-                    .with_test_args(r#"{"package":"moon/core","file_and_index":[]}"#),
-            )
-            .unwrap(),
-        moonrun::RunOutcome::Exited(1)
-    );
-}
-
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 #[test]
 fn wasmtime_rejects_unregistered_imports() {
@@ -422,6 +340,11 @@ fn wasmtime_rejects_unregistered_imports() {
             r#"(import "moonbit" "string_to_js_string" (func (param i32)))"#,
             "unsupported Wasmtime import `moonbit.string_to_js_string`",
         ),
+        (
+            "unsupported-console-elog.wasm",
+            r#"(import "console" "elog" (func (param externref)))"#,
+            "unsupported Wasmtime import `console.elog`",
+        ),
     ] {
         let module = engine
             .compile(name, wat::parse_str(format!("(module {import})")).unwrap())
@@ -436,7 +359,7 @@ fn wasmtime_rejects_unregistered_imports() {
 
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 #[test]
-fn wasmtime_preserves_instantiation_host_adapter_errors() {
+fn wasmtime_preserves_instantiation_context_for_start_host_errors() {
     let engine = moonrun::Engine::default();
     let module = engine
         .compile(
@@ -464,9 +387,89 @@ fn wasmtime_preserves_instantiation_host_adapter_errors() {
     let error = format!("{error:#}");
     assert!(
         error.contains("failed to instantiate `start-host-error.wasm`")
-            && error.contains("externref is not a JS string"),
+            && error.contains("externref is not a JS string")
+            && error.contains("at module_start"),
         "{error}"
     );
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+#[test]
+fn wasmtime_reports_invalid_byte_handles_as_host_errors() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("invalid-bytes.bin");
+    let path = output
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "invalid-byte-handle.wasm",
+            wat::parse_str(format!(
+                r#"(module
+                    (import "_" "{path}" (global $path (ref extern)))
+                    (import "_" "not bytes" (global $not_bytes (ref extern)))
+                    (import "__moonbit_fs_unstable" "write_bytes_to_file"
+                        (func $write (param externref externref)))
+                    (func (export "_start")
+                        global.get $path
+                        global.get $not_bytes
+                        call $write))"#,
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+
+    let error = engine
+        .run(&module, moonrun::RunOptions::default())
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("unexpected externref host value"),
+        "{error:#}"
+    );
+    assert!(!output.exists());
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+#[test]
+fn wasmtime_authorizes_before_reading_byte_handles() {
+    let directory = tempfile::tempdir().unwrap();
+    let policy = directory.path().join("policy.toml");
+    std::fs::write(&policy, "").unwrap();
+    let wasm = directory.path().join("denied-invalid-byte-handle.wasm");
+    std::fs::write(
+        &wasm,
+        wat::parse_str(
+            r#"(module
+                (import "_" "denied.bin" (global $path (ref extern)))
+                (import "_" "not bytes" (global $not_bytes (ref extern)))
+                (import "__moonbit_fs_unstable" "write_bytes_to_file_new"
+                    (func $write (param externref externref) (result i32)))
+                (import "__moonbit_fs_unstable" "get_error_message"
+                    (func $get_error_message (result externref)))
+                (import "console" "log" (func $log (param (ref extern))))
+                (func (export "_start")
+                    global.get $path
+                    global.get $not_bytes
+                    call $write
+                    drop
+                    call $get_error_message
+                    ref.as_non_null
+                    call $log))"#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm)
+        .arg("--policy")
+        .arg(policy)
+        .assert()
+        .success()
+        .stdout_eq("Permission denied: denied.bin\n")
+        .stderr_eq("Sandbox policy blocked file write: \"denied.bin\"\n");
 }
 
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]

@@ -45,13 +45,17 @@ mod registry;
 mod registry_macros;
 mod statement;
 
+#[cfg(feature = "v8")]
 use crate::v8::context::V8RunContext;
 
 pub(crate) use registry::MOONBIT_SQLITE_MODULE;
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+pub(crate) use registry::register_wasmtime_imports;
 
 /// # Safety
 ///
 /// `context` must remain valid whenever a registered callback can be invoked.
+#[cfg(feature = "v8")]
 pub(crate) unsafe fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,

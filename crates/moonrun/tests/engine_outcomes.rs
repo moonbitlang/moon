@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![cfg(feature = "v8")]
-
 fn compile(name: &str, source: &str) -> (moonrun::Engine, moonrun::Module) {
     let engine = moonrun::Engine::default();
     let module = engine
@@ -27,7 +25,7 @@ fn compile(name: &str, source: &str) -> (moonrun::Engine, moonrun::Module) {
 }
 
 #[test]
-fn v8_classifies_uncaught_wasm_failures_as_guest_failures() {
+fn engine_backend_classifies_uncaught_wasm_failures_as_guest_failures() {
     let cases = [
         (
             "module-start-trap.wasm",
@@ -82,7 +80,7 @@ fn v8_classifies_uncaught_wasm_failures_as_guest_failures() {
 }
 
 #[test]
-fn v8_keeps_handled_test_failures_inside_the_test_driver() {
+fn engine_backend_keeps_handled_test_failures_inside_the_test_driver() {
     let (engine, module) = compile(
         "test-execute-trap.wasm",
         r#"(module
@@ -106,7 +104,7 @@ fn v8_keeps_handled_test_failures_inside_the_test_driver() {
 }
 
 #[test]
-fn v8_preserves_explicit_run_termination() {
+fn engine_backend_preserves_explicit_run_termination() {
     let (engine, module) = compile(
         "exit.wasm",
         r#"(module
@@ -121,7 +119,7 @@ fn v8_preserves_explicit_run_termination() {
 }
 
 #[test]
-fn v8_preserves_instantiation_link_errors() {
+fn engine_backend_preserves_instantiation_link_errors() {
     let (engine, module) = compile(
         "missing-import.wasm",
         r#"(module
@@ -134,13 +132,14 @@ fn v8_preserves_instantiation_link_errors() {
     let error = format!("{error:#}");
     assert!(
         error.contains("failed to instantiate `missing-import.wasm`")
-            && error.contains("LinkError"),
+            && error.contains("__moonbit_sys_unstable")
+            && error.contains("missing"),
         "{error}"
     );
 }
 
 #[test]
-fn v8_preserves_host_adapter_errors() {
+fn engine_backend_preserves_host_adapter_errors() {
     let cases = [
         (
             "module-start-host-error.wasm",

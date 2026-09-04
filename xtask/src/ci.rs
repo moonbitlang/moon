@@ -66,11 +66,14 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
             fix_script: Some("cargo fmt"),
         },
         Check {
-            label: "cargo clippy --all-targets --all-features -- -D warnings",
+            label: "cargo clippy --workspace --exclude moonrun --all-targets --all-features -- -D warnings",
             command: Command {
                 program: "cargo",
                 args: &[
                     "clippy",
+                    "--workspace",
+                    "--exclude",
+                    "moonrun",
                     "--all-targets",
                     "--all-features",
                     "--",
@@ -79,7 +82,46 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
                 ],
             },
             fix_script: Some(
-                "cargo clippy --fix --all-targets --all-features --allow-dirty --allow-staged",
+                "cargo clippy --fix --workspace --exclude moonrun --all-targets --all-features --allow-dirty --allow-staged",
+            ),
+        },
+        Check {
+            label: "cargo clippy -p moonrun --all-targets -- -D warnings",
+            command: Command {
+                program: "cargo",
+                args: &[
+                    "clippy",
+                    "-p",
+                    "moonrun",
+                    "--all-targets",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+            },
+            fix_script: Some(
+                "cargo clippy --fix -p moonrun --all-targets --allow-dirty --allow-staged",
+            ),
+        },
+        Check {
+            label: "cargo clippy -p moonrun --all-targets --no-default-features --features wasmtime -- -D warnings",
+            command: Command {
+                program: "cargo",
+                args: &[
+                    "clippy",
+                    "-p",
+                    "moonrun",
+                    "--all-targets",
+                    "--no-default-features",
+                    "--features",
+                    "wasmtime",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+            },
+            fix_script: Some(
+                "cargo clippy --fix -p moonrun --all-targets --no-default-features --features wasmtime --allow-dirty --allow-staged",
             ),
         },
     ];
