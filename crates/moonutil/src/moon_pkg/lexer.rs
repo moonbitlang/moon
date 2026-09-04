@@ -58,6 +58,8 @@ pub enum Token {
     RPAREN(Loc),
     #[token(";", with_span)]
     SEMI(Loc),
+    #[token("*", with_span)]
+    STAR(Loc),
     #[token("true", with_span)]
     TRUE(Loc),
     #[token("false", with_span)]
@@ -180,6 +182,7 @@ pub enum TokenKind {
     LPAREN,
     RPAREN,
     SEMI,
+    STAR,
     TRUE,
     FALSE,
     FOR,
@@ -205,6 +208,7 @@ impl Token {
             | Token::LPAREN(r)
             | Token::RPAREN(r)
             | Token::SEMI(r)
+            | Token::STAR(r)
             | Token::TRUE(r)
             | Token::FALSE(r)
             | Token::FOR(r)
@@ -229,6 +233,7 @@ impl Token {
             Token::LPAREN(_) => TokenKind::LPAREN,
             Token::RPAREN(_) => TokenKind::RPAREN,
             Token::SEMI(_) => TokenKind::SEMI,
+            Token::STAR(_) => TokenKind::STAR,
             Token::TRUE(_) => TokenKind::TRUE,
             Token::FALSE(_) => TokenKind::FALSE,
             Token::FOR(_) => TokenKind::FOR,
@@ -256,6 +261,7 @@ impl Display for Token {
             Token::LPAREN(_) => write!(f, "("),
             Token::RPAREN(_) => write!(f, ")"),
             Token::SEMI(_) => write!(f, ";"),
+            Token::STAR(_) => write!(f, "*"),
             Token::TRUE(_) => write!(f, "true"),
             Token::FALSE(_) => write!(f, "false"),
             Token::FOR(_) => write!(f, "for"),
@@ -737,6 +743,12 @@ fn tokenize_package_name_with_dash() {
         &tokens[3],
         Token::PACKAGENAME((_, alias)) if alias == "pkg-A"
     ));
+}
+
+#[test]
+fn tokenize_import_all_alias() {
+    let tokens = tokenize(r#"import { "path/to/pkg" * }"#).unwrap();
+    assert!(matches!(&tokens[3], Token::STAR(_)));
 }
 
 #[test]

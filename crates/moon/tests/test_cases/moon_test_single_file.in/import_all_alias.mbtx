@@ -1,0 +1,7 @@
+import {
+  "moonbitlang/x@0.4.38/stack" *,
+}
+
+fn main {
+  println("hello")
+}

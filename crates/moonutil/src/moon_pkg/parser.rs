@@ -284,6 +284,10 @@ impl Parser {
                         s.skip();
                         Some(alias)
                     }
+                    Token::STAR(_) => {
+                        s.skip();
+                        Some("*".to_string())
+                    }
                     _ => None,
                 };
                 Ok(match alias {
@@ -496,6 +500,30 @@ import {
             {
                 "path": "path/to/pkg",
                 "alias": "pkg-A"
+            }
+        ])
+    );
+}
+
+#[test]
+fn parse_import_all_alias() {
+    let source = r#"
+import {
+  "path/to/pkg" *,
+}
+    "#;
+
+    let tokens = tokenize(source).unwrap();
+    let ast = Parser::parse(tokens).unwrap();
+
+    assert_eq!(ast.entries.len(), 1);
+    assert_eq!(ast.entries[0].0, "import");
+    assert_eq!(
+        ast.entries[0].1,
+        json!([
+            {
+                "path": "path/to/pkg",
+                "alias": "*"
             }
         ])
     );
