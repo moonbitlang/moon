@@ -818,22 +818,14 @@ pub fn plan_fmt(
 ///
 /// To ensure the correct paths are generated, `build_meta` should come from the
 /// same configuration used in [`plan_build`].
-///
-/// If the caller is from a single-file build, `single_file_filename` should
-/// be set to the filename (with extension) of the single file being built.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_metadata(
     source_dir: &Path,
     build_meta: &BuildMeta,
     build_input: &BuildInput,
-    single_file_filename: Option<&str>,
 ) -> anyhow::Result<()> {
     let layout = build_meta.artifact_paths.target_layout();
-    let scoped_metadata_file = if let Some(filename) = single_file_filename {
-        layout.standalone_packages_json_path(build_meta.target_backend(), filename)
-    } else {
-        layout.packages_json_path(build_meta.target_backend())
-    };
+    let scoped_metadata_file = layout.packages_json_path(build_meta.target_backend());
 
     let check_commands = collect_check_commands_by_output(build_input);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
@@ -849,10 +841,7 @@ pub fn generate_metadata(
 }
 
 /// Generate the universal `packages.json` selector for one scoped document.
-pub fn generate_metadata_selector(
-    build_meta: &BuildMeta,
-    single_file_filename: Option<&str>,
-) -> anyhow::Result<()> {
+pub fn generate_metadata_selector(build_meta: &BuildMeta) -> anyhow::Result<()> {
     let selector = moonutil::manifest::PackagesSelectorJSON {
         backend: build_meta.target_backend().to_string(),
         opt_level: build_meta.opt_level.as_str().to_string(),
@@ -860,11 +849,7 @@ pub fn generate_metadata_selector(
     let selector = serde_json::to_string_pretty(&selector)
         .context("Failed to serialize universal packages metadata")?;
     let layout = build_meta.artifact_paths.target_layout();
-    let metadata_file = if let Some(filename) = single_file_filename {
-        layout.standalone_packages_selector_path(filename)
-    } else {
-        layout.packages_selector_path()
-    };
+    let metadata_file = layout.packages_selector_path();
     write_metadata_if_changed(&metadata_file, &selector)
 }
 

@@ -89,7 +89,7 @@ fn test_moon_help() {
               -C <DIR>
                       Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
                   --target-dir <TARGET_DIR>
-                      The target directory. Defaults to `<project-root>/_build`
+                      The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/<file-name>` for a standalone file
               -q, --quiet
                       Suppress output
               -v, --verbose
@@ -176,10 +176,10 @@ native
         .stderr_eq("");
 
     assert!(
-        dir.join("_build/wasm/debug/build/single/single.wasm")
+        dir.join("_build/moonx_args.mbtx/wasm/debug/build/single/single.wasm")
             .is_file()
     );
-    assert!(!dir.join("_build/wasm-gc").exists());
+    assert!(!dir.join("_build/moonx_args.mbtx/wasm-gc").exists());
 }
 
 #[test]
@@ -1632,7 +1632,7 @@ fn test_moon_explain_without_flags_shows_guidance() {
               -h, --help                       Print help
 
             Common Options:
-                  --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`
+                  --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/<file-name>` for a standalone file
               -q, --quiet                    Suppress output
               -v, --verbose                  Increase verbosity
                   --trace                    Trace the execution of the program
@@ -1986,7 +1986,7 @@ fn test_moon_run_command_string_defaults_to_wasm() {
 
     assert!(stdout.contains("-target wasm"), "stdout: {stdout}");
     assert!(
-        stdout.contains("./_build/wasm/debug/build/single/single.core"),
+        stdout.contains("./_build/command.mbtx/wasm/debug/build/single/single.core"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");
@@ -2013,10 +2013,15 @@ fn test_moon_run_command_string_explicit_target_overrides_wasm_default() {
 
     assert!(stdout.contains("-target wasm-gc"), "stdout: {stdout}");
     assert!(
-        stdout.contains("'$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/single/single.wasm --"),
+        stdout.contains(
+            "'$MOONRUN_OVERRIDE' ./_build/command.mbtx/wasm-gc/debug/build/single/single.wasm --"
+        ),
         "stdout: {stdout}"
     );
-    assert!(!stdout.contains("./_build/wasm/debug/"), "stdout: {stdout}");
+    assert!(
+        !stdout.contains("./_build/command.mbtx/wasm/debug/"),
+        "stdout: {stdout}"
+    );
     assert!(!stdout.contains("-target native"), "stdout: {stdout}");
 }
 
@@ -2038,7 +2043,7 @@ fn test_moon_run_command_string_short_alias_c_defaults_to_wasm() {
 
     assert!(stdout.contains("-target wasm"), "stdout: {stdout}");
     assert!(
-        stdout.contains("./_build/wasm/debug/build/single/single.core"),
+        stdout.contains("./_build/command.mbtx/wasm/debug/build/single/single.core"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");

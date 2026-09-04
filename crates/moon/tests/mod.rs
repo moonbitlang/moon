@@ -53,32 +53,37 @@ impl AsRef<Path> for TestDir {
 }
 
 fn packages_selector_path(dir: impl AsRef<Path>) -> PathBuf {
-    dir.as_ref().join("_build/packages.json")
+    target_packages_selector_path(dir.as_ref().join("_build"))
 }
 
 fn packages_index_path(dir: impl AsRef<Path>) -> PathBuf {
-    dir.as_ref().join("_build/index.json")
+    target_packages_index_path(dir.as_ref().join("_build"))
 }
 
 fn scoped_packages_json_path(dir: impl AsRef<Path>, backend: &str, profile: &str) -> PathBuf {
-    dir.as_ref()
-        .join(format!("_build/{backend}/{profile}/check/packages.json"))
+    target_scoped_packages_json_path(dir.as_ref().join("_build"), backend, profile)
 }
 
-fn standalone_packages_selector_path(dir: impl AsRef<Path>, source_filename: &str) -> PathBuf {
-    dir.as_ref()
-        .join(format!("_build/{source_filename}.packages.json"))
+fn target_packages_selector_path(target_dir: impl AsRef<Path>) -> PathBuf {
+    target_dir.as_ref().join("packages.json")
 }
 
-fn standalone_scoped_packages_json_path(
-    dir: impl AsRef<Path>,
+fn target_packages_index_path(target_dir: impl AsRef<Path>) -> PathBuf {
+    target_dir.as_ref().join("index.json")
+}
+
+fn target_scoped_packages_json_path(
+    target_dir: impl AsRef<Path>,
     backend: &str,
     profile: &str,
-    source_filename: &str,
 ) -> PathBuf {
-    dir.as_ref().join(format!(
-        "_build/{backend}/{profile}/check/{source_filename}.packages.json"
-    ))
+    target_dir
+        .as_ref()
+        .join(format!("{backend}/{profile}/check/packages.json"))
+}
+
+fn standalone_target_dir(dir: impl AsRef<Path>, source_filename: &str) -> PathBuf {
+    dir.as_ref().join("_build").join(source_filename)
 }
 
 pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {

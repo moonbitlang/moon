@@ -34,16 +34,16 @@ fn test_moon_run_single_file_dry_run() {
     check(
         collapse_core_import_args(&output, TargetBackend::Native),
         expect![[r#"
-            moonc build-package ./single.mbt -o ./_build/native/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/native/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target native -g -O0 -workspace-path . -all-pkgs ./_build/native/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/native/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/native/release/bundle/core.core' ./_build/native/debug/build/single/single.core -main moon/test/single -o ./_build/native/debug/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native -g -O0
-            cc -o ./_build/native/debug/build/runtime-utf.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/utf.c'
-            cc -o ./_build/native/debug/build/runtime-sync_io.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/sync_io.c'
-            cc -o ./_build/native/debug/build/runtime-runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/runtime.c'
-            cc -o ./_build/native/debug/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/env.c'
-            cc -o ./_build/native/debug/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
-            [ARCHIVER] [CREATE_ARGS] ./_build/native/debug/build/libruntime[FINGER_PRINT].a ./_build/native/debug/build/runtime-backtrace.o ./_build/native/debug/build/runtime-env.o ./_build/native/debug/build/runtime-runtime.o ./_build/native/debug/build/runtime-sync_io.o ./_build/native/debug/build/runtime-utf.o
-            cc -o ./_build/native/debug/build/single/single.exe '-I$MOON_HOME/include' -g -fwrapv -fno-strict-aliasing -Og '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/debug/build/single/single.c ./_build/native/debug/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
-            ./_build/native/debug/build/single/single.exe
+            moonc build-package ./single.mbt -o ./_build/single.mbt/native/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/native/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target native -g -O0 -workspace-path . -all-pkgs ./_build/single.mbt/native/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/native/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/native/release/bundle/core.core' ./_build/single.mbt/native/debug/build/single/single.core -main moon/test/single -o ./_build/single.mbt/native/debug/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native -g -O0
+            cc -o ./_build/single.mbt/native/debug/build/runtime-utf.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/utf.c'
+            cc -o ./_build/single.mbt/native/debug/build/runtime-sync_io.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/sync_io.c'
+            cc -o ./_build/single.mbt/native/debug/build/runtime-runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/runtime.c'
+            cc -o ./_build/single.mbt/native/debug/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/env.c'
+            cc -o ./_build/single.mbt/native/debug/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
+            [ARCHIVER] [CREATE_ARGS] ./_build/single.mbt/native/debug/build/libruntime[FINGER_PRINT].a ./_build/single.mbt/native/debug/build/runtime-backtrace.o ./_build/single.mbt/native/debug/build/runtime-env.o ./_build/single.mbt/native/debug/build/runtime-runtime.o ./_build/single.mbt/native/debug/build/runtime-sync_io.o ./_build/single.mbt/native/debug/build/runtime-utf.o
+            cc -o ./_build/single.mbt/native/debug/build/single/single.exe '-I$MOON_HOME/include' -g -fwrapv -fno-strict-aliasing -Og '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/single.mbt/native/debug/build/single/single.c ./_build/single.mbt/native/debug/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
+            ./_build/single.mbt/native/debug/build/single/single.exe
         "#]],
     );
 
@@ -64,16 +64,16 @@ fn test_moon_run_single_file_dry_run() {
     check(
         collapse_core_import_args(&output, TargetBackend::Native),
         expect![[r#"
-            moonc build-package ./single.mbt -o ./_build/native/release/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/native/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target native -workspace-path . -all-pkgs ./_build/native/release/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/native/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/native/release/bundle/core.core' ./_build/native/release/build/single/single.core -main moon/test/single -o ./_build/native/release/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native
-            cc -o ./_build/native/release/build/runtime-utf.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/utf.c'
-            cc -o ./_build/native/release/build/runtime-sync_io.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/sync_io.c'
-            cc -o ./_build/native/release/build/runtime-runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/runtime.c'
-            cc -o ./_build/native/release/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/env.c'
-            cc -o ./_build/native/release/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
-            [ARCHIVER] [CREATE_ARGS] ./_build/native/release/build/libruntime[FINGER_PRINT].a ./_build/native/release/build/runtime-backtrace.o ./_build/native/release/build/runtime-env.o ./_build/native/release/build/runtime-runtime.o ./_build/native/release/build/runtime-sync_io.o ./_build/native/release/build/runtime-utf.o '$MOON_HOME/lib/moonbit_simdutf.o' '$MOON_HOME/lib/simdutf.o'
-            cc -o ./_build/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -O2 '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/native/release/build/single/single.c ./_build/native/release/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
-            ./_build/native/release/build/single/single.exe
+            moonc build-package ./single.mbt -o ./_build/single.mbt/native/release/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/native/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target native -workspace-path . -all-pkgs ./_build/single.mbt/native/release/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/native/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/native/release/bundle/core.core' ./_build/single.mbt/native/release/build/single/single.core -main moon/test/single -o ./_build/single.mbt/native/release/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native
+            cc -o ./_build/single.mbt/native/release/build/runtime-utf.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/utf.c'
+            cc -o ./_build/single.mbt/native/release/build/runtime-sync_io.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/sync_io.c'
+            cc -o ./_build/single.mbt/native/release/build/runtime-runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/runtime.c'
+            cc -o ./_build/single.mbt/native/release/build/runtime-env.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/env.c'
+            cc -o ./_build/single.mbt/native/release/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
+            [ARCHIVER] [CREATE_ARGS] ./_build/single.mbt/native/release/build/libruntime[FINGER_PRINT].a ./_build/single.mbt/native/release/build/runtime-backtrace.o ./_build/single.mbt/native/release/build/runtime-env.o ./_build/single.mbt/native/release/build/runtime-runtime.o ./_build/single.mbt/native/release/build/runtime-sync_io.o ./_build/single.mbt/native/release/build/runtime-utf.o '$MOON_HOME/lib/moonbit_simdutf.o' '$MOON_HOME/lib/simdutf.o'
+            cc -o ./_build/single.mbt/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -O2 '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/single.mbt/native/release/build/single/single.c ./_build/single.mbt/native/release/build/libruntime[FINGER_PRINT].a -lm '$MOON_HOME/lib/libbacktrace.a'
+            ./_build/single.mbt/native/release/build/single/single.exe
         "#]],
     );
 
@@ -91,9 +91,9 @@ fn test_moon_run_single_file_dry_run() {
     check(
         collapse_core_import_args(&output, TargetBackend::Js),
         expect![[r#"
-            moonc build-package ./single.mbt -o ./_build/js/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/js/debug/build/single/single.core -main moon/test/single -o ./_build/js/debug/build/single/single.js -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
-            node --enable-source-maps ./_build/js/debug/build/single/single.js
+            moonc build-package ./single.mbt -o ./_build/single.mbt/js/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/single.mbt/js/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/single.mbt/js/debug/build/single/single.core -main moon/test/single -o ./_build/single.mbt/js/debug/build/single/single.js -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
+            node --enable-source-maps ./_build/single.mbt/js/debug/build/single/single.js
         "#]],
     );
 
@@ -104,9 +104,9 @@ fn test_moon_run_single_file_dry_run() {
     check(
         collapse_core_import_args(&output, TargetBackend::WasmGC),
         expect![[r#"
-            moonc build-package ./single.mbt -o ./_build/wasm-gc/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./_build/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
-            '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/single/single.wasm --
+            moonc build-package ./single.mbt -o ./_build/single.mbt/wasm-gc/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/single.mbt/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/single.mbt/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./_build/single.mbt/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            '$MOONRUN_OVERRIDE' ./_build/single.mbt/wasm-gc/debug/build/single/single.wasm --
         "#]],
     );
 
@@ -117,9 +117,9 @@ fn test_moon_run_single_file_dry_run() {
     check(
         collapse_core_import_args(&output, TargetBackend::Js),
         expect![[r#"
-            moonc build-package ./single.mbt -o ./_build/js/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/js/debug/build/single/single.core -main moon/test/single -o ./_build/js/debug/build/single/single.js -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
-            node --enable-source-maps ./_build/js/debug/build/single/single.js
+            moonc build-package ./single.mbt -o ./_build/single.mbt/js/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/single.mbt/js/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/single.mbt/js/debug/build/single/single.core -main moon/test/single -o ./_build/single.mbt/js/debug/build/single/single.js -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
+            node --enable-source-maps ./_build/single.mbt/js/debug/build/single/single.js
         "#]],
     );
 
@@ -130,11 +130,11 @@ fn test_moon_run_single_file_dry_run() {
     check(
         &output,
         expect![[r#"
-            {"artifacts_path":["$ROOT/a/b/_build/js/debug/build/single/single.js"]}
+            {"artifacts_path":["$ROOT/a/b/_build/single.mbt/js/debug/build/single/single.js"]}
         "#]],
     );
     assert!(
-        dir.join("a/b/_build/js/debug/build/single/single.js")
+        dir.join("a/b/_build/single.mbt/js/debug/build/single/single.js")
             .exists()
     );
 }
@@ -622,9 +622,9 @@ fn test_single_file_commands_work_with_workspace_disabled() {
         "#]],
     );
     assert!(!packages_selector_path(dir).exists());
-    let packages_selector = standalone_packages_selector_path(dir, "hello.mbt");
-    let scoped_pkg_json =
-        standalone_scoped_packages_json_path(dir, "wasm-gc", "debug", "hello.mbt");
+    let target_dir = standalone_target_dir(dir, "hello.mbt");
+    let packages_selector = target_packages_selector_path(&target_dir);
+    let scoped_pkg_json = target_scoped_packages_json_path(&target_dir, "wasm-gc", "debug");
     let packages_selector: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(packages_selector).unwrap()).unwrap();
     assert_eq!(
@@ -638,8 +638,10 @@ fn test_single_file_commands_work_with_workspace_disabled() {
         serde_json::from_str(&std::fs::read_to_string(scoped_pkg_json).unwrap()).unwrap();
     assert_eq!(scoped_pkg_json["backend"], serde_json::json!("wasm-gc"));
     assert_eq!(scoped_pkg_json["opt_level"], serde_json::json!("debug"));
-    let packages_index: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(packages_index_path(dir)).unwrap()).unwrap();
+    let packages_index: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(target_packages_index_path(&target_dir)).unwrap(),
+    )
+    .unwrap();
     assert_eq!(packages_index, serde_json::json!(["wasm-gc"]));
 
     check(
@@ -665,6 +667,36 @@ fn test_single_file_commands_work_with_workspace_disabled() {
 }
 
 #[test]
+fn test_single_files_use_isolated_target_directories() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let source = r#"fn main {
+  println("hello")
+}
+"#;
+    std::fs::write(dir.join("main.mbt"), source).unwrap();
+    std::fs::write(dir.join("main.mbtx"), source).unwrap();
+
+    for filename in ["main.mbt", "main.mbtx"] {
+        moon_cmd(&dir)
+            .env(MOON_WORK_ENV, "off")
+            .args(["check", filename, "--target", "wasm-gc"])
+            .assert()
+            .success();
+
+        let target_dir = standalone_target_dir(dir, filename);
+        assert!(target_dir.join(".moon_db").is_file());
+        assert!(target_packages_selector_path(&target_dir).is_file());
+    }
+
+    assert!(!dir.join("_build/.moon_db").exists());
+    assert_ne!(
+        standalone_target_dir(dir, "main.mbt"),
+        standalone_target_dir(dir, "main.mbtx")
+    );
+}
+
+#[test]
 fn test_single_file_check_accepts_multiple_targets() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
@@ -684,13 +716,16 @@ fn test_single_file_check_accepts_multiple_targets() {
         .assert()
         .success();
 
-    assert!(standalone_scoped_packages_json_path(dir, "wasm-gc", "debug", "hello.mbt").exists());
-    assert!(standalone_scoped_packages_json_path(dir, "js", "debug", "hello.mbt").exists());
-    let packages_index: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(packages_index_path(dir)).unwrap()).unwrap();
+    let target_dir = standalone_target_dir(dir, "hello.mbt");
+    assert!(target_scoped_packages_json_path(&target_dir, "wasm-gc", "debug").exists());
+    assert!(target_scoped_packages_json_path(&target_dir, "js", "debug").exists());
+    let packages_index: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(target_packages_index_path(&target_dir)).unwrap(),
+    )
+    .unwrap();
     assert_eq!(packages_index, serde_json::json!(["wasm-gc", "js"]));
     let selector: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(standalone_packages_selector_path(dir, "hello.mbt")).unwrap(),
+        &std::fs::read_to_string(target_packages_selector_path(&target_dir)).unwrap(),
     )
     .unwrap();
     assert_eq!(selector["backend"], "js");

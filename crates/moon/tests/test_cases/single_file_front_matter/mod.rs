@@ -243,7 +243,10 @@ fn test_single_file_mbtx_build() {
         "stdout: {stdout}"
     );
     assert!(stdout.contains("moonc link-core"), "stdout: {stdout}");
-    assert!(stdout.contains("_build/wasm/"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("_build/moonx_args.mbtx/wasm/"),
+        "stdout: {stdout}"
+    );
     assert!(!stdout.contains("moonrun"), "stdout: {stdout}");
 }
 
@@ -253,10 +256,13 @@ fn test_single_file_mbtx_build_accepts_multiple_targets() {
     let _ = get_stdout(&dir, ["build", "moonx_args.mbtx", "--target", "wasm,js"]);
 
     assert!(
-        dir.join("_build/wasm/debug/build/single/single.wasm")
+        dir.join("_build/moonx_args.mbtx/wasm/debug/build/single/single.wasm")
             .is_file()
     );
-    assert!(dir.join("_build/js/debug/build/single/single.js").is_file());
+    assert!(
+        dir.join("_build/moonx_args.mbtx/js/debug/build/single/single.js")
+            .is_file()
+    );
 }
 
 #[test]
@@ -297,8 +303,8 @@ fn test_project_mbtx_check_uses_standalone_input() {
         .assert()
         .success();
 
-    let metadata =
-        standalone_scoped_packages_json_path(dir.join("A"), "wasm", "debug", "script.mbtx");
+    let target_dir = standalone_target_dir(dir.join("A"), "script.mbtx");
+    let metadata = target_scoped_packages_json_path(target_dir, "wasm", "debug");
     assert!(
         metadata.is_file(),
         "standalone check should publish file-scoped package metadata"
@@ -403,9 +409,9 @@ fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
     let stdout = get_stdout(&dir, args);
     assert!(stdout.contains("hello"));
 
-    let build_dir = dir.join("_build/wasm/debug/build");
+    let build_dir = dir.join("_build/import_ok.mbtx/wasm/debug/build");
     let dependency_core = build_dir.join(".mooncakes/moonbitlang/x/stack/stack.core");
-    let n2_db = dir.join("_build/.moon_db");
+    let n2_db = dir.join("_build/import_ok.mbtx/.moon_db");
     assert!(dependency_core.is_file());
     assert!(n2_db.is_file());
 
