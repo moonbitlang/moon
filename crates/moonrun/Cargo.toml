@@ -40,14 +40,9 @@ libsqlite3-sys.workspace = true
 slotmap.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }
 moonutil.workspace = true
-rand = "0.8.5"
-v8 = { version = "0.106.0", optional = true }
-wasmtime = { version = "48.0.1", default-features = false, optional = true, features = [
-    "anyhow",
-    "runtime",
-    "cranelift",
-    "gc-copying",
-] }
+rand.workspace = true
+v8 = { workspace = true, optional = true }
+wasmtime = { workspace = true, optional = true }
 
 [target."cfg(not(windows))".dependencies]
 openssl.workspace = true
@@ -57,7 +52,7 @@ openssl-probe.workspace = true
 libc.workspace = true
 
 [target."cfg(windows)".dependencies.windows-sys]
-version = "0.59.0"
+workspace = true
 features = [
     "Win32_Foundation",
     "Win32_Globalization",
@@ -83,15 +78,15 @@ features = [
 ]
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
+vergen.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
 escargot.workspace = true
-moon-test-util = { path = "../moon-test-util" }
+moon-test-util.workspace = true
 snapbox.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "time"] }
-wat = "1.255.0"
+wat.workspace = true
 
 [[bin]]
 name = "moonrun"

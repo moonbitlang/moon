@@ -1885,11 +1885,7 @@ fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
     }
 }
 
-static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
-    aho_corasick::AhoCorasickBuilder::new()
-        .build([MOONCAKE_BIN, MOD_DIR, PKG_DIR, "$input", "$output"])
-        .expect("Failed to build automata")
-});
+const PREBUILD_PLACEHOLDERS: [&str; 5] = [MOONCAKE_BIN, MOD_DIR, PKG_DIR, "$input", "$output"];
 
 /// Substitute prebuild command placeholders and resolve a relative shell argv0.
 ///
@@ -1928,17 +1924,27 @@ fn resolve_prebuild_command(
 
     let mut resolved = String::new();
 
-    // Perform replacements
+    // Perform replacements in one pass while preserving unrecognized `$` sequences.
     let mut last_end = 0usize;
-    for magic in PREBUILD_AUTOMATA.find_iter(command) {
+    while let Some(next_dollar) = command[last_end..].find('$') {
+        let start = last_end + next_dollar;
+        let Some((pattern_id, pattern)) = PREBUILD_PLACEHOLDERS
+            .iter()
+            .enumerate()
+            .find(|(_, pattern)| command[start..].starts_with(**pattern))
+        else {
+            resolved.push_str(&command[last_end..=start]);
+            last_end = start + 1;
+            continue;
+        };
+
         // Commit previous segment
-        if magic.start() > last_end {
-            resolved.push_str(&command[last_end..magic.start()]);
+        if start > last_end {
+            resolved.push_str(&command[last_end..start]);
         }
 
         // Insert replacement
-        // See the IDs in CHECK_AUTOMATA
-        match magic.pattern().as_usize() {
+        match pattern_id {
             // $mooncake_bin => <project target dir>/__moonbin__
             0 => {
                 write!(resolved, "{}", mooncake_bin_dir.display()).expect("write can't fail");
@@ -1968,9 +1974,9 @@ fn resolve_prebuild_command(
                     write!(resolved, "{f}").expect("write can't fail");
                 }
             }
-            _ => unreachable!("Unexpected pattern id from CHECK_AUTOMATA"),
+            _ => unreachable!("Unexpected prebuild placeholder index"),
         }
-        last_end = magic.end();
+        last_end = start + pattern.len();
     }
 
     if last_end < command.len() {
@@ -2164,6 +2170,23 @@ mod tests {
         assert_eq!(
             command,
             "generate --inputs ./src/lib/input.txt ./src/assets/second.txt --outputs ./src/lib/generated.mbt ./src/lib/generated_2.mbt"
+        );
+    }
+
+    #[test]
+    fn resolve_prebuild_command_replaces_all_placeholders_and_preserves_unknown_ones() {
+        let command = resolve_prebuild_command(
+            "tool $mooncake_bin $mod_dir $pkg_dir $input $output $unknown",
+            Path::new("module"),
+            Path::new("bin"),
+            Path::new("package"),
+            &["input-a".to_owned(), "input-b".to_owned()],
+            &["output".to_owned()],
+        );
+
+        assert_eq!(
+            command,
+            "tool bin module package input-a input-b output $unknown"
         );
     }
 

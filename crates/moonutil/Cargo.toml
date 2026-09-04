@@ -51,13 +51,13 @@ derive_builder.workspace = true
 serde_yaml.workspace = true
 slotmap.workspace = true
 shlex.workspace = true
-logos = "0.15.1"
-globset = "0.4"
+logos.workspace = true
+globset.workspace = true
 tempfile.workspace = true
 
 [target."cfg(windows)".dependencies]
 find-msvc-tools.workspace = true
-windows-sys = { version = "0.59.0", features = ["Win32_Foundation"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation"] }
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
@@ -66,5 +66,5 @@ libc.workspace = true
 expect-test.workspace = true
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
+vergen.workspace = true
 chrono.workspace = true
