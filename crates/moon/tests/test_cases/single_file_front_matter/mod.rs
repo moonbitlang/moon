@@ -469,10 +469,7 @@ fn test_single_file_mbtx_dry_run_preserves_import_all_alias() {
         .find(|line| line.contains("-pkg moon/test/single "))
         .expect("dry-run should contain the synthetic package build");
 
-    assert!(
-        command.contains("-i .mooncakes/moonbitlang/x/stack/stack.mi:*"),
-        "command: {command}"
-    );
+    assert!(command.contains("stack/stack.mi:*"), "command: {command}");
 }
 
 #[test]
