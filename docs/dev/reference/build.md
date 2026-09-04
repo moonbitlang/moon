@@ -37,6 +37,10 @@ extension discovered in ordinary packages.
 standalone representation, even when the file is located under an ordinary
 package root. Each command accepts one standalone `.mbtx` path and supports
 single- and multi-backend target selection; watch mode remains project-only.
+All standalone-file commands use `<source-dir>/_build/<filename>` as their
+default target directory, including the complete extension in `<filename>`, so
+different inputs do not share synthetic package artifacts or incremental build
+state. With `--target-dir <dir>`, the target directory is `<dir>/<filename>`.
 
 ### Build targets
 
