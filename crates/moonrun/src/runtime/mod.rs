@@ -42,6 +42,8 @@ use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
 pub(crate) use environment_provisioning::EnvProvisioning;
+#[cfg(feature = "v8")]
+pub(crate) use stdio::Utf16Writer;
 pub(crate) use stdio::{Stdio, StdioStream};
 pub use working_directory::WorkingDirectory;
 

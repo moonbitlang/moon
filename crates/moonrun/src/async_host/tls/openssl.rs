@@ -37,8 +37,9 @@ use super::{
 pub(crate) struct TlsConnection {
     stream: Option<SslStream<QueueStream>>,
     pending_ssl: Option<Ssl>,
-    // TlsConnection and OpenSSL's QueueStream adapter both stay on the V8
-    // thread. RefCell scopes their temporary mutable access without a lock.
+    // TlsConnection and OpenSSL's QueueStream adapter stay on the same
+    // execution thread. RefCell scopes their temporary mutable access without
+    // a lock.
     state: Rc<RefCell<BioState>>,
     mode: TlsMode,
     shutdown_started: bool,

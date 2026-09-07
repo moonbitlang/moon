@@ -642,24 +642,12 @@ fn format_wasm_error(
         format!("Error: {root}")
     };
     let mut lines = vec![DiagnosticLine::Text(message)];
-    if thrown_exception {
-        lines.push(DiagnosticLine::Frame {
-            indentation: "    ".to_owned(),
-            function: "throw".to_owned(),
-            module_offset: None,
-        });
-    }
     if let Some(backtrace) = error.downcast_ref::<wasmtime::WasmBacktrace>() {
         for frame in backtrace.frames() {
             let raw_name = frame
                 .func_name()
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("wasm-function[{}]", frame.func_index()));
-            if moonutil::demangle::demangle_mangled_function_name(&raw_name)
-                .contains(".moonbit_test_driver_internal_execute_wrapper/")
-            {
-                continue;
-            }
             lines.push(DiagnosticLine::Frame {
                 indentation: "    ".to_owned(),
                 function: raw_name,

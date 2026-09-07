@@ -39,7 +39,7 @@ macro_rules! wasm_arg_count {
         0_i32
     };
     ($head:ident $(, $tail:ident)*) => {
-        1_i32 + $crate::sqlite::v8::registry_macros::wasm_arg_count!($($tail),*)
+        1_i32 + $crate::sqlite::wasm::registry_macros::wasm_arg_count!($($tail),*)
     };
 }
 
@@ -51,7 +51,7 @@ macro_rules! decode_sqlite_args {
         let mut import_args = ImportArgs::new($scope, &$args);
         (|| -> Result<_, V8ImportError> {
             $(
-                let $arg = $crate::sqlite::v8::registry_macros::decode_wasm_arg!(
+                let $arg = $crate::sqlite::wasm::registry_macros::decode_wasm_arg!(
                     import_args,
                     $arg_ty
                 )?;
@@ -87,7 +87,7 @@ macro_rules! set_sqlite_import_return {
 macro_rules! finish_sqlite_import {
     ($scope:ident, $ret:ident, $name:expr, $ret_ty:ident, $result:expr) => {
         match $result {
-            Ok(value) => $crate::sqlite::v8::registry_macros::set_sqlite_import_return!(
+            Ok(value) => $crate::sqlite::wasm::registry_macros::set_sqlite_import_return!(
                 $scope, $ret, $ret_ty, value
             ),
             Err(error) => {
@@ -157,11 +157,11 @@ macro_rules! register_sqlite_import {
             mut ret: v8::ReturnValue,
         ) {
             let result = if args.length()
-                != $crate::sqlite::v8::registry_macros::wasm_arg_count!($($arg_ty),*)
+                != $crate::sqlite::wasm::registry_macros::wasm_arg_count!($($arg_ty),*)
             {
                 Err(SqliteError::from(V8ImportError::InvalidArgument))
             } else {
-                let decoded = $crate::sqlite::v8::registry_macros::decode_sqlite_args!(
+                let decoded = $crate::sqlite::wasm::registry_macros::decode_sqlite_args!(
                     scope,
                     args,
                     $($arg : $arg_ty),*
@@ -169,7 +169,7 @@ macro_rules! register_sqlite_import {
 
                 match decoded {
                     Ok(($($arg,)*)) => {
-                        $crate::sqlite::v8::registry_macros::invoke_sqlite_import!(
+                        $crate::sqlite::wasm::registry_macros::invoke_sqlite_import!(
                             scope,
                             args,
                             $module::$callback,
@@ -180,7 +180,7 @@ macro_rules! register_sqlite_import {
                 }
             };
 
-            $crate::sqlite::v8::registry_macros::finish_sqlite_import!(
+            $crate::sqlite::wasm::registry_macros::finish_sqlite_import!(
                 scope,
                 ret,
                 $wasm_symbol,
@@ -219,7 +219,7 @@ macro_rules! declare_sqlite_imports {
         ) {
             $(
                 $(#[$meta])*
-                $crate::sqlite::v8::registry_macros::register_sqlite_import!(
+                $crate::sqlite::wasm::registry_macros::register_sqlite_import!(
                     obj,
                     scope,
                     context_ptr,

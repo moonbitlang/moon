@@ -18,6 +18,7 @@
 
 //! Standard-stream behavior selected for one Moonrun Runtime.
 
+use std::cell::Cell;
 use std::io::{self, Read, Write};
 
 #[cfg(unix)]
@@ -48,6 +49,38 @@ pub(crate) enum Stdio {
     Ambient,
 }
 
+/// Stateful UTF-16 code-unit output used by MoonBit's legacy character ABI.
+#[derive(Default)]
+pub(crate) struct Utf16Writer {
+    dangling_high_half: Cell<Option<u32>>,
+}
+
+impl Utf16Writer {
+    pub(crate) fn write_stdout(&self, stdio: &Stdio, value: u32) -> io::Result<()> {
+        if (0xd800..=0xdbff).contains(&value) {
+            if self
+                .dangling_high_half
+                .replace(Some(value - 0xd800))
+                .is_some()
+            {
+                stdio.with_stdout(|stdout| write!(stdout, "\u{fffd}"))?;
+            }
+            return Ok(());
+        }
+
+        let value = if (0xdc00..=0xdfff).contains(&value) {
+            self.dangling_high_half
+                .take()
+                .map_or(0xfffd, |high| 0x10000 + (high << 10) + (value - 0xdc00))
+        } else {
+            value
+        };
+        let value = char::from_u32(value)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid character"))?;
+        stdio.with_stdout(|stdout| write!(stdout, "{value}"))
+    }
+}
+
 impl Stdio {
     pub(crate) fn with_stdin<T, E>(
         &self,
@@ -74,6 +107,38 @@ impl Stdio {
         match self {
             Self::Ambient => f(&mut io::stderr().lock()),
         }
+    }
+
+    pub(crate) fn read_utf8_char(&self) -> io::Result<Option<char>> {
+        self.with_stdin(|stdin| {
+            let mut buffer = [0; 4];
+            if stdin.read(&mut buffer[..1])? == 0 {
+                return Ok(None);
+            }
+
+            let length = match buffer[0] {
+                0..=0x7f => 1,
+                0xc0..=0xdf => 2,
+                0xe0..=0xef => 3,
+                0xf0..=0xf7 => 4,
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid UTF-8 first byte",
+                    ));
+                }
+            };
+            if length > 1 {
+                stdin.read_exact(&mut buffer[1..length])?;
+            }
+
+            std::str::from_utf8(&buffer[..length])
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                .chars()
+                .next()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no character found"))
+                .map(Some)
+        })
     }
 
     /// Observe one ambient raw handle without taking ownership of it.
