@@ -9,8 +9,27 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
   though its child build presents the distributed module as an input module.
   Published packages must contain their generated outputs.
 - Package-level prebuild tasks are separate from the experimental module-level
-  prebuild configuration script. The latter may still run for a bin-dep to
-  produce build configuration such as native link flags.
+  prebuild configuration script. The latter may still run for a native or LLVM
+  bin-dep build to produce build configuration such as native link flags.
+
+## Module-Level Prebuild Configuration
+
+`--moonbit-unstable-prebuild` in `moon.mod.json` supplies dynamic native build
+configuration, such as toolchain selection and compiler or linker flags. It runs
+only for the Native and LLVM target backends. Wasm, WasmGC, and JS builds skip
+it, including `moon build --target wasm --release` and dry runs. This applies
+to both project and standalone-file builds, using the resolved target backend.
+
+`moon check` skips this configuration for the checked project on every backend.
+Dependency installation can still invoke a separate native or LLVM build whose
+configuration script runs. Native and LLVM dry runs also run these scripts,
+because their output is needed to construct build commands.
+
+Unlike package-level `pre-build` / `dev_build` code generation, whose outputs
+should be generated before distribution, this configuration depends on the
+consumer's build environment. `MOON_IGNORE_PREBUILD` continues to control
+package-level generation; it does not suppress native or LLVM module-level
+configuration scripts.
 
 ## Package Configuration
 

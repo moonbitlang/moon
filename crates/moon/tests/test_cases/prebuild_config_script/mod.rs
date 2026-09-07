@@ -1,6 +1,6 @@
 use std::cell::OnceCell;
 
-use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs};
+use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs, moon_cmd};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]
@@ -61,13 +61,74 @@ fn test_prebuild_config_common(dir: TestDir) {
 fn test_prebuild_config_not_run_in_check() {
     let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
 
-    let build_err = get_err_stderr(&dir, ["build", "--dry-run"]);
+    let build_err = get_err_stderr(&dir, ["build", "--target", "native", "--dry-run"]);
     assert!(
         build_err.contains("prebuild script `fail.js`"),
         "expected build to execute prebuild script and fail, got:\n{build_err}"
     );
 
-    assert_success(&dir, ["check"]);
+    for target in ["native", "llvm"] {
+        assert_success(&dir, ["check", "--target", target]);
+    }
+}
+
+#[test]
+fn test_unstable_prebuild_config_only_runs_for_native_backends() {
+    for target in ["wasm", "wasm-gc", "js"] {
+        let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
+        moon_cmd(&dir)
+            .args(["build", "--target", target, "--release"])
+            .assert()
+            .success();
+        moon_cmd(&dir)
+            .args(["build", "--target", target, "--release", "--dry-run"])
+            .assert()
+            .success();
+    }
+
+    for target in ["native", "llvm"] {
+        let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
+        moon_cmd(&dir)
+            .args(["build", "--target", target, "--release", "--dry-run"])
+            .assert()
+            .failure()
+            .stderr_eq(snapbox::str![[r#"
+...
+[..]Failed to run prebuild script for module username/check_skip_on_check
+...
+"#]]);
+    }
+}
+
+#[test]
+fn test_unstable_prebuild_config_uses_preferred_backend() {
+    for target in ["wasm", "wasm-gc", "js", "native", "llvm"] {
+        let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
+        let manifest_path = dir.join("moon.mod.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["preferred-target"] = target.into();
+        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let result = moon_cmd(&dir)
+            .args(["build", "--release", "--dry-run"])
+            .assert();
+        if matches!(target, "native" | "llvm") {
+            result.failure().stderr_eq(snapbox::str![[r#"
+...
+[..]Failed to run prebuild script for module username/check_skip_on_check
+...
+"#]]);
+        } else {
+            result.success();
+        }
+
+        // An explicit backend overrides the module's preferred backend.
+        moon_cmd(&dir)
+            .args(["build", "--target", "wasm", "--release", "--dry-run"])
+            .assert()
+            .success();
+    }
 }
 
 #[test]
