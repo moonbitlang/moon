@@ -46,7 +46,8 @@ Coverage uses the toolchain's `moon_cove_report` by default. Setting
 moonx path for `moonbitlang/moon_cove@<version>`; Moon does not start another
 copy of itself. The optional `MOON_COVE_REPORT_VERSION` defaults to `0.3.1` and
 does not enable `moon_cove` by itself. Dry-run renders this path as `moonx
---target wasm moonbitlang/moon_cove@<version> -- ...`.
+moonbitlang/moon_cove@<version> -- ...`. When this path is disabled,
+`MOON_COVE_REPORT_OVERRIDE` may select the legacy reporter executable.
 
 ## Expect / snapshot promotion loop
 
