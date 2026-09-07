@@ -12,6 +12,7 @@
 ```bash
 cargo build
 cargo test
+cargo test -p moonrun --no-default-features --features wasmtime
 ```
 
 ## Before PR
@@ -23,7 +24,9 @@ It's recommended to run the following command before you submit a PR, which may 
 ```bash
 cargo fmt
 
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --exclude moonrun --all-targets --all-features -- -D warnings
+cargo clippy -p moonrun --all-targets -- -D warnings
+cargo clippy -p moonrun --all-targets --no-default-features --features wasmtime -- -D warnings
 
 cargo test
 ```

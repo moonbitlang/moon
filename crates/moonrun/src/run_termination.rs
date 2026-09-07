@@ -38,6 +38,11 @@ impl TerminationRequest {
         }
     }
 
+    #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+    pub(crate) fn is_requested(&self) -> bool {
+        self.0.get().is_some()
+    }
+
     pub(crate) fn take(&self) -> Option<RunTermination> {
         self.0.take()
     }

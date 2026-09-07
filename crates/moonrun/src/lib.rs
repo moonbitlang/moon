@@ -16,10 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-// The core Wasmtime feature compiles shared Runtime domains before their
-// Wasmtime adapters become reachable in the follow-up adapter feature slice.
-#![cfg_attr(all(feature = "wasmtime", not(feature = "v8")), allow(dead_code))]
-
 //! Embeddable execution support for MoonBit Wasm programs.
 //!
 //! The interface is experimental. It separates guest termination from
@@ -28,7 +24,6 @@
 #[cfg(not(any(feature = "v8", feature = "wasmtime")))]
 compile_error!("moonrun requires an engine feature: `v8` or `wasmtime`");
 
-#[cfg(feature = "v8")]
 mod async_api;
 mod async_host;
 mod async_sys;
@@ -36,7 +31,6 @@ mod async_sys;
 mod engine;
 mod filesystem;
 mod guest_memory;
-#[cfg(feature = "v8")]
 mod memory_sanitizer;
 mod network;
 mod policy;

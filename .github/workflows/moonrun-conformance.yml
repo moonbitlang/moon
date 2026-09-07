@@ -16,7 +16,7 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-name: Moonrun async conformance
+name: Moonrun conformance
 
 on:
   push:
@@ -95,3 +95,38 @@ jobs:
 
       - name: Test Moonrun against upstream async
         run: cargo test -p moonrun --test test test_moonrun_against_upstream_async -- --ignored --exact
+
+  wasmtime:
+    name: wasmtime / ubuntu-latest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: 1.95.0
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
+
+      - name: Build Moon
+        run: cargo build -p moon
+
+      - name: Bundle core
+        run: cargo run --bin moon -- -C ~/.moon/lib/core bundle --all
+
+      - name: Test Wasmtime backend conformance
+        run: |
+          cargo test -p moonrun --no-default-features --features wasmtime --locked
+          cargo test -p moonrun --test test --no-default-features --features wasmtime --locked test_moonrun_against_upstream_async -- --ignored --exact
