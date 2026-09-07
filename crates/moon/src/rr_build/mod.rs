@@ -303,6 +303,9 @@ pub struct CompilePreConfig {
     opt_level: BuildProfile,
     action: RunMode,
     debug_symbols: bool,
+    /// Whether a default `moon run` may omit full debug symbols after the
+    /// selected backend is resolved to Native.
+    omit_native_run_debug_symbols: bool,
     use_std: bool,
     debug_export_build_plan: bool,
     wasi_link: bool,
@@ -356,6 +359,9 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
+        let debug_symbols = self.debug_symbols
+            && !(self.omit_native_run_debug_symbols && target_backend == TargetBackend::Native);
+
         let backend = match target_backend {
             TargetBackend::Wasm => BackendConfig::Wasm {
                 use_wat: self.output_wat,
@@ -391,7 +397,7 @@ impl CompilePreConfig {
             backend,
             opt_level: self.opt_level,
             action: self.action,
-            debug_symbols: self.debug_symbols,
+            debug_symbols,
             stdlib_path,
             artifact_paths,
             lowering_environment: LoweringEnvironment::default(),
@@ -483,6 +489,9 @@ pub fn preconfig_compile(
         opt_level,
         action,
         debug_symbols: build_flags.debug_symbols_for(action),
+        omit_native_run_debug_symbols: action == RunMode::Run
+            && !build_flags.debug
+            && !build_flags.no_strip,
         use_std: build_flags.std(),
         enable_coverage: build_flags.enable_coverage,
         workspace_env: cli.workspace_env.clone(),

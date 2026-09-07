@@ -352,3 +352,41 @@ fn run_graph_uses_selected_profile() {
         );
     }
 }
+
+#[test]
+fn default_native_run_uses_o0_without_full_debug_info() {
+    let fixture = PlanningFixture::new("debug_flag_test").expect("fixture should resolve");
+    for (label, extra_args, expect_debug_info) in [
+        ("default", [].as_slice(), false),
+        ("debug", ["--debug"].as_slice(), true),
+        ("no-strip", ["--no-strip"].as_slice(), true),
+    ] {
+        let mut args = vec![
+            "run",
+            "main",
+            "--target",
+            "native",
+            "--dry-run",
+            "--nostd",
+            "--sort-input",
+        ];
+        args.extend_from_slice(extra_args);
+        let (cli, cmd) = parse_run_command(&args);
+        let graph = fixture
+            .plan_run_with_cli(&cli, &cmd)
+            .unwrap_or_else(|err| panic!("{label} native run graph should plan: {err:#}"));
+
+        for (command, filter) in [
+            ("moonc build-package", ["./lib/hello.mbt"].as_slice()),
+            ("moonc link-core", ["-main", "hello/main"].as_slice()),
+        ] {
+            let tokens = command_tokens(&graph, command, filter);
+            assert!(tokens.iter().any(|token| token == "-O0"), "{tokens:?}");
+            assert_eq!(
+                tokens.iter().any(|token| token == "-g"),
+                expect_debug_info,
+                "{tokens:?}"
+            );
+        }
+    }
+}
