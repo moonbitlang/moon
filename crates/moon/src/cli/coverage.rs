@@ -211,15 +211,9 @@ fn run_coverage_reporter(
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| DEFAULT_MOON_COVE_REPORT_VERSION.to_owned());
         let coordinate = format!("{MOON_COVE_PACKAGE}@{version}");
-        
+
         if dry_run {
-            let mut command = vec![
-                "moonx".to_owned(),
-                "--target".to_owned(),
-                "wasm".to_owned(),
-                coordinate,
-                "--".to_owned(),
-            ];
+            let mut command = vec!["moonx".to_owned(), coordinate, "--".to_owned()];
             command.extend(args);
             output.write_result(|writer| {
                 writeln!(writer, "(cd {} && {})", cwd.display(), command.join(" "))
@@ -227,9 +221,11 @@ fn run_coverage_reporter(
             return Ok(ProcessAction::Exit(0));
         }
 
-        let user_log = output.user_log().with_level(log::LevelFilter::Warn);
-        let mut action = moonx::prepare(MoonxInvocation::wasm_package(coordinate, args), &user_log)
-            .context(error_context)?;
+        let mut action = moonx::prepare(
+            MoonxInvocation::wasm_package(coordinate, args),
+            output.user_log(),
+        )
+        .context(error_context)?;
         match &mut action {
             ProcessAction::Delegate(command)
             | ProcessAction::DelegateWithPolicyRelay(command, _) => {
