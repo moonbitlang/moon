@@ -195,9 +195,12 @@ forward instead of letting later phases infer it again. In particular:
 Standalone-file commands scope this target directory by the input's complete
 filename, including its extension. The default is
 `<source-dir>/_build/<filename>`; an explicit `--target-dir <dir>` produces
-`<dir>/<filename>`. This keeps the synthetic package artifacts, metadata,
-dependency binaries, lock, and n2 database for different files from
-overlapping.
+`<dir>/<filename>`. The source-local default separates files in different
+source directories, while the complete filename separates differently named
+files within one target root. Callers that reuse an explicit target root for
+files with the same complete filename also reuse their synthetic package
+artifacts, metadata, dependency binaries, lock, and n2 database; they must
+choose distinct target roots when that isolation is required.
 
 Source directory, `.mooncakes` directory, target directory, and optional project
 manifest path are user/config facts from project discovery. The synced
