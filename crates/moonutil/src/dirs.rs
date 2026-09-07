@@ -57,6 +57,10 @@ pub enum PackageDirsError {
     WorkspaceDisabledNotInModule(PathBuf),
     #[error("pinned workspace `{workspace}` from MOON_WORK does not apply to module `{module}`")]
     PinnedWorkspaceDoesNotApply { workspace: PathBuf, module: PathBuf },
+    #[error(
+        "target directory `{0}` exists and is not a directory; choose a different `--target-dir`"
+    )]
+    TargetDirNotDirectory(PathBuf),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -208,7 +212,11 @@ fn resolve_target_dir(
 }
 
 fn prepare_target_dir(target_dir: PathBuf) -> Result<PathBuf, PackageDirsError> {
-    if !target_dir.exists() {
+    if target_dir.exists() {
+        if !target_dir.is_dir() {
+            return Err(PackageDirsError::TargetDirNotDirectory(target_dir));
+        }
+    } else {
         std::fs::create_dir_all(&target_dir)
             .context("failed to create target directory")
             .map_err(PackageDirsError::from)?;
@@ -886,6 +894,25 @@ mod tests {
             dirs.package_dirs.mooncake_bin_dir,
             dirs.package_dirs.target_dir.join(MOON_BIN_DIR)
         );
+    }
+
+    #[test]
+    fn single_file_package_dirs_reject_target_aliasing_source_file() {
+        let project = tempfile::tempdir().expect("create test project");
+        let source_file = project.path().join("main.mbtx");
+        write_file(&source_file, "fn main {}\n");
+
+        let result = SourceTargetDirs {
+            cwd: None,
+            target_dir: Some(project.path().to_path_buf()),
+        }
+        .single_file_package_dirs(&source_file);
+
+        assert!(matches!(
+            result,
+            Err(PackageDirsError::TargetDirNotDirectory(path))
+                if path == canonical(source_file)
+        ));
     }
 
     #[test]
