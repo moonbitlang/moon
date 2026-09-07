@@ -18,9 +18,10 @@
 
 //! Prebuild config (module-level) and logic.
 //!
-//! Currently, prebuild config runs unconditionally and before everything else,
-//! but ultimately we might want to merge it into the main build graph. This is
-//! a temporary solution.
+//! The command layer runs prebuild config for native and LLVM builds, except
+//! check, before build planning. Eligible scripts always rerun; ultimately we
+//! might want to merge them into the main build graph. This is a temporary
+//! solution.
 
 use std::collections::HashMap;
 

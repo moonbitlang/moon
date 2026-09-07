@@ -600,14 +600,17 @@ pub(crate) fn plan_resolved_build_from_intent(
     let target_dir = preconfig.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
 
-    let prebuild_config = if preconfig.action == RunMode::Check {
-        info!("Skipping prebuild configuration for check run mode");
-        None
-    } else {
-        info!("Running prebuild configuration");
-        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
-        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
-    };
+    // Module-level configuration discovers native toolchains and flags; other
+    // backends do not need to execute these scripts.
+    let prebuild_config =
+        if preconfig.action == RunMode::Check || !planning_context.target_backend.is_native() {
+            info!("Skipping prebuild configuration for check or non-native backend");
+            None
+        } else {
+            info!("Running prebuild configuration");
+            let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
+            Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
+        };
 
     info!("Expanding user intents to requested artifacts");
     let requested_artifacts =
@@ -698,14 +701,17 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     let target_dir = preconfig.target_dir.clone();
     info!("Standalone user intent calculated: {:?}", intent.intents);
 
-    let prebuild_config = if preconfig.action == RunMode::Check {
-        info!("Skipping prebuild configuration for check run mode");
-        None
-    } else {
-        info!("Running prebuild configuration");
-        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
-        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
-    };
+    // Module-level configuration discovers native toolchains and flags; other
+    // backends do not need to execute these scripts.
+    let prebuild_config =
+        if preconfig.action == RunMode::Check || !planning_context.target_backend.is_native() {
+            info!("Skipping prebuild configuration for check or non-native backend");
+            None
+        } else {
+            info!("Running prebuild configuration");
+            let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
+            Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
+        };
 
     let requested_artifacts =
         intent.requested_artifacts(&resolve_output, user_log, planning_context.target_backend);
