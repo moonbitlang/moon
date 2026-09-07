@@ -43,6 +43,9 @@ fn test_moon_pkg() {
               cwd: .
         "#]],
     );
+
+    let output = get_stdout(&dir, ["build", "--target", "wasm", "--dry-run"]);
+    assert!(output.contains("-heap-start-address 2214592512"));
 }
 
 #[test]

@@ -68,8 +68,8 @@ pub enum Token {
     FOR(Loc),
     #[regex(r#""([^"\\]|\\.)*""#, with_string)]
     STRING((Loc, String)),
-    #[regex(r"-?[0-9]+", with_int)]
-    INT((Loc, i32)),
+    #[regex(r"-?[0-9]+", with_lexeme)]
+    INT((Loc, String)),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", with_lexeme)]
     LIDENT((Loc, String)),
     #[token("as", with_span)]
@@ -112,13 +112,6 @@ fn with_lexeme<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, String) {
     let loc = get_loc(lex);
     let lexme = s.to_string();
     (loc, lexme)
-}
-
-fn with_int<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, i32) {
-    let s = lex.slice();
-    let loc = get_loc(lex);
-    let i = s.parse::<i32>().unwrap(); // Safe because regex ensures valid integer
-    (loc, i)
 }
 
 fn with_string<'a>(lex: &mut Lexer<'a, Token>) -> Result<(Loc, String), ()> {
@@ -916,4 +909,13 @@ fn test_escape_sequences() {
         )
     "#]]
     .assert_debug_eq(&tokens);
+}
+
+#[test]
+fn tokenize_preserves_integer_lexemes() {
+    let tokens = tokenize("18446744073709551616").unwrap();
+    assert!(matches!(
+        &tokens[0],
+        Token::INT((_, value)) if value == "18446744073709551616"
+    ));
 }
