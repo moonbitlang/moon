@@ -81,7 +81,7 @@ pub struct SourceTargetDirs {
     pub cwd: Option<PathBuf>,
 
     /// The target directory. Defaults to `<project-root>/_build`, or
-    /// `<source-dir>/_build/.<file-name>` for a standalone file.
+    /// `<source-dir>/_build` for a standalone file.
     #[clap(long, global = true)]
     pub target_dir: Option<PathBuf>,
 }

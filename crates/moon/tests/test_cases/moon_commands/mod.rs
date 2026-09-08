@@ -89,7 +89,7 @@ fn test_moon_help() {
               -C <DIR>
                       Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
                   --target-dir <TARGET_DIR>
-                      The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/.<file-name>` for a standalone file
+                      The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build` for a standalone file
               -q, --quiet
                       Suppress output
               -v, --verbose
@@ -1632,7 +1632,7 @@ fn test_moon_explain_without_flags_shows_guidance() {
               -h, --help                       Print help
 
             Common Options:
-                  --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/.<file-name>` for a standalone file
+                  --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build` for a standalone file
               -q, --quiet                    Suppress output
               -v, --verbose                  Increase verbosity
                   --trace                    Trace the execution of the program
