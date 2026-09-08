@@ -109,10 +109,30 @@ default optimization profile by subcommand:
 - `moon bench` and `moon bundle` use the release profile.
 
 This policy is centralized in `BuildFlags::effective_profile()` in
-`crates/moon/src/build_flags.rs`. `BuildFlags::debug_symbols_for()` resolves
-symbol policy once the backend is selected. A default `moon run`
-for the Native target backend keeps `-O0` and stack-trace metadata but omits
-full `-g` debug information; explicit `--debug` or `--no-strip` retains it.
+`crates/moon/src/build_flags.rs`. The CLI adapter's
+`rr_build::prepare_resolved_build()` converts those flags and the resolved
+backend into `DebugInfoRequest`, selecting requested symbol detail and native
+runtime backtrace support separately. A default `moon run` for the Native target
+backend requests source backtraces. After selecting the Native Payload Form,
+backend planning retains MoonBit debug information for generated C and omits it
+for direct object output, which keeps `-O0` and stack-trace metadata alone.
+The generated-C compiler step separately retains the source locations emitted
+by MoonBit. This includes C output selected by
+`MOONBIT_NEW_NATIVE=0`, an unsupported direct-object host, or package C compiler
+flags. Explicit `--debug` or `--no-strip` retains full debug information, while
+`--strip` and ordinary release builds omit it.
+
+A debug-profile `moon run --strip` still requests native runtime backtrace
+support, without requesting program debug information. The CLI captures that distinction
+in `DebugInfoRequest`; planning and lowering do not infer it again from the run
+mode or profile. Backend Plan owns the MoonBit compiler's debug-information
+decision. C-stub and executable action metadata each own their native compiler
+debug and optimization settings; selecting generated C does not enable C-stub
+debug information. Runtime build metadata owns whether to enable the reporter,
+and `GenerateDsym` action membership records any required macOS symbol generation.
+Lowering consumes these planned decisions without a separate debug option.
+See [native compiler debug information and optimization](native-c-toolchain-resolution.md#debug-information-and-optimization)
+for the distinct compiler and linker flags.
 
 When actually building a package, the pipeline has 2 or 3 main steps depending on the backend:
 

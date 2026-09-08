@@ -102,6 +102,40 @@ when the split runtime directory is absent.
 
 This is why Moon needs both a compiler driver and an archiver.
 
+## Debug information and optimization
+
+Moon's CLI profile and debug-information policy are described in
+[Default CLI profiles](build.md#default-cli-profiles). Compiler options with the
+same spelling are not interchangeable across the build stages:
+
+- `moonc build-package` and `moonc link-core` receive `-g` for MoonBit debug
+  information and `-O0` for the debug optimization profile. For generated C,
+  `link-core -g` preserves accurate MoonBit locations in C `#line` directives.
+- Compiling that C requires native debug information as well, so the C compiler
+  can retain those locations in the executable. GCC-like compilers use `-g`;
+  MSVC uses `/Z7`.
+- Direct-object executable linking does not compile the MoonBit program as C
+  and does not receive C debug or optimization settings. Required macOS dSYM
+  generation is a separate planned action.
+
+The native compiler actions have distinct settings:
+
+| Action | Debug information | Default optimization for GCC-like compilers |
+| --- | --- | --- |
+| Generated-C program | Enabled for source-backtrace or full-debug requests | Debug profile: `-Og`; release profile: `-O2` |
+| C stub | Enabled only for full-debug requests, independently of Native payload form | Full debug: `-Og`; otherwise debug profile: `-O0`, release profile: `-O2` |
+| Runtime C | Always enabled | `-O2` |
+
+The C-stub rule preserves the existing behavior, including `-Og` for stubs under
+`--release --no-strip`. MSVC uses `/Od` for the two debug optimization settings
+and `/O2` for speed optimization. User-provided C compiler flags suppress Moon's
+default C optimization flags, but do not suppress its requested debug flags.
+
+`MOONBIT_ALLOW_STACKTRACE` controls the runtime reporter separately from debug
+information in compiled code. `--strip` suppresses requested program debug
+information; this path does not run a stripping tool or erase the runtime's
+own debug information.
+
 ## Resolution Layers
 
 Tool resolution starts from `crates/moonutil/src/compiler_flags.rs`.

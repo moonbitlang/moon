@@ -1229,6 +1229,8 @@ mod tests {
     fn c_stubs_info() -> BuildCStubsInfo {
         BuildCStubsInfo {
             effective_native_toolchain: system_cc_toolchain(),
+            debug_info: false,
+            opt_level: moonutil::compiler_flags::OptLevel::None,
             cc_flags: Vec::new(),
             link_flags: Vec::new(),
             static_archive_fingerprint: Some("c-stubs-test".to_string()),
@@ -1249,6 +1251,7 @@ mod tests {
     fn runtime_info() -> BuildRuntimeInfo {
         BuildRuntimeInfo {
             effective_native_toolchain: system_cc_toolchain(),
+            enable_backtrace: false,
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),

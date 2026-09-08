@@ -21,12 +21,10 @@
 use std::path::Path;
 
 use moonutil::{
-    build_options::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_archiver_command_resolved, make_cc_command_resolved,
     },
-    cond_expr::OptLevel,
     resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
     toolchain::BINARIES,
@@ -36,7 +34,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{ArtifactKey, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
-    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
+    model::{BuildTarget, PackageId, TargetKind},
 };
 
 use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts, moonc_command};
@@ -219,12 +217,7 @@ impl<'a> super::LoweringContext<'a> {
                         .output_ty(CCOutputType::Object)
                         .opt_level(CCOptLevel::Speed)
                         .debug_info(true)
-                        .allow_stacktrace(
-                            (self.opt.debug_symbols
-                                || (self.opt.action == RunMode::Run
-                                    && self.opt.opt_level == OptLevel::Debug))
-                                && self.opt.backend.os() != OperatingSystem::Windows,
-                        )
+                        .allow_stacktrace(info.enable_backtrace)
                         .link_moonbitrun(true)
                         .define_use_shared_runtime_macro(false)
                         .use_simdutf(!info.simdutf_objects.is_empty())

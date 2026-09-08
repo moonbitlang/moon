@@ -29,7 +29,7 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{self, CC, Toolchain, ToolchainSource},
+    compiler_flags::{self, CC, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
         MBTI_USER_WRITTEN, MOD_DIR, MOONCAKE_BIN, PKG_DIR, PackageSourceFileKind, is_moon_mod,
@@ -50,8 +50,8 @@ use crate::{
     cond_comp,
     discover::DiscoveredPackage,
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode,
-        NativeTarget, OperatingSystem, PackageId, TargetKind,
+        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
+        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind,
     },
     pkg_name::PackageFQNWithSource,
 };
@@ -993,8 +993,20 @@ impl<'a> BuildPlanConstructor<'a> {
             .archiver_updates_existing_archive()
             .then(|| c_stub_archive_fingerprint(&pkg.c_stub_files));
 
+        // Backtrace-only requests concern MoonBit source locations. They must
+        // not change the debug or optimization settings of user-written C stubs.
+        let debug_info = self.config.debug_info.symbols == DebugSymbols::Full;
+        // Preserve the existing C-stub profile policy: explicit debug info uses
+        // debugging-friendly optimization, including with --release --no-strip.
+        let opt_level = match (self.config.opt_level, debug_info) {
+            (_, true) => CCOptLevel::Debug,
+            (OptLevel::Release, false) => CCOptLevel::Speed,
+            (OptLevel::Debug, false) => CCOptLevel::None,
+        };
         let c_info = BuildCStubsInfo {
             effective_native_toolchain,
+            debug_info,
+            opt_level,
             cc_flags,
             link_flags,
             static_archive_fingerprint,
@@ -1136,16 +1148,13 @@ impl<'a> BuildPlanConstructor<'a> {
             &mut link_flags,
         );
 
+        let moonc_debug_info = self.res.backend.moonc_debug_info();
         let generate_dsym = match &self.config.backend {
-            BackendConfig::Llvm { os, .. } => {
-                should_generate_llvm_dsym(self.config.debug_symbols, *os)
-            }
+            BackendConfig::Llvm { os, .. } => should_generate_llvm_dsym(moonc_debug_info, *os),
             BackendConfig::Native { .. } => match self.res.backend.native_mode() {
                 NativeBackendMode::DirectObject(mode) => should_generate_direct_native_dsym(
                     mode,
-                    self.config.debug_symbols
-                        || (self.config.action == RunMode::Run
-                            && self.config.opt_level == OptLevel::Debug),
+                    moonc_debug_info || self.config.debug_info.runtime_backtrace,
                     &effective_native_toolchain,
                 ),
                 NativeBackendMode::GeneratedC => false,
@@ -1174,6 +1183,14 @@ impl<'a> BuildPlanConstructor<'a> {
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             effective_native_toolchain,
+            // The native compiler must retain the source locations emitted into
+            // generated C. A direct-object link cannot create that information.
+            c_debug_info: self.res.backend.direct_native_target().is_none()
+                && self.config.debug_info.symbols != DebugSymbols::None,
+            c_opt_level: match self.config.opt_level {
+                OptLevel::Debug => CCOptLevel::Debug,
+                OptLevel::Release => CCOptLevel::Speed,
+            },
             c_flags,
             link_flags,
             native_allocator,
@@ -1590,6 +1607,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.res.backend.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
+            enable_backtrace: self.config.debug_info.runtime_backtrace
+                && self.config.backend.os() != OperatingSystem::Windows,
             source_files,
             simdutf_objects,
             static_archive_fingerprint,

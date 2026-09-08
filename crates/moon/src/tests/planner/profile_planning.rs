@@ -354,7 +354,7 @@ fn run_graph_uses_selected_profile() {
 }
 
 #[test]
-fn default_native_run_uses_o0_without_full_debug_info() {
+fn native_run_cli_flags_match_requested_debug_info() {
     for (case, package, target_args) in [
         ("debug_flag_test", "main", ["--target", "native"].as_slice()),
         (
@@ -365,10 +365,10 @@ fn default_native_run_uses_o0_without_full_debug_info() {
     ] {
         let fixture = PlanningFixture::new(case).expect("fixture should resolve");
         for (label, extra_args, expect_debug_info) in [
-            ("default", [].as_slice(), false),
-            ("debug", ["--debug"].as_slice(), true),
-            ("no-strip", ["--no-strip"].as_slice(), true),
-            ("strip", ["--debug", "--strip"].as_slice(), false),
+            ("default", [].as_slice(), None),
+            ("debug", ["--debug"].as_slice(), Some(true)),
+            ("no-strip", ["--no-strip"].as_slice(), Some(true)),
+            ("strip", ["--debug", "--strip"].as_slice(), Some(false)),
         ] {
             let mut args = vec!["run", package, "--dry-run", "--nostd", "--sort-input"];
             args.extend_from_slice(target_args);
@@ -377,6 +377,13 @@ fn default_native_run_uses_o0_without_full_debug_info() {
             let graph = fixture
                 .plan_run_with_cli(&cli, &cmd)
                 .unwrap_or_else(|err| panic!("{case}: {label} native run should plan: {err:#}"));
+
+            // CLI tests cover explicit and preferred backend selection. The
+            // RR compile tests inject candidates to guarantee each payload form.
+            let link = command_tokens(&graph, "moonc link-core", &["-main"]);
+            let generates_c = link
+                .windows(2)
+                .any(|pair| pair[0] == "-o" && pair[1].ends_with(".c"));
 
             for (command, filter) in [
                 ("moonc build-package", ["main.mbt"].as_slice()),
@@ -390,10 +397,58 @@ fn default_native_run_uses_o0_without_full_debug_info() {
                 assert!(tokens.iter().any(|token| token == "-O0"), "{tokens:?}");
                 assert_eq!(
                     tokens.iter().any(|token| token == "-g"),
-                    expect_debug_info,
+                    expect_debug_info.unwrap_or(generates_c),
                     "{case}: {label}: {tokens:?}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn stripping_keeps_runtime_backtraces_only_for_debug_profile_runs() {
+    let fixture = PlanningFixture::new("debug_flag_test").expect("fixture should resolve");
+    for backend in ["native", "llvm"] {
+        for (command, extra_args, expect_backtrace) in [
+            ("run", [].as_slice(), !cfg!(windows)),
+            ("run", ["--release"].as_slice(), false),
+            ("build", [].as_slice(), false),
+            ("test", [].as_slice(), false),
+            ("bench", [].as_slice(), false),
+        ] {
+            let mut args = vec![command, "--target", backend, "--strip", "--dry-run"];
+            args.extend_from_slice(extra_args);
+            let graph = match command {
+                "run" => {
+                    args.push("main");
+                    let (cli, cmd) = parse_run_command(&args);
+                    fixture.plan_run_with_cli(&cli, &cmd)
+                }
+                "build" => {
+                    let (cli, cmd) = parse_build_command(&args);
+                    fixture.plan_build_with_cli(&cli, &cmd)
+                }
+                "test" => {
+                    let (cli, cmd) = parse_test_command(&args);
+                    fixture.plan_test_with_cli(&cli, &cmd)
+                }
+                "bench" => {
+                    let (cli, cmd) = parse_bench_command(&args);
+                    fixture.plan_bench_with_cli(&cli, &cmd)
+                }
+                _ => unreachable!(),
+            }
+            .unwrap_or_else(|err| panic!("{args:?} should plan: {err:#}"));
+            let runtime = command_tokens(&graph, "runtime.c", &[]);
+            assert_eq!(
+                runtime
+                    .iter()
+                    .any(|arg| arg == "-DMOONBIT_ALLOW_STACKTRACE"),
+                expect_backtrace,
+                "{args:?}: runtime backtrace support"
+            );
+            let link = command_tokens(&graph, "moonc link-core", &[]);
+            assert!(!link.iter().any(|arg| arg == "-g"), "{args:?}: {link:?}");
         }
     }
 }

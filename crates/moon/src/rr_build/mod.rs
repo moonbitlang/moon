@@ -47,7 +47,8 @@ use moonbuild_rupes_recta::{
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        BackendConfig, ENV_MOONBIT_NEW_NATIVE, NativeTarget, OperatingSystem, PackageId, TargetKind,
+        BackendConfig, DebugInfoRequest, DebugSymbols, ENV_MOONBIT_NEW_NATIVE, NativeTarget,
+        OperatingSystem, PackageId, TargetKind,
     },
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
 };
@@ -352,6 +353,26 @@ pub(crate) fn prepare_resolved_build(
     info!("is_core: {}", is_core);
 
     let opt_level = build_flags.effective_profile(action);
+    let strip = build_flags.strip_for(action);
+    let debug_info = DebugInfoRequest {
+        symbols: if strip {
+            DebugSymbols::None
+        } else if action == RunMode::Run
+            && target_backend == TargetBackend::Native
+            && !build_flags.debug
+            && !build_flags.no_strip
+        {
+            // Planning chooses how to retain source backtraces after selecting
+            // generated C or direct object output for this Native run.
+            DebugSymbols::Backtrace
+        } else {
+            DebugSymbols::Full
+        },
+        // Stripping symbols does not disable a debug-profile run's native
+        // backtrace machinery. Other commands enable it with debug symbols.
+        runtime_backtrace: target_backend.is_native()
+            && (!strip || (action == RunMode::Run && opt_level == BuildProfile::Debug)),
+    };
     let backend = match target_backend {
         TargetBackend::Wasm => BackendConfig::Wasm {
             use_wat: build_flags.output_wat,
@@ -395,7 +416,7 @@ pub(crate) fn prepare_resolved_build(
         backend,
         opt_level,
         action,
-        debug_symbols: build_flags.debug_symbols_for(action, target_backend),
+        debug_info,
         stdlib_path,
         artifact_paths,
         enable_coverage: build_flags.enable_coverage,

@@ -54,6 +54,15 @@ The outer `BuildPlan` exposes artifact relationships and subplan composition;
 RR lowering borrows its backend subplan to read the selected mode and hydrate
 backend actions, without copying that state into another configuration.
 
+The CLI also supplies a `DebugInfoRequest`, separating requested symbol detail
+from native runtime backtrace support. After selecting the payload form, Backend
+Plan resolves and stores whether MoonBit compilation emits debug information.
+`BuildCStubsInfo` and `MakeExecutableInfo` separately own their native compiler
+debug and optimization settings. A backtrace-only request may require debug
+information for generated C without changing C stubs. Runtime backtrace support
+is resolved into `BuildRuntimeInfo`, and dSYM requirements become `GenerateDsym`
+actions. Lowering consumes these resolved decisions from the plan.
+
 `BackendConfig` is the compile-wide source of truth held in `CompileConfig`.
 Planning and lowering borrow that same configuration. Lowering also borrows
 its artifact path resolver through `LoweringContext`; artifact-path selection

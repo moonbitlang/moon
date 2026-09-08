@@ -214,17 +214,6 @@ impl BuildFlags {
         }
     }
 
-    /// Resolve debug symbols after the compilation's backend is selected.
-    pub fn debug_symbols_for(&self, run_mode: RunMode, backend: TargetBackend) -> bool {
-        // A default Native run retains stack-trace support without full debug
-        // information. Explicit debug or no-strip requests retain that information.
-        !self.strip_for(run_mode)
-            && (run_mode != RunMode::Run
-                || backend != TargetBackend::Native
-                || self.debug
-                || self.no_strip)
-    }
-
     pub fn output_style(&self) -> OutputStyle {
         match (self.no_render, self.output_json) {
             (true, false) => OutputStyle::Raw,

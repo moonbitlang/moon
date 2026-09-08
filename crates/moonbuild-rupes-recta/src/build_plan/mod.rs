@@ -55,7 +55,7 @@ use std::{
 use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
-    compiler_flags::{NativeAllocator, Toolchain},
+    compiler_flags::{NativeAllocator, OptLevel as CCOptLevel, Toolchain},
     cond_expr::OptLevel,
     resolution::ModuleId,
     target::TargetBackend,
@@ -67,7 +67,8 @@ use tracing::instrument;
 use crate::{
     CompileConfig, ResolveOutput,
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, NativeBackendMode, NativeTarget, PackageId,
+        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
+        PackageId,
     },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
@@ -114,6 +115,10 @@ pub(crate) struct BackendPlan {
     /// Present only for Native; all Native planning and lowering read this value.
     native_mode: Option<NativeBackendMode>,
 
+    /// Debug information for MoonBit compilation, resolved after payload selection.
+    /// Native compiler settings belong to their individual action metadata.
+    moonc_debug_info: bool,
+
     /// Planned backend actions, in stable insertion order.
     actions: IndexSet<BuildPlanNode>,
 
@@ -149,6 +154,10 @@ pub(crate) struct BackendPlan {
 }
 
 impl BackendPlan {
+    pub(crate) fn moonc_debug_info(&self) -> bool {
+        self.moonc_debug_info
+    }
+
     pub(crate) fn native_mode(&self) -> &NativeBackendMode {
         self.native_mode
             .as_ref()
@@ -458,6 +467,9 @@ pub struct LinkCoreInfo {
 pub struct BuildCStubsInfo {
     /// The effective native toolchain for compiling the C stubs
     pub(crate) effective_native_toolchain: Toolchain,
+    /// C-stub code generation is independent of the main program's payload form.
+    pub(crate) debug_info: bool,
+    pub(crate) opt_level: CCOptLevel,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
     /// Legacy C-stub linker flags retained for manifest compatibility.
@@ -474,6 +486,10 @@ pub struct BuildCStubsInfo {
 pub struct MakeExecutableInfo {
     /// The effective native toolchain for this executable step
     pub(crate) effective_native_toolchain: Toolchain,
+    /// Settings for the compiler-driver step. Direct-object linking does not
+    /// compile C and therefore does not consume these settings.
+    pub(crate) c_debug_info: bool,
+    pub(crate) c_opt_level: CCOptLevel,
     /// The flags to pass to the C compiler when compiling the package itself
     pub(crate) c_flags: Vec<String>,
     /// The flags to pass to the C compiler driver when linking the executable
@@ -488,6 +504,8 @@ pub struct MakeExecutableInfo {
 pub struct BuildRuntimeInfo {
     /// The effective native toolchain for compiling the runtime library.
     pub(crate) effective_native_toolchain: Toolchain,
+    /// Whether this runtime build enables its native backtrace reporter.
+    pub(crate) enable_backtrace: bool,
     /// Runtime C translation units shipped by the selected MoonBit toolchain.
     pub(crate) source_files: Vec<PathBuf>,
     /// Prebuilt objects selected as additional static archive members.
@@ -799,6 +817,13 @@ pub fn build_plan(
             *direct_object_candidate,
         ));
     }
+    constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {
+        DebugSymbols::None => false,
+        DebugSymbols::Full => true,
+        // Direct objects retain backtrace metadata with -O0 alone. Generated C
+        // needs moonc -g for accurate source locations in its #line directives.
+        DebugSymbols::Backtrace => constructor.res.backend.direct_native_target().is_none(),
+    };
     // Preserve the caller-requested executable scope for Native selection,
     // then drop test artifacts excluded by the standard-library special cases.
     constructor.build(input.into_iter().filter(|artifact| {

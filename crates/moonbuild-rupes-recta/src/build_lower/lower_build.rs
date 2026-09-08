@@ -26,9 +26,9 @@ use std::{
 use moonutil::{
     build_options::RunMode,
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, make_archiver_command_resolved,
-        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
+        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OutputType as CCOutputType,
+        make_archiver_command_resolved, make_cc_command_resolved_for_toolchain,
+        make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     package::JsFormat,
@@ -74,11 +74,11 @@ impl<'a> LoweringContext<'a> {
     }
 
     pub(super) fn set_flags(&self) -> compiler::CompilationFlags {
+        let debug_info = self.plan.backend_plan().moonc_debug_info();
         compiler::CompilationFlags {
             no_opt: self.opt.opt_level == OptLevel::Debug,
-            symbols: self.opt.debug_symbols,
-            source_map: self.opt.backend.target_backend().supports_source_map()
-                && self.opt.debug_symbols,
+            symbols: debug_info,
+            source_map: self.opt.backend.target_backend().supports_source_map() && debug_info,
             enable_coverage: false,
             self_coverage: false,
             enable_value_tracing: false,
@@ -882,21 +882,11 @@ impl<'a> LoweringContext<'a> {
             )
         });
 
-        // Match legacy to_opt_level function exactly
-        let opt_level = match (
-            self.opt.opt_level == OptLevel::Release,
-            self.opt.debug_symbols,
-        ) {
-            (true, false) => CCOptLevel::Speed,
-            (true, true) => CCOptLevel::Debug,
-            (false, true) => CCOptLevel::Debug,
-            (false, false) => CCOptLevel::None,
-        };
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
             .output_ty(CCOutputType::Object)
-            .opt_level(opt_level)
-            .debug_info(self.opt.debug_symbols)
+            .opt_level(info.opt_level)
+            .debug_info(info.debug_info)
             .link_moonbitrun(true)
             .define_use_shared_runtime_macro(false)
             .build()
@@ -1109,15 +1099,11 @@ impl<'a> LoweringContext<'a> {
 
         let sources = self.native_executable_dependency_paths(artifacts, info);
 
-        let opt_level = match self.opt.opt_level {
-            OptLevel::Release => CCOptLevel::Speed,
-            OptLevel::Debug => CCOptLevel::Debug,
-        };
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
             .output_ty(CCOutputType::Executable) // TODO: support compiling to library
-            .opt_level(opt_level)
-            .debug_info(self.opt.debug_symbols)
+            .opt_level(info.c_opt_level)
+            .debug_info(info.c_debug_info)
             .link_moonbitrun(true)
             .link_libbacktrace(true)
             .define_use_shared_runtime_macro(false)
