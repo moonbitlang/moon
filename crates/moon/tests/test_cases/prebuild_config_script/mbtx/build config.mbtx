@@ -1,0 +1,40 @@
+import {
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+// Read the existing prebuild JSON protocol without a registry dependency.
+extern "wasm" fn read_char() -> Int = "spectest" "read_char"
+
+///|
+fn main {
+  let input = StringBuilder()
+  for ch = read_char(); ch != -1; ch = read_char() {
+    input.write_char(ch.to_char().unwrap())
+  }
+  let input = try! @json.parse(input.to_string())
+  guard input is {
+    "env": { "MOON_CC": String(cc), .. },
+    "paths": { "module_root": String(module_root), .. },
+    ..
+  } else {
+    abort("missing prebuild environment or paths")
+  }
+  guard Some(cc) == @env.get_env_var("MOON_CC") else {
+    abort("prebuild environment was not passed through stdin")
+  }
+  guard Some(module_root) == @env.current_dir() else {
+    abort("prebuild working directory is not the module root")
+  }
+  let output : Json = {
+    "vars": { "HELLO": "------this-is-added-by-config-script------" },
+    "link_configs": [{
+      "package": "username/hello/dep",
+      "link_flags": "-l______this_is_added_by_config_script_______",
+      "link_libs": ["mylib"],
+      "link_search_paths": ["/my-search-path"],
+    }],
+  }
+  println(output.stringify())
+}

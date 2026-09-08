@@ -54,12 +54,20 @@ fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> 
         let mut cmd = Command::new(py);
         cmd.arg("--").arg(prebuild);
         Ok(cmd)
+    } else if prebuild.ends_with(".mbtx") {
+        let mut cmd = Command::new(&*moonutil::toolchain::BINARIES.moonbuild);
+        // Standalone Wasm execution preserves the JSON streams and skips native
+        // prebuild configuration while compiling the script itself.
+        cmd.args(["--quiet", "run", "--target", "wasm", "--"])
+            .arg(prebuild);
+        Ok(cmd)
     } else {
         Err(anyhow!(
             "Unknown extension for build script `{}` of module {}.
                 Currently allowed:
                   (running with node) .js, .cjs, .mjs
-                  (running with python) .py",
+                  (running with python) .py
+                  (running with moon run --target wasm) .mbtx",
             prebuild,
             m
         ))

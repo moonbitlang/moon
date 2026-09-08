@@ -14,6 +14,43 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
 
 ## Module-Level Prebuild Configuration
 
+The `--moonbit-unstable-prebuild` field names a script relative to the module
+root. Supported extensions select the runner:
+
+| Extension | Runner |
+| --- | --- |
+| `.js`, `.cjs`, `.mjs` | Node.js |
+| `.py` | Python |
+| `.mbtx` | `moon run --target wasm` |
+
+For example:
+
+```json
+{
+  "name": "username/project",
+  "--moonbit-unstable-prebuild": "build.mbtx"
+}
+```
+
+Every runner uses the module root as its working directory and the same JSON
+protocol. Stdin supplies `env` (the captured environment) and `paths`, including
+`module_root`. Stdout must contain one build configuration JSON value with the
+optional fields `vars`, `link_configs`, and `rerun_if`; `rerun_if` currently has
+no effect. Stderr carries script diagnostics. A failed script or invalid JSON
+output fails the build.
+
+MoonBit scripts use standalone `.mbtx` imports and incremental compilation.
+Their target is always linear-memory Wasm, independently of the project backend;
+compiling the script therefore skips module-level prebuild configuration. Moon's
+normal executable discovery selects the runner, including `MOON_OVERRIDE`, so
+no separate `moonx` executable is required. Build progress stays off stdout to
+preserve the JSON protocol.
+
+The ordinary [embedded `.mbtx` policy](moonx.md#standalone-mbtx) applies. Policy
+filesystem roots are relative to the script directory, while the working
+directory remains the module root. An environment policy does not filter the
+environment values explicitly supplied in the JSON input.
+
 `--moonbit-unstable-prebuild` in `moon.mod.json` supplies dynamic native build
 configuration, such as toolchain selection and compiler or linker flags. It runs
 only for the Native and LLVM target backends. Wasm, WasmGC, and JS builds skip

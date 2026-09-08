@@ -15,6 +15,58 @@ fn test_prebuild_config_py() {
     test_prebuild_config_common(dir);
 }
 
+#[test]
+fn test_prebuild_config_mbtx() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    test_prebuild_config_common(dir);
+}
+
+#[test]
+fn test_prebuild_config_mbtx_failure() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        "fn main { abort(\"prebuild script failed\") }",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+Error: failed to run build for target Native
+
+Caused by:
+    0: Failed to run prebuild script for module username/hello
+    1: prebuild script `build config.mbtx` for module `username/hello@0.0.0 (local [..])` failed
+
+"#]]);
+}
+
+#[test]
+fn test_prebuild_config_mbtx_invalid_json() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        "fn main { println(\"not json\") }",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to run build for target Native
+
+Caused by:
+    0: Failed to run prebuild script for module username/hello
+    1: failed to deserialize prebuild script `build config.mbtx` for module `username/hello@0.0.0 (local [..])`
+    2: expected ident at line 1 column 2
+
+"#]]);
+}
+
 fn test_prebuild_config_common(dir: TestDir) {
     let cc = if cfg!(windows) { "cl" } else { "cc" };
     let stdout = get_stdout_with_envs(
