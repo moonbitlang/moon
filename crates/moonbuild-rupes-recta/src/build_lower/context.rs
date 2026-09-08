@@ -27,23 +27,26 @@ use moonutil::{
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
-use super::{BuildOptions, CExecutableRealization, LoweringError};
+use super::{CExecutableRealization, LoweringError};
 use crate::{
-    ResolveOutput,
+    CompileConfig, ResolveOutput,
     build_plan::{
         ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildAction,
         PackagePrebuildKey, package_file_key,
     },
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, InputObservation},
-    model::{BackendConfig, BuildPlanNode, BuildTarget},
+    model::{BackendConfig, BuildPlanNode, BuildTarget, OperatingSystem},
     pkg_solve::DepRelationship,
-    target_layout::ArtifactPathResolver,
+    target_layout::{
+        ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
+    },
 };
 
+/// Borrows the compilation inputs and keeps the working state for lowering.
 pub(crate) struct LoweringContext<'a> {
     // Physical paths for logical build artifacts.
-    pub(crate) artifact_paths: ArtifactPathResolver,
+    pub(crate) artifact_paths: &'a ArtifactPathResolver,
 
     // External state
     pub(crate) packages: &'a DiscoverResult,
@@ -51,7 +54,7 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) module_dirs: &'a DirSyncResult,
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildPlan,
-    pub(crate) opt: &'a BuildOptions,
+    pub(crate) opt: &'a CompileConfig,
 
     // Native compilation observes the selected Moon toolchain include tree.
     // Discover it at most once for all actions lowered by this context.
@@ -96,7 +99,7 @@ impl ActionArtifacts {
             ctx.action(provider_action),
             ctx.packages,
             ctx.modules,
-            ctx.opt.artifact_path_options(ctx.plan.backend_plan()),
+            ctx.artifact_path_options(),
         );
         RealizedArtifact { artifact, paths }
     }
@@ -179,13 +182,12 @@ impl ActionArtifacts {
 
 impl<'a> LoweringContext<'a> {
     pub(super) fn new(
-        artifact_paths: ArtifactPathResolver,
         resolve_output: &'a ResolveOutput,
         plan: &'a BuildPlan,
-        opt: &'a BuildOptions,
+        opt: &'a CompileConfig,
     ) -> Self {
         Self {
-            artifact_paths,
+            artifact_paths: &opt.artifact_paths,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
             packages: &resolve_output.pkg_dirs,
@@ -196,9 +198,51 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
+    // Artifact forms combine compile-wide options with the Native mode already
+    // selected in the Backend Plan.
+    pub(super) fn artifact_path_options(&self) -> ArtifactPathOptions {
+        let os = match &self.opt.backend {
+            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
+                OperatingSystem::None
+            }
+            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => {
+                self.opt.lowering_environment.os()
+            }
+        };
+        let (executable, linked_core) = match &self.opt.backend {
+            BackendConfig::Wasm { use_wat, .. } => (
+                ExecutableArtifact::Wasm { use_wat: *use_wat },
+                LinkedCoreArtifact::Wasm { use_wat: *use_wat },
+            ),
+            BackendConfig::WasmGc { use_wat } => (
+                ExecutableArtifact::WasmGC { use_wat: *use_wat },
+                LinkedCoreArtifact::WasmGC { use_wat: *use_wat },
+            ),
+            BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
+            BackendConfig::Native { .. } => (
+                ExecutableArtifact::NativeExecutable,
+                if self.plan.backend_plan().direct_native_target().is_some() {
+                    LinkedCoreArtifact::NativeObject { os }
+                } else {
+                    LinkedCoreArtifact::NativeC
+                },
+            ),
+            BackendConfig::Llvm { .. } => (
+                ExecutableArtifact::LlvmExecutable,
+                LinkedCoreArtifact::LlvmObject { os },
+            ),
+        };
+
+        ArtifactPathOptions {
+            os,
+            executable,
+            linked_core,
+        }
+    }
+
     fn toolchain_include_files(&mut self) -> Result<&[PathBuf], LoweringError> {
         if self.toolchain_include_files.is_none() {
-            let root = PathBuf::from(&self.opt.compiler_paths().include_path);
+            let root = PathBuf::from(&self.opt.lowering_environment.compiler_paths().include_path);
             let mut files = Vec::new();
             for entry in WalkDir::new(&root).follow_links(true).sort_by_file_name() {
                 let entry = entry.map_err(|source| LoweringError::ToolchainInclude {
@@ -276,7 +320,7 @@ impl<'a> LoweringContext<'a> {
                 return node.human_desc(
                     self.modules,
                     self.packages,
-                    self.opt.target_backend().to_flag(),
+                    self.opt.backend.target_backend().to_flag(),
                 );
             }
             (BuildPlanActionKey::PackagePrebuild(key), BuildAction::RunPrebuild { info }) => {
@@ -426,7 +470,7 @@ impl<'a> LoweringContext<'a> {
         ) && let Some(stdlib_root) = &self.opt.stdlib_path
         {
             inputs.push(InputObservation::StandardLibraryInterfaces(
-                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend()),
+                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.backend.target_backend()),
             ));
         }
 
@@ -456,7 +500,8 @@ impl<'a> LoweringContext<'a> {
         // may append as standalone argv. Compare their exact rendered paths;
         // arbitrary command arguments remain opaque to lowering.
         for name in ["libmoonbitrun.o", "libbacktrace.a"] {
-            let path = Path::new(&self.opt.compiler_paths().lib_path).join(name);
+            let path =
+                Path::new(&self.opt.lowering_environment.compiler_paths().lib_path).join(name);
             let rendered = path.display().to_string();
             if command.args().iter().any(|argument| argument == &rendered) {
                 inputs.push(InputObservation::File(path));
@@ -493,22 +538,19 @@ impl<'a> LoweringContext<'a> {
             BuildAction::ArchiveOrLinkCStubs { .. } => true,
             BuildAction::LinkCore { target, .. } => {
                 let package = self.get_package(target);
-                let package_link_flags =
-                    package
-                        .raw
-                        .link
-                        .as_ref()
-                        .and_then(|link| match self.opt.target_backend() {
-                            TargetBackend::Wasm => link
-                                .wasm
-                                .as_ref()
-                                .and_then(|config| config.flags.as_deref()),
-                            TargetBackend::WasmGC => link
-                                .wasm_gc
-                                .as_ref()
-                                .and_then(|config| config.flags.as_deref()),
-                            TargetBackend::Js | TargetBackend::Native | TargetBackend::LLVM => None,
-                        });
+                let package_link_flags = package.raw.link.as_ref().and_then(|link| {
+                    match self.opt.backend.target_backend() {
+                        TargetBackend::Wasm => link
+                            .wasm
+                            .as_ref()
+                            .and_then(|config| config.flags.as_deref()),
+                        TargetBackend::WasmGC => link
+                            .wasm_gc
+                            .as_ref()
+                            .and_then(|config| config.flags.as_deref()),
+                        TargetBackend::Js | TargetBackend::Native | TargetBackend::LLVM => None,
+                    }
+                });
                 self.packages
                     .module_info(package.module)
                     .link_flags
@@ -558,9 +600,7 @@ impl<'a> LoweringContext<'a> {
                     .dsym_bundle_of_build_target(
                         self.packages,
                         &target,
-                        self.opt
-                            .artifact_path_options(self.plan.backend_plan())
-                            .executable,
+                        self.artifact_path_options().executable,
                     ),
             ],
             BuildAction::RunPrebuild { info } => info.resolved_outputs.clone(),

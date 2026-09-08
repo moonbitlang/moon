@@ -21,20 +21,14 @@
 use std::{path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
-use moonutil::{
-    build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel,
-    target::TargetBackend,
-};
+use moonutil::compiler_flags::CompilerPaths;
 use tracing::instrument;
 
 use crate::{
-    ResolveOutput,
-    build_plan::{BackendPlan, BuildPlan},
+    CompileConfig, ResolveOutput,
+    build_plan::BuildPlan,
     execution_plan::{ExecutionPlan, ExecutionPlanBuilder},
-    model::{BackendConfig, OperatingSystem},
-    target_layout::{
-        ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
-    },
+    model::OperatingSystem,
 };
 
 mod backend;
@@ -69,19 +63,6 @@ pub struct LoweringEnvironment {
     compiler_paths: OnceLock<CompilerPaths>,
 }
 
-impl Clone for LoweringEnvironment {
-    fn clone(&self) -> Self {
-        let cloned = Self::default();
-        if let Some(os) = self.os.get() {
-            let _ = cloned.os.set(*os);
-        }
-        if let Some(compiler_paths) = self.compiler_paths.get() {
-            let _ = cloned.compiler_paths.set(compiler_paths.clone());
-        }
-        cloned
-    }
-}
-
 impl LoweringEnvironment {
     pub fn os(&self) -> OperatingSystem {
         *self
@@ -92,80 +73,6 @@ impl LoweringEnvironment {
     pub fn compiler_paths(&self) -> &CompilerPaths {
         self.compiler_paths
             .get_or_init(CompilerPaths::from_moon_dirs)
-    }
-}
-
-/// Knobs to tweak during build. Affects behaviors during lowering.
-pub struct BuildOptions {
-    pub artifact_paths: ArtifactPathResolver,
-    // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
-    pub backend: BackendConfig,
-    pub opt_level: OptLevel,
-    pub action: RunMode,
-
-    // Detailed configuration -- some of them might live better in configs
-    pub debug_symbols: bool,
-    pub enable_coverage: bool,
-    pub moonc_output_json: bool,
-    pub docs_serve: bool,
-    pub warning_condition: WarningCondition,
-    pub info_no_alias: bool,
-
-    // Environments
-    /// Only `Some` if we import standard library.
-    pub stdlib_path: Option<PathBuf>,
-    pub lowering_environment: LoweringEnvironment,
-}
-
-impl BuildOptions {
-    pub fn target_backend(&self) -> TargetBackend {
-        self.backend.target_backend()
-    }
-
-    pub fn os(&self) -> OperatingSystem {
-        self.lowering_environment.os()
-    }
-
-    pub fn compiler_paths(&self) -> &CompilerPaths {
-        self.lowering_environment.compiler_paths()
-    }
-
-    fn artifact_path_options(&self, backend_plan: &BackendPlan) -> ArtifactPathOptions {
-        let os = match &self.backend {
-            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                OperatingSystem::None
-            }
-            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => self.os(),
-        };
-        let (executable, linked_core) = match &self.backend {
-            BackendConfig::Wasm { use_wat, .. } => (
-                ExecutableArtifact::Wasm { use_wat: *use_wat },
-                LinkedCoreArtifact::Wasm { use_wat: *use_wat },
-            ),
-            BackendConfig::WasmGc { use_wat } => (
-                ExecutableArtifact::WasmGC { use_wat: *use_wat },
-                LinkedCoreArtifact::WasmGC { use_wat: *use_wat },
-            ),
-            BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
-            BackendConfig::Native { .. } => (
-                ExecutableArtifact::NativeExecutable,
-                if backend_plan.direct_native_target().is_some() {
-                    LinkedCoreArtifact::NativeObject { os }
-                } else {
-                    LinkedCoreArtifact::NativeC
-                },
-            ),
-            BackendConfig::Llvm { .. } => (
-                ExecutableArtifact::LlvmExecutable,
-                LinkedCoreArtifact::LlvmObject { os },
-            ),
-        };
-
-        ArtifactPathOptions {
-            os,
-            executable,
-            linked_core,
-        }
     }
 }
 
@@ -200,17 +107,17 @@ pub enum LoweringError {
 pub fn lower_build_plan(
     resolve_output: &ResolveOutput,
     plan: &BuildPlan,
-    opt: &BuildOptions,
+    opt: &CompileConfig,
 ) -> Result<ExecutionPlan, LoweringError> {
     info!("Starting action plan lowering to execution plan");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
-        opt.target_backend(),
+        opt.backend.target_backend(),
         opt.opt_level,
         opt.debug_symbols
     );
 
-    let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
+    let mut ctx = LoweringContext::new(resolve_output, plan, opt);
     let mut execution = ExecutionPlanBuilder::default();
 
     for action_key in plan.all_actions() {
@@ -232,7 +139,9 @@ mod tests {
 
     use indexmap::IndexSet;
     use moonutil::{
+        build_options::RunMode,
         compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, NativeAllocator, Toolchain},
+        cond_expr::OptLevel,
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
@@ -261,6 +170,8 @@ mod tests {
 
     #[test]
     fn non_native_artifact_options_do_not_resolve_operating_system() {
+        let (resolve_output, _) = single_package_resolve_output();
+        let plan = BuildPlan::default();
         for backend in [
             BackendConfig::Wasm {
                 use_wat: false,
@@ -278,7 +189,10 @@ mod tests {
                 ),
                 None,
             );
-            let options = BuildOptions {
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                warn_list: None,
                 artifact_paths,
                 backend,
                 opt_level: OptLevel::Debug,
@@ -293,11 +207,9 @@ mod tests {
                 lowering_environment: LoweringEnvironment::default(),
             };
 
+            let context = LoweringContext::new(&resolve_output, &plan, &options);
             assert!(options.lowering_environment.os.get().is_none());
-            assert_eq!(
-                options.artifact_path_options(&BackendPlan::default()).os,
-                OperatingSystem::None
-            );
+            assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
             assert!(options.lowering_environment.os.get().is_none());
         }
     }
@@ -543,7 +455,10 @@ mod tests {
             ),
             None,
         );
-        let options = BuildOptions {
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            warn_list: None,
             artifact_paths,
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
@@ -622,7 +537,10 @@ mod tests {
             ),
             None,
         );
-        let options = BuildOptions {
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            warn_list: None,
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
@@ -637,7 +555,7 @@ mod tests {
             lowering_environment: LoweringEnvironment::default(),
         };
 
-        let mut context = LoweringContext::new(artifact_paths, &resolve_output, &plan, &options);
+        let mut context = LoweringContext::new(&resolve_output, &plan, &options);
         let mut execution = ExecutionPlanBuilder::default();
         let nodes = [check_node, link_core_node];
         let actions = nodes
@@ -784,7 +702,10 @@ mod tests {
         ));
         plan.test_backend_plan_mut()
             .test_set_native_mode(Some(native_mode));
-        let options = BuildOptions {
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            warn_list: None,
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::Native {
                 direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
@@ -944,13 +865,14 @@ mod tests {
                 .any(|input| input == Path::new("main/native/stub.h")),
             "package-local C headers should be inputs of every C-stub action"
         );
-        let toolchain_headers = WalkDir::new(&options.compiler_paths().include_path)
-            .follow_links(true)
-            .into_iter()
-            .map(|entry| entry.expect("inspect test toolchain include directory"))
-            .filter(|entry| entry.file_type().is_file())
-            .map(|entry| entry.into_path())
-            .collect::<Vec<_>>();
+        let toolchain_headers =
+            WalkDir::new(&options.lowering_environment.compiler_paths().include_path)
+                .follow_links(true)
+                .into_iter()
+                .map(|entry| entry.expect("inspect test toolchain include directory"))
+                .filter(|entry| entry.file_type().is_file())
+                .map(|entry| entry.into_path())
+                .collect::<Vec<_>>();
         assert!(
             !toolchain_headers.is_empty(),
             "test toolchain should contain headers"
@@ -1060,7 +982,10 @@ mod tests {
                 ),
                 None,
             );
-            let options = BuildOptions {
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                warn_list: None,
                 artifact_paths: artifact_paths.clone(),
                 backend,
                 opt_level: OptLevel::Debug,
@@ -1079,19 +1004,16 @@ mod tests {
                 lower_build_plan(&resolve_output, &plan, &options)
                     .expect("lowering should succeed"),
             );
+            let context = LoweringContext::new(&resolve_output, &plan, &options);
             let executable = artifact_paths.target_layout().executable_of_build_target(
                 &resolve_output.pkg_dirs,
                 &target,
-                options
-                    .artifact_path_options(plan.backend_plan())
-                    .executable,
+                context.artifact_path_options().executable,
             );
             let dsym_bundle = artifact_paths.target_layout().dsym_bundle_of_build_target(
                 &resolve_output.pkg_dirs,
                 &target,
-                options
-                    .artifact_path_options(plan.backend_plan())
-                    .executable,
+                context.artifact_path_options().executable,
             );
 
             let link_args = lowered

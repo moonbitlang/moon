@@ -48,12 +48,16 @@ The outer `BuildPlan` exposes artifact relationships and subplan composition;
 RR lowering borrows its backend subplan to read the selected mode and hydrate
 backend actions, without copying that state into another configuration.
 
-`BackendConfig` is the compile-wide source of truth passed through `CompileConfig`,
-`BuildEnvironment`, and `BuildOptions`. An `ArtifactKey` does not repeat the
-backend, optimization profile, or run mode because one `BuildPlan` is scoped
-to one such configuration. If one plan later contains multiple configurations,
-that scope must become an explicit part of artifact identity before providers
-can be shared safely.
+`BackendConfig` is the compile-wide source of truth held in `CompileConfig`.
+Lowering borrows that configuration and its artifact path resolver through
+`LoweringContext`; artifact-path selection rules stay in lowering. Planning
+still receives a `BuildEnvironment` populated from the configuration and
+resolved host/toolchain inputs.
+
+An `ArtifactKey` does not repeat the backend, optimization profile, or run mode
+because one `BuildPlan` is scoped to one such configuration. If one plan later
+contains multiple configurations, that scope must become an explicit part of
+artifact identity before providers can be shared safely.
 
 ## Build Artifact identity
 
