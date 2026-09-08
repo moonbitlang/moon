@@ -223,46 +223,28 @@ pub(crate) fn plan_bundle_rr_from_resolved(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = bundle_preconfig(cli, cmd, target_dir, selected_target_backend);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        user_log,
-        &resolve_output,
-    )?;
-    let intent = bundle_user_intent(&resolve_output);
-    rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        user_log,
-        planning_context,
-        intent,
-        mooncake_bin_dir,
-        resolve_output,
-    )
-}
-
-fn bundle_preconfig(
-    cli: &UniversalFlags,
-    cmd: &BundleSubcommand,
-    target_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-) -> rr_build::CompilePreConfig {
-    let mut preconfig = rr_build::preconfig_compile(
-        &cmd.auto_sync_flags,
+    let mut compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Bundle,
-    );
-    preconfig.warning_condition = if cmd.build_flags.deny_warn {
+        user_log,
+        &resolve_output,
+    )?;
+    compile_config.warning_condition = if cmd.build_flags.deny_warn {
         WarningCondition::Deny
     } else {
         WarningCondition::Allow
     };
-    preconfig
+    let intent = bundle_user_intent(&resolve_output);
+    rr_build::plan_resolved_build_from_intent(
+        compile_config,
+        user_log,
+        intent,
+        mooncake_bin_dir,
+        resolve_output,
+    )
 }
 
 fn bundle_user_intent(

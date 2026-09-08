@@ -107,8 +107,8 @@ default optimization profile by subcommand:
 - `moon bench` and `moon bundle` use the release profile.
 
 This policy is centralized in `BuildFlags::effective_profile()` in
-`crates/moon/src/cli.rs`. Individual commands may still layer additional
-symbol or strip behavior on top of that default profile. A default `moon run`
+`crates/moon/src/build_flags.rs`. `BuildFlags::debug_symbols_for()` resolves
+symbol policy once the backend is selected. A default `moon run`
 for the Native target backend keeps `-O0` and stack-trace metadata but omits
 full `-g` debug information; explicit `--debug` or `--no-strip` retains it.
 

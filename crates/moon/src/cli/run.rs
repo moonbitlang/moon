@@ -44,7 +44,6 @@ use tracing::{Level, instrument};
 
 use crate::filter::ensure_package_supports_backend;
 use crate::rr_build;
-use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 
 use super::{BuildFlags, UniversalFlags};
@@ -613,20 +612,15 @@ pub(crate) fn plan_run_rr_from_resolved(
             })
             .unwrap_or_default(),
     );
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+
+    let value_tracing = cmd.build_flags.enable_value_tracing;
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Run,
-    );
-    let value_tracing = cmd.build_flags.enable_value_tracing;
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -634,13 +628,11 @@ pub(crate) fn plan_run_rr_from_resolved(
         &input_path,
         &resolve_output,
         value_tracing,
-        planning_context.target_backend(),
+        compile_config.backend.target_backend(),
     )?;
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
@@ -782,18 +774,12 @@ fn build_single_file_executable(
         .or(backend)
         .unwrap_or(options.default_target_backend);
 
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         Some(selected_target_backend),
         target_dir,
         RunMode::Run,
-    );
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolved,
     )?;
@@ -807,10 +793,8 @@ fn build_single_file_executable(
     };
     let intent = (vec![UserIntent::Run(package)], directive).into();
     let (build_meta, build_graph) = rr_build::plan_resolved_standalone_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         package,
         mooncake_bin_dir,

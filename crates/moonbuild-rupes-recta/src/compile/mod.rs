@@ -174,6 +174,8 @@ pub fn compile_standalone(
     })
 }
 
+// TODO: Remove `build_environment` and `lowering_options` once planning and
+// lowering both borrow `CompileConfig` instead of copying its configuration.
 fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
     let native_or_llvm = cx.backend.native_allocator().is_some();
     let compiler_paths = native_or_llvm.then(|| cx.lowering_environment.compiler_paths().clone());

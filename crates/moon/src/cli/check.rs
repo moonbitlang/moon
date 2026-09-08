@@ -56,7 +56,7 @@ use crate::filter::{
     group_packages_by_preferred_backend, package_supports_backend, select_packages,
     select_supported_packages,
 };
-use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
+use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -589,28 +589,21 @@ fn run_check_for_single_file_rr(
 
     let mut planned_runs = Vec::with_capacity(target_backends.len());
     for target_backend in target_backends {
-        let preconfig = preconfig_compile(
-            &cmd.auto_sync_flags,
+        let compile_config = rr_build::prepare_resolved_build(
             cli,
             &cmd.build_flags,
             target_backend,
             target_dir,
             RunMode::Check,
-        );
-        let planning_context = rr_build::prepare_resolved_build(
-            &preconfig,
-            &cli.unstable_feature,
-            target_dir,
             user_log,
             &resolved,
         )?;
-        let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
+        let intent =
+            get_user_intents_single_file(&resolved, compile_config.backend.target_backend())?;
         planned_runs.push(
             rr_build::plan_resolved_build_from_intent(
-                preconfig,
-                &cli.unstable_feature,
+                compile_config,
                 user_log,
-                planning_context,
                 intent,
                 mooncake_bin_dir,
                 resolved.clone(),
@@ -997,19 +990,12 @@ pub(crate) fn plan_check_rr_from_resolved(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Check,
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -1018,23 +1004,21 @@ pub(crate) fn plan_check_rr_from_resolved(
             &resolve_output,
             source_dir,
             filter_path,
-            planning_context.target_backend(),
+            compile_config.backend.target_backend(),
             cmd.patch_file.as_deref(),
         )?
     } else {
         calc_user_intent(
             &resolve_output,
             &cmd.path,
-            planning_context.target_backend(),
+            compile_config.backend.target_backend(),
             cmd.patch_file.as_deref(),
             user_log,
         )?
     };
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
@@ -1052,28 +1036,19 @@ fn plan_check_rr_from_selection(
     selection: ResolvedCheckSelection,
     user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         Some(target_backend),
         target_dir,
         RunMode::Check,
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
-    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         selection.into_user_intent()?,
         mooncake_bin_dir,
         resolve_output,
