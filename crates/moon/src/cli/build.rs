@@ -199,11 +199,10 @@ fn run_build_for_single_file_rr(
             user_log,
             &resolved,
         )?;
-        planned_runs.push(rr_build::plan_resolved_standalone_build_from_intent(
+        planned_runs.push(rr_build::plan_resolved_build_from_intent(
             compile_config,
             user_log,
             vec![UserIntent::Build(package)].into(),
-            package,
             mooncake_bin_dir,
             resolved.clone(),
         )?);
@@ -212,9 +211,9 @@ fn run_build_for_single_file_rr(
     let ok = if cli.dry_run {
         output.write_result(|writer| {
             let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
-            let build_input = rr_build::compose_standalone_build_inputs(build_inputs)
-                .map_err(std::io::Error::other)?;
-            rr_build::write_standalone_dry_run(
+            let build_input =
+                rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
+            rr_build::write_dry_run(
                 writer,
                 &build_input,
                 build_metas.iter().flat_map(|meta| meta.artifacts.values()),
@@ -228,15 +227,14 @@ fn run_build_for_single_file_rr(
         for (build_meta, _) in &planned_runs {
             rr_build::generate_all_pkgs_json(build_meta)?;
         }
-        let build_input = rr_build::compose_standalone_build_inputs(
+        let build_input = rr_build::compose_build_inputs(
             planned_runs
                 .into_iter()
                 .map(|(_, build_input)| build_input)
                 .collect(),
         )?;
         let config = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
-        let result =
-            rr_build::execute_standalone_build(&config, build_input, target_dir, user_log)?;
+        let result = rr_build::execute_build(&config, build_input, target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         result.successful()
     };

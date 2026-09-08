@@ -243,6 +243,7 @@ impl BuildPlan {
         .cloned()
     }
 
+    #[cfg(test)]
     pub(crate) fn artifact_provider(&self, artifact: &ArtifactKey) -> BuildPlanActionKey {
         BuildPlanActionKey::Backend(
             self.artifacts

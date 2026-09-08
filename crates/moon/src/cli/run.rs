@@ -210,11 +210,6 @@ struct BuildExecutableFromPlanOptions {
     embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
 }
 
-enum RunBuildInput {
-    Ordinary(rr_build::BuildInput),
-    Standalone(rr_build::StandaloneBuildInput),
-}
-
 impl RunExecutable {
     pub(crate) fn ensure_build_success(&self) -> anyhow::Result<()> {
         if let Some(build_exit_code) = self.build_exit_code
@@ -576,7 +571,7 @@ fn build_package_executable(
         source_dir,
         target_dir,
         &build_meta,
-        RunBuildInput::Ordinary(build_graph),
+        build_graph,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -792,11 +787,10 @@ fn build_single_file_executable(
         Default::default()
     };
     let intent = (vec![UserIntent::Run(package)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_standalone_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
         intent,
-        package,
         mooncake_bin_dir,
         resolved,
     )?;
@@ -807,7 +801,7 @@ fn build_single_file_executable(
         source_dir,
         target_dir,
         &build_meta,
-        RunBuildInput::Standalone(build_graph),
+        build_graph,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -827,7 +821,7 @@ fn build_executable_from_plan(
     source_dir: &Path,
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
-    build_graph: RunBuildInput,
+    build_graph: rr_build::BuildInput,
     options: BuildExecutableFromPlanOptions,
     output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
@@ -838,22 +832,13 @@ fn build_executable_from_plan(
     let user_log = output.user_log();
     if cli.dry_run {
         output.write_result(|writer| {
-            match &build_graph {
-                RunBuildInput::Ordinary(build_graph) => rr_build::write_dry_run(
-                    writer,
-                    build_graph,
-                    build_meta.artifacts.values(),
-                    source_dir,
-                    target_dir,
-                )?,
-                RunBuildInput::Standalone(build_graph) => rr_build::write_standalone_dry_run(
-                    writer,
-                    build_graph,
-                    build_meta.artifacts.values(),
-                    source_dir,
-                    target_dir,
-                )?,
-            }
+            rr_build::write_dry_run(
+                writer,
+                &build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            )?;
 
             if options.print_dry_run_run_command {
                 let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);
@@ -884,14 +869,7 @@ fn build_executable_from_plan(
     let build_config =
         BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
             .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = match build_graph {
-        RunBuildInput::Ordinary(build_graph) => {
-            rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?
-        }
-        RunBuildInput::Standalone(build_graph) => {
-            rr_build::execute_standalone_build(&build_config, build_graph, target_dir, user_log)?
-        }
-    };
+    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),

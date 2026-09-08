@@ -127,7 +127,5 @@ mod special_cases;
 pub mod util;
 
 // Reexports
-pub use compile::{
-    CompileConfig, CompileOutput, StandaloneCompileOutput, compile, compile_standalone,
-};
+pub use compile::{CompileConfig, CompileOutput, compile};
 pub use resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies};

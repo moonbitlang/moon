@@ -23,7 +23,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{build_plan::ArtifactKey, pkg_name::OptionalPackageFQNWithSource};
+use crate::{ResolveOutput, build_plan::ArtifactKey, pkg_name::OptionalPackageFQNWithSource};
 
 mod n2_adapter;
 
@@ -195,9 +195,17 @@ pub struct DeclaredOutput {
     producer: ActionId,
     path: PathBuf,
     artifact: Option<ArtifactKey>,
+    /// The artifact belongs to a dependency module outside the resolved project's
+    /// root modules. Independent of scheduling, freshness, and cache eligibility.
+    /// Outputs without module ownership (including runtime artifacts) are unmarked.
+    is_dependency_artifact: bool,
 }
 
 impl DeclaredOutput {
+    pub fn is_dependency_artifact(&self) -> bool {
+        self.is_dependency_artifact
+    }
+
     pub fn producer(&self) -> ActionId {
         self.producer
     }
@@ -317,6 +325,29 @@ pub struct ExecutionPlan {
 }
 
 impl ExecutionPlan {
+    /// Retain project membership on artifact realizations before execution policy
+    /// is chosen. Local-path dependencies have the same role as registry dependencies.
+    pub(crate) fn mark_dependency_artifacts(&mut self, resolved: &ResolveOutput) {
+        let project_modules = resolved
+            .local_modules()
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>();
+        for output in self.outputs.values_mut() {
+            let module = match output.artifact.as_ref() {
+                Some(ArtifactKey::BundleResult { module } | ArtifactKey::DocsDir { module }) => {
+                    Some(*module)
+                }
+                Some(artifact) => artifact
+                    .package()
+                    .map(|package| resolved.pkg_dirs.get_package(package).module),
+                None => None,
+            };
+            output.is_dependency_artifact =
+                module.is_some_and(|module| !project_modules.contains(&module));
+        }
+    }
+
     pub fn action_ids(&self) -> impl Iterator<Item = ActionId> + '_ {
         (0..self.actions.len()).map(ActionId)
     }
@@ -339,8 +370,9 @@ impl ExecutionPlan {
     ///
     /// Concrete output paths form the composition boundary. Plans may share an
     /// action only when every part of its execution behavior and every output
-    /// annotation agree. A partial overlap or a different producer is rejected
-    /// before the executor sees an ambiguous graph.
+    /// artifact identity and project membership agree. A partial overlap, a
+    /// different producer, or conflicting membership is rejected before the executor
+    /// sees an ambiguous graph.
     pub fn merge(
         &mut self,
         other: &ExecutionPlan,
@@ -368,6 +400,7 @@ impl ExecutionPlan {
                             producer: action_id,
                             path: path.clone(),
                             artifact: output.artifact.clone(),
+                            is_dependency_artifact: output.is_dependency_artifact,
                         },
                     );
                 }
@@ -381,10 +414,11 @@ impl ExecutionPlan {
                     && action.outputs.iter().all(|path| {
                         self.outputs.get(path).is_some_and(|current| {
                             current.producer == existing
-                                && other
-                                    .outputs
-                                    .get(path)
-                                    .is_some_and(|incoming| current.artifact == incoming.artifact)
+                                && other.outputs.get(path).is_some_and(|incoming| {
+                                    current.artifact == incoming.artifact
+                                        && current.is_dependency_artifact
+                                            == incoming.is_dependency_artifact
+                                })
                         })
                     });
                 if !outputs_match || self.actions[existing.0] != *action {
@@ -427,7 +461,9 @@ impl ExecutionPlan {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExecutionPlanMergeError {
-    #[error("cannot compose execution plans: output `{path}` has incompatible producers")]
+    #[error(
+        "cannot compose execution plans: output `{path}` has incompatible producers or artifact roles"
+    )]
     ConflictingOutput { path: PathBuf },
 }
 
@@ -491,6 +527,7 @@ impl ExecutionPlanBuilder {
                 producer,
                 path: path.clone(),
                 artifact,
+                is_dependency_artifact: false,
             },
         );
         assert!(
@@ -531,6 +568,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
+    use crate::model::PackageId;
 
     fn execution_action(
         inputs: Vec<PathBuf>,
@@ -682,6 +720,12 @@ mod tests {
             [producer, consumer]
         );
         assert_eq!(composed.action_ids().count(), 2);
+        assert!(
+            !composed
+                .declared_output(Path::new("build/libmoonbitrun.a"))
+                .expect("shared output should be declared")
+                .is_dependency_artifact()
+        );
         assert_eq!(
             composed
                 .declared_output(Path::new("build/libmoonbitrun.a"))
@@ -706,20 +750,60 @@ mod tests {
     fn merge_remaps_plan_local_action_ids() {
         let (first, _, _) = producer_and_consumer_plan();
         let mut builder = ExecutionPlanBuilder::default();
+        let mut packages = slotmap::SlotMap::<PackageId, ()>::with_key();
+        let package = packages.insert(());
         let (action, outputs) = execution_action(
             Vec::new(),
+            vec![(
+                ArtifactKey::CoreIr {
+                    package,
+                    target_kind: crate::model::TargetKind::Source,
+                },
+                vec![PathBuf::from("build/other-output")],
+            )],
             Vec::new(),
-            vec![PathBuf::from("build/other-output")],
             "other-command",
         );
         builder.add_action(action, outputs);
-        let second = builder.finish([]);
+        let mut second = builder.finish([]);
+        second
+            .outputs
+            .get_mut(Path::new("build/other-output"))
+            .expect("second plan's output should be declared")
+            .is_dependency_artifact = true;
         let mut composed = ExecutionPlan::default();
 
         composed.merge(&first).expect("first plan should merge");
         let remapped = composed.merge(&second).expect("second plan should merge");
 
         assert_eq!(remapped, [ActionId(2)]);
+        assert_eq!(
+            composed
+                .declared_output(Path::new("build/other-output"))
+                .expect("second plan's output should be declared")
+                .producer(),
+            ActionId(2)
+        );
+        assert!(
+            !composed
+                .declared_output(Path::new("build/libmoonbitrun.a"))
+                .expect("runtime library should be declared")
+                .is_dependency_artifact()
+        );
+        assert!(
+            composed
+                .declared_output(Path::new("build/other-output"))
+                .expect("second plan's output should be declared")
+                .is_dependency_artifact()
+        );
+        second
+            .outputs
+            .get_mut(Path::new("build/other-output"))
+            .expect("second plan's output should be declared")
+            .is_dependency_artifact = false;
+        composed
+            .merge(&second)
+            .expect_err("shared outputs must agree on dependency membership");
     }
 
     #[test]

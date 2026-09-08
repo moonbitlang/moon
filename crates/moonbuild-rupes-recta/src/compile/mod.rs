@@ -24,7 +24,7 @@ use tracing::instrument;
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
     build_plan::{self, ArtifactKey, BuildEnvironment, InputDirective},
-    execution_plan::{ActionId, ExecutionPlan},
+    execution_plan::ExecutionPlan,
     model::{BackendConfig, OperatingSystem},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
@@ -78,16 +78,6 @@ pub struct CompileOutput {
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
-/// Dependency preparation and script execution projected from one logical
-/// standalone build plan.
-pub struct StandaloneCompileOutput {
-    /// One concrete plan shared by dependency preparation and script execution.
-    pub execution_plan: ExecutionPlan,
-    pub dependency_actions: Vec<ActionId>,
-    pub script_actions: Vec<ActionId>,
-    pub build_plan: Option<Box<build_plan::BuildPlan>>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGraphError {
     #[error("Failed to build a build plan for the modules")]
@@ -126,52 +116,6 @@ pub fn compile(
     debug!("Build plan contains {} actions", plan.action_count());
 
     lower_plan(cx, resolve_output, plan)
-}
-
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip_all)]
-pub fn compile_standalone(
-    cx: &CompileConfig,
-    mooncake_bin_dir: &Path,
-    resolve_output: &ResolveOutput,
-    requested_artifacts: &[ArtifactKey],
-    script_package: crate::model::PackageId,
-    input_directive: &InputDirective,
-    prebuild_config: Option<&PrebuildOutput>,
-    user_log: &UserLog,
-) -> Result<StandaloneCompileOutput, CompileGraphError> {
-    info!("Building one logical plan for standalone dependency and script work");
-    let build_env = build_environment(cx);
-    let plan = build_plan::build_plan(
-        resolve_output,
-        mooncake_bin_dir,
-        &build_env,
-        requested_artifacts.iter().cloned(),
-        input_directive,
-        prebuild_config,
-        user_log,
-    )?;
-
-    info!("Standalone build plan created successfully");
-    debug!(
-        "Standalone build plan contains {} actions",
-        plan.action_count()
-    );
-
-    let lower_env = lowering_options(cx);
-    let lowered = build_lower::lower_standalone_build_plan(
-        resolve_output,
-        &plan,
-        &lower_env,
-        script_package,
-    )?;
-
-    Ok(StandaloneCompileOutput {
-        execution_plan: lowered.plan,
-        dependency_actions: lowered.dependency_actions,
-        script_actions: lowered.script_actions,
-        build_plan: cx.debug_export_build_plan.then(|| Box::new(plan)),
-    })
 }
 
 // TODO: Remove `build_environment` and `lowering_options` once planning and
@@ -258,7 +202,7 @@ mod tests {
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
 
-    use super::{CompileConfig, compile, compile_standalone};
+    use super::{CompileConfig, compile};
 
     fn moon_mod() -> MoonMod {
         MoonMod {
@@ -487,7 +431,16 @@ mod tests {
     }
 
     #[test]
-    fn standalone_compile_separates_dependency_preparation_from_script_graph() {
+    fn project_packages_are_not_marked_as_dependency_artifacts() {
+        assert_compiled_artifact_roles(false);
+    }
+
+    #[test]
+    fn local_path_dependencies_are_marked_before_execution_policy() {
+        assert_compiled_artifact_roles(true);
+    }
+
+    fn assert_compiled_artifact_roles(separate_module: bool) {
         let module_source = ModuleSource::local_path(
             "test/single"
                 .parse::<ModuleName>()
@@ -495,18 +448,40 @@ mod tests {
             PathBuf::from("."),
             DEFAULT_VERSION.clone(),
         );
-        let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let (mut modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let dependency_source = if separate_module {
+            ModuleSource::local_path(
+                "test/dependency"
+                    .parse()
+                    .expect("dependency module should parse"),
+                PathBuf::from("../dependency"),
+                DEFAULT_VERSION.clone(),
+            )
+        } else {
+            module_source.clone()
+        };
+        let mut dependency_info = moon_mod();
+        dependency_info.name = dependency_source.name().to_string();
+        let dependency_module =
+            modules.add_module(dependency_source.clone(), dependency_info.clone().into());
         let mut packages = DiscoverResult::default();
         packages.test_register_module(module, moon_mod());
+        packages.test_register_module(dependency_module, dependency_info);
         let script = packages.test_add_package(
             module,
             PackagePath::new("script").expect("script path should parse"),
             package(module, &module_source, "script", true, true),
         );
         let dependency = packages.test_add_package(
-            module,
+            dependency_module,
             PackagePath::new("dependency").expect("dependency path should parse"),
-            package(module, &module_source, "dependency", false, false),
+            package(
+                dependency_module,
+                &dependency_source,
+                "dependency",
+                false,
+                false,
+            ),
         );
         let script_target = script.build_target(TargetKind::Source);
         let dependency_target = dependency.build_target(TargetKind::Source);
@@ -530,6 +505,7 @@ mod tests {
             .realizable_supported_targets
             .insert(dependency_target, supported);
         let mut module_dirs = DirSyncResult::default();
+        module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
             module_rel: modules,
@@ -572,7 +548,7 @@ mod tests {
         }];
         let input_directive = InputDirective::default();
         let user_log = UserLog::new(log::LevelFilter::Error);
-        let ordinary = compile(
+        let output = compile(
             &config,
             Path::new("."),
             &resolved,
@@ -582,22 +558,22 @@ mod tests {
             &user_log,
         )
         .expect("ordinary compile should lower one graph");
-        assert_eq!(ordinary.execution_plan.action_ids().count(), 3);
-
-        let output = compile_standalone(
-            &config,
-            Path::new("."),
-            &resolved,
-            &requested_artifacts,
-            script,
-            &input_directive,
-            None,
-            &user_log,
-        )
-        .expect("standalone plan should lower");
-
-        assert_eq!(output.dependency_actions.len(), 1);
-        assert_eq!(output.script_actions.len(), 2);
+        assert_eq!(output.execution_plan.action_ids().count(), 3);
+        // The marker is already present before any scheduling policy reads it.
+        for id in output.execution_plan.action_ids() {
+            for path in output.execution_plan.action(id).outputs() {
+                let declared = output
+                    .execution_plan
+                    .declared_output(path)
+                    .expect("output should be declared");
+                let belongs_to_dependency =
+                    declared.artifact().and_then(ArtifactKey::package) == Some(dependency);
+                assert_eq!(
+                    declared.is_dependency_artifact(),
+                    separate_module && belongs_to_dependency
+                );
+            }
+        }
         let plan = output
             .build_plan
             .as_deref()
@@ -620,64 +596,11 @@ mod tests {
                 .any(|action| action == BuildPlanNode::BuildCore(dependency_target).into())
         );
 
-        let dependency_outputs = output
-            .dependency_actions
-            .iter()
-            .flat_map(|action| output.execution_plan.action(*action).outputs())
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-        assert!(
-            dependency_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.mi"))
-        );
-        assert!(
-            dependency_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.core"))
-        );
-        assert!(
-            !dependency_outputs
-                .iter()
-                .any(|path| path.ends_with("script.core"))
-        );
-
-        let (script_graph, _) = output
+        let (graph, _) = output
             .execution_plan
-            .to_n2_graph(output.script_actions.iter().copied())
-            .expect("script actions should adapt to n2");
-        let script_inputs = script_graph
-            .builds
-            .iter()
-            .flat_map(|build| build.ins.ids.iter())
-            .map(|id| script_graph.files.by_id[*id].name.clone())
-            .collect::<Vec<_>>();
-        assert!(
-            script_inputs
-                .iter()
-                .any(|path| path.ends_with("dependency.mi"))
-        );
-        assert!(
-            script_inputs
-                .iter()
-                .any(|path| path.ends_with("dependency.core"))
-        );
-        let script_outputs = script_graph
-            .builds
-            .iter()
-            .flat_map(|build| build.outs.ids.iter())
-            .map(|id| script_graph.files.by_id[*id].name.clone())
-            .collect::<Vec<_>>();
-        assert!(
-            !script_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.mi"))
-        );
-        assert!(
-            !script_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.core"))
-        );
+            .all_to_n2_graph()
+            .expect("complete plan should adapt to n2");
+        assert_eq!(graph.builds.iter().count(), 3);
     }
 
     #[test]
