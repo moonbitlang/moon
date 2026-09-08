@@ -75,8 +75,8 @@ important ones and why they exist.
 - **`abort_pkg` is discovery-only, not build-mode.** We always record the abort
   package ID if it exists, even when building the stdlib. Build-mode decisions
   (use prebuilt paths vs local artifacts) are gated by whether stdlib is
-  injected (`build_env.std` / `stdlib_dir.is_some()`), not by mutating
-  `abort_pkg`.
+  injected (`config.stdlib_path.is_some()` / `stdlib_dir.is_some()`), not by
+  mutating `abort_pkg`.
 - **Metadata files respect stdlib mode.** When either `packages.json` or
   `all_pkgs.json` is generated for the stdlib (core module), it is generated
   without a stdlib directory so package metadata and indirect dependency
