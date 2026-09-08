@@ -165,6 +165,7 @@ impl SourceTargetDirs {
         let target_dir = prepare_target_dir(package_dirs.target_dir.join(file_name))?;
         let package_dirs = PackageDirs {
             mooncake_bin_dir: target_dir.join(MOON_BIN_DIR),
+            mooncakes_dir: target_dir.join(DEP_PATH),
             target_dir,
             ..package_dirs
         };
@@ -869,6 +870,14 @@ mod tests {
             first.package_dirs.target_dir,
             second.package_dirs.target_dir
         );
+        assert_eq!(
+            first.package_dirs.mooncakes_dir,
+            first.package_dirs.target_dir.join(DEP_PATH)
+        );
+        assert_eq!(
+            second.package_dirs.mooncakes_dir,
+            second.package_dirs.target_dir.join(DEP_PATH)
+        );
     }
 
     #[test]
@@ -893,6 +902,10 @@ mod tests {
         assert_eq!(
             dirs.package_dirs.mooncake_bin_dir,
             dirs.package_dirs.target_dir.join(MOON_BIN_DIR)
+        );
+        assert_eq!(
+            dirs.package_dirs.mooncakes_dir,
+            dirs.package_dirs.target_dir.join(DEP_PATH)
         );
     }
 
