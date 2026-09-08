@@ -24,7 +24,7 @@ use std::{
     process::Command,
 };
 
-use crate::rr_build::{BuildInput, StandaloneBuildInput};
+use crate::rr_build::BuildInput;
 
 /// Write what would be executed in a dry-run.
 ///
@@ -38,7 +38,7 @@ pub fn write_dry_run<'a>(
 ) -> std::io::Result<()> {
     let (graph, command_args_by_output) = input
         .execution_plan
-        .to_n2_graph(input.action_ids.iter().copied())
+        .all_to_n2_graph()
         .map_err(std::io::Error::other)?;
     let default_files = graph
         .get_start_nodes()
@@ -71,7 +71,7 @@ pub fn write_dry_run_all(
 ) -> std::io::Result<()> {
     let (graph, command_args_by_output) = input
         .execution_plan
-        .to_n2_graph(input.action_ids.iter().copied())
+        .all_to_n2_graph()
         .map_err(std::io::Error::other)?;
     let default_files = graph.get_start_nodes();
     moonbuild::dry_run::write_build_commands(
@@ -82,20 +82,6 @@ pub fn write_dry_run_all(
         source_dir,
         target_dir,
     )
-}
-
-/// Write standalone dependency commands before the selected script commands.
-pub fn write_standalone_dry_run<'a>(
-    output: &mut dyn Write,
-    input: &StandaloneBuildInput,
-    artifacts: impl IntoIterator<Item = &'a Vec<PathBuf>>,
-    source_dir: &Path,
-    target_dir: &Path,
-) -> std::io::Result<()> {
-    if let Some(dependencies) = input.dependencies.as_ref() {
-        write_dry_run_all(output, dependencies, source_dir, target_dir)?;
-    }
-    write_dry_run(output, &input.script, artifacts, source_dir, target_dir)
 }
 
 /// Format a command as it would be executed, with the proper escaping.

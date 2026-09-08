@@ -18,12 +18,7 @@
 
 //! Lowers the normalized action plan into an executor-neutral Execution Plan.
 
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-    str::FromStr,
-    sync::OnceLock,
-};
+use std::{path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
 use moonutil::{
@@ -34,9 +29,9 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    build_plan::{BackendPlan, BuildPlan, BuildPlanActionKey},
-    execution_plan::{ActionId, ExecutionPlan, ExecutionPlanBuilder},
-    model::{BackendConfig, BuildPlanNode, OperatingSystem, PackageId},
+    build_plan::{BackendPlan, BuildPlan},
+    execution_plan::{ExecutionPlan, ExecutionPlanBuilder},
+    model::{BackendConfig, OperatingSystem},
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
     },
@@ -215,143 +210,17 @@ pub fn lower_build_plan(
         opt.debug_symbols
     );
 
-    let (result, _) = lower_actions(resolve_output, plan, opt)?;
-
-    info!("Action plan lowering completed successfully");
-    Ok(result)
-}
-
-pub(crate) struct StandaloneExecutionPlan {
-    pub(crate) plan: ExecutionPlan,
-    pub(crate) dependency_actions: Vec<ActionId>,
-    pub(crate) script_actions: Vec<ActionId>,
-}
-
-/// Lower one standalone Build Plan and retain its two execution projections.
-#[instrument(skip_all)]
-pub(crate) fn lower_standalone_build_plan(
-    resolve_output: &ResolveOutput,
-    plan: &BuildPlan,
-    opt: &BuildOptions,
-    script_package: PackageId,
-) -> Result<StandaloneExecutionPlan, LoweringError> {
-    info!("Projecting standalone dependency and script execution actions");
-    let (dependency_nodes, script_nodes) = partition_standalone_actions(plan, script_package);
-    debug!(
-        "Standalone execution projection contains {} dependency actions and {} script actions",
-        dependency_nodes.len(),
-        script_nodes.len()
-    );
-
-    let (plan, action_ids) = lower_actions(resolve_output, plan, opt)?;
-    Ok(StandaloneExecutionPlan {
-        plan,
-        dependency_actions: dependency_nodes
-            .into_iter()
-            .map(|node| action_ids[&node])
-            .collect(),
-        script_actions: script_nodes
-            .into_iter()
-            .map(|node| action_ids[&node])
-            .collect(),
-    })
-}
-
-fn lower_actions(
-    resolve_output: &ResolveOutput,
-    plan: &BuildPlan,
-    opt: &BuildOptions,
-) -> Result<(ExecutionPlan, HashMap<BuildPlanActionKey, ActionId>), LoweringError> {
     let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
     let mut execution = ExecutionPlanBuilder::default();
-    let mut action_ids = HashMap::new();
 
     for action_key in plan.all_actions() {
         debug!("Lowering action: {:?}", action_key);
-        let action = ctx.lower_action(&action_key, &mut execution)?;
-        action_ids.insert(action_key, action);
+        ctx.lower_action(&action_key, &mut execution)?;
     }
 
-    Ok((
-        execution.finish(plan.requested_artifacts().cloned()),
-        action_ids,
-    ))
-}
-
-/// Separate reusable package preparation from work owned by the synthesized
-/// script package while preserving the semantic plan's dependency closure.
-fn partition_standalone_actions(
-    plan: &BuildPlan,
-    script_package: PackageId,
-) -> (Vec<BuildPlanActionKey>, Vec<BuildPlanActionKey>) {
-    let action_package = |action: &BuildPlanActionKey| match action {
-        BuildPlanActionKey::Backend(node) => match node {
-            BuildPlanNode::Check(target)
-            | BuildPlanNode::EmitProof(target)
-            | BuildPlanNode::Prove(target)
-            | BuildPlanNode::BuildCore(target)
-            | BuildPlanNode::LinkCore(target)
-            | BuildPlanNode::MakeExecutable(target)
-            | BuildPlanNode::GenerateDsym(target)
-            | BuildPlanNode::GenerateTestInfo(target)
-            | BuildPlanNode::GenerateMbti(target) => Some(target.package),
-            BuildPlanNode::BuildCStub(package, _)
-            | BuildPlanNode::ArchiveOrLinkCStubs(package)
-            | BuildPlanNode::GenerateNodeTestPackageConfig(package)
-            | BuildPlanNode::BuildVirtual(package) => Some(*package),
-            BuildPlanNode::Bundle(_)
-            | BuildPlanNode::BuildRuntimeObject(_)
-            | BuildPlanNode::BuildRuntimeLib
-            | BuildPlanNode::BuildDocs(_) => None,
-        },
-        BuildPlanActionKey::PackagePrebuild(key) => Some(key.package()),
-    };
-    let actions = plan.all_actions().collect::<Vec<_>>();
-    let script_owned_actions = actions
-        .iter()
-        .filter(|action| action_package(action) == Some(script_package))
-        .cloned()
-        .collect::<HashSet<_>>();
-    assert!(
-        !script_owned_actions.is_empty(),
-        "standalone action plan should contain work for the synthesized script package"
-    );
-
-    let mut dependency_actions = actions
-        .iter()
-        .filter(|action| action_package(action).is_some_and(|package| package != script_package))
-        .cloned()
-        .collect::<HashSet<_>>();
-    let mut pending = dependency_actions.iter().cloned().collect::<Vec<_>>();
-    while let Some(action) = pending.pop() {
-        for dependency in plan.dependency_actions(&action) {
-            assert!(
-                !script_owned_actions.contains(&dependency),
-                "standalone dependency preparation action {action:?} depends on \
-                 script action {dependency:?}"
-            );
-            if dependency_actions.insert(dependency.clone()) {
-                pending.push(dependency);
-            }
-        }
-    }
-    assert!(
-        plan.requested_artifacts()
-            .map(|artifact| plan.artifact_provider(artifact))
-            .all(|action| !dependency_actions.contains(&action)),
-        "standalone root action should remain in the script execution phase"
-    );
-
-    let dependencies = actions
-        .iter()
-        .filter(|action| dependency_actions.contains(action))
-        .cloned()
-        .collect();
-    let script = actions
-        .into_iter()
-        .filter(|action| !dependency_actions.contains(action))
-        .collect();
-    (dependencies, script)
+    let mut execution = execution.finish(plan.requested_artifacts().cloned());
+    execution.mark_dependency_artifacts(resolve_output);
+    Ok(execution)
 }
 
 #[cfg(test)]
@@ -370,13 +239,12 @@ mod tests {
         target::TargetBackend,
         toolchain::BINARIES,
     };
-    use slotmap::KeyData;
     use walkdir::WalkDir;
 
     use crate::{
         build_plan::{
-            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo,
-            LinkCoreInfo, MakeExecutableInfo,
+            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildPlanActionKey, BuildRuntimeInfo,
+            BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
@@ -791,145 +659,6 @@ mod tests {
     }
 
     #[test]
-    fn standalone_projection_uses_dependency_closure_for_shared_actions() {
-        let script_package = PackageId::from(KeyData::from_ffi(1));
-        let dependency_package = PackageId::from(KeyData::from_ffi(2));
-        let script_target = script_package.build_target(TargetKind::Source);
-        let script_node = BuildPlanNode::MakeExecutable(script_target);
-        let dependency_node = BuildPlanNode::ArchiveOrLinkCStubs(dependency_package);
-        let runtime_node = BuildPlanNode::BuildRuntimeLib;
-
-        let mut plan = BuildPlan::default();
-        plan.test_add_node(script_node);
-        plan.test_add_node(dependency_node);
-        plan.test_add_node(runtime_node);
-        connect_artifact(
-            &mut plan,
-            script_node,
-            dependency_node,
-            ArtifactKey::CStubLibrary {
-                package: dependency_package,
-            },
-        );
-        connect_artifact(
-            &mut plan,
-            script_node,
-            runtime_node,
-            ArtifactKey::RuntimeLibrary,
-        );
-        connect_artifact(
-            &mut plan,
-            dependency_node,
-            runtime_node,
-            ArtifactKey::RuntimeLibrary,
-        );
-        plan.test_insert_c_stubs_info(
-            dependency_package,
-            BuildCStubsInfo {
-                effective_native_toolchain: msvc_toolchain(),
-                cc_flags: Vec::new(),
-                link_flags: Vec::new(),
-                static_archive_fingerprint: None,
-            },
-        );
-        plan.test_insert_runtime_info(BuildRuntimeInfo {
-            effective_native_toolchain: msvc_toolchain(),
-            source_files: vec![PathBuf::from("runtime.c")],
-            simdutf_objects: Vec::new(),
-            static_archive_fingerprint: Some("runtime-test".to_string()),
-            native_allocator: NativeAllocator::Default,
-        });
-
-        let (dependency_nodes, script_nodes) = partition_standalone_actions(&plan, script_package);
-        let dependency_nodes = dependency_nodes.into_iter().collect::<HashSet<_>>();
-        let script_nodes = script_nodes.into_iter().collect::<HashSet<_>>();
-
-        assert_eq!(
-            dependency_nodes,
-            HashSet::from([
-                BuildPlanActionKey::Backend(dependency_node),
-                BuildPlanActionKey::Backend(runtime_node),
-            ])
-        );
-        assert_eq!(
-            script_nodes,
-            HashSet::from([BuildPlanActionKey::Backend(script_node)])
-        );
-    }
-
-    #[test]
-    fn standalone_projection_keeps_script_only_shared_actions_with_script() {
-        let script_package = PackageId::from(KeyData::from_ffi(1));
-        let script_target = script_package.build_target(TargetKind::Source);
-        let script_node = BuildPlanNode::MakeExecutable(script_target);
-        let runtime_node = BuildPlanNode::BuildRuntimeLib;
-
-        let mut plan = BuildPlan::default();
-        plan.test_add_node(script_node);
-        plan.test_add_node(runtime_node);
-        connect_artifact(
-            &mut plan,
-            script_node,
-            runtime_node,
-            ArtifactKey::RuntimeLibrary,
-        );
-        plan.test_insert_runtime_info(BuildRuntimeInfo {
-            effective_native_toolchain: msvc_toolchain(),
-            source_files: vec![PathBuf::from("runtime.c")],
-            simdutf_objects: Vec::new(),
-            static_archive_fingerprint: Some("runtime-test".to_string()),
-            native_allocator: NativeAllocator::Default,
-        });
-
-        let (dependency_actions, script_nodes) =
-            partition_standalone_actions(&plan, script_package);
-        let script_nodes = script_nodes.into_iter().collect::<HashSet<_>>();
-
-        assert!(dependency_actions.is_empty());
-        assert_eq!(
-            script_nodes,
-            HashSet::from([
-                BuildPlanActionKey::Backend(script_node),
-                BuildPlanActionKey::Backend(runtime_node),
-            ])
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "depends on script action")]
-    fn standalone_projection_rejects_dependency_work_requiring_script_action() {
-        let script_package = PackageId::from(KeyData::from_ffi(1));
-        let dependency_package = PackageId::from(KeyData::from_ffi(2));
-        let script_node =
-            BuildPlanNode::MakeExecutable(script_package.build_target(TargetKind::Source));
-        let dependency_node = BuildPlanNode::ArchiveOrLinkCStubs(dependency_package);
-
-        let mut plan = BuildPlan::default();
-        plan.test_add_node(script_node);
-        plan.test_add_node(dependency_node);
-        connect_artifact(
-            &mut plan,
-            dependency_node,
-            script_node,
-            ArtifactKey::Executable {
-                package: script_package,
-                target_kind: TargetKind::Source,
-            },
-        );
-        plan.test_insert_c_stubs_info(
-            dependency_package,
-            BuildCStubsInfo {
-                effective_native_toolchain: msvc_toolchain(),
-                cc_flags: Vec::new(),
-                link_flags: Vec::new(),
-                static_archive_fingerprint: None,
-            },
-        );
-
-        partition_standalone_actions(&plan, script_package);
-    }
-
-    #[test]
     fn lowered_windows_msvc_native_graph_contains_complete_commands_and_tool_inputs() {
         let (resolve_output, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
@@ -1073,21 +802,30 @@ mod tests {
             lowering_environment,
         };
 
-        let nodes = [c_stub_node, exe_node];
-        let (execution, actions) =
-            lower_actions(&resolve_output, &plan, &options).expect("lowering should succeed");
-        for node in nodes {
+        let execution =
+            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed");
+        let opaque_actions = execution
+            .action_ids()
+            .filter(|id| {
+                execution.action(*id).outputs().iter().any(|path| {
+                    matches!(
+                        execution
+                            .declared_output(path)
+                            .and_then(|output| output.artifact()),
+                        Some(ArtifactKey::CStubObject { .. } | ArtifactKey::Executable { .. })
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(opaque_actions.len(), 2);
+        for action in opaque_actions {
             assert!(
-                !execution
-                    .action(actions[&BuildPlanActionKey::Backend(node)])
-                    .is_cache_eligible(),
-                "{node:?} with opaque flags should be ineligible"
+                !execution.action(action).is_cache_eligible(),
+                "C stub and executable actions with opaque flags should be ineligible"
             );
         }
 
-        let lowered = adapt_execution_plan(
-            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed"),
-        );
+        let lowered = adapt_execution_plan(execution);
         let exe_path = artifact_paths.target_layout().executable_of_build_target(
             &resolve_output.pkg_dirs,
             &target,

@@ -133,12 +133,11 @@ Implementation-wise:
 [n2]: https://github.com/moonbitlang/n2
 
 Rupes Recta executions in one target directory share the n2 database at
-`<target-dir>/.moon_db`. Target backend, profile, run mode, and standalone build
-phase are represented by concrete output paths and build hashes rather than
-separate database files. Separately planned graphs still open and load that
-database for each execution; sharing persistent state does not compose the
-graphs or reuse one open database handle. The dependency and script graphs of a
-standalone build execute sequentially against this database.
+`<target-dir>/.moon_db`. Target backend, profile, and run mode are represented
+by concrete output paths and build hashes rather than separate database files.
+Both ordinary projects and standalone scripts execute one complete graph per
+invocation, composing backend plans before n2 adaptation. Dependency ordering
+comes from producer edges, with no separate dependency phase.
 
 n2 records completed builds in an append-only log. When the database is at
 least 2 MiB, opening it compacts the log if all path records and live build

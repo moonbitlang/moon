@@ -70,9 +70,7 @@ use crate::build_flags::{BuildFlags, OutputStyle};
 
 pub mod action_identity;
 mod dry_run;
-pub use dry_run::{
-    format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
-};
+pub use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_all};
 
 /// Synchronize dependencies and return resolved project data.
 /// Target-directory lock ownership remains with the command layer.
@@ -465,13 +463,9 @@ pub(crate) fn plan_resolved_build_from_intent(
         .requested_artifact_paths()
         .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
         .collect();
-    let action_ids = compile_output
+    let action_backends = compile_output
         .execution_plan
         .action_ids()
-        .collect::<Vec<_>>();
-    let action_backends = action_ids
-        .iter()
-        .copied()
         .map(|id| (id, Some(cx.backend.target_backend())))
         .collect();
     let execution_plan = Rc::new(compile_output.execution_plan);
@@ -486,111 +480,12 @@ pub(crate) fn plan_resolved_build_from_intent(
     let db_path = cx.artifact_paths.target_layout().n2_db_path();
     let input = BuildInput {
         execution_plan,
-        action_ids,
         action_backends,
         db_path,
     };
 
     info!("Build planning completed successfully");
 
-    Ok((build_meta, input))
-}
-
-/// Plan dependency-package and synthesized script-package work independently.
-///
-/// This entry point is intentionally used only by standalone `.mbt`/`.mbtx`
-/// builds. Normal workspace commands continue through
-/// [`plan_resolved_build_from_intent`].
-#[instrument(level = Level::DEBUG, skip_all)]
-pub(crate) fn plan_resolved_standalone_build_from_intent(
-    cx: CompileConfig,
-    user_log: &UserLog,
-    intent: CalcUserIntentOutput,
-    script_package: PackageId,
-    mooncake_bin_dir: &Path,
-    resolve_output: ResolveOutput,
-) -> anyhow::Result<(BuildMeta, StandaloneBuildInput)> {
-    let target_dir = cx.target_dir.clone();
-    info!("Standalone user intent calculated: {:?}", intent.intents);
-
-    // Module-level configuration discovers native toolchains and flags; other
-    // backends do not need to execute these scripts.
-    let prebuild_config = if cx.action == RunMode::Check || !cx.backend.target_backend().is_native()
-    {
-        info!("Skipping prebuild configuration for check or non-native backend");
-        None
-    } else {
-        info!("Running prebuild configuration");
-        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
-        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
-    };
-
-    let requested_artifacts =
-        intent.requested_artifacts(&resolve_output, user_log, cx.backend.target_backend());
-    let compile_output = moonbuild_rupes_recta::compile_standalone(
-        &cx,
-        mooncake_bin_dir,
-        &resolve_output,
-        &requested_artifacts,
-        script_package,
-        &intent.directive,
-        prebuild_config.as_ref(),
-        user_log,
-    )?;
-
-    if cx.debug_export_build_plan
-        && let Some(plan) = compile_output.build_plan.as_deref()
-    {
-        moonbuild_rupes_recta::util::print_build_plan_dot(
-            plan,
-            &resolve_output.module_rel,
-            &resolve_output.pkg_dirs,
-            &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
-        )?;
-    }
-
-    let artifacts = compile_output
-        .execution_plan
-        .requested_artifact_paths()
-        .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
-        .collect();
-    let build_meta = BuildMeta {
-        resolve_output,
-        artifacts,
-        backend: cx.backend.clone(),
-        opt_level: cx.opt_level,
-        artifact_paths: cx.artifact_paths.clone(),
-    };
-    let backend = cx.backend.target_backend();
-    let layout = cx.artifact_paths.target_layout();
-    let dependency_actions = compile_output.dependency_actions;
-    let script_actions = compile_output.script_actions;
-    let execution_plan = Rc::new(compile_output.execution_plan);
-    let action_backends = execution_plan
-        .action_ids()
-        .map(|id| (id, Some(backend)))
-        .collect::<HashMap<_, _>>();
-    let dependency_input = if dependency_actions.is_empty() {
-        None
-    } else {
-        Some(BuildInput {
-            execution_plan: Rc::clone(&execution_plan),
-            action_ids: dependency_actions,
-            action_backends: action_backends.clone(),
-            db_path: layout.n2_db_path(),
-        })
-    };
-    let input = StandaloneBuildInput {
-        dependencies: dependency_input,
-        script: BuildInput {
-            execution_plan,
-            action_ids: script_actions,
-            action_backends,
-            db_path: layout.n2_db_path(),
-        },
-    };
-
-    info!("Standalone build planning completed successfully");
     Ok((build_meta, input))
 }
 
@@ -615,11 +510,12 @@ pub fn plan_fmt(
         resolved,
         BuildProfile::Debug,
     );
-    let action_ids = execution_plan.action_ids().collect::<Vec<_>>();
-    let action_backends = action_ids.iter().map(|&action| (action, None)).collect();
+    let action_backends = execution_plan
+        .action_ids()
+        .map(|action| (action, None))
+        .collect();
     Ok(BuildInput {
         execution_plan,
-        action_ids,
         action_backends,
         db_path: layout.n2_db_path(),
     })
@@ -727,8 +623,8 @@ fn collect_check_commands_by_output(
     build_input: &BuildInput,
 ) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
     let mut commands = BTreeMap::new();
-    for id in &build_input.action_ids {
-        let action = build_input.execution_plan.action(*id);
+    for id in build_input.execution_plan.action_ids() {
+        let action = build_input.execution_plan.action(id);
         let Some(command_args) = check_command_args_without_executable(action.command().args())
         else {
             continue;
@@ -851,48 +747,17 @@ impl Default for BuildConfig {
     }
 }
 
-/// The input to a build execution.
+/// A complete execution plan and the context needed to execute it.
 #[derive(Debug, Clone)]
 pub struct BuildInput {
     /// Executor-neutral actions shared by execution and its projections.
     execution_plan: Rc<ExecutionPlan>,
-
-    /// The portion of the Execution Plan owned by this execution phase.
-    action_ids: Vec<ActionId>,
 
     /// Target Backend for each action. Shared actions have no single backend.
     action_backends: HashMap<ActionId, Option<TargetBackend>>,
 
     /// The n2 database for the selected target directory.
     db_path: PathBuf,
-}
-
-/// Dependency-package and script-package inputs for a standalone build.
-///
-/// Keeping this orchestration outside [`BuildInput`] lets ordinary workspace
-/// execution remain a single-graph operation.
-#[derive(Debug, Clone)]
-pub struct StandaloneBuildInput {
-    dependencies: Option<BuildInput>,
-    script: BuildInput,
-}
-
-impl StandaloneBuildInput {
-    fn compose(inputs: Vec<Self>) -> anyhow::Result<Self> {
-        let mut dependencies = Vec::new();
-        let mut scripts = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            dependencies.extend(input.dependencies);
-            scripts.push(input.script);
-        }
-
-        Ok(Self {
-            dependencies: (!dependencies.is_empty())
-                .then(|| BuildInput::compose(dependencies))
-                .transpose()?,
-            script: BuildInput::compose(scripts)?,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -906,8 +771,7 @@ impl BuildInput {
         ),
         moonbuild_rupes_recta::execution_plan::N2AdapterError,
     > {
-        self.execution_plan
-            .to_n2_graph(self.action_ids.iter().copied())
+        self.execution_plan.all_to_n2_graph()
     }
 }
 
@@ -923,9 +787,7 @@ impl BuildInput {
         let db_path = first.db_path.clone();
 
         let mut execution_plan = ExecutionPlan::default();
-        let mut action_ids = Vec::new();
         let mut action_backends = HashMap::new();
-        let mut selected = HashSet::new();
 
         for input in std::iter::once(first)
             .chain(std::iter::once(second))
@@ -936,7 +798,6 @@ impl BuildInput {
                 "cannot compose build inputs with different target layouts"
             );
             let existing_actions = execution_plan.action_ids().collect::<HashSet<_>>();
-            let selected_actions = input.action_ids.iter().copied().collect::<HashSet<_>>();
             let remapped = execution_plan.merge(&input.execution_plan)?;
             for (old, new) in input.execution_plan.action_ids().zip(remapped) {
                 if existing_actions.contains(&new) {
@@ -946,15 +807,11 @@ impl BuildInput {
                 } else {
                     action_backends.insert(new, input.action_backends.get(&old).copied().flatten());
                 }
-                if selected_actions.contains(&old) && selected.insert(new) {
-                    action_ids.push(new);
-                }
             }
         }
 
         Ok(Self {
             execution_plan: Rc::new(execution_plan),
-            action_ids,
             action_backends,
             db_path,
         })
@@ -965,7 +822,7 @@ impl BuildInput {
     ) -> Result<N2ExecutionInput, moonbuild_rupes_recta::execution_plan::N2AdapterError> {
         let adapted = self
             .execution_plan
-            .adapt_to_n2(self.action_ids.iter().copied())?;
+            .adapt_to_n2(self.execution_plan.action_ids())?;
         let (graph, _, action_by_build) = adapted.into_parts_with_actions();
         let backend_by_build = action_by_build
             .into_iter()
@@ -987,12 +844,6 @@ struct N2ExecutionInput {
 
 pub(crate) fn compose_build_inputs(inputs: Vec<BuildInput>) -> anyhow::Result<BuildInput> {
     BuildInput::compose(inputs)
-}
-
-pub(crate) fn compose_standalone_build_inputs(
-    inputs: Vec<StandaloneBuildInput>,
-) -> anyhow::Result<StandaloneBuildInput> {
-    StandaloneBuildInput::compose(inputs)
 }
 
 struct CapturedBuildExecution {
@@ -1047,7 +898,7 @@ impl CapturedBuildExecution {
 /// Returns just the build result - callers should use the resolve data and
 /// artifacts from the planning phase for any metadata they need.
 ///
-/// The caller must hold the target-directory lock. All ordinary executions in
+/// The caller must hold the target-directory lock. All executions in
 /// that directory share one n2 database, and n2 does not lock it internally.
 #[instrument(skip_all)]
 pub fn execute_build(
@@ -1138,52 +989,6 @@ pub fn execute_build_json(
         hidden_warnings,
         diagnostics,
         non_diagnostic_output,
-    })
-}
-
-/// Execute standalone dependency-package work before script-package work.
-#[instrument(skip_all)]
-pub fn execute_standalone_build(
-    cfg: &BuildConfig,
-    input: StandaloneBuildInput,
-    target_dir: &Path,
-    user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
-    let Some(dependencies) = input.dependencies else {
-        return execute_build(cfg, input.script, target_dir, user_log);
-    };
-
-    let dependency_execution = execute_build_capturing(cfg, dependencies, target_dir)?;
-    if !dependency_execution.successful() {
-        return Ok(finish_captured_build(
-            cfg,
-            &dependency_execution,
-            None,
-            user_log,
-        ));
-    }
-
-    let script_execution = match execute_build_capturing(cfg, input.script, target_dir) {
-        Ok(execution) => execution,
-        Err(error) => {
-            // Preserve dependency output if the second executor fails before it
-            // can return captured output for command-level processing.
-            finish_captured_build(cfg, &dependency_execution, None, user_log);
-            return Err(error);
-        }
-    };
-    let mut diagnostic_sources = dependency_execution.diagnostic_sources([]);
-    diagnostic_sources.extend(script_execution.diagnostic_sources([]));
-    let processed = process_captured_diagnostics(&diagnostic_sources, cfg);
-    processed.warn_if_limited(user_log);
-
-    Ok(N2RunStats {
-        n_tasks_executed: script_execution
-            .n_tasks_executed
-            .zip(dependency_execution.n_tasks_executed)
-            .map(|(script, dependencies)| script + dependencies),
-        n_errors: processed.n_errors,
-        n_warnings: processed.n_warnings,
     })
 }
 

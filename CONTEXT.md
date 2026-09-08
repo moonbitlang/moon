@@ -104,6 +104,12 @@ and provider edge. Check, build, proof, and virtual-contract `.mi` files are
 distinct Build Artifacts even when their physical forms match.
 _Avoid_: Output path, action ID, build product
 
+**Dependency Artifact**:
+A Build Artifact belonging to a resolved dependency module outside the current
+project's root modules. This role is independent of execution order, cache
+eligibility, and whether an existing result can satisfy the requirement.
+_Avoid_: Preparation result, cached artifact, reusable artifact
+
 **Artifact Requirement**:
 A declaration that a Build Plan action needs a Build Artifact. It does not name the action that provides the artifact.
 _Avoid_: Action dependency, producer edge
