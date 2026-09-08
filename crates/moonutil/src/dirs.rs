@@ -81,7 +81,7 @@ pub struct SourceTargetDirs {
     pub cwd: Option<PathBuf>,
 
     /// The target directory. Defaults to `<project-root>/_build`, or
-    /// `<source-dir>/_build/<file-name>` for a standalone file.
+    /// `<source-dir>/_build/.<file-name>` for a standalone file.
     #[clap(long, global = true)]
     pub target_dir: Option<PathBuf>,
 }
@@ -155,14 +155,16 @@ impl SourceTargetDirs {
             .context("file path must have a parent directory")
             .map(Path::to_path_buf)
             .map_err(PackageDirsError::from)?;
-        // Keep the complete filename so supported source extensions with the
-        // same stem cannot share build state.
+        // Prefix the complete filename with a dot to keep script build state
+        // hidden, without sharing it between source extensions with the same stem.
         let file_name = file_path
             .file_name()
             .context("file path must have a file name")
             .map_err(PackageDirsError::from)?;
         let package_dirs = self.source_root_package_dirs(source_dir)?;
-        let target_dir = prepare_target_dir(package_dirs.target_dir.join(file_name))?;
+        let mut build_dir_name = OsString::from(".");
+        build_dir_name.push(file_name);
+        let target_dir = prepare_target_dir(package_dirs.target_dir.join(build_dir_name))?;
         let package_dirs = PackageDirs {
             mooncake_bin_dir: target_dir.join(MOON_BIN_DIR),
             mooncakes_dir: target_dir.join(DEP_PATH),
@@ -860,11 +862,11 @@ mod tests {
 
         assert_eq!(
             first.package_dirs.target_dir,
-            canonical(project.path().join("_build/first.mbt"))
+            canonical(project.path().join("_build/.first.mbt"))
         );
         assert_eq!(
             second.package_dirs.target_dir,
-            canonical(project.path().join("_build/second.mbtx"))
+            canonical(project.path().join("_build/.second.mbtx"))
         );
         assert_ne!(
             first.package_dirs.target_dir,
@@ -897,7 +899,7 @@ mod tests {
 
         assert_eq!(
             dirs.package_dirs.target_dir,
-            canonical(project.path().join("target/main.mbt.md"))
+            canonical(project.path().join("target/.main.mbt.md"))
         );
         assert_eq!(
             dirs.package_dirs.mooncake_bin_dir,
@@ -910,10 +912,12 @@ mod tests {
     }
 
     #[test]
-    fn single_file_package_dirs_reject_target_aliasing_source_file() {
+    fn single_file_package_dirs_reject_target_aliasing_existing_file() {
         let project = tempfile::tempdir().expect("create test project");
         let source_file = project.path().join("main.mbtx");
         write_file(&source_file, "fn main {}\n");
+        let conflicting_file = project.path().join(".main.mbtx");
+        write_file(&conflicting_file, "existing file\n");
 
         let result = SourceTargetDirs {
             cwd: None,
@@ -924,7 +928,7 @@ mod tests {
         assert!(matches!(
             result,
             Err(PackageDirsError::TargetDirNotDirectory(path))
-                if path == canonical(source_file)
+                if path == canonical(conflicting_file)
         ));
     }
 

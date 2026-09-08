@@ -37,11 +37,11 @@ extension discovered in ordinary packages.
 standalone representation, even when the file is located under an ordinary
 package root. Each command accepts one standalone `.mbtx` path and supports
 single- and multi-backend target selection; watch mode remains project-only.
-All standalone-file commands use `<source-dir>/_build/<filename>` as their
-default target directory, including the complete extension in `<filename>`, so
-differently named inputs in one source directory do not share synthetic package
-artifacts or incremental build state. With `--target-dir <dir>`, the target
-directory is `<dir>/<filename>`; the option relocates the target root without
+All standalone-file commands use `<source-dir>/_build/.<filename>` as their
+default target directory, prefixing the complete filename and extension with a
+dot, so differently named inputs in one source directory do not share synthetic
+package artifacts or incremental build state. With `--target-dir <dir>`, the target
+directory is `<dir>/.<filename>`; the option relocates the target root without
 adding source-path identity, so callers are responsible for using distinct
 target roots for equal filenames from different source directories.
 Private `.mooncakes` dependencies also live under that per-script target root,
