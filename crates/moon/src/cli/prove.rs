@@ -189,6 +189,7 @@ pub(crate) fn run_prove(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.auto_sync_flags.frozen,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
 

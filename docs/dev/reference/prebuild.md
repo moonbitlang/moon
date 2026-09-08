@@ -21,7 +21,7 @@ root. Supported extensions select the runner:
 | --- | --- |
 | `.js`, `.cjs`, `.mjs` | Node.js |
 | `.py` | Python |
-| `.mbtx` | `moon run --target wasm` |
+| `.mbtx` | Compiled to Wasm, then executed with Moonrun |
 
 For example:
 
@@ -41,10 +41,17 @@ output fails the build.
 
 MoonBit scripts use standalone `.mbtx` imports and incremental compilation.
 Their target is always linear-memory Wasm, independently of the project backend;
-compiling the script therefore skips module-level prebuild configuration. Moon's
-normal executable discovery selects the runner, including `MOON_OVERRIDE`, so
-no separate `moonx` executable is required. Build progress stays off stdout to
-preserve the JSON protocol.
+compiling the script therefore skips module-level prebuild configuration. The
+command layer calls the standalone builder directly and preserves the outer
+command's `--frozen` setting. Moonrun executes the compiled artifact, using normal
+runtime discovery (including `MOONRUN_OVERRIDE`). Build progress stays off stdout
+to preserve the JSON protocol.
+
+Script compilation uses a stable per-script directory under the caller's target
+directory, including when `--target-dir` is supplied. Both compiler artifacts and
+private `.mooncakes` dependencies live there, so compilation does not write into
+the script's source directory. This also applies to scripts in registry
+dependencies shared between consumers.
 
 The ordinary [embedded `.mbtx` policy](moonx.md#standalone-mbtx) applies. Policy
 filesystem roots are relative to the script directory, while the working

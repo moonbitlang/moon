@@ -31,7 +31,9 @@ use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::project::{PackageDirs, ProjectProbe, SourceTargetDirs, WorkspaceEnv};
+use moonutil::project::{
+    PackageDirs, ProjectProbe, SingleFilePackageDirs, SourceTargetDirs, WorkspaceEnv,
+};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
     cache::{CacheKind, resolve_cache_root},
@@ -460,7 +462,8 @@ pub(crate) fn build_run_executable(
 /// The returned artifact is ready for a caller-owned execution path; no build
 /// lock remains held after this function returns.
 pub(crate) fn build_standalone_wasm(
-    input: String,
+    dirs: SingleFilePackageDirs,
+    frozen: bool,
     verbose: bool,
 ) -> anyhow::Result<StandaloneWasm> {
     // TODO(moonx-standalone-build-interface): Remove this command-layer adapter
@@ -482,7 +485,7 @@ pub(crate) fn build_standalone_wasm(
             .expect("empty unstable feature set must be valid"),
     };
     let cmd = RunSubcommand {
-        package_or_mbt_file: Some(input),
+        package_or_mbt_file: Some(dirs.file_path.to_string_lossy().into_owned()),
         command: None,
         build_flags: BuildFlags {
             target: vec![SurfaceTarget::Wasm],
@@ -490,14 +493,16 @@ pub(crate) fn build_standalone_wasm(
         },
         args: Vec::new(),
         moonrun_policy: None,
-        auto_sync_flags: AutoSyncFlags { frozen: false },
+        auto_sync_flags: AutoSyncFlags { frozen },
         build_only: false,
         profile: false,
     };
     let output = CommandOutput::new(user_log_level(verbose, !verbose));
-    let mut built = build_run_executable(
+    let mut built = build_single_file_executable(
         &cli,
         &cmd,
+        dirs.package_dirs,
+        dirs.file_path,
         BuildRunExecutableOptions::for_run(&cli),
         &output,
     )?;
@@ -631,6 +636,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.auto_sync_flags.frozen,
     )
 }
 
@@ -793,6 +799,7 @@ fn build_single_file_executable(
         intent,
         mooncake_bin_dir,
         resolved,
+        cmd.auto_sync_flags.frozen,
     )?;
 
     build_executable_from_plan(

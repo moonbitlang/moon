@@ -239,10 +239,10 @@ pub struct MoonModJSON {
     /// **Experimental:** A relative path to the pre-build configuration script.
     ///
     /// The script may be JavaScript (`.js`, `.cjs`, `.mjs`), Python (`.py`), or
-    /// MoonBit (`.mbtx`), executed with Node.js, Python, or `moon run --target wasm`
-    /// respectively. It receives JSON on stdin and returns build configuration
-    /// JSON on stdout. Since this is experimental, the API may change at any
-    /// time without warning.
+    /// MoonBit (`.mbtx`), executed with Node.js, Python, or Moonrun respectively.
+    /// MoonBit scripts are compiled to Wasm. Each script receives JSON on stdin
+    /// and returns build configuration JSON on stdout. Since this is experimental,
+    /// the API may change at any time without warning.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub __moonbit_unstable_prebuild: Option<String>,
 }
