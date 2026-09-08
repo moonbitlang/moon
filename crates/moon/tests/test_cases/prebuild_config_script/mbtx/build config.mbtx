@@ -1,19 +1,13 @@
 import {
+  "moonbitlang/async@0.21.2",
+  "moonbitlang/async@0.21.2/stdio",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
 }
 
 ///|
-// Read the existing prebuild JSON protocol without a registry dependency.
-extern "wasm" fn read_char() -> Int = "spectest" "read_char"
-
-///|
-fn main {
-  let input = StringBuilder()
-  for ch = read_char(); ch != -1; ch = read_char() {
-    input.write_char(ch.to_char().unwrap())
-  }
-  let input = try! @json.parse(input.to_string())
+async fn main {
+  let input = @json.parse(@stdio.stdin.read_all().text())
   guard input is {
     "env": { "MOON_CC": String(cc), .. },
     "paths": { "module_root": String(module_root), .. },
@@ -36,5 +30,5 @@ fn main {
       "link_search_paths": ["/my-search-path"],
     }],
   }
-  println(output.stringify())
+  @stdio.stdout.write(output.stringify())
 }
