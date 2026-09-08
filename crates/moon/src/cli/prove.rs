@@ -35,7 +35,7 @@ use crate::{
         canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
         package_supports_backend,
     },
-    rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile},
+    rr_build::{self, BuildConfig, CalcUserIntentOutput},
 };
 
 const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
@@ -152,26 +152,25 @@ pub(crate) fn run_prove(
         ensure_why3_config(&generated_why3_config_path)?;
     }
 
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let path_filter = cmd.path.as_deref();
+    let prove_why3_config = why3_config_path.clone();
+
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !build_flags.std(),
+        build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    );
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         None,
         target_dir,
         RunMode::Prove,
-    );
-    let path_filter = cmd.path.as_deref();
-    let prove_why3_config = why3_config_path.clone();
-
-    let resolve_cfg = preconfig.resolve_config();
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -179,16 +178,14 @@ pub(crate) fn run_prove(
         path_filter,
         module_dir.as_deref(),
         &resolve_output,
-        planning_context.target_backend(),
+        compile_config.backend.target_backend(),
         prove_why3_config.as_deref(),
         &proof_prelude,
         user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,

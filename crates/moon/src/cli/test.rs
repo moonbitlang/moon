@@ -27,7 +27,6 @@ use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
 use crate::filter::select_packages;
 use crate::rr_build;
-use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
@@ -550,18 +549,13 @@ fn run_test_in_single_file_rr(
     };
 
     let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Test,
-    );
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolved,
     )?;
@@ -590,10 +584,8 @@ fn run_test_in_single_file_rr(
     let directive = rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
     let intent = (vec![UserIntent::Test(pkg)], directive).into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolved,
@@ -704,11 +696,15 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
     // Keep the planning flow explicit:
     // 1. derive the effective build flags used by test/bench,
-    // 2. build the compile preconfig,
+    // 2. resolve the backend and construct the compile configuration,
     // 3. let RR turn resolved packages plus user intent into a graph and filter.
     let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
-    let preconfig = preconfig_compile(
-        cmd.auto_sync_flags,
+
+    let mut filter = TestFilter {
+        name_filter: cmd.filter.clone(),
+        ..Default::default()
+    };
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         selected_target_backend,
@@ -718,16 +714,6 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         } else {
             RunMode::Test
         },
-    );
-
-    let mut filter = TestFilter {
-        name_filter: cmd.filter.clone(),
-        ..Default::default()
-    };
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -735,14 +721,12 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         &resolve_output,
         cmd,
         &mut filter,
-        planning_context.target_backend(),
+        compile_config.backend.target_backend(),
         user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
@@ -855,8 +839,8 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
         ..cmd.build_flags.clone()
     };
-    let preconfig = preconfig_compile(
-        cmd.auto_sync_flags,
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         Some(target_backend),
@@ -866,28 +850,20 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         } else {
             RunMode::Test
         },
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
-    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     let filter = resolved_selection.to_runtime_filter(&resolve_output, cmd)?;
     let intent = resolved_selection.to_build_intent(
         &resolve_output,
         cmd,
-        planning_context.target_backend(),
+        compile_config.backend.target_backend(),
         &filter,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,

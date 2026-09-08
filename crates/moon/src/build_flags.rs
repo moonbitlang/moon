@@ -170,11 +170,6 @@ impl OutputStyle {
     pub fn needs_moonc_json(&self) -> bool {
         matches!(self, OutputStyle::Fancy | OutputStyle::Json)
     }
-
-    /// Whether the output style requires no rendering (i.e., raw diagnostics).
-    pub fn needs_no_render(&self) -> bool {
-        matches!(self, OutputStyle::Raw | OutputStyle::Json)
-    }
 }
 
 impl BuildFlags {
@@ -186,22 +181,6 @@ impl BuildFlags {
             (true, true) => unreachable!(
                 "unreachable: both std and no_std flags are set (should be prevented by conflicts_with)"
             ),
-        }
-    }
-
-    pub fn apply_default_debug(&mut self) {
-        if !self.debug && !self.release {
-            self.debug = true;
-        }
-    }
-
-    pub fn strip(&self) -> bool {
-        if self.strip {
-            true
-        } else if self.no_strip {
-            false
-        } else {
-            !self.debug
         }
     }
 
@@ -235,9 +214,15 @@ impl BuildFlags {
         }
     }
 
-    /// Resolve whether to emit debug symbols for Rupes Recta compilation.
-    pub fn debug_symbols_for(&self, run_mode: RunMode) -> bool {
+    /// Resolve debug symbols after the compilation's backend is selected.
+    pub fn debug_symbols_for(&self, run_mode: RunMode, backend: TargetBackend) -> bool {
+        // A default Native run retains stack-trace support without full debug
+        // information. Explicit debug or no-strip requests retain that information.
         !self.strip_for(run_mode)
+            && (run_mode != RunMode::Run
+                || backend != TargetBackend::Native
+                || self.debug
+                || self.no_strip)
     }
 
     pub fn output_style(&self) -> OutputStyle {

@@ -31,7 +31,7 @@ use tracing::instrument;
 use super::UniversalFlags;
 
 use crate::cli::BuildFlags;
-use crate::rr_build::{self, BuildConfig, preconfig_compile};
+use crate::rr_build::{self, BuildConfig};
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
@@ -127,16 +127,13 @@ pub(crate) fn run_doc_rr(
 
     // Resolve the complete selected project before choosing the member-scoped
     // documentation backend.
-    let resolve_preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        &cli,
-        &BuildFlags::default(),
-        None,
-        target_dir,
-        RunMode::Check,
+    let build_flags = BuildFlags::default();
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !build_flags.std(),
+        build_flags.enable_coverage,
+        cli.workspace_env.clone(),
     );
-
-    let resolve_cfg = resolve_preconfig.resolve_config();
     let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
@@ -146,29 +143,21 @@ pub(crate) fn run_doc_rr(
         .module_info(module_id)
         .preferred_target
         .unwrap_or_default();
-    let mut preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+
+    let mut compile_config = rr_build::prepare_resolved_build(
         &cli,
-        &BuildFlags::default(),
+        &build_flags,
         Some(target_backend),
         target_dir,
         RunMode::Check,
-    );
-    preconfig.docs_serve = cmd.serve;
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
+    compile_config.docs_serve = cmd.serve;
     let intent = vec![UserIntent::Doc(module_id)].into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
@@ -196,7 +185,7 @@ pub(crate) fn run_doc_rr(
     rr_build::generate_metadata(source_dir, &build_meta, &build_graph)?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
+    let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 

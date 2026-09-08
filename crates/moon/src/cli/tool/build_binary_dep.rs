@@ -40,14 +40,14 @@ use moonbuild_rupes_recta::{
     model::PackageId,
 };
 use moonutil::{
-    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    locks::lock_directory, project::PackageDirs, target::TargetBackend, user_log::UserLog,
+    build_options::RunMode, cli_support::UniversalFlags, locks::lock_directory,
+    project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 
 use crate::{
     cli::BuildFlags,
     filter::match_packages_by_name_rr,
-    rr_build::{self, BuildConfig, BuildMeta, preconfig_compile},
+    rr_build::{self, BuildConfig, BuildMeta},
 };
 
 #[derive(clap::Args, Debug)]
@@ -153,18 +153,13 @@ pub(crate) fn run_build_binary_dep(
             release: true,
             ..BuildFlags::default()
         };
-        let preconfig = preconfig_compile(
-            &AutoSyncFlags { frozen: false },
+
+        let compile_config = rr_build::prepare_resolved_build(
             cli,
             &build_flags,
             Some(target),
             target_dir,
             RunMode::Build,
-        );
-        let planning_context = rr_build::prepare_resolved_build(
-            &preconfig,
-            &cli.unstable_feature,
-            target_dir,
             user_log,
             &resolve_output,
         )?;
@@ -177,10 +172,8 @@ pub(crate) fn run_build_binary_dep(
         )
             .into();
         let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-            preconfig,
-            &cli.unstable_feature,
+            compile_config,
             user_log,
-            planning_context,
             intent,
             mooncake_bin_dir,
             // FIXME: cloning is not the best way to do this, it takes in this

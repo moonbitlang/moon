@@ -17,8 +17,13 @@ as the context needed to realize the artifact's physical path.
 
 ## Backend configuration
 
-After command adapters resolve the Target Backend and expand user intent to
-requested `ArtifactKey` values, Moon selects one `BackendConfig` value:
+Once the project is resolved, the CLI adapter selects the Target Backend and
+constructs `CompileConfig` directly from the original flags and captured
+environment inputs. Commands use its backend to expand user intent to requested
+`ArtifactKey` values. There is no preliminary compilation configuration;
+dependency synchronization and resolution use their own `ResolveConfig`.
+
+Each compilation has one `BackendConfig` value:
 
 ```rust
 pub enum BackendConfig {
