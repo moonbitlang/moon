@@ -21,10 +21,10 @@ use std::path::Path;
 use moonutil::resolution::ModuleId;
 
 use super::{
-    BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
-    PrebuildInfo,
+    BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
+    MakeExecutableInfo, PrebuildInfo,
 };
-use crate::model::{BuildTarget, PackageId};
+use crate::model::{BuildPlanNode, BuildTarget, PackageId};
 
 /// A semantic Build Plan action hydrated with the metadata needed by lowering.
 ///
@@ -111,4 +111,118 @@ pub(crate) enum BuildAction<'a> {
         input: &'a Path,
         output: &'a Path,
     },
+}
+
+impl BackendPlan {
+    /// Hydrate a backend action from its owning plan's metadata.
+    pub(crate) fn action(&self, node: BuildPlanNode) -> BuildAction<'_> {
+        match node {
+            BuildPlanNode::Check(target) => BuildAction::Check {
+                target,
+                info: self
+                    .build_target_infos
+                    .get(&target)
+                    .expect("Build target info should be present for Check nodes"),
+            },
+            BuildPlanNode::EmitProof(target) => BuildAction::EmitProof {
+                target,
+                info: self
+                    .build_target_infos
+                    .get(&target)
+                    .expect("Build target info should be present for EmitProof nodes"),
+            },
+            BuildPlanNode::Prove(target) => BuildAction::Prove {
+                target,
+                info: self
+                    .build_target_infos
+                    .get(&target)
+                    .expect("Build target info should be present for Prove nodes"),
+            },
+            BuildPlanNode::BuildCore(target) => BuildAction::BuildCore {
+                target,
+                info: self
+                    .build_target_infos
+                    .get(&target)
+                    .expect("Build target info should be present for BuildCore nodes"),
+            },
+            BuildPlanNode::BuildCStub(package, index) => BuildAction::BuildCStub {
+                package,
+                index,
+                info: self
+                    .c_stubs_info
+                    .get(&package)
+                    .expect("C stub info should be present for BuildCStub nodes"),
+            },
+            BuildPlanNode::ArchiveOrLinkCStubs(package) => BuildAction::ArchiveOrLinkCStubs {
+                package,
+                info: self
+                    .c_stubs_info
+                    .get(&package)
+                    .expect("C stubs info should be present for BuildCStubs nodes"),
+            },
+            BuildPlanNode::LinkCore(target) => BuildAction::LinkCore {
+                target,
+                info: self
+                    .link_core_info
+                    .get(&target)
+                    .expect("Link core info should be present for LinkCore nodes"),
+                make_executable_info: self.make_executable_info.get(&target),
+            },
+            BuildPlanNode::MakeExecutable(target) => BuildAction::MakeExecutable {
+                target,
+                info: self
+                    .make_executable_info
+                    .get(&target)
+                    .expect("MakeExecutable nodes should contain native linking info"),
+            },
+            BuildPlanNode::GenerateDsym(target) => BuildAction::GenerateDsym {
+                target,
+                dsymutil: self
+                    .dsymutil
+                    .as_deref()
+                    .expect("dsymutil should be present for GenerateDsym nodes"),
+            },
+            BuildPlanNode::GenerateTestInfo(target) => BuildAction::GenerateTestInfo {
+                target,
+                info: self
+                    .build_target_infos
+                    .get(&target)
+                    .expect("Build target info should be present for GenerateTestInfo nodes"),
+            },
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                BuildAction::GenerateNodeTestPackageConfig { package }
+            }
+            BuildPlanNode::GenerateMbti(target) => BuildAction::GenerateMbti { target },
+            BuildPlanNode::BuildVirtual(package) => BuildAction::BuildVirtual {
+                package,
+                input: self
+                    .virtual_contract_inputs
+                    .get(&package)
+                    .map(|path| path.as_path())
+                    .expect("virtual contract input should be selected during build planning"),
+            },
+            BuildPlanNode::Bundle(module) => BuildAction::Bundle {
+                module,
+                targets: &self
+                    .bundle_info
+                    .get(&module)
+                    .expect("Bundle info should be present when lowering bundle node")
+                    .bundle_targets,
+            },
+            BuildPlanNode::BuildRuntimeObject(index) => BuildAction::BuildRuntimeObject {
+                index,
+                info: self
+                    .runtime_info
+                    .as_ref()
+                    .expect("Runtime info should be present for runtime object nodes"),
+            },
+            BuildPlanNode::BuildRuntimeLib => BuildAction::BuildRuntimeLib {
+                info: self
+                    .runtime_info
+                    .as_ref()
+                    .expect("Runtime info should be present for BuildRuntimeLib nodes"),
+            },
+            BuildPlanNode::BuildDocs(module) => BuildAction::BuildDocs { module },
+        }
+    }
 }

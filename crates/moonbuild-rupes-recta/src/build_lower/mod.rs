@@ -34,7 +34,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    build_plan::{BuildPlan, BuildPlanActionKey},
+    build_plan::{BackendPlan, BuildPlan, BuildPlanActionKey},
     execution_plan::{ActionId, ExecutionPlan, ExecutionPlanBuilder},
     model::{BackendConfig, BuildPlanNode, OperatingSystem, PackageId},
     target_layout::{
@@ -66,6 +66,8 @@ use context::LoweringContext;
 /// The build pipeline passes this object explicitly so lower phases do not
 /// rediscover environment facts in place. Individual facts remain lazy because
 /// non-native backends do not need native OS/toolchain details.
+// TODO: Remove these lazy environment reads once command orchestration supplies
+// the selected OS and compiler paths explicitly.
 #[derive(Default)]
 pub struct LoweringEnvironment {
     os: OnceLock<OperatingSystem>,
@@ -133,7 +135,7 @@ impl BuildOptions {
         self.lowering_environment.compiler_paths()
     }
 
-    pub fn artifact_path_options(&self) -> ArtifactPathOptions {
+    fn artifact_path_options(&self, backend_plan: &BackendPlan) -> ArtifactPathOptions {
         let os = match &self.backend {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 OperatingSystem::None
@@ -150,9 +152,9 @@ impl BuildOptions {
                 LinkedCoreArtifact::WasmGC { use_wat: *use_wat },
             ),
             BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
-            BackendConfig::Native { mode, .. } => (
+            BackendConfig::Native { .. } => (
                 ExecutableArtifact::NativeExecutable,
-                if mode.direct_target().is_some() {
+                if backend_plan.direct_native_target().is_some() {
                     LinkedCoreArtifact::NativeObject { os }
                 } else {
                     LinkedCoreArtifact::NativeC
@@ -424,7 +426,10 @@ mod tests {
             };
 
             assert!(options.lowering_environment.os.get().is_none());
-            assert_eq!(options.artifact_path_options().os, OperatingSystem::None);
+            assert_eq!(
+                options.artifact_path_options(&BackendPlan::default()).os,
+                OperatingSystem::None
+            );
             assert!(options.lowering_environment.os.get().is_none());
         }
     }
@@ -1048,10 +1053,12 @@ mod tests {
         let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
             NativeTarget::X86_64PcWindowsMsvc,
         ));
+        plan.test_backend_plan_mut()
+            .test_set_native_mode(Some(native_mode));
         let options = BuildOptions {
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::Native {
-                mode: native_mode,
+                direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
                 allocator: NativeAllocator::Default,
             },
             opt_level: OptLevel::Debug,
@@ -1290,12 +1297,17 @@ mod tests {
                 allocator: NativeAllocator::Default,
             },
             BackendConfig::Native {
-                mode: NativeBackendMode::DirectObject(DirectNativeMode::Target(
-                    NativeTarget::Aarch64AppleDarwin,
-                )),
+                direct_object_candidate: Some(NativeTarget::Aarch64AppleDarwin),
                 allocator: NativeAllocator::Default,
             },
         ] {
+            plan.test_backend_plan_mut().test_set_native_mode(
+                matches!(backend, BackendConfig::Native { .. }).then_some(
+                    NativeBackendMode::DirectObject(DirectNativeMode::Target(
+                        NativeTarget::Aarch64AppleDarwin,
+                    )),
+                ),
+            );
             let lowering_environment = LoweringEnvironment::default();
             lowering_environment
                 .os
@@ -1332,12 +1344,16 @@ mod tests {
             let executable = artifact_paths.target_layout().executable_of_build_target(
                 &resolve_output.pkg_dirs,
                 &target,
-                options.artifact_path_options().executable,
+                options
+                    .artifact_path_options(plan.backend_plan())
+                    .executable,
             );
             let dsym_bundle = artifact_paths.target_layout().dsym_bundle_of_build_target(
                 &resolve_output.pkg_dirs,
                 &target,
-                options.artifact_path_options().executable,
+                options
+                    .artifact_path_options(plan.backend_plan())
+                    .executable,
             );
 
             let link_args = lowered

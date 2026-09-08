@@ -85,11 +85,11 @@ fn should_generate_direct_native_dsym(
 
 impl<'a> BuildPlanConstructor<'a> {
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
-        if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             err.context(
                 "Windows MSVC direct object native target requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
             )
-        } else if self.build_env.direct_native_target().is_some() {
+        } else if self.res.backend.direct_native_target().is_some() {
             err.context(
                 "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
             )
@@ -112,8 +112,10 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+        // TODO: Consume explicit toolchain candidates and environment overrides
+        // once native toolchain discovery moves to command orchestration.
         debug_assert!(self.build_env.target_backend().is_native());
-        if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             self.warn_incompatible_windows_msvc_env_override();
             return compiler_flags::windows_msvc_native_toolchain(package_cc);
         }
@@ -1138,20 +1140,16 @@ impl<'a> BuildPlanConstructor<'a> {
             BackendConfig::Llvm { .. } => {
                 should_generate_llvm_dsym(self.build_env.debug_symbols, self.build_env.os)
             }
-            BackendConfig::Native {
-                mode: NativeBackendMode::DirectObject(mode),
-                ..
-            } => should_generate_direct_native_dsym(
-                mode,
-                self.build_env.debug_symbols
-                    || (self.build_env.action == RunMode::Run
-                        && self.build_env.opt_level == OptLevel::Debug),
-                &effective_native_toolchain,
-            ),
-            BackendConfig::Native {
-                mode: NativeBackendMode::GeneratedC,
-                ..
-            } => false,
+            BackendConfig::Native { .. } => match self.res.backend.native_mode() {
+                NativeBackendMode::DirectObject(mode) => should_generate_direct_native_dsym(
+                    mode,
+                    self.build_env.debug_symbols
+                        || (self.build_env.action == RunMode::Run
+                            && self.build_env.opt_level == OptLevel::Debug),
+                    &effective_native_toolchain,
+                ),
+                NativeBackendMode::GeneratedC => false,
+            },
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 unreachable!("non-native executable planning returns before toolchain planning")
             }

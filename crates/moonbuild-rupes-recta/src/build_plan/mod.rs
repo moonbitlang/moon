@@ -67,7 +67,10 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, OperatingSystem, PackageId},
+    model::{
+        BackendConfig, BuildPlanNode, BuildTarget, NativeBackendMode, NativeTarget,
+        OperatingSystem, PackageId,
+    },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -108,7 +111,11 @@ impl From<BuildPlanNode> for BuildPlanActionKey {
 /// planned action. Keeping both here makes that invariant local to backend
 /// planning.
 #[derive(Default)]
-struct BackendPlan {
+pub(crate) struct BackendPlan {
+    /// Derived once from the requested artifacts before expanding actions.
+    /// Present only for Native; all Native planning and lowering read this value.
+    native_mode: Option<NativeBackendMode>,
+
     /// Planned backend actions, in stable insertion order.
     actions: IndexSet<BuildPlanNode>,
 
@@ -144,6 +151,18 @@ struct BackendPlan {
 }
 
 impl BackendPlan {
+    pub(crate) fn native_mode(&self) -> &NativeBackendMode {
+        self.native_mode
+            .as_ref()
+            .expect("Native planning must select a payload form")
+    }
+
+    pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
+        self.native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::direct_target)
+    }
+
     fn actions(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.actions.iter().copied()
     }
@@ -182,6 +201,11 @@ pub struct BuildPlan {
 }
 
 impl BuildPlan {
+    /// Borrow the backend-owned actions and metadata for backend lowering.
+    pub(crate) fn backend_plan(&self) -> &BackendPlan {
+        &self.backend
+    }
+
     /// Get the semantic actions that **the given action depends on**.
     pub(crate) fn dependency_actions(
         &self,
@@ -231,53 +255,11 @@ impl BuildPlan {
         self.requested_artifacts.iter()
     }
 
-    /// Get build target information for the given target.
-    pub fn get_build_target_info(&self, target: &BuildTarget) -> Option<&BuildTargetInfo> {
-        self.backend.build_target_infos.get(target)
-    }
-
-    /// Get link core information for the given target.
-    pub fn get_link_core_info(&self, target: &BuildTarget) -> Option<&LinkCoreInfo> {
-        self.backend.link_core_info.get(target)
-    }
-
-    /// Get C stubs information for the given target.
-    pub fn get_c_stubs_info(&self, target: PackageId) -> Option<&BuildCStubsInfo> {
-        self.backend.c_stubs_info.get(&target)
-    }
-
-    /// Get make executable information for the given target.
-    pub fn get_make_executable_info(&self, target: &BuildTarget) -> Option<&MakeExecutableInfo> {
-        self.backend.make_executable_info.get(target)
-    }
-
-    /// Get the resolved dsymutil executable.
-    pub fn get_dsymutil(&self) -> Option<&Path> {
-        self.backend.dsymutil.as_deref()
-    }
-
-    /// Get runtime library build information.
-    pub fn get_runtime_info(&self) -> Option<&BuildRuntimeInfo> {
-        self.backend.runtime_info.as_ref()
-    }
-
     pub(crate) fn package_prebuild_action(
         &self,
         key: &PackagePrebuildKey,
     ) -> Option<&PackagePrebuildAction> {
         self.package_prebuild.action(key)
-    }
-
-    pub(crate) fn virtual_contract_input(&self, package: PackageId) -> Option<&Path> {
-        self.backend
-            .virtual_contract_inputs
-            .get(&package)
-            .map(PathBuf::as_path)
-    }
-
-    /// Get bundle information for the given module.
-    pub fn bundle_info(&self, module_id: ModuleId) -> Option<&BuildBundleInfo> {
-        self.backend.bundle_info.get(&module_id)
     }
 
     pub(crate) fn all_actions(&self) -> impl Iterator<Item = BuildPlanActionKey> + '_ {
@@ -297,7 +279,18 @@ impl BuildPlan {
 }
 
 #[cfg(test)]
+impl BackendPlan {
+    pub(crate) fn test_set_native_mode(&mut self, mode: Option<NativeBackendMode>) {
+        self.native_mode = mode;
+    }
+}
+
+#[cfg(test)]
 impl BuildPlan {
+    pub(crate) fn test_backend_plan_mut(&mut self) -> &mut BackendPlan {
+        &mut self.backend
+    }
+
     pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
         self.backend.insert(node);
     }
@@ -644,10 +637,6 @@ impl BuildEnvironment {
     pub(crate) fn target_backend(&self) -> TargetBackend {
         self.backend.target_backend()
     }
-
-    pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
-        self.backend.direct_native_target()
-    }
 }
 
 /// How package-level prebuild participates in this plan.
@@ -759,6 +748,43 @@ pub enum BuildPlanConstructError {
     },
 }
 
+/// Select one Native payload form for all requested artifacts in a plan.
+/// Host capability is supplied by the caller; package policy belongs to RR.
+pub(super) fn resolve_native_backend_mode(
+    resolved: &ResolveOutput,
+    requested_artifacts: &[ArtifactKey],
+    opt_level: OptLevel,
+    native_target: Option<crate::model::NativeTarget>,
+) -> crate::model::NativeBackendMode {
+    use crate::model::{DirectNativeMode, NativeBackendMode};
+
+    // TODO: Before selecting payload form per executable, key shared runtime
+    // and C-stub artifacts by toolchain and realization. A plan currently
+    // requires one mode so its executables can safely share those artifacts.
+    let Some(native_target) = native_target.filter(|_| opt_level == OptLevel::Debug) else {
+        return NativeBackendMode::GeneratedC;
+    };
+    let needs_c_compiler = requested_artifacts.iter().any(|artifact| {
+        let ArtifactKey::Executable { package, .. } = artifact else {
+            return false;
+        };
+        resolved
+            .pkg_dirs
+            .get_package(*package)
+            .raw
+            .link
+            .as_ref()
+            .and_then(|link| link.native.as_ref())
+            .is_some_and(|native| native.cc_flags.is_some())
+    });
+    if needs_c_compiler {
+        tracing::info!("Disabling direct object native output: C/C++ compiler flags are set");
+        NativeBackendMode::GeneratedC
+    } else {
+        NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target))
+    }
+}
+
 /// Construct a Build Plan that produces the requested artifacts.
 #[instrument(skip_all)]
 pub fn build_plan(
@@ -785,7 +811,29 @@ pub fn build_plan(
         prebuild_config,
         user_log,
     );
-    constructor.build(input)?;
+    let input = input.collect::<Vec<_>>();
+    if let BackendConfig::Native {
+        direct_object_candidate,
+        ..
+    } = &build_env.backend
+    {
+        constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
+            resolved,
+            &input,
+            build_env.opt_level,
+            *direct_object_candidate,
+        ));
+    }
+    // Preserve the caller-requested executable scope for Native selection,
+    // then drop test artifacts excluded by the standard-library special cases.
+    constructor.build(input.into_iter().filter(|artifact| {
+        artifact.package_target().is_none_or(|target| {
+            !target.kind.is_test()
+                || !crate::special_cases::should_skip_tests(
+                    &resolved.pkg_dirs.get_package(target.package).fqn,
+                )
+        })
+    }))?;
     let result = constructor.finish();
 
     info!(

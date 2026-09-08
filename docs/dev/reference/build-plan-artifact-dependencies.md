@@ -25,12 +25,25 @@ pub enum BackendConfig {
     Wasm { use_wat: bool, wasi_link: bool },
     WasmGc { use_wat: bool },
     Js,
-    Native(NativeBackendMode),
-    Llvm,
+    Native {
+        direct_object_candidate: Option<NativeTarget>,
+        allocator: NativeAllocator,
+    },
+    Llvm { allocator: NativeAllocator },
 }
 ```
 
-This value is the compile-wide source of truth passed through `CompileConfig`,
+The command adapter captures the Native direct-object candidate from the host
+and environment. Native payload form is derived inside build planning from that
+explicit candidate, the profile, and requested packages, then stored in private
+Backend Plan metadata. The selected mode is not a `BackendConfig` input; both
+Native planning and lowering consume the one value stored in the plan.
+Backend-specific metadata queries and action hydration belong to `BackendPlan`.
+The outer `BuildPlan` exposes artifact relationships and subplan composition;
+RR lowering borrows its backend subplan to read the selected mode and hydrate
+backend actions, without copying that state into another configuration.
+
+`BackendConfig` is the compile-wide source of truth passed through `CompileConfig`,
 `BuildEnvironment`, and `BuildOptions`. An `ArtifactKey` does not repeat the
 backend, optimization profile, or run mode because one `BuildPlan` is scoped
 to one such configuration. If one plan later contains multiple configurations,

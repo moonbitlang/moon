@@ -46,9 +46,7 @@ use moonbuild_rupes_recta::{
     execution_plan::{ActionId, ExecutionPlan},
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
-    model::{
-        BackendConfig, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId, TargetKind,
-    },
+    model::{BackendConfig, ENV_MOONBIT_NEW_NATIVE, NativeTarget, PackageId, TargetKind},
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
 };
@@ -338,8 +336,6 @@ impl CompilePreConfig {
         final_target_backend: TargetBackend,
         is_core: bool,
         resolve_output: &ResolveOutput,
-        requested_artifacts: &[ArtifactKey],
-        _user_log: &UserLog,
     ) -> anyhow::Result<CompileConfig> {
         info!("Determining compilation configuration");
 
@@ -371,10 +367,17 @@ impl CompilePreConfig {
                 use_wat: self.output_wat,
             },
             TargetBackend::Js => BackendConfig::Js,
-            TargetBackend::Native => BackendConfig::Native {
-                mode: self.detect_mode(resolve_output, requested_artifacts),
-                allocator: compiler_flags::NativeAllocator::from_env()?,
-            },
+            TargetBackend::Native => {
+                let new_native_env = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
+                BackendConfig::Native {
+                    direct_object_candidate: NativeTarget::from_host_with_new_native_env(
+                        std::env::consts::ARCH,
+                        std::env::consts::OS,
+                        new_native_env.as_deref(),
+                    ),
+                    allocator: compiler_flags::NativeAllocator::from_env()?,
+                }
+            }
             TargetBackend::LLVM => BackendConfig::Llvm {
                 allocator: compiler_flags::NativeAllocator::from_env()?,
             },
@@ -409,54 +412,6 @@ impl CompilePreConfig {
             warn_list: self.warn_list,
             info_no_alias: self.info_no_alias,
         })
-    }
-
-    /// Detect the native payload and executable realization for this invocation.
-    fn detect_mode(
-        &self,
-        resolve_output: &ResolveOutput,
-        requested_artifacts: &[ArtifactKey],
-    ) -> NativeBackendMode {
-        // TODO: Native payload form is selected once per invocation. Before
-        // selecting it per executable, key the shared runtime and package C-stub
-        // products by their native toolchain and realization. Otherwise mixed
-        // payload forms can require incompatible shared artifacts, especially
-        // for the strict MSVC direct object target.
-        let native_configs = requested_artifacts
-            .iter()
-            .filter_map(|artifact| {
-                let ArtifactKey::Executable { package, .. } = artifact else {
-                    return None;
-                };
-                let package = resolve_output.pkg_dirs.get_package(*package);
-                let native = package
-                    .raw
-                    .link
-                    .as_ref()
-                    .and_then(|link| link.native.as_ref())?;
-                Some((package, native))
-            })
-            .collect::<Vec<_>>();
-
-        let native_target = if self.opt_level == BuildProfile::Debug {
-            NativeTarget::from_env_for_host()
-        } else {
-            None
-        };
-        info!("New native target: {:?}", native_target);
-        if let Some(native_target) = native_target {
-            if native_configs
-                .iter()
-                .any(|(_, native)| native.cc_flags.is_some())
-            {
-                info!("Disabling direct object native output: C/C++ compiler flags are set");
-                return NativeBackendMode::GeneratedC;
-            }
-
-            return NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target));
-        }
-
-        NativeBackendMode::GeneratedC
     }
 }
 
@@ -628,8 +583,6 @@ pub(crate) fn plan_resolved_build_from_intent(
         planning_context.target_backend,
         planning_context.is_core,
         &resolve_output,
-        &requested_artifacts,
-        user_log,
     )?;
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
@@ -728,8 +681,6 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         planning_context.target_backend,
         planning_context.is_core,
         &resolve_output,
-        &requested_artifacts,
-        user_log,
     )?;
     let compile_output = moonbuild_rupes_recta::compile_standalone(
         &cx,

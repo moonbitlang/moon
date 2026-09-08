@@ -19,7 +19,7 @@
 use log::{debug, info};
 use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
 use std::path::{Path, PathBuf};
-use tracing::{Level, instrument};
+use tracing::instrument;
 
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
@@ -28,7 +28,6 @@ use crate::{
     model::{BackendConfig, OperatingSystem},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
-    special_cases::should_skip_tests,
     target_layout::ArtifactPathResolver,
 };
 
@@ -112,18 +111,12 @@ pub fn compile(
         requested_artifacts.len()
     );
 
-    let requested_artifacts = requested_artifacts
-        .iter()
-        .filter(|artifact| filter_special_case_requested_artifact(artifact, resolve_output))
-        .cloned()
-        .collect::<Vec<_>>();
-
     let build_env = build_environment(cx);
     let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
         &build_env,
-        requested_artifacts.into_iter(),
+        requested_artifacts.iter().cloned(),
         input_directive,
         prebuild_config,
         user_log,
@@ -148,17 +141,12 @@ pub fn compile_standalone(
     user_log: &UserLog,
 ) -> Result<StandaloneCompileOutput, CompileGraphError> {
     info!("Building one logical plan for standalone dependency and script work");
-    let requested_artifacts = requested_artifacts
-        .iter()
-        .filter(|artifact| filter_special_case_requested_artifact(artifact, resolve_output))
-        .cloned()
-        .collect::<Vec<_>>();
     let build_env = build_environment(cx);
     let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
         &build_env,
-        requested_artifacts.into_iter(),
+        requested_artifacts.iter().cloned(),
         input_directive,
         prebuild_config,
         user_log,
@@ -239,24 +227,6 @@ fn lowering_options(cx: &CompileConfig) -> build_lower::BuildOptions {
         info_no_alias: cx.info_no_alias,
         stdlib_path: cx.stdlib_path.clone(),
         lowering_environment: cx.lowering_environment.clone(),
-    }
-}
-
-/// A filter to remove requested test artifacts that are invalid. Returns
-/// `true` if the artifact should be retained.
-///
-/// See [`crate::special_cases`] for more information.
-#[instrument(level = Level::DEBUG, skip_all)]
-fn filter_special_case_requested_artifact(
-    artifact: &ArtifactKey,
-    resolve_output: &ResolveOutput,
-) -> bool {
-    match artifact.package_target() {
-        Some(tgt) if tgt.kind.is_test() => {
-            let pkg_name = &resolve_output.pkg_dirs.get_package(tgt.package).fqn;
-            !should_skip_tests(pkg_name)
-        }
-        _ => true,
     }
 }
 
@@ -371,6 +341,146 @@ mod tests {
             c_stub_header_files: Vec::new(),
             virtual_mbti_files: Vec::new(),
             is_stdlib: false,
+        }
+    }
+
+    #[test]
+    fn native_payload_selection_uses_only_requested_executables() {
+        use crate::{
+            build_plan::{BuildEnvironment, build_plan, resolve_native_backend_mode},
+            model::{NativeTarget, OperatingSystem},
+        };
+
+        let module_source = ModuleSource::local_path(
+            "test/single"
+                .parse::<ModuleName>()
+                .expect("test module should parse"),
+            PathBuf::from("."),
+            DEFAULT_VERSION.clone(),
+        );
+        let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let mut packages = DiscoverResult::default();
+        packages.test_register_module(module, moon_mod());
+        let plain = packages.test_add_package(
+            module,
+            PackagePath::new("plain").expect("plain package path should parse"),
+            package(module, &module_source, "plain", false, true),
+        );
+        let mut with_flags = package(module, &module_source, "with_flags", false, true);
+        with_flags.raw.link = Some(moonutil::package::Link {
+            wasm: None,
+            wasm_gc: None,
+            js: None,
+            native: Some(moonutil::package::NativeLinkConfig {
+                exports: None,
+                cc: None,
+                cc_flags: Some("-fno-inline".into()),
+                cc_link_flags: None,
+                stub_cc: None,
+                stub_cc_flags: None,
+                stub_cc_link_flags: None,
+                stub_lib_deps: None,
+            }),
+        });
+        let with_flags = packages.test_add_package(
+            module,
+            PackagePath::new("with_flags").expect("flagged package path should parse"),
+            with_flags,
+        );
+        let resolved = ResolveOutput {
+            module_rel: modules,
+            module_dirs: DirSyncResult::default(),
+            pkg_dirs: packages,
+            pkg_rel: DepRelationship::default(),
+        };
+        // Empty plans exercise capability forwarding without resolving host tools.
+        // Include foreign targets and None so a planner-side host read cannot pass.
+        for candidate in [
+            None,
+            Some(NativeTarget::Aarch64AppleDarwin),
+            Some(NativeTarget::X86_64UnknownLinuxGnu),
+            Some(NativeTarget::X86_64PcWindowsMsvc),
+        ] {
+            for opt_level in [OptLevel::Debug, OptLevel::Release] {
+                let build_env = BuildEnvironment {
+                    backend: BackendConfig::Native {
+                        direct_object_candidate: candidate,
+                        allocator: moonutil::compiler_flags::NativeAllocator::Default,
+                    },
+                    opt_level,
+                    action: RunMode::Build,
+                    debug_symbols: false,
+                    os: OperatingSystem::None,
+                    compiler_paths: None,
+                    std: false,
+                    warn_list: None,
+                };
+                let plan = build_plan(
+                    &resolved,
+                    Path::new(".mooncakes/bin"),
+                    &build_env,
+                    std::iter::empty(),
+                    &InputDirective::default(),
+                    None,
+                    &UserLog::new(log::LevelFilter::Off),
+                )
+                .expect("empty plan should not need host tools");
+                assert_eq!(
+                    plan.backend_plan().direct_native_target(),
+                    candidate.filter(|_| opt_level == OptLevel::Debug),
+                    "candidate={candidate:?}, opt_level={opt_level:?}"
+                );
+            }
+        }
+        let plain_exe = ArtifactKey::Executable {
+            package: plain,
+            target_kind: TargetKind::Source,
+        };
+        let flagged_exe = ArtifactKey::Executable {
+            package: with_flags,
+            target_kind: TargetKind::Source,
+        };
+        for (requested, permits_direct_object) in [
+            (vec![], true),
+            (vec![plain_exe.clone()], true),
+            (
+                vec![
+                    plain_exe.clone(),
+                    ArtifactKey::CoreIr {
+                        package: with_flags,
+                        target_kind: TargetKind::Source,
+                    },
+                ],
+                true,
+            ),
+            (vec![flagged_exe.clone()], false),
+            (vec![plain_exe, flagged_exe], false),
+        ] {
+            for candidate in [
+                None,
+                Some(NativeTarget::Aarch64AppleDarwin),
+                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                Some(NativeTarget::X86_64PcWindowsMsvc),
+            ] {
+                let mode =
+                    resolve_native_backend_mode(&resolved, &requested, OptLevel::Debug, candidate);
+                assert_eq!(
+                    mode.direct_target(),
+                    if permits_direct_object {
+                        candidate
+                    } else {
+                        None
+                    },
+                    "requested={requested:?}, candidate={candidate:?}"
+                );
+                let release_mode = resolve_native_backend_mode(
+                    &resolved,
+                    &requested,
+                    OptLevel::Release,
+                    candidate,
+                );
+                assert!(release_mode.direct_target().is_none());
+            }
         }
     }
 

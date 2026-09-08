@@ -33,8 +33,8 @@ slotmap::new_key_type! {
 ///
 /// This is the single source of truth after the user-visible target backend is
 /// resolved. Keeping backend-specific options inside the matching variant
-/// prevents invalid combinations such as a native implementation mode on a
-/// Wasm build.
+/// prevents invalid combinations such as WASI linking on a Native build.
+/// Native payload form is derived by planning and is not a caller option.
 #[derive(Clone, Debug)]
 pub enum BackendConfig {
     Wasm {
@@ -46,7 +46,9 @@ pub enum BackendConfig {
     },
     Js,
     Native {
-        mode: NativeBackendMode,
+        /// Direct object target permitted by the caller's host/environment.
+        /// Planning may still select generated C based on profile and packages.
+        direct_object_candidate: Option<NativeTarget>,
         allocator: NativeAllocator,
     },
     Llvm {
@@ -69,7 +71,7 @@ pub enum NativeTarget {
 
 /// The native implementation selected under the user-visible `native` backend.
 #[derive(Clone, Debug)]
-pub enum NativeBackendMode {
+pub(crate) enum NativeBackendMode {
     /// Legacy generated-C native path.
     GeneratedC,
     /// Experimental direct object-code native path.
@@ -78,21 +80,13 @@ pub enum NativeBackendMode {
 
 /// Concrete direct object-code native implementation.
 #[derive(Clone, Debug)]
-pub enum DirectNativeMode {
+pub(crate) enum DirectNativeMode {
     Target(NativeTarget),
 }
 
 impl NativeTarget {
-    pub fn from_env_for_host() -> Option<Self> {
-        let env_value = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
-        Self::from_host_with_new_native_env(
-            std::env::consts::ARCH,
-            std::env::consts::OS,
-            env_value.as_deref(),
-        )
-    }
-
-    fn from_host_with_new_native_env(
+    /// Interpret caller-supplied host and `MOONBIT_NEW_NATIVE` observations.
+    pub fn from_host_with_new_native_env(
         arch: &str,
         os: &str,
         env_value: Option<&str>,
@@ -144,13 +138,6 @@ impl BackendConfig {
             Self::Js => TargetBackend::Js,
             Self::Native { .. } => TargetBackend::Native,
             Self::Llvm { .. } => TargetBackend::LLVM,
-        }
-    }
-
-    pub fn direct_native_target(&self) -> Option<NativeTarget> {
-        match self {
-            Self::Native { mode, .. } => mode.direct_target(),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => None,
         }
     }
 

@@ -96,7 +96,7 @@ impl ActionArtifacts {
             ctx.action(provider_action),
             ctx.packages,
             ctx.modules,
-            ctx.opt.artifact_path_options(),
+            ctx.opt.artifact_path_options(ctx.plan.backend_plan()),
         );
         RealizedArtifact { artifact, paths }
     }
@@ -260,113 +260,7 @@ impl<'a> LoweringContext<'a> {
                 };
             }
         };
-        match node {
-            BuildPlanNode::Check(target) => BuildAction::Check {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for Check nodes"),
-            },
-            BuildPlanNode::EmitProof(target) => BuildAction::EmitProof {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for EmitProof nodes"),
-            },
-            BuildPlanNode::Prove(target) => BuildAction::Prove {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for Prove nodes"),
-            },
-            BuildPlanNode::BuildCore(target) => BuildAction::BuildCore {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for BuildCore nodes"),
-            },
-            BuildPlanNode::BuildCStub(package, index) => BuildAction::BuildCStub {
-                package,
-                index,
-                info: self
-                    .plan
-                    .get_c_stubs_info(package)
-                    .expect("C stub info should be present for BuildCStub nodes"),
-            },
-            BuildPlanNode::ArchiveOrLinkCStubs(package) => BuildAction::ArchiveOrLinkCStubs {
-                package,
-                info: self
-                    .plan
-                    .get_c_stubs_info(package)
-                    .expect("C stubs info should be present for BuildCStubs nodes"),
-            },
-            BuildPlanNode::LinkCore(target) => BuildAction::LinkCore {
-                target,
-                info: self
-                    .plan
-                    .get_link_core_info(&target)
-                    .expect("Link core info should be present for LinkCore nodes"),
-                make_executable_info: self.plan.get_make_executable_info(&target),
-            },
-            BuildPlanNode::MakeExecutable(target) => BuildAction::MakeExecutable {
-                target,
-                info: self
-                    .plan
-                    .get_make_executable_info(&target)
-                    .expect("MakeExecutable nodes should contain native linking info"),
-            },
-            BuildPlanNode::GenerateDsym(target) => BuildAction::GenerateDsym {
-                target,
-                dsymutil: self
-                    .plan
-                    .get_dsymutil()
-                    .expect("dsymutil should be present for GenerateDsym nodes"),
-            },
-            BuildPlanNode::GenerateTestInfo(target) => BuildAction::GenerateTestInfo {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for GenerateTestInfo nodes"),
-            },
-            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
-                BuildAction::GenerateNodeTestPackageConfig { package }
-            }
-            BuildPlanNode::GenerateMbti(target) => BuildAction::GenerateMbti { target },
-            BuildPlanNode::BuildVirtual(package) => BuildAction::BuildVirtual {
-                package,
-                input: self
-                    .plan
-                    .virtual_contract_input(package)
-                    .expect("virtual contract input should be selected during build planning"),
-            },
-            BuildPlanNode::Bundle(module) => BuildAction::Bundle {
-                module,
-                targets: &self
-                    .plan
-                    .bundle_info(module)
-                    .expect("Bundle info should be present when lowering bundle node")
-                    .bundle_targets,
-            },
-            BuildPlanNode::BuildRuntimeObject(index) => BuildAction::BuildRuntimeObject {
-                index,
-                info: self
-                    .plan
-                    .get_runtime_info()
-                    .expect("Runtime info should be present for runtime object nodes"),
-            },
-            BuildPlanNode::BuildRuntimeLib => BuildAction::BuildRuntimeLib {
-                info: self
-                    .plan
-                    .get_runtime_info()
-                    .expect("Runtime info should be present for BuildRuntimeLib nodes"),
-            },
-            BuildPlanNode::BuildDocs(module) => BuildAction::BuildDocs { module },
-        }
+        self.plan.backend_plan().action(node)
     }
 
     fn human_desc(&self, action_key: &BuildPlanActionKey, action: BuildAction<'_>) -> String {
@@ -544,8 +438,8 @@ impl<'a> LoweringContext<'a> {
             BuildAction::MakeExecutable { .. }
                 if matches!(
                     &self.opt.backend,
-                    BackendConfig::Native { mode, .. }
-                        if mode.executable_realization()
+                    BackendConfig::Native { .. }
+                        if self.plan.backend_plan().native_mode().executable_realization()
                             == CExecutableRealization::CompileAndLinkGeneratedC
                 )
         );
@@ -623,12 +517,19 @@ impl<'a> LoweringContext<'a> {
                     && package_link_flags.is_none_or(<[_]>::is_empty)
             }
             BuildAction::MakeExecutable { info, .. } => match &self.opt.backend {
-                BackendConfig::Native { mode, .. } => match mode.executable_realization() {
-                    CExecutableRealization::CompileAndLinkGeneratedC => {
-                        info.c_flags.is_empty() && info.link_flags.is_empty()
+                BackendConfig::Native { .. } => {
+                    match self
+                        .plan
+                        .backend_plan()
+                        .native_mode()
+                        .executable_realization()
+                    {
+                        CExecutableRealization::CompileAndLinkGeneratedC => {
+                            info.c_flags.is_empty() && info.link_flags.is_empty()
+                        }
+                        CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
                     }
-                    CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
-                },
+                }
                 BackendConfig::Llvm { .. } => info.c_flags.is_empty() && info.link_flags.is_empty(),
                 BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                     unreachable!("non-native plans do not contain MakeExecutable actions")
@@ -657,7 +558,9 @@ impl<'a> LoweringContext<'a> {
                     .dsym_bundle_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.artifact_path_options().executable,
+                        self.opt
+                            .artifact_path_options(self.plan.backend_plan())
+                            .executable,
                     ),
             ],
             BuildAction::RunPrebuild { info } => info.resolved_outputs.clone(),
