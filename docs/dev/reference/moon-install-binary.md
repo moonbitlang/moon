@@ -100,12 +100,20 @@ Rules:
 Input form:
 
 - `moon install <git-url> [PATH_IN_REPO] [--rev|--branch|--tag]`
+- hosted tree URL:
+  - `https://github.com/<owner>/<repo>/tree/<ref>[/<path...>]`
+  - `https://gitcode.com/<owner>/<repo>/tree/<ref>[/<path...>]`
+  - `https://gitcode.com/<owner>/<repo>/-/tree/<ref>[/<path...>]`
 - wildcard in repo selector: `PATH_IN_REPO=some/prefix/...`
 
 Rules:
 
 - Clone repo, optionally checkout ref.
+- A hosted tree URL is normalized to the repository clone URL, `--branch <ref>`,
+  and optional `PATH_IN_REPO` from the URL path.
 - `PATH_IN_REPO` is interpreted as a filesystem path inside the cloned repository.
+- If a hosted tree URL already contains a path after `<ref>`, passing a separate
+  `PATH_IN_REPO` is rejected as ambiguous.
 - Resolve selected filesystem path and find nearest ancestor containing `moon.mod.json` as module root.
 - No wildcard:
   - no `PATH_IN_REPO`: install root package of detected module.
