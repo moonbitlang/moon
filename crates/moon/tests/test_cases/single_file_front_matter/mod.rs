@@ -61,7 +61,12 @@ fn test_single_file_mbtx_run() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["run", "import_ok.mbtx"]);
     assert!(stdout.contains("hello"));
-    assert!(dir.join(".mooncakes/moonbitlang/x").is_dir());
+    assert!(
+        standalone_target_dir(&dir, "import_ok.mbtx")
+            .join(".mooncakes/moonbitlang/x")
+            .is_dir()
+    );
+    assert!(!dir.join(".mooncakes").exists());
 }
 
 #[test]

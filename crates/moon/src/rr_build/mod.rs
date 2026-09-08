@@ -47,7 +47,6 @@ use moonbuild_rupes_recta::{
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{BackendConfig, ENV_MOONBIT_NEW_NATIVE, NativeTarget, PackageId, TargetKind},
-    prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
 };
 use moonutil::{
@@ -70,6 +69,7 @@ use crate::build_flags::{BuildFlags, OutputStyle};
 
 pub mod action_identity;
 mod dry_run;
+mod prebuild;
 pub use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_all};
 
 /// Synchronize dependencies and return resolved project data.
@@ -416,6 +416,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     intent: CalcUserIntentOutput,
     mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
+    frozen: bool,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let target_dir = cx.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
@@ -428,8 +429,11 @@ pub(crate) fn plan_resolved_build_from_intent(
         None
     } else {
         info!("Running prebuild configuration");
-        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
-        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
+        Some(prebuild::run_prebuild_config(
+            &resolve_output,
+            &target_dir,
+            frozen,
+        )?)
     };
 
     info!("Expanding user intents to requested artifacts");

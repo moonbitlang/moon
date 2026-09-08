@@ -179,6 +179,7 @@ pub(crate) fn run_build_binary_dep(
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
             resolve_output.clone(),
+            false,
         )?;
 
         let _lock = lock_directory(target_dir, user_log)?;

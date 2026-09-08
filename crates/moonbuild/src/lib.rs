@@ -20,7 +20,6 @@
 
 pub mod bench;
 pub mod benchmark;
-pub mod build_script;
 pub mod doc_http;
 pub mod dry_run;
 pub mod entry;

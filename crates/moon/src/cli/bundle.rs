@@ -244,6 +244,7 @@ pub(crate) fn plan_bundle_rr_from_resolved(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.auto_sync_flags.frozen,
     )
 }
 

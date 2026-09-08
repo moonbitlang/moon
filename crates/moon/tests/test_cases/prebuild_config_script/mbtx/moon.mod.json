@@ -1,0 +1,5 @@
+{
+  "name": "username/hello",
+  "source": "src",
+  "--moonbit-unstable-prebuild": "build config.mbtx"
+}

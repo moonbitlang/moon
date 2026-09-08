@@ -1,0 +1,34 @@
+import {
+  "moonbitlang/async@0.21.2",
+  "moonbitlang/async@0.21.2/stdio",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let input = @json.parse(@stdio.stdin.read_all().text())
+  guard input is {
+    "env": { "MOON_CC": String(cc), .. },
+    "paths": { "module_root": String(module_root), .. },
+    ..
+  } else {
+    abort("missing prebuild environment or paths")
+  }
+  guard Some(cc) == @env.get_env_var("MOON_CC") else {
+    abort("prebuild environment was not passed through stdin")
+  }
+  guard Some(module_root) == @env.current_dir() else {
+    abort("prebuild working directory is not the module root")
+  }
+  let output : Json = {
+    "vars": { "HELLO": "------this-is-added-by-config-script------" },
+    "link_configs": [{
+      "package": "username/hello/dep",
+      "link_flags": "-l______this_is_added_by_config_script_______",
+      "link_libs": ["mylib"],
+      "link_search_paths": ["/my-search-path"],
+    }],
+  }
+  @stdio.stdout.write(output.stringify())
+}

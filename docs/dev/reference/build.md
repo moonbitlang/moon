@@ -44,6 +44,8 @@ artifacts or incremental build state. With `--target-dir <dir>`, the target
 directory is `<dir>/<filename>`; the option relocates the target root without
 adding source-path identity, so callers are responsible for using distinct
 target roots for equal filenames from different source directories.
+Private `.mooncakes` dependencies also live under that per-script target root,
+so standalone commands do not install dependencies beside the source file.
 
 ### Build targets
 

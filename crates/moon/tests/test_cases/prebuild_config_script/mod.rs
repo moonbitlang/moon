@@ -1,5 +1,6 @@
 use std::cell::OnceCell;
 
+use crate::util::cache_registry_package;
 use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs, moon_cmd};
 
 // Notice the two `this-is-added-by-config-script`
@@ -13,6 +14,176 @@ fn test_prebuild_config_js() {
 fn test_prebuild_config_py() {
     let dir = TestDir::new("prebuild_config_script/py");
     test_prebuild_config_common(dir);
+}
+
+#[test]
+fn test_prebuild_config_mbtx() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    test_prebuild_config_common(dir);
+}
+
+#[test]
+fn test_prebuild_config_mbtx_preserves_frozen_dependencies() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    let moon_home = tempfile::tempdir().unwrap();
+    cache_registry_package(
+        moon_home.path(),
+        "testuser/prebuild-input",
+        "0.1.0",
+        &[
+            (
+                "moon.mod.json",
+                br#"{"name":"testuser/prebuild-input","version":"0.1.0"}"#.to_vec(),
+            ),
+            ("moon.pkg.json", b"{}".to_vec()),
+            (
+                "lib.mbt",
+                br#"pub fn value() -> String { "ready" }"#.to_vec(),
+            ),
+        ],
+    );
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        r#"import { "testuser/prebuild-input@0.1.0" @input }
+fn main {
+  let output : Json = { "vars": { "HELLO": @input.value() } }
+  println(output.stringify())
+}
+"#,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["build", "--target", "native", "--dry-run", "--frozen"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+[..]`frozen` is set[..]
+...
+"#]]);
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_OVERRIDE", dir.join("unused-moon"))
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .success();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_OVERRIDE", dir.join("unused-moon"))
+        .args(["build", "--target", "native", "--dry-run", "--frozen"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_prebuild_config_mbtx_keeps_dependency_sources_read_only() {
+    let project = tempfile::tempdir().unwrap();
+    let dependency = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    std::fs::write(
+        project.path().join("moon.mod.json"),
+        serde_json::json!({
+            "name": "testuser/consumer",
+            "deps": { "testuser/config": { "path": dependency.path() } }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("moon.pkg.json"),
+        r#"{"import":["testuser/config"]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("lib.mbt"),
+        "pub fn value() -> Int { @config.value() }",
+    )
+    .unwrap();
+    std::fs::write(
+        dependency.path().join("moon.mod.json"),
+        r#"{"name":"testuser/config","version":"0.1.0","--moonbit-unstable-prebuild":"build.mbtx"}"#,
+    )
+    .unwrap();
+    std::fs::write(dependency.path().join("moon.pkg.json"), "{}").unwrap();
+    std::fs::write(
+        dependency.path().join("lib.mbt"),
+        "pub fn value() -> Int { 42 }",
+    )
+    .unwrap();
+    std::fs::write(
+        dependency.path().join("build.mbtx"),
+        "fn main { println(\"{}\") }",
+    )
+    .unwrap();
+
+    #[cfg(unix)]
+    let permissions = {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::metadata(dependency.path()).unwrap().permissions();
+        std::fs::set_permissions(dependency.path(), std::fs::Permissions::from_mode(0o555))
+            .unwrap();
+        permissions
+    };
+    let result = moon_cmd(&project)
+        .arg("--target-dir")
+        .arg(target.path())
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert();
+    #[cfg(unix)]
+    std::fs::set_permissions(dependency.path(), permissions).unwrap();
+    result.success();
+    assert!(!dependency.path().join("_build").exists());
+    assert!(!dependency.path().join(".mooncakes").exists());
+    assert!(target.path().join("prebuild").is_dir());
+}
+
+#[test]
+fn test_prebuild_config_mbtx_failure() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        "fn main { abort(\"prebuild script failed\") }",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+Error: failed to run build for target Native
+
+Caused by:
+    0: Failed to run prebuild script for module username/hello
+    1: prebuild script `build config.mbtx` for module `username/hello@0.0.0 (local [..])` failed
+
+"#]]);
+}
+
+#[test]
+fn test_prebuild_config_mbtx_invalid_json() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        "fn main { println(\"not json\") }",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to run build for target Native
+
+Caused by:
+    0: Failed to run prebuild script for module username/hello
+    1: failed to deserialize prebuild script `build config.mbtx` for module `username/hello@0.0.0 (local [..])`
+    2: expected ident at line 1 column 2
+
+"#]]);
 }
 
 fn test_prebuild_config_common(dir: TestDir) {

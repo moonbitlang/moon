@@ -589,6 +589,7 @@ fn run_test_in_single_file_rr(
         intent,
         mooncake_bin_dir,
         resolved,
+        cmd.auto_sync_flags.frozen,
     )?;
 
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
@@ -730,6 +731,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.auto_sync_flags.frozen,
     )?;
     Ok((build_meta, build_graph, filter))
 }
@@ -867,6 +869,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.auto_sync_flags.frozen,
     )?;
     Ok((build_meta, build_graph, filter))
 }

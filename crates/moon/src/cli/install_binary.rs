@@ -602,6 +602,7 @@ fn build_selected_package(
         intent,
         &prepared.mooncake_bin_dir,
         prepared.resolve_output.clone(),
+        false,
     )?;
 
     let _lock = lock_directory(&prepared.target_dir, user_log)?;
