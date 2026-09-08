@@ -269,6 +269,14 @@ The generated-C native backend does not require MSVC. If a user explicitly sets 
 whether an independently configured stub compiler is link-compatible with the executable compiler;
 incompatible objects or archives fail naturally when the final linker consumes them.
 
+Native payload selection is internal to RR build planning. `BackendConfig::Native`
+contains the allocator choice and a direct-object candidate captured by the CLI
+from the host and `MOONBIT_NEW_NATIVE`. Callers do not supply the final payload
+mode. The planner derives it from requested artifacts, the build profile, and
+that explicit candidate, without reading the process environment. It stores the
+mode once in its private Backend Plan metadata; toolchain selection and lowering
+consume that same derived value.
+
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 If any selected executable package sets these flags, Moon uses the generated-C native backend
 instead of direct object output so the configured flags are not skipped.

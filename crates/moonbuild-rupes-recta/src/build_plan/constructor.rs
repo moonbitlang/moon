@@ -226,9 +226,14 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::BuildCore(target) => {
-                let emits_mi = self.res.get_build_target_info(&target).is_some_and(|info| {
-                    info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
-                });
+                let emits_mi = self
+                    .res
+                    .backend
+                    .build_target_infos
+                    .get(&target)
+                    .is_some_and(|info| {
+                        info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
+                    });
                 if emits_mi {
                     self.res.artifacts.provide(
                         node,

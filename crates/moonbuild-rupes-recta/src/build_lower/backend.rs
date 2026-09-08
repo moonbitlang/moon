@@ -59,20 +59,9 @@ mod tests {
 
     #[test]
     fn c_direct_object_realizes_linker_executable() {
-        let backend = BackendConfig::Native {
-            mode: NativeBackendMode::DirectObject(DirectNativeMode::Target(
-                crate::model::NativeTarget::Aarch64AppleDarwin,
-            )),
-            allocator: NativeAllocator::Default,
-        };
-
-        let BackendConfig::Native {
-            mode: ref native_mode,
-            ..
-        } = backend
-        else {
-            panic!("native backend should select C lowering")
-        };
+        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
+            crate::model::NativeTarget::Aarch64AppleDarwin,
+        ));
         assert_eq!(
             native_mode.executable_realization(),
             CExecutableRealization::LinkDirectObject

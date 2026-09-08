@@ -723,7 +723,7 @@ impl<'a> LoweringContext<'a> {
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.target_backend(),
-            native_target: self.opt.backend.direct_native_target(),
+            native_target: self.plan.backend_plan().direct_native_target(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
@@ -1020,14 +1020,21 @@ impl<'a> LoweringContext<'a> {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 unreachable!("non-native plans do not contain MakeExecutable actions")
             }
-            BackendConfig::Native { mode, .. } => match mode.executable_realization() {
-                CExecutableRealization::LinkDirectObject => {
-                    self.lower_link_new_native_exe(artifacts, target, info)
+            BackendConfig::Native { .. } => {
+                match self
+                    .plan
+                    .backend_plan()
+                    .native_mode()
+                    .executable_realization()
+                {
+                    CExecutableRealization::LinkDirectObject => {
+                        self.lower_link_new_native_exe(artifacts, target, info)
+                    }
+                    CExecutableRealization::CompileAndLinkGeneratedC => {
+                        self.lower_build_exe_regular(artifacts, target, info)
+                    }
                 }
-                CExecutableRealization::CompileAndLinkGeneratedC => {
-                    self.lower_build_exe_regular(artifacts, target, info)
-                }
-            },
+            }
             BackendConfig::Llvm { .. } => self.lower_build_exe_regular(artifacts, target, info),
         }
     }
