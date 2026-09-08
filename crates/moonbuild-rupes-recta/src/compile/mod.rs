@@ -22,10 +22,10 @@ use std::path::{Path, PathBuf};
 use tracing::instrument;
 
 use crate::{
-    build_lower::{self, LoweringEnvironment, WarningCondition},
-    build_plan::{self, ArtifactKey, BuildEnvironment, InputDirective},
+    build_lower::{self, WarningCondition},
+    build_plan::{self, ArtifactKey, InputDirective},
     execution_plan::ExecutionPlan,
-    model::{BackendConfig, OperatingSystem},
+    model::BackendConfig,
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     target_layout::ArtifactPathResolver,
@@ -49,8 +49,6 @@ pub struct CompileConfig {
     pub stdlib_path: Option<PathBuf>,
     /// Physical artifact path resolver selected for this compile run.
     pub artifact_paths: ArtifactPathResolver,
-    /// Host/toolchain facts resolved lazily during lowering.
-    pub lowering_environment: LoweringEnvironment,
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
@@ -101,11 +99,10 @@ pub fn compile(
         requested_artifacts.len()
     );
 
-    let build_env = build_environment(cx);
     let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
-        &build_env,
+        cx,
         requested_artifacts.iter().cloned(),
         input_directive,
         prebuild_config,
@@ -116,27 +113,6 @@ pub fn compile(
     debug!("Build plan contains {} actions", plan.action_count());
 
     lower_plan(cx, resolve_output, plan)
-}
-
-// TODO: Remove `build_environment` once host/toolchain inputs are supplied
-// explicitly and planning borrows `CompileConfig` instead of copying it.
-fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
-    let native_or_llvm = cx.backend.native_allocator().is_some();
-    let compiler_paths = native_or_llvm.then(|| cx.lowering_environment.compiler_paths().clone());
-    BuildEnvironment {
-        backend: cx.backend.clone(),
-        opt_level: cx.opt_level,
-        action: cx.action,
-        debug_symbols: cx.debug_symbols,
-        os: if native_or_llvm {
-            cx.lowering_environment.os()
-        } else {
-            OperatingSystem::None
-        },
-        compiler_paths,
-        std: cx.stdlib_path.is_some(),
-        warn_list: cx.warn_list.clone(),
-    }
 }
 
 fn lower_plan(
@@ -175,7 +151,7 @@ mod tests {
 
     use crate::{
         ResolveOutput,
-        build_lower::{LoweringEnvironment, WarningCondition},
+        build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
         model::{BackendConfig, BuildPlanNode, TargetKind},
@@ -275,7 +251,7 @@ mod tests {
     #[test]
     fn native_payload_selection_uses_only_requested_executables() {
         use crate::{
-            build_plan::{BuildEnvironment, build_plan, resolve_native_backend_mode},
+            build_plan::{build_plan, resolve_native_backend_mode},
             model::{NativeTarget, OperatingSystem},
         };
 
@@ -330,23 +306,42 @@ mod tests {
             Some(NativeTarget::X86_64PcWindowsMsvc),
         ] {
             for opt_level in [OptLevel::Debug, OptLevel::Release] {
-                let build_env = BuildEnvironment {
+                let config = CompileConfig {
+                    target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
                         allocator: moonutil::compiler_flags::NativeAllocator::Default,
+                        os: OperatingSystem::None,
+                        compiler_paths: moonutil::compiler_flags::CompilerPaths {
+                            include_path: "/unused/include".into(),
+                            lib_path: "/unused/lib".into(),
+                        },
                     },
                     opt_level,
                     action: RunMode::Build,
                     debug_symbols: false,
-                    os: OperatingSystem::None,
-                    compiler_paths: None,
-                    std: false,
+                    stdlib_path: None,
+                    artifact_paths: ArtifactPathResolver::new(
+                        TargetLayout::new(
+                            PathBuf::from("_build"),
+                            TargetLayoutMode::Workspace,
+                            opt_level,
+                            RunMode::Build,
+                        ),
+                        None,
+                    ),
+                    debug_export_build_plan: false,
+                    enable_coverage: false,
+                    moonc_output_json: false,
+                    docs_serve: false,
+                    warning_condition: WarningCondition::Default,
+                    info_no_alias: false,
                     warn_list: None,
                 };
                 let plan = build_plan(
                     &resolved,
                     Path::new(".mooncakes/bin"),
-                    &build_env,
+                    &config,
                     std::iter::empty(),
                     &InputDirective::default(),
                     None,
@@ -514,7 +509,6 @@ mod tests {
             debug_symbols: false,
             stdlib_path: None,
             artifact_paths,
-            lowering_environment: LoweringEnvironment::default(),
             debug_export_build_plan: true,
             enable_coverage: false,
             moonc_output_json: false,
@@ -630,7 +624,6 @@ mod tests {
             debug_symbols: false,
             stdlib_path: None,
             artifact_paths,
-            lowering_environment: LoweringEnvironment::default(),
             debug_export_build_plan: false,
             enable_coverage: false,
             moonc_output_json: false,

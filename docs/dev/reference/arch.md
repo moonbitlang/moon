@@ -218,10 +218,11 @@ forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
 not need to be eager: non-native builds do not resolve native-only OS/toolchain
-details. Native-oriented compilation resolves compiler paths before planning
-and passes them through the build environment, so planning can select optional
+details. `rr_build` captures OS and compiler paths only for Native and LLVM,
+and stores them in the selected backend variant of `CompileConfig`. Planning
+and lowering borrow that same configuration, so planning can select optional
 runtime members such as SIMDUTF objects and lowering can consume the same paths
-without rediscovery.
+without rediscovery or a copied planning configuration.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment

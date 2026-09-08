@@ -185,6 +185,11 @@ impl<'a> super::LoweringContext<'a> {
         index: u32,
         info: &BuildRuntimeInfo,
     ) -> BuildCommand {
+        let compiler_paths = self
+            .opt
+            .backend
+            .compiler_paths()
+            .expect("native lowering requires compiler paths");
         let artifact_path = artifacts.single_output_path_matching(|artifact| {
             matches!(artifact, ArtifactKey::RuntimeObject { .. })
         });
@@ -198,7 +203,7 @@ impl<'a> super::LoweringContext<'a> {
                     runtime_toolchain,
                     source,
                     &artifact_path,
-                    &self.opt.lowering_environment.compiler_paths().include_path,
+                    &compiler_paths.include_path,
                     crt,
                     info.native_allocator,
                 )
@@ -218,7 +223,7 @@ impl<'a> super::LoweringContext<'a> {
                             (self.opt.debug_symbols
                                 || (self.opt.action == RunMode::Run
                                     && self.opt.opt_level == OptLevel::Debug))
-                                && self.opt.lowering_environment.os() != OperatingSystem::Windows,
+                                && self.opt.backend.os() != OperatingSystem::Windows,
                         )
                         .link_moonbitrun(true)
                         .define_use_shared_runtime_macro(false)
@@ -235,7 +240,7 @@ impl<'a> super::LoweringContext<'a> {
                         .display()
                         .to_string(),
                     Some(&artifact_path.display().to_string()),
-                    self.opt.lowering_environment.compiler_paths(),
+                    compiler_paths,
                 )
                 .into(),
                 Vec::new(),
@@ -276,7 +281,10 @@ impl<'a> super::LoweringContext<'a> {
             config,
             &member_args,
             &artifact_path.display().to_string(),
-            self.opt.lowering_environment.compiler_paths(),
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
         );
 
         BuildCommand {

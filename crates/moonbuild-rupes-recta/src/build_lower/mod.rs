@@ -18,17 +18,15 @@
 
 //! Lowers the normalized action plan into an executor-neutral Execution Plan.
 
-use std::{path::PathBuf, str::FromStr, sync::OnceLock};
+use std::path::PathBuf;
 
 use log::{debug, info};
-use moonutil::compiler_flags::CompilerPaths;
 use tracing::instrument;
 
 use crate::{
     CompileConfig, ResolveOutput,
     build_plan::BuildPlan,
     execution_plan::{ExecutionPlan, ExecutionPlanBuilder},
-    model::OperatingSystem,
 };
 
 mod backend;
@@ -49,32 +47,6 @@ pub(crate) use backend::CExecutableRealization;
 
 use command::BuildCommand;
 use context::LoweringContext;
-
-/// Lazily resolved host/toolchain facts used during lowering.
-///
-/// The build pipeline passes this object explicitly so lower phases do not
-/// rediscover environment facts in place. Individual facts remain lazy because
-/// non-native backends do not need native OS/toolchain details.
-// TODO: Remove these lazy environment reads once command orchestration supplies
-// the selected OS and compiler paths explicitly.
-#[derive(Default)]
-pub struct LoweringEnvironment {
-    os: OnceLock<OperatingSystem>,
-    compiler_paths: OnceLock<CompilerPaths>,
-}
-
-impl LoweringEnvironment {
-    pub fn os(&self) -> OperatingSystem {
-        *self
-            .os
-            .get_or_init(|| OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"))
-    }
-
-    pub fn compiler_paths(&self) -> &CompilerPaths {
-        self.compiler_paths
-            .get_or_init(CompilerPaths::from_moon_dirs)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WarningCondition {
@@ -140,7 +112,9 @@ mod tests {
     use indexmap::IndexSet;
     use moonutil::{
         build_options::RunMode,
-        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, NativeAllocator, Toolchain},
+        compiler_flags::{
+            ARKind, CC, CCKind, CompilerPaths, MsvcEnvironment, NativeAllocator, Toolchain,
+        },
         cond_expr::OptLevel,
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
@@ -148,7 +122,6 @@ mod tests {
         target::TargetBackend,
         toolchain::BINARIES,
     };
-    use walkdir::WalkDir;
 
     use crate::{
         build_plan::{
@@ -158,7 +131,7 @@ mod tests {
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
             BackendConfig, BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode,
-            NativeTarget, TargetKind,
+            NativeTarget, OperatingSystem, TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::DepRelationship,
@@ -169,7 +142,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn non_native_artifact_options_do_not_resolve_operating_system() {
+    fn non_native_artifact_options_need_no_host_configuration() {
         let (resolve_output, _) = single_package_resolve_output();
         let plan = BuildPlan::default();
         for backend in [
@@ -204,13 +177,10 @@ mod tests {
                 warning_condition: WarningCondition::Default,
                 info_no_alias: false,
                 stdlib_path: None,
-                lowering_environment: LoweringEnvironment::default(),
             };
 
             let context = LoweringContext::new(&resolve_output, &plan, &options);
-            assert!(options.lowering_environment.os.get().is_none());
             assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
-            assert!(options.lowering_environment.os.get().is_none());
         }
     }
 
@@ -470,7 +440,6 @@ mod tests {
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             stdlib_path: None,
-            lowering_environment: LoweringEnvironment::default(),
         };
 
         let lowered = adapt_execution_plan(
@@ -552,7 +521,6 @@ mod tests {
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             stdlib_path: None,
-            lowering_environment: LoweringEnvironment::default(),
         };
 
         let mut context = LoweringContext::new(&resolve_output, &plan, &options);
@@ -577,7 +545,18 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
     fn lowered_windows_msvc_native_graph_contains_complete_commands_and_tool_inputs() {
+        let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
+        let include_dir = toolchain_dir.path().join("include");
+        std::fs::create_dir_all(include_dir.join("internal")).expect("create header directory");
+        let toolchain_headers = [
+            include_dir.join("moonbit.h"),
+            include_dir.join("internal/runtime.h"),
+        ];
+        for header in &toolchain_headers {
+            std::fs::write(header, "/* test header */").expect("write test header");
+        }
         let (resolve_output, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
         let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
@@ -683,11 +662,6 @@ mod tests {
             },
         );
 
-        let lowering_environment = LoweringEnvironment::default();
-        lowering_environment
-            .os
-            .set(OperatingSystem::Windows)
-            .expect("test OS should be set once");
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
                 PathBuf::from("_build"),
@@ -710,6 +684,11 @@ mod tests {
             backend: BackendConfig::Native {
                 direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
                 allocator: NativeAllocator::Default,
+                os: OperatingSystem::Windows,
+                compiler_paths: CompilerPaths {
+                    include_path: include_dir.display().to_string(),
+                    lib_path: toolchain_dir.path().join("lib").display().to_string(),
+                },
             },
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
@@ -720,7 +699,6 @@ mod tests {
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             stdlib_path: None,
-            lowering_environment,
         };
 
         let execution =
@@ -865,18 +843,6 @@ mod tests {
                 .any(|input| input == Path::new("main/native/stub.h")),
             "package-local C headers should be inputs of every C-stub action"
         );
-        let toolchain_headers =
-            WalkDir::new(&options.lowering_environment.compiler_paths().include_path)
-                .follow_links(true)
-                .into_iter()
-                .map(|entry| entry.expect("inspect test toolchain include directory"))
-                .filter(|entry| entry.file_type().is_file())
-                .map(|entry| entry.into_path())
-                .collect::<Vec<_>>();
-        assert!(
-            !toolchain_headers.is_empty(),
-            "test toolchain should contain headers"
-        );
         for header in toolchain_headers {
             assert!(
                 compiler_inputs.contains(&header),
@@ -911,7 +877,15 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
     fn macos_debug_link_and_dsymutil_are_separate_structured_actions() {
+        let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
+        let libbacktrace = toolchain_dir.path().join("libbacktrace.a");
+        std::fs::write(&libbacktrace, "").expect("write test runtime library");
+        let compiler_paths = CompilerPaths {
+            include_path: "/toolchain/include".into(),
+            lib_path: toolchain_dir.path().display().to_string(),
+        };
         let (resolve_output, target) = single_package_resolve_output();
         let executable_node = BuildPlanNode::MakeExecutable(target);
         let dsym_node = BuildPlanNode::GenerateDsym(target);
@@ -955,10 +929,14 @@ mod tests {
         for backend in [
             BackendConfig::Llvm {
                 allocator: NativeAllocator::Default,
+                os: OperatingSystem::MacOS,
+                compiler_paths: compiler_paths.clone(),
             },
             BackendConfig::Native {
                 direct_object_candidate: Some(NativeTarget::Aarch64AppleDarwin),
                 allocator: NativeAllocator::Default,
+                os: OperatingSystem::MacOS,
+                compiler_paths: compiler_paths.clone(),
             },
         ] {
             plan.test_backend_plan_mut().test_set_native_mode(
@@ -968,11 +946,6 @@ mod tests {
                     )),
                 ),
             );
-            let lowering_environment = LoweringEnvironment::default();
-            lowering_environment
-                .os
-                .set(OperatingSystem::MacOS)
-                .expect("test OS should be set once");
             let artifact_paths = ArtifactPathResolver::new(
                 TargetLayout::new(
                     PathBuf::from("_build"),
@@ -997,7 +970,6 @@ mod tests {
                 warning_condition: WarningCondition::Default,
                 info_no_alias: false,
                 stdlib_path: None,
-                lowering_environment,
             };
 
             let lowered = adapt_execution_plan(
@@ -1025,6 +997,14 @@ mod tests {
                 Some("/toolchain/bin/clang")
             );
             assert!(!link_args.iter().any(|arg| arg == "&&"));
+            assert!(link_args.contains(&libbacktrace.display().to_string()));
+            let link_inputs = n2_input_paths_for_command(&lowered, |command| {
+                command.first().map(String::as_str) == Some("/toolchain/bin/clang")
+            });
+            assert!(
+                link_inputs.contains(&libbacktrace),
+                "the library from the supplied compiler paths must be a linker input"
+            );
             assert_eq!(
                 lowered.command_args_by_output.get(&dsym_bundle),
                 Some(&vec![
