@@ -804,7 +804,7 @@ pub fn resolve_cc(cc: &CC, user_cc: Option<&CC>) -> CC {
 }
 
 // Struct to hold path configuration for commands
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CompilerPaths {
     pub include_path: String,
     pub lib_path: String,

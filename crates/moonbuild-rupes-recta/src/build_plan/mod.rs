@@ -55,8 +55,7 @@ use std::{
 use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
-    build_options::RunMode,
-    compiler_flags::{CompilerPaths, NativeAllocator, Toolchain},
+    compiler_flags::{NativeAllocator, Toolchain},
     cond_expr::OptLevel,
     resolution::ModuleId,
     target::TargetBackend,
@@ -66,10 +65,9 @@ use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use crate::{
-    ResolveOutput,
+    CompileConfig, ResolveOutput,
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, NativeBackendMode, NativeTarget,
-        OperatingSystem, PackageId,
+        BackendConfig, BuildPlanNode, BuildTarget, NativeBackendMode, NativeTarget, PackageId,
     },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
@@ -616,30 +614,6 @@ pub struct BuildBundleInfo {
     pub(crate) bundle_targets: Vec<BuildTarget>,
 }
 
-/// Represents the environment in which the build is being performed.
-pub struct BuildEnvironment {
-    // FIXME: Target backend should go into the solver, not here
-    pub backend: BackendConfig,
-    pub opt_level: OptLevel,
-    pub action: RunMode,
-    pub debug_symbols: bool,
-    pub os: OperatingSystem,
-    /// Toolchain include/lib paths selected for native-oriented backends.
-    pub compiler_paths: Option<CompilerPaths>,
-    /// Whether compiling requires the standard library.
-    ///
-    /// MAINTAINERS: Potentially useful to move this to per-package/module.
-    pub std: bool,
-    /// Commandline_level warnings to enable/disable
-    pub warn_list: Option<String>,
-}
-
-impl BuildEnvironment {
-    pub(crate) fn target_backend(&self) -> TargetBackend {
-        self.backend.target_backend()
-    }
-}
-
 /// How package-level prebuild participates in this plan.
 ///
 /// Package-level prebuild includes custom `pre-build` rules, `moonlex`, and
@@ -791,7 +765,7 @@ pub(super) fn resolve_native_backend_mode(
 pub fn build_plan(
     resolved: &ResolveOutput,
     mooncake_bin_dir: &Path,
-    build_env: &BuildEnvironment,
+    config: &CompileConfig,
     input: impl Iterator<Item = ArtifactKey>,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
@@ -799,15 +773,15 @@ pub fn build_plan(
 ) -> Result<BuildPlan, BuildPlanConstructError> {
     info!("Constructing build plan");
     debug!(
-        "Build environment: backend={:?}, opt_level={:?}",
-        build_env.target_backend(),
-        build_env.opt_level
+        "Compile configuration: backend={:?}, opt_level={:?}",
+        config.backend.target_backend(),
+        config.opt_level
     );
 
     let mut constructor = BuildPlanConstructor::new(
         resolved,
         mooncake_bin_dir,
-        build_env,
+        config,
         input_directive,
         prebuild_config,
         user_log,
@@ -816,12 +790,12 @@ pub fn build_plan(
     if let BackendConfig::Native {
         direct_object_candidate,
         ..
-    } = &build_env.backend
+    } = &config.backend
     {
         constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
             resolved,
             &input,
-            build_env.opt_level,
+            config.opt_level,
             *direct_object_candidate,
         ));
     }

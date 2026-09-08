@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::{
-    compiler_flags::NativeAllocator,
+    compiler_flags::{CompilerPaths, NativeAllocator},
     resolution::{ModuleId, ResolvedEnv},
     target::TargetBackend,
 };
@@ -50,9 +50,14 @@ pub enum BackendConfig {
         /// Planning may still select generated C based on profile and packages.
         direct_object_candidate: Option<NativeTarget>,
         allocator: NativeAllocator,
+        /// Supplied by command orchestration; RR does not infer the host OS.
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
     },
     Llvm {
         allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
     },
 }
 
@@ -143,7 +148,23 @@ impl BackendConfig {
 
     pub fn native_allocator(&self) -> Option<NativeAllocator> {
         match self {
-            Self::Native { allocator, .. } | Self::Llvm { allocator } => Some(*allocator),
+            Self::Native { allocator, .. } | Self::Llvm { allocator, .. } => Some(*allocator),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
+        }
+    }
+
+    pub(crate) fn os(&self) -> OperatingSystem {
+        match self {
+            Self::Native { os, .. } | Self::Llvm { os, .. } => *os,
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => OperatingSystem::None,
+        }
+    }
+
+    pub(crate) fn compiler_paths(&self) -> Option<&CompilerPaths> {
+        match self {
+            Self::Native { compiler_paths, .. } | Self::Llvm { compiler_paths, .. } => {
+                Some(compiler_paths)
+            }
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
         }
     }

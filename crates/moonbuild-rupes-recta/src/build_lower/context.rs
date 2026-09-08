@@ -36,7 +36,7 @@ use crate::{
     },
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, InputObservation},
-    model::{BackendConfig, BuildPlanNode, BuildTarget, OperatingSystem},
+    model::{BackendConfig, BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
@@ -201,14 +201,7 @@ impl<'a> LoweringContext<'a> {
     // Artifact forms combine compile-wide options with the Native mode already
     // selected in the Backend Plan.
     pub(super) fn artifact_path_options(&self) -> ArtifactPathOptions {
-        let os = match &self.opt.backend {
-            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                OperatingSystem::None
-            }
-            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => {
-                self.opt.lowering_environment.os()
-            }
-        };
+        let os = self.opt.backend.os();
         let (executable, linked_core) = match &self.opt.backend {
             BackendConfig::Wasm { use_wat, .. } => (
                 ExecutableArtifact::Wasm { use_wat: *use_wat },
@@ -241,8 +234,19 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn toolchain_include_files(&mut self) -> Result<&[PathBuf], LoweringError> {
+        // TODO: Replace this walk with header paths observed by the toolchain
+        // module outside RR. Command orchestration should request that observation
+        // only when planned actions compile native sources; lowering then only
+        // attaches the supplied paths as inputs.
         if self.toolchain_include_files.is_none() {
-            let root = PathBuf::from(&self.opt.lowering_environment.compiler_paths().include_path);
+            let root = PathBuf::from(
+                &self
+                    .opt
+                    .backend
+                    .compiler_paths()
+                    .expect("native lowering requires compiler paths")
+                    .include_path,
+            );
             let mut files = Vec::new();
             for entry in WalkDir::new(&root).follow_links(true).sort_by_file_name() {
                 let entry = entry.map_err(|source| LoweringError::ToolchainInclude {
@@ -499,12 +503,15 @@ impl<'a> LoweringContext<'a> {
         // These are the only Moon-owned libraries that command construction
         // may append as standalone argv. Compare their exact rendered paths;
         // arbitrary command arguments remain opaque to lowering.
-        for name in ["libmoonbitrun.o", "libbacktrace.a"] {
-            let path =
-                Path::new(&self.opt.lowering_environment.compiler_paths().lib_path).join(name);
-            let rendered = path.display().to_string();
-            if command.args().iter().any(|argument| argument == &rendered) {
-                inputs.push(InputObservation::File(path));
+        // TODO: Remove this argv scan once native command construction returns
+        // the selected toolchain library paths together with its arguments.
+        if let Some(compiler_paths) = self.opt.backend.compiler_paths() {
+            for name in ["libmoonbitrun.o", "libbacktrace.a"] {
+                let path = Path::new(&compiler_paths.lib_path).join(name);
+                let rendered = path.display().to_string();
+                if command.args().iter().any(|argument| argument == &rendered) {
+                    inputs.push(InputObservation::File(path));
+                }
             }
         }
         inputs.extend(

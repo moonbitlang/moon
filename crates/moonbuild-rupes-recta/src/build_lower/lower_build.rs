@@ -917,7 +917,10 @@ impl<'a> LoweringContext<'a> {
             [input_file.display().to_string()],
             &intermediate_dir,
             Some(&output_file.display().to_string()),
-            self.opt.lowering_environment.compiler_paths(),
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
         );
 
         let mut extra_inputs = Vec::with_capacity(1 + package.c_stub_header_files.len());
@@ -975,7 +978,10 @@ impl<'a> LoweringContext<'a> {
                 .map(|object| object.to_string_lossy())
                 .collect::<Vec<_>>(),
             &archive.display().to_string(),
-            self.opt.lowering_environment.compiler_paths(),
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
         );
 
         BuildCommand {
@@ -1141,7 +1147,10 @@ impl<'a> LoweringContext<'a> {
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),
-            self.opt.lowering_environment.compiler_paths(),
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
         );
 
         BuildCommand {
@@ -1157,6 +1166,11 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
+        let compiler_paths = self
+            .opt
+            .backend
+            .compiler_paths()
+            .expect("native lowering requires compiler paths");
         let sources = self.native_executable_dependency_paths(artifacts, info);
         let cc = info.effective_native_toolchain.cc().clone();
 
@@ -1190,7 +1204,7 @@ impl<'a> LoweringContext<'a> {
                 &source_args,
                 &info.link_flags,
                 &dest,
-                &self.opt.lowering_environment.compiler_paths().lib_path,
+                &compiler_paths.lib_path,
             )
             .into()
         } else {
@@ -1201,7 +1215,7 @@ impl<'a> LoweringContext<'a> {
                 &source_args,
                 &pkg_dir,
                 &dest,
-                &self.opt.lowering_environment.compiler_paths().lib_path,
+                &compiler_paths.lib_path,
             );
             linker_cmd.into()
         };

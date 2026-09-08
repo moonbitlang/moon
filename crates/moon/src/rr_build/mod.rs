@@ -41,12 +41,14 @@ use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
-    build_lower::{LoweringEnvironment, WarningCondition},
+    build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
     execution_plan::{ActionId, ExecutionPlan},
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
-    model::{BackendConfig, ENV_MOONBIT_NEW_NATIVE, NativeTarget, PackageId, TargetKind},
+    model::{
+        BackendConfig, ENV_MOONBIT_NEW_NATIVE, NativeTarget, OperatingSystem, PackageId, TargetKind,
+    },
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
 };
 use moonutil::{
@@ -369,10 +371,18 @@ pub(crate) fn prepare_resolved_build(
                     new_native_env.as_deref(),
                 ),
                 allocator: compiler_flags::NativeAllocator::from_env()?,
+                os: std::env::consts::OS
+                    .parse::<OperatingSystem>()
+                    .expect("Unknown"),
+                compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
             }
         }
         TargetBackend::LLVM => BackendConfig::Llvm {
             allocator: compiler_flags::NativeAllocator::from_env()?,
+            os: std::env::consts::OS
+                .parse::<OperatingSystem>()
+                .expect("Unknown"),
+            compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
         },
     };
     info!("Final backend configuration: {:?}", backend);
@@ -388,7 +398,6 @@ pub(crate) fn prepare_resolved_build(
         debug_symbols: build_flags.debug_symbols_for(action, target_backend),
         stdlib_path,
         artifact_paths,
-        lowering_environment: LoweringEnvironment::default(),
         enable_coverage: build_flags.enable_coverage,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
         // In legacy impl, dry run always forces no JSON.

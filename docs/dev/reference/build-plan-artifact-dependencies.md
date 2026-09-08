@@ -33,8 +33,14 @@ pub enum BackendConfig {
     Native {
         direct_object_candidate: Option<NativeTarget>,
         allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
     },
-    Llvm { allocator: NativeAllocator },
+    Llvm {
+        allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
+    },
 }
 ```
 
@@ -49,10 +55,11 @@ RR lowering borrows its backend subplan to read the selected mode and hydrate
 backend actions, without copying that state into another configuration.
 
 `BackendConfig` is the compile-wide source of truth held in `CompileConfig`.
-Lowering borrows that configuration and its artifact path resolver through
-`LoweringContext`; artifact-path selection rules stay in lowering. Planning
-still receives a `BuildEnvironment` populated from the configuration and
-resolved host/toolchain inputs.
+Planning and lowering borrow that same configuration. Lowering also borrows
+its artifact path resolver through `LoweringContext`; artifact-path selection
+rules stay in lowering. The command adapter supplies OS and compiler paths
+only for Native and LLVM, where the backend variants require them. These
+configuration values perform no lazy host or environment lookups inside RR.
 
 An `ArtifactKey` does not repeat the backend, optimization profile, or run mode
 because one `BuildPlan` is scoped to one such configuration. If one plan later
