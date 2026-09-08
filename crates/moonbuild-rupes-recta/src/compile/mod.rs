@@ -118,8 +118,8 @@ pub fn compile(
     lower_plan(cx, resolve_output, plan)
 }
 
-// TODO: Remove `build_environment` and `lowering_options` once planning and
-// lowering both borrow `CompileConfig` instead of copying its configuration.
+// TODO: Remove `build_environment` once host/toolchain inputs are supplied
+// explicitly and planning borrows `CompileConfig` instead of copying it.
 fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
     let native_or_llvm = cx.backend.native_allocator().is_some();
     let compiler_paths = native_or_llvm.then(|| cx.lowering_environment.compiler_paths().clone());
@@ -144,8 +144,7 @@ fn lower_plan(
     resolve_output: &ResolveOutput,
     plan: build_plan::BuildPlan,
 ) -> Result<CompileOutput, CompileGraphError> {
-    let lower_env = lowering_options(cx);
-    let execution_plan = build_lower::lower_build_plan(resolve_output, &plan, &lower_env)?;
+    let execution_plan = build_lower::lower_build_plan(resolve_output, &plan, cx)?;
 
     info!("Execution plan lowering completed successfully");
 
@@ -157,23 +156,6 @@ fn lower_plan(
             None
         },
     })
-}
-
-fn lowering_options(cx: &CompileConfig) -> build_lower::BuildOptions {
-    build_lower::BuildOptions {
-        artifact_paths: cx.artifact_paths.clone(),
-        backend: cx.backend.clone(),
-        opt_level: cx.opt_level,
-        action: cx.action,
-        enable_coverage: cx.enable_coverage,
-        debug_symbols: cx.debug_symbols,
-        moonc_output_json: cx.moonc_output_json,
-        docs_serve: cx.docs_serve,
-        warning_condition: cx.warning_condition,
-        info_no_alias: cx.info_no_alias,
-        stdlib_path: cx.stdlib_path.clone(),
-        lowering_environment: cx.lowering_environment.clone(),
-    }
 }
 
 #[cfg(test)]

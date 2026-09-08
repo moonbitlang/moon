@@ -116,7 +116,7 @@ impl<'a> super::LoweringContext<'a> {
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,
-            target_backend: self.opt.target_backend(),
+            target_backend: self.opt.backend.target_backend(),
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,
@@ -198,7 +198,7 @@ impl<'a> super::LoweringContext<'a> {
                     runtime_toolchain,
                     source,
                     &artifact_path,
-                    &self.opt.compiler_paths().include_path,
+                    &self.opt.lowering_environment.compiler_paths().include_path,
                     crt,
                     info.native_allocator,
                 )
@@ -218,7 +218,7 @@ impl<'a> super::LoweringContext<'a> {
                             (self.opt.debug_symbols
                                 || (self.opt.action == RunMode::Run
                                     && self.opt.opt_level == OptLevel::Debug))
-                                && self.opt.os() != OperatingSystem::Windows,
+                                && self.opt.lowering_environment.os() != OperatingSystem::Windows,
                         )
                         .link_moonbitrun(true)
                         .define_use_shared_runtime_macro(false)
@@ -231,11 +231,11 @@ impl<'a> super::LoweringContext<'a> {
                     &self
                         .artifact_paths
                         .target_layout()
-                        .runtime_output_dir(self.opt.target_backend())
+                        .runtime_output_dir(self.opt.backend.target_backend())
                         .display()
                         .to_string(),
                     Some(&artifact_path.display().to_string()),
-                    self.opt.compiler_paths(),
+                    self.opt.lowering_environment.compiler_paths(),
                 )
                 .into(),
                 Vec::new(),
@@ -276,7 +276,7 @@ impl<'a> super::LoweringContext<'a> {
             config,
             &member_args,
             &artifact_path.display().to_string(),
-            self.opt.compiler_paths(),
+            self.opt.lowering_environment.compiler_paths(),
         );
 
         BuildCommand {
@@ -347,7 +347,7 @@ impl<'a> super::LoweringContext<'a> {
         let packages_json = self
             .artifact_paths
             .target_layout()
-            .packages_json_path(self.opt.target_backend());
+            .packages_json_path(self.opt.backend.target_backend());
         let cmd = MoondocCommand::new(
             path,
             self.artifact_paths.target_layout().doc_dir(),

@@ -77,7 +77,8 @@ impl<'a> LoweringContext<'a> {
         compiler::CompilationFlags {
             no_opt: self.opt.opt_level == OptLevel::Debug,
             symbols: self.opt.debug_symbols,
-            source_map: self.opt.target_backend().supports_source_map() && self.opt.debug_symbols,
+            source_map: self.opt.backend.target_backend().supports_source_map()
+                && self.opt.debug_symbols,
             enable_coverage: false,
             self_coverage: false,
             enable_value_tracing: false,
@@ -115,11 +116,9 @@ impl<'a> LoweringContext<'a> {
         is_main: bool,
     ) -> BuildCommonConfig<'a> {
         // Standard library settings
-        let stdlib_core_file = self
-            .opt
-            .stdlib_path
-            .as_ref()
-            .map(|x| moonutil::toolchain::core_bundle_in(x, self.opt.target_backend()).into());
+        let stdlib_core_file = self.opt.stdlib_path.as_ref().map(|x| {
+            moonutil::toolchain::core_bundle_in(x, self.opt.backend.target_backend()).into()
+        });
 
         // Warning and error settings
         let error_format = if self.opt.moonc_output_json {
@@ -168,7 +167,7 @@ impl<'a> LoweringContext<'a> {
                 self.artifact_paths.mi_of_build_target(
                     self.packages,
                     &v_target,
-                    self.opt.target_backend(),
+                    self.opt.backend.target_backend(),
                 )
             } else {
                 artifacts.single_dependency_path_matching(|artifact| {
@@ -334,7 +333,7 @@ impl<'a> LoweringContext<'a> {
                         .mi_of_build_target_impl_virtual(
                             self.packages,
                             &target,
-                            self.opt.target_backend(),
+                            self.opt.backend.target_backend(),
                         )
                         .into_path()
                 } else {
@@ -361,7 +360,7 @@ impl<'a> LoweringContext<'a> {
             | TargetKind::InlineTest
             | TargetKind::SubPackage => package.raw.is_main,
         };
-        let backend = self.opt.target_backend();
+        let backend = self.opt.backend.target_backend();
         let cmd = compiler::MooncCheck {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -413,7 +412,7 @@ impl<'a> LoweringContext<'a> {
 
         let files_vec = self.compiler_source_files(info);
 
-        let backend = self.opt.target_backend();
+        let backend = self.opt.backend.target_backend();
         let whyml_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
                 artifact,
@@ -474,7 +473,7 @@ impl<'a> LoweringContext<'a> {
 
         let files_vec = self.compiler_source_files(info);
 
-        let backend = self.opt.target_backend();
+        let backend = self.opt.backend.target_backend();
         let why3_config = info
             .why3_config
             .clone()
@@ -574,7 +573,7 @@ impl<'a> LoweringContext<'a> {
                 self.artifact_paths.mi_of_build_target(
                     self.packages,
                     &target,
-                    self.opt.target_backend(),
+                    self.opt.backend.target_backend(),
                 )
             });
 
@@ -603,7 +602,7 @@ impl<'a> LoweringContext<'a> {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
-        let backend = self.opt.target_backend();
+        let backend = self.opt.backend.target_backend();
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -670,12 +669,12 @@ impl<'a> LoweringContext<'a> {
             if !info.abort_overridden {
                 core_input_files.push(moonutil::toolchain::abort_core_in(
                     stdlib,
-                    self.opt.target_backend(),
+                    self.opt.backend.target_backend(),
                 ));
             }
             core_input_files.push(moonutil::toolchain::core_core_in(
                 stdlib,
-                self.opt.target_backend(),
+                self.opt.backend.target_backend(),
             ));
         }
         // Linked core targets
@@ -722,13 +721,13 @@ impl<'a> LoweringContext<'a> {
             pkg_config_path: config_path.clone().into(),
             package_sources: &package_sources,
             stdlib_core_source: None,
-            target_backend: self.opt.target_backend(),
+            target_backend: self.opt.backend.target_backend(),
             native_target: self.plan.backend_plan().direct_native_target(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
             js_config: self.get_js_config(target, package),
-            exports: package.exported_functions(self.opt.target_backend()),
+            exports: package.exported_functions(self.opt.backend.target_backend()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
             native_toolchain_is_msvc: make_executable_info
@@ -741,12 +740,12 @@ impl<'a> LoweringContext<'a> {
             if !info.abort_overridden {
                 extra_inputs.push(moonutil::toolchain::abort_core_in(
                     stdlib,
-                    self.opt.target_backend(),
+                    self.opt.backend.target_backend(),
                 ));
             }
             extra_inputs.push(moonutil::toolchain::core_core_in(
                 stdlib,
-                self.opt.target_backend(),
+                self.opt.backend.target_backend(),
             ));
         }
         if !package.is_single_file() {
@@ -766,7 +765,7 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         pkg: &'b DiscoveredPackage,
     ) -> compiler::WasmConfig<'b> {
-        let mut wasm_config = if self.opt.target_backend() == TargetBackend::Wasm
+        let mut wasm_config = if self.opt.backend.target_backend() == TargetBackend::Wasm
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref())
         {
             WasmConfig {
@@ -779,7 +778,7 @@ impl<'a> LoweringContext<'a> {
                 link_flags: cfg.flags.as_deref(),
                 wasi: false,
             }
-        } else if self.opt.target_backend() == TargetBackend::WasmGC
+        } else if self.opt.backend.target_backend() == TargetBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
         {
             WasmConfig {
@@ -834,7 +833,7 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn get_js_config(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<JsConfig> {
-        let backend = self.opt.target_backend();
+        let backend = self.opt.backend.target_backend();
         if backend != TargetBackend::Js {
             return None;
         }
@@ -869,7 +868,7 @@ impl<'a> LoweringContext<'a> {
         index: u32,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
-        if !self.opt.target_backend().is_native() {
+        if !self.opt.backend.target_backend().is_native() {
             unreachable!("C stubs are only lowered for C or LLVM backends")
         }
 
@@ -906,7 +905,7 @@ impl<'a> LoweringContext<'a> {
         let intermediate_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(&package.fqn, self.opt.target_backend())
+            .package_dir(&package.fqn, self.opt.backend.target_backend())
             .display()
             .to_string();
 
@@ -918,7 +917,7 @@ impl<'a> LoweringContext<'a> {
             [input_file.display().to_string()],
             &intermediate_dir,
             Some(&output_file.display().to_string()),
-            self.opt.compiler_paths(),
+            self.opt.lowering_environment.compiler_paths(),
         );
 
         let mut extra_inputs = Vec::with_capacity(1 + package.c_stub_header_files.len());
@@ -939,7 +938,7 @@ impl<'a> LoweringContext<'a> {
         target: PackageId,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
-        if !self.opt.target_backend().is_native() {
+        if !self.opt.backend.target_backend().is_native() {
             unreachable!("C stubs are only lowered for C or LLVM backends")
         }
 
@@ -976,7 +975,7 @@ impl<'a> LoweringContext<'a> {
                 .map(|object| object.to_string_lossy())
                 .collect::<Vec<_>>(),
             &archive.display().to_string(),
-            self.opt.compiler_paths(),
+            self.opt.lowering_environment.compiler_paths(),
         );
 
         BuildCommand {
@@ -1127,7 +1126,10 @@ impl<'a> LoweringContext<'a> {
         let pkg_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(&self.get_package(target).fqn, self.opt.target_backend())
+            .package_dir(
+                &self.get_package(target).fqn,
+                self.opt.backend.target_backend(),
+            )
             .display()
             .to_string();
 
@@ -1139,7 +1141,7 @@ impl<'a> LoweringContext<'a> {
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),
-            self.opt.compiler_paths(),
+            self.opt.lowering_environment.compiler_paths(),
         );
 
         BuildCommand {
@@ -1163,7 +1165,10 @@ impl<'a> LoweringContext<'a> {
         let pkg_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(&self.get_package(target).fqn, self.opt.target_backend())
+            .package_dir(
+                &self.get_package(target).fqn,
+                self.opt.backend.target_backend(),
+            )
             .display()
             .to_string();
 
@@ -1185,7 +1190,7 @@ impl<'a> LoweringContext<'a> {
                 &source_args,
                 &info.link_flags,
                 &dest,
-                &self.opt.compiler_paths().lib_path,
+                &self.opt.lowering_environment.compiler_paths().lib_path,
             )
             .into()
         } else {
@@ -1196,7 +1201,7 @@ impl<'a> LoweringContext<'a> {
                 &source_args,
                 &pkg_dir,
                 &dest,
-                &self.opt.compiler_paths().lib_path,
+                &self.opt.lowering_environment.compiler_paths().lib_path,
             );
             linker_cmd.into()
         };
@@ -1222,7 +1227,7 @@ impl<'a> LoweringContext<'a> {
         let mi_out = self.artifact_paths.mi_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend(),
+            self.opt.backend.target_backend(),
         );
 
         // Resolve interface dependencies from the dep graph (path:alias pairs)
@@ -1240,7 +1245,8 @@ impl<'a> LoweringContext<'a> {
         // Provide std path when stdlib is enabled
         if let Some(stdlib_root) = &self.opt.stdlib_path {
             cmd.stdlib_core_file = Some(
-                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend()).into(),
+                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.backend.target_backend())
+                    .into(),
             );
         }
 
@@ -1274,7 +1280,7 @@ impl<'a> LoweringContext<'a> {
                     self.artifact_paths.mi_of_build_target(
                         self.packages,
                         &dep,
-                        self.opt.target_backend(),
+                        self.opt.backend.target_backend(),
                     )
                 } else {
                     artifacts.single_dependency_path_matching(|artifact| {

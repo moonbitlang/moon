@@ -66,7 +66,7 @@ important ones and why they exist.
   `CompileConfig` / `BuildMeta`. For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
   `None`, so stdlib packages resolve to local `_build/...` artifacts.
-- **RR consumes the selected resolver.** `CompileConfig`, lowering options,
+- **RR consumes the selected resolver.** `CompileConfig`, `LoweringContext`,
   `BuildMeta`, metadata generation, and `all_pkgs.json` generation all consume
   the same selected `ArtifactPathResolver`. `metadata.rs` and `all_pkgs.rs`
   should render paths from the supplied resolver; they should not call
