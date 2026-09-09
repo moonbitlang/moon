@@ -580,6 +580,7 @@ fn build_selected_package(
 
     user_log.info(format!("Building `{}`...", pkg.full_pkg_name));
 
+    let _lock = lock_directory(&prepared.target_dir, user_log)?;
     let build_flags = BuildFlags {
         release: true,
         warn_list: Some("-a".to_string()),
@@ -606,7 +607,6 @@ fn build_selected_package(
         false,
     )?;
 
-    let _lock = lock_directory(&prepared.target_dir, user_log)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
 
     let result = rr_build::execute_build(

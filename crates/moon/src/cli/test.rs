@@ -410,10 +410,7 @@ fn run_test_impl(
     validate_test_or_bench_invocation(cli, &test_cmd)?;
     let resolve_output =
         sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
+    let _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     let ret_value = run_test_or_bench_from_resolved(
         cli,
         &test_cmd,
@@ -548,6 +545,7 @@ fn run_test_in_single_file_rr(
         cmd.build_flags.resolve_single_target_backend()?.or(backend)
     };
 
+    let _lock = lock_directory(target_dir, user_log)?;
     let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
 
     let compile_config = rr_build::prepare_resolved_build(
@@ -594,10 +592,6 @@ fn run_test_in_single_file_rr(
     )?;
 
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, output.user_log())?;
-    }
     rr_test_from_plan(
         cli,
         &test_cmd,
@@ -976,10 +970,7 @@ fn run_test_rr(
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let resolve_output = sync_and_resolve_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
+    let _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     run_test_or_bench_from_resolved(
         cli,
         cmd,

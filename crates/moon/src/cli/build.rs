@@ -125,10 +125,7 @@ pub(crate) fn run_build(
     }
 
     let resolve_output = sync_and_resolve_build_project(cli, &cmd, &dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
+    let _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     let result =
         run_build_rr_from_resolved(cli, &cmd, &dirs, false, &targets, resolve_output, output)
             .with_context(|| match targets.as_slice() {
@@ -180,10 +177,7 @@ fn run_build_for_single_file_rr(
         selected_target_backends.iter().copied().map(Some).collect()
     };
 
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, user_log)?;
-    }
+    let _lock = lock_directory(target_dir, user_log)?;
 
     let package = rr_build::local_packages(&resolved)
         .next()
@@ -290,10 +284,7 @@ fn run_build_rr(
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let resolve_output = sync_and_resolve_build_project(cli, cmd, dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
+    let _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     run_build_rr_from_resolved(
         cli,
         cmd,
@@ -307,7 +298,7 @@ fn run_build_rr(
 
 /// Plans and executes a build from resolved project data.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run build.
+/// The caller must hold the target-directory lock, including for dry runs.
 #[allow(clippy::too_many_arguments)]
 fn run_build_rr_from_resolved(
     cli: &UniversalFlags,

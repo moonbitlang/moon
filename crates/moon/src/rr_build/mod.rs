@@ -440,6 +440,9 @@ pub(crate) fn prepare_resolved_build(
 /// command-specific directives into `CalcUserIntentOutput`. RR consumes those
 /// identities plus precomputed build-context paths from the command adapter.
 #[instrument(level = Level::DEBUG, skip_all)]
+/// Callers that request module prebuild configuration must hold the target-directory
+/// lock from before planning through execution: scripts can rewrite persistent
+/// inputs consumed by the build. Dry-run planning also executes these scripts.
 pub(crate) fn plan_resolved_build_from_intent(
     cx: CompileConfig,
     user_log: &UserLog,

@@ -23,6 +23,86 @@ fn test_prebuild_config_mbtx() {
 }
 
 #[test]
+fn test_prebuild_config_holds_target_lock() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+          "name": "testuser/locked",
+          "preferred-target": "native",
+          "--moonbit-unstable-prebuild": "build.js"
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(dir.join("main.mbt"), "fn main { println(42) }").unwrap();
+    std::fs::write(dir.join("why3.conf"), "").unwrap();
+
+    // Probe from a separate process using the same cross-platform locking API
+    // as Moon. This detects unlocked prebuild execution without timing a race.
+    std::fs::write(
+        dir.join("lock_probe.rs"),
+        r#"fn main() {
+    let lock = std::fs::OpenOptions::new()
+        .read(true).write(true)
+        .open(std::env::args_os().nth(1).unwrap()).unwrap();
+    assert!(matches!(lock.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+        "prebuild ran without holding the target lock");
+}
+"#,
+    )
+    .unwrap();
+    let probe = dir.join(format!("lock_probe{}", std::env::consts::EXE_SUFFIX));
+    snapbox::cmd::Command::new("rustc")
+        .arg(dir.join("lock_probe.rs"))
+        .arg("-o")
+        .arg(&probe)
+        .assert()
+        .success();
+    std::fs::write(
+        dir.join("build.js"),
+        r#"const { execFileSync } = require('node:child_process')
+execFileSync(process.env.MOON_TEST_LOCK_PROBE, [process.env.MOON_TEST_TARGET_LOCK], { stdio: 'inherit' })
+console.error('prebuild target is locked')
+// Stop before compilation so this test does not need native or proof artifacts.
+process.exit(1)
+"#,
+    )
+    .unwrap();
+
+    let target = dir.join("custom build");
+    for args in [
+        ["run", "."].as_slice(),
+        ["prove", "--why3-config", "why3.conf"].as_slice(),
+        ["build"].as_slice(),
+        ["build", "--target", "native"].as_slice(),
+        ["test"].as_slice(),
+        ["test", "--target", "native"].as_slice(),
+        ["bench"].as_slice(),
+        ["bench", "--target", "native"].as_slice(),
+        ["bundle"].as_slice(),
+        ["bundle", "--target", "native"].as_slice(),
+    ] {
+        for dry_run in [false, true] {
+            moon_cmd(&dir)
+                .env("MOON_TEST_LOCK_PROBE", &probe)
+                .env("MOON_TEST_TARGET_LOCK", target.join(".moon-lock"))
+                .arg("--target-dir")
+                .arg(&target)
+                .args(args)
+                .args(dry_run.then_some("--dry-run"))
+                .assert()
+                .failure()
+                .stderr_eq(snapbox::str![[r#"
+...
+prebuild target is locked
+...
+"#]]);
+        }
+    }
+}
+
+#[test]
 fn test_prebuild_config_build_environment() {
     let dir = TestDir::new_empty();
     std::fs::write(
