@@ -83,10 +83,10 @@ pub fn lower_build_plan(
 ) -> Result<ExecutionPlan, LoweringError> {
     info!("Starting action plan lowering to execution plan");
     debug!(
-        "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
+        "Lowering build: backend={:?}, opt_level={:?}, moonc_debug_info={}",
         opt.backend.target_backend(),
         opt.opt_level,
-        opt.debug_symbols
+        plan.backend_plan().moonc_debug_info()
     );
 
     let mut ctx = LoweringContext::new(resolve_output, plan, opt);
@@ -165,12 +165,12 @@ mod tests {
             let options = CompileConfig {
                 target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
+                debug_info: Default::default(),
                 warn_list: None,
                 artifact_paths,
                 backend,
                 opt_level: OptLevel::Debug,
                 action: RunMode::Build,
-                debug_symbols: false,
                 enable_coverage: false,
                 moonc_output_json: false,
                 docs_serve: false,
@@ -428,12 +428,12 @@ mod tests {
         let options = CompileConfig {
             target_dir: PathBuf::from("_build"),
             debug_export_build_plan: false,
+            debug_info: Default::default(),
             warn_list: None,
             artifact_paths,
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Check,
-            debug_symbols: false,
             enable_coverage: false,
             moonc_output_json: false,
             docs_serve: false,
@@ -509,12 +509,12 @@ mod tests {
         let options = CompileConfig {
             target_dir: PathBuf::from("_build"),
             debug_export_build_plan: false,
+            debug_info: Default::default(),
             warn_list: None,
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
-            debug_symbols: false,
             enable_coverage: false,
             moonc_output_json: false,
             docs_serve: false,
@@ -639,6 +639,8 @@ mod tests {
             target.package,
             BuildCStubsInfo {
                 effective_native_toolchain: toolchain.clone(),
+                debug_info: false,
+                opt_level: moonutil::compiler_flags::OptLevel::None,
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
                 link_flags: Vec::new(),
                 static_archive_fingerprint: None,
@@ -646,6 +648,7 @@ mod tests {
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: toolchain.clone(),
+            enable_backtrace: false,
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
@@ -655,6 +658,8 @@ mod tests {
             target,
             MakeExecutableInfo {
                 effective_native_toolchain: toolchain.clone(),
+                c_debug_info: false,
+                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
                 c_flags: Vec::new(),
                 link_flags: vec!["dep.lib".to_string(), "/LIBPATH:pkg/lib".to_string()],
                 link_c_stubs: vec![target.package],
@@ -679,6 +684,7 @@ mod tests {
         let options = CompileConfig {
             target_dir: PathBuf::from("_build"),
             debug_export_build_plan: false,
+            debug_info: Default::default(),
             warn_list: None,
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::Native {
@@ -692,7 +698,6 @@ mod tests {
             },
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
-            debug_symbols: false,
             enable_coverage: false,
             moonc_output_json: false,
             docs_serve: false,
@@ -910,6 +915,8 @@ mod tests {
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
+                c_debug_info: true,
+                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
                 effective_native_toolchain: Toolchain::from_path_probe(CC {
                     cc_kind: CCKind::Clang,
                     cc_path: "/toolchain/bin/clang".to_string(),
@@ -958,12 +965,12 @@ mod tests {
             let options = CompileConfig {
                 target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
+                debug_info: Default::default(),
                 warn_list: None,
                 artifact_paths: artifact_paths.clone(),
                 backend,
                 opt_level: OptLevel::Debug,
                 action: RunMode::Build,
-                debug_symbols: true,
                 enable_coverage: false,
                 moonc_output_json: false,
                 docs_serve: false,

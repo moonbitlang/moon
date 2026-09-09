@@ -63,6 +63,25 @@ pub enum BackendConfig {
 
 pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
 
+/// Debug requirements selected by the caller before backend planning.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DebugInfoRequest {
+    pub symbols: DebugSymbols,
+    /// Request native runtime backtrace reporting independently of compiler
+    /// debug information. This alone does not guarantee source locations.
+    pub runtime_backtrace: bool,
+}
+
+/// Requested symbol detail, resolved after planning selects the payload form.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DebugSymbols {
+    #[default]
+    None,
+    /// Retain enough information to report MoonBit source locations on failure.
+    Backtrace,
+    Full,
+}
+
 /// Concrete native object-code backend selected under the `native` surface target.
 ///
 /// `TargetBackend::Native` remains the user-visible native backend. This type

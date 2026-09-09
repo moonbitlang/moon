@@ -716,7 +716,7 @@ pub enum OutputType {
     Executable, // .exe or no extension
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OptLevel {
     Speed,
     Size,

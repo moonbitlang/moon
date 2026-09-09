@@ -25,7 +25,7 @@ use crate::{
     build_lower::{self, WarningCondition},
     build_plan::{self, ArtifactKey, InputDirective},
     execution_plan::ExecutionPlan,
-    model::BackendConfig,
+    model::{BackendConfig, DebugInfoRequest},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     target_layout::ArtifactPathResolver,
@@ -41,8 +41,8 @@ pub struct CompileConfig {
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
     pub action: RunMode,
-    /// Whether to emit debug symbols.
-    pub debug_symbols: bool,
+    /// Debug information requested before the Native payload form is selected.
+    pub debug_info: DebugInfoRequest,
 
     /// The path to the standard library's project root, or `None` if to not
     /// import the standard library during compilation.
@@ -154,7 +154,9 @@ mod tests {
         build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
-        model::{BackendConfig, BuildPlanNode, TargetKind},
+        model::{
+            BackendConfig, BuildPlanNode, DebugInfoRequest, DebugSymbols, NativeTarget, TargetKind,
+        },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::{DepEdge, DepRelationship},
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
@@ -249,6 +251,232 @@ mod tests {
     }
 
     #[test]
+    fn native_debug_info_is_scoped_to_each_compiler() {
+        // These are plans, not cross-compilations. An explicit candidate makes
+        // direct-object coverage independent of the host and MOONBIT_NEW_NATIVE.
+        for (candidate, c_flags, opt_level, generated_c) in [
+            (None, None, OptLevel::Debug, true),
+            (
+                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                None,
+                OptLevel::Debug,
+                false,
+            ),
+            (
+                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                Some("-DGENERATED_C_DEBUG_TEST"),
+                OptLevel::Debug,
+                true,
+            ),
+            (None, None, OptLevel::Release, true),
+        ] {
+            let module_source = ModuleSource::local_path(
+                "test/single"
+                    .parse()
+                    .expect("test module name should parse"),
+                PathBuf::from("."),
+                DEFAULT_VERSION.clone(),
+            );
+            let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+            let mut packages = DiscoverResult::default();
+            packages.test_register_module(module, moon_mod());
+            let mut main = package(module, &module_source, "main", false, true);
+            main.c_stub_files = vec![PathBuf::from("main/stub.c")];
+            if let Some(flags) = c_flags {
+                main.raw.link = Some(moonutil::package::Link {
+                    wasm: None,
+                    wasm_gc: None,
+                    js: None,
+                    native: Some(moonutil::package::NativeLinkConfig {
+                        exports: None,
+                        cc: None,
+                        cc_flags: Some(flags.into()),
+                        cc_link_flags: None,
+                        stub_cc: None,
+                        stub_cc_flags: None,
+                        stub_cc_link_flags: None,
+                        stub_lib_deps: None,
+                    }),
+                });
+            }
+            let main = packages.test_add_package(
+                module,
+                PackagePath::new("main").expect("main package path should parse"),
+                main,
+            );
+            let target = main.build_target(TargetKind::Source);
+            let mut relationship = DepRelationship::default();
+            relationship.dep_graph.add_node(target);
+            relationship
+                .realizable_supported_targets
+                .insert(target, TargetBackend::all().iter().copied().collect());
+            let mut module_dirs = DirSyncResult::default();
+            module_dirs.insert(module, PathBuf::from("."));
+            let resolved = ResolveOutput {
+                module_rel: modules,
+                module_dirs,
+                pkg_dirs: packages,
+                pkg_rel: relationship,
+            };
+            for symbols in [
+                DebugSymbols::None,
+                DebugSymbols::Backtrace,
+                DebugSymbols::Full,
+            ] {
+                let config = CompileConfig {
+                    target_dir: PathBuf::from("_build"),
+                    backend: BackendConfig::Native {
+                        direct_object_candidate: candidate,
+                        allocator: moonutil::compiler_flags::NativeAllocator::System,
+                        os: std::env::consts::OS
+                            .parse()
+                            .expect("test host OS should be supported"),
+                        compiler_paths: moonutil::compiler_flags::CompilerPaths::from_moon_dirs(),
+                    },
+                    opt_level,
+                    action: RunMode::Run,
+                    debug_info: DebugInfoRequest {
+                        symbols,
+                        runtime_backtrace: true,
+                    },
+                    stdlib_path: None,
+                    artifact_paths: ArtifactPathResolver::new(
+                        TargetLayout::new(
+                            PathBuf::from("_build"),
+                            TargetLayoutMode::Mono {
+                                main_module: module_source.clone(),
+                            },
+                            opt_level,
+                            RunMode::Run,
+                        ),
+                        None,
+                    ),
+                    debug_export_build_plan: false,
+                    enable_coverage: false,
+                    moonc_output_json: false,
+                    docs_serve: false,
+                    warning_condition: WarningCondition::Default,
+                    warn_list: None,
+                    info_no_alias: false,
+                };
+                let output = compile(
+                    &config,
+                    Path::new(".mooncakes/bin"),
+                    &resolved,
+                    &[ArtifactKey::Executable {
+                        package: main,
+                        target_kind: TargetKind::Source,
+                    }],
+                    &InputDirective::default(),
+                    None,
+                    &UserLog::new(log::LevelFilter::Off),
+                )
+                .expect("native executable should plan and lower");
+                let commands = output
+                    .execution_plan
+                    .action_ids()
+                    .map(|id| output.execution_plan.action(id).command().args())
+                    .collect::<Vec<_>>();
+                let moonc_debug = symbols == DebugSymbols::Full
+                    || (symbols == DebugSymbols::Backtrace && generated_c);
+                for command in ["build-package", "link-core"] {
+                    let args = commands
+                        .iter()
+                        .find(|args| args.get(1).is_some_and(|arg| arg == command))
+                        .expect("native executable should build and link MoonBit code");
+                    assert_eq!(args.iter().any(|arg| arg == "-g"), moonc_debug, "{args:?}");
+                    assert_eq!(
+                        args.iter().any(|arg| arg == "-O0"),
+                        opt_level == OptLevel::Debug,
+                        "{args:?}"
+                    );
+                    if command == "link-core" {
+                        let output = args
+                            .windows(2)
+                            .find(|pair| pair[0] == "-o")
+                            .expect("link-core should name its output");
+                        assert_eq!(output[1].ends_with(".c"), generated_c, "{args:?}");
+                        if !generated_c {
+                            assert!(
+                                output[1].ends_with(".o") || output[1].ends_with(".obj"),
+                                "{args:?}"
+                            );
+                            assert!(
+                                args.iter().any(|arg| arg == "x86_64-unknown-linux-gnu"),
+                                "{args:?}"
+                            );
+                        }
+                    }
+                }
+                let program = commands
+                    .iter()
+                    .find(|args| {
+                        args.get(1).is_none_or(|arg| arg != "link-core")
+                            && args.iter().any(|arg| {
+                                matches!(
+                                    Path::new(arg).file_name().and_then(|name| name.to_str()),
+                                    Some("main.c" | "main.o" | "main.obj")
+                                )
+                            })
+                    })
+                    .expect("native executable needs a compiler or linker action");
+                assert_eq!(
+                    program.iter().any(|arg| arg == "-g" || arg == "/Z7"),
+                    generated_c && moonc_debug,
+                    "{program:?}"
+                );
+                if generated_c && c_flags.is_none() {
+                    let expected = match opt_level {
+                        OptLevel::Debug => ["-Og", "/Od"],
+                        OptLevel::Release => ["-O2", "/O2"],
+                    };
+                    assert!(
+                        program.iter().any(|arg| expected.contains(&arg.as_str())),
+                        "{program:?}"
+                    );
+                } else {
+                    assert!(
+                        !program
+                            .iter()
+                            .any(|arg| ["-O0", "-Og", "-O2", "/Od", "/O2"].contains(&arg.as_str())),
+                        "link-only actions and custom C flags must not acquire compiler optimization defaults: {program:?}"
+                    );
+                }
+                let stub = commands
+                    .iter()
+                    .find(|args| args.iter().any(|arg| arg.ends_with("stub.c")))
+                    .expect("native executable should compile its C stub");
+                assert_eq!(
+                    stub.iter().any(|arg| arg == "-g" || arg == "/Z7"),
+                    symbols == DebugSymbols::Full,
+                    "C fallback must not enable stub debug info: {stub:?}"
+                );
+                let expected = match (opt_level, symbols == DebugSymbols::Full) {
+                    (_, true) => ["-Og", "/Od"],
+                    (OptLevel::Debug, false) => ["-O0", "/Od"],
+                    (OptLevel::Release, false) => ["-O2", "/O2"],
+                };
+                assert!(
+                    stub.iter().any(|arg| expected.contains(&arg.as_str())),
+                    "{stub:?}"
+                );
+                let runtime = commands
+                    .iter()
+                    .find(|args| args.iter().any(|arg| arg.ends_with("runtime.c")))
+                    .expect("native executable should compile the runtime");
+                assert!(
+                    runtime.iter().any(|arg| arg == "-g" || arg == "/Z7"),
+                    "runtime debug info is independent: {runtime:?}"
+                );
+                assert!(
+                    runtime.iter().any(|arg| arg == "-O2" || arg == "/O2"),
+                    "runtime optimization is independent: {runtime:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn native_payload_selection_uses_only_requested_executables() {
         use crate::{
             build_plan::{build_plan, resolve_native_backend_mode},
@@ -319,7 +547,7 @@ mod tests {
                     },
                     opt_level,
                     action: RunMode::Build,
-                    debug_symbols: false,
+                    debug_info: DebugInfoRequest::default(),
                     stdlib_path: None,
                     artifact_paths: ArtifactPathResolver::new(
                         TargetLayout::new(
@@ -506,7 +734,7 @@ mod tests {
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Run,
-            debug_symbols: false,
+            debug_info: DebugInfoRequest::default(),
             stdlib_path: None,
             artifact_paths,
             debug_export_build_plan: true,
@@ -621,7 +849,7 @@ mod tests {
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Prove,
-            debug_symbols: false,
+            debug_info: DebugInfoRequest::default(),
             stdlib_path: None,
             artifact_paths,
             debug_export_build_plan: false,
