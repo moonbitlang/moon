@@ -1183,6 +1183,8 @@ pub(crate) struct AsyncHost {
     polls: RefCell<PollTable>,
     thread_pool_completions: RefCell<ThreadPoolCompletions>,
     signals: SignalReceiver,
+    #[cfg(unix)]
+    signal_handler: RefCell<Option<crate::run_signal::SignalTargetGuard>>,
     handles: RefCell<HandleTable>,
     tls_connections: RefCell<SecondaryMap<HandleKey, tls::TlsHandle>>,
     tls_error: RefCell<Option<String>>,
@@ -1223,6 +1225,8 @@ impl AsyncHost {
             polls: RefCell::new(PollTable::default()),
             thread_pool_completions: RefCell::new(ThreadPoolCompletions::default()),
             signals,
+            #[cfg(unix)]
+            signal_handler: RefCell::new(None),
             handles: RefCell::new(HandleTable::with_keys(keys, stdio)),
             tls_connections: RefCell::new(SecondaryMap::new()),
             tls_error: RefCell::new(None),
@@ -1722,6 +1726,26 @@ impl AsyncHost {
     }
 
     #[cfg(unix)]
+    pub(crate) fn start_signal_handler(&self) -> AsyncHostResult<()> {
+        if self.signal_handler.borrow().is_none() {
+            let handler = crate::async_sys::signal::start_signal_handler(
+                &self.signals,
+                self.thread_pool_notifier()?,
+            )?;
+            *self.signal_handler.borrow_mut() = Some(handler);
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn terminate_signal_handler(&self) {
+        crate::async_sys::signal::terminate_signal_handler(
+            &self.signals,
+            self.signal_handler.borrow_mut().take(),
+        );
+    }
+
+    #[cfg(unix)]
     pub(crate) fn make_sigwait_job(&self, signals: Vec<i32>) -> AsyncHostResult<HostHandle> {
         let notifier = self.thread_pool_notifier()?;
         let job = crate::async_sys::signal::make_sigwait_job(&self.signals, &signals, notifier)?;
@@ -1805,6 +1829,8 @@ impl AsyncHost {
     }
 
     pub(crate) fn destroy_thread_pool(&self) {
+        #[cfg(unix)]
+        self.terminate_signal_handler();
         for worker in self.workers.destroy() {
             self.handles.borrow_mut().remove_worker_key(worker.key);
             if let Some(unrun_job) = worker.unrun_job {
@@ -5151,6 +5177,45 @@ mod tests {
 
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_handler_reconfigures_restarts_and_detaches_with_the_pool() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+        let notifier = host.thread_pool_notifier().unwrap();
+        let all = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&all, &[libc::SIGINT])
+            .unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        host.start_signal_handler().unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(host.workers.len(), 0);
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        let mut event = [0; 4];
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        assert_eq!(i32::from_ne_bytes(event), libc::SIGINT | i32::MIN);
+
+        host.set_cancellation_signals(&all, &[libc::SIGTERM])
+            .unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert_eq!(sender.send(libc::SIGTERM), Ok(true));
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        assert_eq!(i32::from_ne_bytes(event), libc::SIGTERM | i32::MIN);
+
+        host.terminate_signal_handler();
+        assert_eq!(sender.send(libc::SIGTERM), Ok(false));
+        host.set_cancellation_signals(&all, &all).unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        host.destroy_thread_pool();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert!(host.signal_handler.borrow().is_none());
     }
 
     #[cfg(unix)]

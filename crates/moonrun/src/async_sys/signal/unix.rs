@@ -25,7 +25,7 @@ use crate::async_sys::internal::event_loop::{
     thread_pool::{JobCancellation, JobCancellationOverride},
 };
 use crate::async_sys::internal::fd_util::stub as fd_util;
-use crate::run_signal::{SignalReceiver, SigwaitTargetGuard, signal_mask};
+use crate::run_signal::{SignalReceiver, SignalTargetGuard, signal_mask};
 
 #[derive(Clone, Debug)]
 pub(crate) struct SigwaitTarget {
@@ -96,7 +96,7 @@ impl JobCancellationOverride for SigwaitCancellation {
 }
 
 pub(crate) struct SigwaitJob {
-    _target: SigwaitTargetGuard,
+    _target: SignalTargetGuard,
     state: Arc<Mutex<SigwaitState>>,
     cancellation: JobCancellation,
     wake: OwnedFd,

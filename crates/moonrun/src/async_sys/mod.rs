@@ -187,5 +187,6 @@ pub(crate) fn compat_symbols() -> Vec<CompatSymbol> {
     let mut symbols = Vec::new();
     symbols.extend(crate::filesystem::compat_symbols());
     symbols.extend_from_slice(internal::fd_util::stub::COMPAT_SYMBOLS);
+    symbols.extend_from_slice(os_error::stub::COMPAT_SYMBOLS);
     symbols
 }

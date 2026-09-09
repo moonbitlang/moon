@@ -808,7 +808,13 @@ pub(super) fn make_wait_for_process_job(
     context.host.make_wait_for_process_job(handle, pid)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[compat(
+    source = "src/internal/event_loop/thread_pool.c",
+    original = "moonbitlang_async_make_sigwait_job",
+    upstream_pr = 581,
+    replacement = "signal/start_signal_handler and signal/terminate_signal_handler",
+    api_only = true
+)]
 #[cfg(unix)]
 pub(super) fn make_sigwait_job(
     context: &mut ImportContext<'_, '_>,

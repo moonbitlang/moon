@@ -94,11 +94,10 @@ cannot yet forcibly interrupt guest execution. The `moonrun` CLI owns a
 process-lifetime adapter and forwards accepted signals directly through such a
 channel. On Unix it blocks its managed signals before creating the Engine and
 receives them on a `sigwait` thread; spawned guest processes retain the signal
-mask from before that block. Each Run's guest signal-wait Job is virtual: it
-receives forwarded signals through the Run channel rather than competing for
-process-wide signals. It supplies the same optional cancellation hook supported
-by the native Job model, recording cancellation before waking its blocking pipe
-read. Ordinary Unix Jobs retain the thread pool's `pthread_kill(SIGUSR2)` path.
+mask from before that block. The guest starts and stops delivery directly to its
+Run's completion queue, so signal handling does not consume an async worker.
+Older Wasm guests retain a virtual signal-wait Job and its cancellation hook.
+Ordinary Unix Jobs retain the thread pool's `pthread_kill(SIGUSR2)` path.
 If the Run does not accept a signal, the adapter applies the process's existing
 signal behavior.
 
