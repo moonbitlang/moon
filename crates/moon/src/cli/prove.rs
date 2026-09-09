@@ -148,10 +148,6 @@ pub(crate) fn run_prove(
     let proof_prelude = resolve_proof_prelude()?;
     let generated_why3_config_path = verif_dir.join("why3.conf");
 
-    if !cli.dry_run && why3_config_path.is_none() {
-        ensure_why3_config(&generated_why3_config_path)?;
-    }
-
     let path_filter = cmd.path.as_deref();
     let prove_why3_config = why3_config_path.clone();
 
@@ -161,9 +157,15 @@ pub(crate) fn run_prove(
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(target_dir, user_log)?;
+    }
+
+    if !cli.dry_run && why3_config_path.is_none() {
+        ensure_why3_config(&generated_why3_config_path)?;
+    }
 
     let compile_config = rr_build::prepare_resolved_build(
         cli,
@@ -189,7 +191,9 @@ pub(crate) fn run_prove(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
 
@@ -206,7 +210,6 @@ pub(crate) fn run_prove(
         return Ok(0);
     }
 
-    let _lock = lock_directory(target_dir, user_log)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
     let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;

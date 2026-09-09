@@ -189,10 +189,10 @@ pub(crate) struct EmbeddedMbtxPolicy {
 
 /// A built executable plus the state needed to consume it.
 ///
-/// The build step keeps the target-directory lock alive until the caller either
-/// runs the program or explicitly releases the lock. This preserves the previous
-/// `moon run` behavior while allowing other consumers to reuse the same build
-/// stage.
+/// Normal builds keep the target-directory lock alive until the caller
+/// either runs the program or explicitly releases the lock. Other consumers can
+/// reuse the same build stage without releasing the lock between planning and
+/// compilation.
 pub(crate) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
     pub(crate) executable: PathBuf,
@@ -558,9 +558,12 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         cmd,
@@ -577,6 +580,7 @@ fn build_package_executable(
         target_dir,
         &build_meta,
         build_graph,
+        lock,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -636,7 +640,9 @@ pub(crate) fn plan_run_rr_from_resolved(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
@@ -775,6 +781,11 @@ fn build_single_file_executable(
         .or(backend)
         .unwrap_or(options.default_target_backend);
 
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
@@ -799,7 +810,9 @@ fn build_single_file_executable(
         intent,
         mooncake_bin_dir,
         resolved,
+        cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
 
     build_executable_from_plan(
@@ -809,6 +822,7 @@ fn build_single_file_executable(
         target_dir,
         &build_meta,
         build_graph,
+        lock,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -821,6 +835,8 @@ fn build_single_file_executable(
 #[instrument(level = Level::DEBUG, skip_all)]
 /// Execute the build graph and return the resulting run artifact without
 /// launching it.
+/// Normal builds transfer the target-directory lock acquired before planning.
+/// Dry-run planning acquires and releases its own lock only if scripts run.
 #[allow(clippy::too_many_arguments)]
 fn build_executable_from_plan(
     cli: &UniversalFlags,
@@ -829,6 +845,7 @@ fn build_executable_from_plan(
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
+    lock: Option<std::fs::File>,
     options: BuildExecutableFromPlanOptions,
     output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
@@ -869,7 +886,6 @@ fn build_executable_from_plan(
         });
     }
 
-    let lock = lock_directory(target_dir, user_log)?;
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(build_meta)?;
 
@@ -886,7 +902,7 @@ fn build_executable_from_plan(
         embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
         build_exit_code: Some(build_result.return_code_for_success()),
-        lock: Some(lock),
+        lock,
     })
 }
 

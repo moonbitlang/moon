@@ -161,7 +161,9 @@ pub(crate) fn run_doc_rr(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
 
     // Early exit for dry-run

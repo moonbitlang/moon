@@ -399,6 +399,8 @@ fn plan_info_rr(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        None,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }

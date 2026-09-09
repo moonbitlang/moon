@@ -32,12 +32,68 @@ For example:
 }
 ```
 
-Every runner uses the module root as its working directory and the same JSON
-protocol. Stdin supplies `env` (the captured environment) and `paths`, including
-`module_root`. Stdout must contain one build configuration JSON value with the
-optional fields `vars`, `link_configs`, and `rerun_if`; `rerun_if` currently has
-no effect. Stderr carries script diagnostics. A failed script or invalid JSON
-output fails the build.
+Every runner uses the module root as its working directory and receives the
+captured process environment with these additional variables:
+
+| Variable | Value |
+| --- | --- |
+| `MOON_MOD` | Absolute path to the module's selected `moon.mod` or `moon.mod.json` manifest |
+| `MOON_BUILD_DIR` | Absolute path to this module's writable prebuild output directory |
+| `MOON_HOST_OS` | OS of the Moon process: `linux`, `macos`, or `windows` |
+| `MOON_HOST_ARCH` | Architecture of the Moon process, using names such as `x86_64` and `aarch64` |
+| `MOON_BACKEND` | Resolved project backend: `native` or `llvm` |
+| `MOON_PROFILE` | Effective project profile: `debug` or `release` |
+| `MOON_JOBS` | Build job limit as a decimal integer, honoring `-j` / `--jobs` |
+
+These variables override any inherited values of the same names. Scripts can
+read their inputs entirely from the environment. For compatibility, stdin still
+supplies the original JSON shape: `env` contains the captured environment before
+these overrides, and `paths` contains `module_root` and `out_dir`. `module_root`
+remains the module directory; `out_dir` now contains the real directory provided
+as `MOON_BUILD_DIR`.
+
+Host OS and architecture describe the Moon process's platform. Backend and
+profile describe the project build, even when the prebuild script itself is
+compiled to Wasm. They reflect effective
+[command defaults](build.md#default-cli-profiles), manifest preferences, and
+explicit CLI overrides.
+
+When `--jobs` is omitted, prebuild scripts and the build executor share the same
+available-parallelism observation, captured once per Moon process. If that
+observation is unavailable, the limit defaults to one. `MOON_JOBS` is a build
+concurrency limit, not a physical CPU count or a jobserver protocol.
+
+`MOON_MOD` reports the manifest using the same preference as module discovery:
+`moon.mod` takes precedence over `moon.mod.json`. It is supplied to prebuild
+scripts as information, not read by Moon as a module-selection override.
+[`MOON_WORK`](workspace.md#moon_work) remains the workspace-selection switch.
+
+Moon creates `MOON_BUILD_DIR` before running the script. It resides under the
+caller's target directory (including `--target-dir`), scoped by backend, profile,
+command, and module. Files persist across repeated builds in that scope; scripts
+must not assume the directory is empty. Dependencies receive their own output
+directories under the consumer's target directory, so generated files need not
+be written into dependency sources. The directory's internal layout is not part
+of the script API.
+
+This MVP does not register files as build inputs merely because they are written
+to `MOON_BUILD_DIR` or referenced in `link_flags` or `link_search_paths`.
+Rewriting such a file at the same path may therefore fail to trigger relinking.
+Explicit generated-file dependency declarations and rerun controls remain
+future work for the experimental protocol.
+
+For actual builds, the command layer acquires the target-directory lock before
+planning runs these scripts and keeps it through build execution. This protects
+script writes and any build actions that read their outputs from concurrent
+invocations. For dry runs, each backend planning pass acquires the lock only
+if it will execute a module-level prebuild script, and keeps it through planning.
+Passes that skip the scripts do not acquire the lock, including native and LLVM
+passes when no resolved module declares a script.
+
+Stdout must contain one build configuration JSON value with the optional fields
+`vars`, `link_configs`, and `rerun_if`; `rerun_if` currently has no effect. Stderr
+carries script diagnostics. A failed script or invalid JSON output fails the
+build.
 
 MoonBit scripts use standalone `.mbtx` imports and incremental compilation.
 Their target is always linear-memory Wasm, independently of the project backend;
@@ -55,14 +111,17 @@ dependencies shared between consumers.
 
 The ordinary [embedded `.mbtx` policy](moonx.md#standalone-mbtx) applies. Policy
 filesystem roots are relative to the script directory, while the working
-directory remains the module root. An environment policy does not filter the
-environment values explicitly supplied in the JSON input.
+directory remains the module root. An environment policy filters the script's
+environment, including the variables above, but does not filter the values
+explicitly supplied in the compatibility JSON input.
 
 `--moonbit-unstable-prebuild` in `moon.mod.json` supplies dynamic native build
 configuration, such as toolchain selection and compiler or linker flags. It runs
 only for the Native and LLVM target backends. Wasm, WasmGC, and JS builds skip
 it, including `moon build --target wasm --release` and dry runs. This applies
 to both project and standalone-file builds, using the resolved target backend.
+Each backend planning pass runs the scripts separately, with `MOON_BACKEND`
+identifying that pass's backend.
 
 `moon check` skips this configuration for the checked project on every backend.
 Dependency installation can still invoke a separate native or LLVM build whose
@@ -215,8 +274,10 @@ Behavior:
 - Module-level prebuild configuration scripts receive a snapshot of the process
   environment captured by `rr_build` before prebuild execution.
 - Commands that skip prebuild configuration do not capture this environment.
-- The snapshot is passed to each module prebuild script as part of its prebuild
-  input; it is not rediscovered inside individual module execution.
+- The snapshot is passed to each module prebuild script through its environment
+  and the compatibility stdin input; it is not rediscovered inside individual
+  module execution. The module paths are added as environment variables after
+  applying the snapshot.
 
 ## Failure Conditions
 

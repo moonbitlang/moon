@@ -94,9 +94,7 @@ pub(crate) fn run_build_binary_dep(
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
             .without_bin_deps();
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
 
     // Note: There's a cyclic dependency!
     //
@@ -144,6 +142,7 @@ pub(crate) fn run_build_binary_dep(
     };
 
     // For each package we need to get its target backend and then we can build it
+    let _lock = lock_directory(target_dir, user_log)?;
     for (pkg, target) in pkgs {
         // Get package info
         let package = &*resolve_output.pkg_dirs.get_package(pkg).raw;
@@ -179,10 +178,11 @@ pub(crate) fn run_build_binary_dep(
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
             resolve_output.clone(),
+            build_flags.jobs,
+            false,
             false,
         )?;
 
-        let _lock = lock_directory(target_dir, user_log)?;
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&build_meta)?;
 

@@ -32,7 +32,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::mpsc,
+    sync::{LazyLock, mpsc},
 };
 
 use anyhow::Context;
@@ -76,7 +76,7 @@ mod prebuild;
 pub use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_all};
 
 /// Synchronize dependencies and return resolved project data.
-/// Target-directory lock ownership remains with the command layer.
+/// This step does not acquire the target-directory lock.
 pub(crate) fn sync_and_resolve_project(
     resolve_config: &ResolveConfig,
     dirs: &PackageDirs,
@@ -439,31 +439,54 @@ pub(crate) fn prepare_resolved_build(
 /// At this boundary, command adapters have already resolved user selectors and
 /// command-specific directives into `CalcUserIntentOutput`. RR consumes those
 /// identities plus precomputed build-context paths from the command adapter.
+/// For actual builds, callers hold the target-directory lock while prebuild
+/// scripts run and their outputs are consumed. Dry-run callers leave locking to
+/// this function: it locks only when the resolved backend and modules require
+/// scripts, and keeps the lock through planning.
 #[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_resolved_build_from_intent(
     cx: CompileConfig,
     user_log: &UserLog,
     intent: CalcUserIntentOutput,
     mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
+    jobs: Option<usize>,
     frozen: bool,
+    dry_run: bool,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let target_dir = cx.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
 
-    // Module-level configuration discovers native toolchains and flags; other
-    // backends do not need to execute these scripts.
-    let prebuild_config = if cx.action == RunMode::Check || !cx.backend.target_backend().is_native()
-    {
-        info!("Skipping prebuild configuration for check or non-native backend");
-        None
+    // Decide once, after backend selection, whether planning will execute a
+    // script. Dry runs that only lower commands must not acquire a write lock.
+    let run_prebuild = cx.action != RunMode::Check
+        && cx.backend.target_backend().is_native()
+        && resolve_output
+            .module_rel
+            .all_modules_and_id()
+            .any(|(m, _)| {
+                resolve_output
+                    .module_info(m)
+                    .__moonbit_unstable_prebuild
+                    .is_some()
+            });
+    let _dry_run_lock = if dry_run && run_prebuild {
+        Some(moonutil::locks::lock_directory(&target_dir, user_log)?)
     } else {
+        None
+    };
+    let prebuild_config = if run_prebuild {
         info!("Running prebuild configuration");
         Some(prebuild::run_prebuild_config(
             &resolve_output,
-            &target_dir,
+            &cx,
+            resolve_parallelism(jobs),
             frozen,
         )?)
+    } else {
+        info!("Skipping prebuild configuration: no applicable scripts");
+        None
     };
 
     info!("Expanding user intents to requested artifacts");
@@ -707,6 +730,14 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
         ))?;
     }
     Ok(())
+}
+
+/// Share the default observation between prebuild scripts and the executor so
+/// both see the same job limit throughout this Moon process.
+fn resolve_parallelism(jobs: Option<usize>) -> usize {
+    static DEFAULT_PARALLELISM: LazyLock<usize> =
+        LazyLock::new(|| std::thread::available_parallelism().map_or(1, usize::from));
+    jobs.unwrap_or_else(|| *DEFAULT_PARALLELISM)
 }
 
 #[derive(Clone)]
@@ -1141,10 +1172,7 @@ fn execute_n2_graph_capturing(
     let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)
         .with_context(|| format!("Failed to open build cache DB at {}", db_path.display()))?;
 
-    let parallelism = cfg
-        .parallelism
-        .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
-        .unwrap();
+    let parallelism = resolve_parallelism(cfg.parallelism);
 
     let (captured_output_sender, captured_output_receiver) = mpsc::channel();
     let mut prog_console: Box<dyn n2::progress::Progress> = create_progress_console(

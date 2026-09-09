@@ -205,7 +205,9 @@ fn run_build_for_single_file_rr(
             vec![UserIntent::Build(package)].into(),
             mooncake_bin_dir,
             resolved.clone(),
+            cmd.build_flags.jobs,
             cmd.auto_sync_flags.frozen,
+            cli.dry_run,
         )?);
     }
 
@@ -437,7 +439,9 @@ pub(crate) fn plan_build_rr_from_resolved(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
@@ -473,7 +477,9 @@ fn plan_build_rr_from_resolved_with_scope(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
@@ -504,7 +510,9 @@ fn plan_build_rr_from_selection(
         selection.into_user_intent(),
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 

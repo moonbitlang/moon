@@ -10,7 +10,11 @@ async fn main {
   let input = @json.parse(@stdio.stdin.read_all().text())
   guard input is {
     "env": { "MOON_CC": String(cc), .. },
-    "paths": { "module_root": String(module_root), .. },
+    "paths": {
+      "module_root": String(module_root),
+      "out_dir": String(out_dir),
+      ..
+    },
     ..
   } else {
     abort("missing prebuild environment or paths")
@@ -20,6 +24,18 @@ async fn main {
   }
   guard Some(module_root) == @env.current_dir() else {
     abort("prebuild working directory is not the module root")
+  }
+  guard @env.get_env_var("MOON_MOD") is Some(manifest) &&
+    manifest.has_prefix(module_root) && manifest.has_suffix("moon.mod.json") else {
+    abort("prebuild module manifest was not passed through the environment")
+  }
+  guard out_dir != "TODO" && Some(out_dir) == @env.get_env_var("MOON_BUILD_DIR") else {
+    abort("prebuild output directory was not passed through the environment")
+  }
+  guard @env.get_env_var("MOON_BACKEND") == Some("native") &&
+    @env.get_env_var("MOON_PROFILE") == Some("debug") &&
+    @env.get_env_var("MOON_JOBS") == Some("3") else {
+    abort("prebuild did not receive the outer build settings")
   }
   let output : Json = {
     "vars": { "HELLO": "------this-is-added-by-config-script------" },
