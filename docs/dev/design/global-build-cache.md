@@ -68,7 +68,7 @@ resolution.
 and stdin programs passed as `-`. Single-file check and test commands retain
 private dependency directories. Whenever a standalone command uses private
 dependencies, its `.mooncakes` directory lives under the per-script build root
-(for example, `_build/script.mbtx/.mooncakes`) and follows `--target-dir`.
+(for example, `_build/.script.mbtx/.mooncakes`) and follows `--target-dir`.
 Ordinary projects and workspaces retain their project-local dependency
 directories.
 `MOON_BUILD_CACHE` still configures and cleans its future root only.

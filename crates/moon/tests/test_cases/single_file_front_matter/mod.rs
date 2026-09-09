@@ -249,7 +249,7 @@ fn test_single_file_mbtx_build() {
     );
     assert!(stdout.contains("moonc link-core"), "stdout: {stdout}");
     assert!(
-        stdout.contains("_build/moonx_args.mbtx/wasm/"),
+        stdout.contains("_build/.moonx_args.mbtx/wasm/"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("moonrun"), "stdout: {stdout}");
@@ -261,11 +261,11 @@ fn test_single_file_mbtx_build_accepts_multiple_targets() {
     let _ = get_stdout(&dir, ["build", "moonx_args.mbtx", "--target", "wasm,js"]);
 
     assert!(
-        dir.join("_build/moonx_args.mbtx/wasm/debug/build/single/single.wasm")
+        dir.join("_build/.moonx_args.mbtx/wasm/debug/build/single/single.wasm")
             .is_file()
     );
     assert!(
-        dir.join("_build/moonx_args.mbtx/js/debug/build/single/single.js")
+        dir.join("_build/.moonx_args.mbtx/js/debug/build/single/single.js")
             .is_file()
     );
 }
@@ -414,9 +414,9 @@ fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
     let stdout = get_stdout(&dir, args);
     assert!(stdout.contains("hello"));
 
-    let build_dir = dir.join("_build/import_ok.mbtx/wasm/debug/build");
+    let build_dir = dir.join("_build/.import_ok.mbtx/wasm/debug/build");
     let dependency_core = build_dir.join(".mooncakes/moonbitlang/x/stack/stack.core");
-    let n2_db = dir.join("_build/import_ok.mbtx/.moon_db");
+    let n2_db = dir.join("_build/.import_ok.mbtx/.moon_db");
     assert!(dependency_core.is_file());
     assert!(n2_db.is_file());
 

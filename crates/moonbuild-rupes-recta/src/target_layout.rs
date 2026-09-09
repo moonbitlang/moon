@@ -149,8 +149,8 @@ impl TargetLayoutMode {
 /// Target folder layout for generated artifacts.
 #[derive(Clone, Debug)]
 pub struct TargetLayout {
-    /// The base target directory, usually `<project-root>/_build` or
-    /// `<source-dir>/_build/<file-name>` for a standalone file.
+    /// The base directory for this artifact layout. Standalone files use a
+    /// `.<file-name>` subdirectory beneath the configured target root.
     target_base_dir: PathBuf,
     mode: TargetLayoutMode,
     /// The optimization level, debug or release.

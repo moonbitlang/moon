@@ -191,10 +191,11 @@ forward instead of letting later phases infer it again. In particular:
 - package and module directories come from discovery results, not from later
   path guessing.
 
-Standalone-file commands scope this target directory by the input's complete
-filename, including its extension. The default is
-`<source-dir>/_build/<filename>`; an explicit `--target-dir <dir>` produces
-`<dir>/<filename>`. The source-local default separates files in different
+For standalone-file commands, `--target-dir` selects the target root, which
+defaults to `<source-dir>/_build`. The layout places each script's build state
+in a `.<filename>` subdirectory, preserving the complete filename and extension.
+Thus `--target-dir <dir>` places that state in `<dir>/.<filename>`.
+The source-local default separates files in different
 source directories, while the complete filename separates differently named
 files within one target root. Callers that reuse an explicit target root for
 files with the same complete filename also reuse their synthetic package
@@ -660,9 +661,9 @@ Standalone-file checks publish the same relative metadata layout within their
 filename-scoped target directory:
 
 ```text
-_build/<filename>/packages.json
-_build/<filename>/index.json
-_build/<filename>/<backend>/<profile>/check/packages.json
+_build/.<filename>/packages.json
+_build/.<filename>/index.json
+_build/.<filename>/<backend>/<profile>/check/packages.json
 ```
 
 Project checks without a package or path selector publish metadata; focused

@@ -83,7 +83,9 @@ fn target_scoped_packages_json_path(
 }
 
 fn standalone_target_dir(dir: impl AsRef<Path>, source_filename: &str) -> PathBuf {
-    dir.as_ref().join("_build").join(source_filename)
+    dir.as_ref()
+        .join("_build")
+        .join(format!(".{source_filename}"))
 }
 
 pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {
