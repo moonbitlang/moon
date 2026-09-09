@@ -78,6 +78,7 @@ impl<'a> LoweringContext<'a> {
         compiler::CompilationFlags {
             no_opt: self.opt.opt_level == OptLevel::Debug,
             symbols: debug_info,
+            stacktrace: self.plan.backend_plan().moonc_stacktrace(),
             source_map: self.opt.backend.target_backend().supports_source_map() && debug_info,
             enable_coverage: false,
             self_coverage: false,

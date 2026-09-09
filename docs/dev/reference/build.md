@@ -115,7 +115,8 @@ backend into `DebugInfoRequest`, selecting requested symbol detail and native
 runtime backtrace support separately. A default `moon run` for the Native target
 backend requests source backtraces. After selecting the Native Payload Form,
 backend planning retains MoonBit debug information for generated C and omits it
-for direct object output, which keeps `-O0` and stack-trace metadata alone.
+for direct object output, which uses `-O0 -stacktrace` for unoptimized code
+and lightweight stack-trace metadata.
 The generated-C compiler step separately retains the source locations emitted
 by MoonBit. This includes C output selected by
 `MOONBIT_NEW_NATIVE=0`, an unsupported direct-object host, or package C compiler

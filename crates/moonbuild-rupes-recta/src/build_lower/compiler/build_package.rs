@@ -107,6 +107,9 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         if self.flags.no_opt {
             args.push("-O0".to_string());
         }
+        if self.flags.stacktrace {
+            args.push("-stacktrace".to_string());
+        }
 
         // Additional compilation flags
         if self.flags.source_map {

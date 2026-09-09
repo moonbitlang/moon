@@ -119,6 +119,9 @@ pub(crate) struct BackendPlan {
     /// Native compiler settings belong to their individual action metadata.
     moonc_debug_info: bool,
 
+    /// Lightweight source backtraces for direct MoonBit object output.
+    moonc_stacktrace: bool,
+
     /// Planned backend actions, in stable insertion order.
     actions: IndexSet<BuildPlanNode>,
 
@@ -156,6 +159,10 @@ pub(crate) struct BackendPlan {
 impl BackendPlan {
     pub(crate) fn moonc_debug_info(&self) -> bool {
         self.moonc_debug_info
+    }
+
+    pub(crate) fn moonc_stacktrace(&self) -> bool {
+        self.moonc_stacktrace
     }
 
     pub(crate) fn native_mode(&self) -> &NativeBackendMode {
@@ -820,10 +827,12 @@ pub fn build_plan(
     constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {
         DebugSymbols::None => false,
         DebugSymbols::Full => true,
-        // Direct objects retain backtrace metadata with -O0 alone. Generated C
+        // Direct objects use -stacktrace for backtrace metadata. Generated C
         // needs moonc -g for accurate source locations in its #line directives.
         DebugSymbols::Backtrace => constructor.res.backend.direct_native_target().is_none(),
     };
+    constructor.res.backend.moonc_stacktrace = config.debug_info.symbols == DebugSymbols::Backtrace
+        && constructor.res.backend.direct_native_target().is_some();
     // Preserve the caller-requested executable scope for Native selection,
     // then drop test artifacts excluded by the standard-library special cases.
     constructor.build(input.into_iter().filter(|artifact| {

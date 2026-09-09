@@ -202,6 +202,9 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
         if self.flags.no_opt {
             args.push("-O0".to_string());
         }
+        if self.flags.stacktrace {
+            args.push("-stacktrace".to_string());
+        }
 
         // Source map
         if self.flags.source_map {

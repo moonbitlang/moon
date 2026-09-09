@@ -390,6 +390,11 @@ mod tests {
                         opt_level == OptLevel::Debug,
                         "{args:?}"
                     );
+                    assert_eq!(
+                        args.iter().any(|arg| arg == "-stacktrace"),
+                        !generated_c && symbols == DebugSymbols::Backtrace,
+                        "{args:?}"
+                    );
                     if command == "link-core" {
                         let output = args
                             .windows(2)
