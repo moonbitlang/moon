@@ -1074,6 +1074,37 @@ fn test_moon_run_with_async_host_imports() {
 }
 
 #[test]
+fn sqlite_jobs_share_the_async_pool_from_moonbit() {
+    let dir = TestDir::new("test_sqlite_async.in");
+    let upstream = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../third_party/moonbitlang_async");
+    // Exercise the small companion guest entry point against the pinned async
+    // implementation without modifying the submodule or its generated files.
+    moon_test_util::test_dir::copy_tree(&upstream.join("src"), &dir.join("async/src"), false)
+        .unwrap();
+    std::fs::copy(upstream.join("moon.mod"), dir.join("async/moon.mod")).unwrap();
+    std::fs::copy(
+        dir.join("support/host_job.wasm.mbt"),
+        dir.join("async/src/internal/event_loop/host_job.wasm.mbt"),
+    )
+    .unwrap();
+    std::fs::copy(
+        dir.join("support/host_job_export.wasm.mbt"),
+        dir.join("async/src/host_job_export.wasm.mbt"),
+    )
+    .unwrap();
+    moon_test_util::test_dir::copy_tree(&dir.join("test"), &dir.join("async/src/test"), false)
+        .unwrap();
+    moon_cmd()
+        .current_dir(dir.join("async"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .args(["test", "--target", "wasm", "src/test"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 6, passed: 6, failed: 0.\n");
+}
+
+#[test]
 fn test_moon_run_with_sqlite_ffi_imports() {
     let dir = TestDir::new("test_sqlite_ffi.in");
 

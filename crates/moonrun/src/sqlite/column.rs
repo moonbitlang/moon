@@ -32,6 +32,10 @@ unsafe extern "C" {
     fn sqlite3_column_bytes16(statement: *mut ffi::sqlite3_stmt, column: c_int) -> c_int;
 }
 
+// Statement lookup rejects every worker-owned Statement before these calls.
+// Guest host calls run serially, so the same Statement cannot be stepped,
+// reset, finalized, or converted while its column buffer is being copied.
+// Connection-wide error inspection is separate and needs its own exclusion.
 impl SqliteHost {
     pub(crate) fn column_count(&self, statement: u64) -> SqliteHostResult<i32> {
         let statement = self.statement(statement)?;
@@ -171,8 +175,9 @@ impl SqliteHost {
         let statement = self.current_column(statement, column)?;
         let pointer = unsafe { sqlite3_column_text16(statement.pointer.as_ptr(), column) };
         if pointer.is_null() {
-            // Do not make another SQLite call before the guest can inspect
-            // sqlite3_errcode() to distinguish SQL NULL from conversion OOM.
+            // Avoid replacing this error here. The guest must hold the
+            // connection mutex across conversion and error inspection if it
+            // needs to exclude intervening operations on other Statements.
             return Ok(None);
         }
         // SQLite requires this order so conversion cannot invalidate the
@@ -194,7 +199,7 @@ impl SqliteHost {
         let pointer = unsafe { ffi::sqlite3_column_blob(statement.pointer.as_ptr(), column) };
         if pointer.is_null() {
             // SQLite also uses NULL for SQL NULL, zero-length blobs, and OOM.
-            // Preserve the connection error until the guest inspects it.
+            // Avoid replacing the connection error within this host call.
             return Ok((None, 0));
         }
         // SQLite requires the value accessor before the matching byte count.

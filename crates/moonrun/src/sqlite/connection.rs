@@ -32,7 +32,7 @@ unsafe extern "C" {
     fn sqlite3_errmsg16(database: *mut ffi::sqlite3) -> *const c_void;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum Database {
     /// The connection opened and the Host policy was installed.
     Ready {
@@ -45,7 +45,7 @@ pub(super) enum Database {
 }
 
 impl Database {
-    fn ready(pointer: NonNull<ffi::sqlite3>) -> Self {
+    pub(super) fn ready(pointer: NonNull<ffi::sqlite3>) -> Self {
         Self::Ready {
             pointer,
             mutex: None,
@@ -91,38 +91,10 @@ pub(crate) struct OpenOutcome {
 
 impl SqliteHost {
     pub(crate) fn open_v2(&self, filename: &CStr, flags: i32, vfs: u64) -> OpenOutcome {
-        let flags = normalize_open_flags(flags);
-        if let Err(code) = ensure_valid_database(&self.filesystem, filename, flags, vfs) {
-            return OpenOutcome {
-                code,
-                database: None,
-            };
-        }
-
-        let mut database = ptr::null_mut();
-        let code =
-            unsafe { ffi::sqlite3_open_v2(filename.as_ptr(), &mut database, flags, ptr::null()) };
-        let Some(database) = NonNull::new(database) else {
-            return OpenOutcome {
-                code,
-                database: None,
-            };
-        };
-
-        let code = if code == ffi::SQLITE_OK {
-            install_authorizer(database)
-        } else {
-            code
-        };
-
-        let database = if code == ffi::SQLITE_OK {
-            Database::ready(database)
-        } else {
-            Database::Failed(database)
-        };
+        let (code, database) = open_database(&self.filesystem, filename, flags, vfs);
         OpenOutcome {
             code,
-            database: Some(self.insert_database(database)),
+            database: database.map(|database| self.insert_database(database)),
         }
     }
 
@@ -130,19 +102,25 @@ impl SqliteHost {
     /// excluding its trailing NUL.
     pub(crate) fn errmsg16_length(&self, database: u64) -> SqliteHostResult<u32> {
         let database = self.database(database)?;
+        let _guard = database.lock();
         let message = unsafe { sqlite3_errmsg16(database.pointer().as_ptr()) };
-        // No other thread can access this run-local connection, and the scan
-        // finishes before another SQLite call can invalidate the pointer.
+        // The connection mutex keeps the borrowed error alive through this scan.
         Ok(unsafe { utf16_string_length(message) }?.unwrap_or(0))
     }
 
     pub(crate) fn errcode(&self, database: u64) -> SqliteHostResult<i32> {
         let database = self.database(database)?;
+        // SQLite's error-code getters read mutable connection fields without
+        // locking. Exclude worker writes for this read; separate guest calls
+        // still observe whichever operation most recently changed the error.
+        let _guard = database.lock();
         Ok(unsafe { ffi::sqlite3_errcode(database.pointer().as_ptr()) })
     }
 
     pub(crate) fn extended_errcode(&self, database: u64) -> SqliteHostResult<i32> {
         let database = self.database(database)?;
+        // Like errcode(), this SQLite getter does not lock internally.
+        let _guard = database.lock();
         Ok(unsafe { ffi::sqlite3_extended_errcode(database.pointer().as_ptr()) })
     }
 
@@ -151,6 +129,8 @@ impl SqliteHost {
         if !database.is_ready() {
             return Err(SqliteHostError::InvalidInput);
         }
+        // SQLite reads nChange without locking; a worker may be updating it.
+        let _guard = database.lock();
         Ok(unsafe { ffi::sqlite3_changes64(database.pointer().as_ptr()) })
     }
 
@@ -162,9 +142,9 @@ impl SqliteHost {
     /// the caller how much space to allocate.
     pub(crate) fn copy_errmsg16(&self, database: u64, output: &mut [u16]) -> SqliteHostResult<u32> {
         let database = self.database(database)?;
+        let _guard = database.lock();
         let message = unsafe { sqlite3_errmsg16(database.pointer().as_ptr()) };
-        // No other thread can access this run-local connection, and copying
-        // finishes before another SQLite call can invalidate the pointer.
+        // The connection mutex keeps the borrowed error alive through this copy.
         Ok(unsafe { copy_utf16_string(message, output) }?.unwrap_or(0))
     }
 
@@ -174,7 +154,9 @@ impl SqliteHost {
         }
         let database_handle = database;
         let database = self.database(database_handle)?;
-        if self.database_mutex_is_entered(database) {
+        if self.database_mutex_is_entered(database)
+            || self.job_uses_database(self.database_key(database_handle)?)
+        {
             return Err(SqliteHostError::InvalidInput);
         }
         let pointer = database.pointer();
@@ -186,7 +168,7 @@ impl SqliteHost {
         Ok(code)
     }
 
-    fn insert_database(&self, database: Database) -> u64 {
+    pub(super) fn insert_database(&self, database: Database) -> u64 {
         let key = self
             .keys
             .borrow_mut()
@@ -224,6 +206,36 @@ impl SqliteHost {
         debug_assert_eq!(removed, Some(HostResourceKind::SqliteDatabase));
         Ok(database)
     }
+}
+
+/// The same admission and raw open operation serves synchronous and worker calls.
+pub(super) fn open_database(
+    filesystem: &crate::filesystem::HostFs,
+    filename: &CStr,
+    flags: i32,
+    vfs: u64,
+) -> (i32, Option<Database>) {
+    let flags = normalize_open_flags(flags);
+    if let Err(code) = ensure_valid_database(filesystem, filename, flags, vfs) {
+        return (code, None);
+    }
+    let mut database = ptr::null_mut();
+    let code =
+        unsafe { ffi::sqlite3_open_v2(filename.as_ptr(), &mut database, flags, ptr::null()) };
+    let Some(database) = NonNull::new(database) else {
+        return (code, None);
+    };
+    let code = if code == ffi::SQLITE_OK {
+        install_authorizer(database)
+    } else {
+        code
+    };
+    let database = if code == ffi::SQLITE_OK {
+        Database::ready(database)
+    } else {
+        Database::Failed(database)
+    };
+    (code, Some(database))
 }
 
 /// Measure a native-endian, NUL-terminated SQLite UTF-16 string, excluding NUL.
