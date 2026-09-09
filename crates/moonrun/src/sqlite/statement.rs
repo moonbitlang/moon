@@ -23,7 +23,7 @@ use libsqlite3_sys as ffi;
 use slotmap::Key;
 
 use super::{SqliteHost, SqliteHostError, SqliteHostResult};
-use crate::runtime::{HostResourceKind, null_handle};
+use crate::runtime::{HostKey, HostResourceKind, null_handle};
 
 // `libsqlite3-sys` intentionally omits SQLite's UTF-16 convenience APIs from
 // its generated bindings. The bundled SQLite library still exports them.
@@ -40,6 +40,7 @@ unsafe extern "C" {
 #[derive(Clone, Copy)]
 pub(super) struct Statement {
     pub(super) pointer: NonNull<ffi::sqlite3_stmt>,
+    pub(super) database: HostKey,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,42 +61,17 @@ impl SqliteHost {
         database: u64,
         sql: &[u16],
     ) -> SqliteHostResult<PrepareOutcome> {
-        let byte_length = sql
-            .len()
-            .checked_mul(size_of::<u16>())
-            .ok_or(SqliteHostError::Overflow)?;
-        let native_length = i32::try_from(byte_length).map_err(|_| SqliteHostError::Overflow)?;
+        let database_key = self.database_key(database)?;
         let database = self.database(database)?;
-        if !database.is_ready() {
-            return Ok(PrepareOutcome {
-                code: ffi::SQLITE_MISUSE,
-                statement: None,
-                tail_offset: 0,
-            });
-        }
-
-        let native_start = sql.as_ptr().cast::<c_void>();
-        let mut statement = ptr::null_mut();
-        let mut native_tail = ptr::null();
-        let code = unsafe {
-            sqlite3_prepare16_v2(
-                database.pointer().as_ptr(),
-                native_start,
-                native_length,
-                &mut statement,
-                &mut native_tail,
-            )
-        };
-        // SAFETY: SQLite guarantees that `pzTail` points into the supplied SQL
-        // and UTF-16 input keeps both pointers aligned to code units.
-        let tail_offset = unsafe { native_tail.cast::<u16>().offset_from(sql.as_ptr()) };
-        let tail_offset = u32::try_from(tail_offset).map_err(|_| SqliteHostError::Overflow)?;
-        let statement =
-            NonNull::new(statement).map(|pointer| self.insert_statement(Statement { pointer }));
-
+        let (code, statement, tail_offset) = prepare_statement(database, sql)?;
         Ok(PrepareOutcome {
             code,
-            statement,
+            statement: statement.map(|pointer| {
+                self.insert_statement(Statement {
+                    pointer,
+                    database: database_key,
+                })
+            }),
             tail_offset,
         })
     }
@@ -114,6 +90,7 @@ impl SqliteHost {
         if statement == null_handle() {
             return Ok(ffi::SQLITE_OK);
         }
+        self.statement(statement)?;
         let statement = self.remove_statement(statement)?;
         // `sqlite3_finalize` always destroys the statement, even when it
         // reports an earlier execution error. Remove the guest handle before
@@ -121,7 +98,7 @@ impl SqliteHost {
         Ok(unsafe { ffi::sqlite3_finalize(statement.pointer.as_ptr()) })
     }
 
-    fn insert_statement(&self, statement: Statement) -> u64 {
+    pub(super) fn insert_statement(&self, statement: Statement) -> u64 {
         let key = self
             .keys
             .borrow_mut()
@@ -131,12 +108,14 @@ impl SqliteHost {
         key.data().as_ffi()
     }
 
+    /// Validate guest access without acquiring SQLite's connection mutex.
+    /// A worker cannot use this Statement while a synchronous host call does:
+    /// jobs pin it before submission, and guest calls do not overlap each other.
     pub(super) fn statement(&self, handle: u64) -> SqliteHostResult<Statement> {
-        let key = self
-            .keys
-            .borrow()
-            .key(handle, HostResourceKind::SqliteStatement)
-            .ok_or(SqliteHostError::InvalidHandle)?;
+        let key = self.statement_key(handle)?;
+        if self.job_uses_statement(key) {
+            return Err(SqliteHostError::InvalidInput);
+        }
         self.statements
             .borrow()
             .get(key)
@@ -144,7 +123,14 @@ impl SqliteHost {
             .ok_or(SqliteHostError::InvalidHandle)
     }
 
-    fn remove_statement(&self, handle: u64) -> SqliteHostResult<Statement> {
+    pub(super) fn statement_key(&self, handle: u64) -> SqliteHostResult<HostKey> {
+        self.keys
+            .borrow()
+            .key(handle, HostResourceKind::SqliteStatement)
+            .ok_or(SqliteHostError::InvalidHandle)
+    }
+
+    pub(super) fn remove_statement(&self, handle: u64) -> SqliteHostResult<Statement> {
         let key = self
             .keys
             .borrow()
@@ -159,6 +145,38 @@ impl SqliteHost {
         debug_assert_eq!(removed, Some(HostResourceKind::SqliteStatement));
         Ok(statement)
     }
+}
+
+pub(super) fn prepare_statement(
+    database: super::connection::Database,
+    sql: &[u16],
+) -> SqliteHostResult<(i32, Option<NonNull<ffi::sqlite3_stmt>>, u32)> {
+    let native_length = sql
+        .len()
+        .checked_mul(size_of::<u16>())
+        .and_then(|len| i32::try_from(len).ok())
+        .ok_or(SqliteHostError::Overflow)?;
+    if !database.is_ready() {
+        return Ok((ffi::SQLITE_MISUSE, None, 0));
+    }
+    let mut statement = ptr::null_mut();
+    let mut tail = ptr::null();
+    let code = unsafe {
+        sqlite3_prepare16_v2(
+            database.pointer().as_ptr(),
+            sql.as_ptr().cast(),
+            native_length,
+            &mut statement,
+            &mut tail,
+        )
+    };
+    // SQLite's tail belongs to this input; empty/error results may omit it.
+    let offset = if tail.is_null() {
+        0
+    } else {
+        (unsafe { tail.cast::<u16>().offset_from(sql.as_ptr()) }) as u32
+    };
+    Ok((code, NonNull::new(statement), offset))
 }
 
 #[cfg(test)]

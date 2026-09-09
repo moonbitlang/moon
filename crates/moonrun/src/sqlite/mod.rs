@@ -23,6 +23,8 @@ pub(crate) mod wasm;
 mod bind;
 mod column;
 mod connection;
+mod jobs;
+pub(crate) use jobs::Job;
 mod mutex;
 mod policy;
 mod statement;
@@ -68,6 +70,7 @@ pub(crate) struct SqliteHost {
     databases: RefCell<SecondaryMap<HostKey, Database>>,
     mutexes: RefCell<SecondaryMap<HostKey, mutex::DatabaseMutex>>,
     statements: RefCell<SecondaryMap<HostKey, Statement>>,
+    job_leases: RefCell<Vec<std::sync::Weak<jobs::Lease>>>,
 }
 
 impl SqliteHost {
@@ -78,6 +81,7 @@ impl SqliteHost {
             databases: RefCell::new(SecondaryMap::new()),
             mutexes: RefCell::new(SecondaryMap::new()),
             statements: RefCell::new(SecondaryMap::new()),
+            job_leases: RefCell::new(Vec::new()),
         }
     }
 
@@ -101,6 +105,7 @@ impl Drop for SqliteHost {
         // A guest may terminate between a balanced enter/leave pair. Release
         // those recursive entries before SQLite destroys connection mutexes.
         self.release_entered_mutexes();
+        // Runtime destroys Async Host workers and Jobs before these tables.
         // Statements hold their connections open, so destroy them first.
         for statement in self.statements.get_mut().values() {
             unsafe { ffi::sqlite3_finalize(statement.pointer.as_ptr()) };
@@ -123,6 +128,25 @@ pub(super) mod tests {
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
         ))
+    }
+
+    pub(crate) fn runtime() -> crate::runtime::Runtime {
+        #[cfg(unix)]
+        let mask = {
+            let mut mask = unsafe { std::mem::zeroed() };
+            unsafe { libc::sigemptyset(&mut mask) };
+            mask
+        };
+        crate::runtime::Runtime::new(
+            None,
+            None,
+            None,
+            WorkingDirectory::Ambient,
+            crate::signal_channel().1,
+            #[cfg(unix)]
+            mask,
+        )
+        .unwrap()
     }
 
     pub(super) fn host() -> SqliteHost {

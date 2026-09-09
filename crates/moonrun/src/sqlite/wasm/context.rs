@@ -41,6 +41,7 @@ pub(super) fn with_memory_context<T>(
     context.memory_binding().with_memory_mut(scope, |memory| {
         f(&mut ImportContext {
             host: context.runtime().sqlite(),
+            resources: context.runtime().async_host(),
             memory,
         })
     })
@@ -59,6 +60,7 @@ pub(super) fn with_wasmtime_context<T>(
             let (memory, data) = memory.data_and_store_mut(&mut *caller);
             f(&mut ImportContext {
                 host: data.runtime().sqlite(),
+                resources: data.runtime().async_host(),
                 memory,
             })
         }
@@ -67,6 +69,7 @@ pub(super) fn with_wasmtime_context<T>(
             let mut empty = [];
             f(&mut ImportContext {
                 host: data.runtime().sqlite(),
+                resources: data.runtime().async_host(),
                 memory: &mut empty,
             })
         }
@@ -75,6 +78,7 @@ pub(super) fn with_wasmtime_context<T>(
 
 pub(super) struct ImportContext<'a> {
     pub(super) host: &'a SqliteHost,
+    pub(super) resources: &'a crate::async_host::AsyncHost,
     memory: &'a mut [u8],
 }
 
@@ -185,7 +189,7 @@ impl ImportContext<'_> {
         self.write_exact(pointer, &value.to_le_bytes())
     }
 
-    fn write_exact(&mut self, pointer: u32, value: &[u8]) -> SqliteResult<()> {
+    pub(super) fn write_exact(&mut self, pointer: u32, value: &[u8]) -> SqliteResult<()> {
         if pointer == 0 {
             return Err(SqliteError::Fault);
         }
@@ -207,6 +211,15 @@ impl From<V8ImportError> for SqliteError {
     }
 }
 
+impl From<crate::async_host::AsyncHostError> for SqliteError {
+    fn from(error: crate::async_host::AsyncHostError) -> Self {
+        match error {
+            crate::async_host::AsyncHostError::Badf => Self::InvalidHandle,
+            _ => Self::Fault,
+        }
+    }
+}
+
 impl From<SqliteHostError> for SqliteError {
     fn from(error: SqliteHostError) -> Self {
         match error {
@@ -220,25 +233,54 @@ impl From<SqliteHostError> for SqliteError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use crate::sqlite::tests::runtime;
 
-    use crate::policy::Policy;
-    use crate::runtime::HostKeys;
+    #[test]
+    fn invalid_job_memory_preserves_results_and_database_lifetimes() {
+        use crate::sqlite::wasm::jobs;
 
-    fn host() -> SqliteHost {
-        SqliteHost::new(
-            crate::sqlite::tests::ambient_filesystem(Policy::allow_all()),
-            Rc::new(RefCell::new(HostKeys::default())),
-        )
+        let runtime = runtime();
+        let mut memory = vec![0; 64];
+        memory[2..10].copy_from_slice(b":memory:");
+        let mut context = ImportContext {
+            host: runtime.sqlite(),
+            resources: runtime.async_host(),
+            memory: &mut memory,
+        };
+        let job = jobs::make_open_job(&mut context, 2, 8, 6).unwrap();
+        context.resources.run_job(job).unwrap();
+        assert_eq!(
+            jobs::job_result(&mut context, job, 0),
+            Err(SqliteError::Fault)
+        );
+        assert_eq!(
+            jobs::job_result(&mut context, job, 48),
+            Err(SqliteError::Fault)
+        );
+        jobs::job_result(&mut context, job, 16).unwrap();
+        let database = jobs::take_job_handle(&mut context, job).unwrap();
+        assert_eq!(
+            jobs::take_job_handle(&mut context, job),
+            Err(SqliteError::Fault)
+        );
+        assert_eq!(
+            jobs::make_prepare_job(&mut context, database, 62, 0, 2),
+            Err(SqliteError::Fault)
+        );
+        // Neither a transferred open result nor rejected SQL memory pins the
+        // connection. The still-readable open result contains no native pointer.
+        assert_eq!(context.host.close(database), Ok(libsqlite3_sys::SQLITE_OK));
+        jobs::job_result(&mut context, job, 16).unwrap();
+        context.resources.free_job(job).unwrap();
     }
 
     #[test]
     fn utf16_view_uses_code_unit_offsets_and_lengths() {
-        let host = host();
+        let runtime = runtime();
         let mut memory = (0_u8..16).collect::<Vec<_>>();
         let context = ImportContext {
-            host: &host,
+            host: runtime.sqlite(),
+            resources: runtime.async_host(),
             memory: &mut memory,
         };
 
@@ -255,10 +297,11 @@ mod tests {
 
     #[test]
     fn utf8_c_string_adds_termination_after_the_explicit_length() {
-        let host = host();
+        let runtime = runtime();
         let mut memory = b"x:memory:".to_vec();
         let context = ImportContext {
-            host: &host,
+            host: runtime.sqlite(),
+            resources: runtime.async_host(),
             memory: &mut memory,
         };
 
@@ -267,10 +310,11 @@ mod tests {
 
     #[test]
     fn utf8_c_string_rejects_interior_nul_and_invalid_utf8() {
-        let host = host();
+        let runtime = runtime();
         let mut memory = b"xabc\0def\xff".to_vec();
         let context = ImportContext {
-            host: &host,
+            host: runtime.sqlite(),
+            resources: runtime.async_host(),
             memory: &mut memory,
         };
 
@@ -280,10 +324,11 @@ mod tests {
 
     #[test]
     fn byte_view_uses_byte_offsets_and_lengths() {
-        let host = host();
+        let runtime = runtime();
         let mut memory = (0_u8..8).collect::<Vec<_>>();
         let context = ImportContext {
-            host: &host,
+            host: runtime.sqlite(),
+            resources: runtime.async_host(),
             memory: &mut memory,
         };
 

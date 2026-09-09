@@ -32,6 +32,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
         JobPayload::Filesystem(job) => job.run(),
         JobPayload::Network(job) => job.run(),
         JobPayload::Process(job) => job.run(),
+        JobPayload::Sqlite(job) => job.run(),
         #[cfg(unix)]
         JobPayload::Signal(job) => job.run(),
     };

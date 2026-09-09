@@ -2305,6 +2305,26 @@ impl AsyncHost {
         Ok(handle_from_key(key))
     }
 
+    /// Domain adapters inspect their own payloads; the Async Host retains Job
+    /// identity and rejects access while a worker owns the payload.
+    pub(crate) fn with_job<T>(&self, handle: u64, f: impl FnOnce(&Job) -> T) -> AsyncHostResult<T> {
+        self.restore_completed_worker_jobs();
+        let key = self.handles.borrow().job(handle)?;
+        let jobs = self.jobs.borrow();
+        Ok(f(jobs.visible_job(key)?))
+    }
+
+    pub(crate) fn with_job_mut<T>(
+        &self,
+        handle: u64,
+        f: impl FnOnce(&mut Job) -> T,
+    ) -> AsyncHostResult<T> {
+        self.restore_completed_worker_jobs();
+        let key = self.handles.borrow().job(handle)?;
+        let mut jobs = self.jobs.borrow_mut();
+        Ok(f(jobs.visible_job_mut(key)?))
+    }
+
     pub(crate) fn free_job(&self, handle: u64) -> AsyncHostResult<()> {
         let mut handles = self.handles.borrow_mut();
         let key = handles.job(handle)?;

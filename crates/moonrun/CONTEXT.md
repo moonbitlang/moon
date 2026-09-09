@@ -294,7 +294,7 @@ and reports Host Errors.
 _Avoid_: Host state, native-stub implementation
 
 **Async Host**:
-Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace, materializes its reserved standard-stream Resources from the Runtime Stdio, and contains no SQLite state.
+Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace and materializes its reserved standard-stream Resources from the Runtime Stdio. It owns the common Job lifecycle for Filesystem, Network, Process, Run Signal, and SQLite payloads; domain semantics remain with their Host Domains.
 It owns one Run Signal receiver, translates guest cancellation registration
 into that receiver's interest, and constructs the Unix virtual signal-wait Job
 against the Run's Completion target.
@@ -307,8 +307,12 @@ _Avoid_: SQLite Host, SQLite wrapper SDK
 **SQLite Host**:
 The backend-neutral SQLite implementation owned by one Runtime. It owns SQLite
 admission rules and operations, uses the Runtime's shared Host Key namespace,
-and contains the Database, Database Mutex, and Statement state, teardown, and
-leak accounting. Its Database Mutex depth counts recursive entries made through
+and contains Database, Database Mutex, and Statement state, teardown, and leak
+accounting. Its Job payloads pin their inputs and capture owned results while
+the Async Host owns their Handles, shared workers, completion, and release.
+The guest orders operations with a per-connection async Mutex. See
+[SQLite jobs](docs/dev/sqlite-jobs.md) for the shared-pool ABI and
+result acceptance and discard protocol. Its Database Mutex depth counts recursive entries made through
 the SQLite Host interface, not SQLite's internal mutex ownership. This protects
 the Database lifetime from unbalanced guest calls: the Host rejects unmatched
 leaves and Database close while entries remain, and releases those entries
@@ -334,7 +338,7 @@ _Avoid_: V8 adapter, placeholder unsupported imports
 **Thread Pool**:
 The shared host facility that schedules Jobs outside the guest coroutine loop.
 It owns the common Job result envelope, Workers, and Completion delivery. It
-does not interpret Filesystem, Network, Process, or Run Signal semantics.
+does not interpret Filesystem, Network, Process, Run Signal, or SQLite semantics.
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:

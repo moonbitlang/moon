@@ -27,7 +27,7 @@ use super::registry_macros::{
     decode_wasmtime_arg, finish_wasmtime_sqlite_import, invoke_wasmtime_sqlite_import,
     wasmtime_arg_type, wasmtime_return_type,
 };
-use super::{bind, column, connection, statement};
+use super::{bind, column, connection, jobs, statement};
 #[cfg(feature = "v8")]
 use crate::v8::context::{ImportArgs, V8ImportError, V8RunContext};
 
@@ -39,6 +39,16 @@ pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
 // target; the registry does not expose how the macro reaches that target.
 declare_sqlite_imports! {
     Runtime::null_handle() -> u64 => "sqlite3_null_handle";
+
+    jobs::make_open_job(filename: u32, length: i32, flags: i32) -> u64 => "sqlite3_make_open_job";
+    jobs::make_prepare_job(database: u64, sql: u32, offset: i32, length: i32) -> u64 => "sqlite3_make_prepare_job";
+    jobs::make_step_job(database: u64, statement: u64) -> u64 => "sqlite3_make_step_job";
+    jobs::make_finalize_job(database: u64, statement: u64) -> u64 => "sqlite3_make_finalize_job";
+    jobs::make_discard_job(job: u64) -> u64 => "sqlite3_make_discard_job";
+    jobs::job_result(job: u64, output: u32) -> void => "sqlite3_job_result";
+    jobs::take_job_handle(job: u64) -> u64 => "sqlite3_take_job_handle";
+    jobs::job_message16_length(job: u64) -> u32 => "sqlite3_job_message16_length";
+    jobs::job_message16(job: u64, output: u32, capacity: u32) -> u32 => "sqlite3_job_message16";
 
     connection::open_v2(
         filename: u32,

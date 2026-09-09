@@ -2,6 +2,8 @@
 
 ## Developer workflows
 
+- [SQLite jobs](sqlite-jobs.md): SQLite payloads in the shared async pool,
+  result ownership, asynchronous discard, and upstream Wasm wrapper integration.
 - [Porting `moonbitlang/async` changes](async-upstream-porting.md): audit the
   one-way upstream runtime-port request queue, preserve exact provenance,
   deliver one upstream port at a time, and mark the originating async pull

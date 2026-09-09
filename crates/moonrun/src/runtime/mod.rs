@@ -115,6 +115,8 @@ pub(crate) struct Runtime {
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     filesystem: Arc<HostFs>,
+    // Field order is significant: join workers and drop their SQLite payloads
+    // before destroying the Database and Statement tables they refer to.
     async_host: AsyncHost,
     sqlite: SqliteHost,
 }
@@ -220,6 +222,9 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
+        // Async Host is dropped first and joins workers that can use SQLite.
+        // Release guest-held recursive mutex entries before any worker join.
+        self.sqlite.release_entered_mutexes();
         // Keep the historical opt-in name for compatibility even though the
         // check now runs at the lifetime of the complete Runtime.
         if std::thread::panicking() || std::env::var_os("MOONBIT_ASYNC_CHECK_FD_LEAK").is_none() {

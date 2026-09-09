@@ -23,6 +23,7 @@ use crate::async_sys::signal::SigwaitJob;
 use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
 use crate::process::Job as ProcessJob;
+use crate::sqlite::Job as SqliteJob;
 #[cfg(unix)]
 use std::sync::Arc;
 
@@ -99,6 +100,20 @@ impl Job {
         }
     }
 
+    pub(crate) fn sqlite(&self) -> AsyncHostResult<&SqliteJob> {
+        match &self.payload {
+            JobPayload::Sqlite(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    pub(crate) fn sqlite_mut(&mut self) -> AsyncHostResult<&mut SqliteJob> {
+        match &mut self.payload {
+            JobPayload::Sqlite(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
     #[cfg(windows)]
     pub(crate) fn cancellation_resource(&self) -> Option<crate::resource::ResourceRef> {
         match &self.payload {
@@ -146,6 +161,12 @@ impl From<FilesystemJob> for Job {
     }
 }
 
+impl From<SqliteJob> for Job {
+    fn from(job: SqliteJob) -> Self {
+        Self::new(JobPayload::Sqlite(job))
+    }
+}
+
 impl From<ProcessJob> for Job {
     fn from(job: ProcessJob) -> Self {
         Self::new(JobPayload::Process(job))
@@ -170,6 +191,7 @@ pub(crate) enum JobPayload {
     Filesystem(FilesystemJob),
     Network(NetworkJob),
     Process(ProcessJob),
+    Sqlite(SqliteJob),
     #[cfg(unix)]
     Signal(SigwaitJob),
 }
