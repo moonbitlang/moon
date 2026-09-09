@@ -76,10 +76,17 @@ directories under the consumer's target directory, so generated files need not
 be written into dependency sources. The directory's internal layout is not part
 of the script API.
 
+This MVP does not register files as build inputs merely because they are written
+to `MOON_BUILD_DIR` or referenced in `link_flags` or `link_search_paths`.
+Rewriting such a file at the same path may therefore fail to trigger relinking.
+Explicit generated-file dependency declarations and rerun controls remain
+future work for the experimental protocol.
+
 The command layer acquires the target-directory lock before planning runs these
-scripts and keeps it until the build has finished consuming their generated
-files. Native and LLVM dry runs also acquire the lock: they execute the scripts
-to determine build commands and can update the same persistent files.
+scripts and keeps it through build execution. This protects script writes and
+any build actions that read their outputs from concurrent invocations. Native
+and LLVM dry runs also acquire the lock: they execute the scripts to determine
+build commands and can update the same persistent files.
 
 Stdout must contain one build configuration JSON value with the optional fields
 `vars`, `link_configs`, and `rerun_if`; `rerun_if` currently has no effect. Stderr
