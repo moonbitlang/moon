@@ -17,7 +17,10 @@ fn test_generated_c_native_run_preserves_abort_trace() {
         .assert()
         .code(128 + libc::SIGABRT)
         .stdout_eq("Hello\n")
-        // MoonBit source locations are stable; runtime frames after main vary by platform.
+        // Ubuntu's native runtime can unwind past main into libc startup,
+        // producing `???` frames without libc debug info. This also happens
+        // with generated C and --debug. Allow that existing tail while keeping
+        // MoonBit frames and source lines exact to catch missing -g.
         .stderr_eq(snapbox::str![[r#"
 PanicError
     at @moonbitlang/core/option.Option::unwrap[Int] ([CORE_PATH]/builtin/option.mbt:[..])
