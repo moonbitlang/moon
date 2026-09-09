@@ -32,7 +32,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::mpsc,
+    sync::{LazyLock, mpsc},
 };
 
 use anyhow::Context;
@@ -446,6 +446,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     intent: CalcUserIntentOutput,
     mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
+    jobs: Option<usize>,
     frozen: bool,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let target_dir = cx.target_dir.clone();
@@ -461,7 +462,8 @@ pub(crate) fn plan_resolved_build_from_intent(
         info!("Running prebuild configuration");
         Some(prebuild::run_prebuild_config(
             &resolve_output,
-            &target_dir,
+            &cx,
+            resolve_parallelism(jobs),
             frozen,
         )?)
     };
@@ -707,6 +709,14 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
         ))?;
     }
     Ok(())
+}
+
+/// Share the default observation between prebuild scripts and the executor so
+/// both see the same job limit throughout this Moon process.
+fn resolve_parallelism(jobs: Option<usize>) -> usize {
+    static DEFAULT_PARALLELISM: LazyLock<usize> =
+        LazyLock::new(|| std::thread::available_parallelism().map_or(1, usize::from));
+    jobs.unwrap_or_else(|| *DEFAULT_PARALLELISM)
 }
 
 #[derive(Clone)]
@@ -1141,10 +1151,7 @@ fn execute_n2_graph_capturing(
     let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)
         .with_context(|| format!("Failed to open build cache DB at {}", db_path.display()))?;
 
-    let parallelism = cfg
-        .parallelism
-        .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
-        .unwrap();
+    let parallelism = resolve_parallelism(cfg.parallelism);
 
     let (captured_output_sender, captured_output_receiver) = mpsc::channel();
     let mut prog_console: Box<dyn n2::progress::Progress> = create_progress_console(

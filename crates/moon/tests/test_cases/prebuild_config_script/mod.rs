@@ -23,6 +23,161 @@ fn test_prebuild_config_mbtx() {
 }
 
 #[test]
+fn test_prebuild_config_build_environment() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+          "name": "testuser/environment",
+          "preferred-target": "llvm",
+          "--moonbit-unstable-prebuild": "build.js"
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(dir.join("main.mbt"), "fn main { println(42) }").unwrap();
+    std::fs::write(
+        dir.join("build.js"),
+        r#"const fs = require('node:fs')
+const names = ['MOON_HOST_OS', 'MOON_HOST_ARCH', 'MOON_BACKEND', 'MOON_PROFILE', 'MOON_JOBS']
+fs.writeFileSync('environment.json', JSON.stringify(Object.fromEntries(names.map(name => [name, process.env[name]]))))
+// Stop before compilation: this test does not require LLVM standard-library artifacts.
+process.exit(1)
+"#,
+    )
+    .unwrap();
+
+    for (args, backend, profile, jobs) in [
+        (
+            ["build", "--target", "native", "--debug", "--jobs", "2"].as_slice(),
+            "native",
+            "debug",
+            2,
+        ),
+        (
+            ["build", "--target", "llvm", "--release", "-j", "3"].as_slice(),
+            "llvm",
+            "release",
+            3,
+        ),
+        (
+            ["run", ".", "--target", "native", "-j", "4"].as_slice(),
+            "native",
+            "debug",
+            4,
+        ),
+        (
+            ["test", "--target", "native", "-j", "5"].as_slice(),
+            "native",
+            "debug",
+            5,
+        ),
+        (
+            ["bench", "--target", "native", "-j", "6"].as_slice(),
+            "native",
+            "release",
+            6,
+        ),
+        (
+            ["build"].as_slice(),
+            "llvm",
+            "debug",
+            std::thread::available_parallelism().map_or(1, usize::from),
+        ),
+    ] {
+        moon_cmd(&dir)
+            .env("MOON_HOST_OS", "inherited-host-os")
+            .env("MOON_HOST_ARCH", "inherited-host-arch")
+            .env("MOON_BACKEND", "inherited-backend")
+            .env("MOON_PROFILE", "inherited-profile")
+            .env("MOON_JOBS", "inherited-jobs")
+            .args(args)
+            .arg("--dry-run")
+            .assert()
+            .failure();
+        let environment: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("environment.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            environment,
+            serde_json::json!({
+                "MOON_HOST_OS": std::env::consts::OS,
+                "MOON_HOST_ARCH": std::env::consts::ARCH,
+                "MOON_BACKEND": backend,
+                "MOON_PROFILE": profile,
+                "MOON_JOBS": jobs.to_string(),
+            })
+        );
+        std::fs::remove_file(dir.join("environment.json")).unwrap();
+    }
+}
+
+#[test]
+fn test_prebuild_config_build_dirs() {
+    let dir = TestDir::new_empty();
+    let dependency = dir.join("dep");
+    let target = dir.join("custom build");
+    std::fs::create_dir(&dependency).unwrap();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+          "name": "testuser/consumer",
+          "deps": { "testuser/config": { "path": "./dep" } },
+          "--moonbit-unstable-prebuild": "build.js"
+        }"#,
+    )
+    .unwrap();
+    // The preferred DSL manifest must be reported when both formats exist.
+    std::fs::write(
+        dependency.join("moon.mod"),
+        "name = \"testuser/config\"\nversion = \"0.1.0\"\noptions(\"--moonbit-unstable-prebuild\": \"build.js\")\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dependency.join("moon.mod.json"),
+        r#"{"name":"testuser/config","version":"0.1.0"}"#,
+    )
+    .unwrap();
+    for module_dir in [dir.as_ref(), dependency.as_path()] {
+        std::fs::write(module_dir.join("moon.pkg.json"), "{}").unwrap();
+        std::fs::write(module_dir.join("lib.mbt"), "pub fn value() -> Int { 42 }").unwrap();
+        std::fs::write(
+            module_dir.join("build.js"),
+            r#"const fs = require('node:fs')
+const path = require('node:path')
+fs.appendFileSync(path.join(process.env.MOON_BUILD_DIR, 'runs.txt'), process.env.MOON_MOD + '\n')
+console.log('{}')
+"#,
+        )
+        .unwrap();
+    }
+
+    for profile in ["--debug", "--debug", "--release"] {
+        moon_cmd(&dir)
+            .arg("--target-dir")
+            .arg(&target)
+            .args(["build", "--target", "native", "--dry-run", profile])
+            .assert()
+            .success();
+    }
+
+    for (profile, runs) in [("debug", 2), ("release", 1)] {
+        let outputs = std::fs::read_dir(target.join(format!("native/{profile}/build/prebuild")))
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path().join("runs.txt")).unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        let expected = [dir.join("moon.mod.json"), dependency.join("moon.mod")]
+            .map(|manifest| {
+                format!("{}\n", dunce::canonicalize(manifest).unwrap().display()).repeat(runs)
+            })
+            .into_iter()
+            .collect();
+        assert_eq!(outputs, expected);
+    }
+    assert!(!dependency.join("_build").exists());
+}
+
+#[test]
 fn test_prebuild_config_mbtx_preserves_frozen_dependencies() {
     let dir = TestDir::new("prebuild_config_script/mbtx");
     let moon_home = tempfile::tempdir().unwrap();
@@ -190,8 +345,13 @@ fn test_prebuild_config_common(dir: TestDir) {
     let cc = if cfg!(windows) { "cl" } else { "cc" };
     let stdout = get_stdout_with_envs(
         &dir,
-        ["build", "--target", "native", "--dry-run"],
-        [("MOON_CC", cc)],
+        ["build", "--target", "native", "--dry-run", "--jobs", "3"],
+        [
+            ("MOON_CC", cc),
+            ("MOON_MOD", "inherited-module-manifest"),
+            ("MOON_BUILD_DIR", "inherited-build-dir"),
+            ("MOON_BACKEND", "inherited-backend"),
+        ],
     );
     println!("{}", &stdout);
     let lines = stdout.lines().collect::<Vec<_>>();

@@ -29,10 +29,13 @@ use anyhow::{Context, anyhow};
 use log::warn;
 use moonbuild_rupes_recta::{
     ResolveOutput,
+    compile::CompileConfig,
     prebuild::{ModulePrebuildOutput, PrebuildOutput},
 };
 use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput, Paths},
+    constants::{MOON_MOD, MOON_MOD_JSON},
+    manifest::preferred_manifest_in_dir,
     project::SourceTargetDirs,
     resolution::ModuleName,
 };
@@ -46,10 +49,16 @@ use crate::{
 #[instrument(skip_all)]
 pub(super) fn run_prebuild_config(
     resolve_output: &ResolveOutput,
-    target_dir: &Path,
+    cx: &CompileConfig,
+    jobs: usize,
     frozen: bool,
 ) -> anyhow::Result<PrebuildOutput> {
     let environment: HashMap<String, String> = std::env::vars().collect();
+    let build_dir = cx
+        .artifact_paths
+        .target_layout()
+        .run_mode_dir(cx.backend.target_backend())
+        .join("prebuild");
     let mut output = PrebuildOutput::default();
     for (m, ms) in resolve_output.module_rel.all_modules_and_id() {
         let m_info = resolve_output.module_info(m);
@@ -57,15 +66,25 @@ pub(super) fn run_prebuild_config(
         let Some(prebuild) = &m_info.__moonbit_unstable_prebuild else {
             continue;
         };
+        // Keep generated files in caller-owned storage, separated by module and
+        // the build configuration selected by the existing target layout.
+        let module_hash = blake3::hash(m_dir.as_os_str().as_encoded_bytes()).to_hex();
+        let out_dir = build_dir.join(module_hash.as_str());
+        std::fs::create_dir_all(&out_dir).with_context(|| {
+            format!(
+                "failed to create prebuild output directory `{}`",
+                out_dir.display()
+            )
+        })?;
         let input = BuildScriptEnvironment {
             env: environment.clone(),
             paths: Paths {
                 module_root: m_dir.to_string_lossy().into_owned(),
-                out_dir: "TODO".to_string(),
+                out_dir: out_dir.to_string_lossy().into_owned(),
             },
         };
         let script_output =
-            run_build_script_for_module(ms, m_dir, input, prebuild, target_dir, frozen)
+            run_build_script_for_module(ms, m_dir, input, prebuild, cx, jobs, frozen)
                 .with_context(|| {
                     format!("Failed to run prebuild script for module {}", m_info.name)
                 })?;
@@ -175,7 +194,8 @@ fn run_build_script_for_module(
     dir: &Path,
     input: BuildScriptEnvironment,
     prebuild: &str,
-    target_dir: &Path,
+    cx: &CompileConfig,
+    jobs: usize,
     frozen: bool,
 ) -> Result<BuildScriptOutput, anyhow::Error> {
     // TODO: This executes arbitrary scripts. It's essentially the same as
@@ -185,8 +205,18 @@ fn run_build_script_for_module(
         "Running external prebuild config at `{}`. The script can execute arbitrary code.",
         prebuild
     );
-    let mut cmd = run_script_cmd(prebuild, module.name(), dir, target_dir, frozen)?
+    let (manifest_path, _) = preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
+        .with_context(|| format!("failed to locate module manifest for `{module}`"))?;
+    let mut cmd = run_script_cmd(prebuild, module.name(), dir, &cx.target_dir, frozen)?
         .current_dir(dir)
+        .envs(&input.env)
+        .env("MOON_MOD", manifest_path)
+        .env("MOON_BUILD_DIR", &input.paths.out_dir)
+        .env("MOON_HOST_OS", std::env::consts::OS)
+        .env("MOON_HOST_ARCH", std::env::consts::ARCH)
+        .env("MOON_BACKEND", cx.backend.target_backend().to_flag())
+        .env("MOON_PROFILE", cx.opt_level.as_str())
+        .env("MOON_JOBS", jobs.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -194,6 +224,8 @@ fn run_build_script_for_module(
         .with_context(|| {
             format!("failed to spawn prebuild script `{prebuild}` for module `{module}`")
         })?;
+    // TODO: Remove this stdin transport once compatibility with scripts reading
+    // the legacy JSON input is no longer required.
     let stdin = cmd.stdin.take().expect("Didn't get stdin");
     let join = std::thread::spawn(move || {
         let mut stdin = stdin;

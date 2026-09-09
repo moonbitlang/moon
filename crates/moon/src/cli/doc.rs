@@ -161,6 +161,7 @@ pub(crate) fn run_doc_rr(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        build_flags.jobs,
         cmd.auto_sync_flags.frozen,
     )?;
 

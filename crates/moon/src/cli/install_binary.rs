@@ -602,6 +602,7 @@ fn build_selected_package(
         intent,
         &prepared.mooncake_bin_dir,
         prepared.resolve_output.clone(),
+        build_flags.jobs,
         false,
     )?;
 

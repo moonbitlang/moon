@@ -636,6 +636,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
     )
 }
@@ -799,6 +800,7 @@ fn build_single_file_executable(
         intent,
         mooncake_bin_dir,
         resolved,
+        cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
     )?;
 
