@@ -67,7 +67,7 @@ This document contains the help content for the `moon` command-line program.
 * `install` — Install a binary package globally or install project dependencies (deprecated without args)
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
-* `search` — Search for modules in the package registry
+* `search` — Search modules and package summaries in the registry
 * `work` — Workspace maintenance commands
 * `login` — Log in to your account
 * `whoami` — Show login status and username
@@ -600,7 +600,11 @@ Note: This is an unstable command and may change or be removed in future version
 
 ## `moon search`
 
-Search for modules in the package registry
+Search modules and package summaries in the registry
+
+Results follow the registry's ranking, as on mooncakes.io (most downloaded first). Each module includes its version, description, download count, and matching package excerpts when available. Summaries from older versions are labeled, and a count indicates when only some matching packages are shown.
+
+With --json, the result also preserves the registry's summary fragments and match markers. Registries without package summaries remain supported.
 
 **Usage:** `moon search [OPTIONS] <KEYWORD>`
 
