@@ -61,19 +61,21 @@ impl InstanceWorkers {
         worker: HandleKey,
         init_job: HostWorkerJob,
         run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        mut notify_completion: impl FnMut(WorkerCompletionId) + Send + 'static,
+        notify_completion: impl FnMut(WorkerCompletionId) + Send + 'static,
     ) -> AsyncHostResult<()> {
         let mut workers = self.workers.borrow_mut();
         if workers.contains_key(worker) {
             return Err(AsyncHostError::Badf);
         }
         let completed = self.completed_sender.clone();
-        let handle = thread_pool::spawn_worker(init_job, run_job, move |result| {
-            let completion_id = result.completion_id;
-            if completed.send(result).is_ok() {
-                notify_completion(completion_id);
-            }
-        });
+        let handle = thread_pool::spawn_worker(
+            init_job,
+            run_job,
+            move |result| {
+                let _ = completed.send(result);
+            },
+            notify_completion,
+        );
         workers.insert(worker, handle);
         Ok(())
     }
@@ -98,6 +100,28 @@ impl InstanceWorkers {
         let workers = self.workers.borrow();
         let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
         cancel_host_worker(worker)
+    }
+
+    pub(super) fn cancel_with_retry(
+        &self,
+        worker: HandleKey,
+        #[cfg(unix)] notifier: std::sync::Arc<
+            crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier,
+        >,
+    ) -> AsyncHostResult<i32> {
+        let workers = self.workers.borrow();
+        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
+        thread_pool::cancel_worker_with_retry(
+            worker,
+            #[cfg(unix)]
+            notifier,
+        )
+    }
+
+    pub(super) fn check_cancellation_retry(&self, worker: HandleKey) -> AsyncHostResult<bool> {
+        let workers = self.workers.borrow();
+        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
+        thread_pool::worker_check_cancellation_retry(worker)
     }
 
     pub(super) fn free(&self, worker: HandleKey) -> AsyncHostResult<Option<HostWorkerJob>> {
@@ -137,6 +161,11 @@ impl InstanceWorkers {
 
         // Cancellation must fan out before any join: one slow Worker must not
         // prevent the remaining Workers from receiving their stop request.
+        // FIXME: after the guest stops polling, pending cancellation retries
+        // or full notify pipes can leave Workers stuck and make join hang.
+        // Define cancellation retry/drain ownership for Run teardown outside
+        // native free_worker; neither join nor repeated signals can forcibly
+        // stop noncooperative computation.
         for (_, worker) in &workers {
             let _ = cancel_host_worker(worker);
         }
@@ -162,16 +191,6 @@ pub(super) struct StoppedWorker {
 }
 
 fn cancel_host_worker(worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
-    #[cfg(windows)]
-    {
-        match thread_pool::worker_cancellation_target(worker) {
-            thread_pool::WorkerCancellationTarget::Resource(cancel) => {
-                crate::process::cancel_wait(&cancel)?;
-                return Ok(1);
-            }
-            thread_pool::WorkerCancellationTarget::Thread => {}
-        }
-    }
     thread_pool::cancel_worker(worker)
 }
 

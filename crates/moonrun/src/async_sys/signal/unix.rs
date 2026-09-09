@@ -235,15 +235,22 @@ pub(crate) fn restore_thread_pool_signal_mask(old: &libc::sigset_t) -> AsyncHost
     })
 }
 
-pub(crate) fn set_worker_thread_signal_mask() -> AsyncHostResult<libc::sigset_t> {
+pub(crate) fn block_worker_thread_signals() -> AsyncHostResult<libc::sigset_t> {
     let mut worker_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
     check_signal_call(unsafe { libc::sigfillset(&mut worker_mask) })?;
-    check_signal_call(unsafe { libc::sigdelset(&mut worker_mask, libc::SIGUSR2) })?;
     let mut old = unsafe { std::mem::zeroed::<libc::sigset_t>() };
     check_pthread_call(unsafe {
         libc::pthread_sigmask(libc::SIG_SETMASK, &worker_mask, &mut old)
     })?;
     Ok(old)
+}
+
+pub(crate) fn unblock_worker_cancellation_signal() -> AsyncHostResult<()> {
+    let mut signal = empty_signal_set()?;
+    check_signal_call(unsafe { libc::sigaddset(&mut signal, libc::SIGUSR2) })?;
+    check_pthread_call(unsafe {
+        libc::pthread_sigmask(libc::SIG_UNBLOCK, &signal, std::ptr::null_mut())
+    })
 }
 
 pub(super) fn signal_int() -> i32 {

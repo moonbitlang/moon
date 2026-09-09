@@ -21,7 +21,9 @@ The host-owned result of a finished job that is ready to wake or resume guest co
 _Avoid_: Callback, event
 
 **Completion Queue**:
-A host-owned queue of completed job identifiers that the guest event loop drains to resume waiting coroutines.
+A host-owned queue of job identifiers and signal notifications that the guest
+event loop drains. A job identifier may request a cancellation retry; only a
+finished Worker permits the guest to consume that Job's Completion.
 _Avoid_: Notify pipe, callback queue
 
 **Guest Memory**:

@@ -634,7 +634,11 @@ declare_async_imports! {
 
     ported thread_pool::worker_enter_idle(worker: u64) -> void => "thread_pool/worker_enter_idle";
 
-    ported thread_pool::cancel_worker(worker: u64) -> i32 => "thread_pool/cancel_worker";
+    compat thread_pool::cancel_worker(worker: u64) -> i32 => "thread_pool/cancel_worker";
+
+    ported thread_pool::cancel_worker_with_retry(worker: u64) -> i32 => "thread_pool/cancel_worker_with_retry";
+
+    ported thread_pool::worker_check_cancellation_retry(worker: u64) -> i32 => "thread_pool/worker_check_cancellation_retry";
 
     helper thread_pool::init_thread_pool(poll: u64) -> u64 => "thread_pool/init_thread_pool";
 
@@ -826,6 +830,7 @@ declare_async_imports! {
     ported socket::disable_nagle(fd: u64) -> i32 => "socket/disable_nagle";
 
     ported socket::allow_reuse_addr(fd: u64) -> i32 => "socket/allow_reuse_addr";
+    ported socket::allow_reuse_port(fd: u64) -> i32 => "socket/allow_reuse_port";
 
     ported socket::set_ipv6_only(fd: u64, ipv6_only: i32) -> i32 => "socket/set_ipv6_only";
 
@@ -1987,6 +1992,29 @@ mod tests {
         assert_eq!(legacy.result, Some(WasmType::I64));
         #[cfg(unix)]
         assert_eq!(legacy.kind, AsyncImportKind::Compat);
+    }
+
+    #[test]
+    fn cancellation_retry_imports_preserve_the_legacy_abi() {
+        for (symbol, kind) in [
+            ("thread_pool/cancel_worker", AsyncImportKind::Compat),
+            (
+                "thread_pool/cancel_worker_with_retry",
+                AsyncImportKind::Ported,
+            ),
+            (
+                "thread_pool/worker_check_cancellation_retry",
+                AsyncImportKind::Ported,
+            ),
+        ] {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == symbol)
+                .unwrap();
+            assert_eq!(import.kind, kind);
+            assert_eq!(import.params, &[WasmType::I64]);
+            assert_eq!(import.result, Some(WasmType::I32));
+        }
     }
 
     #[test]

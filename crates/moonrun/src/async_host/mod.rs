@@ -3860,6 +3860,29 @@ impl AsyncHost {
         self.workers.cancel(worker_key)
     }
 
+    pub(crate) fn cancel_worker_with_retry(&self, worker_handle: u64) -> AsyncHostResult<i32> {
+        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        self.workers.cancel_with_retry(
+            worker_key,
+            #[cfg(unix)]
+            self.thread_pool_notifier()?,
+        )
+    }
+
+    pub(crate) fn worker_check_cancellation_retry(
+        &self,
+        worker_handle: u64,
+    ) -> AsyncHostResult<bool> {
+        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        let retry = self.workers.check_cancellation_retry(worker_key)?;
+        // Waiting is published only after the worker sends its owned result.
+        // Reacquire it even when this was originally a retry notification.
+        if !retry {
+            self.restore_completed_worker_jobs();
+        }
+        Ok(retry)
+    }
+
     #[cfg(unix)]
     pub(crate) fn thread_pool_child_signal_mask(&self) -> AsyncHostResult<libc::sigset_t> {
         self.thread_pool_completions

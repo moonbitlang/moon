@@ -9,6 +9,37 @@
   deliver one upstream port at a time, and mark the originating async pull
   request completed after the Moon change lands.
 
+## Worker cancellation
+
+The cancellation protocol follows upstream async #595. Workers acknowledge a
+cancellation request before entering potentially blocking syscalls. A Unix
+signal arriving after that check may precede the syscall, so the signal handler
+writes the job ID into the same pipe used for normal completions. The MoonBit
+event loop calls `worker_check_cancellation_retry` for each job notification;
+the host retries cancellation while the Worker is not yet `Waiting`.
+
+Native writes its shared Job result before setting `Waiting`. Moonrun preserves
+that order using its existing result channel: send the host-owned Job, set
+`Waiting`, then notify. This transfers Rust ownership within the same process;
+it does not copy result buffers. Before accepting completion, the host restores
+the result to its Job table. The guest wrapper copies output into Wasm memory
+when it subsequently requests that output.
+
+The historical `thread_pool/cancel_worker` import returns `RetryLater` for a
+pending default Unix cancellation, so older guests retry after a timer. The new
+`thread_pool/cancel_worker_with_retry` import opts into native's `NeedWait` and
+retry notifications. Older guests have no retry check and would treat those
+notifications as completed Jobs. Both imports take one `i64` Worker handle and
+return an `i32` status; `thread_pool/worker_check_cancellation_retry` has the same
+lowered types.
+
+Worker freeing follows native's termination wakeup and join. Pipe capacity
+beyond the guest scheduler's worker bound, and cancellation/draining after a
+Run stops executing its guest event loop, remain correctness FIXMEs for a Run
+teardown follow-up: pending retries or full pipes can prevent Workers from
+exiting and make join hang. The backport does not add a separate notification
+transport or a retry loop to `free_worker`.
+
 ## How to Build and Test
 
 ```bash

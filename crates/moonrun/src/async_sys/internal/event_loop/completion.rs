@@ -194,6 +194,21 @@ impl ThreadPoolCompletionNotifier {
         let _ = self.fetch_signals(&mut [0; u32::BITS as usize * 4]);
     }
 
+    pub(crate) fn notify_from_signal(&self, completion_id: i32) {
+        // Match thread_pool.c: worker cancellation handlers write job IDs into
+        // the normal completion pipe, without locks or allocation. Native
+        // relies on its scheduler's worker bound to keep this write from
+        // blocking. FIXME: audit that bound for direct Wasm calls and Run
+        // teardown; a full pipe blocks this handler if nothing drains it.
+        unsafe {
+            libc::write(
+                self.notify_send,
+                (&raw const completion_id).cast(),
+                std::mem::size_of_val(&completion_id),
+            );
+        }
+    }
+
     pub(crate) fn fetch(&self, dst: &mut [u8]) -> AsyncHostResult<usize> {
         if dst.is_empty() {
             return Ok(0);
@@ -249,6 +264,25 @@ fn would_block(errno: i32) -> bool {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_notifications_preserve_pipe_order_and_duplicates() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+
+        let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
+        let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
+        notifier.notify(17).unwrap();
+        notifier.notify_from_signal(19);
+        notifier.notify_from_signal(19);
+        notifier.notify(23).unwrap();
+
+        for expected in [17, 19, 19, 23] {
+            let mut bytes = [0u8; 4];
+            assert_eq!(notifier.fetch(&mut bytes).unwrap(), 4);
+            assert_eq!(i32::from_ne_bytes(bytes), expected);
+        }
+        assert_eq!(notifier.fetch(&mut [0; 4]).unwrap(), 0);
+    }
 
     #[test]
     fn completion_pipe_is_close_on_exec() {

@@ -45,8 +45,8 @@ use windows as platform;
 
 #[cfg(unix)]
 pub(crate) use unix::{
-    SigwaitJob, SigwaitTarget, init_thread_pool_signal_mask, make_sigwait_job,
-    restore_thread_pool_signal_mask, set_worker_thread_signal_mask,
+    SigwaitJob, SigwaitTarget, block_worker_thread_signals, init_thread_pool_signal_mask,
+    make_sigwait_job, restore_thread_pool_signal_mask, unblock_worker_cancellation_signal,
 };
 
 ported_fns! {

@@ -16,12 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod cancellation;
 mod jobs;
 mod runner;
 mod sleep;
 mod types;
 mod worker;
 
+pub(crate) use cancellation::CancellableRegion;
 #[cfg(any(feature = "v8", feature = "wasmtime", test))]
 pub(crate) use jobs::make_sleep_job;
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
@@ -33,10 +35,9 @@ pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable};
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
-    free_worker, spawn_worker, wake_worker, worker_enter_idle,
+    cancel_worker_with_retry, free_worker, spawn_worker, wake_worker,
+    worker_check_cancellation_retry, worker_enter_idle,
 };
-#[cfg(windows)]
-pub(crate) use worker::{WorkerCancellationTarget, worker_cancellation_target};
 
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
