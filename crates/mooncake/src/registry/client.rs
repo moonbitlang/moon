@@ -149,6 +149,31 @@ pub struct RegistrySearchResult {
     pub version: Version,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downloads: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_package_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_packages: Vec<RegistryPackageMatch>,
+}
+
+/// A matching package summary, which may come from an older module version.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct RegistryPackageMatch {
+    pub package: String,
+    pub name: String,
+    pub summary: String,
+    pub summary_version: String,
+    pub is_summary_current: bool,
+    #[serde(default)]
+    pub summary_fragments: Vec<RegistrySummaryFragment>,
+}
+
+/// Plain text from the registry's search excerpt, never terminal or HTML markup.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct RegistrySummaryFragment {
+    pub text: String,
+    pub matched: bool,
 }
 
 /// Access to a configured Mooncakes registry and its local state.
@@ -886,6 +911,30 @@ mod tests {
     }
 
     #[test]
+    fn registry_search_preserves_package_matches() {
+        let response = serde_json::json!({
+            "name": "alice/tools",
+            "version": "2.0.0",
+            "description": "Tools",
+            "downloads": 12345678901_u64,
+            "matched_package_count": 7,
+            "matched_packages": [{
+                "package": "fs",
+                "name": "alice/tools/fs",
+                "summary": "Read files",
+                "summary_version": "1.0.0",
+                "is_summary_current": false,
+                "summary_fragments": [
+                    {"text": "Read ", "matched": false},
+                    {"text": "files", "matched": true}
+                ]
+            }]
+        });
+        let result: RegistrySearchResult = serde_json::from_value(response.clone()).unwrap();
+        assert_eq!(serde_json::to_value(result).unwrap(), response);
+    }
+
+    #[test]
     fn registry_search_result_ignores_unneeded_response_fields() {
         let results: Vec<RegistrySearchResult> = serde_json::from_str(
             r#"[{"name":"mizchi/jq","version":"0.2.2","license":"Apache-2.0","description":"A jq clone","is_new":false}]"#,
@@ -898,6 +947,9 @@ mod tests {
                 name: "mizchi/jq".to_owned(),
                 version: Version::new(0, 2, 2),
                 description: Some("A jq clone".to_owned()),
+                downloads: None,
+                matched_package_count: None,
+                matched_packages: Vec::new(),
             }]
         );
     }
