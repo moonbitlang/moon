@@ -332,12 +332,11 @@ impl Job {
             #[cfg(windows)]
             Kind::SpawnWindows { stdio, .. } => {
                 for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
-                    if slot.is_none() {
-                        let raw = runtime_stdio.raw(stream).map_err(|error| {
-                            error
-                                .raw_os_error()
-                                .map_or(AsyncHostError::Io, AsyncHostError::Native)
-                        })?;
+                    // GUI processes may have no standard streams. Preserve
+                    // absence for CreateProcessW instead of rejecting spawn.
+                    if slot.is_none()
+                        && let Ok(raw) = runtime_stdio.raw(stream)
+                    {
                         *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
                     }
                 }
