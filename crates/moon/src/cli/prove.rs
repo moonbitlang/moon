@@ -158,7 +158,10 @@ pub(crate) fn run_prove(
         cli.workspace_env.clone(),
     );
     let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
-    let _lock = lock_directory(target_dir, user_log)?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(target_dir, user_log)?;
+    }
 
     if !cli.dry_run && why3_config_path.is_none() {
         ensure_why3_config(&generated_why3_config_path)?;
@@ -190,6 +193,7 @@ pub(crate) fn run_prove(
         resolve_output,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
 

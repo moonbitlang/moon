@@ -189,7 +189,7 @@ pub(crate) struct EmbeddedMbtxPolicy {
 
 /// A built executable plus the state needed to consume it.
 ///
-/// Planning and building keep the target-directory lock alive until the caller
+/// Normal builds keep the target-directory lock alive until the caller
 /// either runs the program or explicitly releases the lock. Other consumers can
 /// reuse the same build stage without releasing the lock between planning and
 /// compilation.
@@ -559,7 +559,11 @@ fn build_package_executable(
     )
     .with_sync_output(options.output.sync_output());
     let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
-    let lock = lock_directory(target_dir, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         cmd,
@@ -638,6 +642,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         resolve_output,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
@@ -776,7 +781,11 @@ fn build_single_file_executable(
         .or(backend)
         .unwrap_or(options.default_target_backend);
 
-    let lock = lock_directory(target_dir, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
@@ -803,6 +812,7 @@ fn build_single_file_executable(
         resolved,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
 
     build_executable_from_plan(
@@ -825,7 +835,8 @@ fn build_single_file_executable(
 #[instrument(level = Level::DEBUG, skip_all)]
 /// Execute the build graph and return the resulting run artifact without
 /// launching it.
-/// The caller transfers the target-directory lock acquired before planning.
+/// Normal builds transfer the target-directory lock acquired before planning.
+/// Dry-run planning acquires and releases its own lock only if scripts run.
 #[allow(clippy::too_many_arguments)]
 fn build_executable_from_plan(
     cli: &UniversalFlags,
@@ -834,7 +845,7 @@ fn build_executable_from_plan(
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
-    lock: std::fs::File,
+    lock: Option<std::fs::File>,
     options: BuildExecutableFromPlanOptions,
     output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
@@ -891,7 +902,7 @@ fn build_executable_from_plan(
         embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
         build_exit_code: Some(build_result.return_code_for_success()),
-        lock: Some(lock),
+        lock,
     })
 }
 

@@ -180,6 +180,7 @@ pub(crate) fn run_build_binary_dep(
             resolve_output.clone(),
             build_flags.jobs,
             false,
+            false,
         )?;
 
         // Generate all_pkgs.json for indirect dependency resolution

@@ -82,11 +82,13 @@ Rewriting such a file at the same path may therefore fail to trigger relinking.
 Explicit generated-file dependency declarations and rerun controls remain
 future work for the experimental protocol.
 
-The command layer acquires the target-directory lock before planning runs these
-scripts and keeps it through build execution. This protects script writes and
-any build actions that read their outputs from concurrent invocations. Native
-and LLVM dry runs also acquire the lock: they execute the scripts to determine
-build commands and can update the same persistent files.
+For actual builds, the command layer acquires the target-directory lock before
+planning runs these scripts and keeps it through build execution. This protects
+script writes and any build actions that read their outputs from concurrent
+invocations. For dry runs, each backend planning pass acquires the lock only
+if it will execute a module-level prebuild script, and keeps it through planning.
+Passes that skip the scripts do not acquire the lock, including native and LLVM
+passes when no resolved module declares a script.
 
 Stdout must contain one build configuration JSON value with the optional fields
 `vars`, `link_configs`, and `rerun_if`; `rerun_if` currently has no effect. Stderr

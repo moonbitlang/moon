@@ -73,7 +73,10 @@ pub(crate) fn run_bundle(
 
     let targets = lower_surface_targets(&surface_targets);
     let resolve_output = sync_and_resolve_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
-    let _lock = lock_directory(&dirs.target_dir, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
+    }
     run_bundle_rr_from_resolved(&cli, &cmd, &dirs, &targets, resolve_output, output).with_context(
         || match targets.as_slice() {
             [target] => format!("failed to run bundle for target {target:?}"),
@@ -104,7 +107,10 @@ pub(crate) fn run_bundle_internal_rr(
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let resolve_output = sync_and_resolve_bundle_project(cli, cmd, dirs, output.user_log())?;
-    let _lock = lock_directory(&dirs.target_dir, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
+    }
     run_bundle_rr_from_resolved(
         cli,
         cmd,
@@ -240,6 +246,7 @@ pub(crate) fn plan_bundle_rr_from_resolved(
         resolve_output,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 

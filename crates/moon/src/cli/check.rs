@@ -609,6 +609,7 @@ fn run_check_for_single_file_rr(
                 resolved.clone(),
                 cmd.build_flags.jobs,
                 cmd.auto_sync_flags.frozen,
+                cli.dry_run,
             )
             .context("Failed to calculate build plan")?,
         );
@@ -1026,6 +1027,7 @@ pub(crate) fn plan_check_rr_from_resolved(
         resolve_output,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
@@ -1058,6 +1060,7 @@ fn plan_check_rr_from_selection(
         resolve_output,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 

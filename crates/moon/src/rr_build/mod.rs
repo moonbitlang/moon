@@ -76,7 +76,7 @@ mod prebuild;
 pub use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_all};
 
 /// Synchronize dependencies and return resolved project data.
-/// Target-directory lock ownership remains with the command layer.
+/// This step does not acquire the target-directory lock.
 pub(crate) fn sync_and_resolve_project(
     resolve_config: &ResolveConfig,
     dirs: &PackageDirs,
@@ -439,10 +439,12 @@ pub(crate) fn prepare_resolved_build(
 /// At this boundary, command adapters have already resolved user selectors and
 /// command-specific directives into `CalcUserIntentOutput`. RR consumes those
 /// identities plus precomputed build-context paths from the command adapter.
+/// For actual builds, callers hold the target-directory lock while prebuild
+/// scripts run and their outputs are consumed. Dry-run callers leave locking to
+/// this function: it locks only when the resolved backend and modules require
+/// scripts, and keeps the lock through planning.
 #[instrument(level = Level::DEBUG, skip_all)]
-/// Callers that request module prebuild configuration must hold the target-directory
-/// lock from before planning through execution: scripts can rewrite persistent
-/// inputs consumed by the build. Dry-run planning also executes these scripts.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_resolved_build_from_intent(
     cx: CompileConfig,
     user_log: &UserLog,
@@ -451,17 +453,30 @@ pub(crate) fn plan_resolved_build_from_intent(
     resolve_output: ResolveOutput,
     jobs: Option<usize>,
     frozen: bool,
+    dry_run: bool,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let target_dir = cx.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
 
-    // Module-level configuration discovers native toolchains and flags; other
-    // backends do not need to execute these scripts.
-    let prebuild_config = if cx.action == RunMode::Check || !cx.backend.target_backend().is_native()
-    {
-        info!("Skipping prebuild configuration for check or non-native backend");
-        None
+    // Decide once, after backend selection, whether planning will execute a
+    // script. Dry runs that only lower commands must not acquire a write lock.
+    let run_prebuild = cx.action != RunMode::Check
+        && cx.backend.target_backend().is_native()
+        && resolve_output
+            .module_rel
+            .all_modules_and_id()
+            .any(|(m, _)| {
+                resolve_output
+                    .module_info(m)
+                    .__moonbit_unstable_prebuild
+                    .is_some()
+            });
+    let _dry_run_lock = if dry_run && run_prebuild {
+        Some(moonutil::locks::lock_directory(&target_dir, user_log)?)
     } else {
+        None
+    };
+    let prebuild_config = if run_prebuild {
         info!("Running prebuild configuration");
         Some(prebuild::run_prebuild_config(
             &resolve_output,
@@ -469,6 +484,9 @@ pub(crate) fn plan_resolved_build_from_intent(
             resolve_parallelism(jobs),
             frozen,
         )?)
+    } else {
+        info!("Skipping prebuild configuration: no applicable scripts");
+        None
     };
 
     info!("Expanding user intents to requested artifacts");

@@ -152,7 +152,11 @@ fn run_cram_test(
         cli.workspace_env.clone(),
     );
     let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
-    let lock = lock_directory(target_dir, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
 
     let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
         cli,

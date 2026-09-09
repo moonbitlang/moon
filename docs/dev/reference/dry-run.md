@@ -3,6 +3,11 @@
 > **This output is intentionally unstable and meant only for maintainers.**
 > Do not build tools or workflows that depend on the exact formatting or ordering.
 
+A dry run resolves configuration and prints the resulting build commands without
+executing the build graph. Applicable module-level prebuild configuration scripts
+still run to supply dynamic flags, so a dry run is not guaranteed to be free of
+side effects.
+
 - **Deterministic order**. Build commands are printed in a topologically sorted order; executing them sequentially produces the expected build artifacts.
 - **Unix-style command lines**. Every command line is rewritten using Unix shell quoting, even on Windows hosts.
 - **Backslash normalize**. Backslashes `\` in the commandline is normalized to forward slash `/`.
@@ -12,5 +17,5 @@
 - **Stable command programs**. A command program directly under the selected toolchain's `bin` directory is shortened to its file name. The running `moon` executable uses its file name. Other command programs remain unchanged unless an explicit override applies. Other occurrences of the same paths, such as build graph inputs, retain their masked or original path form. Platform executable suffixes on toolchain programs are omitted for stable cross-platform output.
 - **Explicit binary overrides**. Only override environment variables that are set are resolved and masked with the corresponding variable name, such as `$MOONC_OVERRIDE`.
 - **`moon run --dry-run` extras**. After the build commands, the dry-run output also prints the command that would execute the produced binary (typically `moonrun`, `node`, or the final executable).
-- **Prebuild locking**. Dry runs that execute [module-level prebuild configuration](prebuild.md) hold the target-directory lock while planning, since these scripts can update persistent build inputs.
+- **Prebuild locking**. A backend planning pass that executes [module-level prebuild configuration](prebuild.md) holds the target-directory lock while planning, since these scripts can update persistent build inputs. Passes that skip the scripts remain unlocked, including native/LLVM passes with no declared scripts.
 - **`moon test --verbose` extras**. With `--verbose` set, `moon test` print the command that is executed for each test case.

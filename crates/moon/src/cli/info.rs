@@ -401,5 +401,6 @@ fn plan_info_rr(
         resolve_output,
         None,
         cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }

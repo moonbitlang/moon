@@ -23,6 +23,74 @@ fn test_prebuild_config_mbtx() {
 }
 
 #[test]
+fn test_prebuild_config_skipped_dry_runs_do_not_lock() {
+    let dir = TestDir::new_empty();
+    let target = dir.join("custom build");
+    // A directory at the lock-file path makes any attempt to open the lock
+    // fail immediately, without hanging the test on an intentionally held lock.
+    std::fs::create_dir_all(target.join(".moon-lock")).unwrap();
+    std::fs::create_dir(dir.join("main")).unwrap();
+    std::fs::write(dir.join("main/moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(dir.join("main/main.mbt"), "fn main {}").unwrap();
+    std::fs::write(
+        dir.join("build.js"),
+        "throw new Error('prebuild must be skipped')",
+    )
+    .unwrap();
+
+    for (has_script, preferred, targets) in [
+        (true, "js", ["wasm", "wasm-gc", "js"].as_slice()),
+        (false, "native", ["native", "llvm"].as_slice()),
+    ] {
+        let mut manifest = serde_json::json!({
+            "name": "testuser/unlocked",
+            "preferred-target": preferred,
+        });
+        if has_script {
+            manifest["--moonbit-unstable-prebuild"] = "build.js".into();
+        }
+        std::fs::write(dir.join("moon.mod.json"), manifest.to_string()).unwrap();
+
+        for command in ["build", "run", "test", "bench", "bundle"] {
+            for target_backend in std::iter::once(None).chain(targets.iter().copied().map(Some)) {
+                moon_cmd(&dir)
+                    .arg("--target-dir")
+                    .arg(&target)
+                    .arg(command)
+                    .args((command == "run").then_some("main"))
+                    .args(
+                        target_backend
+                            .into_iter()
+                            .flat_map(|target| ["--target", target]),
+                    )
+                    .args(["--dry-run", "--nostd"])
+                    .assert()
+                    .success();
+            }
+        }
+    }
+
+    let standalone = TestDir::new_empty();
+    std::fs::write(standalone.join("standalone.mbtx"), "fn main {}").unwrap();
+    std::fs::create_dir_all(target.join("standalone.mbtx/.moon-lock")).unwrap();
+    for command in ["build", "run", "test"] {
+        moon_cmd(&standalone)
+            .arg("--target-dir")
+            .arg(&target)
+            .args([
+                command,
+                "standalone.mbtx",
+                "--target",
+                "wasm",
+                "--dry-run",
+                "--nostd",
+            ])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn test_prebuild_config_holds_target_lock() {
     let dir = TestDir::new_empty();
     std::fs::write(
@@ -76,6 +144,7 @@ process.exit(1)
         ["prove", "--why3-config", "why3.conf"].as_slice(),
         ["build"].as_slice(),
         ["build", "--target", "native"].as_slice(),
+        ["build", "--target", "wasm,native"].as_slice(),
         ["test"].as_slice(),
         ["test", "--target", "native"].as_slice(),
         ["bench"].as_slice(),

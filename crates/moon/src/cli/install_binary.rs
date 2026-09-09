@@ -605,6 +605,7 @@ fn build_selected_package(
         prepared.resolve_output.clone(),
         build_flags.jobs,
         false,
+        false,
     )?;
 
     rr_build::generate_all_pkgs_json(&build_meta)?;

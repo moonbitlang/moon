@@ -41,7 +41,8 @@ The execution flow is:
 
 1. Acquire the target-directory lock, then plan and build the selected artifact.
    Planning includes module-level prebuild scripts, which may update persistent
-   build inputs. Dry runs also hold the lock while planning.
+   build inputs. A dry run holds the lock during planning only when it executes
+   a module-level prebuild script; otherwise it skips locking.
 2. Construct its runtime command as `std::process::Command`.
 3. Release the build lock.
 4. Install the platform's parent-side terminal-signal handling.
