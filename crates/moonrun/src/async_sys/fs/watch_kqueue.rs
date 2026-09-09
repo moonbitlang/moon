@@ -59,14 +59,16 @@ ported_fns! {
     pub(crate) fn add_file(
         kqueue: RawFd,
         file: RawFd,
-        is_dir: bool,
+        _is_dir: bool,
         file_handle: u64,
     ) -> AsyncHostResult<()> {
         let mut event = empty_kevent();
         event.ident = file as libc::uintptr_t;
         event.filter = libc::EVFILT_VNODE;
         event.flags = libc::EV_ADD | libc::EV_CLEAR;
-        event.fflags = libc::NOTE_WRITE | if is_dir { 0 } else { libc::NOTE_EXTEND };
+        // NOTE_WRITE also covers extension; NOTE_EXTEND can cause a second
+        // wakeup for the same write (moonbitlang/async#588).
+        event.fflags = libc::NOTE_WRITE;
         event.udata = usize::try_from(file_handle)
             .map_err(|_| AsyncHostError::Fault)? as *mut libc::c_void;
         if unsafe {
@@ -162,4 +164,46 @@ fn last_native_error() -> AsyncHostError {
             .raw_os_error()
             .unwrap_or_else(|| AsyncHostError::Inval.errno()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    #[test]
+    fn extending_a_file_reports_only_the_write_event() {
+        let kqueue = unsafe { OwnedFd::from_raw_fd(create().unwrap()) };
+        let mut file = tempfile::tempfile().unwrap();
+        add_file(kqueue.as_raw_fd(), file.as_raw_fd(), false, 7).unwrap();
+
+        file.write_all(b"extended").unwrap();
+        let mut event = empty_kevent();
+        let timeout = libc::timespec {
+            tv_sec: 1,
+            tv_nsec: 0,
+        };
+        assert_eq!(
+            unsafe {
+                libc::kevent(
+                    kqueue.as_raw_fd(),
+                    std::ptr::null(),
+                    0,
+                    &mut event,
+                    1,
+                    &timeout,
+                )
+            },
+            1
+        );
+        assert_eq!(event.udata as usize, 7);
+        assert_eq!(event.fflags, libc::NOTE_WRITE);
+
+        let mut buffer = vec![0; buffer_size() as usize];
+        assert_eq!(
+            fetch_event(kqueue.as_raw_fd(), &mut buffer, buffer_size()),
+            Ok(0)
+        );
+    }
 }
