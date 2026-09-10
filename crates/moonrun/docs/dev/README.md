@@ -27,6 +27,16 @@ Accordingly, `pread` and `pwrite` have no cancellable region, as in native
 `thread_pool.c`.
 Windows positioned I/O is cancellable and has the corresponding region.
 
+The Worker handle and its thread share one allocation containing scheduling
+and cancellation state. Each executing Job borrows that state through a stack
+context with an immutable Job ID. A private scope guard registers the context
+in thread-local storage and restores the previous binding before the context
+leaves the stack. `with_cancellable_region` borrows this context only for its
+synchronous closure, so syscall regions cannot escape or retain a Worker.
+The region mark remains atomic for access by the interrupting signal handler;
+cancellation status and retry mode remain atomic for access by the requesting
+thread. No reference counts are changed when entering or leaving a region.
+
 Native writes its shared Job result before setting `Waiting`. Moonrun preserves
 that order using its existing result channel: send the host-owned Job, set
 `Waiting`, then notify. This transfers Rust ownership within the same process;

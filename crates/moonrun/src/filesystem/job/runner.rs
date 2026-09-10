@@ -18,7 +18,7 @@
 
 //! Blocking filesystem operations executed by Filesystem Jobs.
 
-use crate::async_sys::internal::event_loop::thread_pool::CancellableRegion;
+use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -349,15 +349,13 @@ fn open_raw_native_file(
     };
     let append_flag = if append { libc::O_APPEND } else { 0 };
     let filename = CString::new(filename.into_vec()).map_err(|_| AsyncHostError::Inval)?;
-    let region = CancellableRegion::enter()?;
-    let fd = unsafe {
+    let fd = with_cancellable_region(|| unsafe {
         libc::open(
             filename.as_ptr(),
             access_flag | sync_flag | create_flag | append_flag | libc::O_CLOEXEC,
             mode as libc::c_uint,
         )
-    };
-    drop(region);
+    })?;
     if fd < 0 {
         return Err(last_native_error());
     }
@@ -434,8 +432,7 @@ fn open_raw_native_file(
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
     let handle: HANDLE = loop {
-        let region = CancellableRegion::enter()?;
-        let handle = unsafe {
+        let handle = with_cancellable_region(|| unsafe {
             CreateFileW(
                 filename.as_ptr(),
                 access_flag,
@@ -445,8 +442,7 @@ fn open_raw_native_file(
                 flags,
                 std::ptr::null_mut(),
             )
-        };
-        drop(region);
+        })?;
         if handle != INVALID_HANDLE_VALUE {
             break handle;
         }
@@ -456,9 +452,9 @@ fn open_raw_native_file(
         if error != ERROR_PIPE_BUSY as i32 {
             return Err(AsyncHostError::Native(error));
         }
-        let region = CancellableRegion::enter()?;
-        let ready = unsafe { WaitNamedPipeW(filename.as_ptr(), NMPWAIT_WAIT_FOREVER) };
-        drop(region);
+        let ready = with_cancellable_region(|| unsafe {
+            WaitNamedPipeW(filename.as_ptr(), NMPWAIT_WAIT_FOREVER)
+        })?;
         if ready == 0 {
             return Err(last_native_error());
         }
@@ -573,9 +569,9 @@ pub(super) fn handle_is_socket(handle: RawFile) -> bool {
 fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
     let ret = if position < 0 {
         loop {
-            let region = CancellableRegion::enter()?;
-            let ret = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
-            drop(region);
+            let ret = with_cancellable_region(|| unsafe {
+                libc::read(fd, buf.as_mut_ptr().cast(), buf.len())
+            })?;
             if ret >= 0 {
                 break ret;
             }
@@ -590,9 +586,7 @@ fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHos
                 events: libc::POLLIN,
                 revents: 0,
             };
-            let region = CancellableRegion::enter()?;
-            let ready = unsafe { libc::poll(&mut pfd, 1, -1) };
-            drop(region);
+            let ready = with_cancellable_region(|| unsafe { libc::poll(&mut pfd, 1, -1) })?;
             if ready < 0 {
                 break -1;
             }
@@ -616,9 +610,9 @@ fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHos
 fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostResult<usize> {
     let ret = if position < 0 {
         loop {
-            let region = CancellableRegion::enter()?;
-            let ret = unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) };
-            drop(region);
+            let ret = with_cancellable_region(|| unsafe {
+                libc::write(fd, data.as_ptr().cast(), data.len())
+            })?;
             if ret >= 0 {
                 break ret;
             }
@@ -633,9 +627,7 @@ fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostRes
                 events: libc::POLLOUT,
                 revents: 0,
             };
-            let region = CancellableRegion::enter()?;
-            let ready = unsafe { libc::poll(&mut pfd, 1, -1) };
-            drop(region);
+            let ready = with_cancellable_region(|| unsafe { libc::poll(&mut pfd, 1, -1) })?;
             if ready < 0 {
                 break -1;
             }
@@ -775,9 +767,7 @@ fn lock_native_file(fd: RawFile, exclusive: bool) -> AsyncHostResult<()> {
     } else {
         libc::LOCK_SH
     };
-    let region = CancellableRegion::enter()?;
-    let result = unsafe { libc::flock(fd, operation) };
-    drop(region);
+    let result = with_cancellable_region(|| unsafe { libc::flock(fd, operation) })?;
     if result < 0 {
         Err(last_native_error())
     } else {
@@ -1008,17 +998,17 @@ fn read_from_native_file(handle: RawFile, buf: &mut [u8], position: i64) -> Asyn
     } else {
         Some(current_file_pointer(handle)?)
     };
-    let region = CancellableRegion::enter()?;
-    let result = unsafe {
-        ReadFile(
-            handle,
-            buf.as_mut_ptr().cast(),
-            u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault)?,
-            &mut bytes_transferred,
-            overlapped_ptr,
-        )
-    };
-    drop(region);
+    let result = with_cancellable_region(|| -> AsyncHostResult<_> {
+        Ok(unsafe {
+            ReadFile(
+                handle,
+                buf.as_mut_ptr().cast(),
+                u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault)?,
+                &mut bytes_transferred,
+                overlapped_ptr,
+            )
+        })
+    })??;
     let result = if result != 0 {
         usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
     } else {
@@ -1074,17 +1064,17 @@ fn write_to_native_file(handle: RawFile, data: &[u8], position: i64) -> AsyncHos
     } else {
         Some(current_file_pointer(handle)?)
     };
-    let region = CancellableRegion::enter()?;
-    let result = unsafe {
-        WriteFile(
-            handle,
-            data.as_ptr().cast(),
-            u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?,
-            &mut bytes_transferred,
-            overlapped_ptr,
-        )
-    };
-    drop(region);
+    let result = with_cancellable_region(|| -> AsyncHostResult<_> {
+        Ok(unsafe {
+            WriteFile(
+                handle,
+                data.as_ptr().cast(),
+                u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?,
+                &mut bytes_transferred,
+                overlapped_ptr,
+            )
+        })
+    })??;
     let result = if result != 0 {
         usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
     } else {
@@ -1374,9 +1364,8 @@ fn lock_native_file(file: RawFile, exclusive: bool) -> AsyncHostResult<()> {
     } else {
         0
     };
-    let region = CancellableRegion::enter()?;
-    let result = unsafe { LockFileEx(file, flags, 0, 1, 0, &mut overlapped) };
-    drop(region);
+    let result =
+        with_cancellable_region(|| unsafe { LockFileEx(file, flags, 0, 1, 0, &mut overlapped) })?;
     if result == 0 {
         Err(last_native_error())
     } else {

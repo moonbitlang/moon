@@ -31,7 +31,7 @@ use std::os::unix::thread::JoinHandleExt;
 use super::Job;
 #[cfg(unix)]
 use super::JobCancellation;
-use super::cancellation::{CurrentWorker, WorkerCancellation};
+use super::cancellation::WorkerCancellation;
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 
@@ -115,7 +115,7 @@ struct HostWorkerState {
 
 #[derive(Debug)]
 struct HostWorkerShared {
-    cancellation: Arc<WorkerCancellation>,
+    cancellation: WorkerCancellation,
     state: Mutex<HostWorkerState>,
     wakeup: Condvar,
 }
@@ -171,7 +171,7 @@ impl HostWorkerHandle {
         let init_cancel = init_job.job.cancellation_override();
 
         let shared = Arc::new(HostWorkerShared {
-            cancellation: Arc::new(WorkerCancellation::new(init_job.completion_id.as_i32())),
+            cancellation: WorkerCancellation::new(),
             state: Mutex::new(HostWorkerState {
                 job: Some(init_job),
                 #[cfg(unix)]
@@ -188,7 +188,6 @@ impl HostWorkerHandle {
         #[cfg(unix)]
         let parent_signal_mask = crate::async_sys::signal::block_worker_thread_signals().ok();
         let thread = std::thread::spawn(move || {
-            let _current = CurrentWorker::enter(Arc::clone(&worker_shared.cancellation));
             #[cfg(unix)]
             {
                 let _ = crate::async_sys::signal::unblock_worker_cancellation_signal();
@@ -219,7 +218,9 @@ impl HostWorkerHandle {
                 let Some(mut job) = job else {
                     break;
                 };
-                run_job(&mut job);
+                worker_shared
+                    .cancellation
+                    .run(job.completion_id.as_i32(), || run_job(&mut job));
                 let completion_id = job.completion_id;
                 complete_job(HostWorkerJobResult {
                     job_key: job.job_key,
@@ -244,13 +245,11 @@ impl HostWorkerHandle {
                     // cancellation-retry event must never expose an unfinished
                     // payload as a completed Job.
                     worker_shared.cancellation.finish();
-                    if let Some(next) = &state.job {
+                    if state.job.is_some() {
                         // An early wake from a direct caller advances cancellation
                         // to the next Job. Async's guest accepts the previous
                         // completion before waking us again.
-                        worker_shared
-                            .cancellation
-                            .start(next.completion_id.as_i32());
+                        worker_shared.cancellation.start();
                     }
                     state.terminating
                 };
@@ -289,13 +288,13 @@ impl HostWorkerHandle {
                 .as_ref()
                 .and_then(|job| job.job.cancellation_override());
         }
-        if let Some(job) = &state.job {
+        if state.job.is_some() {
             #[cfg(unix)]
             let idle = !state.running;
             #[cfg(windows)]
             let idle = matches!(state.running_cancel, RunningCancellation::Idle);
             if idle {
-                self.shared.cancellation.start(job.completion_id.as_i32());
+                self.shared.cancellation.start();
             }
         }
         self.shared.wakeup.notify_one();
@@ -539,7 +538,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cancellation_and_completion_do_not_block_on_a_full_pipe() {
-        use super::super::CancellableRegion;
+        use super::super::with_cancellable_region;
         use std::os::fd::{FromRawFd, OwnedFd};
         use std::time::{Duration, Instant};
 
@@ -554,13 +553,14 @@ mod tests {
         let worker = super::spawn_worker(
             make_worker_job(23, 29),
             move |job| {
-                let region = CancellableRegion::enter().unwrap();
-                started_tx.send(()).unwrap();
-                release_rx.recv().unwrap();
-                // Exercise the real handler synchronously as well as the
-                // cancellation request below, without depending on delivery timing.
-                assert_eq!(unsafe { libc::raise(libc::SIGUSR2) }, 0);
-                drop(region);
+                with_cancellable_region(|| {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    // Exercise the real handler synchronously as well as the
+                    // cancellation request below, without depending on delivery timing.
+                    assert_eq!(unsafe { libc::raise(libc::SIGUSR2) }, 0);
+                })
+                .unwrap();
                 job.job.set_ret(73);
             },
             move |job| result_tx.send(job.job.ret()).unwrap(),
@@ -603,7 +603,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cancellation_retry_interrupts_a_syscall_started_after_the_first_signal() {
-        use super::super::CancellableRegion;
+        use super::super::with_cancellable_region;
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
         use std::time::{Duration, Instant};
 
@@ -620,13 +620,15 @@ mod tests {
         let worker = super::spawn_worker(
             make_worker_job(17, 19),
             move |job| {
-                let region = CancellableRegion::enter().unwrap();
-                started_tx.send(()).unwrap();
-                release_rx.recv().unwrap();
-                let mut byte = 0u8;
-                let ret = unsafe { libc::read(read.as_raw_fd(), (&raw mut byte).cast(), 1) };
-                let errno = std::io::Error::last_os_error().raw_os_error().unwrap();
-                drop(region);
+                let (ret, errno) = with_cancellable_region(|| {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    let mut byte = 0u8;
+                    let ret = unsafe { libc::read(read.as_raw_fd(), (&raw mut byte).cast(), 1) };
+                    let errno = std::io::Error::last_os_error().raw_os_error().unwrap();
+                    (ret, errno)
+                })
+                .unwrap();
                 job.job.set_ret(if ret < 0 {
                     i64::from(-errno)
                 } else {
@@ -695,7 +697,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn legacy_cancellation_does_not_publish_retry_events() {
-        use super::super::CancellableRegion;
+        use super::super::with_cancellable_region;
         use std::os::fd::{FromRawFd, OwnedFd};
         use std::time::Duration;
 
@@ -710,11 +712,12 @@ mod tests {
         let worker = super::spawn_worker(
             make_worker_job(23, 29),
             move |_| {
-                let region = CancellableRegion::enter().unwrap();
-                started_tx.send(()).unwrap();
-                release_rx.recv().unwrap();
-                drop(region);
-                assert!(CancellableRegion::enter().is_err());
+                with_cancellable_region(|| {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                })
+                .unwrap();
+                assert!(with_cancellable_region(|| ()).is_err());
                 ack_tx.send(()).unwrap();
                 finish_rx.recv().unwrap();
             },
@@ -979,7 +982,7 @@ mod tests {
         assert!(queued_job.cancel.is_some());
         let worker = HostWorkerHandle {
             shared: Arc::new(HostWorkerShared {
-                cancellation: Arc::new(WorkerCancellation::new(3)),
+                cancellation: WorkerCancellation::new(),
                 state: Mutex::new(HostWorkerState {
                     job: Some(queued_job),
                     running_cancel: RunningCancellation::Idle,

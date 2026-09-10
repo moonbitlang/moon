@@ -6492,7 +6492,7 @@ mod tests {
                 move |worker_job| {
                     started_tx.send(()).unwrap();
                     release_rx.recv().unwrap();
-                    assert!(thread_pool::CancellableRegion::enter().is_err());
+                    assert!(thread_pool::with_cancellable_region(|| ()).is_err());
                     ack_tx.send(()).unwrap();
                     finish_rx.recv().unwrap();
                     worker_job.job.set_ret(73);

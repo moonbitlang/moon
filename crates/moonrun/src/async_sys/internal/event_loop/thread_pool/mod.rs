@@ -23,7 +23,7 @@ mod sleep;
 mod types;
 mod worker;
 
-pub(crate) use cancellation::CancellableRegion;
+pub(crate) use cancellation::with_cancellable_region;
 #[cfg(any(feature = "v8", feature = "wasmtime", test))]
 pub(crate) use jobs::make_sleep_job;
 #[cfg(any(feature = "v8", feature = "wasmtime"))]

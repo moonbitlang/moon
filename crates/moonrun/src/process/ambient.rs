@@ -31,6 +31,8 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 use crate::policy::PolicyInheritance;
@@ -787,57 +789,59 @@ fn wait_for_process(
 
 #[cfg(target_os = "linux")]
 fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i64> {
-    let _region = crate::async_sys::internal::event_loop::thread_pool::CancellableRegion::enter()?;
-    let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-    // Policy mode reaps only after atomically revoking PID authority.
-    let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
-    if unsafe { libc::waitid(libc::P_PIDFD, pidfd as libc::id_t, &mut siginfo, flags) } < 0 {
-        return Err(last_native_error());
-    }
-    Ok(i64::from(
-        crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
-            siginfo.si_status()
-        }),
-    ))
+    with_cancellable_region(|| {
+        let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // Policy mode reaps only after atomically revoking PID authority.
+        let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
+        if unsafe { libc::waitid(libc::P_PIDFD, pidfd as libc::id_t, &mut siginfo, flags) } < 0 {
+            return Err(last_native_error());
+        }
+        Ok(i64::from(
+            crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
+                siginfo.si_status()
+            }),
+        ))
+    })?
 }
 
 #[cfg(unix)]
 fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
-    let _region = crate::async_sys::internal::event_loop::thread_pool::CancellableRegion::enter()?;
-    if !defer_reap {
-        let mut status = 0;
-        let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
-        if ret < 0 {
+    with_cancellable_region(|| {
+        if !defer_reap {
+            let mut status = 0;
+            let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if ret < 0 {
+                return Err(last_native_error());
+            }
+            if ret != pid {
+                return Err(AsyncHostError::Inval);
+            }
+            return Ok(i64::from(
+                crate::async_sys::process::unix_wait_status_exit_code(status),
+            ));
+        }
+        let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // The host reaps after atomically revoking policy PID authority.
+        if unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut siginfo,
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        } < 0
+        {
             return Err(last_native_error());
         }
-        if ret != pid {
+        if unsafe { siginfo.si_pid() } != pid {
             return Err(AsyncHostError::Inval);
         }
-        return Ok(i64::from(
-            crate::async_sys::process::unix_wait_status_exit_code(status),
-        ));
-    }
-    let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-    // The host reaps after atomically revoking policy PID authority.
-    if unsafe {
-        libc::waitid(
-            libc::P_PID,
-            pid as libc::id_t,
-            &mut siginfo,
-            libc::WEXITED | libc::WNOWAIT,
-        )
-    } < 0
-    {
-        return Err(last_native_error());
-    }
-    if unsafe { siginfo.si_pid() } != pid {
-        return Err(AsyncHostError::Inval);
-    }
-    Ok(i64::from(
-        crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
-            siginfo.si_status()
-        }),
-    ))
+        Ok(i64::from(
+            crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
+                siginfo.si_status()
+            }),
+        ))
+    })?
 }
 
 #[cfg(windows)]
