@@ -7,6 +7,17 @@ behavior can change.
 
 ## Build + run pipeline
 
+Project tests, standalone-file tests, and benchmarks enter the same
+`run_test_workflow` after planning. It owns the initial build and dispatches the
+selected mode. Dry-run stops at the build graph. After the initial build,
+outline, build-only, and profiling each dispatch once to a dedicated handler
+for the whole invocation. Build-only emits one combined artifact listing across
+backends. Ordinary test and benchmark execution goes through
+`run_tests_with_updates`, which owns the execution, snapshot promotion, rebuild,
+and rerun loop, together with the final report.
+The command entry points hold the target-directory lock from before planning
+until the entire workflow finishes, including test execution and promotion.
+
 1. The CLI resolves packages and test targets (via Rupes Recta build planning). Each
    selected `BuildTarget` produces two artifacts: the executable (`make_executable`) and
    a JSON metadata file (`generate_test_info`).
@@ -53,7 +64,7 @@ snapshot tests. The CLI enforces a single target backend in this mode (updating
 multiple backends at once would diverge binary outputs) and disallows patch
 files.
 
-1. After the initial run, `perform_promotion` scans the aggregated
+1. After each run, `perform_promotion` scans that run's
    `ReplaceableTestResults`. For every `ExpectTestFailed` or `SnapshotTestFailed`
    case it:
 
@@ -74,8 +85,10 @@ files.
      final summary reflects the updated outcomes.
 
 3. The loop repeats until either the filter is empty or the pass count hits
-   `--limit`. When the limit triggers the runner stops promoting and leaves any
-   remaining failures in the final output.
+   `--limit`. The initial run counts as the first pass. Promotion happens before
+   checking the limit, so the last pass can still modify files, but no rebuild or
+   rerun follows. The final report retains the last observed results, including
+   results for tests outside the rerun filter.
 
 During promotion the expect/snapshot helpers in `moonbuild::expect` are
 responsible for touching files. The CLI does not stream diffs; failures are still
