@@ -276,6 +276,38 @@ pub(crate) fn event_get_pid(event: &PollEvent) -> RawFd {
     event.ident as RawFd
 }
 
+// Run signals coalesce behind a single wake byte. Omit EV_CLEAR so readiness
+// persists when the guest fetches only part of the pending signal set.
+pub(crate) fn poll_register_signal_source(
+    instance: &PollInstance,
+    fd: RawFd,
+    fd_handle: u64,
+) -> AsyncHostResult<()> {
+    let change = new_kevent(
+        fd as libc::uintptr_t,
+        libc::EVFILT_READ,
+        libc::EV_ADD,
+        0,
+        0,
+        Some(fd_handle),
+    )?;
+    if unsafe {
+        libc::kevent(
+            instance.raw_fd(),
+            &change,
+            1,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null(),
+        )
+    } < 0
+    {
+        Err(last_native_error())
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
     for filter in [libc::EVFILT_READ, libc::EVFILT_WRITE] {
         let event = new_kevent(fd as libc::uintptr_t, filter, libc::EV_DELETE, 0, 0, None)?;

@@ -22,12 +22,22 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub as fd_util;
 #[cfg(unix)]
 use crate::async_sys::internal::fd_util::stub::RawFd;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+#[cfg(unix)]
+use std::sync::Mutex;
 
 #[cfg(unix)]
 #[derive(Debug)]
 pub(crate) struct ThreadPoolCompletionNotifier {
     notify_recv: RawFd,
     notify_send: RawFd,
+    // Run signals must not backpressure the process-wide signal broker. They
+    // coalesce separately from worker IDs, with one wake byte while nonempty.
+    // Both ends stay alive with the notifier, including during an in-flight send.
+    signal_recv: OwnedFd,
+    signal_send: OwnedFd,
+    pending_signals: Mutex<u32>,
 }
 
 #[cfg(unix)]
@@ -62,6 +72,9 @@ impl ThreadPoolCompletionNotifier {
     }
 
     pub(crate) fn new() -> AsyncHostResult<(Self, RawFd)> {
+        let signals = fd_util::pipe(true, true)?;
+        let signal_recv = unsafe { OwnedFd::from_raw_fd(signals[0]) };
+        let signal_send = unsafe { OwnedFd::from_raw_fd(signals[1]) };
         let fds = fd_util::pipe(true, false)?;
 
         // The read end is transferred to AsyncHost's file table so poll
@@ -70,6 +83,9 @@ impl ThreadPoolCompletionNotifier {
             Self {
                 notify_recv: fds[0],
                 notify_send: fds[1],
+                signal_recv,
+                signal_send,
+                pending_signals: Mutex::new(0),
             },
             fds[0],
         ))
@@ -104,24 +120,105 @@ impl ThreadPoolCompletionNotifier {
         }
     }
 
+    pub(crate) fn signal_fd(&self) -> RawFd {
+        self.signal_recv.as_raw_fd()
+    }
+
+    pub(crate) fn notify_signal(&self, signal_bit: u32) -> AsyncHostResult<()> {
+        let mut pending = self.pending_signals.lock().unwrap();
+        if *pending == 0 {
+            // Serialize the empty-to-nonempty transition with fetch/discard.
+            // This pipe contains only the wake byte, never individual events.
+            loop {
+                let written =
+                    unsafe { libc::write(self.signal_send.as_raw_fd(), b"x".as_ptr().cast(), 1) };
+                if written == 1 {
+                    break;
+                }
+                if written == 0 {
+                    return Err(AsyncHostError::Inval);
+                }
+                let errno = last_errno();
+                if errno == libc::EINTR {
+                    continue;
+                }
+                if would_block(errno) {
+                    // An existing wake byte already makes the poller readable.
+                    break;
+                }
+                return Err(AsyncHostError::Native(errno));
+            }
+        }
+        *pending |= signal_bit;
+        Ok(())
+    }
+
+    fn fetch_signals(&self, dst: &mut [u8]) -> AsyncHostResult<usize> {
+        let mut pending = self.pending_signals.lock().unwrap();
+        let mut bytes = 0;
+        for output in dst.chunks_exact_mut(4) {
+            if *pending == 0 {
+                break;
+            }
+            let signal = pending.trailing_zeros();
+            output.copy_from_slice(&((signal as i32) | i32::MIN).to_ne_bytes());
+            *pending &= !(1 << signal);
+            bytes += 4;
+        }
+        if bytes != 0 && *pending == 0 {
+            // Leave the byte untouched after a partial fetch: the poller must
+            // remain readable until every pending signal has been consumed.
+            loop {
+                let mut wake = 0_u8;
+                let read =
+                    unsafe { libc::read(self.signal_recv.as_raw_fd(), (&raw mut wake).cast(), 1) };
+                if read == 1 {
+                    break;
+                }
+                if read == 0 {
+                    return Err(AsyncHostError::Inval);
+                }
+                let errno = last_errno();
+                if errno == libc::EINTR {
+                    continue;
+                }
+                return Err(AsyncHostError::Native(errno));
+            }
+        }
+        Ok(bytes)
+    }
+
+    pub(crate) fn discard_signals(&self) {
+        // Detachment may abandon accepted signals. Drain all bits and their
+        // wake byte so restarting delivery cannot receive stale notifications.
+        let _ = self.fetch_signals(&mut [0; u32::BITS as usize * 4]);
+    }
+
     pub(crate) fn fetch(&self, dst: &mut [u8]) -> AsyncHostResult<usize> {
         if dst.is_empty() {
             return Ok(0);
         }
+        let signal_bytes = self.fetch_signals(dst)?;
+        let dst = &mut dst[signal_bytes..];
+        if dst.is_empty() {
+            return Ok(signal_bytes);
+        }
         loop {
             let n = unsafe { libc::read(self.notify_recv, dst.as_mut_ptr().cast(), dst.len()) };
             if n > 0 {
-                return usize::try_from(n).map_err(|_| AsyncHostError::Fault);
+                return usize::try_from(n)
+                    .map(|bytes| signal_bytes + bytes)
+                    .map_err(|_| AsyncHostError::Fault);
             }
             if n == 0 {
-                return Ok(0);
+                return Ok(signal_bytes);
             }
             let errno = last_errno();
             if errno == libc::EINTR {
                 continue;
             }
             if would_block(errno) {
-                return Ok(0);
+                return Ok(signal_bytes);
             }
             return Err(AsyncHostError::Native(errno));
         }
@@ -157,10 +254,24 @@ mod tests {
     fn completion_pipe_is_close_on_exec() {
         let (notifier, notify_recv) = ThreadPoolCompletionNotifier::new().unwrap();
 
-        for fd in [notify_recv, notifier.notify_send] {
+        for fd in [
+            notify_recv,
+            notifier.notify_send,
+            notifier.signal_recv.as_raw_fd(),
+            notifier.signal_send.as_raw_fd(),
+        ] {
             let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
             assert!(flags >= 0);
             assert_ne!(flags & libc::FD_CLOEXEC, 0);
+        }
+
+        for fd in [
+            notifier.signal_recv.as_raw_fd(),
+            notifier.signal_send.as_raw_fd(),
+        ] {
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            assert!(flags >= 0);
+            assert_ne!(flags & libc::O_NONBLOCK, 0);
         }
 
         unsafe {

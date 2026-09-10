@@ -240,7 +240,13 @@ The destination for signals injected into one Run. It owns that guest's
 cancellation-signal selection and its Completion target. A Signal Sender selects
 one Run by owning the sending half; it never raises an operating-system signal.
 The guest starts and stops delivery without consuming a Worker. On Unix the
-existing CLI signal broker forwards directly into the Run's Completion Queue.
+existing CLI signal broker coalesces pending signals in a bitset and wakes the
+poller through a separate nonblocking pipe. Its level-triggered read end reports
+the same guest Completion Source as the worker pipe; fetching completions drains
+pending signals before worker IDs. Partial signal fetches retain readiness.
+Acceptance and detachment share a lock, and detachment discards pending signals.
+The broker never waits for space in the worker pipe or falls back to process
+termination because that pipe closes during an accepted delivery.
 Older guests retain a virtual signal-wait Job with a nonblocking self-pipe and
 pending-signal mask. Its cancellation hook records cancellation before waking
 the same pipe, and remains isolated from the direct delivery path.

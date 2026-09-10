@@ -1527,6 +1527,7 @@ impl AsyncHost {
         #[cfg(unix)]
         {
             if let Some(source) = completion_source {
+                self.terminate_signal_handler();
                 let _ = self.handles.borrow_mut().remove_resource(source);
             }
             if let Some(old_signal_mask) = old_signal_mask {
@@ -1792,10 +1793,20 @@ impl AsyncHost {
                 let _ = self.handles.borrow_mut().remove_resource(source);
                 return Err(error);
             }
+            let signal_fd = completion_notifier.signal_fd();
+            // Both sources use the same guest handle. fetch_completion merges
+            // pending Run signals with worker IDs without a forwarding thread.
+            if let Err(error) = poll::poll_register_signal_source(&poll.instance, signal_fd, source)
+            {
+                let _ = poll::poll_unregister(&poll.instance, event_fd);
+                let _ = self.handles.borrow_mut().remove_resource(source);
+                return Err(error);
+            }
             let source = {
                 let mut completions = self.thread_pool_completions.borrow_mut();
                 if completions.source.is_some() {
                     drop(completions);
+                    let _ = poll::poll_unregister(&poll.instance, signal_fd);
                     let _ = poll::poll_unregister(&poll.instance, event_fd);
                     let _ = self.handles.borrow_mut().remove_resource(source);
                     return Err(AsyncHostError::Inval);
@@ -1803,6 +1814,7 @@ impl AsyncHost {
                 // Publish the poll-side mapping before exposing the notifier:
                 // workers can notify as soon as completions.notifier is visible.
                 poll.registered_fds.insert(event_fd);
+                poll.registered_fds.insert(signal_fd);
                 poll.completion_notifier = Some(Arc::clone(&completion_notifier));
                 completions.notifier = Some(completion_notifier);
                 completions.source = Some(source);
@@ -1860,7 +1872,11 @@ impl AsyncHost {
                 }
             }
             for poll in polls.polls.values_mut() {
-                poll.completion_notifier = None;
+                if let Some(notifier) = poll.completion_notifier.take() {
+                    let signal_fd = notifier.signal_fd();
+                    let _ = poll::poll_unregister(&poll.instance, signal_fd);
+                    poll.registered_fds.remove(&signal_fd);
+                }
             }
             if let Some(old_signal_mask) = old_signal_mask {
                 let _ = crate::async_sys::signal::restore_thread_pool_signal_mask(&old_signal_mask);
@@ -2557,8 +2573,13 @@ impl AsyncHost {
                 }
             };
             if completion_source_closed {
+                self.terminate_signal_handler();
                 for poll in polls.polls.values_mut() {
-                    poll.completion_notifier = None;
+                    if let Some(notifier) = poll.completion_notifier.take() {
+                        let signal_fd = notifier.signal_fd();
+                        let _ = poll::poll_unregister(&poll.instance, signal_fd);
+                        poll.registered_fds.remove(&signal_fd);
+                    }
                 }
                 if let Some(old_signal_mask) = old_signal_mask {
                     let _ =

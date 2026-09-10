@@ -60,7 +60,8 @@ ported_fns! {
         notifier: Arc<ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<SignalTargetGuard> {
         // The CLI's dedicated signal broker already owns sigwait. Attach this
-        // Run directly instead of consuming a worker for a forwarding Job.
+        // Run's nonblocking signal source instead of consuming a worker for a
+        // forwarding Job or blocking the broker on the worker completion pipe.
         receiver.attach_completion_target(notifier)
             .ok_or(crate::async_host::AsyncHostError::Inval)
     }

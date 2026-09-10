@@ -50,7 +50,6 @@ pub(crate) struct SignalTargetGuard {
 }
 
 #[cfg(unix)]
-#[derive(Clone)]
 enum SignalTarget {
     // Older Wasm guests still submit a virtual sigwait Job.
     CompatibilityWaiter(SigwaitTarget),
@@ -102,28 +101,28 @@ impl SignalSender {
 
         #[cfg(unix)]
         {
-            let target = {
-                let state = self
-                    .shared
-                    .inner
-                    .lock()
-                    .map_err(|_| SignalSendError::Disconnected)?;
-                if !state.receiver_alive {
-                    return Err(SignalSendError::Disconnected);
-                }
-                if state.interested & bit == 0 {
-                    return Ok(false);
-                }
-                state.target.clone()
-            };
-            match target {
+            let state = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| SignalSendError::Disconnected)?;
+            if !state.receiver_alive {
+                return Err(SignalSendError::Disconnected);
+            }
+            if state.interested & bit == 0 {
+                return Ok(false);
+            }
+            // Both Unix targets use nonblocking, coalesced wakeups. Keep the
+            // registration lock until acceptance so detach cannot turn an
+            // in-flight delivery into an error and process-level fallback.
+            match &state.target {
                 None => Ok(false),
                 Some(SignalTarget::CompatibilityWaiter(target)) => target
                     .send(bit)
                     .map_err(|_| SignalSendError::DeliveryFailed),
                 Some(SignalTarget::Completion(target)) => {
                     target
-                        .notify(encode_signal_event(signal))
+                        .notify_signal(bit)
                         .map_err(|_| SignalSendError::DeliveryFailed)?;
                     Ok(true)
                 }
@@ -216,7 +215,10 @@ impl SignalReceiver {
 #[cfg(unix)]
 impl Drop for SignalTargetGuard {
     fn drop(&mut self) {
-        self.shared.inner.lock().unwrap().target = None;
+        let mut state = self.shared.inner.lock().unwrap();
+        if let Some(SignalTarget::Completion(target)) = state.target.take() {
+            target.discard_signals();
+        }
     }
 }
 
@@ -241,6 +243,7 @@ struct SignalStateInner {
     target: Option<CompletionPort>,
 }
 
+#[cfg(windows)]
 fn encode_signal_event(signal: i32) -> i32 {
     ((signal as u32) | (1_u32 << 31)) as i32
 }
