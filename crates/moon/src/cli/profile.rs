@@ -520,7 +520,31 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     })
 }
 
-pub(crate) fn profile_test_invocations(
+pub(crate) fn profile_tests(
+    cli: &UniversalFlags,
+    source_dir: &Path,
+    target_dir: &Path,
+    builds: &[(crate::rr_build::BuildMeta, crate::run::TestFilter)],
+    include_skipped: bool,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    builds
+        .iter()
+        .try_fold(0, |exit_code, (build_meta, filter)| {
+            let result = profile_test_invocations(
+                cli,
+                source_dir,
+                target_dir,
+                build_meta,
+                filter,
+                include_skipped,
+                output,
+            )?;
+            Ok(exit_code.max(result))
+        })
+}
+
+fn profile_test_invocations(
     cli: &UniversalFlags,
     source_dir: &Path,
     target_dir: &Path,

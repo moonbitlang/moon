@@ -30,7 +30,7 @@ use crate::rr_build;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
-use crate::run::{ReplaceableTestResults, TestFilter, TestIndex, TestOutlineEntry};
+use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
@@ -205,30 +205,39 @@ fn print_test_summary(
     }
 }
 
-fn print_test_outline(entries: &[TestOutlineEntry], user_log: &UserLog) {
-    if entries.is_empty() {
-        user_log.warn("no test entry found.");
-        return;
-    }
-
-    for (i, entry) in entries.iter().enumerate() {
-        let line = entry
-            .line_number
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "?".to_string());
-        let mut line_out = format!(
-            "{:>4}. {} {}:{} index={}",
-            i + 1,
-            entry.package,
-            entry.file,
-            line,
-            entry.index
-        );
-        if let Some(name) = &entry.name {
-            line_out.push_str(&format!(" name={name:?}"));
+fn print_test_outlines(
+    builds: &[(rr_build::BuildMeta, TestFilter)],
+    include_skipped: bool,
+    bench: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<()> {
+    for (build_meta, filter) in builds {
+        let entries = collect_test_outline(build_meta, filter, include_skipped, bench)?;
+        if entries.is_empty() {
+            user_log.warn("no test entry found.");
+            continue;
         }
-        println!("{line_out}");
+
+        for (i, entry) in entries.iter().enumerate() {
+            let line = entry
+                .line_number
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let mut line_out = format!(
+                "{:>4}. {} {}:{} index={}",
+                i + 1,
+                entry.package,
+                entry.file,
+                line,
+                entry.index
+            );
+            if let Some(name) = &entry.name {
+                line_out.push_str(&format!(" name={name:?}"));
+            }
+            println!("{line_out}");
+        }
     }
+    Ok(())
 }
 
 /// Test the current package
@@ -1053,10 +1062,10 @@ pub(crate) fn run_test_or_bench_from_resolved(
     )
 }
 
-/// Executes the complete test or benchmark workflow for project and standalone plans.
+/// Builds all selected backends, then dispatches the test or benchmark mode.
 ///
-/// All backends build before any test runs. Snapshot updates then alternate
-/// promotion, partial rebuilds, and filtered runs for each backend.
+/// Project and standalone plans share this initial build barrier. Each mode
+/// handles the whole invocation, including any snapshot-update rebuilds.
 /// The caller holds the target-directory lock throughout a non-dry-run workflow.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_test_workflow(
@@ -1117,58 +1126,71 @@ fn run_test_workflow(
         return Ok(result.return_code_for_success());
     }
 
-    let mut build_only_artifacts = TestArtifacts {
-        artifacts_path: Vec::new(),
-        test_filter_args: Vec::new(),
-    };
+    if cmd.outline {
+        print_test_outlines(
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+            user_log,
+        )?;
+        return Ok(0);
+    }
+    if cmd.build_only {
+        print_test_artifacts(
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+        )?;
+        return Ok(0);
+    }
+    if cmd.profile {
+        return profile::profile_tests(
+            cli,
+            source_dir,
+            target_dir,
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            output,
+        );
+    }
+
+    run_tests_with_updates(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        build_metas_and_filters,
+        &build_config,
+        build_graph_backup,
+        user_log,
+    )
+}
+
+/// Runs already-built tests or benchmarks and reports their accumulated results.
+/// With `--update`, promotes snapshots and rebuilds before each filtered rerun.
+/// The caller must hold the target-directory lock throughout this operation.
+#[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
+fn run_tests_with_updates(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: bool,
+    builds: Vec<(rr_build::BuildMeta, TestFilter)>,
+    build_config: &BuildConfig,
+    build_graph_backup: Option<rr_build::BuildInput>,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let mut exit_code = 0;
-    'backends: for (build_meta, mut filter) in build_metas_and_filters {
+    'backends: for (build_meta, mut filter) in builds {
         let build_meta = &build_meta;
         debug!(
             artifact_count = build_meta.artifacts.len(),
             backend = ?build_meta.target_backend(),
             "executing rupes-recta test workflow"
         );
-
-        if cmd.outline {
-            let entries = collect_test_outline(
-                build_meta,
-                &filter,
-                cmd.include_skipped,
-                cmd.run_mode == RunMode::Bench,
-            )?;
-            print_test_outline(&entries, user_log);
-            continue;
-        }
-
-        if cmd.build_only {
-            let artifacts = collect_test_artifacts_for_build_only(
-                build_meta,
-                &filter,
-                cmd.include_skipped,
-                cmd.run_mode == RunMode::Bench,
-            )?;
-            build_only_artifacts
-                .artifacts_path
-                .extend(artifacts.artifacts_path);
-            build_only_artifacts
-                .test_filter_args
-                .extend(artifacts.test_filter_args);
-            continue;
-        }
-
-        if cmd.profile {
-            exit_code = exit_code.max(profile::profile_test_invocations(
-                cli,
-                source_dir,
-                target_dir,
-                build_meta,
-                &filter,
-                cmd.include_skipped,
-                output,
-            )?);
-            continue;
-        }
 
         let mut test_result = ReplaceableTestResults::default();
         let mut run_count = 0;
@@ -1232,7 +1254,7 @@ fn run_test_workflow(
                         .as_slice()
                 });
             let result = rr_build::execute_build_partial(
-                &build_config,
+                build_config,
                 build_graph,
                 target_dir,
                 Some(build_meta),
@@ -1273,10 +1295,6 @@ fn run_test_workflow(
         if summary.total != summary.passed {
             exit_code = exit_code.max(2);
         }
-    }
-    if cmd.build_only {
-        // Emit one JSON object for the whole invocation, including all backends.
-        println!("{}", serde_json_lenient::to_string(&build_only_artifacts)?);
     }
     Ok(exit_code)
 }
@@ -1770,36 +1788,39 @@ fn validate_original_package_selection_filters(
     Ok(())
 }
 
-/// Collect test artifacts for --build-only mode, matching legacy behavior.
+/// Print one combined artifact listing for --build-only mode across all backends.
 /// For JS backend, serializes each invocation's filter arguments.
-/// For other backends, returns executable paths directly.
+/// For other backends, lists executable paths directly.
 /// Only includes artifacts that have actual tests (skips empty test executables).
-fn collect_test_artifacts_for_build_only(
-    build_meta: &rr_build::BuildMeta,
-    filter: &TestFilter,
+fn print_test_artifacts(
+    builds: &[(rr_build::BuildMeta, TestFilter)],
     include_skipped: bool,
     bench: bool,
-) -> anyhow::Result<TestArtifacts> {
+) -> anyhow::Result<()> {
     let mut artifacts_path = vec![];
     let mut test_filter_args = vec![];
 
-    for invocation in
-        crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
-    {
-        // JS build-only output carries the serialized filter beside the executable.
-        if matches!(build_meta.target_backend(), TargetBackend::Js) {
-            let filter_arg = serde_json::to_string(&invocation.args)
-                .context("failed to serialize JS test filter args")?;
+    for (build_meta, filter) in builds {
+        for invocation in
+            crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
+        {
+            // JS build-only output carries the serialized filter beside the executable.
+            if matches!(build_meta.target_backend(), TargetBackend::Js) {
+                let filter_arg = serde_json::to_string(&invocation.args)
+                    .context("failed to serialize JS test filter args")?;
 
-            artifacts_path.push(invocation.executable);
-            test_filter_args.push(filter_arg);
-        } else {
-            artifacts_path.push(invocation.executable);
+                artifacts_path.push(invocation.executable);
+                test_filter_args.push(filter_arg);
+            } else {
+                artifacts_path.push(invocation.executable);
+            }
         }
     }
 
-    Ok(TestArtifacts {
+    let artifacts = TestArtifacts {
         artifacts_path,
         test_filter_args,
-    })
+    };
+    println!("{}", serde_json_lenient::to_string(&artifacts)?);
+    Ok(())
 }

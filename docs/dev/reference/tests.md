@@ -8,11 +8,15 @@ behavior can change.
 ## Build + run pipeline
 
 Project tests, standalone-file tests, and benchmarks enter the same
-`run_test_workflow` after planning. It owns the initial build, the execution loop
-(including snapshot-update rebuilds), and reporting. Dry-run stops at the build
-graph; outline, build-only, and profiling branch after the initial build. The
-command entry points hold the target-directory lock from before planning until
-the entire workflow finishes, including test execution and promotion.
+`run_test_workflow` after planning. It owns the initial build and dispatches the
+selected mode. Dry-run stops at the build graph. After the initial build,
+outline, build-only, and profiling each dispatch once to a dedicated handler
+for the whole invocation. Build-only emits one combined artifact listing across
+backends. Ordinary test and benchmark execution goes through
+`run_tests_with_updates`, which owns the execution, snapshot promotion, rebuild,
+and rerun loop, together with the final report.
+The command entry points hold the target-directory lock from before planning
+until the entire workflow finishes, including test execution and promotion.
 
 1. The CLI resolves packages and test targets (via Rupes Recta build planning). Each
    selected `BuildTarget` produces two artifacts: the executable (`make_executable`) and
