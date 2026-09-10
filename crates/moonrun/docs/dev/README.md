@@ -12,12 +12,20 @@
 ## Worker cancellation
 
 The cancellation protocol follows upstream async #595. Workers acknowledge a
-cancellation request before entering potentially blocking syscalls. A Unix
+cancellation request before entering native's cancellable syscalls. A Unix
 signal arriving after that check may precede the syscall, so the signal handler
 writes the job ID into the same pipe used for normal completions. The MoonBit
 event loop calls `cancel_worker_with_retry` both to start cancellation and to
-check each job notification. The host retries cancellation while the Worker is
-not yet `Waiting`, and returns a distinct status once the Job result is ready.
+check each job notification. The host retries cancellation when needed and
+returns a distinct status once the Job result is ready.
+
+Cancellation eligibility also follows native. In async's
+`src/internal/event_loop/io.mbt`, positioned reads and writes are submitted with
+`cancellable=platform is Windows`. On Unix, cancellation can prevent assignment
+to a Worker, but once assigned the guest waits for the operation to finish.
+Accordingly, `pread` and `pwrite` have no cancellable region, as in native
+`thread_pool.c`.
+Windows positioned I/O is cancellable and has the corresponding region.
 
 Native writes its shared Job result before setting `Waiting`. Moonrun preserves
 that order using its existing result channel: send the host-owned Job, set
@@ -38,6 +46,14 @@ waits for the completion notification to retire the Worker, as native does.
 Older guests have no retry check and would treat retry notifications as
 completed Jobs. Both imports take one `i64` Worker handle and return an `i32`
 status; the historical import retains its original return values.
+
+The completion check describes the Worker's current Job; the import takes no
+Job ID. Async's `EventLoop::handle_completed_job` accepts the previous completion
+before calling `worker.wake` for the next Job. Pending Jobs stay in the guest's
+queue until then. This sequencing keeps the checked Worker state associated
+with the notified Job. The host also preserves an early wake from direct
+callers, as tested by `wake_during_running_job_is_not_lost`, but after the Worker
+advances, its cancellation status no longer describes the previous Job.
 
 Worker freeing follows native's termination wakeup and join. Pipe capacity
 beyond the guest scheduler's worker bound, and cancellation/draining after a

@@ -245,6 +245,9 @@ impl HostWorkerHandle {
                     // payload as a completed Job.
                     worker_shared.cancellation.finish();
                     if let Some(next) = &state.job {
+                        // An early wake from a direct caller advances cancellation
+                        // to the next Job. Async's guest accepts the previous
+                        // completion before waking us again.
                         worker_shared
                             .cancellation
                             .start(next.completion_id.as_i32());
@@ -331,6 +334,9 @@ impl HostWorkerHandle {
         self.cancel_inner()
     }
 
+    /// Inspect or cancel the current Job, not an earlier completion ID.
+    /// The guest must accept completion before assigning the next Job; an
+    /// early wake can advance this state before the old notification is read.
     pub(crate) fn cancel_with_retry(
         &self,
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,

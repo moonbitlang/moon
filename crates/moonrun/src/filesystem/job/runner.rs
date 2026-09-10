@@ -598,6 +598,8 @@ fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHos
             }
         }
     } else {
+        // Async's io.mbt submits positioned Unix I/O as non-cancellable.
+        // Match native: the guest waits for pread instead of cancelling it.
         unsafe {
             libc::pread(
                 fd,
@@ -639,6 +641,8 @@ fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostRes
             }
         }
     } else {
+        // Positioned Unix writes are also non-cancellable in async's io.mbt;
+        // leave pwrite outside the region, as in native thread_pool.c.
         unsafe {
             libc::pwrite(
                 fd,
