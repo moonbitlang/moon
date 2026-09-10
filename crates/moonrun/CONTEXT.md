@@ -237,15 +237,21 @@ _Avoid_: Host exit, import-side exit, process-global termination state
 
 **Run Signals**:
 The destination for signals injected into one Run. It owns that guest's
-cancellation-signal selection and a channel shared with that Run's virtual
-signal-wait Job. A Signal Sender selects one Run by owning the sending half; it
-never raises an operating-system signal. On Unix the channel is a nonblocking
-self-pipe with a pending-signal mask: the pipe wakes the Job, the mask coalesces
-standard signals, and the Job publishes them to the Run's Completion target.
-The virtual Job supplies the thread pool's native-shaped optional cancellation
-hook, which records cancellation and wakes the same pipe without a timing race.
+cancellation-signal selection and its Completion target. A Signal Sender selects
+one Run by owning the sending half; it never raises an operating-system signal.
+The guest starts and stops delivery without consuming a Worker. On Unix the
+existing CLI signal broker coalesces pending signals in a bitset and wakes the
+poller through a separate nonblocking pipe. Its level-triggered read end reports
+the same guest Completion Source as the worker pipe; fetching completions drains
+pending signals before worker IDs. Partial signal fetches retain readiness.
+Acceptance and detachment share a lock, and detachment discards pending signals.
+The broker never waits for space in the worker pipe or falls back to process
+termination because that pipe closes during an accepted delivery.
+Older guests retain a virtual signal-wait Job with a nonblocking self-pipe and
+pending-signal mask. Its cancellation hook records cancellation before waking
+the same pipe, and remains isolated from the direct delivery path.
 Ordinary Unix Jobs retain the default `SIGUSR2` interruption path. Signals sent
-before the guest registration and virtual waiter are ready are not retained.
+before guest registration and delivery startup are ready are not retained.
 Forced interruption and broader Run lifecycle belong to a later control layer
 rather than this delivery seam.
 _Avoid_: process signal handler, global completion target, Run lifecycle
@@ -296,8 +302,8 @@ _Avoid_: Host state, native-stub implementation
 **Async Host**:
 Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace and materializes its reserved standard-stream Resources from the Runtime Stdio. It owns the common Job lifecycle for Filesystem, Network, Process, Run Signal, and SQLite payloads; domain semantics remain with their Host Domains.
 It owns one Run Signal receiver, translates guest cancellation registration
-into that receiver's interest, and constructs the Unix virtual signal-wait Job
-against the Run's Completion target.
+into that receiver's interest, starts and stops delivery to the Run's Completion
+target, and retains the Unix virtual signal-wait Job for older guests.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:

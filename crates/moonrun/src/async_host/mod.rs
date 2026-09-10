@@ -1183,6 +1183,8 @@ pub(crate) struct AsyncHost {
     polls: RefCell<PollTable>,
     thread_pool_completions: RefCell<ThreadPoolCompletions>,
     signals: SignalReceiver,
+    #[cfg(unix)]
+    signal_handler: RefCell<Option<crate::run_signal::SignalTargetGuard>>,
     handles: RefCell<HandleTable>,
     tls_connections: RefCell<SecondaryMap<HandleKey, tls::TlsHandle>>,
     tls_error: RefCell<Option<String>>,
@@ -1223,6 +1225,8 @@ impl AsyncHost {
             polls: RefCell::new(PollTable::default()),
             thread_pool_completions: RefCell::new(ThreadPoolCompletions::default()),
             signals,
+            #[cfg(unix)]
+            signal_handler: RefCell::new(None),
             handles: RefCell::new(HandleTable::with_keys(keys, stdio)),
             tls_connections: RefCell::new(SecondaryMap::new()),
             tls_error: RefCell::new(None),
@@ -1523,6 +1527,7 @@ impl AsyncHost {
         #[cfg(unix)]
         {
             if let Some(source) = completion_source {
+                self.terminate_signal_handler();
                 let _ = self.handles.borrow_mut().remove_resource(source);
             }
             if let Some(old_signal_mask) = old_signal_mask {
@@ -1722,6 +1727,26 @@ impl AsyncHost {
     }
 
     #[cfg(unix)]
+    pub(crate) fn start_signal_handler(&self) -> AsyncHostResult<()> {
+        if self.signal_handler.borrow().is_none() {
+            let handler = crate::async_sys::signal::start_signal_handler(
+                &self.signals,
+                self.thread_pool_notifier()?,
+            )?;
+            *self.signal_handler.borrow_mut() = Some(handler);
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn terminate_signal_handler(&self) {
+        crate::async_sys::signal::terminate_signal_handler(
+            &self.signals,
+            self.signal_handler.borrow_mut().take(),
+        );
+    }
+
+    #[cfg(unix)]
     pub(crate) fn make_sigwait_job(&self, signals: Vec<i32>) -> AsyncHostResult<HostHandle> {
         let notifier = self.thread_pool_notifier()?;
         let job = crate::async_sys::signal::make_sigwait_job(&self.signals, &signals, notifier)?;
@@ -1768,10 +1793,20 @@ impl AsyncHost {
                 let _ = self.handles.borrow_mut().remove_resource(source);
                 return Err(error);
             }
+            let signal_fd = completion_notifier.signal_fd();
+            // Both sources use the same guest handle. fetch_completion merges
+            // pending Run signals with worker IDs without a forwarding thread.
+            if let Err(error) = poll::poll_register_signal_source(&poll.instance, signal_fd, source)
+            {
+                let _ = poll::poll_unregister(&poll.instance, event_fd);
+                let _ = self.handles.borrow_mut().remove_resource(source);
+                return Err(error);
+            }
             let source = {
                 let mut completions = self.thread_pool_completions.borrow_mut();
                 if completions.source.is_some() {
                     drop(completions);
+                    let _ = poll::poll_unregister(&poll.instance, signal_fd);
                     let _ = poll::poll_unregister(&poll.instance, event_fd);
                     let _ = self.handles.borrow_mut().remove_resource(source);
                     return Err(AsyncHostError::Inval);
@@ -1779,6 +1814,7 @@ impl AsyncHost {
                 // Publish the poll-side mapping before exposing the notifier:
                 // workers can notify as soon as completions.notifier is visible.
                 poll.registered_fds.insert(event_fd);
+                poll.registered_fds.insert(signal_fd);
                 poll.completion_notifier = Some(Arc::clone(&completion_notifier));
                 completions.notifier = Some(completion_notifier);
                 completions.source = Some(source);
@@ -1805,6 +1841,8 @@ impl AsyncHost {
     }
 
     pub(crate) fn destroy_thread_pool(&self) {
+        #[cfg(unix)]
+        self.terminate_signal_handler();
         for worker in self.workers.destroy() {
             self.handles.borrow_mut().remove_worker_key(worker.key);
             if let Some(unrun_job) = worker.unrun_job {
@@ -1834,7 +1872,11 @@ impl AsyncHost {
                 }
             }
             for poll in polls.polls.values_mut() {
-                poll.completion_notifier = None;
+                if let Some(notifier) = poll.completion_notifier.take() {
+                    let signal_fd = notifier.signal_fd();
+                    let _ = poll::poll_unregister(&poll.instance, signal_fd);
+                    poll.registered_fds.remove(&signal_fd);
+                }
             }
             if let Some(old_signal_mask) = old_signal_mask {
                 let _ = crate::async_sys::signal::restore_thread_pool_signal_mask(&old_signal_mask);
@@ -2531,8 +2573,13 @@ impl AsyncHost {
                 }
             };
             if completion_source_closed {
+                self.terminate_signal_handler();
                 for poll in polls.polls.values_mut() {
-                    poll.completion_notifier = None;
+                    if let Some(notifier) = poll.completion_notifier.take() {
+                        let signal_fd = notifier.signal_fd();
+                        let _ = poll::poll_unregister(&poll.instance, signal_fd);
+                        poll.registered_fds.remove(&signal_fd);
+                    }
                 }
                 if let Some(old_signal_mask) = old_signal_mask {
                     let _ =
@@ -5151,6 +5198,173 @@ mod tests {
 
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_handler_reconfigures_restarts_and_detaches_with_the_pool() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+        let notifier = host.thread_pool_notifier().unwrap();
+        let all = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&all, &[libc::SIGINT])
+            .unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        host.start_signal_handler().unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(host.workers.len(), 0);
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        let mut event = [0; 4];
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        assert_eq!(i32::from_ne_bytes(event), libc::SIGINT | i32::MIN);
+
+        host.set_cancellation_signals(&all, &[libc::SIGTERM])
+            .unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert_eq!(sender.send(libc::SIGTERM), Ok(true));
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        assert_eq!(i32::from_ne_bytes(event), libc::SIGTERM | i32::MIN);
+
+        host.terminate_signal_handler();
+        assert_eq!(sender.send(libc::SIGTERM), Ok(false));
+        host.set_cancellation_signals(&all, &all).unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        host.destroy_thread_pool();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert!(host.signal_handler.borrow().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_bursts_do_not_wait_for_worker_completions() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        let source = host.init_thread_pool(poll).unwrap();
+        let signals = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        host.thread_pool_notifier()
+            .unwrap()
+            .fill_with_completions(17);
+
+        let (finished, result) = std::sync::mpsc::channel();
+        let broker = std::thread::spawn(move || {
+            let delivered = (0..65536).try_for_each(|index| {
+                sender
+                    .send(signals[index % signals.len()])
+                    .map(|accepted| assert!(accepted))
+            });
+            finished.send(delivered).unwrap();
+        });
+        let delivered = result.recv_timeout(std::time::Duration::from_secs(2));
+        if delivered.is_err() {
+            // Release a blocked writer so the regression fails without leaking a thread.
+            host.destroy_thread_pool();
+        }
+        broker.join().unwrap();
+        assert_eq!(
+            delivered,
+            Ok(Ok(())),
+            "signal delivery blocked on the full worker pipe"
+        );
+
+        let mut memory = [0; 12];
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 3)
+                .unwrap(),
+            12
+        );
+        let events: Vec<_> = memory
+            .chunks_exact(4)
+            .map(|bytes| i32::from_ne_bytes(bytes.try_into().unwrap()))
+            .collect();
+        assert_eq!(
+            events,
+            [libc::SIGINT | i32::MIN, libc::SIGTERM | i32::MIN, 17]
+        );
+        assert_eq!(host.workers.len(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_notifications_remain_ready_until_fetched_and_are_discarded_on_detach() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        let source = host.init_thread_pool(poll).unwrap();
+        let signals = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        for signal in signals {
+            assert_eq!(sender.send(signal), Ok(true));
+        }
+        let mut memory = [0; 4];
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(
+            host.poll_event_fd(host.poll_get_event(poll, 0).unwrap())
+                .unwrap(),
+            source
+        );
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 0)
+                .unwrap(),
+            0
+        );
+        for signal in signals {
+            assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
+            assert_eq!(
+                host.fetch_completion(memory.as_mut_slice(), source, 0, 1)
+                    .unwrap(),
+                4
+            );
+            assert_eq!(i32::from_ne_bytes(memory), signal | i32::MIN);
+        }
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+
+        assert_eq!(sender.send(libc::SIGTERM), Ok(true));
+        host.terminate_signal_handler();
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+        assert_eq!(sender.send(libc::SIGTERM), Ok(false));
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 1)
+                .unwrap(),
+            0
+        );
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_delivery_detaches_when_its_poll_or_completion_source_closes() {
+        for close_poll in [false, true] {
+            let (sender, receiver) = crate::signal_channel();
+            let mut host = default_host();
+            host.signals = receiver;
+            let poll = host.poll_create().unwrap();
+            let source = host.init_thread_pool(poll).unwrap();
+            host.set_cancellation_signals(&[libc::SIGINT], &[libc::SIGINT])
+                .unwrap();
+            host.start_signal_handler().unwrap();
+            assert_eq!(sender.send(libc::SIGINT), Ok(true));
+            if close_poll {
+                host.poll_destroy(poll).unwrap();
+            } else {
+                host.close_fd(source).unwrap();
+            }
+            assert_eq!(sender.send(libc::SIGINT), Ok(false));
+            assert!(host.signal_handler.borrow().is_none());
+        }
     }
 
     #[cfg(unix)]

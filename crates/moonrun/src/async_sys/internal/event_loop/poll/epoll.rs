@@ -173,6 +173,24 @@ ported_fns! {
     }
 }
 
+// Run signals coalesce behind a single wake byte. Level triggering preserves
+// readiness when the guest fetches only part of the pending signal set.
+pub(crate) fn poll_register_signal_source(
+    instance: &PollInstance,
+    fd: RawFd,
+    fd_handle: u64,
+) -> AsyncHostResult<()> {
+    let mut event = libc::epoll_event {
+        events: libc::EPOLLIN as u32,
+        u64: fd_handle,
+    };
+    if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
+        Err(last_native_error())
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
     if unsafe {
         libc::epoll_ctl(

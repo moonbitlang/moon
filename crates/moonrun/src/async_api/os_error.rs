@@ -28,7 +28,12 @@ pub(super) fn get_errno(context: &mut ImportContext<'_, '_>) -> i32 {
     stub::get_errno(context.host)
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_is_nonblocking_io_error",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn is_nonblocking_io_error(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_nonblocking_io_error(errno) {
         1
@@ -37,32 +42,62 @@ pub(super) fn is_nonblocking_io_error(_context: &mut ImportContext<'_, '_>, errn
     }
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_is_EINTR",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn is_eintr(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_eintr(errno) { 1 } else { 0 }
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_is_ENOENT",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn is_enoent(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_enoent(errno) { 1 } else { 0 }
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_is_EEXIST",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn is_eexist(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_eexist(errno) { 1 } else { 0 }
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_is_EACCES",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn is_eacces(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_eacces(errno) { 1 } else { 0 }
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_is_ECONNREFUSED",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn is_econnrefused(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_econnrefused(errno) { 1 } else { 0 }
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_is_ERROR_NOTIFY_ENUM_DIR",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_error_notify_enum_dir(errno) {
         1
@@ -80,12 +115,22 @@ pub(super) fn free_errno_str(context: &mut ImportContext<'_, '_>, ptr: u64) -> A
     super::c_buffer::free(context, ptr)
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_get_ENOTDIR",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn get_enotdir(_context: &mut ImportContext<'_, '_>) -> i32 {
     stub::get_enotdir()
 }
 
-#[ported(source = "src/os_error/stub.c")]
+#[compat(
+    source = "src/os_error/stub.c",
+    original = "moonbitlang_async_get_ENOTSUP",
+    upstream_pr = 566,
+    replacement = "platform errno constants in src/os_error/error.mbt"
+)]
 pub(super) fn get_enotsup(_context: &mut ImportContext<'_, '_>) -> i32 {
     stub::get_enotsup()
 }

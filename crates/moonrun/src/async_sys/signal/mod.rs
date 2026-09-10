@@ -22,10 +22,16 @@
 //! completion delivery belong to one Run.
 
 use crate::async_host::AsyncHostResult;
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 #[cfg(windows)]
 use crate::async_sys::internal::event_loop::poll::CompletionPort;
 use crate::async_sys::ported_fns;
 use crate::run_signal::SignalReceiver;
+#[cfg(unix)]
+use crate::run_signal::SignalTargetGuard;
+#[cfg(unix)]
+use std::sync::Arc;
 
 #[cfg(unix)]
 mod unix;
@@ -44,6 +50,35 @@ pub(crate) use unix::{
 };
 
 ported_fns! {
+    #[ported(
+        source = "src/internal/event_loop/signal.c",
+        original = "moonbitlang_async_start_signal_handler"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn start_signal_handler(
+        receiver: &SignalReceiver,
+        notifier: Arc<ThreadPoolCompletionNotifier>,
+    ) -> AsyncHostResult<SignalTargetGuard> {
+        // The CLI's dedicated signal broker already owns sigwait. Attach this
+        // Run's nonblocking signal source instead of consuming a worker for a
+        // forwarding Job or blocking the broker on the worker completion pipe.
+        receiver.attach_completion_target(notifier)
+            .ok_or(crate::async_host::AsyncHostError::Inval)
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/signal.c",
+        original = "moonbitlang_async_terminate_signal_handler"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn terminate_signal_handler(
+        receiver: &SignalReceiver,
+        handler: Option<SignalTargetGuard>,
+    ) {
+        drop(handler);
+        receiver.configure(&[], &[]);
+    }
+
     #[ported(
         source = "src/internal/event_loop/signal.c",
         original = "moonbitlang_async_set_global_cancellation_signals"

@@ -28,9 +28,11 @@ ported_fns! {
         host.get_errno()
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_is_nonblocking_io_error"
+        original = "moonbitlang_async_is_nonblocking_io_error",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn is_nonblocking_io_error(errno: i32) -> bool {
         #[cfg(unix)]
@@ -44,9 +46,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_is_EINTR"
+        original = "moonbitlang_async_is_EINTR",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn is_eintr(errno: i32) -> bool {
         #[cfg(unix)]
@@ -60,9 +64,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_is_ENOENT"
+        original = "moonbitlang_async_is_ENOENT",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn is_enoent(errno: i32) -> bool {
         #[cfg(unix)]
@@ -76,9 +82,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_is_EEXIST"
+        original = "moonbitlang_async_is_EEXIST",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn is_eexist(errno: i32) -> bool {
         #[cfg(unix)]
@@ -92,9 +100,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_is_EACCES"
+        original = "moonbitlang_async_is_EACCES",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn is_eacces(errno: i32) -> bool {
         #[cfg(unix)]
@@ -108,9 +118,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_is_ECONNREFUSED"
+        original = "moonbitlang_async_is_ECONNREFUSED",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn is_econnrefused(errno: i32) -> bool {
         #[cfg(unix)]
@@ -127,9 +139,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_is_ERROR_NOTIFY_ENUM_DIR"
+        original = "moonbitlang_async_is_ERROR_NOTIFY_ENUM_DIR",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn is_error_notify_enum_dir(errno: i32) -> bool {
         #[cfg(windows)]
@@ -144,9 +158,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_get_ENOTDIR"
+        original = "moonbitlang_async_get_ENOTDIR",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn get_enotdir() -> i32 {
         #[cfg(unix)]
@@ -160,9 +176,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/os_error/stub.c",
-        original = "moonbitlang_async_get_ENOTSUP"
+        original = "moonbitlang_async_get_ENOTSUP",
+        upstream_pr = 566,
+        replacement = "platform errno constants in src/os_error/error.mbt"
     )]
     pub(crate) fn get_enotsup() -> i32 {
         #[cfg(unix)]

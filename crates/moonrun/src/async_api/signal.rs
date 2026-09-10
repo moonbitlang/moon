@@ -24,6 +24,18 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
+#[ported(source = "src/internal/event_loop/signal.c")]
+#[cfg(unix)]
+pub(super) fn start_signal_handler(context: &mut ImportContext<'_, '_>) -> crate::async_host::AsyncHostResult<()> {
+    context.host.start_signal_handler()
+}
+
+#[ported(source = "src/internal/event_loop/signal.c")]
+#[cfg(unix)]
+pub(super) fn terminate_signal_handler(context: &mut ImportContext<'_, '_>) {
+    context.host.terminate_signal_handler();
+}
+
 pub(super) fn get_signal_by_index(
     _context: &mut ImportContext<'_, '_>,
     index: u32,

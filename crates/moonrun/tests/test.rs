@@ -78,10 +78,12 @@ fn test_moonrun_against_upstream_async() {
         .env("PATH", path)
         .arg("--target-dir")
         .arg(target_dir.path())
-        .args(["test", "--target", "wasm"])
+        // Upstream process tests assert subsecond child-output ordering.
+        // Avoid competing test packages delaying child startup past those gaps.
+        .args(["test", "--target", "wasm", "--no-parallelize"])
         .assert()
         .success()
-        .stdout_eq("Total tests: 452, passed: 452, failed: 0.\n");
+        .stdout_eq("Total tests: 531, passed: 531, failed: 0.\n");
 }
 
 struct TestDir(moon_test_util::test_dir::TestDir);

@@ -658,23 +658,23 @@ declare_async_imports! {
     // os_error/stub.c predicates, errno accessors, and string formatting.
     ported os_error::get_errno() -> i32 => "os_error/get_errno";
 
-    ported os_error::is_nonblocking_io_error(errno: i32) -> i32 => "os_error/is_nonblocking_io_error";
+    compat os_error::is_nonblocking_io_error(errno: i32) -> i32 => "os_error/is_nonblocking_io_error";
 
-    ported os_error::is_eintr(errno: i32) -> i32 => "os_error/is_EINTR";
+    compat os_error::is_eintr(errno: i32) -> i32 => "os_error/is_EINTR";
 
-    ported os_error::is_enoent(errno: i32) -> i32 => "os_error/is_ENOENT";
+    compat os_error::is_enoent(errno: i32) -> i32 => "os_error/is_ENOENT";
 
-    ported os_error::is_eexist(errno: i32) -> i32 => "os_error/is_EEXIST";
+    compat os_error::is_eexist(errno: i32) -> i32 => "os_error/is_EEXIST";
 
-    ported os_error::is_eacces(errno: i32) -> i32 => "os_error/is_EACCES";
+    compat os_error::is_eacces(errno: i32) -> i32 => "os_error/is_EACCES";
 
-    ported os_error::is_econnrefused(errno: i32) -> i32 => "os_error/is_ECONNREFUSED";
+    compat os_error::is_econnrefused(errno: i32) -> i32 => "os_error/is_ECONNREFUSED";
 
-    ported os_error::is_error_notify_enum_dir(errno: i32) -> i32 => "os_error/is_ERROR_NOTIFY_ENUM_DIR";
+    compat os_error::is_error_notify_enum_dir(errno: i32) -> i32 => "os_error/is_ERROR_NOTIFY_ENUM_DIR";
 
-    ported os_error::get_enotdir() -> i32 => "os_error/get_ENOTDIR";
+    compat os_error::get_enotdir() -> i32 => "os_error/get_ENOTDIR";
 
-    ported os_error::get_enotsup() -> i32 => "os_error/get_ENOTSUP";
+    compat os_error::get_enotsup() -> i32 => "os_error/get_ENOTSUP";
 
     ported os_error::errno_to_string(errno: i32) -> u64 => "os_error/errno_to_string";
 
@@ -702,6 +702,16 @@ declare_async_imports! {
 
     #[cfg(windows)]
     ported signal::set_console_control_handler(add: i32) -> i32 => "signal/set_console_control_handler";
+
+    #[cfg(unix)]
+    ported signal::start_signal_handler() -> void => "signal/start_signal_handler";
+    #[cfg(windows)]
+    fake signal::start_signal_handler() -> void => "signal/start_signal_handler";
+
+    #[cfg(unix)]
+    ported signal::terminate_signal_handler() -> void => "signal/terminate_signal_handler";
+    #[cfg(windows)]
+    fake signal::terminate_signal_handler() -> void => "signal/terminate_signal_handler";
 
     #[cfg(unix)]
     fake signal::set_console_control_handler(add: i32) -> i32 => "signal/set_console_control_handler";
@@ -1618,7 +1628,7 @@ declare_async_imports! {
     ported thread_pool::make_wait_for_process_job(handle: u64, pid: i32) -> u64 => "thread_pool/make_wait_for_process_job";
 
     #[cfg(unix)]
-    ported thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
+    compat thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
 
     #[cfg(windows)]
     fake thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
@@ -1732,6 +1742,7 @@ fn async_api_compat_imports() -> Vec<super::provenance::CompatImport> {
     imports.extend_from_slice(thread_pool::COMPAT_IMPORTS);
     imports.extend_from_slice(fd_util::COMPAT_IMPORTS);
     imports.extend_from_slice(process::COMPAT_IMPORTS);
+    imports.extend_from_slice(os_error::COMPAT_IMPORTS);
     imports
 }
 
@@ -1953,6 +1964,29 @@ mod tests {
                 "removed native stat ABI {wasm_symbol} must remain available through a compatibility adapter"
             );
         }
+    }
+
+    #[test]
+    fn signal_handler_imports_coexist_with_the_legacy_job_abi() {
+        for symbol in [
+            "signal/start_signal_handler",
+            "signal/terminate_signal_handler",
+        ] {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == symbol)
+                .unwrap();
+            assert!(import.params.is_empty());
+            assert_eq!(import.result, None);
+        }
+        let legacy = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/make_sigwait_job")
+            .unwrap();
+        assert_eq!(legacy.params, &[WasmType::I32, WasmType::I32]);
+        assert_eq!(legacy.result, Some(WasmType::I64));
+        #[cfg(unix)]
+        assert_eq!(legacy.kind, AsyncImportKind::Compat);
     }
 
     #[test]
