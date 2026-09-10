@@ -538,6 +538,70 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn cancellation_and_completion_do_not_block_on_a_full_pipe() {
+        use super::super::CancellableRegion;
+        use std::os::fd::{FromRawFd, OwnedFd};
+        use std::time::{Duration, Instant};
+
+        let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
+        let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
+        let notifier = Arc::new(notifier);
+        notifier.fill_with_completions(17);
+        let completion = Arc::clone(&notifier);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let worker = super::spawn_worker(
+            make_worker_job(23, 29),
+            move |job| {
+                let region = CancellableRegion::enter().unwrap();
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                // Exercise the real handler synchronously as well as the
+                // cancellation request below, without depending on delivery timing.
+                assert_eq!(unsafe { libc::raise(libc::SIGUSR2) }, 0);
+                drop(region);
+                job.job.set_ret(73);
+            },
+            move |job| result_tx.send(job.job.ret()).unwrap(),
+            move |id| completion.notify(id.as_i32()).unwrap(),
+        );
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            Ok(1)
+        );
+        release_tx.send(()).unwrap();
+        let (joined_tx, joined_rx) = mpsc::channel();
+        let join = std::thread::spawn(move || {
+            assert!(free_worker(worker).is_none());
+            joined_tx.send(()).unwrap();
+        });
+
+        let joined_without_fetch = joined_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        if !joined_without_fetch {
+            // Unblock the old implementation so this regression fails cleanly
+            // instead of leaving a Worker stuck inside the signal handler.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !join.is_finished() && Instant::now() < deadline {
+                notifier.fetch(&mut [0; 4096]).unwrap();
+                std::thread::yield_now();
+            }
+            assert!(
+                join.is_finished(),
+                "Worker did not exit even after draining"
+            );
+        }
+        join.join().unwrap();
+        assert_eq!(result_rx.try_recv().unwrap(), 73);
+        assert!(
+            joined_without_fetch,
+            "Worker join depended on guest draining the full pipe"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn cancellation_retry_interrupts_a_syscall_started_after_the_first_signal() {
         use super::super::CancellableRegion;
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
