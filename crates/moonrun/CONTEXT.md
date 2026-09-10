@@ -21,7 +21,9 @@ The host-owned result of a finished job that is ready to wake or resume guest co
 _Avoid_: Callback, event
 
 **Completion Queue**:
-A host-owned queue of completed job identifiers that the guest event loop drains to resume waiting coroutines.
+A host-owned queue of job identifiers and signal notifications that the guest
+event loop drains. A job identifier may request a cancellation retry; only a
+finished Worker permits the guest to consume that Job's Completion.
 _Avoid_: Notify pipe, callback queue
 
 **Guest Memory**:
@@ -352,5 +354,8 @@ The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOC
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:
-The host-side notify handle corresponding to `thread_pool.c`'s `pool.notify_send`. Worker threads write or post completed job ids through it so `poll/wait` reports the completion source key, after which MoonBit drains `thread_pool/fetch_completion`.
+The host-side notify handle corresponding to `thread_pool.c`'s `pool.notify_send`.
+On Unix, host memory retains completed Job IDs and coalesced cancellation
+retries; a nonblocking pipe wakes the Host Poller so MoonBit can drain them
+through `thread_pool/fetch_completion`. Windows posts IDs directly to IOCP.
 _Avoid_: Host Poller, Barrier, worker wakeup

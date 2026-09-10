@@ -364,6 +364,12 @@ pub(super) fn allow_reuse_addr(context: &mut ImportContext<'_, '_>, fd: u64) -> 
 }
 
 #[ported(source = "src/socket/socket.c")]
+pub(super) fn allow_reuse_port(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+    let host = context.host;
+    zero_or_minus_one(context, host.with_raw_socket(fd, sys::allow_reuse_port))
+}
+
+#[ported(source = "src/socket/socket.c")]
 pub(super) fn set_ipv6_only(context: &mut ImportContext<'_, '_>, fd: u64, ipv6_only: i32) -> i32 {
     let host = context.host;
     zero_or_minus_one(

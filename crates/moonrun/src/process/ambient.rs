@@ -787,6 +787,7 @@ fn wait_for_process(
 
 #[cfg(target_os = "linux")]
 fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i64> {
+    let _region = crate::async_sys::internal::event_loop::thread_pool::CancellableRegion::enter()?;
     let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
     // Policy mode reaps only after atomically revoking PID authority.
     let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
@@ -802,6 +803,7 @@ fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i
 
 #[cfg(unix)]
 fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
+    let _region = crate::async_sys::internal::event_loop::thread_pool::CancellableRegion::enter()?;
     if !defer_reap {
         let mut status = 0;
         let ret = unsafe { libc::waitpid(pid, &mut status, 0) };

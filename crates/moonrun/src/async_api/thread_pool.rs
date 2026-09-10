@@ -88,9 +88,20 @@ pub(super) fn worker_enter_idle(context: &mut ImportContext<'_, '_>, worker: u64
     context.host.worker_enter_idle(worker)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[compat(
+    source = "src/internal/event_loop/thread_pool.wasm.mbt",
+    original = "thread_pool/cancel_worker",
+    upstream_pr = 595,
+    replacement = "thread_pool/cancel_worker_with_retry",
+    api_only = true
+)]
 pub(super) fn cancel_worker(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<i32> {
     context.host.cancel_worker(worker)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c", original = "moonbitlang_async_cancel_worker")]
+pub(super) fn cancel_worker_with_retry(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<i32> {
+    context.host.cancel_worker_with_retry(worker)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
