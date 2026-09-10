@@ -45,6 +45,8 @@ pub enum UserIntent {
     Prove(PackageId),
     /// Test a package (emit test driver and build for all test targets).
     Test(PackageId),
+    /// List a package's tests (generate test metadata without building executables).
+    TestOutline(PackageId),
     /// Bench a package (same artifact set as Test; runtime behavior differs elsewhere).
     Bench(PackageId),
     /// Bundle all non-virtual packages in a module.
@@ -168,7 +170,7 @@ impl UserIntent {
                     target_kind: TargetKind::Source,
                 });
             }
-            UserIntent::Test(pkg) | UserIntent::Bench(pkg) => {
+            UserIntent::Test(pkg) | UserIntent::TestOutline(pkg) | UserIntent::Bench(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: we can't do anything
@@ -184,7 +186,7 @@ impl UserIntent {
                         target_backend,
                     );
 
-                    // Request execution and test metadata per target; skip
+                    // Use the same target selection for execution and outline; skip
                     // Whitebox if no *_wbtest.mbt is declared.
                     for &k in TargetKind::all_tests() {
                         if k == TargetKind::WhiteboxTest
@@ -204,20 +206,24 @@ impl UserIntent {
                         {
                             continue;
                         }
-                        out.push(ArtifactKey::Executable {
-                            package: pkg,
-                            target_kind: k,
-                        });
-                        out.push(ArtifactKey::GeneratedTestDriver {
-                            package: pkg,
-                            target_kind: k,
-                        });
+                        if !matches!(self, UserIntent::TestOutline(_)) {
+                            out.push(ArtifactKey::Executable {
+                                package: pkg,
+                                target_kind: k,
+                            });
+                            out.push(ArtifactKey::GeneratedTestDriver {
+                                package: pkg,
+                                target_kind: k,
+                            });
+                        }
                         out.push(ArtifactKey::GeneratedTestMetadata {
                             package: pkg,
                             target_kind: k,
                         });
                     }
-                    if target_backend == TargetBackend::Js {
+                    if target_backend == TargetBackend::Js
+                        && !matches!(self, UserIntent::TestOutline(_))
+                    {
                         out.push(ArtifactKey::NodeTestPackageConfig { package: pkg });
                     }
                 }

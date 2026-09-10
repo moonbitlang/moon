@@ -15,12 +15,23 @@ for the whole invocation. Build-only emits one combined artifact listing across
 backends. Ordinary test and benchmark execution goes through
 `run_tests_with_updates`, which owns the execution, snapshot promotion, rebuild,
 and rerun loop, together with the final report.
-The command entry points hold the target-directory lock from before planning
-until the entire workflow finishes, including test execution and promotion.
+The target-directory lock is held from before planning through the initial
+build, including prebuild scripts and generated metadata. It is released before
+test execution or profiling. Outline and build-only read and print their
+generated metadata under the same lock. Test and benchmark execution and reporting
+do not block another `moon check` or build. All commands still share the target
+directory's n2 database; build execution remains serialized. Releasing the lock
+does not reserve the test artifacts against replacement by another build.
 
-1. The CLI resolves packages and test targets (via Rupes Recta build planning). Each
-   selected `BuildTarget` produces two artifacts: the executable (`make_executable`) and
-   a JSON metadata file (`generate_test_info`).
+`--outline` plans only generated test metadata, using the same test-target
+selection as an ordinary test invocation. Required prebuild steps still run,
+and metadata generation may also emit test-driver source, but MoonBit and native
+compilation and executable linking are skipped. Outline collection reads the
+metadata directly and does not require executable artifacts.
+
+1. For test execution, the CLI resolves packages and test targets (via Rupes
+   Recta build planning). Each selected `BuildTarget` produces two artifacts: the
+   executable (`make_executable`) and a JSON metadata file (`generate_test_info`).
 2. When an invocation selects more than one Target Backend, each backend is
    planned and lowered independently, then their Execution Plans are composed
    into one n2 graph. The entire graph must build successfully before any test
@@ -64,9 +75,10 @@ snapshot tests. The CLI enforces a single target backend in this mode (updating
 multiple backends at once would diverge binary outputs) and disallows patch
 files.
 
-1. After each run, `perform_promotion` scans that run's
-   `ReplaceableTestResults`. For every `ExpectTestFailed` or `SnapshotTestFailed`
-   case it:
+1. After each run, the workflow reacquires the target-directory lock before
+   promotion and holds it through any partial rebuild. `perform_promotion` scans
+   that run's `ReplaceableTestResults`. For every `ExpectTestFailed` or
+   `SnapshotTestFailed` case it:
 
    - Records the owning `BuildTarget`, file path, and index in a `PackageFilter`.
    - Batches the failure payloads and forwards them to `apply_expect` /
@@ -78,9 +90,9 @@ files.
    - Rebuilds just the affected test artifacts by cloning the saved build graph
      and calling `execute_build_partial` with the target nodes returned from the
      filter.
-   - Re-runs the filtered subset of tests by wrapping the `PackageFilter` inside a
-     temporary `TestFilter`. Only the promoted cases are executed, which keeps
-     reruns fast even for large suites.
+   - Releases the lock before re-running the filtered subset of tests, with the
+     `PackageFilter` wrapped inside a temporary `TestFilter`. Only the promoted
+     cases are executed, which keeps reruns fast even for large suites.
    - Merges the rerun results back into the main `ReplaceableTestResults` so the
      final summary reflects the updated outcomes.
 

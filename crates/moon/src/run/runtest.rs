@@ -612,20 +612,38 @@ pub(crate) fn collect_test_outline(
     include_skipped: bool,
     bench: bool,
 ) -> anyhow::Result<Vec<TestOutlineEntry>> {
-    let executables = gather_tests(build_meta);
-    debug!(count = executables.len(), "collecting test outline entries");
+    // Outline plans request metadata without executables. Collect it directly
+    // rather than requiring the executable/metadata pairs used for test runs.
+    let mut metadata = build_meta
+        .artifacts
+        .iter()
+        .filter_map(|(artifact, paths)| match artifact {
+            ArtifactKey::GeneratedTestMetadata {
+                package,
+                target_kind,
+            } => Some((
+                package.build_target(*target_kind),
+                paths
+                    .first()
+                    .expect("test metadata should resolve to one path"),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    metadata.sort_by_key(|(_, path)| *path);
+    debug!(count = metadata.len(), "collecting test outline entries");
     let mut entries = Vec::new();
 
-    for test in executables {
-        let (included, file_filt) = filter.check_package(test.target);
+    for (target, path) in metadata {
+        let (included, file_filt) = filter.check_package(target);
         if !included {
             continue;
         }
 
-        let meta_bytes = std::fs::read(test.meta)
-            .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
+        let meta_bytes = std::fs::read(path)
+            .with_context(|| format!("Failed to read test metadata at {}", path.display()))?;
         let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
-            .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
+            .with_context(|| format!("Failed to parse test metadata at {}", path.display()))?;
 
         let mut file_ranges = vec![];
         apply_filter(
@@ -653,7 +671,7 @@ pub(crate) fn collect_test_outline(
         let pkgname = build_meta
             .resolve_output
             .pkg_dirs
-            .get_package(test.target.package)
+            .get_package(target.package)
             .fqn
             .to_string();
         for (file, tests) in tests_by_file {
