@@ -26,8 +26,8 @@ mod runtime;
 pub(crate) use child::assign_process_to_job;
 pub(crate) use child::run;
 pub(crate) use runtest::{
-    PackageFilter, TestFilter, TestIndex, TestOutlineEntry, collect_test_invocations,
-    collect_test_outline, perform_promotion, run_tests,
+    PackageFilter, ReplaceableTestResults, TestFilter, TestIndex, TestOutlineEntry,
+    collect_test_invocations, collect_test_outline, perform_promotion, run_tests,
 };
 pub(crate) use runtime::{
     ExecutionMode, command_for, command_for_with_moonrun_policy,

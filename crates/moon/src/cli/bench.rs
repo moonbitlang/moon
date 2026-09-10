@@ -79,11 +79,11 @@ pub(crate) fn run_bench(
         .package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_bench_internal(&cli, &cmd, &dirs, None, None, output);
+        return run_bench_internal(&cli, &cmd, &dirs, false, None, output);
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
-    let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
+    let display_backend_hint = targets.len() > 1;
     let bench_cmd: super::TestLikeSubcommand<'_> = (&cmd).into();
     super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
     let resolve_output =
@@ -113,7 +113,7 @@ fn run_bench_internal(
     cli: &UniversalFlags,
     cmd: &BenchSubcommand,
     dirs: &PackageDirs,
-    display_backend_hint: Option<()>,
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
