@@ -5220,6 +5220,134 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn signal_bursts_do_not_wait_for_worker_completions() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        let source = host.init_thread_pool(poll).unwrap();
+        let signals = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        host.thread_pool_notifier()
+            .unwrap()
+            .fill_with_completions(17);
+
+        let (finished, result) = std::sync::mpsc::channel();
+        let broker = std::thread::spawn(move || {
+            let delivered = (0..65536).try_for_each(|index| {
+                sender
+                    .send(signals[index % signals.len()])
+                    .map(|accepted| assert!(accepted))
+            });
+            finished.send(delivered).unwrap();
+        });
+        let delivered = result.recv_timeout(std::time::Duration::from_secs(2));
+        if delivered.is_err() {
+            // Release a blocked writer so the regression fails without leaking a thread.
+            host.destroy_thread_pool();
+        }
+        broker.join().unwrap();
+        assert_eq!(
+            delivered,
+            Ok(Ok(())),
+            "signal delivery blocked on the full worker pipe"
+        );
+
+        let mut memory = [0; 12];
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 3)
+                .unwrap(),
+            12
+        );
+        let events: Vec<_> = memory
+            .chunks_exact(4)
+            .map(|bytes| i32::from_ne_bytes(bytes.try_into().unwrap()))
+            .collect();
+        assert_eq!(
+            events,
+            [libc::SIGINT | i32::MIN, libc::SIGTERM | i32::MIN, 17]
+        );
+        assert_eq!(host.workers.len(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_notifications_remain_ready_until_fetched_and_are_discarded_on_detach() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        let source = host.init_thread_pool(poll).unwrap();
+        let signals = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        for signal in signals {
+            assert_eq!(sender.send(signal), Ok(true));
+        }
+        let mut memory = [0; 4];
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(
+            host.poll_event_fd(host.poll_get_event(poll, 0).unwrap())
+                .unwrap(),
+            source
+        );
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 0)
+                .unwrap(),
+            0
+        );
+        for signal in signals {
+            assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
+            assert_eq!(
+                host.fetch_completion(memory.as_mut_slice(), source, 0, 1)
+                    .unwrap(),
+                4
+            );
+            assert_eq!(i32::from_ne_bytes(memory), signal | i32::MIN);
+        }
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+
+        assert_eq!(sender.send(libc::SIGTERM), Ok(true));
+        host.terminate_signal_handler();
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+        assert_eq!(sender.send(libc::SIGTERM), Ok(false));
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 1)
+                .unwrap(),
+            0
+        );
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_delivery_detaches_when_its_poll_or_completion_source_closes() {
+        for close_poll in [false, true] {
+            let (sender, receiver) = crate::signal_channel();
+            let mut host = default_host();
+            host.signals = receiver;
+            let poll = host.poll_create().unwrap();
+            let source = host.init_thread_pool(poll).unwrap();
+            host.set_cancellation_signals(&[libc::SIGINT], &[libc::SIGINT])
+                .unwrap();
+            host.start_signal_handler().unwrap();
+            assert_eq!(sender.send(libc::SIGINT), Ok(true));
+            if close_poll {
+                host.poll_destroy(poll).unwrap();
+            } else {
+                host.close_fd(source).unwrap();
+            }
+            assert_eq!(sender.send(libc::SIGINT), Ok(false));
+            assert!(host.signal_handler.borrow().is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn thread_pool_exposes_its_concrete_child_signal_mask_only_while_active() {
         let mut child_signal_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
         assert_eq!(unsafe { libc::sigemptyset(&mut child_signal_mask) }, 0);

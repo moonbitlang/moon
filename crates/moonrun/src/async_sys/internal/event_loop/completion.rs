@@ -32,6 +32,35 @@ pub(crate) struct ThreadPoolCompletionNotifier {
 
 #[cfg(unix)]
 impl ThreadPoolCompletionNotifier {
+    #[cfg(test)]
+    pub(crate) fn fill_with_completions(&self, completion_id: i32) {
+        // Establish backpressure without depending on the platform's pipe capacity.
+        let flags = unsafe { libc::fcntl(self.notify_send, libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(self.notify_send, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+        let bytes = completion_id.to_ne_bytes();
+        loop {
+            let written =
+                unsafe { libc::write(self.notify_send, bytes.as_ptr().cast(), bytes.len()) };
+            if written == bytes.len() as isize {
+                continue;
+            }
+            assert_eq!(written, -1);
+            if last_errno() == libc::EINTR {
+                continue;
+            }
+            assert!(would_block(last_errno()));
+            break;
+        }
+        assert_eq!(
+            unsafe { libc::fcntl(self.notify_send, libc::F_SETFL, flags) },
+            0
+        );
+    }
+
     pub(crate) fn new() -> AsyncHostResult<(Self, RawFd)> {
         let fds = fd_util::pipe(true, false)?;
 
