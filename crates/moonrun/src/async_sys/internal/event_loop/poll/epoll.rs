@@ -173,9 +173,9 @@ ported_fns! {
     }
 }
 
-// Run signals coalesce behind a single wake byte. Level triggering preserves
-// readiness when the guest fetches only part of the pending signal set.
-pub(crate) fn poll_register_signal_source(
+// Host completion sources coalesce wakeups. Level triggering preserves
+// readiness when the guest fetches only part of the pending notifications.
+pub(crate) fn poll_register_completion_source(
     instance: &PollInstance,
     fd: RawFd,
     fd_handle: u64,

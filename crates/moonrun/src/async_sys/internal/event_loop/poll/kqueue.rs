@@ -276,9 +276,9 @@ pub(crate) fn event_get_pid(event: &PollEvent) -> RawFd {
     event.ident as RawFd
 }
 
-// Run signals coalesce behind a single wake byte. Omit EV_CLEAR so readiness
-// persists when the guest fetches only part of the pending signal set.
-pub(crate) fn poll_register_signal_source(
+// Host completion sources coalesce wakeups. Omit EV_CLEAR so readiness
+// persists when the guest fetches only part of the pending notifications.
+pub(crate) fn poll_register_completion_source(
     instance: &PollInstance,
     fd: RawFd,
     fd_handle: u64,

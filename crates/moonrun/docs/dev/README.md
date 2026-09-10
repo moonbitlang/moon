@@ -14,7 +14,7 @@
 The cancellation protocol follows upstream async #595. Workers acknowledge a
 cancellation request before entering native's cancellable syscalls. A Unix
 signal arriving after that check may precede the syscall, so the signal handler
-writes the job ID into the same pipe used for normal completions. The MoonBit
+records the Job ID for a cancellation retry. The MoonBit
 event loop calls `cancel_worker_with_retry` both to start cancellation and to
 check each job notification. The host retries cancellation when needed and
 returns a distinct status once the Job result is ready.
@@ -33,6 +33,22 @@ that order using its existing result channel: send the host-owned Job, set
 it does not copy result buffers. Before accepting completion, the host restores
 the result to its Job table. The guest wrapper copies output into Wasm memory
 when it subsequently requests that output.
+
+Unix notification transport deliberately differs from native's pipe of IDs.
+Ordinary completion IDs stay in a host FIFO queue. Each Worker that enables
+retries gets a preallocated atomic slot, so repeated retries for its current
+Job coalesce without locking or allocating in the signal handler. A nonblocking
+pipe carries only wake bytes, shared by pending notifications. A full wake
+pipe already provides readiness; it cannot block a publisher or discard an ID.
+The notifier retains both pipe ends while publishers are alive, even if the
+guest closes its duplicate reader. Windows retains its existing IOCP delivery.
+
+`fetch_completion` returns the same Job IDs through the existing guest import.
+It clears the old wake before inspecting pending IDs, so a concurrent publisher
+either joins that fetch or creates a new wake. Partial fetches restore readiness
+on the level-triggered completion source. Only pending cancellation retries
+scan registered retry slots; normal completion delivery does not scan Workers.
+Run signals retain their separate coalesced source from the signal backport.
 
 The historical `thread_pool/cancel_worker` import returns `RetryLater` for a
 pending default Unix cancellation, so older guests retry after a timer. The new
@@ -55,12 +71,12 @@ with the notified Job. The host also preserves an early wake from direct
 callers, as tested by `wake_during_running_job_is_not_lost`, but after the Worker
 advances, its cancellation status no longer describes the previous Job.
 
-Worker freeing follows native's termination wakeup and join. Pipe capacity
-beyond the guest scheduler's worker bound, and cancellation/draining after a
-Run stops executing its guest event loop, remain correctness FIXMEs for a Run
-teardown follow-up: pending retries or full pipes can prevent Workers from
-exiting and make join hang. The backport does not add a separate notification
-transport or a retry loop to `free_worker`.
+Worker freeing follows native's termination wakeup and join. Notification
+publication no longer depends on guest consumption. Cancellation after a Run
+stops executing its guest event loop remains a correctness FIXME for teardown:
+a signal arriving before a blocking syscall may still require another attempt,
+and no guest remains to request it. The backport does not add a retry loop to
+`free_worker` or attempt to forcibly stop noncooperative computation.
 
 ## How to Build and Test
 

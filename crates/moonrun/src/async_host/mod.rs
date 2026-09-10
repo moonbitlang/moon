@@ -1789,14 +1789,17 @@ impl AsyncHost {
                 .handles
                 .borrow_mut()
                 .insert_resource(Resource::new(event_fd));
-            if let Err(error) = poll::poll_register(&poll.instance, event_fd, true, source) {
+            if let Err(error) =
+                poll::poll_register_completion_source(&poll.instance, event_fd, source)
+            {
                 let _ = self.handles.borrow_mut().remove_resource(source);
                 return Err(error);
             }
             let signal_fd = completion_notifier.signal_fd();
             // Both sources use the same guest handle. fetch_completion merges
             // pending Run signals with worker IDs without a forwarding thread.
-            if let Err(error) = poll::poll_register_signal_source(&poll.instance, signal_fd, source)
+            if let Err(error) =
+                poll::poll_register_completion_source(&poll.instance, signal_fd, source)
             {
                 let _ = poll::poll_unregister(&poll.instance, event_fd);
                 let _ = self.handles.borrow_mut().remove_resource(source);
@@ -5664,7 +5667,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn fetch_completion_leaves_unfetched_completion_ids_in_os_source() {
+    fn completion_source_remains_ready_until_all_ids_are_fetched() {
         let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
@@ -5676,22 +5679,26 @@ mod tests {
         }
 
         let mut memory = vec![0; 8];
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 0)
             .unwrap();
         assert_eq!(bytes, 0);
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
 
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 1)
             .unwrap();
         assert_eq!(bytes, 4);
         assert_eq!(i32::from_le_bytes(memory[0..4].try_into().unwrap()), 41);
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
 
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 4, 1)
             .unwrap();
         assert_eq!(bytes, 4);
         assert_eq!(i32::from_le_bytes(memory[4..8].try_into().unwrap()), 42);
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
     }
 
     #[test]
@@ -6407,6 +6414,57 @@ mod tests {
         host.free_worker(worker).unwrap();
         host.free_job(job).unwrap();
         host.destroy_thread_pool();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn worker_teardown_does_not_require_guest_to_drain_completions() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        for destroy_pool in [false, true] {
+            let (notifier_tx, notifier_rx) = mpsc::channel();
+            let (finished_tx, finished_rx) = mpsc::channel();
+            let run = std::thread::spawn(move || {
+                let host = default_host();
+                let poll = host.poll_create().unwrap();
+                host.init_thread_pool(poll).unwrap();
+                let notifier = host.thread_pool_notifier().unwrap();
+                notifier.fill_with_completions(17);
+                let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+                let worker = host.spawn_worker(23, job).unwrap();
+                notifier_tx.send(notifier).unwrap();
+                if destroy_pool {
+                    host.destroy_thread_pool();
+                } else {
+                    host.free_worker(worker).unwrap();
+                }
+                assert_eq!(host.job_get_ret(job), Ok(0));
+                host.free_job(job).unwrap();
+                host.destroy_thread_pool();
+                finished_tx.send(()).unwrap();
+            });
+            let notifier = notifier_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            let finished_without_fetch = finished_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+            if !finished_without_fetch {
+                // Keep a failing transport regression from hanging the test
+                // process while the host is inside free_worker/destroy_thread_pool.
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !run.is_finished() && Instant::now() < deadline {
+                    notifier.fetch(&mut [0; 4096]).unwrap();
+                    std::thread::yield_now();
+                }
+                assert!(
+                    run.is_finished(),
+                    "teardown did not finish even after draining"
+                );
+            }
+            run.join().unwrap();
+            assert!(
+                finished_without_fetch,
+                "teardown required guest consumption (destroy_pool={destroy_pool})"
+            );
+        }
     }
 
     #[cfg(unix)]

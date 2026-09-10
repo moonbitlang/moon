@@ -155,9 +155,9 @@ impl InstanceWorkers {
 
         // Cancellation must fan out before any join: one slow Worker must not
         // prevent the remaining Workers from receiving their stop request.
-        // FIXME: after the guest stops polling, pending cancellation retries
-        // or full notify pipes can leave Workers stuck and make join hang.
-        // Define cancellation retry/drain ownership for Run teardown outside
+        // FIXME: after the guest stops polling, a cancellation signal arriving
+        // before a blocking syscall may still need a retry to let join finish.
+        // Define cancellation retry ownership for Run teardown outside
         // native free_worker; neither join nor repeated signals can forcibly
         // stop noncooperative computation.
         for (_, worker) in &workers {

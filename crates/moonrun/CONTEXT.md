@@ -354,5 +354,8 @@ The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOC
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:
-The host-side notify handle corresponding to `thread_pool.c`'s `pool.notify_send`. Worker threads write or post completed job ids through it so `poll/wait` reports the completion source key, after which MoonBit drains `thread_pool/fetch_completion`.
+The host-side notify handle corresponding to `thread_pool.c`'s `pool.notify_send`.
+On Unix, host memory retains completed Job IDs and coalesced cancellation
+retries; a nonblocking pipe wakes the Host Poller so MoonBit can drain them
+through `thread_pool/fetch_completion`. Windows posts IDs directly to IOCP.
 _Avoid_: Host Poller, Barrier, worker wakeup

@@ -20,7 +20,9 @@
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
+use crate::async_sys::internal::event_loop::{
+    CancellationRetryNotifier, ThreadPoolCompletionNotifier,
+};
 use std::sync::{
     Arc, OnceLock,
     atomic::{AtomicBool, AtomicI32, Ordering},
@@ -40,7 +42,7 @@ pub(super) struct WorkerCancellation {
     #[cfg(unix)]
     retry_enabled: AtomicBool,
     #[cfg(unix)]
-    notifier: OnceLock<Arc<ThreadPoolCompletionNotifier>>,
+    notifier: OnceLock<CancellationRetryNotifier>,
 }
 
 impl WorkerCancellation {
@@ -66,6 +68,9 @@ impl WorkerCancellation {
         #[cfg(unix)]
         {
             self.retry_enabled.store(false, Ordering::SeqCst);
+            if let Some(notifier) = self.notifier.get() {
+                notifier.reset();
+            }
             self.job_id.store(id, Ordering::SeqCst);
         }
         self.state.store(RUNNING, Ordering::SeqCst);
@@ -93,7 +98,7 @@ impl WorkerCancellation {
 
     #[cfg(unix)]
     pub(super) fn enable_retry(&self, notifier: &Arc<ThreadPoolCompletionNotifier>) {
-        self.notifier.get_or_init(|| Arc::clone(notifier));
+        self.notifier.get_or_init(|| notifier.cancellation_retry());
         self.retry_enabled.store(true, Ordering::SeqCst);
     }
 
@@ -242,8 +247,9 @@ pub(super) extern "C" fn cancellation_signal_handler(_: i32) {
         && worker.retry_enabled()
         && let Some(notifier) = worker.notifier.get()
     {
-        // The signal may arrive before the syscall begins, so ask the guest
-        // loop to retry until the worker acknowledges or publishes completion.
+        // The signal may arrive before the syscall begins. Record a retry in
+        // this Worker's preallocated slot; publication never locks or waits
+        // for the guest to drain the notification source.
         notifier.notify_from_signal(worker.job_id.load(Ordering::SeqCst));
     }
     unsafe {
