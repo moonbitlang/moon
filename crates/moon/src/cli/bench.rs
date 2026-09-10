@@ -21,7 +21,6 @@ use moonutil::{
     build_options::TestIndexRange,
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
-    locks::lock_directory,
     project::PackageDirs,
     target::{TargetBackend, lower_surface_targets},
 };
@@ -88,10 +87,6 @@ pub(crate) fn run_bench(
     super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
     let resolve_output =
         super::sync_and_resolve_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
     super::run_test_or_bench_from_resolved(
         &cli,
         &bench_cmd,

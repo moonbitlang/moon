@@ -127,7 +127,7 @@ impl ResolvedTestSelection {
             ResolvedTestSelection::Workspace { packages } => Ok(packages
                 .iter()
                 .copied()
-                .map(UserIntent::Test)
+                .map(|package| cmd.package_intent(package))
                 .collect::<Vec<_>>()
                 .into()),
             ResolvedTestSelection::Packages { .. } | ResolvedTestSelection::Paths { .. } => {
@@ -165,7 +165,7 @@ impl ResolvedTestSelection {
                     ResolvedTestSelection::Paths { .. } => InputDirective::default(),
                     ResolvedTestSelection::Workspace { .. } => unreachable!(),
                 };
-                Ok((test_intents_from_filter(filter), directive).into())
+                Ok((test_intents_from_filter(filter, cmd), directive).into())
             }
         }
     }
@@ -419,10 +419,6 @@ fn run_test_impl(
     validate_test_or_bench_invocation(cli, &test_cmd)?;
     let resolve_output =
         sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
     let ret_value = run_test_or_bench_from_resolved(
         cli,
         &test_cmd,
@@ -557,10 +553,11 @@ fn run_test_in_single_file_rr(
         cmd.build_flags.resolve_single_target_backend()?.or(backend)
     };
 
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, user_log)?;
-    }
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
 
     let compile_config = rr_build::prepare_resolved_build(
@@ -595,7 +592,8 @@ fn run_test_in_single_file_rr(
         None
     };
     let directive = rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
-    let intent = (vec![UserIntent::Test(pkg)], directive).into();
+    let test_cmd: TestLikeSubcommand<'_> = cmd.into();
+    let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
@@ -607,7 +605,6 @@ fn run_test_in_single_file_rr(
         cli.dry_run,
     )?;
 
-    let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     run_test_workflow(
         cli,
         &test_cmd,
@@ -615,6 +612,7 @@ fn run_test_in_single_file_rr(
         target_dir,
         false,
         vec![(build_meta, build_graph, filter)],
+        lock,
         output,
     )
 }
@@ -690,6 +688,16 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             patch_file: &None,
             include_skipped: false,
             filter: &None,
+        }
+    }
+}
+
+impl TestLikeSubcommand<'_> {
+    fn package_intent(&self, package: PackageId) -> UserIntent {
+        if self.outline {
+            UserIntent::TestOutline(package)
+        } else {
+            UserIntent::Test(package)
         }
     }
 }
@@ -985,10 +993,6 @@ fn run_test_rr(
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let resolve_output = sync_and_resolve_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
     run_test_or_bench_from_resolved(
         cli,
         cmd,
@@ -1002,7 +1006,8 @@ fn run_test_rr(
 
 /// Plans, builds, and runs tests from resolved project data.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run command.
+/// Holds the target-directory lock through planning and the initial build,
+/// then releases it before executing tests or benchmarks.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_test_or_bench_from_resolved(
     cli: &UniversalFlags,
@@ -1020,6 +1025,11 @@ pub(crate) fn run_test_or_bench_from_resolved(
         mooncake_bin_dir,
         ..
     } = dirs;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let planned_runs = if selected_target_backends.is_empty() {
         plan_test_or_bench_rr_from_resolved_all(
@@ -1058,6 +1068,7 @@ pub(crate) fn run_test_or_bench_from_resolved(
         target_dir,
         display_backend_hint,
         planned_runs,
+        lock,
         output,
     )
 }
@@ -1066,8 +1077,12 @@ pub(crate) fn run_test_or_bench_from_resolved(
 ///
 /// Project and standalone plans share this initial build barrier. Each mode
 /// handles the whole invocation, including any snapshot-update rebuilds.
-/// The caller holds the target-directory lock throughout a non-dry-run workflow.
+/// Normal builds transfer the target-directory lock acquired before planning.
+/// Outline and build-only read their generated metadata under the same lock;
+/// test execution and profiling release it after the initial build.
+/// Dry-run planning acquires its own lock only when it executes prebuild scripts.
 #[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_test_workflow(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
@@ -1075,6 +1090,7 @@ fn run_test_workflow(
     target_dir: &Path,
     display_backend_hint: bool,
     planned_runs: Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>,
+    lock: Option<std::fs::File>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
@@ -1143,6 +1159,9 @@ fn run_test_workflow(
         )?;
         return Ok(0);
     }
+    // n2 has closed the shared database. Test execution must not block checks
+    // or other builds that use this target directory.
+    drop(lock);
     if cmd.profile {
         return profile::profile_tests(
             cli,
@@ -1169,7 +1188,8 @@ fn run_test_workflow(
 
 /// Runs already-built tests or benchmarks and reports their accumulated results.
 /// With `--update`, promotes snapshots and rebuilds before each filtered rerun.
-/// The caller must hold the target-directory lock throughout this operation.
+/// Each promotion and rebuild holds the target-directory lock, but test
+/// execution and reporting do not. Callers must not retain an outer lock.
 #[instrument(level = Level::DEBUG, skip_all)]
 #[allow(clippy::too_many_arguments)]
 fn run_tests_with_updates(
@@ -1212,6 +1232,10 @@ fn run_tests_with_updates(
             if !cmd.update {
                 break;
             }
+
+            // Promotion changes build inputs. Keep it and the partial rebuild
+            // under one lock, then release it before the next test run.
+            let lock = lock_directory(target_dir, user_log)?;
 
             // Only the latest run can request another promotion. Keep results
             // for tests outside the rerun filter in the final report.
@@ -1271,6 +1295,7 @@ fn run_tests_with_updates(
                     Ok(())
                 }),
             )?;
+            drop(lock);
             if !result.successful() {
                 exit_code = exit_code.max(result.return_code_for_success());
                 continue 'backends;
@@ -1566,7 +1591,7 @@ fn calc_user_intent_from_packages(
         let intents: Vec<_> = backend_affected_packages
             .iter()
             .copied()
-            .map(UserIntent::Test)
+            .map(|package| cmd.package_intent(package))
             .collect();
         debug!(intent_count = intents.len(), "generated default intents");
         return Ok(intents.into());
@@ -1583,7 +1608,9 @@ fn calc_user_intent_from_packages(
             package_count = pkgs.len(),
             "building intents from filtered targets"
         );
-        pkgs.into_iter().map(UserIntent::Test).collect::<Vec<_>>()
+        pkgs.into_iter()
+            .map(|package| cmd.package_intent(package))
+            .collect::<Vec<_>>()
     } else {
         vec![]
     };
@@ -1643,7 +1670,7 @@ fn package_names(
         .collect()
 }
 
-fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
+fn test_intents_from_filter(filter: &TestFilter, cmd: &TestLikeSubcommand<'_>) -> Vec<UserIntent> {
     let Some(filt) = filter.filter.as_ref() else {
         return vec![];
     };
@@ -1654,7 +1681,10 @@ fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
             packages.push(target.package);
         }
     }
-    packages.into_iter().map(UserIntent::Test).collect()
+    packages
+        .into_iter()
+        .map(|package| cmd.package_intent(package))
+        .collect()
 }
 
 fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
