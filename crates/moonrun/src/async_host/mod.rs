@@ -3862,25 +3862,17 @@ impl AsyncHost {
 
     pub(crate) fn cancel_worker_with_retry(&self, worker_handle: u64) -> AsyncHostResult<i32> {
         let worker_key = self.handles.borrow().worker(worker_handle)?;
-        self.workers.cancel_with_retry(
+        let status = self.workers.cancel_with_retry(
             worker_key,
             #[cfg(unix)]
             self.thread_pool_notifier()?,
-        )
-    }
-
-    pub(crate) fn worker_check_cancellation_retry(
-        &self,
-        worker_handle: u64,
-    ) -> AsyncHostResult<bool> {
-        let worker_key = self.handles.borrow().worker(worker_handle)?;
-        let retry = self.workers.check_cancellation_retry(worker_key)?;
+        )?;
         // Waiting is published only after the worker sends its owned result.
         // Reacquire it even when this was originally a retry notification.
-        if !retry {
+        if status == thread_pool::WORKER_JOB_FINISHED {
             self.restore_completed_worker_jobs();
         }
-        Ok(retry)
+        Ok(status)
     }
 
     #[cfg(unix)]
@@ -6391,6 +6383,8 @@ mod tests {
         let worker = host.spawn_worker(42, job).unwrap();
 
         assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(2));
+        assert_eq!(host.cancel_worker(worker), Ok(1));
         assert_eq!(host.job_get_ret(job).unwrap(), 0);
         assert_eq!(host.run_job(job), Err(AsyncHostError::Badf));
         assert_eq!(host.spawn_worker(43, job), Err(AsyncHostError::Badf));
@@ -6409,6 +6403,71 @@ mod tests {
             assert_eq!(host.poll_event_fd(event).unwrap(), completion_source);
             assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
         }
+
+        host.free_worker(worker).unwrap();
+        host.free_job(job).unwrap();
+        host.destroy_thread_pool();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_status_waits_for_job_result_after_acknowledgement() {
+        use std::time::Duration;
+
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let key = job_key(&host, job);
+        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
+        let worker = handle_from_key(worker_key);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let (completed_tx, completed_rx) = std::sync::mpsc::channel();
+        host.workers
+            .spawn(
+                worker_key,
+                host.take_worker_job(WorkerCompletionId::from_abi(42), key)
+                    .unwrap(),
+                move |worker_job| {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    assert!(thread_pool::CancellableRegion::enter().is_err());
+                    ack_tx.send(()).unwrap();
+                    finish_rx.recv().unwrap();
+                    worker_job.job.set_ret(73);
+                },
+                move |_| completed_tx.send(()).unwrap(),
+            )
+            .unwrap();
+
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(1));
+        release_tx.send(()).unwrap();
+        ack_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(1));
+        assert!(matches!(
+            host.jobs.borrow().jobs[key],
+            HostJobState::Reserved
+        ));
+
+        finish_tx.send(()).unwrap();
+        completed_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // No poll or fetch call has restored the result: the combined ABI
+        // must make it available before reporting that the worker finished.
+        assert!(matches!(
+            host.jobs.borrow().jobs[key],
+            HostJobState::Reserved
+        ));
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(2));
+        assert!(matches!(
+            host.jobs.borrow().jobs[key],
+            HostJobState::ResultReady(_)
+        ));
+        assert_eq!(host.job_get_ret(job), Ok(73));
+        assert_eq!(host.cancel_worker(worker), Ok(1));
 
         host.free_worker(worker).unwrap();
         host.free_job(job).unwrap();

@@ -638,8 +638,6 @@ declare_async_imports! {
 
     ported thread_pool::cancel_worker_with_retry(worker: u64) -> i32 => "thread_pool/cancel_worker_with_retry";
 
-    ported thread_pool::worker_check_cancellation_retry(worker: u64) -> i32 => "thread_pool/worker_check_cancellation_retry";
-
     helper thread_pool::init_thread_pool(poll: u64) -> u64 => "thread_pool/init_thread_pool";
 
     helper thread_pool::destroy_thread_pool() -> void => "thread_pool/destroy_thread_pool";
@@ -2000,10 +1998,6 @@ mod tests {
             ("thread_pool/cancel_worker", AsyncImportKind::Compat),
             (
                 "thread_pool/cancel_worker_with_retry",
-                AsyncImportKind::Ported,
-            ),
-            (
-                "thread_pool/worker_check_cancellation_retry",
                 AsyncImportKind::Ported,
             ),
         ] {

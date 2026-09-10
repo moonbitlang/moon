@@ -118,12 +118,6 @@ impl InstanceWorkers {
         )
     }
 
-    pub(super) fn check_cancellation_retry(&self, worker: HandleKey) -> AsyncHostResult<bool> {
-        let workers = self.workers.borrow();
-        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
-        thread_pool::worker_check_cancellation_retry(worker)
-    }
-
     pub(super) fn free(&self, worker: HandleKey) -> AsyncHostResult<Option<HostWorkerJob>> {
         let worker = self
             .workers

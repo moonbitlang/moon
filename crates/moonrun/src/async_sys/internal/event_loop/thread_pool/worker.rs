@@ -35,6 +35,10 @@ use super::cancellation::{CurrentWorker, WorkerCancellation};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 
+// The combined Wasm cancellation ABI extends native's 0 (retry later) and
+// 1 (keep waiting) with the finished case from worker_check_cancellation_retry.
+pub(crate) const WORKER_JOB_FINISHED: i32 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorkerCompletionId(i32);
 
@@ -331,6 +335,9 @@ impl HostWorkerHandle {
         &self,
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<i32> {
+        if self.shared.cancellation.is_waiting() {
+            return Ok(WORKER_JOB_FINISHED);
+        }
         #[cfg(unix)]
         self.shared.cancellation.enable_retry(&notifier);
         self.cancel_inner()
@@ -439,20 +446,6 @@ ported_fns! {
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<i32> {
         worker.cancel_with_retry(#[cfg(unix)] notifier)
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_worker_check_cancellation_retry"
-    )]
-    pub(crate) fn worker_check_cancellation_retry(worker: &HostWorkerHandle) -> AsyncHostResult<bool> {
-        if worker.shared.cancellation.is_waiting() {
-            Ok(false)
-        } else {
-            // Native keeps waiting even if the cancellation attempt fails.
-            let _ = worker.cancel_inner();
-            Ok(true)
-        }
     }
 
     #[ported(
@@ -592,7 +585,10 @@ mod tests {
             result_rx.try_recv().is_err(),
             "a retry is not job completion"
         );
-        assert_eq!(worker_check_cancellation_retry(&worker), Ok(true));
+        assert_eq!(
+            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            Ok(1)
+        );
         release_tx.send(()).unwrap();
 
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -603,7 +599,9 @@ mod tests {
                 && notifier.fetch(&mut bytes).unwrap() == 4
             {
                 assert_eq!(i32::from_ne_bytes(bytes), 17);
-                if !worker_check_cancellation_retry(&worker).unwrap() {
+                if cancel_worker_with_retry(&worker, Arc::clone(&notifier)).unwrap()
+                    == WORKER_JOB_FINISHED
+                {
                     result_at_completion = result_rx.try_recv().ok();
                     finished = true;
                     break;

@@ -15,8 +15,9 @@ The cancellation protocol follows upstream async #595. Workers acknowledge a
 cancellation request before entering potentially blocking syscalls. A Unix
 signal arriving after that check may precede the syscall, so the signal handler
 writes the job ID into the same pipe used for normal completions. The MoonBit
-event loop calls `worker_check_cancellation_retry` for each job notification;
-the host retries cancellation while the Worker is not yet `Waiting`.
+event loop calls `cancel_worker_with_retry` both to start cancellation and to
+check each job notification. The host retries cancellation while the Worker is
+not yet `Waiting`, and returns a distinct status once the Job result is ready.
 
 Native writes its shared Job result before setting `Waiting`. Moonrun preserves
 that order using its existing result channel: send the host-owned Job, set
@@ -27,11 +28,16 @@ when it subsequently requests that output.
 
 The historical `thread_pool/cancel_worker` import returns `RetryLater` for a
 pending default Unix cancellation, so older guests retry after a timer. The new
-`thread_pool/cancel_worker_with_retry` import opts into native's `NeedWait` and
-retry notifications. Older guests have no retry check and would treat those
-notifications as completed Jobs. Both imports take one `i64` Worker handle and
-return an `i32` status; `thread_pool/worker_check_cancellation_retry` has the same
-lowered types.
+`thread_pool/cancel_worker_with_retry` import opts into retry notifications and
+combines native's cancellation call and completion check in one Wasm import.
+It returns `0` for `RetryLater`, `1` for `NeedWait`, or `2` when the Worker is
+`Waiting` and its result has been restored to the Job table. A Worker that has
+acknowledged cancellation but not yet published its result still returns `1`.
+The guest uses `2` to accept completion; the initial cancellation path still
+waits for the completion notification to retire the Worker, as native does.
+Older guests have no retry check and would treat retry notifications as
+completed Jobs. Both imports take one `i64` Worker handle and return an `i32`
+status; the historical import retains its original return values.
 
 Worker freeing follows native's termination wakeup and join. Pipe capacity
 beyond the guest scheduler's worker bound, and cancellation/draining after a

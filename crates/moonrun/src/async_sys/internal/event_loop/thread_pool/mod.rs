@@ -34,9 +34,9 @@ pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable};
 #[cfg(unix)]
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
 pub(crate) use worker::{
-    HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
-    cancel_worker_with_retry, free_worker, spawn_worker, wake_worker,
-    worker_check_cancellation_retry, worker_enter_idle,
+    HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WORKER_JOB_FINISHED, WorkerCompletionId,
+    cancel_worker, cancel_worker_with_retry, free_worker, spawn_worker, wake_worker,
+    worker_enter_idle,
 };
 
 #[cfg(test)]
