@@ -262,6 +262,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cancellation_scope_is_cleared_during_unwind() {
+        let worker = Arc::new(WorkerCancellation::new(1));
+        let result = std::panic::catch_unwind(|| {
+            let _current = CurrentWorker::enter(Arc::clone(&worker));
+            let _region = CancellableRegion::enter().unwrap();
+            panic!("unwind through the active cancellation region");
+        });
+        assert!(result.is_err());
+        assert!(current_worker().is_null());
+        assert!(!worker.inside.load(Ordering::SeqCst));
+        assert_eq!(worker.state.load(Ordering::SeqCst), RUNNING);
+        assert!(CancellableRegion::enter().is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_notifications_follow_the_current_job_when_a_worker_is_reused() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+
+        let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
+        let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
+        let notifier = Arc::new(notifier);
+        let worker = Arc::new(WorkerCancellation::new(0));
+        let _current = CurrentWorker::enter(Arc::clone(&worker));
+        for id in [i32::MIN, i32::MAX] {
+            worker.start(id);
+            let region = CancellableRegion::enter().unwrap();
+            worker.enable_retry(&notifier);
+            assert!(worker.request());
+            cancellation_signal_handler(libc::SIGUSR2);
+            drop(region);
+
+            let mut bytes = [0; 4];
+            assert_eq!(notifier.fetch(&mut bytes).unwrap(), 4);
+            assert_eq!(i32::from_ne_bytes(bytes), id);
+            cancellation_signal_handler(libc::SIGUSR2);
+            assert_eq!(notifier.fetch(&mut bytes).unwrap(), 0);
+            worker.finish();
+        }
+    }
+
+    #[test]
     fn cancellation_before_syscall_is_acknowledged_and_reset_for_next_job() {
         let worker = Arc::new(WorkerCancellation::new(1));
         let current = CurrentWorker::enter(Arc::clone(&worker));
