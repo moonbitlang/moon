@@ -396,6 +396,11 @@ fn native_run_cli_flags_match_requested_debug_info() {
                 );
                 assert!(tokens.iter().any(|token| token == "-O0"), "{tokens:?}");
                 assert_eq!(
+                    tokens.iter().any(|token| token == "-stacktrace"),
+                    label == "default" && !generates_c,
+                    "{case}: {label}: {tokens:?}"
+                );
+                assert_eq!(
                     tokens.iter().any(|token| token == "-g"),
                     expect_debug_info.unwrap_or(generates_c),
                     "{case}: {label}: {tokens:?}"

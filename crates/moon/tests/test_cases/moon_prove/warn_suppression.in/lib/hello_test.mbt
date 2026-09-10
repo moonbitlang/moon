@@ -1,3 +1,3 @@
 test "value" {
-  inspect!(value(), content="1")
+  inspect(value(), content="1")
 }

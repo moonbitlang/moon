@@ -111,6 +111,8 @@ same spelling are not interchangeable across the build stages:
 - `moonc build-package` and `moonc link-core` receive `-g` for MoonBit debug
   information and `-O0` for the debug optimization profile. For generated C,
   `link-core -g` preserves accurate MoonBit locations in C `#line` directives.
+  Direct-object source-backtrace requests add `-stacktrace` separately from
+  `-O0`; full-debug requests continue to use `-g`.
 - Compiling that C requires native debug information as well, so the C compiler
   can retain those locations in the executable. GCC-like compilers use `-g`;
   MSVC uses `/Z7`.
