@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex, Weak};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::{
     ThreadPoolCompletionNotifier,
-    thread_pool::{JobCancellation, JobCancellationOverride},
+    thread_pool::{CancellationOutcome, JobCancellation, JobCancellationOverride},
 };
 use crate::async_sys::internal::fd_util::stub as fd_util;
 use crate::run_signal::{SignalReceiver, SignalTargetGuard, signal_mask};
@@ -79,10 +79,10 @@ struct SigwaitCancellation {
 }
 
 impl JobCancellationOverride for SigwaitCancellation {
-    fn cancel(&self) -> AsyncHostResult<i32> {
+    fn cancel(&self) -> AsyncHostResult<CancellationOutcome> {
         let mut state = self.state.lock().map_err(|_| AsyncHostError::Inval)?;
         if state.cancelled {
-            return Ok(0);
+            return Ok(CancellationOutcome::RetryLater);
         }
         state.cancelled = true;
         if let Some(wake) = self.wake.upgrade()
@@ -91,7 +91,7 @@ impl JobCancellationOverride for SigwaitCancellation {
             state.cancelled = false;
             return Err(error);
         }
-        Ok(0)
+        Ok(CancellationOutcome::RetryLater)
     }
 }
 
@@ -429,7 +429,10 @@ mod tests {
             make_sigwait_job(&receiver, &[libc::SIGINT], Arc::clone(&notifier)).unwrap();
 
         assert_eq!(sender.send(libc::SIGINT), Ok(true));
-        assert_eq!(waiter.cancellation_override().cancel(), Ok(0));
+        assert_eq!(
+            waiter.cancellation_override().cancel(),
+            Ok(CancellationOutcome::RetryLater)
+        );
         assert_eq!(sender.send(libc::SIGINT), Ok(false));
         assert_eq!(waiter.run(), Ok(0));
 

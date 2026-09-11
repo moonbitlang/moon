@@ -30,13 +30,12 @@ pub(crate) use jobs::make_sleep_job;
 pub(crate) use jobs::{errno_is_cancelled, get_platform};
 pub(crate) use jobs::{job_get_err, job_get_ret, make_failed_job};
 pub(crate) use runner::run_host_job;
-pub(crate) use types::{HostHandle, Job, JobPayload, ResourceTable};
+pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload, ResourceTable};
 #[cfg(unix)]
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
 pub(crate) use worker::{
-    HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WORKER_JOB_FINISHED, WorkerCompletionId,
-    cancel_worker, cancel_worker_with_retry, free_worker, spawn_worker, wake_worker,
-    worker_enter_idle,
+    HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
+    cancel_worker_with_retry, free_worker, spawn_worker, wake_worker, worker_enter_idle,
 };
 
 #[cfg(test)]

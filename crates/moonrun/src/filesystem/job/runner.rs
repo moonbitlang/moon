@@ -349,12 +349,14 @@ fn open_raw_native_file(
     };
     let append_flag = if append { libc::O_APPEND } else { 0 };
     let filename = CString::new(filename.into_vec()).map_err(|_| AsyncHostError::Inval)?;
-    let fd = with_cancellable_region(|| unsafe {
-        libc::open(
-            filename.as_ptr(),
-            access_flag | sync_flag | create_flag | append_flag | libc::O_CLOEXEC,
-            mode as libc::c_uint,
-        )
+    let fd = with_cancellable_region(|| {
+        Ok(unsafe {
+            libc::open(
+                filename.as_ptr(),
+                access_flag | sync_flag | create_flag | append_flag | libc::O_CLOEXEC,
+                mode as libc::c_uint,
+            )
+        })
     })?;
     if fd < 0 {
         return Err(last_native_error());
@@ -432,16 +434,18 @@ fn open_raw_native_file(
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
     let handle: HANDLE = loop {
-        let handle = with_cancellable_region(|| unsafe {
-            CreateFileW(
-                filename.as_ptr(),
-                access_flag,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                std::ptr::null(),
-                create_mode,
-                flags,
-                std::ptr::null_mut(),
-            )
+        let handle = with_cancellable_region(|| {
+            Ok(unsafe {
+                CreateFileW(
+                    filename.as_ptr(),
+                    access_flag,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    std::ptr::null(),
+                    create_mode,
+                    flags,
+                    std::ptr::null_mut(),
+                )
+            })
         })?;
         if handle != INVALID_HANDLE_VALUE {
             break handle;
@@ -452,8 +456,8 @@ fn open_raw_native_file(
         if error != ERROR_PIPE_BUSY as i32 {
             return Err(AsyncHostError::Native(error));
         }
-        let ready = with_cancellable_region(|| unsafe {
-            WaitNamedPipeW(filename.as_ptr(), NMPWAIT_WAIT_FOREVER)
+        let ready = with_cancellable_region(|| {
+            Ok(unsafe { WaitNamedPipeW(filename.as_ptr(), NMPWAIT_WAIT_FOREVER) })
         })?;
         if ready == 0 {
             return Err(last_native_error());
@@ -569,8 +573,8 @@ pub(super) fn handle_is_socket(handle: RawFile) -> bool {
 fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
     let ret = if position < 0 {
         loop {
-            let ret = with_cancellable_region(|| unsafe {
-                libc::read(fd, buf.as_mut_ptr().cast(), buf.len())
+            let ret = with_cancellable_region(|| {
+                Ok(unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) })
             })?;
             if ret >= 0 {
                 break ret;
@@ -586,7 +590,7 @@ fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHos
                 events: libc::POLLIN,
                 revents: 0,
             };
-            let ready = with_cancellable_region(|| unsafe { libc::poll(&mut pfd, 1, -1) })?;
+            let ready = with_cancellable_region(|| Ok(unsafe { libc::poll(&mut pfd, 1, -1) }))?;
             if ready < 0 {
                 break -1;
             }
@@ -610,8 +614,8 @@ fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHos
 fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostResult<usize> {
     let ret = if position < 0 {
         loop {
-            let ret = with_cancellable_region(|| unsafe {
-                libc::write(fd, data.as_ptr().cast(), data.len())
+            let ret = with_cancellable_region(|| {
+                Ok(unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) })
             })?;
             if ret >= 0 {
                 break ret;
@@ -627,7 +631,7 @@ fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostRes
                 events: libc::POLLOUT,
                 revents: 0,
             };
-            let ready = with_cancellable_region(|| unsafe { libc::poll(&mut pfd, 1, -1) })?;
+            let ready = with_cancellable_region(|| Ok(unsafe { libc::poll(&mut pfd, 1, -1) }))?;
             if ready < 0 {
                 break -1;
             }
@@ -767,7 +771,7 @@ fn lock_native_file(fd: RawFile, exclusive: bool) -> AsyncHostResult<()> {
     } else {
         libc::LOCK_SH
     };
-    let result = with_cancellable_region(|| unsafe { libc::flock(fd, operation) })?;
+    let result = with_cancellable_region(|| Ok(unsafe { libc::flock(fd, operation) }))?;
     if result < 0 {
         Err(last_native_error())
     } else {
@@ -998,7 +1002,7 @@ fn read_from_native_file(handle: RawFile, buf: &mut [u8], position: i64) -> Asyn
     } else {
         Some(current_file_pointer(handle)?)
     };
-    let result = with_cancellable_region(|| -> AsyncHostResult<_> {
+    let result = with_cancellable_region(|| {
         Ok(unsafe {
             ReadFile(
                 handle,
@@ -1008,7 +1012,7 @@ fn read_from_native_file(handle: RawFile, buf: &mut [u8], position: i64) -> Asyn
                 overlapped_ptr,
             )
         })
-    })??;
+    })?;
     let result = if result != 0 {
         usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
     } else {
@@ -1064,7 +1068,7 @@ fn write_to_native_file(handle: RawFile, data: &[u8], position: i64) -> AsyncHos
     } else {
         Some(current_file_pointer(handle)?)
     };
-    let result = with_cancellable_region(|| -> AsyncHostResult<_> {
+    let result = with_cancellable_region(|| {
         Ok(unsafe {
             WriteFile(
                 handle,
@@ -1074,7 +1078,7 @@ fn write_to_native_file(handle: RawFile, data: &[u8], position: i64) -> AsyncHos
                 overlapped_ptr,
             )
         })
-    })??;
+    })?;
     let result = if result != 0 {
         usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
     } else {
@@ -1364,8 +1368,9 @@ fn lock_native_file(file: RawFile, exclusive: bool) -> AsyncHostResult<()> {
     } else {
         0
     };
-    let result =
-        with_cancellable_region(|| unsafe { LockFileEx(file, flags, 0, 1, 0, &mut overlapped) })?;
+    let result = with_cancellable_region(|| {
+        Ok(unsafe { LockFileEx(file, flags, 0, 1, 0, &mut overlapped) })
+    })?;
     if result == 0 {
         Err(last_native_error())
     } else {

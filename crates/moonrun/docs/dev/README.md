@@ -29,10 +29,14 @@ Windows positioned I/O is cancellable and has the corresponding region.
 
 The Worker handle and its thread share one allocation containing scheduling
 and cancellation state. Each executing Job borrows that state through a stack
-context with an immutable Job ID. A private scope guard registers the context
-in thread-local storage and restores the previous binding before the context
-leaves the stack. `with_cancellable_region` borrows this context only for its
-synchronous closure, so syscall regions cannot escape or retain a Worker.
+context with an immutable `WorkerCompletionId`. A private scope guard borrows
+the context, registers it in thread-local storage, and clears that binding
+before the context leaves the stack. A Worker executes one Job at a time, and
+each syscall region must end before another begins; assertions reject nesting
+without replacing the active context or clearing its region mark.
+`with_cancellable_region` borrows this context only for its synchronous closure,
+so syscall regions cannot escape or retain a Worker. The closure and cancellation
+check return errors through the same `AsyncHostResult`.
 The region mark remains atomic for access by the interrupting signal handler;
 cancellation status and retry mode remain atomic for access by the requesting
 thread. No reference counts are changed when entering or leaving a region.
@@ -72,6 +76,14 @@ waits for the completion notification to retire the Worker, as native does.
 Older guests have no retry check and would treat retry notifications as
 completed Jobs. Both imports take one `i64` Worker handle and return an `i32`
 status; the historical import retains its original return values.
+Internally, `CancellationOutcome` names these scheduler actions and is encoded
+only when returning through the guest import. The separate internal state
+`CANCELLATION_ACKNOWLEDGED` does not mean the Job has finished.
+
+Switching a Job from `cancel_worker_with_retry` to legacy `cancel_worker`
+disables further retry publication, but cannot retract a pending retry or one
+already being published by a signal handler. A guest that has enabled retries
+must still check completion before accepting those notifications.
 
 The completion check describes the Worker's current Job; the import takes no
 Job ID. Async's `EventLoop::handle_completed_job` accepts the previous completion

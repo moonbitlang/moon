@@ -28,16 +28,12 @@ use crate::resource::ResourceRef;
 #[cfg(unix)]
 use std::os::unix::thread::JoinHandleExt;
 
-use super::Job;
 #[cfg(unix)]
 use super::JobCancellation;
 use super::cancellation::WorkerCancellation;
+use super::{CancellationOutcome, Job};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
-
-// The combined Wasm cancellation ABI extends native's 0 (retry later) and
-// 1 (keep waiting) with the finished case from worker_check_cancellation_retry.
-pub(crate) const WORKER_JOB_FINISHED: i32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorkerCompletionId(i32);
@@ -220,7 +216,7 @@ impl HostWorkerHandle {
                 };
                 worker_shared
                     .cancellation
-                    .run(job.completion_id.as_i32(), || run_job(&mut job));
+                    .run(job.completion_id, || run_job(&mut job));
                 let completion_id = job.completion_id;
                 complete_job(HostWorkerJobResult {
                     job_key: job.job_key,
@@ -327,7 +323,7 @@ impl HostWorkerHandle {
         }
     }
 
-    pub(crate) fn cancel(&self) -> AsyncHostResult<i32> {
+    pub(crate) fn cancel(&self) -> AsyncHostResult<CancellationOutcome> {
         #[cfg(unix)]
         self.shared.cancellation.disable_retry();
         self.cancel_inner()
@@ -339,18 +335,18 @@ impl HostWorkerHandle {
     pub(crate) fn cancel_with_retry(
         &self,
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
-    ) -> AsyncHostResult<i32> {
+    ) -> AsyncHostResult<CancellationOutcome> {
         if self.shared.cancellation.is_waiting() {
-            return Ok(WORKER_JOB_FINISHED);
+            return Ok(CancellationOutcome::JobFinished);
         }
         #[cfg(unix)]
         self.shared.cancellation.enable_retry(&notifier);
         self.cancel_inner()
     }
 
-    fn cancel_inner(&self) -> AsyncHostResult<i32> {
+    fn cancel_inner(&self) -> AsyncHostResult<CancellationOutcome> {
         if !self.shared.cancellation.request() {
-            return Ok(1);
+            return Ok(CancellationOutcome::NeedWait);
         }
         #[cfg(unix)]
         {
@@ -367,7 +363,11 @@ impl HostWorkerHandle {
             unsafe {
                 libc::pthread_kill(thread.as_pthread_t(), libc::SIGUSR2);
             }
-            Ok(i32::from(self.shared.cancellation.retry_enabled()))
+            Ok(if self.shared.cancellation.retry_enabled() {
+                CancellationOutcome::NeedWait
+            } else {
+                CancellationOutcome::RetryLater
+            })
         }
 
         #[cfg(windows)]
@@ -378,17 +378,17 @@ impl HostWorkerHandle {
 
             if let WorkerCancellationTarget::Resource(cancel) = self.cancellation_target() {
                 crate::process::cancel_wait(&cancel)?;
-                return Ok(1);
+                return Ok(CancellationOutcome::NeedWait);
             }
             let Some(thread) = &self.thread else {
                 return Err(AsyncHostError::Badf);
             };
             if unsafe { CancelSynchronousIo(thread.as_raw_handle()) } != 0 {
-                Ok(1)
+                Ok(CancellationOutcome::NeedWait)
             } else {
                 let error = unsafe { GetLastError() };
                 if error == ERROR_NOT_FOUND {
-                    Ok(0)
+                    Ok(CancellationOutcome::RetryLater)
                 } else {
                     Err(AsyncHostError::Native(error as i32))
                 }
@@ -449,7 +449,7 @@ ported_fns! {
     pub(crate) fn cancel_worker_with_retry(
         worker: &HostWorkerHandle,
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
-    ) -> AsyncHostResult<i32> {
+    ) -> AsyncHostResult<CancellationOutcome> {
         worker.cancel_with_retry(#[cfg(unix)] notifier)
     }
 
@@ -462,7 +462,7 @@ ported_fns! {
     }
 }
 
-pub(crate) fn cancel_worker(worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
+pub(crate) fn cancel_worker(worker: &HostWorkerHandle) -> AsyncHostResult<CancellationOutcome> {
     worker.cancel()
 }
 
@@ -524,7 +524,7 @@ mod tests {
             (WorkerCompletionId::from_abi(7), make_job_key(11))
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(11));
-        assert_eq!(cancel_worker(&worker), Ok(1));
+        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::NeedWait));
 
         assert!(wake_worker(&worker, make_worker_job(13, 17)).is_none());
         assert_eq!(
@@ -559,6 +559,7 @@ mod tests {
                     // Exercise the real handler synchronously as well as the
                     // cancellation request below, without depending on delivery timing.
                     assert_eq!(unsafe { libc::raise(libc::SIGUSR2) }, 0);
+                    Ok(())
                 })
                 .unwrap();
                 job.job.set_ret(73);
@@ -569,7 +570,7 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
-            Ok(1)
+            Ok(CancellationOutcome::NeedWait)
         );
         release_tx.send(()).unwrap();
         let (joined_tx, joined_rx) = mpsc::channel();
@@ -626,7 +627,7 @@ mod tests {
                     let mut byte = 0u8;
                     let ret = unsafe { libc::read(read.as_raw_fd(), (&raw mut byte).cast(), 1) };
                     let errno = std::io::Error::last_os_error().raw_os_error().unwrap();
-                    (ret, errno)
+                    Ok((ret, errno))
                 })
                 .unwrap();
                 job.job.set_ret(if ret < 0 {
@@ -641,7 +642,7 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
-            Ok(1)
+            Ok(CancellationOutcome::NeedWait)
         );
 
         let mut poll = libc::pollfd {
@@ -659,7 +660,7 @@ mod tests {
         );
         assert_eq!(
             cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
-            Ok(1)
+            Ok(CancellationOutcome::NeedWait)
         );
         release_tx.send(()).unwrap();
 
@@ -672,7 +673,7 @@ mod tests {
             {
                 assert_eq!(i32::from_ne_bytes(bytes), 17);
                 if cancel_worker_with_retry(&worker, Arc::clone(&notifier)).unwrap()
-                    == WORKER_JOB_FINISHED
+                    == CancellationOutcome::JobFinished
                 {
                     result_at_completion = result_rx.try_recv().ok();
                     finished = true;
@@ -721,6 +722,7 @@ mod tests {
                         assert_eq!(unsafe { libc::raise(libc::SIGUSR2) }, 0);
                         handled_tx.send(()).unwrap();
                     }
+                    Ok(())
                 })
                 .unwrap();
                 finish_rx.recv().unwrap();
@@ -731,12 +733,12 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
-            Ok(1)
+            Ok(CancellationOutcome::NeedWait)
         );
         signal_tx.send(()).unwrap();
         handled_rx.recv_timeout(Duration::from_secs(5)).unwrap();
 
-        assert_eq!(cancel_worker(&worker), Ok(0));
+        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
         signal_tx.send(()).unwrap();
         handled_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let mut bytes = [0; 4];
@@ -771,9 +773,10 @@ mod tests {
                 with_cancellable_region(|| {
                     started_tx.send(()).unwrap();
                     release_rx.recv().unwrap();
+                    Ok(())
                 })
                 .unwrap();
-                assert!(with_cancellable_region(|| ()).is_err());
+                assert!(with_cancellable_region(|| Ok(())).is_err());
                 ack_tx.send(()).unwrap();
                 finish_rx.recv().unwrap();
             },
@@ -781,10 +784,10 @@ mod tests {
             move |id| completion.notify(id.as_i32()).unwrap(),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(cancel_worker(&worker), Ok(0));
+        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
         release_tx.send(()).unwrap();
         ack_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(cancel_worker(&worker), Ok(1));
+        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::NeedWait));
         let mut bytes = [0u8; 4];
         assert_eq!(notifier.fetch(&mut bytes).unwrap(), 0);
         finish_tx.send(()).unwrap();

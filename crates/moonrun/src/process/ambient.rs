@@ -801,7 +801,7 @@ fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i
                 siginfo.si_status()
             }),
         ))
-    })?
+    })
 }
 
 #[cfg(unix)]
@@ -841,7 +841,7 @@ fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
                 siginfo.si_status()
             }),
         ))
-    })?
+    })
 }
 
 #[cfg(windows)]
