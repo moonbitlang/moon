@@ -1,8 +1,6 @@
 use expect_test::{expect, expect_file};
 
-use crate::{
-    TestDir, build_graph::compare_graphs, get_stderr, get_stdout, snap_dry_run_graph, util::check,
-};
+use crate::{TestDir, build_graph, get_stderr, get_stdout, moon_cmd, util::check};
 
 #[test]
 fn test_third_party() {
@@ -17,13 +15,10 @@ fn test_third_party() {
     "#]]
     .assert_eq(&actual);
 
-    let file = dir.join("test_dry_run.jsonl");
-    snap_dry_run_graph(
-        &dir,
-        ["test", "--target", "wasm-gc", "--dry-run", "--sort-input"],
-        &file,
+    build_graph::assert(
+        moon_cmd(&dir).args(["test", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
+        expect_file!["third_party_dry_run.jsonl"],
     );
-    compare_graphs(&file, expect_file!["third_party_dry_run.jsonl"]);
 
     check(
         get_stdout(&dir, ["test", "--target", "wasm-gc", "--sort-input"]),

@@ -9,7 +9,7 @@ use crate::{TestDir, get_stdout_with_envs};
 use expect_test::expect_file;
 
 #[cfg(unix)]
-use super::unix_graph::{assert_native_backend_graph, assert_native_backend_graph_no_env};
+use super::unix_graph::assert_native_backend_graph;
 
 #[cfg(windows)]
 fn link_commands_with_compiler(output: &str, compiler_path: &str) -> Vec<String> {
@@ -52,33 +52,32 @@ fn detect_clang_toolchain() -> Option<(String, String)> {
 #[ignore = "platform-dependent behavior"]
 fn test_native_backend_cc_flags() {
     let dir = TestDir::new("native_backend/cc_flags");
-    assert_native_backend_graph_no_env(
+    assert_native_backend_graph(
         &dir,
-        "build_native_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
+        &[],
         expect_file!["cc_flags/build_native_graph.jsonl.snap"],
     );
-    assert_native_backend_graph_no_env(
+    assert_native_backend_graph(
         &dir,
-        "build_wasm_gc_graph.jsonl",
         &["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        &[],
         expect_file!["cc_flags/build_wasm_gc_graph.jsonl.snap"],
     );
-    assert_native_backend_graph_no_env(
+    assert_native_backend_graph(
         &dir,
-        "test_native_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
+        &[],
         expect_file!["cc_flags/test_native_graph.jsonl.snap"],
     );
-    assert_native_backend_graph_no_env(
+    assert_native_backend_graph(
         &dir,
-        "test_wasm_graph.jsonl",
         &["test", "--target", "wasm", "--dry-run"],
+        &[],
         expect_file!["cc_flags/test_wasm_graph.jsonl.snap"],
     );
-    assert_native_backend_graph_no_env(
+    assert_native_backend_graph(
         &dir,
-        "run_native_graph.jsonl",
         &[
             "run",
             "main",
@@ -87,11 +86,11 @@ fn test_native_backend_cc_flags() {
             "--dry-run",
             "--sort-input",
         ],
+        &[],
         expect_file!["cc_flags/run_native_graph.jsonl.snap"],
     );
-    assert_native_backend_graph_no_env(
+    assert_native_backend_graph(
         &dir,
-        "run_wasm_graph.jsonl",
         &[
             "run",
             "main",
@@ -100,6 +99,7 @@ fn test_native_backend_cc_flags() {
             "--dry-run",
             "--sort-input",
         ],
+        &[],
         expect_file!["cc_flags/run_wasm_graph.jsonl.snap"],
     );
 }
@@ -117,21 +117,18 @@ fn test_native_backend_cc_flags_with_env_override() {
     ];
     assert_native_backend_graph(
         &dir,
-        "build_native_env_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         &bare_override_env,
         expect_file!["cc_flags/build_native_env_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
         &dir,
-        "test_native_env_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
         &bare_override_env,
         expect_file!["cc_flags/test_native_env_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
         &dir,
-        "run_native_env_graph.jsonl",
         &[
             "run",
             "main",
@@ -158,21 +155,18 @@ fn test_native_backend_cc_flags_with_env_override() {
     ];
     assert_native_backend_graph(
         &dir,
-        "build_native_env_paths_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         &path_override_env,
         expect_file!["cc_flags/build_native_env_paths_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
         &dir,
-        "test_native_env_paths_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
         &path_override_env,
         expect_file!["cc_flags/test_native_env_paths_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
         &dir,
-        "run_native_env_paths_graph.jsonl",
         &[
             "run",
             "main",
@@ -297,21 +291,18 @@ fn test_native_backend_new_native_with_env_override() {
     ];
     assert_native_backend_graph(
         &dir,
-        "build_native_new_native_env_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         envs,
         expect_file!["cc_flags/build_native_new_native_env_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
         &dir,
-        "test_native_new_native_env_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
         envs,
         expect_file!["cc_flags/test_native_new_native_env_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
         &dir,
-        "run_native_new_native_env_graph.jsonl",
         &[
             "run",
             "main",

@@ -11,7 +11,6 @@ fn test_native_backend_system_cc_fallback() {
     let envs = &[("MOONBIT_NEW_NATIVE", "0"), ("PATH", fake_path.as_str())];
     assert_native_backend_graph(
         &dir,
-        "build_native_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         envs,
         expect_file!["system_cc_fallback/build_native_graph.jsonl.snap"],
@@ -19,7 +18,6 @@ fn test_native_backend_system_cc_fallback() {
 
     assert_native_backend_graph(
         &dir,
-        "test_native_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
         envs,
         if cfg!(target_os = "macos") {

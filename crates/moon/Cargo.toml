@@ -90,7 +90,6 @@ escargot.workspace = true
 clap-markdown.workspace = true
 similar.workspace = true
 libc.workspace = true
-moonbuild-debug.workspace = true
 moon-test-util.workspace = true
 zip.workspace = true
 

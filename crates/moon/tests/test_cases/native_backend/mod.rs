@@ -15,51 +15,36 @@ mod test_filter;
 #[cfg(unix)]
 mod unix_graph {
     use expect_test::ExpectFile;
-    use moonbuild_debug::graph::ENV_VAR;
     use std::path::Path;
 
-    use crate::{TestDir, build_graph::compare_graphs_with_replacements, get_stdout_with_envs};
+    use crate::{TestDir, build_graph, moon_cmd};
 
     #[track_caller]
     pub(super) fn assert_native_backend_graph(
         dir: &TestDir,
-        tmp_name: &str,
         args: &[&str],
         envs: &[(&str, &str)],
         expected: ExpectFile,
     ) {
-        let graph = dir.join(tmp_name);
-        let mut env_pairs: Vec<(String, String)> = envs
-            .iter()
-            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-            .collect();
-        env_pairs.push((ENV_VAR.to_string(), graph.to_string_lossy().into_owned()));
-        get_stdout_with_envs(dir, args.iter().copied(), env_pairs);
         let uses_host_archiver = !envs
             .iter()
             .any(|(name, _)| matches!(*name, "MOON_CC" | "MOON_AR"));
-        compare_graphs_with_replacements(&graph, expected, |s| {
-            // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
-            *s = s.replace(" -Wno-unused-value", "");
-            *s = s.replace(".dylib", ".so");
-            if uses_host_archiver {
-                crate::util::normalize_host_archiver(s);
-            } else {
-                crate::util::normalize_archive_fingerprints(s);
-            }
-            normalize_macos_sdk_path(s);
-            normalize_fake_toolchain_path(s, dir);
-        });
-    }
-
-    #[track_caller]
-    pub(super) fn assert_native_backend_graph_no_env(
-        dir: &TestDir,
-        tmp_name: &str,
-        args: &[&str],
-        expected: ExpectFile,
-    ) {
-        assert_native_backend_graph(dir, tmp_name, args, &[], expected);
+        build_graph::assert_with_replacements(
+            moon_cmd(dir).args(args).envs(envs.iter().copied()),
+            expected,
+            |s| {
+                // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
+                *s = s.replace(" -Wno-unused-value", "");
+                *s = s.replace(".dylib", ".so");
+                if uses_host_archiver {
+                    crate::util::normalize_host_archiver(s);
+                } else {
+                    crate::util::normalize_archive_fingerprints(s);
+                }
+                normalize_macos_sdk_path(s);
+                normalize_fake_toolchain_path(s, dir);
+            },
+        );
     }
 
     pub(super) fn prepend_to_path(path: &Path) -> String {

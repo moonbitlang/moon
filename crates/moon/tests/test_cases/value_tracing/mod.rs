@@ -3,9 +3,8 @@ use super::*;
 #[test]
 fn test_tracing_value_for_test_block() {
     let dir = TestDir::new("tracing_value_for_test_block.in");
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
@@ -13,7 +12,7 @@ fn test_tracing_value_for_test_block() {
             "-p",
             "moon_new/lib1",
             "--dry-run",
-        ],
+        ]),
         expect_file!["test_graph.jsonl.snap"],
     );
 
@@ -65,16 +64,15 @@ fn test_tracing_value_for_test_block() {
 fn test_tracing_value_for_main_func() {
     let dir = TestDir::new("tracing_value.in");
     // main.mbt in package
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "run",
             "--target",
             "wasm-gc",
             "./main/main.mbt",
             "--enable-value-tracing",
             "--dry-run",
-        ],
+        ]),
         expect_file!["run_graph.jsonl.snap"],
     );
 

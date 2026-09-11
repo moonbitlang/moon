@@ -21,7 +21,6 @@ members = [
     "xtask",
     "./crates/*",
     "crates/moonbuild-rupes-recta",
-    "crates/moonbuild-debug",
 ]
 resolver = "2"
 default-members = ["./crates/*"]
@@ -35,7 +34,6 @@ n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "79d275ef051cf0d4864
 arcstr = "1.2"
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 moonbuild-rupes-recta = { path = "./crates/moonbuild-rupes-recta", version = "*" }
-moonbuild-debug = { path = "./crates/moonbuild-debug", version = "*" }
 mooncake = { path = "./crates/mooncake", version = "*" }
 moon-test-util = { path = "./crates/moon-test-util", version = "*" }
 moonutil = { path = "./crates/moonutil", version = "*" }

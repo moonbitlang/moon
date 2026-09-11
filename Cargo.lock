@@ -1930,7 +1930,6 @@ dependencies = [
  "log",
  "moon-test-util",
  "moonbuild",
- "moonbuild-debug",
  "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",
@@ -2006,15 +2005,6 @@ dependencies = [
  "text-size",
  "tokio",
  "toml",
-]
-
-[[package]]
-name = "moonbuild-debug"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
 ]
 
 [[package]]

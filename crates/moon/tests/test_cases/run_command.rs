@@ -77,9 +77,8 @@ fn test_moon_run_with_cli_args() {
         "#]],
     );
 
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "run",
             "--target",
             "wasm-gc",
@@ -90,7 +89,7 @@ fn test_moon_run_with_cli_args() {
             "😄👍",
             "hello",
             "1242",
-        ],
+        ]),
         expect_file!["./moon_run_with_cli_args_graph.jsonl"],
     );
 

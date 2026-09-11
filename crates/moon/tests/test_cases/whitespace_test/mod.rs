@@ -1,5 +1,4 @@
 use super::*;
-use crate::build_graph::compare_graphs;
 use expect_test::expect_file;
 #[test]
 fn whitespace_test() {
@@ -19,14 +18,8 @@ fn whitespace_test() {
     //         moonc check './main exe/main.mbt' -o './_build/check/main exe/main exe.mi' -pkg 'username/hello/main exe' -is-main -i './_build/check/main lib/main lib.mi:lib' -pkg-sources 'username/hello/main exe:./main exe'
     //     "#]],
     // );
-    let build_graph = dir.join("build_graph.jsonl");
-    snap_dry_run_graph(
-        &dir,
-        ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
-        &build_graph,
-    );
-    compare_graphs(
-        &build_graph,
+    build_graph::assert(
+        moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run", "--nostd"]),
         expect_file!["../whitespace_test.in/build_graph.jsonl.snap"],
     );
 
@@ -57,21 +50,15 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     let canon = dunce::canonicalize(tmp_dir.path())?;
     let prefix = canon.as_path().display().to_string().replace('\\', "/");
 
-    let build_graph = path_with_space.join("build_graph.jsonl");
-    snap_dry_run_graph(
-        &path_with_space,
-        [
+    build_graph::assert(
+        moon_cmd(&path_with_space).args([
             "build",
             "--target",
             "wasm-gc",
             "--no-render",
             "--sort-input",
             "--dry-run",
-        ],
-        &build_graph,
-    );
-    compare_graphs(
-        &build_graph,
+        ]),
         expect_file!["../whitespace_test.in/parent_space_build_graph.jsonl.snap"],
     );
 

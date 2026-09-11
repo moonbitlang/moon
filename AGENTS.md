@@ -35,7 +35,6 @@ If you are working from mainland China, using the `.cn` domain may result in a s
     - `tests/test_cases/`: Integration snapshot tests, the majority of tests.
   - `moonbuild-rupes-recta/`: The new build graph generation engine (**now default**).
   - `moonbuild/`: The legacy build graph generation engine. Set `NEW_MOON=0` to use it if you encounter issues with Rupes Recta.
-  - `moonbuild-debug/`: Debugging utilities, mainly around dry-run printing and snapshotting.
   - `mooncake/`: Library to resolve and download dependencies.
   - `moonrun/`: The runtime of WASM MoonBit programs.
   - `moonutil/`: Misc utilities including feature flags (`src/features.rs`).
@@ -84,4 +83,4 @@ The project has transitioned from the legacy `moonbuild` to the new `moonbuild-r
 - To format: `cargo fmt`. CI requires no format errors. MoonBit code here are explicitly not required to be formatted (some tests even mandate that).
 - To log: use `tracing`. Instrument potentially time-consuming functions.
 - Errors: use `thiserror` in concrete APIs with a fixed error scheme, and `anyhow` on flexible, higher-level ones.
-- Writing tests: most tests use `expect_test`, but `snapbox` is used when matching output patterns. Snapshot short outputs using `expect_test::expect![]`. Long outputs, especially command dry-runs, should go to `expect_test::expect_file![]`. Prefer graph comparison via `moon(test)::build_graph::compare_graphs` when snapshotting dry-run outputs. Only consider updating snapshots via `UPDATE_EXPECT=1` when you have changed behavior (e.g. commandline arguments).
+- Writing tests: most tests use `expect_test`, but `snapbox` is used when matching output patterns. Snapshot short outputs using `expect_test::expect![]`. Long outputs, especially command dry-runs, should go to `expect_test::expect_file![]`. Prefer `moon(test)::build_graph::assert` with a configured `moon_cmd` when snapshotting dry-run outputs. Only consider updating snapshots via `UPDATE_EXPECT=1` when you have changed behavior (e.g. commandline arguments).
