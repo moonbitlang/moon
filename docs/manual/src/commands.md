@@ -779,6 +779,8 @@ Update the package registry index
 
 Code coverage utilities
 
+Set `MOON_COVE_REPORT_ENABLED=1` (or `true`) to run the toolchain's `bin/moon_cove.wasm` through `moonrun`. When disabled, Moon uses `moon_cove_report`.
+
 **Usage:** `moon coverage <COMMAND>`
 
 ###### **Subcommands:**
@@ -797,7 +799,7 @@ Run test with instrumentation and report coverage
 
 ###### **Arguments:**
 
-* `<EXTRA_FLAGS>` — Extra flags passed directly to `moon_cove_report`
+* `<EXTRA_FLAGS>` — Extra flags passed directly to the selected coverage reporter
 
 ###### **Options:**
 
