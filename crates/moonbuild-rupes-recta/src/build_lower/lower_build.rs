@@ -779,6 +779,7 @@ impl<'a> LoweringContext<'a> {
                 link_flags: cfg.flags.as_deref(),
                 wasi: false,
                 new_allocator: false,
+                collect_ref_cycle: false,
             }
         } else if self.opt.backend.target_backend() == TargetBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
@@ -793,19 +794,21 @@ impl<'a> LoweringContext<'a> {
                 link_flags: cfg.flags.as_deref(),
                 wasi: false,
                 new_allocator: false,
+                collect_ref_cycle: false,
             }
         } else {
             WasmConfig::default()
         };
 
-        wasm_config.new_allocator = matches!(
-            self.opt.backend,
-            BackendConfig::Wasm {
-                new_allocator: true,
-                ..
-            }
-        );
-
+        if let BackendConfig::Wasm {
+            new_allocator,
+            collect_ref_cycle,
+            ..
+        } = &self.opt.backend
+        {
+            wasm_config.new_allocator = *new_allocator;
+            wasm_config.collect_ref_cycle = *collect_ref_cycle;
+        }
         if self.should_link_wasi(target, pkg) {
             wasm_config.wasi = true;
         }
@@ -898,6 +901,7 @@ impl<'a> LoweringContext<'a> {
             .output_ty(CCOutputType::Object)
             .opt_level(info.opt_level)
             .debug_info(info.debug_info)
+            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
             .link_moonbitrun(true)
             .define_use_shared_runtime_macro(false)
             .build()
@@ -1119,6 +1123,7 @@ impl<'a> LoweringContext<'a> {
             .link_libbacktrace(true)
             .define_use_shared_runtime_macro(false)
             .native_allocator(info.native_allocator)
+            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
             .build()
             .expect("Failed to build CC configuration for executable");
 

@@ -97,6 +97,14 @@ sources and the C file emitted by `moonc link-core`, so that a program inlines
 the same allocator as the runtime it links against. It is not passed when
 compiling package C stubs.
 
+`MOON_COLLECT_REF_CYCLE=1` enables trial-deletion reference cycle collection.
+It is disabled when unset or set to any other value. For the Native backend,
+Moon defines `MOONBIT_TRIAL_DELETION=1` when compiling the shipped runtime,
+generated C, and package C stubs, using `-D` or `/D` for the selected toolchain.
+This setting works with both native allocators and selects generated C even
+for debug builds, since direct object targets do not implement the collector's
+reference-count bookkeeping. LLVM runtime builds do not enable it.
+
 During the toolchain transition, Moon falls back to the legacy `lib/runtime.c`
 when the split runtime directory is absent.
 
@@ -308,8 +316,9 @@ whether an independently configured stub compiler is link-compatible with the ex
 incompatible objects or archives fail naturally when the final linker consumes them.
 
 Native payload selection is internal to RR build planning. `BackendConfig::Native`
-contains the allocator choice and a direct-object candidate captured by the CLI
-from the host and `MOONBIT_NEW_NATIVE`. Callers do not supply the final payload
+contains the allocator choice, cycle-collection setting, and a direct-object
+candidate captured by the CLI from the host and `MOONBIT_NEW_NATIVE`.
+Callers do not supply the final payload
 mode. The planner derives it from requested artifacts, the build profile, and
 that explicit candidate, without reading the process environment. It stores the
 mode once in its private Backend Plan metadata; toolchain selection and lowering

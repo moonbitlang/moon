@@ -148,6 +148,7 @@ mod tests {
                 use_wat: false,
                 wasi_link: false,
                 new_allocator: false,
+                collect_ref_cycle: false,
             },
             BackendConfig::WasmGc { use_wat: false },
             BackendConfig::Js,
@@ -654,6 +655,7 @@ mod tests {
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::Native {
                 direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
+                collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
                 os: OperatingSystem::Windows,
                 compiler_paths: CompilerPaths {
@@ -910,6 +912,7 @@ mod tests {
             },
             BackendConfig::Native {
                 direct_object_candidate: Some(NativeTarget::Aarch64AppleDarwin),
+                collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
                 os: OperatingSystem::MacOS,
                 compiler_paths: compiler_paths.clone(),

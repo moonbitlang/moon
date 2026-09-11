@@ -755,12 +755,22 @@ pub(super) fn resolve_native_backend_mode(
     requested_artifacts: &[ArtifactKey],
     opt_level: OptLevel,
     native_target: Option<crate::model::NativeTarget>,
+    collect_ref_cycle: bool,
 ) -> crate::model::NativeBackendMode {
     use crate::model::{DirectNativeMode, NativeBackendMode};
 
     // TODO: Before selecting payload form per executable, key shared runtime
     // and C-stub artifacts by toolchain and realization. A plan currently
     // requires one mode so its executables can safely share those artifacts.
+
+    // TODO: Allow direct object output with cycle collection once the compiler
+    // supports the collector's reference-count bookkeeping on those targets.
+    if collect_ref_cycle {
+        tracing::info!(
+            "Disabling direct object native output: reference cycle collection is enabled"
+        );
+        return NativeBackendMode::GeneratedC;
+    }
     let Some(native_target) = native_target.filter(|_| opt_level == OptLevel::Debug) else {
         return NativeBackendMode::GeneratedC;
     };
@@ -814,6 +824,7 @@ pub fn build_plan(
     let input = input.collect::<Vec<_>>();
     if let BackendConfig::Native {
         direct_object_candidate,
+        collect_ref_cycle,
         ..
     } = &config.backend
     {
@@ -822,6 +833,7 @@ pub fn build_plan(
             &input,
             config.opt_level,
             *direct_object_candidate,
+            *collect_ref_cycle,
         ));
     }
     constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {

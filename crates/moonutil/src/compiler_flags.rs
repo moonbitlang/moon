@@ -759,6 +759,9 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Define MOONBIT_USE_SIMDUTF.
     pub use_simdutf: bool,
+    #[builder(default = false)]
+    // Define MOONBIT_TRIAL_DELETION=1 for native runtime and program compilation.
+    pub collect_ref_cycle: bool,
     #[builder(default)]
     // Select native runtime allocator when this command participates in
     // runtime compilation or native executable linking.
@@ -1100,14 +1103,18 @@ fn add_cc_optimization_flags(
 }
 
 fn add_cc_build_system_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if !config.allow_stacktrace {
-        return;
-    }
-
-    if cc.is_msvc() {
-        buf.push("/DMOONBIT_ALLOW_STACKTRACE".to_string());
+    let prefix = if cc.is_msvc() {
+        "/D"
     } else if cc.is_gcc_like() {
-        buf.push("-DMOONBIT_ALLOW_STACKTRACE".to_string());
+        "-D"
+    } else {
+        return;
+    };
+    if config.allow_stacktrace {
+        buf.push(format!("{prefix}MOONBIT_ALLOW_STACKTRACE"));
+    }
+    if config.collect_ref_cycle {
+        buf.push(format!("{prefix}MOONBIT_TRIAL_DELETION=1"));
     }
 }
 
@@ -1397,6 +1404,7 @@ mod tests {
             allow_stacktrace: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
+            collect_ref_cycle: false,
             native_allocator: None,
         }
     }
@@ -1412,6 +1420,38 @@ mod tests {
             NativeAllocator::System
         );
         assert!(NativeAllocator::parse("malloc").is_err());
+    }
+
+    #[test]
+    fn collect_ref_cycle_flag_is_independent_of_user_compiler_flags() {
+        let paths = CompilerPaths {
+            include_path: "moon/include".into(),
+            lib_path: "moon/lib".into(),
+        };
+        for kind in [CCKind::Gcc, CCKind::Clang, CCKind::Msvc, CCKind::Tcc] {
+            let cc = fake_cc(kind, None);
+            let prefix = if cc.is_msvc() { "/D" } else { "-D" };
+            let user_flag = format!("{prefix}USER_OPTION=1");
+            for enabled in [false, true] {
+                let mut config = executable_cc_config();
+                config.collect_ref_cycle = enabled;
+                let command = make_cc_command_resolved(
+                    cc.clone(),
+                    config,
+                    &[&user_flag],
+                    ["program.c"],
+                    "build",
+                    Some("program.exe"),
+                    &paths,
+                );
+                assert!(command.contains(&user_flag));
+                assert_eq!(
+                    command.contains(&format!("{prefix}MOONBIT_TRIAL_DELETION=1")),
+                    enabled,
+                    "{command:?}"
+                );
+            }
+        }
     }
 
     #[test]
