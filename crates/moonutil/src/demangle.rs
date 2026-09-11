@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+/// Demangles a MoonBit function symbol, or returns it unchanged if it is not
+/// recognized as a valid function name.
 pub fn demangle_mangled_function_name(func_name: &str) -> String {
     demangle_mangled_function_name_impl(func_name).unwrap_or_else(|| func_name.to_string())
 }
@@ -30,8 +32,7 @@ enum DemangledSymbol {
         suffix_after: String,
     },
     Method {
-        pkg: String,
-        type_name: String,
+        type_path: TypePath,
         method_name: String,
         suffix_before: String,
         type_args: Option<String>,
@@ -45,16 +46,12 @@ enum DemangledSymbol {
         type_args: Option<String>,
     },
     ExtensionMethod {
-        type_pkg: String,
-        type_name: String,
+        type_path: TypePath,
         method_pkg: String,
         method_name: String,
         suffix_before: String,
         type_args: Option<String>,
         suffix_after: String,
-    },
-    Type {
-        type_path: TypePath,
     },
     Local {
         ident: String,
@@ -110,7 +107,6 @@ fn parse_mangled_symbol(func_name: &str) -> Option<(DemangledSymbol, usize)> {
         b'M' => parse_method_symbol(func_name, i),
         b'I' => parse_trait_impl_method_symbol(func_name, i),
         b'E' => parse_extension_method_symbol(func_name, i),
-        b'T' => parse_type_symbol(func_name, i),
         b'L' => parse_local_symbol(func_name, i),
         _ => None,
     }
@@ -135,8 +131,7 @@ fn parse_function_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> 
 }
 
 fn parse_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
-    let (pkg, pkg_end) = parse_package(s, i)?;
-    let (type_name, type_end) = parse_identifier(s, pkg_end)?;
+    let (type_path, type_end) = parse_type_path(s, i, false)?;
     let (method_name, method_end) = parse_identifier(s, type_end)?;
     let (suffix_before, j) = parse_fn_suffix_text(s, method_end)?;
     let (type_args, j) = parse_optional_type_args_text(s, j)?;
@@ -144,8 +139,7 @@ fn parse_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
 
     Some((
         DemangledSymbol::Method {
-            pkg,
-            type_name,
+            type_path,
             method_name,
             suffix_before,
             type_args,
@@ -178,8 +172,7 @@ fn parse_trait_impl_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol,
 }
 
 fn parse_extension_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
-    let (type_pkg, type_pkg_end) = parse_package(s, i)?;
-    let (type_name, type_name_end) = parse_identifier(s, type_pkg_end)?;
+    let (type_path, type_name_end) = parse_type_path(s, i, true)?;
     let (method_pkg, method_pkg_end) = parse_package(s, type_name_end)?;
     let (method_name, method_name_end) = parse_identifier(s, method_pkg_end)?;
     let (suffix_before, j) = parse_fn_suffix_text(s, method_name_end)?;
@@ -188,8 +181,7 @@ fn parse_extension_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, 
 
     Some((
         DemangledSymbol::ExtensionMethod {
-            type_pkg,
-            type_name,
+            type_path,
             method_pkg,
             method_name,
             suffix_before,
@@ -198,11 +190,6 @@ fn parse_extension_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, 
         },
         j,
     ))
-}
-
-fn parse_type_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
-    let (type_path, j) = parse_type_path(s, i, false)?;
-    Some((DemangledSymbol::Type { type_path }, j))
 }
 
 fn parse_local_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
@@ -329,7 +316,20 @@ fn parse_type_list_until_e(s: &str, mut i: usize) -> Option<(Vec<String>, usize)
 }
 
 fn parse_fn_type_text(s: &str, i: usize) -> Option<(String, usize)> {
-    let (params, mut j) = parse_type_list_until_e(s, i)?;
+    let mut j = i;
+    let is_async = byte_at(s, j) == Some(b'V');
+    if is_async {
+        j += 1;
+    }
+    let is_raw = byte_at(s, j) == Some(b'X');
+    if is_raw {
+        j += 1;
+    }
+    if byte_at(s, j) != Some(b'W') {
+        return None;
+    }
+
+    let (params, mut j) = parse_type_list_until_e(s, j + 1)?;
 
     let (ret, ret_end) = parse_type_text(s, j)?;
     j = ret_end;
@@ -341,7 +341,13 @@ fn parse_fn_type_text(s: &str, i: usize) -> Option<(String, usize)> {
         j = raised_end;
     }
 
-    Some((format!("({}) -> {ret}{raises}", params.join(", ")), j))
+    let async_prefix = if is_async { "async " } else { "" };
+    let signature = format!("{async_prefix}({}) -> {ret}{raises}", params.join(", "));
+    if is_raw {
+        Some((format!("FuncRef[{signature}]"), j))
+    } else {
+        Some((signature, j))
+    }
 }
 
 fn parse_type_args_text(s: &str, i: usize) -> Option<(String, usize)> {
@@ -390,9 +396,14 @@ fn parse_type_text(s: &str, i: usize) -> Option<(String, usize)> {
         b'u' => Some(("Unit".to_string(), i + 1)),
         b'y' => Some(("Byte".to_string(), i + 1)),
         b'z' => Some(("Bytes".to_string(), i + 1)),
+        b'v' => Some(("V128".to_string(), i + 1)),
         b'A' => {
             let (inner, inner_end) = parse_type_text(s, i + 1)?;
             Some((format!("FixedArray[{inner}]"), inner_end))
+        }
+        b'N' => {
+            let (inner, inner_end) = parse_type_text(s, i + 1)?;
+            Some((format!("ReadOnlyArray[{inner}]"), inner_end))
         }
         b'O' => {
             let (inner, inner_end) = parse_type_text(s, i + 1)?;
@@ -402,14 +413,7 @@ fn parse_type_text(s: &str, i: usize) -> Option<(String, usize)> {
             let (elems, j) = parse_type_list_until_e(s, i + 1)?;
             Some((format!("({})", elems.join(", ")), j))
         }
-        b'V' => {
-            if byte_at(s, i + 1) != Some(b'W') {
-                return None;
-            }
-            let (text, j) = parse_fn_type_text(s, i + 2)?;
-            Some((format!("async {text}"), j))
-        }
-        b'W' => parse_fn_type_text(s, i + 1),
+        b'V' | b'X' | b'W' => parse_fn_type_text(s, i),
         b'R' => parse_type_ref_text(s, i + 1),
         _ => None,
     }
@@ -424,7 +428,8 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
             type_args,
             suffix_after,
         } => {
-            let mut text = format!("@{}{}{suffix_before}", dot_prefix(pkg), name);
+            let mut text = render_qualified_name(pkg, name);
+            text.push_str(suffix_before);
             if let Some(type_args) = type_args {
                 text.push_str(type_args);
             }
@@ -432,18 +437,16 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
             text
         }
         DemangledSymbol::Method {
-            pkg,
-            type_name,
+            type_path,
             method_name,
             suffix_before,
             type_args,
             suffix_after,
         } => {
-            let mut text = format!(
-                "@{}{}::{method_name}{suffix_before}",
-                dot_prefix(pkg),
-                type_name
-            );
+            let mut text = render_type_path(type_path);
+            text.push_str("::");
+            text.push_str(method_name);
+            text.push_str(suffix_before);
             if let Some(type_args) = type_args {
                 text.push_str(type_args);
             }
@@ -469,32 +472,29 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
             text
         }
         DemangledSymbol::ExtensionMethod {
-            type_pkg,
-            type_name,
+            type_path,
             method_pkg,
             method_name,
             suffix_before,
             type_args,
             suffix_after,
         } => {
-            let type_pkg_use = if is_core_package(type_pkg) {
-                ""
+            let type_text = render_type_path(type_path);
+            let mut text = if method_pkg.is_empty() {
+                type_text
             } else {
-                type_pkg
+                let type_use = type_text.strip_prefix('@').unwrap_or(&type_text);
+                format!("@{method_pkg}.{type_use}")
             };
-            let mut text = format!(
-                "@{}{}{}::{method_name}{suffix_before}",
-                dot_prefix(method_pkg),
-                dot_prefix(type_pkg_use),
-                type_name
-            );
+            text.push_str("::");
+            text.push_str(method_name);
+            text.push_str(suffix_before);
             if let Some(type_args) = type_args {
                 text.push_str(type_args);
             }
             text.push_str(suffix_after);
             text
         }
-        DemangledSymbol::Type { type_path } => render_type_path(type_path),
         DemangledSymbol::Local { ident, stamp } => {
             let no_dollar = ident.strip_prefix('$').unwrap_or(ident);
             let shown = strip_suffix(no_dollar, ".fn");
@@ -508,7 +508,15 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
 }
 
 fn render_type_path(path: &TypePath) -> String {
-    format!("@{}{}", dot_prefix(&path.pkg), path.type_name)
+    render_qualified_name(&path.pkg, &path.type_name)
+}
+
+fn render_qualified_name(pkg: &str, name: &str) -> String {
+    if pkg.is_empty() {
+        name.to_string()
+    } else {
+        format!("@{pkg}.{name}")
+    }
 }
 
 fn parse_package(s: &str, mut i: usize) -> Option<(String, usize)> {
@@ -535,12 +543,8 @@ fn parse_package(s: &str, mut i: usize) -> Option<(String, usize)> {
 }
 
 fn parse_counted_package_segments(s: &str, i: usize) -> Option<(String, usize)> {
-    let (count, j) = parse_u32(s, i)?;
-    if let Some(pkg) = parse_package_segments(s, j, count) {
-        return Some(pkg);
-    }
-
-    // Backward-compatible fallback: single-digit package segment count.
+    // In v0 the count is not delimited from the first segment length. Keep the
+    // established one-digit interpretation until the format is made unambiguous.
     let digit = byte_at(s, i)?;
     if !is_digit(digit) {
         return None;
@@ -605,14 +609,6 @@ fn strip_suffix<'a>(s: &'a str, suffix: &str) -> &'a str {
     s.strip_suffix(suffix).unwrap_or(s)
 }
 
-fn dot_prefix(s: &str) -> String {
-    if s.is_empty() {
-        String::new()
-    } else {
-        format!("{s}.")
-    }
-}
-
 fn is_digit(ch: u8) -> bool {
     ch.is_ascii_digit()
 }
@@ -622,29 +618,29 @@ fn byte_at(s: &str, i: usize) -> Option<u8> {
 }
 
 fn decode_identifier_bytes(raw: &[u8]) -> Option<String> {
-    let mut out = String::new();
+    let mut out = Vec::with_capacity(raw.len());
     let mut k = 0usize;
     while k < raw.len() {
         let c = raw[k];
         if c != b'_' {
-            out.push(char::from(c));
+            out.push(c);
             k += 1;
             continue;
         }
 
         let next = *raw.get(k + 1)?;
         if next == b'_' {
-            out.push('_');
+            out.push(b'_');
             k += 2;
             continue;
         }
 
         let hi = hex_value(next)?;
         let lo = hex_value(*raw.get(k + 2)?)?;
-        out.push(char::from((hi << 4) | lo));
+        out.push((hi << 4) | lo);
         k += 3;
     }
-    Some(out)
+    String::from_utf8(out).ok()
 }
 
 #[cfg(test)]
@@ -665,10 +661,6 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("_M0EP13pkg4TypeP14util3new"),
             "@util.pkg.Type::new"
-        );
-        assert_eq!(
-            demangle_mangled_function_name("_M0TP13pkg4Type"),
-            "@pkg.Type"
         );
         assert_eq!(demangle_mangled_function_name("_M0L3fooS0"), "foo/0");
         assert_eq!(demangle_mangled_function_name("_M0Lm7$foo.fnS12"), "foo/12");
@@ -701,10 +693,6 @@ mod tests {
             "@moonbitlang/core/builtin.print"
         );
         assert_eq!(
-            demangle_mangled_function_name("_M0TPC14list4List"),
-            "@moonbitlang/core/list.List"
-        );
-        assert_eq!(
             demangle_mangled_function_name("_M0FP15myapp5outerN5inner"),
             "_M0FP15myapp5outerN5inner"
         );
@@ -721,14 +709,10 @@ mod tests {
             "@myapp.outer.anonymous[uuid=245,line=10]"
         );
         assert_eq!(
-            demangle_mangled_function_name("_M0TP15myapp5outerL5Local"),
-            "@myapp.outer.Local"
-        );
-        assert_eq!(
             demangle_mangled_function_name(
                 "_M0IP05outerL5LocalP311moonbitlang4core7builtin7Default7defaultGiE"
             ),
-            "impl @moonbitlang/core/builtin.Default for @outer.Local[Int] with default"
+            "impl @moonbitlang/core/builtin.Default for outer.Local[Int] with default"
         );
         assert_eq!(demangle_mangled_function_name("_M0L1xS123"), "x/123");
         assert_eq!(demangle_mangled_function_name("_M0Lm1yS124"), "y/124");
@@ -736,7 +720,7 @@ mod tests {
             demangle_mangled_function_name("_M0L6_2atmpS9127"),
             "*tmp/9127"
         );
-        assert_eq!(demangle_mangled_function_name("_M0FP03foo"), "@foo");
+        assert_eq!(demangle_mangled_function_name("_M0FP03foo"), "foo");
     }
 
     #[test]
@@ -793,7 +777,7 @@ mod tests {
             demangle_mangled_function_name(
                 "_M0FP0119moonbitlang_2fcore_2fbuiltin_2fStringBuilder_2eas___40moonbitlang_2fcore_2fbuiltin_2eLogger_2estatic__method__table__id$object.data"
             ),
-            "@moonbitlang/core/builtin/StringBuilder.as_@moonbitlang/core/builtin.Logger.static_method_table_id"
+            "moonbitlang/core/builtin/StringBuilder.as_@moonbitlang/core/builtin.Logger.static_method_table_id"
         );
         assert_eq!(
             demangle_mangled_function_name("_M0IPB13StringBuilderPB6Logger13write__string"),
@@ -827,11 +811,11 @@ mod tests {
         );
         assert_eq!(
             demangle_mangled_function_name("_M0MP04Type3bar"),
-            "@Type::bar"
+            "Type::bar"
         );
         assert_eq!(
             demangle_mangled_function_name("_M0MP04Type3barN5innerS7"),
-            "@Type::bar.inner[stamp=7]"
+            "Type::bar.inner[stamp=7]"
         );
         assert_eq!(
             demangle_mangled_function_name("_M0FP13pkg3fooN5innerS1GiEC2"),
@@ -852,6 +836,64 @@ mod tests {
     }
 
     #[test]
+    fn demangle_empty_packages() {
+        assert_eq!(demangle_mangled_function_name("_M0FP03foo"), "foo");
+        assert_eq!(
+            demangle_mangled_function_name("_M0MP04Type3run"),
+            "Type::run"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0IP04ImplP05Trait3run"),
+            "impl Trait for Impl with run"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0EPB3IntP06double"),
+            "Int::double"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP03fooGRP04TypeE"),
+            "foo[Type]"
+        );
+    }
+
+    #[test]
+    fn demangle_all_type_argument_forms() {
+        assert_eq!(demangle_mangled_function_name("_M0FP03fooGvE"), "foo[V128]");
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP03fooGNiE"),
+            "foo[ReadOnlyArray[Int]]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP03fooGXWiEsE"),
+            "foo[FuncRef[(Int) -> String]]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP03fooGVXWiEsE"),
+            "foo[FuncRef[async (Int) -> String]]"
+        );
+    }
+
+    #[test]
+    fn demangle_utf8_identifier() {
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP09_e4_b8_ad"),
+            "\u{4e2d}"
+        );
+    }
+
+    #[test]
+    fn demangle_generated_receiver_type() {
+        assert_eq!(
+            demangle_mangled_function_name("_M0MP05outerL5Local3run"),
+            "outer.Local::run"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0EP05outerL5LocalP03run"),
+            "outer.Local::run"
+        );
+    }
+
+    #[test]
     fn keeps_original_for_non_or_invalid_mangled_names() {
         assert_eq!(demangle_mangled_function_name("plain"), "plain");
         assert_eq!(
@@ -861,6 +903,10 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("_M0X13pkg3foo"),
             "_M0X13pkg3foo"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0TP13pkg4Type"),
+            "_M0TP13pkg4Type"
         );
         assert_eq!(
             demangle_mangled_function_name("$_M0FP13pkg3foo"),

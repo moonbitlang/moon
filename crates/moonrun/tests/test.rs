@@ -159,7 +159,7 @@ RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Unit] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
 "#]]);
 
@@ -170,7 +170,7 @@ RuntimeError: unreachable
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
 "#]]);
 
@@ -181,7 +181,7 @@ RuntimeError: unreachable
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[(Int, String)] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
 "#]]);
 
@@ -192,7 +192,7 @@ RuntimeError: unreachable
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[UInt] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
 "#]]);
 
@@ -204,7 +204,7 @@ RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
 "#]]);
 
@@ -214,7 +214,7 @@ RuntimeError: unreachable
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
     at @username/hello/main.panic_with_result [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
 "#]]);
 
@@ -1252,7 +1252,7 @@ previous allocation stack:
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/duplicate_alloc.allocate_once
-    at @__moonbit_main
+    at __moonbit_main
 ...
 "#]]);
 }
@@ -1279,7 +1279,7 @@ Error: moonbit:ffi/memory-sanitizer.register-object-free failed: invalid object 
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_free
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_free
     at @moonbit/ffi-memory-sanitizer-test/double_free.free_twice
-    at @__moonbit_main
+    at __moonbit_main
 ...
 "#]]);
 }
@@ -1308,7 +1308,7 @@ allocation stack:
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/leak.leak_object
-    at @__moonbit_main
+    at __moonbit_main
 ...
 "#]]);
 }
