@@ -3860,7 +3860,7 @@ impl AsyncHost {
 
     pub(crate) fn cancel_worker(&self, worker_handle: u64) -> AsyncHostResult<i32> {
         let worker_key = self.handles.borrow().worker(worker_handle)?;
-        self.workers.cancel(worker_key)
+        Ok(self.workers.cancel(worker_key)?.as_i32())
     }
 
     pub(crate) fn cancel_worker_with_retry(&self, worker_handle: u64) -> AsyncHostResult<i32> {
@@ -3872,10 +3872,10 @@ impl AsyncHost {
         )?;
         // Waiting is published only after the worker sends its owned result.
         // Reacquire it even when this was originally a retry notification.
-        if status == thread_pool::WORKER_JOB_FINISHED {
+        if status == thread_pool::CancellationOutcome::JobFinished {
             self.restore_completed_worker_jobs();
         }
-        Ok(status)
+        Ok(status.as_i32())
     }
 
     #[cfg(unix)]
@@ -6492,7 +6492,7 @@ mod tests {
                 move |worker_job| {
                     started_tx.send(()).unwrap();
                     release_rx.recv().unwrap();
-                    assert!(thread_pool::CancellableRegion::enter().is_err());
+                    assert!(thread_pool::with_cancellable_region(|| Ok(())).is_err());
                     ack_tx.send(()).unwrap();
                     finish_rx.recv().unwrap();
                     worker_job.job.set_ret(73);

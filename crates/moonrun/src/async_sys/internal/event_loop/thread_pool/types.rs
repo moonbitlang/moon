@@ -30,13 +30,37 @@ use std::sync::Arc;
 pub(crate) type ResourceHandle = u64;
 pub(crate) type HostHandle = ResourceHandle;
 
+/// What the guest scheduler should do after requesting Worker cancellation.
+/// These outcomes are distinct from the Worker's internal cancellation state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CancellationOutcome {
+    /// The scheduler must request cancellation again after a timer.
+    RetryLater,
+    /// Wait for a notification, which may itself request a cancellation retry.
+    NeedWait,
+    /// The Job result has been published; acknowledgement alone is insufficient.
+    JobFinished,
+}
+
+impl CancellationOutcome {
+    // Native's 0/1 outcomes, extended by the combined Wasm cancellation import
+    // with the finished case from worker_check_cancellation_retry.
+    pub(crate) fn as_i32(self) -> i32 {
+        match self {
+            Self::RetryLater => 0,
+            Self::NeedWait => 1,
+            Self::JobFinished => 2,
+        }
+    }
+}
+
 /// A Job-specific replacement for the platform's default Worker cancellation.
 ///
 /// This is the Rust equivalent of native `struct job::cancel_handler`: most
 /// Jobs do not provide one and are cancelled through the Worker thread.
 #[cfg(unix)]
 pub(crate) trait JobCancellationOverride: std::fmt::Debug + Send + Sync {
-    fn cancel(&self) -> AsyncHostResult<i32>;
+    fn cancel(&self) -> AsyncHostResult<CancellationOutcome>;
 }
 
 #[cfg(unix)]

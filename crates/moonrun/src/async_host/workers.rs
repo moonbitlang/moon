@@ -29,7 +29,8 @@ use slotmap::SecondaryMap;
 
 use super::{AsyncHostError, AsyncHostResult, HandleKey};
 use crate::async_sys::internal::event_loop::thread_pool::{
-    self, HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId,
+    self, CancellationOutcome, HostWorkerHandle, HostWorkerJob, HostWorkerJobResult,
+    WorkerCompletionId,
 };
 
 pub(super) struct InstanceWorkers {
@@ -96,10 +97,10 @@ impl InstanceWorkers {
         Ok(thread_pool::worker_enter_idle(worker))
     }
 
-    pub(super) fn cancel(&self, worker: HandleKey) -> AsyncHostResult<i32> {
+    pub(super) fn cancel(&self, worker: HandleKey) -> AsyncHostResult<CancellationOutcome> {
         let workers = self.workers.borrow();
         let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
-        cancel_host_worker(worker)
+        thread_pool::cancel_worker(worker)
     }
 
     pub(super) fn cancel_with_retry(
@@ -108,7 +109,7 @@ impl InstanceWorkers {
         #[cfg(unix)] notifier: std::sync::Arc<
             crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier,
         >,
-    ) -> AsyncHostResult<i32> {
+    ) -> AsyncHostResult<CancellationOutcome> {
         let workers = self.workers.borrow();
         let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
         thread_pool::cancel_worker_with_retry(
@@ -124,7 +125,7 @@ impl InstanceWorkers {
             .borrow_mut()
             .remove(worker)
             .ok_or(AsyncHostError::Badf)?;
-        let _ = cancel_host_worker(&worker);
+        let _ = thread_pool::cancel_worker(&worker);
         Ok(thread_pool::free_worker(worker))
     }
 
@@ -161,7 +162,7 @@ impl InstanceWorkers {
         // native free_worker; neither join nor repeated signals can forcibly
         // stop noncooperative computation.
         for (_, worker) in &workers {
-            let _ = cancel_host_worker(worker);
+            let _ = thread_pool::cancel_worker(worker);
         }
         workers
             .into_iter()
@@ -182,10 +183,6 @@ impl Drop for InstanceWorkers {
 pub(super) struct StoppedWorker {
     pub(super) key: HandleKey,
     pub(super) unrun_job: Option<HostWorkerJob>,
-}
-
-fn cancel_host_worker(worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
-    thread_pool::cancel_worker(worker)
 }
 
 #[cfg(test)]
@@ -244,14 +241,14 @@ mod tests {
             .unwrap();
 
         worker_started.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(workers.cancel(worker), Ok(0));
+        assert_eq!(workers.cancel(worker), Ok(CancellationOutcome::RetryLater));
         proceed.send(()).unwrap();
 
         let first_completion = completion.recv_timeout(Duration::from_secs(1));
         if first_completion.is_err() {
             // Release the old implementation so a failing assertion does not
             // leave its Worker blocked in read(2).
-            assert_eq!(workers.cancel(worker), Ok(0));
+            assert_eq!(workers.cancel(worker), Ok(CancellationOutcome::RetryLater));
             completion.recv_timeout(Duration::from_secs(1)).unwrap();
         }
         let completion_id = first_completion.expect("the first cancellation was lost");
