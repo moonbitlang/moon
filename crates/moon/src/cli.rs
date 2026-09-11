@@ -40,6 +40,8 @@ pub(crate) mod new;
 pub(crate) mod process;
 pub(crate) mod profile;
 pub(crate) mod prove;
+#[cfg(test)]
+mod registry_output_tests;
 pub(crate) mod registry_runner;
 pub(crate) mod run;
 pub(crate) mod runtime;
@@ -52,6 +54,7 @@ pub(crate) mod tree;
 pub(crate) mod update;
 pub(crate) mod upgrade;
 pub(crate) mod version;
+pub(crate) mod view;
 pub(crate) mod whoami;
 mod work;
 pub(crate) use crate::build_flags::BuildFlags;
@@ -73,7 +76,8 @@ pub(crate) use info::*;
 use moonbuild::upgrade::UpgradeSubcommand;
 use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
 use moonutil::cli_support::{
-    LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand, UniversalFlags,
+    DeprecateSubcommand, LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
+    UniversalFlags,
 };
 pub(crate) use new::*;
 pub(crate) use prove::*;
@@ -87,6 +91,7 @@ pub(crate) use tree::*;
 pub(crate) use update::*;
 pub(crate) use upgrade::*;
 pub(crate) use version::*;
+pub(crate) use view::*;
 pub(crate) use whoami::*;
 pub(crate) use work::{WorkSubcommand, work_cli};
 
@@ -159,6 +164,7 @@ pub(crate) enum MoonBuildSubcommands {
     Tree(TreeSubcommand),
     Fetch(FetchSubcommand),
     Search(SearchSubcommand),
+    View(ViewSubcommand),
     Work(WorkSubcommand),
 
     // Mooncake
@@ -167,6 +173,7 @@ pub(crate) enum MoonBuildSubcommands {
     Register(RegisterSubcommand),
     Publish(PublishSubcommand),
     Package(PackageSubcommand),
+    Deprecate(DeprecateSubcommand),
 
     Update(UpdateSubcommand),
 

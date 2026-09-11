@@ -247,7 +247,7 @@ fn render_search_results(
     Ok(())
 }
 
-fn is_safe_registry_module_name(name: &str) -> bool {
+pub(super) fn is_safe_registry_module_name(name: &str) -> bool {
     name.split('/').all(|component| {
         !component.is_empty()
             && component != "."
@@ -339,7 +339,7 @@ fn render_package_summary(
     Ok(())
 }
 
-fn sanitize_registry_text(description: &str) -> String {
+pub(super) fn sanitize_registry_text(description: &str) -> String {
     // Keep descriptions and version labels on one line while preserving word
     // boundaries and stripping terminal escape sequences.
     let single_line = description
