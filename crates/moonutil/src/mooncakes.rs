@@ -770,6 +770,7 @@ pub enum MooncakeSubcommands {
     Register(RegisterSubcommand),
     Publish(PublishSubcommand),
     Package(PackageSubcommand),
+    Deprecate(DeprecateSubcommand),
 }
 
 /// Log in to your account
@@ -795,6 +796,38 @@ pub struct PackageSubcommand {
 
     #[clap(long)]
     pub list: bool,
+}
+
+/// Deprecate or restore all existing versions of a published module
+///
+/// Pass `--reason <REASON>` to deprecate or `--undo` to restore.
+///
+/// Specify the full module name without a version selector. This command works
+/// outside a project and uses the same saved credentials as `moon publish`.
+/// Versions published later start undeprecated. Restoring clears all reasons;
+/// it does not recover previous per-version states.
+///
+/// With `--dry-run`, fetch the module's currently published versions and print
+/// the intended change for each release without modifying the registry.
+/// The preview requires registry access but does not load publishing credentials.
+#[derive(Debug, clap::Parser, Serialize, Deserialize)]
+pub struct DeprecateSubcommand {
+    /// Full module name, without a version selector
+    pub module: String,
+
+    /// Deprecation reason, replacing any previous reasons
+    #[arg(
+        long,
+        required_unless_present = "undo",
+        conflicts_with = "undo",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub reason: Option<String>,
+
+    /// Clear deprecation and reasons on all existing versions
+    #[arg(long)]
+    #[serde(default)]
+    pub undo: bool,
 }
 
 /// Validate syntax needed to interpolate a username into a module manifest.

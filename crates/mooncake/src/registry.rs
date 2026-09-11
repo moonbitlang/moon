@@ -25,7 +25,8 @@ pub mod path;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 pub use client::{
-    RegistryClient, RegistryPackageMatch, RegistrySearchResult, RegistrySummaryFragment,
+    RegistryClient, RegistryModuleManifest, RegistryPackageMatch, RegistryPublishedModule,
+    RegistryRelease, RegistrySearchResult, RegistrySummaryFragment, RegistryUserModules,
 };
 pub use executable::ResolvedExecutablePackage;
 use indexmap::IndexMap;

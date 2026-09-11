@@ -24,6 +24,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon tree`↴](#moon-tree)
 * [`moon fetch`↴](#moon-fetch)
 * [`moon search`↴](#moon-search)
+* [`moon view`↴](#moon-view)
 * [`moon work`↴](#moon-work)
 * [`moon work init`↴](#moon-work-init)
 * [`moon work use`↴](#moon-work-use)
@@ -33,6 +34,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon register`↴](#moon-register)
 * [`moon publish`↴](#moon-publish)
 * [`moon package`↴](#moon-package)
+* [`moon deprecate`↴](#moon-deprecate)
 * [`moon update`↴](#moon-update)
 * [`moon coverage`↴](#moon-coverage)
 * [`moon coverage analyze`↴](#moon-coverage-analyze)
@@ -68,12 +70,14 @@ This document contains the help content for the `moon` command-line program.
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
 * `search` — Search modules and package summaries in the registry
+* `view` — View a registry module or a user's published modules
 * `work` — Workspace maintenance commands
 * `login` — Log in to your account
 * `whoami` — Show login status and username
 * `register` — Register an account at mooncakes.io
 * `publish` — Publish the current module
 * `package` — Package the current module
+* `deprecate` — Deprecate or restore all existing versions of a published module
 * `update` — Update the package registry index
 * `coverage` — Code coverage utilities
 * `generate-build-matrix` — Generate build matrix for benchmarking (legacy feature)
@@ -621,6 +625,30 @@ With --json, the result also preserves the registry's summary fragments and matc
 
 
 
+## `moon view`
+
+View a registry module or a user's published modules
+
+`moon view <username/module[@version]>` shows live registry metadata for the latest release or an exact version. Add --versions to list every release, newest first, including deprecated versions and their reasons.
+
+`moon view <username>` lists all modules on that user's public registry profile, sorted by name, with their latest versions and deprecation reasons. No login is required. Use `moon view --my` as a shortcut for your saved username after running `moon login`.
+
+These commands work outside a project and respect the configured registry. With --json, a versioned report contains a result (module metadata, an array of releases for --versions, or a user profile), status, and messages.
+
+**Usage:** `moon view [OPTIONS] [USER_OR_MODULE]`
+
+###### **Arguments:**
+
+* `<USER_OR_MODULE>` — Username to list, or username/module[@version] to inspect
+
+###### **Options:**
+
+* `--my` — List all modules published under your logged-in username
+* `--versions` — List all published versions of the module
+* `--json` — Print the result as JSON
+
+
+
 ## `moon work`
 
 Workspace maintenance commands
@@ -713,6 +741,29 @@ Package the current module
 
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--list`
+
+
+
+## `moon deprecate`
+
+Deprecate or restore all existing versions of a published module
+
+Pass `--reason <REASON>` to deprecate or `--undo` to restore.
+
+Specify the full module name without a version selector. This command works outside a project and uses the same saved credentials as `moon publish`. Versions published later start undeprecated. Restoring clears all reasons; it does not recover previous per-version states.
+
+With `--dry-run`, fetch the module's currently published versions and print the intended change for each release without modifying the registry. The preview requires registry access but does not load publishing credentials.
+
+**Usage:** `moon deprecate [OPTIONS] <MODULE>`
+
+###### **Arguments:**
+
+* `<MODULE>` — Full module name, without a version selector
+
+###### **Options:**
+
+* `--reason <REASON>` — Deprecation reason, replacing any previous reasons
+* `--undo` — Clear deprecation and reasons on all existing versions
 
 
 

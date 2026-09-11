@@ -67,12 +67,14 @@ fn test_moon_help() {
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
               search                 Search modules and package summaries in the registry
+              view                   View a registry module or a user's published modules
               work                   Workspace maintenance commands
               login                  Log in to your account
               whoami                 Show login status and username
               register               Register an account at mooncakes.io
               publish                Publish the current module
               package                Package the current module
+              deprecate              Deprecate or restore all existing versions of a published module
               update                 Update the package registry index
               coverage               Code coverage utilities
               generate-build-matrix  Generate build matrix for benchmarking (legacy feature)

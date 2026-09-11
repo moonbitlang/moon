@@ -19,6 +19,53 @@
 use super::*;
 
 #[test]
+fn deprecate_delegates_without_a_project() {
+    let dir = TestDir::new_empty();
+    let subdir = dir.join("subdir");
+    std::fs::create_dir(&subdir).unwrap();
+    let executable = format!("./fake-mooncake{}", std::env::consts::EXE_SUFFIX);
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_mooncake.rs");
+    snapbox::cmd::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .arg("--edition=2021")
+        .arg(source)
+        .arg("-o")
+        .arg(subdir.join(&executable))
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args([
+            "-C",
+            "subdir",
+            "deprecate",
+            "Owner/module",
+            "--reason",
+            "Use Owner/replacement",
+            "--quiet",
+        ])
+        .env("MOONCAKE_OVERRIDE", executable)
+        .assert()
+        .success()
+        .stdout_eq("backend result\n")
+        .stderr_eq("backend notice\n");
+    let (flags, command): (serde_json::Value, serde_json::Value) =
+        serde_json::from_slice(&std::fs::read(subdir.join("handoff.json")).unwrap()).unwrap();
+    assert_eq!(flags["dry_run"], false);
+    assert_eq!(flags["quiet"], true);
+    assert_eq!(
+        command,
+        serde_json::json!({"Deprecate": {
+            "module": "Owner/module",
+            "reason": "Use Owner/replacement",
+            "undo": false,
+        }})
+    );
+}
+
+#[test]
 fn mooncakes_io_smoke_test() {
     if std::env::var("CI").is_err() {
         return;

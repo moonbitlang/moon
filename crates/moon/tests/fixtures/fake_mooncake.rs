@@ -16,13 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Shared command-line types for MoonBit command frontends.
-//!
-//! Domain modules should not import through this module. It exists for command
-//! adapters that need to share parsed flags and subcommand payloads.
+use std::io::Read;
 
-pub use crate::cli::{UniversalFlags, dialoguer_ctrlc_handler};
-pub use crate::mooncakes::{
-    DeprecateSubcommand, LoginSubcommand, MooncakeSubcommands, PackageSubcommand,
-    PublishSubcommand, RegisterSubcommand, sync::AutoSyncFlags,
-};
+fn main() {
+    assert_eq!(
+        std::env::args().skip(1).collect::<Vec<_>>(),
+        ["--read-args-from-stdin"]
+    );
+    assert!(std::path::PathBuf::from(std::env::var_os("MOON_OVERRIDE").unwrap()).is_file());
+    let mut payload = String::new();
+    std::io::stdin().read_to_string(&mut payload).unwrap();
+    std::fs::write("handoff.json", payload).unwrap();
+    println!("backend result");
+    eprintln!("backend notice");
+}
