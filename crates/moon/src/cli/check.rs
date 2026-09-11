@@ -858,6 +858,7 @@ fn run_planned_checks(
             &cfg.with_suppressed_progress(true),
             build_input,
             target_dir,
+            output.user_log(),
         )?;
         let successful = result.successful();
         json.append_build(result, output.user_log());

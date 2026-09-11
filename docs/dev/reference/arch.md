@@ -97,13 +97,16 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - For a multi-backend invocation, compose the independently lowered
      Execution Plans into one executor graph, sharing compatible physical
      providers such as package prebuild actions. JSON-formatted checks retain
-     each diagnostic's backend through the originating n2 Build ID, so they use
+     each diagnostic's backend through its originating execution action, so they use
      the same composed graph. Backend actions render their backend together
      with any applicable target kind, such as `(wasm, blackbox test)`;
      package-prebuild actions independently render `(prebuild)` before the
      executor receives either description.
-   - Execute the concrete build graph in its executor ([n2][]).
-     The executor ensures the graph is executed incrementally, rebuilding only the changed parts.
+   - Execute the concrete build graph using n2 by default. `MOON_HASH_ENGINE=1`
+     selects the experimental content-based executor for Wasm backends. It
+     restores outputs and replays compiler diagnostics, including failures, from
+     the global cache; misses run with dependency ordering and `--jobs`.
+     See the [cache design](../design/global-build-cache.md) for layout and locking.
 4. Perform other operations required after build
    - Run the built executable.
    - Run the test/bench executables within test/bench environment and collect results.
@@ -113,8 +116,9 @@ Implementation-wise:
 
 - Steps 1 and 2 is handled in the RR pipeline's crate.
   You can also see a low-level implementation doc comment at its [entry point][rr_home].
-- Step 3, as well as wrappers around step 1 and 2 to adapt to the various subcommands,
-  are all located in [the `rr_build` module of the main binary crate][moon_rr_build].
+- Execution in step 3 belongs to `moonbuild::execution`. Metadata generation
+  and wrappers around steps 1 and 2 remain in
+  [the `rr_build` module of the main binary crate][moon_rr_build].
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:
@@ -132,7 +136,7 @@ Implementation-wise:
 [rr_home]: /crates/moonbuild-rupes-recta/src/lib.rs
 [n2]: https://github.com/moonbitlang/n2
 
-Rupes Recta executions in one target directory share the n2 database at
+With the default executor, Rupes Recta executions in one target directory share the n2 database at
 `<target-dir>/.moon_db`. Target backend, profile, and run mode are represented
 by concrete output paths and build hashes rather than separate database files.
 Both ordinary projects and standalone scripts execute one complete graph per
@@ -600,11 +604,18 @@ is defined in [its module](/crates/moonbuild-rupes-recta/src/target_layout.rs).
 
 ## Execution of the build graph
 
-For current builds, the execution plan is adapted to an n2 graph and handed to [n2][],
+By default, the execution plan is adapted to an n2 graph and handed to [n2][],
 which executes it in the usual Ninja-style way:
 incrementally (skipping up-to-date nodes)
 and with maximal parallelism subject to dependencies and its job limits.
 `moonbuild` does not add extra scheduling logic on top of `n2`.
+
+With `MOON_HASH_ENGINE=1`, the private `moonbuild::execution::hash` module
+executes Wasm plans directly. It owns dependency scheduling, child processes,
+and the global action-result store, independently of n2. Successful results
+include diagnostics for replay, so warning output does not force a rebuild.
+The [cache design](../design/global-build-cache.md) specifies its layout,
+validation, directory-lock protocol, and current reuse constraints.
 
 The private `moonbuild::execution::n2` module owns n2 adaptation, the `.moon_db`
 location and database access, root lookup, scheduling, and progress capture.

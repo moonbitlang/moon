@@ -18,7 +18,8 @@
 
 //! Execute a concrete plan and process captured diagnostics.
 //!
-//! The private `n2` module owns graph adaptation, scheduling, and the database.
+//! The private executors own scheduling and incremental state: `n2` uses its
+//! database; `hash` stores action results and replays diagnostics.
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -43,7 +44,8 @@ use tracing::instrument;
 
 use crate::BuildMeta;
 
-pub mod action_identity;
+mod action_identity;
+mod hash;
 mod n2;
 
 /// Execution and diagnostic options. Planning inputs live in `BuildInput`.
@@ -322,7 +324,7 @@ impl CapturedBuildExecution {
 /// artifacts from the planning phase for any metadata they need.
 ///
 /// The caller must hold the target-directory lock. All executions in
-/// that directory share one n2 database, and n2 does not lock it internally.
+/// that directory share mutable output paths, regardless of the chosen engine.
 #[instrument(skip_all)]
 pub fn execute_build(
     cfg: &BuildConfig,
@@ -330,7 +332,13 @@ pub fn execute_build(
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<BuildStats> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    let execution = execute(
+        cfg,
+        &input,
+        target_dir,
+        input.execution_plan.default_output_paths(),
+        user_log,
+    )?;
     Ok(finish_captured_build(cfg, &execution, None, user_log))
 }
 
@@ -365,10 +373,17 @@ pub fn execute_build_json(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
+    user_log: &UserLog,
 ) -> anyhow::Result<JsonBuildOutput> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    let execution = execute(
+        cfg,
+        &input,
+        target_dir,
+        input.execution_plan.default_output_paths(),
+        user_log,
+    )?;
     // Keep the existing per-backend diagnostic-limit semantics while all
-    // backends execute in one n2 graph. Shared actions have no backend and are
+    // backends execute in one graph. Shared actions have no backend and are
     // collected in their own group.
     let mut sources_by_backend = BTreeMap::new();
     for output in &execution.action_outputs {
@@ -427,7 +442,13 @@ pub fn execute_test_build(
     build_metas: &[&BuildMeta],
     user_log: &UserLog,
 ) -> anyhow::Result<BuildStats> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    let execution = execute(
+        cfg,
+        &input,
+        target_dir,
+        input.execution_plan.default_output_paths(),
+        user_log,
+    )?;
     let sources = execution.diagnostic_sources(build_metas.iter().copied());
     let processed = process_captured_diagnostics(&sources, cfg);
     processed.warn_if_limited(user_log);
@@ -449,21 +470,26 @@ pub fn execute_build_partial<'a>(
     user_log: &UserLog,
     outputs: impl IntoIterator<Item = &'a Path>,
 ) -> anyhow::Result<BuildStats> {
-    let execution = n2::execute(cfg, &input, target_dir, outputs)?;
+    let execution = execute(cfg, &input, target_dir, outputs, user_log)?;
     Ok(finish_captured_build(cfg, &execution, build_meta, user_log))
 }
 
-fn execute_build_capturing(
+fn execute<'a>(
     cfg: &BuildConfig,
-    input: BuildInput,
+    input: &BuildInput,
     target_dir: &Path,
+    outputs: impl IntoIterator<Item = &'a Path>,
+    user_log: &UserLog,
 ) -> anyhow::Result<CapturedBuildExecution> {
-    n2::execute(
-        cfg,
-        &input,
-        target_dir,
-        input.execution_plan.default_output_paths(),
-    )
+    // Capture engine selection once, here, rather than teaching CLI commands
+    // or planners about the experimental executor.
+    static HASH_ENGINE: LazyLock<bool> =
+        LazyLock::new(|| std::env::var_os("MOON_HASH_ENGINE").is_some_and(|value| value == "1"));
+    if *HASH_ENGINE {
+        hash::execute(cfg, input, outputs, user_log)
+    } else {
+        n2::execute(cfg, input, target_dir, outputs)
+    }
 }
 
 fn finish_captured_build(
