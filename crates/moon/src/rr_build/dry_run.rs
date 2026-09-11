@@ -16,79 +16,202 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Handles dry-run printing of build commands.
+//! Render concrete execution actions without adapting them to an executor.
 
 use std::{
+    collections::{HashMap, HashSet},
     io::Write,
     path::{Path, PathBuf},
     process::Command,
+    sync::LazyLock,
 };
 
-use crate::rr_build::BuildInput;
+use moonbuild_rupes_recta::execution_plan::{ActionId, ExecutionPlan, InputObservation};
+use moonutil::path_normalizer::PathNormalizer;
 
-/// Write what would be executed in a dry-run.
-///
-/// This is a helper function that renders the build commands from a build graph.
-pub fn write_dry_run<'a>(
+use super::BuildInput;
+
+/// Print commands for default execution roots and explicitly requested artifacts.
+pub(crate) fn write_dry_run(
     output: &mut dyn Write,
     input: &BuildInput,
-    artifacts: impl IntoIterator<Item = &'a Vec<PathBuf>>,
     source_dir: &Path,
-    target_dir: &Path,
 ) -> std::io::Result<()> {
-    let (graph, command_args_by_output) = input
-        .execution_plan
-        .all_to_n2_graph()
-        .map_err(std::io::Error::other)?;
-    let default_files = graph
-        .get_start_nodes()
-        .into_iter()
-        .chain(artifacts.into_iter().flat_map(|artifacts| {
-            artifacts
-                .iter()
-                .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
-        }))
-        .collect::<Vec<_>>();
+    let plan = &input.execution_plan;
+    let roots = plan.default_output_paths().into_iter().chain(
+        plan.requested_artifact_paths()
+            .flat_map(|(_, paths)| paths.iter().map(PathBuf::as_path)),
+    );
+    let actions = ordered_actions(plan, roots);
+    let replacer = PathNormalizer::new(source_dir);
+    for &id in &actions {
+        let command = plan.action(id).command();
+        let args = moonutil::shlex::join_native(command.args().iter().map(String::as_str));
+        writeln!(output, "{}", replacer.normalize_command(&args))?;
+        if let Some(cwd) = command.cwd() {
+            let cwd = if cwd.is_absolute() {
+                cwd.to_path_buf()
+            } else {
+                source_dir.join(cwd)
+            };
+            writeln!(output, "  cwd: {}", replacer.normalize_context_path(&cwd))?;
+        }
+        if !command.env().is_empty() {
+            writeln!(output, "  env:")?;
+            for (key, value) in command.env() {
+                writeln!(
+                    output,
+                    "    {key}={}",
+                    replacer.normalize_command_arg(value)
+                )?;
+            }
+        }
+    }
 
-    moonbuild::dry_run::write_build_commands(
+    // FIXME: Keep the integration-test dump hook until all graph snapshots
+    // start from the planner harness and no longer need the compiled CLI.
+    static DUMP_PATH: LazyLock<Option<String>> =
+        LazyLock::new(|| std::env::var("MOON_TEST_DUMP_BUILD_GRAPH").ok());
+    if let Some(path) = DUMP_PATH.as_deref() {
+        let mut file = std::fs::File::create(path).expect("Failed to create dry-run dump target");
+        write_action_graph(&mut file, plan, actions, &replacer)
+            .expect("Failed to dump to target output");
+    }
+    Ok(())
+}
+
+/// Render the selected producer closure for planner snapshots.
+#[cfg(test)]
+pub(crate) fn write_build_graph<'a>(
+    output: &mut dyn Write,
+    input: &'a BuildInput,
+    roots: impl IntoIterator<Item = &'a Path>,
+    source_dir: &Path,
+) -> std::io::Result<()> {
+    write_action_graph(
         output,
-        &graph,
-        &default_files,
-        &command_args_by_output,
-        source_dir,
-        target_dir,
+        &input.execution_plan,
+        ordered_actions(&input.execution_plan, roots),
+        &PathNormalizer::new(source_dir),
     )
 }
 
-/// Write all commands in a dry-run.
-///
-/// Similar to [`write_dry_run`], but assumes *all* files in the build graph are to be built.
-pub fn write_dry_run_all(
+fn write_action_graph(
     output: &mut dyn Write,
-    input: &BuildInput,
-    source_dir: &Path,
-    target_dir: &Path,
+    plan: &ExecutionPlan,
+    actions: Vec<ActionId>,
+    replacer: &PathNormalizer,
 ) -> std::io::Result<()> {
-    let (graph, command_args_by_output) = input
-        .execution_plan
-        .all_to_n2_graph()
-        .map_err(std::io::Error::other)?;
-    let default_files = graph.get_start_nodes();
-    moonbuild::dry_run::write_build_commands(
-        output,
-        &graph,
-        &default_files,
-        &command_args_by_output,
-        source_dir,
-        target_dir,
-    )
+    let mut nodes = actions
+        .into_iter()
+        .map(|id| {
+            let action = plan.action(id);
+            let command =
+                moonutil::shlex::join_native(action.command().args().iter().map(String::as_str));
+            let mut inputs = action
+                .inputs()
+                .iter()
+                .filter_map(|input| match input {
+                    InputObservation::File(path) => {
+                        Some(replacer.normalize_path(&path.to_string_lossy()))
+                    }
+                    InputObservation::StandardLibraryInterfaces(_) => None,
+                })
+                .collect::<Vec<_>>();
+            inputs.sort();
+            let outputs = action
+                .outputs()
+                .iter()
+                .map(|path| replacer.normalize_path(&path.to_string_lossy()))
+                .collect::<Vec<_>>();
+            (outputs, inputs, replacer.normalize_command(&command))
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|a, b| a.0.cmp(&b.0));
+    for (outputs, inputs, command) in nodes {
+        serde_json::to_writer(
+            &mut *output,
+            &serde_json::json!({
+                "command": command,
+                "inputs": inputs,
+                "outputs": outputs,
+            }),
+        )?;
+        writeln!(output)?;
+    }
+    Ok(())
+}
+
+/// Preserve filename-first, dependency-before-consumer dry-run ordering.
+/// Sorting paths once avoids repeated normalization during graph traversal.
+fn ordered_actions<'a>(
+    plan: &'a ExecutionPlan,
+    roots: impl IntoIterator<Item = &'a Path>,
+) -> Vec<ActionId> {
+    let keys = plan
+        .action_ids()
+        .flat_map(|id| {
+            let action = plan.action(id);
+            action
+                .inputs()
+                .iter()
+                .map(InputObservation::path)
+                .chain(action.outputs().iter().map(PathBuf::as_path))
+        })
+        .map(|path| {
+            let normalized = path.to_string_lossy().replace('\\', "/");
+            let last_slash = normalized.rfind('/').map_or(0, |i| i + 1);
+            (path, (normalized, last_slash))
+        })
+        .collect::<HashMap<_, _>>();
+    let by_file_name = |path: &&'a Path| {
+        let (name, last_slash) = &keys[path];
+        (&name[*last_slash..], name)
+    };
+    // Requested artifacts can be supplied outside this plan (for example by
+    // the toolchain); only declared outputs have actions to print.
+    let mut roots = roots
+        .into_iter()
+        .filter(|path| plan.declared_output(path).is_some())
+        .collect::<Vec<_>>();
+    roots.sort_unstable_by_key(by_file_name);
+    let mut stack = roots
+        .into_iter()
+        .map(|path| (path, false))
+        .collect::<Vec<_>>();
+    let mut visited = HashSet::new();
+    let mut result = Vec::new();
+    let mut inputs = Vec::new();
+    while let Some((path, finished)) = stack.pop() {
+        let Some(output) = plan.declared_output(path) else {
+            continue;
+        };
+        let id = output.producer();
+        if finished {
+            result.push(id);
+        } else if visited.insert(id) {
+            stack.push((path, true));
+            inputs.extend(
+                plan.action(id)
+                    .inputs()
+                    .iter()
+                    .filter_map(|input| match input {
+                        InputObservation::File(path) => Some(path.as_path()),
+                        InputObservation::StandardLibraryInterfaces(_) => None,
+                    }),
+            );
+            inputs.sort_unstable_by_key(by_file_name);
+            stack.extend(inputs.drain(..).map(|path| (path, false)));
+        }
+    }
+    result
 }
 
 /// Format a command as it would be executed, with the proper escaping.
 ///
 /// This also replaces paths like [`write_dry_run`] does.
 pub fn format_dry_run_command(cmd: &Command, source_dir: &Path) -> String {
-    let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
+    let replacer = PathNormalizer::new(source_dir);
 
     let args =
         std::iter::once(replacer.normalize_command_program(&cmd.get_program().to_string_lossy()))

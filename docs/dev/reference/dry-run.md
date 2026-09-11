@@ -4,7 +4,9 @@
 > Do not build tools or workflows that depend on the exact formatting or ordering.
 
 A dry run resolves configuration and prints the resulting build commands without
-executing the build graph. Applicable module-level prebuild configuration scripts
+executing the build graph. Rupes Recta renders its Execution Plan directly,
+including unconsumed auxiliary outputs and explicitly requested artifacts;
+rendering does not construct an n2 graph or open its database. Applicable module-level prebuild configuration scripts
 still run to supply dynamic flags, so a dry run is not guaranteed to be free of
 side effects.
 

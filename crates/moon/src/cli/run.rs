@@ -856,13 +856,7 @@ fn build_executable_from_plan(
     let user_log = output.user_log();
     if cli.dry_run {
         output.write_result(|writer| {
-            rr_build::write_dry_run(
-                writer,
-                &build_graph,
-                build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            )?;
+            rr_build::write_dry_run(writer, &build_graph, source_dir)?;
 
             if options.print_dry_run_run_command {
                 let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);

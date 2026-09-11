@@ -573,8 +573,8 @@ During lowering:
   that are not produced by another execution action.
 - Each execution action receives a process-local `ActionId`; each declared
   output is registered by its concrete path.
-- The n2 adapter projects a selected set of execution actions into concrete
-  n2 build nodes.
+- The private `rr_build::execution::n2` module in `moon` adapts the complete
+  Execution Plan to n2 build nodes. Execution callers select roots by output path.
 
 Each semantic action currently maps to exactly one execution action and n2
 build node.
@@ -588,7 +588,7 @@ The concrete rules of lowering is performed in [its module](/crates/moonbuild-ru
 Lightweight commands that do not select logical Build Artifacts do not need a
 synthetic Build Plan. `moon fmt` performs its lightweight project discovery and
 constructs complete execution actions directly. Formatter execution and
-dry-run then use the same Execution Plan adapters as project builds.
+dry-run then use the same execution and plan-rendering entry points as project builds.
 
 Legacy manifest migration is one formatter execution action. Its internal
 formatting and legacy-file removal are encapsulated by the internal
@@ -605,6 +605,20 @@ which executes it in the usual Ninja-style way:
 incrementally (skipping up-to-date nodes)
 and with maximal parallelism subject to dependencies and its job limits.
 `moon` does not add extra scheduling logic on top of `n2`.
+
+The private `rr_build::execution::n2` module owns n2 adaptation, the `.moon_db`
+location and database access, root lookup, scheduling, and progress capture.
+Its parent `execution` module owns `BuildConfig`, execution entry points, and
+diagnostic processing. `BuildConfig` is re-exported from `rr_build`, where
+`BuildInput` remains defined with only the Execution Plan and action-backend
+metadata. Shared artifact paths remain in Rupes Recta's `target_layout` module.
+Dry-run and planner snapshots traverse the Execution Plan directly, without
+constructing an n2 graph or copying command arguments into a second map.
+
+The target-directory lock still spans mutable preparation, build execution,
+and the command's protected result collection. Database encapsulation does not
+shorten that lifetime; test and program execution retain their existing unlock
+points.
 
 ## Artifacts handling
 

@@ -36,12 +36,10 @@ mod context;
 mod lower_aux;
 mod lower_build;
 mod moonc_command;
-mod utils;
 
 pub use crate::execution_plan::{
     InputObservation, LoweredCommand, LoweredCommandExecution, LoweredResponseFile,
 };
-pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 pub(crate) use backend::CExecutableRealization;
 
@@ -352,53 +350,20 @@ mod tests {
             .any(|arg| arg.replace('\\', "/").ends_with(suffix))
     }
 
-    fn n2_input_paths_for_command(
-        lowered: &AdaptedPlan,
+    fn input_paths_for_command(
+        plan: &crate::execution_plan::ExecutionPlan,
         matches: impl Fn(&[String]) -> bool,
     ) -> Vec<PathBuf> {
-        let output = lowered
-            .command_args_by_output
+        let action = plan
+            .action_ids()
+            .map(|id| plan.action(id))
+            .find(|action| matches(action.command().args()))
+            .expect("matching lowered command should be present");
+        action
+            .inputs()
             .iter()
-            .find_map(|(output, args)| matches(args).then_some(output))
-            .expect("matching lowered command should have an output");
-        let build = lowered
-            .build_graph
-            .builds
-            .iter()
-            .find(|build| {
-                build.outs.ids.iter().any(|id| {
-                    Path::new(&lowered.build_graph.files.by_id[*id].name) == output.as_path()
-                })
-            })
-            .expect("matching output should belong to an n2 build");
-
-        build
-            .ins
-            .ids
-            .iter()
-            .map(|id| PathBuf::from(&lowered.build_graph.files.by_id[*id].name))
+            .map(|input| input.path().to_owned())
             .collect()
-    }
-
-    struct AdaptedPlan {
-        build_graph: n2::graph::Graph,
-        command_args_by_output: crate::execution_plan::CommandArgMap,
-        artifacts: Vec<(ArtifactKey, Vec<PathBuf>)>,
-    }
-
-    fn adapt_execution_plan(plan: crate::execution_plan::ExecutionPlan) -> AdaptedPlan {
-        let artifacts = plan
-            .requested_artifact_paths()
-            .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
-            .collect();
-        let (build_graph, command_args_by_output) = plan
-            .all_to_n2_graph()
-            .expect("execution plan should adapt to n2");
-        AdaptedPlan {
-            build_graph,
-            command_args_by_output,
-            artifacts,
-        }
     }
 
     #[test]
@@ -442,15 +407,14 @@ mod tests {
             stdlib_path: None,
         };
 
-        let lowered = adapt_execution_plan(
-            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed"),
-        );
+        let lowered =
+            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed");
 
         for (payload, source) in [
             (BINARIES.moonlex.as_path(), Path::new("main/lexer.mbl")),
             (BINARIES.moonyacc.as_path(), Path::new("main/parser.mby")),
         ] {
-            let inputs = n2_input_paths_for_command(&lowered, |command| {
+            let inputs = input_paths_for_command(&lowered, |command| {
                 command.get(1).map(Path::new) == Some(payload)
             });
             assert!(
@@ -729,16 +693,21 @@ mod tests {
             );
         }
 
-        let lowered = adapt_execution_plan(execution);
+        let lowered = execution;
         let exe_path = artifact_paths.target_layout().executable_of_build_target(
             &resolve_output.pkg_dirs,
             &target,
             ExecutableArtifact::NativeExecutable,
         );
         let command = lowered
-            .command_args_by_output
-            .get(&exe_path)
-            .expect("executable command args should be captured");
+            .action(
+                lowered
+                    .declared_output(&exe_path)
+                    .expect("output should have a producer")
+                    .producer(),
+            )
+            .command()
+            .args();
 
         assert!(command.iter().any(|arg| arg == "msvc/bin/cl.exe"));
         assert!(command.iter().any(|arg| arg == "/subsystem:console"));
@@ -771,8 +740,8 @@ mod tests {
         assert!(c_stub_position < runtime_position);
 
         let runtime_compile_command = lowered
-            .command_args_by_output
-            .values()
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
             .find(|command| command_arg_has_normalized_suffix(command, "runtime.c"))
             .expect("runtime compile command args should be captured");
         assert!(command_arg_has_normalized_suffix(
@@ -786,8 +755,8 @@ mod tests {
         );
 
         let runtime_archive_command = lowered
-            .command_args_by_output
-            .values()
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
             .find(|command| {
                 command.iter().any(|arg| arg == "msvc/bin/lib.exe")
                     && command_arg_has_normalized_suffix(
@@ -806,8 +775,8 @@ mod tests {
         ));
 
         let stub_compile_command = lowered
-            .command_args_by_output
-            .values()
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
             .find(|command| command_arg_has_normalized_suffix(command, "main/native/stub.c"))
             .expect("C stub compile command args should be captured");
         assert!(
@@ -821,7 +790,7 @@ mod tests {
                 .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_C_STANDARD_FLAG)
         );
 
-        let moonc_inputs = n2_input_paths_for_command(&lowered, |command| {
+        let moonc_inputs = input_paths_for_command(&lowered, |command| {
             command.get(1).map(String::as_str) == Some("build-package")
         });
         assert_eq!(
@@ -832,7 +801,7 @@ mod tests {
             1
         );
 
-        let compiler_inputs = n2_input_paths_for_command(&lowered, |command| {
+        let compiler_inputs = input_paths_for_command(&lowered, |command| {
             command_arg_has_normalized_suffix(command, "main/native/stub.c")
         });
         assert_eq!(
@@ -856,7 +825,7 @@ mod tests {
             );
         }
 
-        let archiver_inputs = n2_input_paths_for_command(&lowered, |command| {
+        let archiver_inputs = input_paths_for_command(&lowered, |command| {
             command.first().map(String::as_str) == Some(toolchain.cc().ar_path.as_str())
         });
         assert_eq!(
@@ -868,14 +837,13 @@ mod tests {
         );
 
         let msvc_env_build = lowered
-            .build_graph
-            .builds
-            .iter()
-            .find(|build| build.env.iter().any(|(key, _)| key == "INCLUDE"))
+            .action_ids()
+            .map(|id| lowered.action(id).command())
+            .find(|command| command.env().iter().any(|(key, _)| key == "INCLUDE"))
             .expect("MSVC build should carry command environment");
         assert!(
             msvc_env_build
-                .env
+                .env()
                 .iter()
                 .any(|(key, value)| key == "LIB" && value == "crt/lib;sdk/lib")
         );
@@ -979,10 +947,8 @@ mod tests {
                 stdlib_path: None,
             };
 
-            let lowered = adapt_execution_plan(
-                lower_build_plan(&resolve_output, &plan, &options)
-                    .expect("lowering should succeed"),
-            );
+            let lowered = lower_build_plan(&resolve_output, &plan, &options)
+                .expect("lowering should succeed");
             let context = LoweringContext::new(&resolve_output, &plan, &options);
             let executable = artifact_paths.target_layout().executable_of_build_target(
                 &resolve_output.pkg_dirs,
@@ -996,58 +962,60 @@ mod tests {
             );
 
             let link_args = lowered
-                .command_args_by_output
-                .get(&executable)
-                .expect("link command should retain structured argv");
+                .action(
+                    lowered
+                        .declared_output(&executable)
+                        .expect("output should have a producer")
+                        .producer(),
+                )
+                .command()
+                .args();
             assert_eq!(
                 link_args.first().map(String::as_str),
                 Some("/toolchain/bin/clang")
             );
             assert!(!link_args.iter().any(|arg| arg == "&&"));
             assert!(link_args.contains(&libbacktrace.display().to_string()));
-            let link_inputs = n2_input_paths_for_command(&lowered, |command| {
+            let link_inputs = input_paths_for_command(&lowered, |command| {
                 command.first().map(String::as_str) == Some("/toolchain/bin/clang")
             });
             assert!(
                 link_inputs.contains(&libbacktrace),
                 "the library from the supplied compiler paths must be a linker input"
             );
+            let dsym_output = lowered
+                .declared_output(&dsym_bundle)
+                .expect("dSYM bundle should be declared");
+            let dsym_action = lowered.action(dsym_output.producer());
             assert_eq!(
-                lowered.command_args_by_output.get(&dsym_bundle),
-                Some(&vec![
+                dsym_action.command().args(),
+                [
                     dsymutil.display().to_string(),
-                    executable.display().to_string(),
-                ])
+                    executable.display().to_string()
+                ],
             );
-
-            let dsym_file_id = lowered
-                .build_graph
-                .files
-                .lookup(&dsym_bundle.to_string_lossy())
-                .expect("dSYM bundle should be registered");
             assert!(
                 lowered
-                    .build_graph
-                    .get_start_nodes()
-                    .contains(&dsym_file_id),
+                    .default_output_paths()
+                    .contains(&dsym_bundle.as_path()),
                 "an unconsumed dSYM output should remain an execution root"
             );
-            let dsym_build_id = lowered.build_graph.files.by_id[dsym_file_id]
-                .input
-                .expect("dSYM bundle should have a producer");
-            let dsym_inputs = lowered.build_graph.builds[dsym_build_id]
-                .ins
-                .ids
+            let dsym_inputs = dsym_action
+                .inputs()
                 .iter()
-                .map(|id| Path::new(&lowered.build_graph.files.by_id[*id].name))
+                .map(InputObservation::path)
                 .collect::<HashSet<_>>();
+
             assert_eq!(
                 dsym_inputs,
                 HashSet::from([dsymutil.as_path(), executable.as_path()])
             );
 
             assert_eq!(
-                lowered.artifacts,
+                lowered
+                    .requested_artifact_paths()
+                    .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
+                    .collect::<Vec<_>>(),
                 vec![(
                     ArtifactKey::Executable {
                         package: target.package,

@@ -29,8 +29,6 @@ mooncake.workspace = true
 # Only for specific parts
 moonbuild.workspace = true
 
-n2.workspace = true
-
 anyhow.workspace = true
 arcstr.workspace = true
 log.workspace = true

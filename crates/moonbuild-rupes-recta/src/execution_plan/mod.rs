@@ -25,46 +25,6 @@ use std::{
 
 use crate::{ResolveOutput, build_plan::ArtifactKey, pkg_name::OptionalPackageFQNWithSource};
 
-mod n2_adapter;
-
-pub use n2_adapter::{CommandArgMap, N2AdapterError};
-
-/// One n2 projection together with the process-local action provenance that
-/// n2 itself does not retain.
-pub struct N2Projection {
-    graph: n2::graph::Graph,
-    command_args_by_output: CommandArgMap,
-    action_by_build: HashMap<n2::graph::BuildId, ActionId>,
-}
-
-impl N2Projection {
-    pub fn graph(&self) -> &n2::graph::Graph {
-        &self.graph
-    }
-
-    pub fn action_for_build(&self, build: n2::graph::BuildId) -> Option<ActionId> {
-        self.action_by_build.get(&build).copied()
-    }
-
-    pub fn into_parts(self) -> (n2::graph::Graph, CommandArgMap) {
-        (self.graph, self.command_args_by_output)
-    }
-
-    pub fn into_parts_with_actions(
-        self,
-    ) -> (
-        n2::graph::Graph,
-        CommandArgMap,
-        HashMap<n2::graph::BuildId, ActionId>,
-    ) {
-        (
-            self.graph,
-            self.command_args_by_output,
-            self.action_by_build,
-        )
-    }
-}
-
 /// Process-local identity of one concrete execution action.
 ///
 /// This is an arena handle, not the persistent action digest used by the build
@@ -89,13 +49,6 @@ impl InputObservation {
     pub fn path(&self) -> &Path {
         match self {
             Self::File(path) | Self::StandardLibraryInterfaces(path) => path,
-        }
-    }
-
-    pub(crate) fn n2_path(&self) -> Option<&Path> {
-        match self {
-            Self::File(path) => Some(path),
-            Self::StandardLibraryInterfaces(_) => None,
         }
     }
 }
@@ -228,6 +181,8 @@ pub struct ExecutionAction {
     cache_eligible: bool,
     fileloc: String,
     description: String,
+    // TODO: Replace dirty-on-output scheduling when execution persists and
+    // replays action diagnostics instead of rerunning commands to display them.
     can_dirty_on_output: bool,
     error_package: OptionalPackageFQNWithSource,
 }
@@ -366,6 +321,27 @@ impl ExecutionPlan {
             .map(|(artifact, outputs)| (artifact, outputs.as_slice()))
     }
 
+    /// Unconsumed declared outputs are the default execution roots, including
+    /// auxiliary results such as debug symbols and unconsumed prebuild outputs.
+    /// Preserve action/output order so executor scheduling is unchanged.
+    pub fn default_output_paths(&self) -> Vec<&Path> {
+        let consumed = self
+            .actions
+            .iter()
+            .flat_map(|action| &action.inputs)
+            .filter_map(|input| match input {
+                InputObservation::File(path) => Some(path.as_path()),
+                InputObservation::StandardLibraryInterfaces(_) => None,
+            })
+            .collect::<HashSet<_>>();
+        self.actions
+            .iter()
+            .flat_map(|action| &action.outputs)
+            .map(PathBuf::as_path)
+            .filter(|path| !consumed.contains(path))
+            .collect()
+    }
+
     /// Add an independently lowered plan and return its action IDs in this plan.
     ///
     /// Concrete output paths form the composition boundary. Plans may share an
@@ -438,24 +414,6 @@ impl ExecutionPlan {
         self.requested_artifacts
             .extend(other.requested_artifacts.iter().cloned());
         Ok(action_ids)
-    }
-
-    pub fn to_n2_graph(
-        &self,
-        actions: impl IntoIterator<Item = ActionId>,
-    ) -> Result<(n2::graph::Graph, CommandArgMap), N2AdapterError> {
-        self.adapt_to_n2(actions).map(N2Projection::into_parts)
-    }
-
-    pub fn adapt_to_n2(
-        &self,
-        actions: impl IntoIterator<Item = ActionId>,
-    ) -> Result<N2Projection, N2AdapterError> {
-        n2_adapter::to_n2_graph(self, actions)
-    }
-
-    pub fn all_to_n2_graph(&self) -> Result<(n2::graph::Graph, CommandArgMap), N2AdapterError> {
-        self.to_n2_graph(self.action_ids())
     }
 }
 
@@ -647,31 +605,49 @@ mod tests {
     }
 
     #[test]
-    fn selected_consumer_keeps_an_omitted_producer_artifact_as_an_input() {
-        let (plan, _, consumer) = producer_and_consumer_plan();
-        let (graph, _) = plan
-            .to_n2_graph([consumer])
-            .expect("selected execution action should adapt to n2");
+    fn default_roots_include_unconsumed_auxiliary_outputs() {
+        let (mut plan, _, _) = producer_and_consumer_plan();
+        assert_eq!(plan.default_output_paths(), [Path::new("build/app.dSYM")]);
 
-        assert_eq!(graph.builds.iter().count(), 1);
-        let build = graph
-            .builds
-            .iter()
-            .next()
-            .expect("consumer build should be present");
-        assert_eq!(
-            build
-                .ins
-                .ids
-                .iter()
-                .map(|id| graph.files.by_id[*id].name.as_str())
-                .collect::<Vec<_>>(),
-            vec!["build/libmoonbitrun.a"]
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("src/schema")],
+            Vec::new(),
+            vec![PathBuf::from("build/generated")],
+            "generate-unused-file",
         );
-        let input = build.ins.ids[0];
-        assert!(
-            graph.files.by_id[input].input.is_none(),
-            "the omitted producer is expected to run in an earlier execution phase"
+        builder.add_action(action, outputs);
+        plan.merge(&builder.finish([]))
+            .expect("independent prebuild output should compose");
+
+        assert_eq!(
+            plan.default_output_paths(),
+            [Path::new("build/app.dSYM"), Path::new("build/generated")],
+        );
+    }
+
+    #[test]
+    fn default_roots_retain_unconsumed_outputs_of_a_shared_producer() {
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            Vec::new(),
+            Vec::new(),
+            vec![PathBuf::from("build/a.mi"), PathBuf::from("build/a.core")],
+            "compile-a",
+        );
+        builder.add_action(action, outputs);
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("build/a.mi")],
+            Vec::new(),
+            vec![PathBuf::from("build/b.mi")],
+            "check-b",
+        );
+        builder.add_action(action, outputs);
+
+        let plan = builder.finish([]);
+        assert_eq!(
+            plan.default_output_paths(),
+            [Path::new("build/a.core"), Path::new("build/b.mi")],
         );
     }
 
@@ -804,20 +780,5 @@ mod tests {
         composed
             .merge(&second)
             .expect_err("shared outputs must agree on dependency membership");
-    }
-
-    #[test]
-    fn n2_projection_retains_build_to_action_provenance() {
-        let (plan, producer, consumer) = producer_and_consumer_plan();
-        let adapted = plan
-            .adapt_to_n2([producer, consumer])
-            .expect("execution plan should adapt to n2");
-
-        for (index, expected) in [producer, consumer].into_iter().enumerate() {
-            assert_eq!(
-                adapted.action_for_build(n2::graph::BuildId::from(index)),
-                Some(expected),
-            );
-        }
     }
 }

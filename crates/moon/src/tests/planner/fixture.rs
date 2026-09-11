@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use clap::Parser;
-use moonbuild_debug::graph::debug_dump_build_graph;
 use std::path::PathBuf;
 
 use moonbuild_rupes_recta::{ResolveOutput, build_plan::ArtifactKey, model::PackageId};
@@ -360,25 +359,17 @@ impl PlanningFixture {
     }
 
     fn dump_plan(&self, plan: PlannedGraph) -> anyhow::Result<String> {
-        let (graph, command_args_by_output) = plan.build_graph.n2_graph_for_test()?;
-        let default_files = plan
-            .build_meta
-            .artifacts
-            .values()
-            .flat_map(|paths| {
-                paths
-                    .iter()
-                    .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
-            })
-            .collect::<Vec<_>>();
-        let dump = debug_dump_build_graph(
-            &graph,
-            &default_files,
-            &command_args_by_output,
-            &self.source_dir,
-        );
         let mut out = Vec::new();
-        dump.dump_to(&mut out).expect("graph dump should serialize");
+        crate::rr_build::write_build_graph(
+            &mut out,
+            &plan.build_graph,
+            plan.build_meta
+                .artifacts
+                .values()
+                .flatten()
+                .map(PathBuf::as_path),
+            &self.source_dir,
+        )?;
         Ok(String::from_utf8(out).expect("graph dump should be valid UTF-8"))
     }
 }

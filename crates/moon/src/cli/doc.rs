@@ -168,15 +168,7 @@ pub(crate) fn run_doc_rr(
 
     // Early exit for dry-run
     if cli.dry_run {
-        output.write_result(|writer| {
-            rr_build::write_dry_run(
-                writer,
-                &build_graph,
-                build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            )
-        })?;
+        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
         return Ok(0);
     }
 

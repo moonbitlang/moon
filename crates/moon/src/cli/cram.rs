@@ -30,6 +30,7 @@ use moonutil::{
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
     locks::lock_directory,
+    path_normalizer::PathNormalizer,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
 };
@@ -172,14 +173,8 @@ fn run_cram_test(
     let executable_dirs = collect_executable_dirs(&planned_runs, source_dir);
     if cli.dry_run {
         output.write_result(|writer| {
-            for (build_meta, build_graph) in &planned_runs {
-                rr_build::write_dry_run(
-                    writer,
-                    build_graph,
-                    build_meta.artifacts.values(),
-                    source_dir,
-                    target_dir,
-                )?;
+            for (_, build_graph) in &planned_runs {
+                rr_build::write_dry_run(writer, build_graph, source_dir)?;
             }
             write_dry_run_cram_command(
                 writer,
@@ -313,7 +308,7 @@ fn write_dry_run_cram_command(
     executable_dirs: &[PathBuf],
     source_dir: &Path,
 ) -> std::io::Result<()> {
-    let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
+    let replacer = PathNormalizer::new(source_dir);
     let mut args = vec![
         format!(
             "PATH={}",
@@ -335,7 +330,7 @@ fn write_dry_run_cram_command(
 
 fn display_path_with_executable_dirs(
     executable_dirs: &[PathBuf],
-    replacer: &moonbuild::dry_run::PathNormalizer,
+    replacer: &PathNormalizer,
 ) -> String {
     let separator = if cfg!(windows) { ";" } else { ":" };
     executable_dirs

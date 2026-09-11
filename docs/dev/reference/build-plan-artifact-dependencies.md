@@ -338,8 +338,9 @@ The `ExecutionPlanBuilder` registers each realized semantic output, assigns
 `ActionId` handles, and rejects duplicate artifact providers or physical-output
 paths. An `ExecutionAction` combines input observations, declared outputs, the
 concrete process command, diagnostics, and executor/cache policy. Consumers
-resolve a regular input path through the plan's declared-output index; the n2
-adapter alone registers files and constructs `n2::Build` values.
+resolve a regular input path through the plan's declared-output index. The
+private `moon::rr_build::execution::n2` module alone registers n2 files and builds;
+Rupes Recta lowering and the Execution Plan expose no n2 projection interface.
 
 Every lowered command retains structured argv. Response files change only its
 execution transport. The first argument's resolved executable path is another
@@ -364,18 +365,24 @@ includes proof execution, documentation generation, arbitrary prebuild shell
 commands, and unstructured custom compiler or linker flags. Lowering does not
 infer inputs by parsing those flags.
 
-Current dry-run still renders the n2 graph and uses retained structured argv to
-recover commands hidden by response-file transport. A future dry-run can
-consume `ExecutionPlan` directly: each input path resolves to its declared
-output and producer action, while requested artifacts and physical-only outputs
-retain the distinct root semantics that n2 otherwise flattens into file IDs.
+Dry-run and planner graph snapshots consume `ExecutionPlan` directly. Commands
+retain their structured argv even when execution uses response files. Concrete
+file inputs resolve through the declared-output index to their producers;
+recursive standard-library observations are omitted from the file-edge dump.
+`default_output_paths` selects unconsumed declared outputs, including auxiliary
+and prebuild outputs. Dry-run also includes explicitly requested artifacts and
+preserves filename-first, dependency-before-consumer ordering.
 
 ## Project and dependency artifacts
 
 Manifest projects and synthesized single-file projects use the same planning,
 compilation, and execution entry points. `BuildInput` contains the complete
-`ExecutionPlan`, action-backend information for diagnostics, and the target
-directory's n2 database path. It has no execution mode or phase selection.
+`ExecutionPlan` and action-backend information for diagnostics. It has no
+execution mode, phase selection, or executor database location. Execution
+receives the target directory; its private `n2` module owns the `.moon_db` path
+and opens the database. Partial execution accepts requested output paths and
+resolves their prerequisites internally; callers never receive an n2 `Work`
+value.
 
 Lowering records `is_dependency_artifact` on each artifact's declared physical
 outputs using the owning module's membership in the resolved project's root
@@ -401,11 +408,12 @@ dependency and project work.
 Project, workspace, and standalone builds execute one n2 graph per invocation.
 A single-backend invocation projects one Execution Plan directly; a
 multi-backend invocation first composes its independently lowered Execution
-Plans as described above. The n2 adapter preserves each Build ID's originating
-Action ID, which execution projects through the composed plan's action-backend
-map. n2 reports completed action output with that Build ID. This lets
-JSON-formatted `moon check` execute the same composed graph while the command
-layer still annotates each compiler diagnostic with its backend.
+Plans as described above. Execution translates the composed plan's
+action-backend map to a private map keyed by n2 Build ID. n2 reports completed
+action output with that Build ID; the execution module returns captured output
+with its backend already attached. This lets JSON-formatted `moon check` execute
+the same composed graph while the command layer still annotates each compiler
+diagnostic with its backend.
 
 The n2 failure budget applies to the composed invocation-wide graph rather
 than restarting for each backend. JSON output reports every diagnostic that

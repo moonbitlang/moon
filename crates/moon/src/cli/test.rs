@@ -1105,17 +1105,7 @@ fn run_test_workflow(
     let build_graph = rr_build::compose_build_inputs(build_inputs)?;
 
     if cli.dry_run {
-        output.write_result(|writer| {
-            rr_build::write_dry_run(
-                writer,
-                &build_graph,
-                build_metas_and_filters
-                    .iter()
-                    .flat_map(|(meta, _)| meta.artifacts.values()),
-                source_dir,
-                target_dir,
-            )
-        })?;
+        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
         // Test command lines depend on generated metadata, which dry-run does
         // not materialize. Profile dry-run therefore also stops at the build graph.
         return Ok(0);
@@ -1283,17 +1273,7 @@ fn run_tests_with_updates(
                 target_dir,
                 Some(build_meta),
                 user_log,
-                Box::new(|work| {
-                    trace!("requesting rerun artifacts");
-                    for file_path in want_files {
-                        let file_path_str = file_path.to_string_lossy();
-                        let file = work
-                            .lookup(&file_path_str)
-                            .expect("File should exist in work");
-                        work.want_file(file).context("Failed to want file")?;
-                    }
-                    Ok(())
-                }),
+                want_files.map(PathBuf::as_path),
             )?;
             drop(lock);
             if !result.successful() {

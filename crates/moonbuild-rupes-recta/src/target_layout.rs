@@ -610,15 +610,6 @@ impl TargetLayout {
     pub fn packages_json_path(&self, backend: TargetBackend) -> PathBuf {
         self.run_mode_dir(backend).join(PACKAGES_JSON)
     }
-
-    /// Returns the n2 database shared by executions in this target directory.
-    ///
-    /// Backend, profile, and run-mode differences are already represented by
-    /// concrete output paths and build hashes. They are not separate n2 state
-    /// domains.
-    pub fn n2_db_path(&self) -> PathBuf {
-        self.target_base_dir.join(".moon_db")
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -1684,18 +1675,6 @@ mod tests {
     fn native_executable_artifacts_keep_stable_suffix() {
         assert_eq!(ExecutableArtifact::NativeExecutable.extension(), ".exe");
         assert_eq!(ExecutableArtifact::LlvmExecutable.extension(), ".exe");
-    }
-
-    #[test]
-    fn n2_db_path_is_scoped_to_the_target_directory() {
-        let layout = TargetLayout::new(
-            PathBuf::from("_build"),
-            TargetLayoutMode::Workspace,
-            OptLevel::Debug,
-            RunMode::Format,
-        );
-
-        assert_eq!(layout.n2_db_path(), PathBuf::from("_build/.moon_db"));
     }
 
     #[test]
