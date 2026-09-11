@@ -632,14 +632,15 @@ fn detect_path_candidate(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<CC> 
         .with_context(|| format!("failed to use C compiler at {}", cc_path.display()))
 }
 
-fn detect_system_cc() -> anyhow::Result<CC> {
-    let mut errors = Vec::new();
-    for (name, kind) in [
-        ("cl", CCKind::Msvc),
+fn detect_cc_on_path() -> anyhow::Result<CC> {
+    // MSVC discovery separately resolves the target architecture and command environment.
+    let candidates = [
         ("cc", CCKind::SystemCC),
-        ("gcc", CCKind::Gcc),
         ("clang", CCKind::Clang),
-    ] {
+        ("gcc", CCKind::Gcc),
+    ];
+    let mut errors = Vec::new();
+    for (name, kind) in candidates {
         let Ok(cc_path) = which::which(name) else {
             continue;
         };
@@ -650,7 +651,8 @@ fn detect_system_cc() -> anyhow::Result<CC> {
     }
 
     if errors.is_empty() {
-        anyhow::bail!("no system C compiler found; tried cl, cc, gcc, clang")
+        let names = candidates.map(|(name, _)| name).join(", ");
+        anyhow::bail!("no system C compiler found; tried {names}")
     }
     anyhow::bail!(
         "failed to resolve system C compiler candidates: {}",
@@ -658,8 +660,8 @@ fn detect_system_cc() -> anyhow::Result<CC> {
     )
 }
 
-static DETECTED_SYSTEM_CC: std::sync::LazyLock<anyhow::Result<CC>> =
-    std::sync::LazyLock::new(detect_system_cc);
+static DETECTED_CC_ON_PATH: std::sync::LazyLock<anyhow::Result<CC>> =
+    std::sync::LazyLock::new(detect_cc_on_path);
 
 fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result<CC> {
     result
@@ -668,8 +670,8 @@ fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result
         .map_err(|e| anyhow::anyhow!("{e:#}"))
 }
 
-pub fn try_system_cc() -> anyhow::Result<CC> {
-    cached_cc(&DETECTED_SYSTEM_CC)
+pub fn try_cc_on_path() -> anyhow::Result<CC> {
+    cached_cc(&DETECTED_CC_ON_PATH)
 }
 
 pub fn has_cc_env_override() -> bool {
@@ -684,7 +686,7 @@ fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
         }
     }
 
-    try_system_cc().map(Toolchain::from_path_probe)
+    try_cc_on_path().map(Toolchain::from_path_probe)
 }
 
 fn selected_default_native_toolchain() -> anyhow::Result<Toolchain> {

@@ -142,17 +142,20 @@ own debug information.
 
 Tool resolution starts from `crates/moonutil/src/compiler_flags.rs`.
 
-There are three sources of C toolchain selection:
-
-1. global environment override
-2. package-level override
-3. default auto-detection
-
-When a native build step chooses its compiler, the current precedence is:
+For the regular native pipeline, compiler selection uses this precedence:
 
 1. `MOON_CC` / `MOON_AR`
 2. package-level override (`link.native.cc` or `link.native.stub_cc`)
-3. detected default toolchain
+3. Windows only: MSVC discovery through `find-msvc-tools`
+4. PATH probing: `cc`, then `clang`, then `gcc`
+
+`effective_native_toolchain()` applies environment and package overrides before automatic
+selection. `detected_default_native_toolchain()` tries Windows MSVC discovery before the
+cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in `detect_cc_on_path()`.
+
+The Windows MSVC direct object native target uses `windows_msvc_native_toolchain()` instead.
+It requires a cl-compatible driver, warns and ignores an incompatible `MOON_CC`, and has no
+GCC-like fallback.
 
 ## Global Environment Override
 
@@ -185,16 +188,15 @@ When `MOON_CC` is unset and no package-specific override is being applied to tha
 for a default native toolchain.
 
 On Windows, Moon first tries to discover an MSVC toolchain environment for the current 64-bit host
-architecture using the Visual Studio/MSVC discovery logic. The discovery target is
+architecture using `find-msvc-tools`. The discovery target is
 `x86_64-pc-windows-msvc` on x64 Windows hosts and `aarch64-pc-windows-msvc` on ARM64 Windows hosts.
 Moon does not model cross compilation in this path. This discovery is needed so generated-C builds
 can use `cl.exe` outside a Developer Command Prompt. If MSVC discovery fails, or on non-Windows
 hosts, Moon falls back to PATH probing in this order:
 
-1. `cl`
-2. `cc`
+1. `cc`
+2. `clang`
 3. `gcc`
-4. `clang`
 
 Moon does not fall back to a bundled compiler. If no system toolchain is
 available, planning fails with the tool-resolution error.
