@@ -204,6 +204,7 @@ impl<'a> super::LoweringContext<'a> {
                     &compiler_paths.include_path,
                     crt,
                     info.native_allocator,
+                    self.opt.backend.collect_ref_cycle(),
                 )
                 .into(),
                 compiler::msvc::command_env(runtime_toolchain),
@@ -222,6 +223,7 @@ impl<'a> super::LoweringContext<'a> {
                         .define_use_shared_runtime_macro(false)
                         .use_simdutf(!info.simdutf_objects.is_empty())
                         .native_allocator(info.native_allocator)
+                        .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
                         .build()
                         .expect("Failed to build CC configuration for runtime"),
                     &[] as &[&str],

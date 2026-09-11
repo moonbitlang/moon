@@ -327,6 +327,7 @@ mod tests {
                     target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
+                        collect_ref_cycle: false,
                         allocator: moonutil::compiler_flags::NativeAllocator::System,
                         os: std::env::consts::OS
                             .parse()
@@ -543,6 +544,7 @@ mod tests {
                     target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
+                        collect_ref_cycle: false,
                         allocator: moonutil::compiler_flags::NativeAllocator::Default,
                         os: OperatingSystem::None,
                         compiler_paths: moonutil::compiler_flags::CompilerPaths {
@@ -618,8 +620,13 @@ mod tests {
                 Some(NativeTarget::X86_64UnknownLinuxGnu),
                 Some(NativeTarget::X86_64PcWindowsMsvc),
             ] {
-                let mode =
-                    resolve_native_backend_mode(&resolved, &requested, OptLevel::Debug, candidate);
+                let mode = resolve_native_backend_mode(
+                    &resolved,
+                    &requested,
+                    OptLevel::Debug,
+                    candidate,
+                    false,
+                );
                 assert_eq!(
                     mode.direct_target(),
                     if permits_direct_object {
@@ -634,8 +641,18 @@ mod tests {
                     &requested,
                     OptLevel::Release,
                     candidate,
+                    false,
                 );
                 assert!(release_mode.direct_target().is_none());
+
+                let collection_mode = resolve_native_backend_mode(
+                    &resolved,
+                    &requested,
+                    OptLevel::Debug,
+                    candidate,
+                    true,
+                );
+                assert!(collection_mode.direct_target().is_none());
             }
         }
     }
