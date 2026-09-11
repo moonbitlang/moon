@@ -33,7 +33,7 @@ important ones and why they exist.
 
 - **Tests can be dropped per package.** `special_cases::should_skip_tests` lists
   packages that should not produce test targets (currently just
-  `moonbitlang/core/abort`). `compile::filter_special_case_requested_artifact`
+  `moonbitlang/core/abort`). `build_plan::build_plan`
   uses this to discard matching test artifact requests before planning.
 - **Coverage rules differ per package.** `should_skip_coverage` ensures abort is
   never instrumented, while `is_self_coverage_lib` says builtin/coverage should
@@ -66,7 +66,7 @@ important ones and why they exist.
   `CompileConfig` / `BuildMeta`. For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
   `None`, so stdlib packages resolve to local `_build/...` artifacts.
-- **RR consumes the selected resolver.** `CompileConfig`, lowering options,
+- **RR consumes the selected resolver.** `CompileConfig`, `LoweringContext`,
   `BuildMeta`, metadata generation, and `all_pkgs.json` generation all consume
   the same selected `ArtifactPathResolver`. `metadata.rs` and `all_pkgs.rs`
   should render paths from the supplied resolver; they should not call
@@ -75,8 +75,8 @@ important ones and why they exist.
 - **`abort_pkg` is discovery-only, not build-mode.** We always record the abort
   package ID if it exists, even when building the stdlib. Build-mode decisions
   (use prebuilt paths vs local artifacts) are gated by whether stdlib is
-  injected (`build_env.std` / `stdlib_dir.is_some()`), not by mutating
-  `abort_pkg`.
+  injected (`config.stdlib_path.is_some()` / `stdlib_dir.is_some()`), not by
+  mutating `abort_pkg`.
 - **Metadata files respect stdlib mode.** When either `packages.json` or
   `all_pkgs.json` is generated for the stdlib (core module), it is generated
   without a stdlib directory so package metadata and indirect dependency

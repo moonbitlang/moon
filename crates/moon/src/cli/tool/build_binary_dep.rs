@@ -40,14 +40,14 @@ use moonbuild_rupes_recta::{
     model::PackageId,
 };
 use moonutil::{
-    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    locks::lock_directory, project::PackageDirs, target::TargetBackend, user_log::UserLog,
+    build_options::RunMode, cli_support::UniversalFlags, locks::lock_directory,
+    project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 
 use crate::{
     cli::BuildFlags,
     filter::match_packages_by_name_rr,
-    rr_build::{self, BuildConfig, BuildMeta, preconfig_compile},
+    rr_build::{self, BuildConfig, BuildMeta},
 };
 
 #[derive(clap::Args, Debug)]
@@ -94,9 +94,7 @@ pub(crate) fn run_build_binary_dep(
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
             .without_bin_deps();
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
 
     // Note: There's a cyclic dependency!
     //
@@ -144,6 +142,7 @@ pub(crate) fn run_build_binary_dep(
     };
 
     // For each package we need to get its target backend and then we can build it
+    let _lock = lock_directory(target_dir, user_log)?;
     for (pkg, target) in pkgs {
         // Get package info
         let package = &*resolve_output.pkg_dirs.get_package(pkg).raw;
@@ -153,18 +152,13 @@ pub(crate) fn run_build_binary_dep(
             release: true,
             ..BuildFlags::default()
         };
-        let preconfig = preconfig_compile(
-            &AutoSyncFlags { frozen: false },
+
+        let compile_config = rr_build::prepare_resolved_build(
             cli,
             &build_flags,
             Some(target),
             target_dir,
             RunMode::Build,
-        );
-        let planning_context = rr_build::prepare_resolved_build(
-            &preconfig,
-            &cli.unstable_feature,
-            target_dir,
             user_log,
             &resolve_output,
         )?;
@@ -177,18 +171,18 @@ pub(crate) fn run_build_binary_dep(
         )
             .into();
         let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-            preconfig,
-            &cli.unstable_feature,
+            compile_config,
             user_log,
-            planning_context,
             intent,
             mooncake_bin_dir,
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
             resolve_output.clone(),
+            build_flags.jobs,
+            false,
+            false,
         )?;
 
-        let _lock = lock_directory(target_dir, user_log)?;
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&build_meta)?;
 

@@ -29,9 +29,9 @@
       dependency relationship between them. This part is always performed
       without affected by the user input.
 
-    - [`compile`] takes in the resolved environment, and builds a [`n2`] build
-      graph for execution. This part converts the intent of the user into the
-      actual build commands.
+    - [`compile`] takes in the resolved environment and produces an
+      [`execution_plan::ExecutionPlan`]. This part converts the intent of the
+      user into concrete actions and declared outputs.
 
     Of all intents of the user, one is so different from the rest: `moon fmt`.
     The formatter only needs the list of files to run, regardless of whether the
@@ -67,19 +67,12 @@
        ([`crate::build_plan`]).
     7. Lower the semantic graph into a concrete, executor-neutral action and
        output graph ([`crate::execution_plan`], via [`crate::build_lower`]).
-    8. Adapt the execution plan to [`n2`] (an in-process `ninja` equivalent),
-       or to another execution and inspection consumer.
-    9. Execute the selected action roots.
+    8. Return the Execution Plan to `moon`, which owns execution, incremental
+       state, and diagnostic collection. Dry-run consumes the plan directly.
 
     Additional information about the build process, project layout, special
     cases, and random quirks of build systems can be found in the repository's
     documentation, at `/docs/dev/reference`.
-
-    ## Alternative design
-
-    An alternative is proposed, but not implemented, with replacing `n2` with
-    a hand-rolled, in-process executor that directly works on the abstract build
-    graph instead of requiring to lower every command beforehand.
 
     ## Logging
 
@@ -127,7 +120,5 @@ mod special_cases;
 pub mod util;
 
 // Reexports
-pub use compile::{
-    CompileConfig, CompileOutput, StandaloneCompileOutput, compile, compile_standalone,
-};
+pub use compile::{CompileConfig, CompileOutput, compile};
 pub use resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies};

@@ -19,16 +19,15 @@
 use log::{debug, info};
 use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
 use std::path::{Path, PathBuf};
-use tracing::{Level, instrument};
+use tracing::instrument;
 
 use crate::{
-    build_lower::{self, LoweringEnvironment, WarningCondition},
-    build_plan::{self, ArtifactKey, BuildEnvironment, InputDirective},
-    execution_plan::{ActionId, ExecutionPlan},
-    model::{BackendConfig, OperatingSystem},
+    build_lower::{self, WarningCondition},
+    build_plan::{self, ArtifactKey, InputDirective},
+    execution_plan::ExecutionPlan,
+    model::{BackendConfig, DebugInfoRequest},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
-    special_cases::should_skip_tests,
     target_layout::ArtifactPathResolver,
 };
 
@@ -42,16 +41,14 @@ pub struct CompileConfig {
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
     pub action: RunMode,
-    /// Whether to emit debug symbols.
-    pub debug_symbols: bool,
+    /// Debug information requested before the Native payload form is selected.
+    pub debug_info: DebugInfoRequest,
 
     /// The path to the standard library's project root, or `None` if to not
     /// import the standard library during compilation.
     pub stdlib_path: Option<PathBuf>,
     /// Physical artifact path resolver selected for this compile run.
     pub artifact_paths: ArtifactPathResolver,
-    /// Host/toolchain facts resolved lazily during lowering.
-    pub lowering_environment: LoweringEnvironment,
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
@@ -79,16 +76,6 @@ pub struct CompileOutput {
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
-/// Dependency preparation and script execution projected from one logical
-/// standalone build plan.
-pub struct StandaloneCompileOutput {
-    /// One concrete plan shared by dependency preparation and script execution.
-    pub execution_plan: ExecutionPlan,
-    pub dependency_actions: Vec<ActionId>,
-    pub script_actions: Vec<ActionId>,
-    pub build_plan: Option<Box<build_plan::BuildPlan>>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGraphError {
     #[error("Failed to build a build plan for the modules")]
@@ -112,18 +99,11 @@ pub fn compile(
         requested_artifacts.len()
     );
 
-    let requested_artifacts = requested_artifacts
-        .iter()
-        .filter(|artifact| filter_special_case_requested_artifact(artifact, resolve_output))
-        .cloned()
-        .collect::<Vec<_>>();
-
-    let build_env = build_environment(cx);
     let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
-        &build_env,
-        requested_artifacts.into_iter(),
+        cx,
+        requested_artifacts.iter().cloned(),
         input_directive,
         prebuild_config,
         user_log,
@@ -135,83 +115,12 @@ pub fn compile(
     lower_plan(cx, resolve_output, plan)
 }
 
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip_all)]
-pub fn compile_standalone(
-    cx: &CompileConfig,
-    mooncake_bin_dir: &Path,
-    resolve_output: &ResolveOutput,
-    requested_artifacts: &[ArtifactKey],
-    script_package: crate::model::PackageId,
-    input_directive: &InputDirective,
-    prebuild_config: Option<&PrebuildOutput>,
-    user_log: &UserLog,
-) -> Result<StandaloneCompileOutput, CompileGraphError> {
-    info!("Building one logical plan for standalone dependency and script work");
-    let requested_artifacts = requested_artifacts
-        .iter()
-        .filter(|artifact| filter_special_case_requested_artifact(artifact, resolve_output))
-        .cloned()
-        .collect::<Vec<_>>();
-    let build_env = build_environment(cx);
-    let plan = build_plan::build_plan(
-        resolve_output,
-        mooncake_bin_dir,
-        &build_env,
-        requested_artifacts.into_iter(),
-        input_directive,
-        prebuild_config,
-        user_log,
-    )?;
-
-    info!("Standalone build plan created successfully");
-    debug!(
-        "Standalone build plan contains {} actions",
-        plan.action_count()
-    );
-
-    let lower_env = lowering_options(cx);
-    let lowered = build_lower::lower_standalone_build_plan(
-        resolve_output,
-        &plan,
-        &lower_env,
-        script_package,
-    )?;
-
-    Ok(StandaloneCompileOutput {
-        execution_plan: lowered.plan,
-        dependency_actions: lowered.dependency_actions,
-        script_actions: lowered.script_actions,
-        build_plan: cx.debug_export_build_plan.then(|| Box::new(plan)),
-    })
-}
-
-fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
-    let native_or_llvm = cx.backend.native_allocator().is_some();
-    let compiler_paths = native_or_llvm.then(|| cx.lowering_environment.compiler_paths().clone());
-    BuildEnvironment {
-        backend: cx.backend.clone(),
-        opt_level: cx.opt_level,
-        action: cx.action,
-        debug_symbols: cx.debug_symbols,
-        os: if native_or_llvm {
-            cx.lowering_environment.os()
-        } else {
-            OperatingSystem::None
-        },
-        compiler_paths,
-        std: cx.stdlib_path.is_some(),
-        warn_list: cx.warn_list.clone(),
-    }
-}
-
 fn lower_plan(
     cx: &CompileConfig,
     resolve_output: &ResolveOutput,
     plan: build_plan::BuildPlan,
 ) -> Result<CompileOutput, CompileGraphError> {
-    let lower_env = lowering_options(cx);
-    let execution_plan = build_lower::lower_build_plan(resolve_output, &plan, &lower_env)?;
+    let execution_plan = build_lower::lower_build_plan(resolve_output, &plan, cx)?;
 
     info!("Execution plan lowering completed successfully");
 
@@ -223,41 +132,6 @@ fn lower_plan(
             None
         },
     })
-}
-
-fn lowering_options(cx: &CompileConfig) -> build_lower::BuildOptions {
-    build_lower::BuildOptions {
-        artifact_paths: cx.artifact_paths.clone(),
-        backend: cx.backend.clone(),
-        opt_level: cx.opt_level,
-        action: cx.action,
-        enable_coverage: cx.enable_coverage,
-        debug_symbols: cx.debug_symbols,
-        moonc_output_json: cx.moonc_output_json,
-        docs_serve: cx.docs_serve,
-        warning_condition: cx.warning_condition,
-        info_no_alias: cx.info_no_alias,
-        stdlib_path: cx.stdlib_path.clone(),
-        lowering_environment: cx.lowering_environment.clone(),
-    }
-}
-
-/// A filter to remove requested test artifacts that are invalid. Returns
-/// `true` if the artifact should be retained.
-///
-/// See [`crate::special_cases`] for more information.
-#[instrument(level = Level::DEBUG, skip_all)]
-fn filter_special_case_requested_artifact(
-    artifact: &ArtifactKey,
-    resolve_output: &ResolveOutput,
-) -> bool {
-    match artifact.package_target() {
-        Some(tgt) if tgt.kind.is_test() => {
-            let pkg_name = &resolve_output.pkg_dirs.get_package(tgt.package).fqn;
-            !should_skip_tests(pkg_name)
-        }
-        _ => true,
-    }
 }
 
 #[cfg(test)]
@@ -277,16 +151,18 @@ mod tests {
 
     use crate::{
         ResolveOutput,
-        build_lower::{LoweringEnvironment, WarningCondition},
+        build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
-        model::{BackendConfig, BuildPlanNode, TargetKind},
+        model::{
+            BackendConfig, BuildPlanNode, DebugInfoRequest, DebugSymbols, NativeTarget, TargetKind,
+        },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::{DepEdge, DepRelationship},
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
 
-    use super::{CompileConfig, compile, compile_standalone};
+    use super::{CompileConfig, compile};
 
     fn moon_mod() -> MoonMod {
         MoonMod {
@@ -375,7 +251,243 @@ mod tests {
     }
 
     #[test]
-    fn standalone_compile_separates_dependency_preparation_from_script_graph() {
+    fn native_debug_info_is_scoped_to_each_compiler() {
+        // These are plans, not cross-compilations. An explicit candidate makes
+        // direct-object coverage independent of the host and MOONBIT_NEW_NATIVE.
+        for (candidate, c_flags, opt_level, generated_c) in [
+            (None, None, OptLevel::Debug, true),
+            (
+                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                None,
+                OptLevel::Debug,
+                false,
+            ),
+            (
+                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                Some("-DGENERATED_C_DEBUG_TEST"),
+                OptLevel::Debug,
+                true,
+            ),
+            (None, None, OptLevel::Release, true),
+        ] {
+            let module_source = ModuleSource::local_path(
+                "test/single"
+                    .parse()
+                    .expect("test module name should parse"),
+                PathBuf::from("."),
+                DEFAULT_VERSION.clone(),
+            );
+            let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+            let mut packages = DiscoverResult::default();
+            packages.test_register_module(module, moon_mod());
+            let mut main = package(module, &module_source, "main", false, true);
+            main.c_stub_files = vec![PathBuf::from("main/stub.c")];
+            if let Some(flags) = c_flags {
+                main.raw.link = Some(moonutil::package::Link {
+                    wasm: None,
+                    wasm_gc: None,
+                    js: None,
+                    native: Some(moonutil::package::NativeLinkConfig {
+                        exports: None,
+                        cc: None,
+                        cc_flags: Some(flags.into()),
+                        cc_link_flags: None,
+                        stub_cc: None,
+                        stub_cc_flags: None,
+                        stub_cc_link_flags: None,
+                        stub_lib_deps: None,
+                    }),
+                });
+            }
+            let main = packages.test_add_package(
+                module,
+                PackagePath::new("main").expect("main package path should parse"),
+                main,
+            );
+            let target = main.build_target(TargetKind::Source);
+            let mut relationship = DepRelationship::default();
+            relationship.dep_graph.add_node(target);
+            relationship
+                .realizable_supported_targets
+                .insert(target, TargetBackend::all().iter().copied().collect());
+            let mut module_dirs = DirSyncResult::default();
+            module_dirs.insert(module, PathBuf::from("."));
+            let resolved = ResolveOutput {
+                module_rel: modules,
+                module_dirs,
+                pkg_dirs: packages,
+                pkg_rel: relationship,
+            };
+            for symbols in [
+                DebugSymbols::None,
+                DebugSymbols::Backtrace,
+                DebugSymbols::Full,
+            ] {
+                let config = CompileConfig {
+                    target_dir: PathBuf::from("_build"),
+                    backend: BackendConfig::Native {
+                        direct_object_candidate: candidate,
+                        allocator: moonutil::compiler_flags::NativeAllocator::System,
+                        os: std::env::consts::OS
+                            .parse()
+                            .expect("test host OS should be supported"),
+                        compiler_paths: moonutil::compiler_flags::CompilerPaths::from_moon_dirs(),
+                    },
+                    opt_level,
+                    action: RunMode::Run,
+                    debug_info: DebugInfoRequest {
+                        symbols,
+                        runtime_backtrace: true,
+                    },
+                    stdlib_path: None,
+                    artifact_paths: ArtifactPathResolver::new(
+                        TargetLayout::new(
+                            PathBuf::from("_build"),
+                            TargetLayoutMode::Mono {
+                                main_module: module_source.clone(),
+                            },
+                            opt_level,
+                            RunMode::Run,
+                        ),
+                        None,
+                    ),
+                    debug_export_build_plan: false,
+                    enable_coverage: false,
+                    moonc_output_json: false,
+                    docs_serve: false,
+                    warning_condition: WarningCondition::Default,
+                    warn_list: None,
+                    info_no_alias: false,
+                };
+                let output = compile(
+                    &config,
+                    Path::new(".mooncakes/bin"),
+                    &resolved,
+                    &[ArtifactKey::Executable {
+                        package: main,
+                        target_kind: TargetKind::Source,
+                    }],
+                    &InputDirective::default(),
+                    None,
+                    &UserLog::new(log::LevelFilter::Off),
+                )
+                .expect("native executable should plan and lower");
+                let commands = output
+                    .execution_plan
+                    .action_ids()
+                    .map(|id| output.execution_plan.action(id).command().args())
+                    .collect::<Vec<_>>();
+                let moonc_debug = symbols == DebugSymbols::Full
+                    || (symbols == DebugSymbols::Backtrace && generated_c);
+                for command in ["build-package", "link-core"] {
+                    let args = commands
+                        .iter()
+                        .find(|args| args.get(1).is_some_and(|arg| arg == command))
+                        .expect("native executable should build and link MoonBit code");
+                    assert_eq!(args.iter().any(|arg| arg == "-g"), moonc_debug, "{args:?}");
+                    assert_eq!(
+                        args.iter().any(|arg| arg == "-O0"),
+                        opt_level == OptLevel::Debug,
+                        "{args:?}"
+                    );
+                    assert_eq!(
+                        args.iter().any(|arg| arg == "-stacktrace"),
+                        !generated_c && symbols == DebugSymbols::Backtrace,
+                        "{args:?}"
+                    );
+                    if command == "link-core" {
+                        let output = args
+                            .windows(2)
+                            .find(|pair| pair[0] == "-o")
+                            .expect("link-core should name its output");
+                        assert_eq!(output[1].ends_with(".c"), generated_c, "{args:?}");
+                        if !generated_c {
+                            assert!(
+                                output[1].ends_with(".o") || output[1].ends_with(".obj"),
+                                "{args:?}"
+                            );
+                            assert!(
+                                args.iter().any(|arg| arg == "x86_64-unknown-linux-gnu"),
+                                "{args:?}"
+                            );
+                        }
+                    }
+                }
+                let program = commands
+                    .iter()
+                    .find(|args| {
+                        args.get(1).is_none_or(|arg| arg != "link-core")
+                            && args.iter().any(|arg| {
+                                matches!(
+                                    Path::new(arg).file_name().and_then(|name| name.to_str()),
+                                    Some("main.c" | "main.o" | "main.obj")
+                                )
+                            })
+                    })
+                    .expect("native executable needs a compiler or linker action");
+                assert_eq!(
+                    program.iter().any(|arg| arg == "-g" || arg == "/Z7"),
+                    generated_c && moonc_debug,
+                    "{program:?}"
+                );
+                if generated_c && c_flags.is_none() {
+                    let expected = match opt_level {
+                        OptLevel::Debug => ["-Og", "/Od"],
+                        OptLevel::Release => ["-O2", "/O2"],
+                    };
+                    assert!(
+                        program.iter().any(|arg| expected.contains(&arg.as_str())),
+                        "{program:?}"
+                    );
+                } else {
+                    assert!(
+                        !program
+                            .iter()
+                            .any(|arg| ["-O0", "-Og", "-O2", "/Od", "/O2"].contains(&arg.as_str())),
+                        "link-only actions and custom C flags must not acquire compiler optimization defaults: {program:?}"
+                    );
+                }
+                let stub = commands
+                    .iter()
+                    .find(|args| args.iter().any(|arg| arg.ends_with("stub.c")))
+                    .expect("native executable should compile its C stub");
+                assert_eq!(
+                    stub.iter().any(|arg| arg == "-g" || arg == "/Z7"),
+                    symbols == DebugSymbols::Full,
+                    "C fallback must not enable stub debug info: {stub:?}"
+                );
+                let expected = match (opt_level, symbols == DebugSymbols::Full) {
+                    (_, true) => ["-Og", "/Od"],
+                    (OptLevel::Debug, false) => ["-O0", "/Od"],
+                    (OptLevel::Release, false) => ["-O2", "/O2"],
+                };
+                assert!(
+                    stub.iter().any(|arg| expected.contains(&arg.as_str())),
+                    "{stub:?}"
+                );
+                let runtime = commands
+                    .iter()
+                    .find(|args| args.iter().any(|arg| arg.ends_with("runtime.c")))
+                    .expect("native executable should compile the runtime");
+                assert!(
+                    runtime.iter().any(|arg| arg == "-g" || arg == "/Z7"),
+                    "runtime debug info is independent: {runtime:?}"
+                );
+                assert!(
+                    runtime.iter().any(|arg| arg == "-O2" || arg == "/O2"),
+                    "runtime optimization is independent: {runtime:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_payload_selection_uses_only_requested_executables() {
+        use crate::{
+            build_plan::{build_plan, resolve_native_backend_mode},
+            model::{NativeTarget, OperatingSystem},
+        };
+
         let module_source = ModuleSource::local_path(
             "test/single"
                 .parse::<ModuleName>()
@@ -386,15 +498,200 @@ mod tests {
         let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
         let mut packages = DiscoverResult::default();
         packages.test_register_module(module, moon_mod());
+        let plain = packages.test_add_package(
+            module,
+            PackagePath::new("plain").expect("plain package path should parse"),
+            package(module, &module_source, "plain", false, true),
+        );
+        let mut with_flags = package(module, &module_source, "with_flags", false, true);
+        with_flags.raw.link = Some(moonutil::package::Link {
+            wasm: None,
+            wasm_gc: None,
+            js: None,
+            native: Some(moonutil::package::NativeLinkConfig {
+                exports: None,
+                cc: None,
+                cc_flags: Some("-fno-inline".into()),
+                cc_link_flags: None,
+                stub_cc: None,
+                stub_cc_flags: None,
+                stub_cc_link_flags: None,
+                stub_lib_deps: None,
+            }),
+        });
+        let with_flags = packages.test_add_package(
+            module,
+            PackagePath::new("with_flags").expect("flagged package path should parse"),
+            with_flags,
+        );
+        let resolved = ResolveOutput {
+            module_rel: modules,
+            module_dirs: DirSyncResult::default(),
+            pkg_dirs: packages,
+            pkg_rel: DepRelationship::default(),
+        };
+        // Empty plans exercise capability forwarding without resolving host tools.
+        // Include foreign targets and None so a planner-side host read cannot pass.
+        for candidate in [
+            None,
+            Some(NativeTarget::Aarch64AppleDarwin),
+            Some(NativeTarget::X86_64UnknownLinuxGnu),
+            Some(NativeTarget::X86_64PcWindowsMsvc),
+        ] {
+            for opt_level in [OptLevel::Debug, OptLevel::Release] {
+                let config = CompileConfig {
+                    target_dir: PathBuf::from("_build"),
+                    backend: BackendConfig::Native {
+                        direct_object_candidate: candidate,
+                        allocator: moonutil::compiler_flags::NativeAllocator::Default,
+                        os: OperatingSystem::None,
+                        compiler_paths: moonutil::compiler_flags::CompilerPaths {
+                            include_path: "/unused/include".into(),
+                            lib_path: "/unused/lib".into(),
+                        },
+                    },
+                    opt_level,
+                    action: RunMode::Build,
+                    debug_info: DebugInfoRequest::default(),
+                    stdlib_path: None,
+                    artifact_paths: ArtifactPathResolver::new(
+                        TargetLayout::new(
+                            PathBuf::from("_build"),
+                            TargetLayoutMode::Workspace,
+                            opt_level,
+                            RunMode::Build,
+                        ),
+                        None,
+                    ),
+                    debug_export_build_plan: false,
+                    enable_coverage: false,
+                    moonc_output_json: false,
+                    docs_serve: false,
+                    warning_condition: WarningCondition::Default,
+                    info_no_alias: false,
+                    warn_list: None,
+                };
+                let plan = build_plan(
+                    &resolved,
+                    Path::new(".mooncakes/bin"),
+                    &config,
+                    std::iter::empty(),
+                    &InputDirective::default(),
+                    None,
+                    &UserLog::new(log::LevelFilter::Off),
+                )
+                .expect("empty plan should not need host tools");
+                assert_eq!(
+                    plan.backend_plan().direct_native_target(),
+                    candidate.filter(|_| opt_level == OptLevel::Debug),
+                    "candidate={candidate:?}, opt_level={opt_level:?}"
+                );
+            }
+        }
+        let plain_exe = ArtifactKey::Executable {
+            package: plain,
+            target_kind: TargetKind::Source,
+        };
+        let flagged_exe = ArtifactKey::Executable {
+            package: with_flags,
+            target_kind: TargetKind::Source,
+        };
+        for (requested, permits_direct_object) in [
+            (vec![], true),
+            (vec![plain_exe.clone()], true),
+            (
+                vec![
+                    plain_exe.clone(),
+                    ArtifactKey::CoreIr {
+                        package: with_flags,
+                        target_kind: TargetKind::Source,
+                    },
+                ],
+                true,
+            ),
+            (vec![flagged_exe.clone()], false),
+            (vec![plain_exe, flagged_exe], false),
+        ] {
+            for candidate in [
+                None,
+                Some(NativeTarget::Aarch64AppleDarwin),
+                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                Some(NativeTarget::X86_64PcWindowsMsvc),
+            ] {
+                let mode =
+                    resolve_native_backend_mode(&resolved, &requested, OptLevel::Debug, candidate);
+                assert_eq!(
+                    mode.direct_target(),
+                    if permits_direct_object {
+                        candidate
+                    } else {
+                        None
+                    },
+                    "requested={requested:?}, candidate={candidate:?}"
+                );
+                let release_mode = resolve_native_backend_mode(
+                    &resolved,
+                    &requested,
+                    OptLevel::Release,
+                    candidate,
+                );
+                assert!(release_mode.direct_target().is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn project_packages_are_not_marked_as_dependency_artifacts() {
+        assert_compiled_artifact_roles(false);
+    }
+
+    #[test]
+    fn local_path_dependencies_are_marked_before_execution_policy() {
+        assert_compiled_artifact_roles(true);
+    }
+
+    fn assert_compiled_artifact_roles(separate_module: bool) {
+        let module_source = ModuleSource::local_path(
+            "test/single"
+                .parse::<ModuleName>()
+                .expect("test module should parse"),
+            PathBuf::from("."),
+            DEFAULT_VERSION.clone(),
+        );
+        let (mut modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let dependency_source = if separate_module {
+            ModuleSource::local_path(
+                "test/dependency"
+                    .parse()
+                    .expect("dependency module should parse"),
+                PathBuf::from("../dependency"),
+                DEFAULT_VERSION.clone(),
+            )
+        } else {
+            module_source.clone()
+        };
+        let mut dependency_info = moon_mod();
+        dependency_info.name = dependency_source.name().to_string();
+        let dependency_module =
+            modules.add_module(dependency_source.clone(), dependency_info.clone().into());
+        let mut packages = DiscoverResult::default();
+        packages.test_register_module(module, moon_mod());
+        packages.test_register_module(dependency_module, dependency_info);
         let script = packages.test_add_package(
             module,
             PackagePath::new("script").expect("script path should parse"),
             package(module, &module_source, "script", true, true),
         );
         let dependency = packages.test_add_package(
-            module,
+            dependency_module,
             PackagePath::new("dependency").expect("dependency path should parse"),
-            package(module, &module_source, "dependency", false, false),
+            package(
+                dependency_module,
+                &dependency_source,
+                "dependency",
+                false,
+                false,
+            ),
         );
         let script_target = script.build_target(TargetKind::Source);
         let dependency_target = dependency.build_target(TargetKind::Source);
@@ -418,6 +715,7 @@ mod tests {
             .realizable_supported_targets
             .insert(dependency_target, supported);
         let mut module_dirs = DirSyncResult::default();
+        module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
             module_rel: modules,
@@ -441,10 +739,9 @@ mod tests {
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Run,
-            debug_symbols: false,
+            debug_info: DebugInfoRequest::default(),
             stdlib_path: None,
             artifact_paths,
-            lowering_environment: LoweringEnvironment::default(),
             debug_export_build_plan: true,
             enable_coverage: false,
             moonc_output_json: false,
@@ -460,7 +757,7 @@ mod tests {
         }];
         let input_directive = InputDirective::default();
         let user_log = UserLog::new(log::LevelFilter::Error);
-        let ordinary = compile(
+        let output = compile(
             &config,
             Path::new("."),
             &resolved,
@@ -470,22 +767,22 @@ mod tests {
             &user_log,
         )
         .expect("ordinary compile should lower one graph");
-        assert_eq!(ordinary.execution_plan.action_ids().count(), 3);
-
-        let output = compile_standalone(
-            &config,
-            Path::new("."),
-            &resolved,
-            &requested_artifacts,
-            script,
-            &input_directive,
-            None,
-            &user_log,
-        )
-        .expect("standalone plan should lower");
-
-        assert_eq!(output.dependency_actions.len(), 1);
-        assert_eq!(output.script_actions.len(), 2);
+        assert_eq!(output.execution_plan.action_ids().count(), 3);
+        // The marker is already present before any scheduling policy reads it.
+        for id in output.execution_plan.action_ids() {
+            for path in output.execution_plan.action(id).outputs() {
+                let declared = output
+                    .execution_plan
+                    .declared_output(path)
+                    .expect("output should be declared");
+                let belongs_to_dependency =
+                    declared.artifact().and_then(ArtifactKey::package) == Some(dependency);
+                assert_eq!(
+                    declared.is_dependency_artifact(),
+                    separate_module && belongs_to_dependency
+                );
+            }
+        }
         let plan = output
             .build_plan
             .as_deref()
@@ -508,64 +805,7 @@ mod tests {
                 .any(|action| action == BuildPlanNode::BuildCore(dependency_target).into())
         );
 
-        let dependency_outputs = output
-            .dependency_actions
-            .iter()
-            .flat_map(|action| output.execution_plan.action(*action).outputs())
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-        assert!(
-            dependency_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.mi"))
-        );
-        assert!(
-            dependency_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.core"))
-        );
-        assert!(
-            !dependency_outputs
-                .iter()
-                .any(|path| path.ends_with("script.core"))
-        );
-
-        let (script_graph, _) = output
-            .execution_plan
-            .to_n2_graph(output.script_actions.iter().copied())
-            .expect("script actions should adapt to n2");
-        let script_inputs = script_graph
-            .builds
-            .iter()
-            .flat_map(|build| build.ins.ids.iter())
-            .map(|id| script_graph.files.by_id[*id].name.clone())
-            .collect::<Vec<_>>();
-        assert!(
-            script_inputs
-                .iter()
-                .any(|path| path.ends_with("dependency.mi"))
-        );
-        assert!(
-            script_inputs
-                .iter()
-                .any(|path| path.ends_with("dependency.core"))
-        );
-        let script_outputs = script_graph
-            .builds
-            .iter()
-            .flat_map(|build| build.outs.ids.iter())
-            .map(|id| script_graph.files.by_id[*id].name.clone())
-            .collect::<Vec<_>>();
-        assert!(
-            !script_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.mi"))
-        );
-        assert!(
-            !script_outputs
-                .iter()
-                .any(|path| path.ends_with("dependency.core"))
-        );
+        assert_eq!(output.execution_plan.action_ids().count(), 3);
     }
 
     #[test]
@@ -610,10 +850,9 @@ mod tests {
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Prove,
-            debug_symbols: false,
+            debug_info: DebugInfoRequest::default(),
             stdlib_path: None,
             artifact_paths,
-            lowering_environment: LoweringEnvironment::default(),
             debug_export_build_plan: false,
             enable_coverage: false,
             moonc_output_json: false,
@@ -644,11 +883,8 @@ mod tests {
         .expect("the default directive should select the toolchain proof prelude");
 
         let proof_prelude = moonutil::toolchain::prelude_proof().display().to_string();
-        let (_, command_args_by_output) = output
-            .execution_plan
-            .all_to_n2_graph()
-            .expect("execution plan should adapt to n2");
-        assert!(command_args_by_output.values().any(|args| {
+        assert!(output.execution_plan.action_ids().any(|id| {
+            let args = output.execution_plan.action(id).command().args();
             args.windows(2)
                 .any(|pair| pair[0] == "-why3-loadpath" && pair[1] == proof_prelude)
         }));

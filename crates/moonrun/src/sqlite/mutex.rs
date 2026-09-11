@@ -113,7 +113,7 @@ impl SqliteHost {
         debug_assert_eq!(removed, Some(HostResourceKind::SqliteDatabaseMutex));
     }
 
-    pub(super) fn release_entered_mutexes(&mut self) {
+    pub(crate) fn release_entered_mutexes(&mut self) {
         // SqliteHost contains the Runtime's Rc-backed Host Keys and therefore
         // cannot move across threads; SQLite requires leave on the enter thread.
         for mutex in self.mutexes.get_mut().values_mut() {
@@ -173,5 +173,25 @@ impl SqliteHost {
             .ok_or(SqliteHostError::InvalidHandle)?;
         NonNull::new(unsafe { ffi::sqlite3_db_mutex(database.pointer().as_ptr()) })
             .ok_or(SqliteHostError::InvalidHandle)
+    }
+}
+
+/// Explicit protection for connection-field reads, borrowed error memory, and
+/// worker operation/result snapshots. This never spans separate guest calls;
+/// a guest that needs that exclusion uses the exposed Database Mutex itself.
+pub(super) struct DatabaseMutexGuard(*mut ffi::sqlite3_mutex);
+
+impl Database {
+    pub(super) fn lock(self) -> DatabaseMutexGuard {
+        // SAFETY: host Handles and outstanding jobs retain the connection.
+        let mutex = unsafe { ffi::sqlite3_db_mutex(self.pointer().as_ptr()) };
+        unsafe { ffi::sqlite3_mutex_enter(mutex) };
+        DatabaseMutexGuard(mutex)
+    }
+}
+
+impl Drop for DatabaseMutexGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::sqlite3_mutex_leave(self.0) };
     }
 }

@@ -17,17 +17,41 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::fd_util;
 #[cfg(unix)]
 use crate::async_sys::signal::SigwaitJob;
 use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
 use crate::process::Job as ProcessJob;
+use crate::sqlite::Job as SqliteJob;
 #[cfg(unix)]
 use std::sync::Arc;
 
 pub(crate) type ResourceHandle = u64;
 pub(crate) type HostHandle = ResourceHandle;
+
+/// What the guest scheduler should do after requesting Worker cancellation.
+/// These outcomes are distinct from the Worker's internal cancellation state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CancellationOutcome {
+    /// The scheduler must request cancellation again after a timer.
+    RetryLater,
+    /// Wait for a notification, which may itself request a cancellation retry.
+    NeedWait,
+    /// The Job result has been published; acknowledgement alone is insufficient.
+    JobFinished,
+}
+
+impl CancellationOutcome {
+    // Native's 0/1 outcomes, extended by the combined Wasm cancellation import
+    // with the finished case from worker_check_cancellation_retry.
+    pub(crate) fn as_i32(self) -> i32 {
+        match self {
+            Self::RetryLater => 0,
+            Self::NeedWait => 1,
+            Self::JobFinished => 2,
+        }
+    }
+}
 
 /// A Job-specific replacement for the platform's default Worker cancellation.
 ///
@@ -35,7 +59,7 @@ pub(crate) type HostHandle = ResourceHandle;
 /// Jobs do not provide one and are cancelled through the Worker thread.
 #[cfg(unix)]
 pub(crate) trait JobCancellationOverride: std::fmt::Debug + Send + Sync {
-    fn cancel(&self) -> AsyncHostResult<i32>;
+    fn cancel(&self) -> AsyncHostResult<CancellationOutcome>;
 }
 
 #[cfg(unix)]
@@ -99,6 +123,20 @@ impl Job {
         }
     }
 
+    pub(crate) fn sqlite(&self) -> AsyncHostResult<&SqliteJob> {
+        match &self.payload {
+            JobPayload::Sqlite(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    pub(crate) fn sqlite_mut(&mut self) -> AsyncHostResult<&mut SqliteJob> {
+        match &mut self.payload {
+            JobPayload::Sqlite(job) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
     #[cfg(windows)]
     pub(crate) fn cancellation_resource(&self) -> Option<crate::resource::ResourceRef> {
         match &self.payload {
@@ -146,6 +184,12 @@ impl From<FilesystemJob> for Job {
     }
 }
 
+impl From<SqliteJob> for Job {
+    fn from(job: SqliteJob) -> Self {
+        Self::new(JobPayload::Sqlite(job))
+    }
+}
+
 impl From<ProcessJob> for Job {
     fn from(job: ProcessJob) -> Self {
         Self::new(JobPayload::Process(job))
@@ -170,12 +214,16 @@ pub(crate) enum JobPayload {
     Filesystem(FilesystemJob),
     Network(NetworkJob),
     Process(ProcessJob),
+    Sqlite(SqliteJob),
     #[cfg(unix)]
     Signal(SigwaitJob),
 }
 
 pub(crate) trait ResourceTable {
-    fn insert_file(&mut self, file: fd_util::stub::RawFd) -> AsyncHostResult<HostHandle>;
+    fn insert_resource(
+        &mut self,
+        resource: crate::resource::Resource,
+    ) -> AsyncHostResult<HostHandle>;
 }
 
 pub(crate) fn platform() -> i32 {

@@ -19,7 +19,6 @@
 mod support;
 mod test_cases;
 
-use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
 
@@ -53,32 +52,37 @@ impl AsRef<Path> for TestDir {
 }
 
 fn packages_selector_path(dir: impl AsRef<Path>) -> PathBuf {
-    dir.as_ref().join("_build/packages.json")
+    target_packages_selector_path(dir.as_ref().join("_build"))
 }
 
 fn packages_index_path(dir: impl AsRef<Path>) -> PathBuf {
-    dir.as_ref().join("_build/index.json")
+    target_packages_index_path(dir.as_ref().join("_build"))
 }
 
 fn scoped_packages_json_path(dir: impl AsRef<Path>, backend: &str, profile: &str) -> PathBuf {
-    dir.as_ref()
-        .join(format!("_build/{backend}/{profile}/check/packages.json"))
+    target_scoped_packages_json_path(dir.as_ref().join("_build"), backend, profile)
 }
 
-fn standalone_packages_selector_path(dir: impl AsRef<Path>, source_filename: &str) -> PathBuf {
-    dir.as_ref()
-        .join(format!("_build/{source_filename}.packages.json"))
+fn target_packages_selector_path(target_dir: impl AsRef<Path>) -> PathBuf {
+    target_dir.as_ref().join("packages.json")
 }
 
-fn standalone_scoped_packages_json_path(
-    dir: impl AsRef<Path>,
+fn target_packages_index_path(target_dir: impl AsRef<Path>) -> PathBuf {
+    target_dir.as_ref().join("index.json")
+}
+
+fn target_scoped_packages_json_path(
+    target_dir: impl AsRef<Path>,
     backend: &str,
     profile: &str,
-    source_filename: &str,
 ) -> PathBuf {
-    dir.as_ref().join(format!(
-        "_build/{backend}/{profile}/check/{source_filename}.packages.json"
-    ))
+    target_dir
+        .as_ref()
+        .join(format!("{backend}/{profile}/check/packages.json"))
+}
+
+fn standalone_target_dir(dir: impl AsRef<Path>, source_filename: &str) -> PathBuf {
+    dir.as_ref().join("_build").join(source_filename)
 }
 
 pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {
@@ -159,34 +163,6 @@ pub fn get_stdout_with_envs(
         OutputStream::Stdout,
     );
     replace_dir(&s, dir)
-}
-
-/// Snapshot the dry run graph output to a file, returning the regular stdout
-/// and outputting the graph to the specified file via an environment variable.
-///
-/// Note: You must pass a dry-run related command in `args`.
-#[track_caller]
-pub fn snap_dry_run_graph(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    to_file: &impl AsRef<std::path::Path>,
-) -> String {
-    get_stdout_with_envs(
-        dir,
-        args,
-        [(ENV_VAR, to_file.as_ref().to_string_lossy().into_owned())],
-    )
-}
-
-#[track_caller]
-pub(crate) fn assert_dry_run_graph(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    expected: impl build_graph::IExpect,
-) {
-    let graph = tempfile::NamedTempFile::new().expect("dry-run graph temp file should create");
-    snap_dry_run_graph(dir, args, &graph.path());
-    build_graph::compare_graphs(graph.path(), expected);
 }
 
 #[track_caller]

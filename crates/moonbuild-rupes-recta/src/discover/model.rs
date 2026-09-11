@@ -24,7 +24,6 @@ use std::{
     sync::Arc,
 };
 
-use moonbuild::expect::PackageSrcResolver;
 use moonutil::manifest::{MoonMod, MoonModRule};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
 use moonutil::resolution::{ModuleId, ModuleSource, ResolvedRootModules};
@@ -335,13 +334,6 @@ impl DiscoverResult {
     ) -> PackageId {
         self.add_package(module, path, data)
             .expect("test package should be inserted")
-    }
-}
-
-impl PackageSrcResolver for DiscoverResult {
-    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf {
-        let pkg_id = self.packages_rev_map[pkg_path];
-        self.packages[pkg_id].root_path.clone()
     }
 }
 

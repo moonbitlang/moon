@@ -173,6 +173,24 @@ ported_fns! {
     }
 }
 
+// Host completion sources coalesce wakeups. Level triggering preserves
+// readiness when the guest fetches only part of the pending notifications.
+pub(crate) fn poll_register_completion_source(
+    instance: &PollInstance,
+    fd: RawFd,
+    fd_handle: u64,
+) -> AsyncHostResult<()> {
+    let mut event = libc::epoll_event {
+        events: libc::EPOLLIN as u32,
+        u64: fd_handle,
+    };
+    if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
+        Err(last_native_error())
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
     if unsafe {
         libc::epoll_ctl(

@@ -27,11 +27,10 @@ use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
 use crate::filter::select_packages;
 use crate::rr_build;
-use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
-use crate::run::{TestFilter, TestIndex, TestOutlineEntry};
+use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
@@ -128,7 +127,7 @@ impl ResolvedTestSelection {
             ResolvedTestSelection::Workspace { packages } => Ok(packages
                 .iter()
                 .copied()
-                .map(UserIntent::Test)
+                .map(|package| cmd.package_intent(package))
                 .collect::<Vec<_>>()
                 .into()),
             ResolvedTestSelection::Packages { .. } | ResolvedTestSelection::Paths { .. } => {
@@ -166,7 +165,7 @@ impl ResolvedTestSelection {
                     ResolvedTestSelection::Paths { .. } => InputDirective::default(),
                     ResolvedTestSelection::Workspace { .. } => unreachable!(),
                 };
-                Ok((test_intents_from_filter(filter), directive).into())
+                Ok((test_intents_from_filter(filter, cmd), directive).into())
             }
         }
     }
@@ -206,30 +205,39 @@ fn print_test_summary(
     }
 }
 
-fn print_test_outline(entries: &[TestOutlineEntry], user_log: &UserLog) {
-    if entries.is_empty() {
-        user_log.warn("no test entry found.");
-        return;
-    }
-
-    for (i, entry) in entries.iter().enumerate() {
-        let line = entry
-            .line_number
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "?".to_string());
-        let mut line_out = format!(
-            "{:>4}. {} {}:{} index={}",
-            i + 1,
-            entry.package,
-            entry.file,
-            line,
-            entry.index
-        );
-        if let Some(name) = &entry.name {
-            line_out.push_str(&format!(" name={name:?}"));
+fn print_test_outlines(
+    builds: &[(rr_build::BuildMeta, TestFilter)],
+    include_skipped: bool,
+    bench: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<()> {
+    for (build_meta, filter) in builds {
+        let entries = collect_test_outline(build_meta, filter, include_skipped, bench)?;
+        if entries.is_empty() {
+            user_log.warn("no test entry found.");
+            continue;
         }
-        println!("{line_out}");
+
+        for (i, entry) in entries.iter().enumerate() {
+            let line = entry
+                .line_number
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let mut line_out = format!(
+                "{:>4}. {} {}:{} index={}",
+                i + 1,
+                entry.package,
+                entry.file,
+                line,
+                entry.index
+            );
+            if let Some(name) = &entry.name {
+                line_out.push_str(&format!(" name={name:?}"));
+            }
+            println!("{line_out}");
+        }
     }
+    Ok(())
 }
 
 /// Test the current package
@@ -399,22 +407,18 @@ fn run_test_impl(
     if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
         let selected_target_backend = cmd.profile.then_some(TargetBackend::Native);
-        return run_test_internal(cli, cmd, &dirs, None, selected_target_backend, output);
+        return run_test_internal(cli, cmd, &dirs, false, selected_target_backend, output);
     }
     let surface_targets = &cmd.build_flags.target;
     let targets = lower_surface_targets(surface_targets);
     if cmd.update && targets.len() > 1 {
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));
     }
-    let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
+    let display_backend_hint = targets.len() > 1;
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     validate_test_or_bench_invocation(cli, &test_cmd)?;
     let resolve_output =
         sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
     let ret_value = run_test_or_bench_from_resolved(
         cli,
         &test_cmd,
@@ -471,7 +475,7 @@ fn run_test_internal(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     dirs: &PackageDirs,
-    display_backend_hint: Option<()>,
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -549,19 +553,19 @@ fn run_test_in_single_file_rr(
         cmd.build_flags.resolve_single_target_backend()?.or(backend)
     };
 
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Test,
-    );
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolved,
     )?;
@@ -588,32 +592,27 @@ fn run_test_in_single_file_rr(
         None
     };
     let directive = rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
-    let intent = (vec![UserIntent::Test(pkg)], directive).into();
+    let test_cmd: TestLikeSubcommand<'_> = cmd.into();
+    let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolved,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
 
-    let test_cmd: TestLikeSubcommand<'_> = cmd.into();
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, output.user_log())?;
-    }
-    rr_test_from_plan(
+    run_test_workflow(
         cli,
         &test_cmd,
         source_dir,
         target_dir,
-        None,
-        &build_meta,
-        build_graph,
-        filter,
-        None,
+        false,
+        vec![(build_meta, build_graph, filter)],
+        lock,
         output,
     )
 }
@@ -693,6 +692,16 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
     }
 }
 
+impl TestLikeSubcommand<'_> {
+    fn package_intent(&self, package: PackageId) -> UserIntent {
+        if self.outline {
+            UserIntent::TestOutline(package)
+        } else {
+            UserIntent::Test(package)
+        }
+    }
+}
+
 pub(crate) fn plan_test_or_bench_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
@@ -704,11 +713,15 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
     // Keep the planning flow explicit:
     // 1. derive the effective build flags used by test/bench,
-    // 2. build the compile preconfig,
+    // 2. resolve the backend and construct the compile configuration,
     // 3. let RR turn resolved packages plus user intent into a graph and filter.
     let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
-    let preconfig = preconfig_compile(
-        cmd.auto_sync_flags,
+
+    let mut filter = TestFilter {
+        name_filter: cmd.filter.clone(),
+        ..Default::default()
+    };
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         selected_target_backend,
@@ -718,16 +731,6 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         } else {
             RunMode::Test
         },
-    );
-
-    let mut filter = TestFilter {
-        name_filter: cmd.filter.clone(),
-        ..Default::default()
-    };
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -735,17 +738,18 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         &resolve_output,
         cmd,
         &mut filter,
-        planning_context.target_backend(),
+        compile_config.backend.target_backend(),
         user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
     Ok((build_meta, build_graph, filter))
 }
@@ -855,8 +859,8 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
         ..cmd.build_flags.clone()
     };
-    let preconfig = preconfig_compile(
-        cmd.auto_sync_flags,
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         Some(target_backend),
@@ -866,31 +870,26 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         } else {
             RunMode::Test
         },
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
-    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     let filter = resolved_selection.to_runtime_filter(&resolve_output, cmd)?;
     let intent = resolved_selection.to_build_intent(
         &resolve_output,
         cmd,
-        planning_context.target_backend(),
+        compile_config.backend.target_backend(),
         &filter,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
     Ok((build_meta, build_graph, filter))
 }
@@ -901,7 +900,7 @@ pub(crate) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
     dirs: &PackageDirs,
-    display_backend_hint: Option<()>,
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -989,15 +988,11 @@ fn run_test_rr(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
-    display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let resolve_output = sync_and_resolve_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
     run_test_or_bench_from_resolved(
         cli,
         cmd,
@@ -1011,13 +1006,14 @@ fn run_test_rr(
 
 /// Plans, builds, and runs tests from resolved project data.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run command.
+/// Holds the target-directory lock through planning and the initial build,
+/// then releases it before executing tests or benchmarks.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_test_or_bench_from_resolved(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
-    display_backend_hint: Option<()>,
+    display_backend_hint: bool,
     selected_target_backends: &[TargetBackend],
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     output: &CommandOutput,
@@ -1029,6 +1025,11 @@ pub(crate) fn run_test_or_bench_from_resolved(
         mooncake_bin_dir,
         ..
     } = dirs;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let planned_runs = if selected_target_backends.is_empty() {
         plan_test_or_bench_rr_from_resolved_all(
@@ -1060,55 +1061,66 @@ pub(crate) fn run_test_or_bench_from_resolved(
             .flatten()
             .collect::<Vec<_>>()
     };
-    let effective_display_backend_hint = if planned_runs.len() > 1 {
-        Some(())
-    } else {
-        display_backend_hint
-    };
+    run_test_workflow(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        planned_runs,
+        lock,
+        output,
+    )
+}
 
-    let mut build_only_artifacts = cmd.build_only.then_some(TestArtifacts {
-        artifacts_path: Vec::new(),
-        test_filter_args: Vec::new(),
-    });
-
+/// Builds all selected backends, then dispatches the test or benchmark mode.
+///
+/// Project and standalone plans share this initial build barrier. Each mode
+/// handles the whole invocation, including any snapshot-update rebuilds.
+/// Normal builds transfer the target-directory lock acquired before planning.
+/// Outline and build-only read their generated metadata under the same lock;
+/// test execution and profiling release it after the initial build.
+/// Dry-run planning acquires its own lock only when it executes prebuild scripts.
+#[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
+fn run_test_workflow(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: bool,
+    planned_runs: Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>,
+    lock: Option<std::fs::File>,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     if planned_runs.is_empty() {
         return Ok(0);
     }
-
-    if cli.dry_run {
-        let (build_metas_and_filters, build_inputs): (Vec<_>, Vec<_>) = planned_runs
-            .into_iter()
-            .map(|(meta, input, filter)| ((meta, filter), input))
-            .unzip();
-        let build_input = rr_build::compose_build_inputs(build_inputs)?;
-        output.write_result(|writer| {
-            rr_build::write_dry_run(
-                writer,
-                &build_input,
-                build_metas_and_filters
-                    .iter()
-                    .flat_map(|(meta, _)| meta.artifacts.values()),
-                source_dir,
-                target_dir,
-            )
-        })?;
-        return Ok(0);
-    }
-
-    for (build_meta, _, _) in &planned_runs {
-        rr_build::generate_all_pkgs_json(build_meta)?;
-    }
+    let display_backend_hint = display_backend_hint || planned_runs.len() > 1;
     let (build_metas_and_filters, build_inputs): (Vec<_>, Vec<_>) = planned_runs
         .into_iter()
         .map(|(meta, input, filter)| ((meta, filter), input))
         .unzip();
+    let build_graph = rr_build::compose_build_inputs(build_inputs)?;
+
+    if cli.dry_run {
+        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
+        // Test command lines depend on generated metadata, which dry-run does
+        // not materialize. Profile dry-run therefore also stops at the build graph.
+        return Ok(0);
+    }
+
+    for (build_meta, _) in &build_metas_and_filters {
+        rr_build::generate_all_pkgs_json(build_meta)?;
+    }
+    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    // n2 consumes its graph, so retain a copy for snapshot-update rebuilds.
+    let build_graph_backup = cmd.update.then(|| build_graph.clone());
     let build_metas = build_metas_and_filters
         .iter()
         .map(|(meta, _)| meta)
         .collect::<Vec<_>>();
-    let build_graph = rr_build::compose_build_inputs(build_inputs)?;
-    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
-    let build_graph_backup = cmd.update.then(|| build_graph.clone());
     let result = rr_build::execute_test_build(
         &build_config,
         build_graph,
@@ -1116,40 +1128,178 @@ pub(crate) fn run_test_or_bench_from_resolved(
         &build_metas,
         user_log,
     )?;
-    drop(build_metas);
     if !result.successful() {
         return Ok(result.return_code_for_success());
     }
-    let built = BuiltTestExecution {
-        build_config,
-        build_graph_backup,
-    };
 
+    if cmd.outline {
+        print_test_outlines(
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+            user_log,
+        )?;
+        return Ok(0);
+    }
+    if cmd.build_only {
+        print_test_artifacts(
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+        )?;
+        return Ok(0);
+    }
+    // n2 has closed the shared database. Test execution must not block checks
+    // or other builds that use this target directory.
+    drop(lock);
+    if cmd.profile {
+        return profile::profile_tests(
+            cli,
+            source_dir,
+            target_dir,
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            output,
+        );
+    }
+
+    run_tests_with_updates(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        build_metas_and_filters,
+        &build_config,
+        build_graph_backup,
+        user_log,
+    )
+}
+
+/// Runs already-built tests or benchmarks and reports their accumulated results.
+/// With `--update`, promotes snapshots and rebuilds before each filtered rerun.
+/// Each promotion and rebuild holds the target-directory lock, but test
+/// execution and reporting do not. Callers must not retain an outer lock.
+#[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
+fn run_tests_with_updates(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: bool,
+    builds: Vec<(rr_build::BuildMeta, TestFilter)>,
+    build_config: &BuildConfig,
+    build_graph_backup: Option<rr_build::BuildInput>,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let mut exit_code = 0;
-    for (build_meta, filter) in build_metas_and_filters {
+    'backends: for (build_meta, mut filter) in builds {
+        let build_meta = &build_meta;
         debug!(
             artifact_count = build_meta.artifacts.len(),
             backend = ?build_meta.target_backend(),
-            "planned rupes-recta build graph"
+            "executing rupes-recta test workflow"
         );
 
-        exit_code = exit_code.max(rr_test_after_build(
-            cli,
-            cmd,
-            source_dir,
-            target_dir,
-            effective_display_backend_hint,
-            &build_meta,
-            filter,
-            &built,
-            build_only_artifacts.as_mut(),
-            output,
-        )?);
-    }
-    if !cli.dry_run
-        && let Some(test_artifacts) = build_only_artifacts
-    {
-        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        let mut test_result = ReplaceableTestResults::default();
+        let mut run_count = 0;
+        loop {
+            let latest_result = crate::run::run_tests(
+                build_meta,
+                source_dir,
+                target_dir,
+                &filter,
+                cmd.include_skipped,
+                cmd.run_mode == RunMode::Bench,
+                cmd.no_parallelize,
+                cmd.build_flags.jobs,
+                cmd.moonrun_policy,
+                user_log,
+            )?;
+            run_count += 1;
+            test_result.merge(&latest_result);
+            if !cmd.update {
+                break;
+            }
+
+            // Promotion changes build inputs. Keep it and the partial rebuild
+            // under one lock, then release it before the next test run.
+            let lock = lock_directory(target_dir, user_log)?;
+
+            // Only the latest run can request another promotion. Keep results
+            // for tests outside the rerun filter in the final report.
+            let (rerun_count, rerun_filter) =
+                perform_promotion(&build_meta.resolve_output.pkg_dirs, &latest_result)
+                    .expect("Failed to promote tests");
+            debug!(
+                rerun_count,
+                pending_targets = rerun_filter.0.len(),
+                "promotion pass completed"
+            );
+            if rerun_filter.is_empty() {
+                break;
+            }
+
+            // Preserve the existing limit semantics: promotion happens even
+            // on the last allowed run, but no further rebuild or run follows.
+            if run_count >= cmd.update_limit {
+                user_log.warn(format!(
+                    "reached the limit of {} update passes, stopping further updates.",
+                    cmd.update_limit
+                ));
+                break;
+            }
+
+            let build_graph = build_graph_backup
+                .as_ref()
+                .cloned()
+                .expect("build graph backup should be present when update is true");
+            let want_files = rerun_filter
+                .0
+                .keys()
+                .copied()
+                .flat_map(artifacts_from_target)
+                .flat_map(|artifact| {
+                    build_meta
+                        .artifacts
+                        .get(&artifact)
+                        .expect("test result from the last test run should be present")
+                        .as_slice()
+                });
+            let result = rr_build::execute_build_partial(
+                build_config,
+                build_graph,
+                target_dir,
+                Some(build_meta),
+                user_log,
+                want_files.map(PathBuf::as_path),
+            )?;
+            drop(lock);
+            if !result.successful() {
+                exit_code = exit_code.max(result.return_code_for_success());
+                continue 'backends;
+            }
+            filter = TestFilter {
+                filter: Some(rerun_filter),
+                name_filter: cmd.filter.clone(),
+            };
+        }
+
+        test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
+        let summary = test_result.summary();
+        let backend_hint =
+            display_backend_hint.then_some(build_meta.target_backend().to_backend_ext());
+        print_test_summary(
+            summary.total,
+            summary.passed,
+            cli.quiet,
+            backend_hint,
+            user_log,
+        );
+        if summary.total != summary.passed {
+            exit_code = exit_code.max(2);
+        }
     }
     Ok(exit_code)
 }
@@ -1421,7 +1571,7 @@ fn calc_user_intent_from_packages(
         let intents: Vec<_> = backend_affected_packages
             .iter()
             .copied()
-            .map(UserIntent::Test)
+            .map(|package| cmd.package_intent(package))
             .collect();
         debug!(intent_count = intents.len(), "generated default intents");
         return Ok(intents.into());
@@ -1438,7 +1588,9 @@ fn calc_user_intent_from_packages(
             package_count = pkgs.len(),
             "building intents from filtered targets"
         );
-        pkgs.into_iter().map(UserIntent::Test).collect::<Vec<_>>()
+        pkgs.into_iter()
+            .map(|package| cmd.package_intent(package))
+            .collect::<Vec<_>>()
     } else {
         vec![]
     };
@@ -1498,7 +1650,7 @@ fn package_names(
         .collect()
 }
 
-fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
+fn test_intents_from_filter(filter: &TestFilter, cmd: &TestLikeSubcommand<'_>) -> Vec<UserIntent> {
     let Some(filt) = filter.filter.as_ref() else {
         return vec![];
     };
@@ -1509,7 +1661,10 @@ fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
             packages.push(target.package);
         }
     }
-    packages.into_iter().map(UserIntent::Test).collect()
+    packages
+        .into_iter()
+        .map(|package| cmd.package_intent(package))
+        .collect()
 }
 
 fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
@@ -1643,339 +1798,39 @@ fn validate_original_package_selection_filters(
     Ok(())
 }
 
-#[instrument(level = Level::DEBUG, skip_all)]
-#[allow(clippy::too_many_arguments)] // FIXME
-fn rr_test_from_plan(
-    cli: &UniversalFlags,
-    cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    display_backend_hint: Option<()>,
-    build_meta: &rr_build::BuildMeta,
-    build_graph: rr_build::BuildInput,
-    filter: TestFilter,
-    build_only_artifacts: Option<&mut TestArtifacts>,
-    output: &CommandOutput,
-) -> Result<i32, anyhow::Error> {
-    let built = match execute_test_build_from_plan(
-        cli,
-        cmd,
-        source_dir,
-        target_dir,
-        build_meta,
-        build_graph,
-        output,
-    )? {
-        TestBuildExecution::DryRun => return Ok(0),
-        TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
-        TestBuildExecution::Built(built) => *built,
-    };
-
-    rr_test_after_build(
-        cli,
-        cmd,
-        source_dir,
-        target_dir,
-        display_backend_hint,
-        build_meta,
-        filter,
-        &built,
-        build_only_artifacts,
-        output,
-    )
-}
-
-#[instrument(level = Level::DEBUG, skip_all)]
-#[allow(clippy::too_many_arguments)]
-fn rr_test_after_build(
-    cli: &UniversalFlags,
-    cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    display_backend_hint: Option<()>,
-    build_meta: &rr_build::BuildMeta,
-    filter: TestFilter,
-    built: &BuiltTestExecution,
-    build_only_artifacts: Option<&mut TestArtifacts>,
-    output: &CommandOutput,
-) -> Result<i32, anyhow::Error> {
-    let user_log = output.user_log();
-
-    if cmd.outline {
-        let entries = collect_test_outline(
-            build_meta,
-            &filter,
-            cmd.include_skipped,
-            cmd.run_mode == RunMode::Bench,
-        )?;
-        print_test_outline(&entries, user_log);
-        return Ok(0);
-    }
-
-    if cmd.build_only {
-        // Match legacy behavior: print test artifacts as JSON.
-        let test_artifacts = collect_test_artifacts_for_build_only(
-            build_meta,
-            &filter,
-            cmd.include_skipped,
-            cmd.run_mode == RunMode::Bench,
-        )?;
-        if let Some(artifacts) = build_only_artifacts {
-            artifacts
-                .artifacts_path
-                .extend(test_artifacts.artifacts_path);
-            artifacts
-                .test_filter_args
-                .extend(test_artifacts.test_filter_args);
-        } else {
-            println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
-        }
-        return Ok(0);
-    }
-
-    if cmd.profile {
-        return profile::profile_test_invocations(
-            cli,
-            source_dir,
-            target_dir,
-            build_meta,
-            &filter,
-            cmd.include_skipped,
-            output,
-        );
-    }
-
-    let mut test_result = crate::run::run_tests(
-        build_meta,
-        source_dir,
-        target_dir,
-        &filter,
-        cmd.include_skipped,
-        cmd.run_mode == RunMode::Bench,
-        cmd.no_parallelize,
-        cmd.build_flags.jobs,
-        cmd.moonrun_policy,
-        user_log,
-    )?;
-    let _initial_summary = test_result.summary();
-
-    let backend_hint = display_backend_hint.map(|_| build_meta.target_backend().to_backend_ext());
-
-    if cmd.update {
-        let mut loop_count = 1; // matching legacy; we already have 1 test run before
-        let mut last_test_result = None;
-        loop {
-            // Promote test results
-            let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
-            let (rerun_count, rerun_filter_raw) =
-                perform_promotion(&build_meta.resolve_output.pkg_dirs, promotion_source)
-                    .expect("Failed to promote tests");
-            debug!(
-                rerun_count,
-                pending_targets = rerun_filter_raw.0.len(),
-                "promotion pass completed"
-            );
-            if rerun_filter_raw.is_empty() {
-                break; // Nothing to promote
-            }
-
-            // Apply loop count limits
-            if loop_count >= cmd.update_limit {
-                user_log.warn(format!(
-                    "reached the limit of {} update passes, stopping further updates.",
-                    cmd.update_limit
-                ));
-                break;
-            }
-            loop_count += 1;
-
-            // Get the graph from backup
-            let build_graph = built
-                .build_graph_backup
-                .as_ref()
-                .cloned()
-                .expect("build graph backup should be present when update is true");
-
-            // Calculate which files to rebuild
-            let want_files = rerun_filter_raw
-                .0
-                .keys()
-                .cloned() // All targets to rerun
-                .flat_map(artifacts_from_target)
-                .flat_map(|artifact| {
-                    build_meta
-                        .artifacts
-                        .get(&artifact)
-                        .expect("test result from the last test run should be present")
-                        .as_slice()
-                });
-
-            // Run the build
-            let result = rr_build::execute_build_partial(
-                &built.build_config,
-                build_graph,
-                target_dir,
-                Some(build_meta),
-                user_log,
-                Box::new(|work| {
-                    trace!("requesting rerun artifacts");
-                    for file_path in want_files {
-                        let file_path_str = file_path.to_string_lossy();
-                        let file = work
-                            .lookup(&file_path_str)
-                            .expect("File should exist in work");
-                        work.want_file(file).context("Failed to want file")?;
-                    }
-                    Ok(())
-                }),
-            )?;
-
-            if !result.successful() {
-                return Ok(result.return_code_for_success());
-            }
-
-            // Run the tests
-            let rerun_filter = TestFilter {
-                filter: Some(rerun_filter_raw),
-                name_filter: cmd.filter.clone(),
-            };
-            let new_test_result = crate::run::run_tests(
-                build_meta,
-                source_dir,
-                target_dir,
-                &rerun_filter,
-                cmd.include_skipped,
-                cmd.run_mode == RunMode::Bench,
-                cmd.no_parallelize,
-                cmd.build_flags.jobs,
-                cmd.moonrun_policy,
-                user_log,
-            )?;
-            let _rerun_summary = new_test_result.summary();
-
-            // Merge test results
-            test_result.merge(&new_test_result);
-            last_test_result = Some(new_test_result);
-        }
-    }
-
-    test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
-    let summary = test_result.summary();
-    print_test_summary(
-        summary.total,
-        summary.passed,
-        cli.quiet,
-        backend_hint,
-        user_log,
-    );
-
-    if summary.total == summary.passed {
-        Ok(0)
-    } else {
-        Ok(2)
-    }
-}
-
-struct BuiltTestExecution {
-    build_config: BuildConfig,
-    build_graph_backup: Option<rr_build::BuildInput>,
-}
-
-enum TestBuildExecution {
-    DryRun,
-    BuildFailed(i32),
-    Built(Box<BuiltTestExecution>),
-}
-
-#[allow(clippy::too_many_arguments)]
-fn execute_test_build_from_plan(
-    cli: &UniversalFlags,
-    cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    build_meta: &rr_build::BuildMeta,
-    build_graph: rr_build::BuildInput,
-    output: &CommandOutput,
-) -> Result<TestBuildExecution, anyhow::Error> {
-    let user_log = output.user_log();
-    if cli.dry_run {
-        output.write_result(|writer| {
-            rr_build::write_dry_run(
-                writer,
-                &build_graph,
-                build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            )
-        })?;
-        // Test command lines depend on generated metadata, which dry-run does
-        // not materialize. Profile dry-run therefore stops at the build graph.
-        return Ok(TestBuildExecution::DryRun);
-    }
-
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    rr_build::generate_all_pkgs_json(build_meta)?;
-
-    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
-
-    // since n2 build consumes the graph, we back it up for reruns
-    let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result = rr_build::execute_test_build(
-        &build_config,
-        build_graph,
-        target_dir,
-        &[build_meta],
-        user_log,
-    )?;
-    debug!(
-        success = result.successful(),
-        exit_code = result.return_code_for_success(),
-        "executed rupes-recta build"
-    );
-
-    if !result.successful() {
-        return Ok(TestBuildExecution::BuildFailed(
-            result.return_code_for_success(),
-        ));
-    }
-
-    Ok(TestBuildExecution::Built(Box::new(BuiltTestExecution {
-        build_config,
-        build_graph_backup,
-    })))
-}
-
-/// Collect test artifacts for --build-only mode, matching legacy behavior.
+/// Print one combined artifact listing for --build-only mode across all backends.
 /// For JS backend, serializes each invocation's filter arguments.
-/// For other backends, returns executable paths directly.
+/// For other backends, lists executable paths directly.
 /// Only includes artifacts that have actual tests (skips empty test executables).
-fn collect_test_artifacts_for_build_only(
-    build_meta: &rr_build::BuildMeta,
-    filter: &TestFilter,
+fn print_test_artifacts(
+    builds: &[(rr_build::BuildMeta, TestFilter)],
     include_skipped: bool,
     bench: bool,
-) -> anyhow::Result<TestArtifacts> {
+) -> anyhow::Result<()> {
     let mut artifacts_path = vec![];
     let mut test_filter_args = vec![];
 
-    for invocation in
-        crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
-    {
-        // JS build-only output carries the serialized filter beside the executable.
-        if matches!(build_meta.target_backend(), TargetBackend::Js) {
-            let filter_arg = serde_json::to_string(&invocation.args)
-                .context("failed to serialize JS test filter args")?;
+    for (build_meta, filter) in builds {
+        for invocation in
+            crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
+        {
+            // JS build-only output carries the serialized filter beside the executable.
+            if matches!(build_meta.target_backend(), TargetBackend::Js) {
+                let filter_arg = serde_json::to_string(&invocation.args)
+                    .context("failed to serialize JS test filter args")?;
 
-            artifacts_path.push(invocation.executable);
-            test_filter_args.push(filter_arg);
-        } else {
-            artifacts_path.push(invocation.executable);
+                artifacts_path.push(invocation.executable);
+                test_filter_args.push(filter_arg);
+            } else {
+                artifacts_path.push(invocation.executable);
+            }
         }
     }
 
-    Ok(TestArtifacts {
+    let artifacts = TestArtifacts {
         artifacts_path,
         test_filter_args,
-    })
+    };
+    println!("{}", serde_json_lenient::to_string(&artifacts)?);
+    Ok(())
 }

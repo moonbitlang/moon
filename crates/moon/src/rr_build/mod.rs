@@ -32,53 +32,53 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::mpsc,
+    sync::LazyLock,
 };
 
 use anyhow::Context;
-use clap::ValueEnum;
 use indexmap::IndexMap;
-use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
-    build_lower::{LoweringEnvironment, WarningCondition},
+    build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
     execution_plan::{ActionId, ExecutionPlan},
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        BackendConfig, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId, TargetKind,
+        BackendConfig, DebugInfoRequest, DebugSymbols, ENV_MOONBIT_NEW_NATIVE, NativeTarget,
+        OperatingSystem, PackageId, TargetKind,
     },
-    prebuild::{PrebuildEnvironment, run_prebuild_config},
-    target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
+    target_layout::{ArtifactPathResolver, TargetLayout},
 };
 use moonutil::{
     build_options::RunMode,
-    cli_support::AutoSyncFlags,
     cli_support::UniversalFlags,
     compiler_flags,
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
-    features::FeatureGate,
     package::SupportedTargetsDeclKind,
-    project::{PackageDirs, ProjectManifest, WorkspaceEnv},
-    render::MooncDiagnostic,
+    project::{PackageDirs, ProjectManifest},
     target::TargetBackend,
-    test_metadata::DiagnosticLevel,
     user_log::UserLog,
 };
 use tracing::{Level, info, instrument};
 
-use crate::build_flags::{BuildFlags, OutputStyle};
+use crate::build_flags::BuildFlags;
 
 pub mod action_identity;
 mod dry_run;
-pub use dry_run::{
-    format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
+mod execution;
+mod prebuild;
+#[cfg(test)]
+pub(crate) use dry_run::write_build_graph;
+pub(crate) use dry_run::{format_dry_run_command, write_dry_run};
+pub(crate) use execution::{
+    BuildConfig, JsonBuildOutput, execute_build, execute_build_json, execute_build_partial,
+    execute_test_build,
 };
 
 /// Synchronize dependencies and return resolved project data.
-/// Target-directory lock ownership remains with the command layer.
+/// This step does not acquire the target-directory lock.
 pub(crate) fn sync_and_resolve_project(
     resolve_config: &ResolveConfig,
     dirs: &PackageDirs,
@@ -292,251 +292,30 @@ impl BuildResult {
     }
 }
 
-/// A preliminary configuration that does not require run-time information to
-/// populate. Will be transformed into [`CompileConfig`] later in the pipeline.
+/// Select the backend and construct the final configuration for a resolved project.
 ///
-/// This type might be subject to change.
-#[derive(Debug)]
-pub struct CompilePreConfig {
-    frozen: bool,
-    target_backend: Option<TargetBackend>,
-    opt_level: BuildProfile,
-    action: RunMode,
-    debug_symbols: bool,
-    use_std: bool,
-    debug_export_build_plan: bool,
-    wasi_link: bool,
-    enable_coverage: bool,
-    workspace_env: WorkspaceEnv,
-    output_wat: bool,
-    /// Whether to output JSON when compiling with moonc.
-    moonc_output_json: bool,
-    target_dir: PathBuf,
-    /// Whether to execute `moondoc` in serve mode, which outputs HTML
-    pub docs_serve: bool,
-    pub warning_condition: WarningCondition,
-    /// Whether to not emit alias when running `mooninfo`
-    pub info_no_alias: bool,
-    warn_list: Option<String>,
-}
-
-impl CompilePreConfig {
-    pub(crate) fn resolve_config(&self) -> ResolveConfig {
-        ResolveConfig::new_with_load_defaults(
-            self.frozen,
-            !self.use_std,
-            self.enable_coverage,
-            self.workspace_env.clone(),
-        )
-    }
-
-    fn into_compile_config(
-        self,
-        final_target_backend: TargetBackend,
-        is_core: bool,
-        resolve_output: &ResolveOutput,
-        requested_artifacts: &[ArtifactKey],
-        _user_log: &UserLog,
-    ) -> anyhow::Result<CompileConfig> {
-        info!("Determining compilation configuration");
-
-        let std = self.use_std && !is_core;
-        info!(
-            "std: self.use_std = {}, is_core = {} => std = {}",
-            self.use_std, is_core, std
-        );
-
-        let target_backend = final_target_backend;
-        info!(
-            "Target backend: explicit = {:?} => selected = {:?}",
-            self.target_backend, target_backend
-        );
-        assert!(
-            self.target_backend.is_none_or(|x| x == target_backend),
-            "The final selected target backend must either be default or match the explicit one"
-        );
-
-        let backend = match target_backend {
-            TargetBackend::Wasm => BackendConfig::Wasm {
-                use_wat: self.output_wat,
-                wasi_link: self.wasi_link,
-            },
-            TargetBackend::WasmGC => BackendConfig::WasmGc {
-                use_wat: self.output_wat,
-            },
-            TargetBackend::Js => BackendConfig::Js,
-            TargetBackend::Native => BackendConfig::Native {
-                mode: self.detect_mode(resolve_output, requested_artifacts),
-                allocator: compiler_flags::NativeAllocator::from_env()?,
-            },
-            TargetBackend::LLVM => BackendConfig::Llvm {
-                allocator: compiler_flags::NativeAllocator::from_env()?,
-            },
-        };
-        info!("Final backend configuration: {:?}", backend);
-        let stdlib_path = if std {
-            Some(moonutil::toolchain::core())
-        } else {
-            None
-        };
-        let target_layout = TargetLayout::from_resolve_output(
-            self.target_dir.clone(),
-            resolve_output,
-            self.opt_level,
-            self.action,
-        );
-        let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path.clone());
-        Ok(CompileConfig {
-            target_dir: self.target_dir,
-            backend,
-            opt_level: self.opt_level,
-            action: self.action,
-            debug_symbols: self.debug_symbols,
-            stdlib_path,
-            artifact_paths,
-            lowering_environment: LoweringEnvironment::default(),
-            enable_coverage: self.enable_coverage,
-            debug_export_build_plan: self.debug_export_build_plan,
-            moonc_output_json: self.moonc_output_json,
-            docs_serve: self.docs_serve,
-            warning_condition: self.warning_condition,
-            warn_list: self.warn_list,
-            info_no_alias: self.info_no_alias,
-        })
-    }
-
-    /// Detect the native payload and executable realization for this invocation.
-    fn detect_mode(
-        &self,
-        resolve_output: &ResolveOutput,
-        requested_artifacts: &[ArtifactKey],
-    ) -> NativeBackendMode {
-        // TODO: Native payload form is selected once per invocation. Before
-        // selecting it per executable, key the shared runtime and package C-stub
-        // products by their native toolchain and realization. Otherwise mixed
-        // payload forms can require incompatible shared artifacts, especially
-        // for the strict MSVC direct object target.
-        let native_configs = requested_artifacts
-            .iter()
-            .filter_map(|artifact| {
-                let ArtifactKey::Executable { package, .. } = artifact else {
-                    return None;
-                };
-                let package = resolve_output.pkg_dirs.get_package(*package);
-                let native = package
-                    .raw
-                    .link
-                    .as_ref()
-                    .and_then(|link| link.native.as_ref())?;
-                Some((package, native))
-            })
-            .collect::<Vec<_>>();
-
-        let native_target = if self.opt_level == BuildProfile::Debug {
-            NativeTarget::from_env_for_host()
-        } else {
-            None
-        };
-        info!("New native target: {:?}", native_target);
-        if let Some(native_target) = native_target {
-            if native_configs
-                .iter()
-                .any(|(_, native)| native.cc_flags.is_some())
-            {
-                info!("Disabling direct object native output: C/C++ compiler flags are set");
-                return NativeBackendMode::GeneratedC;
-            }
-
-            return NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target));
-        }
-
-        NativeBackendMode::GeneratedC
-    }
-}
-
-/// Read in the commandline flags and build flags to create a
-/// [`CompilePreConfig`] for compilation usage.
-///
-/// - `auto_sync_flags`: The flags to control module download & sync behavior.
-/// - `cli`: The universal CLI flags.
-/// - `build_flags`: The build-specific flags.
-/// - `selected_target_backend`: The backend selected for this invocation, if explicit.
-/// - `target_dir`: The target directory for the build.
-/// - `action`: The run mode (build, test, bench, etc.). This also affects the
-///   default build profile (`moon build`/`run`/`test`/`fmt`/`check` default to
-///   debug; `moon bench`/`bundle` default to release).
+/// CLI policy is resolved here while both the original flags and selected backend
+/// are available. Command adapters may then use that backend to expand their
+/// intent; RR receives one completed configuration with no CLI parsing types.
 #[instrument(level = Level::DEBUG, skip_all)]
-pub fn preconfig_compile(
-    auto_sync_flags: &AutoSyncFlags,
+pub(crate) fn prepare_resolved_build(
     cli: &UniversalFlags,
     build_flags: &BuildFlags,
     selected_target_backend: Option<TargetBackend>,
     target_dir: &Path,
     action: RunMode,
-) -> CompilePreConfig {
-    let opt_level = build_flags.effective_profile(action);
-
-    CompilePreConfig {
-        frozen: auto_sync_flags.frozen,
-        target_dir: target_dir.to_owned(),
-        target_backend: selected_target_backend,
-        opt_level,
-        action,
-        debug_symbols: build_flags.debug_symbols_for(action),
-        use_std: build_flags.std(),
-        enable_coverage: build_flags.enable_coverage,
-        workspace_env: cli.workspace_env.clone(),
-        output_wat: build_flags.output_wat,
-        debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
-        wasi_link: cli.unstable_feature.wasi_link
-            && std::env::var("MOON_WASI_LINK").as_deref() != Ok("0"),
-        // In legacy impl, dry run always force no json
-        moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
-        docs_serve: false,
-        info_no_alias: false,
-        warning_condition: if build_flags.deny_warn {
-            WarningCondition::Deny
-        } else {
-            WarningCondition::Default
-        },
-        warn_list: build_flags.warn_list.clone(),
-    }
-}
-
-pub(crate) struct ResolvedBuildPlanningContext {
-    target_backend: TargetBackend,
-    is_core: bool,
-}
-
-impl ResolvedBuildPlanningContext {
-    pub(crate) fn target_backend(&self) -> TargetBackend {
-        self.target_backend
-    }
-}
-
-/// Prepare the resolved build context before command intent is calculated.
-///
-/// This step emits resolve-time diagnostics and determines the effective target
-/// backend. Commands that already resolved raw CLI selectors can use the
-/// returned backend to compute `CalcUserIntentOutput` outside the shared RR
-/// planning pipeline.
-#[instrument(level = Level::DEBUG, skip_all)]
-pub(crate) fn prepare_resolved_build(
-    preconfig: &CompilePreConfig,
-    unstable_features: &FeatureGate,
-    target_dir: &Path,
     user_log: &UserLog,
     resolve_output: &ResolveOutput,
-) -> anyhow::Result<ResolvedBuildPlanningContext> {
+) -> anyhow::Result<CompileConfig> {
     // A couple of debug things:
-    if unstable_features.rr_export_module_graph {
+    if cli.unstable_feature.rr_export_module_graph {
         info!("Exporting module graph DOT file");
         moonbuild_rupes_recta::util::print_resolved_env_dot(
             &resolve_output.module_rel,
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
-    if unstable_features.rr_export_package_graph {
+    if cli.unstable_feature.rr_export_package_graph {
         info!("Exporting package graph DOT file");
         moonbuild_rupes_recta::util::print_dep_relationship_dot(
             &resolve_output.pkg_rel,
@@ -551,15 +330,14 @@ pub(crate) fn prepare_resolved_build(
         &[module_id] => Some(resolve_output.module_info(module_id)),
         _ => None,
     };
-    let preferred_target = if preconfig.target_backend.is_some() {
+    let preferred_target = if selected_target_backend.is_some() {
         None
     } else {
         local_modules_preferred_target(resolve_output, user_log)
     };
     info!("Preferred backend: {:?}", preferred_target);
 
-    let target_backend = preconfig
-        .target_backend
+    let target_backend = selected_target_backend
         .or(preferred_target)
         .unwrap_or_default();
 
@@ -576,9 +354,85 @@ pub(crate) fn prepare_resolved_build(
     let is_core = main_module.is_some_and(|module| module.name == MOONBITLANG_CORE);
     info!("is_core: {}", is_core);
 
-    Ok(ResolvedBuildPlanningContext {
-        target_backend,
-        is_core,
+    let opt_level = build_flags.effective_profile(action);
+    let strip = build_flags.strip_for(action);
+    let debug_info = DebugInfoRequest {
+        symbols: if strip {
+            DebugSymbols::None
+        } else if action == RunMode::Run
+            && target_backend == TargetBackend::Native
+            && !build_flags.debug
+            && !build_flags.no_strip
+        {
+            // Planning chooses how to retain source backtraces after selecting
+            // generated C or direct object output for this Native run.
+            DebugSymbols::Backtrace
+        } else {
+            DebugSymbols::Full
+        },
+        // Stripping symbols does not disable a debug-profile run's native
+        // backtrace machinery. Other commands enable it with debug symbols.
+        runtime_backtrace: target_backend.is_native()
+            && (!strip || (action == RunMode::Run && opt_level == BuildProfile::Debug)),
+    };
+    let backend = match target_backend {
+        TargetBackend::Wasm => BackendConfig::Wasm {
+            use_wat: build_flags.output_wat,
+            wasi_link: cli.unstable_feature.wasi_link
+                && std::env::var("MOON_WASI_LINK").as_deref() != Ok("0"),
+        },
+        TargetBackend::WasmGC => BackendConfig::WasmGc {
+            use_wat: build_flags.output_wat,
+        },
+        TargetBackend::Js => BackendConfig::Js,
+        TargetBackend::Native => {
+            let new_native_env = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
+            BackendConfig::Native {
+                direct_object_candidate: NativeTarget::from_host_with_new_native_env(
+                    std::env::consts::ARCH,
+                    std::env::consts::OS,
+                    new_native_env.as_deref(),
+                ),
+                allocator: compiler_flags::NativeAllocator::from_env()?,
+                os: std::env::consts::OS
+                    .parse::<OperatingSystem>()
+                    .expect("Unknown"),
+                compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
+            }
+        }
+        TargetBackend::LLVM => BackendConfig::Llvm {
+            allocator: compiler_flags::NativeAllocator::from_env()?,
+            os: std::env::consts::OS
+                .parse::<OperatingSystem>()
+                .expect("Unknown"),
+            compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
+        },
+    };
+    info!("Final backend configuration: {:?}", backend);
+    let stdlib_path = (build_flags.std() && !is_core).then(moonutil::toolchain::core);
+    let target_layout =
+        TargetLayout::from_resolve_output(target_dir.to_owned(), resolve_output, opt_level, action);
+    let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path.clone());
+    Ok(CompileConfig {
+        target_dir: target_dir.to_owned(),
+        backend,
+        opt_level,
+        action,
+        debug_info,
+        stdlib_path,
+        artifact_paths,
+        enable_coverage: build_flags.enable_coverage,
+        debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
+        // In legacy impl, dry run always forces no JSON.
+        moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
+        docs_serve: false,
+        warning_condition: if build_flags.deny_warn {
+            WarningCondition::Deny
+        } else {
+            WarningCondition::Default
+        },
+        warn_list: build_flags.warn_list.clone(),
+        info_no_alias: false,
     })
 }
 
@@ -587,38 +441,59 @@ pub(crate) fn prepare_resolved_build(
 /// At this boundary, command adapters have already resolved user selectors and
 /// command-specific directives into `CalcUserIntentOutput`. RR consumes those
 /// identities plus precomputed build-context paths from the command adapter.
+/// For actual builds, callers hold the target-directory lock while prebuild
+/// scripts run and their outputs are consumed. Dry-run callers leave locking to
+/// this function: it locks only when the resolved backend and modules require
+/// scripts, and keeps the lock through planning.
 #[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_resolved_build_from_intent(
-    preconfig: CompilePreConfig,
-    unstable_features: &FeatureGate,
+    cx: CompileConfig,
     user_log: &UserLog,
-    planning_context: ResolvedBuildPlanningContext,
     intent: CalcUserIntentOutput,
     mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
+    jobs: Option<usize>,
+    frozen: bool,
+    dry_run: bool,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let target_dir = preconfig.target_dir.clone();
+    let target_dir = cx.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
 
-    let prebuild_config = if preconfig.action == RunMode::Check {
-        info!("Skipping prebuild configuration for check run mode");
-        None
+    // Decide once, after backend selection, whether planning will execute a
+    // script. Dry runs that only lower commands must not acquire a write lock.
+    let run_prebuild = cx.action != RunMode::Check
+        && cx.backend.target_backend().is_native()
+        && resolve_output
+            .module_rel
+            .all_modules_and_id()
+            .any(|(m, _)| {
+                resolve_output
+                    .module_info(m)
+                    .__moonbit_unstable_prebuild
+                    .is_some()
+            });
+    let _dry_run_lock = if dry_run && run_prebuild {
+        Some(moonutil::locks::lock_directory(&target_dir, user_log)?)
     } else {
+        None
+    };
+    let prebuild_config = if run_prebuild {
         info!("Running prebuild configuration");
-        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
-        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
+        Some(prebuild::run_prebuild_config(
+            &resolve_output,
+            &cx,
+            resolve_parallelism(jobs),
+            frozen,
+        )?)
+    } else {
+        info!("Skipping prebuild configuration: no applicable scripts");
+        None
     };
 
     info!("Expanding user intents to requested artifacts");
     let requested_artifacts =
-        intent.requested_artifacts(&resolve_output, user_log, planning_context.target_backend);
-    let cx = preconfig.into_compile_config(
-        planning_context.target_backend,
-        planning_context.is_core,
-        &resolve_output,
-        &requested_artifacts,
-        user_log,
-    )?;
+        intent.requested_artifacts(&resolve_output, user_log, cx.backend.target_backend());
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
@@ -630,7 +505,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         user_log,
     )?;
 
-    if unstable_features.rr_export_build_plan
+    if cx.debug_export_build_plan
         && let Some(plan) = compile_output.build_plan
     {
         info!("Exporting build plan DOT file");
@@ -647,13 +522,9 @@ pub(crate) fn plan_resolved_build_from_intent(
         .requested_artifact_paths()
         .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
         .collect();
-    let action_ids = compile_output
+    let action_backends = compile_output
         .execution_plan
         .action_ids()
-        .collect::<Vec<_>>();
-    let action_backends = action_ids
-        .iter()
-        .copied()
         .map(|id| (id, Some(cx.backend.target_backend())))
         .collect();
     let execution_plan = Rc::new(compile_output.execution_plan);
@@ -665,121 +536,13 @@ pub(crate) fn plan_resolved_build_from_intent(
         artifact_paths: cx.artifact_paths.clone(),
     };
 
-    let db_path = cx.artifact_paths.target_layout().n2_db_path();
     let input = BuildInput {
         execution_plan,
-        action_ids,
         action_backends,
-        db_path,
     };
 
     info!("Build planning completed successfully");
 
-    Ok((build_meta, input))
-}
-
-/// Plan dependency-package and synthesized script-package work independently.
-///
-/// This entry point is intentionally used only by standalone `.mbt`/`.mbtx`
-/// builds. Normal workspace commands continue through
-/// [`plan_resolved_build_from_intent`].
-#[allow(clippy::too_many_arguments)]
-#[instrument(level = Level::DEBUG, skip_all)]
-pub(crate) fn plan_resolved_standalone_build_from_intent(
-    preconfig: CompilePreConfig,
-    unstable_features: &FeatureGate,
-    user_log: &UserLog,
-    planning_context: ResolvedBuildPlanningContext,
-    intent: CalcUserIntentOutput,
-    script_package: PackageId,
-    mooncake_bin_dir: &Path,
-    resolve_output: ResolveOutput,
-) -> anyhow::Result<(BuildMeta, StandaloneBuildInput)> {
-    let target_dir = preconfig.target_dir.clone();
-    info!("Standalone user intent calculated: {:?}", intent.intents);
-
-    let prebuild_config = if preconfig.action == RunMode::Check {
-        info!("Skipping prebuild configuration for check run mode");
-        None
-    } else {
-        info!("Running prebuild configuration");
-        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
-        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
-    };
-
-    let requested_artifacts =
-        intent.requested_artifacts(&resolve_output, user_log, planning_context.target_backend);
-    let cx = preconfig.into_compile_config(
-        planning_context.target_backend,
-        planning_context.is_core,
-        &resolve_output,
-        &requested_artifacts,
-        user_log,
-    )?;
-    let compile_output = moonbuild_rupes_recta::compile_standalone(
-        &cx,
-        mooncake_bin_dir,
-        &resolve_output,
-        &requested_artifacts,
-        script_package,
-        &intent.directive,
-        prebuild_config.as_ref(),
-        user_log,
-    )?;
-
-    if unstable_features.rr_export_build_plan
-        && let Some(plan) = compile_output.build_plan.as_deref()
-    {
-        moonbuild_rupes_recta::util::print_build_plan_dot(
-            plan,
-            &resolve_output.module_rel,
-            &resolve_output.pkg_dirs,
-            &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
-        )?;
-    }
-
-    let artifacts = compile_output
-        .execution_plan
-        .requested_artifact_paths()
-        .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
-        .collect();
-    let build_meta = BuildMeta {
-        resolve_output,
-        artifacts,
-        backend: cx.backend.clone(),
-        opt_level: cx.opt_level,
-        artifact_paths: cx.artifact_paths.clone(),
-    };
-    let backend = cx.backend.target_backend();
-    let layout = cx.artifact_paths.target_layout();
-    let dependency_actions = compile_output.dependency_actions;
-    let script_actions = compile_output.script_actions;
-    let execution_plan = Rc::new(compile_output.execution_plan);
-    let action_backends = execution_plan
-        .action_ids()
-        .map(|id| (id, Some(backend)))
-        .collect::<HashMap<_, _>>();
-    let dependency_input = if dependency_actions.is_empty() {
-        None
-    } else {
-        Some(BuildInput {
-            execution_plan: Rc::clone(&execution_plan),
-            action_ids: dependency_actions,
-            action_backends: action_backends.clone(),
-            db_path: layout.n2_db_path(),
-        })
-    };
-    let input = StandaloneBuildInput {
-        dependencies: dependency_input,
-        script: BuildInput {
-            execution_plan,
-            action_ids: script_actions,
-            action_backends,
-            db_path: layout.n2_db_path(),
-        },
-    };
-
-    info!("Standalone build planning completed successfully");
     Ok((build_meta, input))
 }
 
@@ -799,18 +562,13 @@ pub fn plan_fmt(
         project_manifest,
         user_log,
     )?);
-    let layout = TargetLayout::from_fmt_resolve_output(
-        target_dir.to_path_buf(),
-        resolved,
-        BuildProfile::Debug,
-    );
-    let action_ids = execution_plan.action_ids().collect::<Vec<_>>();
-    let action_backends = action_ids.iter().map(|&action| (action, None)).collect();
+    let action_backends = execution_plan
+        .action_ids()
+        .map(|action| (action, None))
+        .collect();
     Ok(BuildInput {
         execution_plan,
-        action_ids,
         action_backends,
-        db_path: layout.n2_db_path(),
     })
 }
 
@@ -818,22 +576,14 @@ pub fn plan_fmt(
 ///
 /// To ensure the correct paths are generated, `build_meta` should come from the
 /// same configuration used in [`plan_build`].
-///
-/// If the caller is from a single-file build, `single_file_filename` should
-/// be set to the filename (with extension) of the single file being built.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_metadata(
     source_dir: &Path,
     build_meta: &BuildMeta,
     build_input: &BuildInput,
-    single_file_filename: Option<&str>,
 ) -> anyhow::Result<()> {
     let layout = build_meta.artifact_paths.target_layout();
-    let scoped_metadata_file = if let Some(filename) = single_file_filename {
-        layout.standalone_packages_json_path(build_meta.target_backend(), filename)
-    } else {
-        layout.packages_json_path(build_meta.target_backend())
-    };
+    let scoped_metadata_file = layout.packages_json_path(build_meta.target_backend());
 
     let check_commands = collect_check_commands_by_output(build_input);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
@@ -849,10 +599,7 @@ pub fn generate_metadata(
 }
 
 /// Generate the universal `packages.json` selector for one scoped document.
-pub fn generate_metadata_selector(
-    build_meta: &BuildMeta,
-    single_file_filename: Option<&str>,
-) -> anyhow::Result<()> {
+pub fn generate_metadata_selector(build_meta: &BuildMeta) -> anyhow::Result<()> {
     let selector = moonutil::manifest::PackagesSelectorJSON {
         backend: build_meta.target_backend().to_string(),
         opt_level: build_meta.opt_level.as_str().to_string(),
@@ -860,11 +607,7 @@ pub fn generate_metadata_selector(
     let selector = serde_json::to_string_pretty(&selector)
         .context("Failed to serialize universal packages metadata")?;
     let layout = build_meta.artifact_paths.target_layout();
-    let metadata_file = if let Some(filename) = single_file_filename {
-        layout.standalone_packages_selector_path(filename)
-    } else {
-        layout.packages_selector_path()
-    };
+    let metadata_file = layout.packages_selector_path();
     write_metadata_if_changed(&metadata_file, &selector)
 }
 
@@ -931,8 +674,8 @@ fn collect_check_commands_by_output(
     build_input: &BuildInput,
 ) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
     let mut commands = BTreeMap::new();
-    for id in &build_input.action_ids {
-        let action = build_input.execution_plan.action(*id);
+    for id in build_input.execution_plan.action_ids() {
+        let action = build_input.execution_plan.action(id);
         let Some(command_args) = check_command_args_without_executable(action.command().args())
         else {
             continue;
@@ -983,136 +726,22 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Clone)]
-pub struct BuildConfig {
-    /// The level of parallelism to use. If `None`, will use the number of
-    /// available CPU cores.
-    parallelism: Option<usize>,
-    /// The output style for errors and warnings
-    output_style: OutputStyle,
-    /// Render no-location diagnostics above this level
-    render_no_loc: DiagnosticLevel,
-    /// Maximum number of diagnostics to display after deduplication.
-    diagnostic_limit: Option<usize>,
-
-    /// Generate metadata file `packages.json`
-    pub generate_metadata: bool,
-
-    /// Explain and warnings in diagnostics
-    pub explain_errors: bool,
-
-    /// Ask n2 to explain rerun reasons
-    pub n2_explain: bool,
-
-    /// Verbose output for build progress and command echo
-    verbose: bool,
-    suppress_progress: bool,
-
-    /// The patch file to use
-    pub patch_file: Option<PathBuf>,
+/// Share the default observation between prebuild scripts and the executor so
+/// both see the same job limit throughout this Moon process.
+fn resolve_parallelism(jobs: Option<usize>) -> usize {
+    static DEFAULT_PARALLELISM: LazyLock<usize> =
+        LazyLock::new(|| std::thread::available_parallelism().map_or(1, usize::from));
+    jobs.unwrap_or_else(|| *DEFAULT_PARALLELISM)
 }
 
-impl BuildConfig {
-    pub(crate) fn from_flags(
-        flags: &BuildFlags,
-        unstable_features: &FeatureGate,
-        verbose: bool,
-    ) -> Self {
-        BuildConfig {
-            parallelism: flags.jobs,
-            output_style: flags.output_style(),
-            render_no_loc: flags.render_no_loc,
-            diagnostic_limit: flags.diagnostic_limit,
-            generate_metadata: false,
-            explain_errors: false,
-            n2_explain: unstable_features.rr_n2_explain,
-            verbose,
-            suppress_progress: false,
-            patch_file: None,
-        }
-    }
-
-    pub(crate) fn with_suppressed_progress(mut self, suppress_progress: bool) -> Self {
-        self.suppress_progress = suppress_progress;
-        self
-    }
-}
-
-impl Default for BuildConfig {
-    fn default() -> Self {
-        Self {
-            parallelism: None,
-            output_style: OutputStyle::Raw,
-            render_no_loc: DiagnosticLevel::Error,
-            diagnostic_limit: None,
-            generate_metadata: false,
-            explain_errors: false,
-            n2_explain: false,
-            verbose: false,
-            suppress_progress: false,
-            patch_file: None,
-        }
-    }
-}
-
-/// The input to a build execution.
+/// A complete execution plan and the context needed to execute it.
 #[derive(Debug, Clone)]
 pub struct BuildInput {
     /// Executor-neutral actions shared by execution and its projections.
     execution_plan: Rc<ExecutionPlan>,
 
-    /// The portion of the Execution Plan owned by this execution phase.
-    action_ids: Vec<ActionId>,
-
     /// Target Backend for each action. Shared actions have no single backend.
     action_backends: HashMap<ActionId, Option<TargetBackend>>,
-
-    /// The n2 database for the selected target directory.
-    db_path: PathBuf,
-}
-
-/// Dependency-package and script-package inputs for a standalone build.
-///
-/// Keeping this orchestration outside [`BuildInput`] lets ordinary workspace
-/// execution remain a single-graph operation.
-#[derive(Debug, Clone)]
-pub struct StandaloneBuildInput {
-    dependencies: Option<BuildInput>,
-    script: BuildInput,
-}
-
-impl StandaloneBuildInput {
-    fn compose(inputs: Vec<Self>) -> anyhow::Result<Self> {
-        let mut dependencies = Vec::new();
-        let mut scripts = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            dependencies.extend(input.dependencies);
-            scripts.push(input.script);
-        }
-
-        Ok(Self {
-            dependencies: (!dependencies.is_empty())
-                .then(|| BuildInput::compose(dependencies))
-                .transpose()?,
-            script: BuildInput::compose(scripts)?,
-        })
-    }
-}
-
-#[cfg(test)]
-impl BuildInput {
-    pub(crate) fn n2_graph_for_test(
-        &self,
-    ) -> Result<
-        (
-            n2::graph::Graph,
-            moonbuild_rupes_recta::execution_plan::CommandArgMap,
-        ),
-        moonbuild_rupes_recta::execution_plan::N2AdapterError,
-    > {
-        self.execution_plan
-            .to_n2_graph(self.action_ids.iter().copied())
-    }
 }
 
 impl BuildInput {
@@ -1124,23 +753,15 @@ impl BuildInput {
         let Some(second) = inputs.next() else {
             return Ok(first);
         };
-        let db_path = first.db_path.clone();
 
         let mut execution_plan = ExecutionPlan::default();
-        let mut action_ids = Vec::new();
         let mut action_backends = HashMap::new();
-        let mut selected = HashSet::new();
 
         for input in std::iter::once(first)
             .chain(std::iter::once(second))
             .chain(inputs)
         {
-            anyhow::ensure!(
-                input.db_path == db_path,
-                "cannot compose build inputs with different target layouts"
-            );
             let existing_actions = execution_plan.action_ids().collect::<HashSet<_>>();
-            let selected_actions = input.action_ids.iter().copied().collect::<HashSet<_>>();
             let remapped = execution_plan.merge(&input.execution_plan)?;
             for (old, new) in input.execution_plan.action_ids().zip(remapped) {
                 if existing_actions.contains(&new) {
@@ -1150,810 +771,23 @@ impl BuildInput {
                 } else {
                     action_backends.insert(new, input.action_backends.get(&old).copied().flatten());
                 }
-                if selected_actions.contains(&old) && selected.insert(new) {
-                    action_ids.push(new);
-                }
             }
         }
 
         Ok(Self {
             execution_plan: Rc::new(execution_plan),
-            action_ids,
             action_backends,
-            db_path,
         })
     }
-
-    fn into_n2_execution(
-        self,
-    ) -> Result<N2ExecutionInput, moonbuild_rupes_recta::execution_plan::N2AdapterError> {
-        let adapted = self
-            .execution_plan
-            .adapt_to_n2(self.action_ids.iter().copied())?;
-        let (graph, _, action_by_build) = adapted.into_parts_with_actions();
-        let backend_by_build = action_by_build
-            .into_iter()
-            .map(|(build, action)| (build, self.action_backends.get(&action).copied().flatten()))
-            .collect();
-        Ok(N2ExecutionInput {
-            graph,
-            db_path: self.db_path,
-            backend_by_build,
-        })
-    }
-}
-
-struct N2ExecutionInput {
-    graph: n2::graph::Graph,
-    db_path: PathBuf,
-    backend_by_build: HashMap<n2::graph::BuildId, Option<TargetBackend>>,
 }
 
 pub(crate) fn compose_build_inputs(inputs: Vec<BuildInput>) -> anyhow::Result<BuildInput> {
     BuildInput::compose(inputs)
 }
 
-pub(crate) fn compose_standalone_build_inputs(
-    inputs: Vec<StandaloneBuildInput>,
-) -> anyhow::Result<StandaloneBuildInput> {
-    StandaloneBuildInput::compose(inputs)
-}
-
-struct CapturedBuildExecution {
-    n_tasks_executed: Option<usize>,
-    action_outputs: Vec<CapturedActionOutput>,
-}
-
-struct CapturedActionOutput {
-    target_backend: Option<TargetBackend>,
-    content: ResultCatcher,
-}
-
-impl CapturedBuildExecution {
-    fn successful(&self) -> bool {
-        self.n_tasks_executed.is_some()
-    }
-
-    fn diagnostic_sources<'a>(
-        &'a self,
-        build_metas: impl IntoIterator<Item = &'a BuildMeta>,
-    ) -> Vec<CapturedDiagnosticSource<'a>> {
-        let build_metas = build_metas.into_iter().collect::<Vec<_>>();
-        let sole_build_meta = match build_metas.as_slice() {
-            [build_meta] => Some(*build_meta),
-            _ => None,
-        };
-        self.action_outputs
-            .iter()
-            .map(|output| {
-                let build_meta = output
-                    .target_backend
-                    .and_then(|backend| {
-                        build_metas
-                            .iter()
-                            .find(|meta| meta.target_backend() == backend)
-                            .copied()
-                    })
-                    .or(sole_build_meta);
-                CapturedDiagnosticSource {
-                    diagnostics: &output.content,
-                    build_succeeded: self.successful(),
-                    build_meta,
-                }
-            })
-            .collect()
-    }
-}
-
-/// Execute a build plan.
-///
-/// Takes ownership of the build graph and executes the actual build tasks.
-/// Returns just the build result - callers should use the resolve data and
-/// artifacts from the planning phase for any metadata they need.
-///
-/// The caller must hold the target-directory lock. All ordinary executions in
-/// that directory share one n2 database, and n2 does not lock it internally.
-#[instrument(skip_all)]
-pub fn execute_build(
-    cfg: &BuildConfig,
-    input: BuildInput,
-    target_dir: &Path,
-    user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
-    Ok(finish_captured_build(cfg, &execution, None, user_log))
-}
-
-/// Structured output from one build execution for a command-level JSON
-/// renderer. The executor does not write diagnostics or summaries itself.
-pub struct JsonBuildOutput {
-    pub n_tasks_executed: Option<usize>,
-    pub n_errors: usize,
-    pub n_warnings: usize,
-    pub hidden_errors: usize,
-    pub hidden_warnings: usize,
-    pub diagnostics: Vec<JsonBuildDiagnostic>,
-    pub non_diagnostic_output: Vec<String>,
-}
-
-/// One compiler diagnostic and the backend of the n2 action that emitted it.
-/// The command layer remains responsible for projecting this into its JSON
-/// schema.
-pub struct JsonBuildDiagnostic {
-    pub target_backend: Option<TargetBackend>,
-    pub value: serde_json::Value,
-}
-
-impl JsonBuildOutput {
-    pub fn successful(&self) -> bool {
-        self.n_tasks_executed.is_some()
-    }
-}
-
-/// Execute a build while returning all Moonc diagnostics to the CLI seam.
-pub fn execute_build_json(
-    cfg: &BuildConfig,
-    input: BuildInput,
-    target_dir: &Path,
-) -> anyhow::Result<JsonBuildOutput> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
-    // Keep the existing per-backend diagnostic-limit semantics while all
-    // backends execute in one n2 graph. Shared actions have no backend and are
-    // collected in their own group.
-    let mut sources_by_backend = BTreeMap::new();
-    for output in &execution.action_outputs {
-        sources_by_backend
-            .entry(output.target_backend)
-            .or_insert_with(Vec::new)
-            .push(CapturedDiagnosticSource {
-                diagnostics: &output.content,
-                build_succeeded: execution.successful(),
-                build_meta: None,
-            });
-    }
-
-    let mut n_errors = 0;
-    let mut n_warnings = 0;
-    let mut hidden_errors = 0;
-    let mut hidden_warnings = 0;
-    let mut diagnostics = Vec::new();
-    let mut non_diagnostic_output = Vec::new();
-    for (target_backend, sources) in sources_by_backend {
-        let collected = collect_json_diagnostics(&sources, cfg, true);
-        n_errors += collected.processed.n_errors;
-        n_warnings += collected.processed.n_warnings;
-        hidden_errors += collected.processed.hidden_errors;
-        hidden_warnings += collected.processed.hidden_warnings;
-        diagnostics.extend(collected.diagnostics.into_iter().map(|content| {
-            JsonBuildDiagnostic {
-                target_backend,
-                value: serde_json::from_str(&content)
-                    .expect("collected Moonc diagnostic should remain valid JSON"),
-            }
-        }));
-        non_diagnostic_output.extend(collected.non_diagnostic_output);
-    }
-
-    Ok(JsonBuildOutput {
-        n_tasks_executed: execution.n_tasks_executed,
-        n_errors,
-        n_warnings,
-        hidden_errors,
-        hidden_warnings,
-        diagnostics,
-        non_diagnostic_output,
-    })
-}
-
-/// Execute standalone dependency-package work before script-package work.
-#[instrument(skip_all)]
-pub fn execute_standalone_build(
-    cfg: &BuildConfig,
-    input: StandaloneBuildInput,
-    target_dir: &Path,
-    user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
-    let Some(dependencies) = input.dependencies else {
-        return execute_build(cfg, input.script, target_dir, user_log);
-    };
-
-    let dependency_execution = execute_build_capturing(cfg, dependencies, target_dir)?;
-    if !dependency_execution.successful() {
-        return Ok(finish_captured_build(
-            cfg,
-            &dependency_execution,
-            None,
-            user_log,
-        ));
-    }
-
-    let script_execution = match execute_build_capturing(cfg, input.script, target_dir) {
-        Ok(execution) => execution,
-        Err(error) => {
-            // Preserve dependency output if the second executor fails before it
-            // can return captured output for command-level processing.
-            finish_captured_build(cfg, &dependency_execution, None, user_log);
-            return Err(error);
-        }
-    };
-    let mut diagnostic_sources = dependency_execution.diagnostic_sources([]);
-    diagnostic_sources.extend(script_execution.diagnostic_sources([]));
-    let processed = process_captured_diagnostics(&diagnostic_sources, cfg);
-    processed.warn_if_limited(user_log);
-
-    Ok(N2RunStats {
-        n_tasks_executed: script_execution
-            .n_tasks_executed
-            .zip(dependency_execution.n_tasks_executed)
-            .map(|(script, dependencies)| script + dependencies),
-        n_errors: processed.n_errors,
-        n_warnings: processed.n_warnings,
-    })
-}
-
-/// Execute a test build.
-///
-/// Test builds may report diagnostics for generated drivers using their
-/// source-tree paths. The test build metadata lets the diagnostic processing
-/// stage resolve those paths through the target layout.
-pub fn execute_test_build(
-    cfg: &BuildConfig,
-    input: BuildInput,
-    target_dir: &Path,
-    build_metas: &[&BuildMeta],
-    user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
-    let sources = execution.diagnostic_sources(build_metas.iter().copied());
-    let processed = process_captured_diagnostics(&sources, cfg);
-    processed.warn_if_limited(user_log);
-    Ok(N2RunStats {
-        n_tasks_executed: execution.n_tasks_executed,
-        n_errors: processed.n_errors,
-        n_warnings: processed.n_warnings,
-    })
-}
-
-/// Callback on the [`n2::work::Work`] to be done for target artifacts.
-type WantFileFn<'b> = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Result<()> + 'b;
-
-/// Partially execute a build graph, same as [`execute_build`] otherwise.
-///
-/// Pass `want_files` callback to determine which artifacts to build.
-///
-/// This function is primarily used for rebuilding tests after snapshot test
-/// promotion.
-#[instrument(skip_all)]
-pub fn execute_build_partial(
-    cfg: &BuildConfig,
-    input: BuildInput,
-    target_dir: &Path,
-    build_meta: Option<&BuildMeta>,
-    user_log: &UserLog,
-    want_files: Box<WantFileFn>,
-) -> anyhow::Result<N2RunStats> {
-    let N2ExecutionInput {
-        graph,
-        db_path,
-        backend_by_build,
-    } = input.into_n2_execution()?;
-    let execution = execute_n2_graph_capturing(
-        cfg,
-        graph,
-        db_path,
-        backend_by_build,
-        target_dir,
-        want_files,
-    )?;
-    Ok(finish_captured_build(cfg, &execution, build_meta, user_log))
-}
-
-fn execute_build_capturing(
-    cfg: &BuildConfig,
-    input: BuildInput,
-    target_dir: &Path,
-) -> anyhow::Result<CapturedBuildExecution> {
-    let N2ExecutionInput {
-        graph,
-        db_path,
-        backend_by_build,
-    } = input.into_n2_execution()?;
-    let start_nodes = graph.get_start_nodes();
-    execute_n2_graph_capturing(
-        cfg,
-        graph,
-        db_path,
-        backend_by_build,
-        target_dir,
-        Box::new(|work| {
-            // Want only the leaf output files, not all files including stdlib.
-            for file_id in start_nodes {
-                work.want_file(file_id)?;
-            }
-            Ok(())
-        }),
-    )
-}
-
-fn execute_n2_graph_capturing(
-    cfg: &BuildConfig,
-    mut build_graph: n2::graph::Graph,
-    db_path: PathBuf,
-    backend_by_build: HashMap<n2::graph::BuildId, Option<TargetBackend>>,
-    target_dir: &Path,
-    want_files: Box<WantFileFn>,
-) -> anyhow::Result<CapturedBuildExecution> {
-    // Ensure target directory exists
-    std::fs::create_dir_all(target_dir).context(format!(
-        "Failed to create target directory: '{}'",
-        target_dir.display()
-    ))?;
-
-    db_path
-        .parent()
-        .map(std::fs::create_dir_all)
-        .transpose()
-        .with_context(|| {
-            format!(
-                "Failed to create parent for build cache DB at {}",
-                db_path.display()
-            )
-        })?;
-
-    // Generate n2 state
-
-    let mut hashes = n2::graph::Hashes::default();
-    let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)
-        .with_context(|| format!("Failed to open build cache DB at {}", db_path.display()))?;
-
-    let parallelism = cfg
-        .parallelism
-        .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
-        .unwrap();
-
-    let (captured_output_sender, captured_output_receiver) = mpsc::channel();
-    let mut prog_console: Box<dyn n2::progress::Progress> = create_progress_console(
-        Some(Box::new(move |build_id, output: &str| {
-            let target_backend = backend_by_build
-                .get(&build_id)
-                .copied()
-                .expect("every n2 build should retain its action backend");
-            let mut captured = ResultCatcher::default();
-            for line in output.split('\n').filter(|line| !line.is_empty()) {
-                captured.append_content(line, None);
-            }
-            captured_output_sender
-                .send(CapturedActionOutput {
-                    target_backend,
-                    content: captured,
-                })
-                .expect("captured output receiver should outlive n2 progress");
-        })),
-        cfg.verbose,
-        cfg.suppress_progress,
-    );
-    let mut work = n2::work::Work::new(
-        build_graph,
-        hashes,
-        n2_db,
-        &n2::work::Options {
-            failures_left: Some(10), // FIXME: This value is to match legacy, but might TBD
-            parallelism,
-            explain: cfg.n2_explain,
-            adopt: false,
-            dirty_on_output: true,
-        },
-        &mut *prog_console,
-        n2::smallmap::SmallMap::default(),
-    );
-    want_files(&mut work).context("Failed to determine the files to be built")?;
-
-    // The actual execution done by the n2 executor
-    let res = work.run().context("Failed to run n2 graph");
-    drop(work);
-    drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
-    let res = res?;
-    let action_outputs = captured_output_receiver.into_iter().collect();
-
-    Ok(CapturedBuildExecution {
-        n_tasks_executed: res,
-        action_outputs,
-    })
-}
-
-fn finish_captured_build(
-    cfg: &BuildConfig,
-    execution: &CapturedBuildExecution,
-    build_meta: Option<&BuildMeta>,
-    user_log: &UserLog,
-) -> N2RunStats {
-    let sources = execution.diagnostic_sources(build_meta);
-    let processed = process_captured_diagnostics(&sources, cfg);
-    processed.warn_if_limited(user_log);
-    N2RunStats {
-        n_tasks_executed: execution.n_tasks_executed,
-        n_errors: processed.n_errors,
-        n_warnings: processed.n_warnings,
-    }
-}
-
-fn should_render_non_diagnostic_build_output(cfg: &BuildConfig, build_succeeded: bool) -> bool {
-    !(cfg.suppress_progress && build_succeeded)
-}
-
-struct CapturedDiagnosticSource<'a> {
-    diagnostics: &'a ResultCatcher,
-    build_succeeded: bool,
-    build_meta: Option<&'a BuildMeta>,
-}
-
-struct ProcessedDiagnostics {
-    n_errors: usize,
-    n_warnings: usize,
-    hidden_errors: usize,
-    hidden_warnings: usize,
-}
-
-struct CollectedJsonDiagnostics {
-    processed: ProcessedDiagnostics,
-    diagnostics: Vec<String>,
-    non_diagnostic_output: Vec<String>,
-}
-
-impl ProcessedDiagnostics {
-    fn warn_if_limited(&self, user_log: &UserLog) {
-        if self.hidden_errors != 0 || self.hidden_warnings != 0 {
-            user_log.warn(format!(
-                "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
-                self.hidden_errors, self.hidden_warnings
-            ));
-        }
-    }
-}
-
-fn rewrite_captured_diagnostic(
-    content: &str,
-    cfg: &BuildConfig,
-    build_meta: Option<&BuildMeta>,
-) -> String {
-    let Some(meta) = build_meta else {
-        return content.to_owned();
-    };
-    let layout = meta.artifact_paths.target_layout();
-    let packages = &meta.resolve_output.pkg_dirs;
-    let backend = meta.target_backend();
-
-    if cfg.output_style.needs_moonc_json() {
-        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
-            return content.to_owned();
-        };
-        let mut changed = false;
-        let mut diagnostics = vec![&mut value];
-        while let Some(diagnostic) = diagnostics.pop() {
-            let Some(object) = diagnostic.as_object_mut() else {
-                continue;
-            };
-            if let Some(serde_json::Value::String(path)) = object.get_mut("path")
-                && let Some(physical) =
-                    layout.generated_test_driver_diagnostic_path(packages, Path::new(path), backend)
-            {
-                *path = physical.to_string_lossy().into_owned();
-                changed = true;
-            }
-            if let Some(serde_json::Value::Array(children)) = object.get_mut("children") {
-                diagnostics.extend(children.iter_mut());
-            }
-        }
-        return if changed {
-            serde_json::to_string(&value).expect("diagnostic JSON should serialize")
-        } else {
-            content.to_owned()
-        };
-    }
-
-    let Some(prefix_start) = content.find(GENERATED_TEST_DRIVER_PREFIX) else {
-        return content.to_owned();
-    };
-    let Some(extension_end) = content[prefix_start..].find(".mbt") else {
-        return content.to_owned();
-    };
-    let path_end = prefix_start + extension_end + ".mbt".len();
-    let Some(physical) = layout.generated_test_driver_diagnostic_path(
-        packages,
-        Path::new(&content[..path_end]),
-        backend,
-    ) else {
-        return content.to_owned();
-    };
-    format!("{}{}", physical.display(), &content[path_end..])
-}
-
-fn collect_json_diagnostics(
-    sources: &[CapturedDiagnosticSource<'_>],
-    cfg: &BuildConfig,
-    retain_suppressed_output: bool,
-) -> CollectedJsonDiagnostics {
-    let mut catcher = ResultCatcher::default();
-    for source in sources {
-        catcher.n_errors += source.diagnostics.n_errors;
-        catcher.n_warnings += source.diagnostics.n_warnings;
-    }
-
-    let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
-    let mut non_diagnostic_output = Vec::new();
-    for source in sources {
-        for content in &source.diagnostics.content_writer {
-            let content = rewrite_captured_diagnostic(content, cfg, source.build_meta);
-            match serde_json::from_str::<MooncDiagnostic>(&content) {
-                Ok(diagnostic) => {
-                    if diagnostic_is_generated_test_driver_warning(&diagnostic) {
-                        continue;
-                    }
-                    by_file
-                        .entry(diagnostic.path.clone())
-                        .or_default()
-                        .insert((diagnostic, content));
-                }
-                Err(_) => {
-                    if retain_suppressed_output
-                        || should_render_non_diagnostic_build_output(cfg, source.build_succeeded)
-                    {
-                        non_diagnostic_output.push(content);
-                    }
-                }
-            }
-        }
-    }
-
-    let mut diagnostics = Vec::new();
-    let (hidden_errors, hidden_warnings) = match cfg.diagnostic_limit {
-        None => {
-            for file_diagnostics in by_file.values() {
-                for (diagnostic, content) in file_diagnostics {
-                    diagnostics.push(content.clone());
-                    catcher.append_diag(diagnostic);
-                }
-            }
-            (0, 0)
-        }
-        Some(limit) => {
-            let mut displayed = 0;
-            let mut hidden_errors = 0;
-            let mut total_warnings = 0;
-            let mut displayed_warnings = 0;
-            let mut non_errors = Vec::new();
-
-            for file_diagnostics in by_file.values() {
-                for (diagnostic, content) in file_diagnostics {
-                    if diagnostic_is_error(diagnostic) {
-                        if displayed < limit {
-                            diagnostics.push(content.clone());
-                            catcher.append_diag(diagnostic);
-                            displayed += 1;
-                        } else {
-                            hidden_errors += 1;
-                        }
-                        continue;
-                    }
-
-                    if diagnostic_is_warning(diagnostic) {
-                        total_warnings += 1;
-                    }
-                    if displayed < limit {
-                        non_errors.push((diagnostic, content));
-                    }
-                }
-            }
-
-            if displayed < limit {
-                for (diagnostic, content) in non_errors {
-                    diagnostics.push(content.clone());
-                    catcher.append_diag(diagnostic);
-                    displayed += 1;
-                    if diagnostic_is_warning(diagnostic) {
-                        displayed_warnings += 1;
-                    }
-                    if displayed == limit {
-                        break;
-                    }
-                }
-            }
-
-            let hidden_warnings = total_warnings - displayed_warnings;
-            catcher.n_errors += hidden_errors;
-            catcher.n_warnings += hidden_warnings;
-            (hidden_errors, hidden_warnings)
-        }
-    };
-
-    CollectedJsonDiagnostics {
-        processed: ProcessedDiagnostics {
-            n_errors: catcher.n_errors,
-            n_warnings: catcher.n_warnings,
-            hidden_errors,
-            hidden_warnings,
-        },
-        diagnostics,
-        non_diagnostic_output,
-    }
-}
-
-fn process_captured_diagnostics(
-    sources: &[CapturedDiagnosticSource<'_>],
-    cfg: &BuildConfig,
-) -> ProcessedDiagnostics {
-    if cfg.output_style == OutputStyle::Json {
-        let collected = collect_json_diagnostics(sources, cfg, false);
-        for content in &collected.non_diagnostic_output {
-            eprintln!("{content}");
-        }
-        for content in &collected.diagnostics {
-            println!("{content}");
-        }
-        return collected.processed;
-    }
-
-    let mut catcher = ResultCatcher::default();
-    for source in sources {
-        catcher.n_errors += source.diagnostics.n_errors;
-        catcher.n_warnings += source.diagnostics.n_warnings;
-    }
-    let mut hidden_errors_total = 0;
-    let mut hidden_warnings_total = 0;
-    let captured = sources.iter().flat_map(|source| {
-        source
-            .diagnostics
-            .content_writer
-            .iter()
-            .map(move |content| {
-                (
-                    rewrite_captured_diagnostic(content, cfg, source.build_meta),
-                    source.build_succeeded,
-                )
-            })
-    });
-
-    match cfg.output_style {
-        OutputStyle::Json => unreachable!(),
-        OutputStyle::Fancy => {
-            let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
-            for (content, build_succeeded) in captured {
-                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
-                    Ok(d) => {
-                        if diagnostic_is_generated_test_driver_warning(&d) {
-                            continue;
-                        }
-                        by_file.entry(d.path.clone()).or_default().insert(d);
-                    }
-                    Err(_) => {
-                        // Non-diagnostics output, just print as-is
-                        // This could happen for installing binaries dependencies etc.
-                        if should_render_non_diagnostic_build_output(cfg, build_succeeded) {
-                            eprintln!("{content}");
-                        }
-                    }
-                };
-            }
-
-            let patch_file = cfg.patch_file.as_ref();
-            match cfg.diagnostic_limit {
-                None => {
-                    for file_diagnostics in by_file.values() {
-                        for diag in file_diagnostics {
-                            let kind = diag.render_diagnostics(
-                                n2::terminal::use_fancy(),
-                                patch_file,
-                                cfg.explain_errors,
-                                cfg.render_no_loc,
-                            );
-                            catcher.append_kind(kind);
-                        }
-                    }
-                }
-                Some(limit) => {
-                    let build_config = cfg;
-                    let mut displayed = 0;
-                    let mut hidden_errors = 0;
-                    let mut total_warnings = 0;
-                    let mut displayed_warnings = 0;
-                    let mut non_errors = Vec::new();
-
-                    for file_diagnostics in by_file.values() {
-                        for diag in file_diagnostics {
-                            if !diagnostic_is_renderable(diag, build_config) {
-                                continue;
-                            }
-
-                            if diagnostic_is_error(diag) {
-                                if displayed < limit {
-                                    let kind = diag.render_diagnostics(
-                                        n2::terminal::use_fancy(),
-                                        patch_file,
-                                        build_config.explain_errors,
-                                        build_config.render_no_loc,
-                                    );
-                                    catcher.append_kind(kind);
-                                    displayed += 1;
-                                } else {
-                                    hidden_errors += 1;
-                                }
-                                continue;
-                            }
-
-                            if diagnostic_is_warning(diag) {
-                                total_warnings += 1;
-                            }
-                            if displayed < limit {
-                                non_errors.push(diag);
-                            }
-                        }
-                    }
-
-                    if displayed < limit {
-                        for diag in non_errors {
-                            let kind = diag.render_diagnostics(
-                                n2::terminal::use_fancy(),
-                                patch_file,
-                                build_config.explain_errors,
-                                build_config.render_no_loc,
-                            );
-                            catcher.append_kind(kind);
-                            displayed += 1;
-                            if diagnostic_is_warning(diag) {
-                                displayed_warnings += 1;
-                            }
-                            if displayed == limit {
-                                break;
-                            }
-                        }
-                    }
-
-                    let hidden_warnings = total_warnings - displayed_warnings;
-                    hidden_errors_total += hidden_errors;
-                    hidden_warnings_total += hidden_warnings;
-                    catcher.n_errors += hidden_errors;
-                    catcher.n_warnings += hidden_warnings;
-                }
-            }
-        }
-        OutputStyle::Raw => {
-            for (content, _) in captured {
-                println!("{content}");
-            }
-        }
-    }
-    ProcessedDiagnostics {
-        n_errors: catcher.n_errors,
-        n_warnings: catcher.n_warnings,
-        hidden_errors: hidden_errors_total,
-        hidden_warnings: hidden_warnings_total,
-    }
-}
-
-fn diagnostic_is_error(diag: &MooncDiagnostic) -> bool {
-    diag.level == "error"
-}
-
-fn diagnostic_is_warning(diag: &MooncDiagnostic) -> bool {
-    matches!(diag.level.as_str(), "warn" | "warning")
-}
-
-fn diagnostic_is_generated_test_driver_warning(diag: &MooncDiagnostic) -> bool {
-    diagnostic_is_warning(diag) && diag.path.contains("__generated_driver_for_")
-}
-
-fn diagnostic_is_renderable(diag: &MooncDiagnostic, cfg: &BuildConfig) -> bool {
-    if !diag.path.is_empty() {
-        return true;
-    }
-
-    DiagnosticLevel::from_str(&diag.level, true).is_ok_and(|level| level >= cfg.render_no_loc)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moonutil::render::{Loc, Position};
 
     #[cfg(unix)]
     #[test]
@@ -1972,119 +806,5 @@ mod tests {
         write_metadata_if_changed(&path, "second").unwrap();
         assert_ne!(path.metadata().unwrap().ino(), first_inode);
         assert_eq!(std::fs::read_to_string(path).unwrap(), "second");
-    }
-
-    fn diagnostic(path: &str, level: &str) -> MooncDiagnostic {
-        MooncDiagnostic {
-            path: path.to_string(),
-            loc: Loc {
-                start: Position { line: 1, col: 1 },
-                end: Position { line: 1, col: 2 },
-            },
-            level: level.to_string(),
-            message: String::new(),
-            error_code: 0,
-            children: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn suppresses_generated_test_driver_warnings_only() {
-        assert!(diagnostic_is_generated_test_driver_warning(&diagnostic(
-            "./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt",
-            "warning"
-        )));
-        assert!(!diagnostic_is_generated_test_driver_warning(&diagnostic(
-            "./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt",
-            "error"
-        )));
-        assert!(!diagnostic_is_generated_test_driver_warning(&diagnostic(
-            "./lib/hello.mbt",
-            "warning"
-        )));
-    }
-
-    #[test]
-    fn generated_test_driver_errors_are_counted() {
-        let generated_driver_path =
-            "./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt";
-        let warning = diagnostic(generated_driver_path, "warning");
-        let error = diagnostic(generated_driver_path, "error");
-        let mut catcher = ResultCatcher::default();
-        catcher.append_content(serde_json::to_string(&warning).unwrap(), None);
-        catcher.append_content(serde_json::to_string(&error).unwrap(), None);
-
-        let cfg = BuildConfig {
-            output_style: OutputStyle::Json,
-            ..Default::default()
-        };
-        let processed = process_captured_diagnostics(
-            &[CapturedDiagnosticSource {
-                diagnostics: &catcher,
-                build_succeeded: false,
-                build_meta: None,
-            }],
-            &cfg,
-        );
-
-        assert_eq!(processed.n_warnings, 0);
-        assert_eq!(processed.n_errors, 1);
-    }
-
-    #[test]
-    fn diagnostic_limit_is_shared_across_captured_build_errors() {
-        let mut dependency_error = diagnostic("./dependency.mbt", "error");
-        dependency_error
-            .children
-            .push(diagnostic("./dependency-detail.mbt", "error"));
-        let script_error = diagnostic("./script.mbt", "error");
-        let mut dependency = ResultCatcher::default();
-        dependency.append_content(serde_json::to_string(&dependency_error).unwrap(), None);
-        let mut script = ResultCatcher::default();
-        script.append_content(serde_json::to_string(&script_error).unwrap(), None);
-
-        let cfg = BuildConfig {
-            output_style: OutputStyle::Json,
-            diagnostic_limit: Some(1),
-            ..Default::default()
-        };
-        let processed = process_captured_diagnostics(
-            &[
-                CapturedDiagnosticSource {
-                    diagnostics: &dependency,
-                    build_succeeded: true,
-                    build_meta: None,
-                },
-                CapturedDiagnosticSource {
-                    diagnostics: &script,
-                    build_succeeded: false,
-                    build_meta: None,
-                },
-            ],
-            &cfg,
-        );
-
-        assert_eq!(processed.n_errors, 2);
-        assert_eq!(processed.n_warnings, 0);
-        assert_eq!(processed.hidden_errors, 1);
-        assert_eq!(processed.hidden_warnings, 0);
-    }
-
-    #[test]
-    fn structured_json_retains_successful_output_when_progress_is_suppressed() {
-        let mut catcher = ResultCatcher::default();
-        catcher.append_content("PREBUILD_SUCCESS", None);
-        let cfg = BuildConfig::default().with_suppressed_progress(true);
-        let sources = [CapturedDiagnosticSource {
-            diagnostics: &catcher,
-            build_succeeded: true,
-            build_meta: None,
-        }];
-
-        let collected = collect_json_diagnostics(&sources, &cfg, true);
-        assert_eq!(collected.non_diagnostic_output, ["PREBUILD_SUCCESS"]);
-
-        let rendered = collect_json_diagnostics(&sources, &cfg, false);
-        assert!(rendered.non_diagnostic_output.is_empty());
     }
 }

@@ -16,9 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(feature = "v8")]
+use super::context::ImportContext;
+#[cfg(feature = "v8")]
 use super::context::{
-    FinishI32, FinishI64, FinishVoid, ImportArgs, ImportContext, callback_context,
-    throw_import_error,
+    FinishI32, FinishI64, FinishVoid, ImportArgs, callback_context, throw_import_error,
 };
 #[cfg(test)]
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
@@ -101,6 +103,7 @@ macro_rules! wasm_result {
     };
 }
 
+#[cfg(feature = "v8")]
 macro_rules! decode_wasm_arg {
     ($args:ident, i32) => {
         $args.next_i32()
@@ -116,6 +119,7 @@ macro_rules! decode_wasm_arg {
     };
 }
 
+#[cfg(feature = "v8")]
 macro_rules! decode_wasm_args {
     ($scope:ident, $args:ident,) => {
         Ok(())
@@ -132,6 +136,7 @@ macro_rules! decode_wasm_args {
     }};
 }
 
+#[cfg(feature = "v8")]
 macro_rules! wasm_arg_count {
     () => {
         0_i32
@@ -141,6 +146,7 @@ macro_rules! wasm_arg_count {
     };
 }
 
+#[cfg(feature = "v8")]
 macro_rules! finish_wasm_import {
     ($scope:ident, $ret:ident, $name:expr, void, $result:expr) => {
         $result.finish_void($scope, &mut $ret, $name)
@@ -156,6 +162,171 @@ macro_rules! finish_wasm_import {
     };
     ($scope:ident, $ret:ident, $name:expr, u64, $result:expr) => {
         $result.finish_i64($scope, &mut $ret, $name)
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+trait FinishWasmtimeVoid {
+    fn finish(self, import_name: &str) -> wasmtime::Result<()>;
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeVoid for () {
+    fn finish(self, _import_name: &str) -> wasmtime::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeVoid for crate::async_host::AsyncHostResult<()> {
+    fn finish(self, import_name: &str) -> wasmtime::Result<()> {
+        self.map_err(|error| {
+            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
+        })
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+trait FinishWasmtimeI32 {
+    fn finish(self, import_name: &str) -> wasmtime::Result<i32>;
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI32 for i32 {
+    fn finish(self, _import_name: &str) -> wasmtime::Result<i32> {
+        Ok(self)
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI32 for u32 {
+    fn finish(self, _import_name: &str) -> wasmtime::Result<i32> {
+        Ok(self as i32)
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI32 for crate::async_host::AsyncHostResult<i32> {
+    fn finish(self, import_name: &str) -> wasmtime::Result<i32> {
+        self.map_err(|error| {
+            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
+        })
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI32 for crate::async_host::AsyncHostResult<u32> {
+    fn finish(self, import_name: &str) -> wasmtime::Result<i32> {
+        self.map(|value| value as i32).map_err(|error| {
+            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
+        })
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+trait FinishWasmtimeI64 {
+    fn finish(self, import_name: &str) -> wasmtime::Result<i64>;
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI64 for i64 {
+    fn finish(self, _import_name: &str) -> wasmtime::Result<i64> {
+        Ok(self)
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI64 for u64 {
+    fn finish(self, _import_name: &str) -> wasmtime::Result<i64> {
+        Ok(self as i64)
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI64 for crate::async_host::AsyncHostResult<i64> {
+    fn finish(self, import_name: &str) -> wasmtime::Result<i64> {
+        self.map_err(|error| {
+            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
+        })
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+impl FinishWasmtimeI64 for crate::async_host::AsyncHostResult<u64> {
+    fn finish(self, import_name: &str) -> wasmtime::Result<i64> {
+        self.map(|value| value as i64).map_err(|error| {
+            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
+        })
+    }
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! wasmtime_arg_type {
+    (i32) => {
+        i32
+    };
+    (u32) => {
+        i32
+    };
+    (i64) => {
+        i64
+    };
+    (u64) => {
+        i64
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! decode_wasmtime_arg {
+    ($arg:ident, i32) => {
+        $arg
+    };
+    ($arg:ident, u32) => {
+        $arg as u32
+    };
+    ($arg:ident, i64) => {
+        $arg
+    };
+    ($arg:ident, u64) => {
+        $arg as u64
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! wasmtime_return_type {
+    (void) => {
+        ()
+    };
+    (i32) => {
+        i32
+    };
+    (u32) => {
+        i32
+    };
+    (i64) => {
+        i64
+    };
+    (u64) => {
+        i64
+    };
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! finish_wasmtime_import {
+    ($name:expr, void, $result:expr) => {
+        FinishWasmtimeVoid::finish($result, $name)
+    };
+    ($name:expr, i32, $result:expr) => {
+        FinishWasmtimeI32::finish($result, $name)
+    };
+    ($name:expr, u32, $result:expr) => {
+        FinishWasmtimeI32::finish($result, $name)
+    };
+    ($name:expr, i64, $result:expr) => {
+        FinishWasmtimeI64::finish($result, $name)
+    };
+    ($name:expr, u64, $result:expr) => {
+        FinishWasmtimeI64::finish($result, $name)
     };
 }
 
@@ -181,6 +352,7 @@ macro_rules! declare_async_imports {
             )*
         ];
 
+        #[cfg(feature = "v8")]
         pub(super) fn register_imports<'s>(
             obj: v8::Local<'s, v8::Object>,
             scope: &mut v8::HandleScope<'s>,
@@ -200,9 +372,28 @@ macro_rules! declare_async_imports {
                 );
             )*
         }
+
+        #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+        pub(crate) fn register_wasmtime_imports(
+            linker: &mut wasmtime::Linker<crate::wasmtime::StoreData>,
+        ) -> wasmtime::Result<()> {
+            $(
+                $(#[$meta])*
+                register_wasmtime_async_import!(
+                    $kind,
+                    linker,
+                    $wasm_symbol,
+                    $ret_ty,
+                    $module::$callback,
+                    ($($arg : $arg_ty),*)
+                );
+            )*
+            Ok(())
+        }
     };
 }
 
+#[cfg(feature = "v8")]
 macro_rules! register_async_import {
     (
         fake,
@@ -280,6 +471,62 @@ macro_rules! register_async_import {
             callback,
             $context_ptr,
         );
+    }};
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+macro_rules! register_wasmtime_async_import {
+    (
+        fake,
+        $linker:ident,
+        $wasm_symbol:literal,
+        $ret_ty:ident,
+        $module:ident::$callback:ident,
+        ($($arg:ident : $arg_ty:ident),* $(,)?)
+    ) => {{
+        $linker.func_wrap(
+            MOONBIT_ASYNC_MODULE,
+            $wasm_symbol,
+            |_: wasmtime::Caller<'_, crate::wasmtime::StoreData>
+                $(, $arg: wasmtime_arg_type!($arg_ty))*|
+                -> wasmtime::Result<wasmtime_return_type!($ret_ty)> {
+                let _ = ($($arg,)*);
+                Err(wasmtime::format_err!(
+                    "platform-inactive moonbitlang/async import `{}` was called",
+                    $wasm_symbol,
+                ))
+            },
+        )?;
+    }};
+    (
+        $kind:ident,
+        $linker:ident,
+        $wasm_symbol:literal,
+        $ret_ty:ident,
+        $module:ident::$callback:ident,
+        ($($arg:ident : $arg_ty:ident),* $(,)?)
+    ) => {{
+        $linker.func_wrap(
+            MOONBIT_ASYNC_MODULE,
+            $wasm_symbol,
+            |mut caller: wasmtime::Caller<'_, crate::wasmtime::StoreData>
+                $(, $arg: wasmtime_arg_type!($arg_ty))*|
+                -> wasmtime::Result<wasmtime_return_type!($ret_ty)> {
+                let result = super::context::with_wasmtime_context(
+                    &mut caller,
+                    |context| {
+                        $module::$callback(
+                            context,
+                            $(decode_wasmtime_arg!($arg, $arg_ty)),*
+                        )
+                    },
+                );
+                if caller.data().termination_request().is_requested() {
+                    return Err(wasmtime::format_err!("run termination requested"));
+                }
+                finish_wasmtime_import!($wasm_symbol, $ret_ty, result)
+            },
+        )?;
     }};
 }
 
@@ -381,13 +628,17 @@ declare_async_imports! {
 
     ported thread_pool::spawn_worker(completion_id: i32, job: u64) -> u64 => "thread_pool/spawn_worker";
 
+    helper thread_pool::spawn_worker_with_pipe(completion_id: i32, job: u64, writer: u64) -> u64 => "thread_pool/spawn_worker_with_pipe";
+
     ported thread_pool::free_worker(worker: u64) -> void => "thread_pool/free_worker";
 
     ported thread_pool::wake_worker(worker: u64, completion_id: i32, job: u64) -> void => "thread_pool/wake_worker";
 
     ported thread_pool::worker_enter_idle(worker: u64) -> void => "thread_pool/worker_enter_idle";
 
-    ported thread_pool::cancel_worker(worker: u64) -> i32 => "thread_pool/cancel_worker";
+    compat thread_pool::cancel_worker(worker: u64) -> i32 => "thread_pool/cancel_worker";
+
+    ported thread_pool::cancel_worker_with_retry(worker: u64) -> i32 => "thread_pool/cancel_worker_with_retry";
 
     helper thread_pool::init_thread_pool(poll: u64) -> u64 => "thread_pool/init_thread_pool";
 
@@ -411,23 +662,23 @@ declare_async_imports! {
     // os_error/stub.c predicates, errno accessors, and string formatting.
     ported os_error::get_errno() -> i32 => "os_error/get_errno";
 
-    ported os_error::is_nonblocking_io_error(errno: i32) -> i32 => "os_error/is_nonblocking_io_error";
+    compat os_error::is_nonblocking_io_error(errno: i32) -> i32 => "os_error/is_nonblocking_io_error";
 
-    ported os_error::is_eintr(errno: i32) -> i32 => "os_error/is_EINTR";
+    compat os_error::is_eintr(errno: i32) -> i32 => "os_error/is_EINTR";
 
-    ported os_error::is_enoent(errno: i32) -> i32 => "os_error/is_ENOENT";
+    compat os_error::is_enoent(errno: i32) -> i32 => "os_error/is_ENOENT";
 
-    ported os_error::is_eexist(errno: i32) -> i32 => "os_error/is_EEXIST";
+    compat os_error::is_eexist(errno: i32) -> i32 => "os_error/is_EEXIST";
 
-    ported os_error::is_eacces(errno: i32) -> i32 => "os_error/is_EACCES";
+    compat os_error::is_eacces(errno: i32) -> i32 => "os_error/is_EACCES";
 
-    ported os_error::is_econnrefused(errno: i32) -> i32 => "os_error/is_ECONNREFUSED";
+    compat os_error::is_econnrefused(errno: i32) -> i32 => "os_error/is_ECONNREFUSED";
 
-    ported os_error::is_error_notify_enum_dir(errno: i32) -> i32 => "os_error/is_ERROR_NOTIFY_ENUM_DIR";
+    compat os_error::is_error_notify_enum_dir(errno: i32) -> i32 => "os_error/is_ERROR_NOTIFY_ENUM_DIR";
 
-    ported os_error::get_enotdir() -> i32 => "os_error/get_ENOTDIR";
+    compat os_error::get_enotdir() -> i32 => "os_error/get_ENOTDIR";
 
-    ported os_error::get_enotsup() -> i32 => "os_error/get_ENOTSUP";
+    compat os_error::get_enotsup() -> i32 => "os_error/get_ENOTSUP";
 
     ported os_error::errno_to_string(errno: i32) -> u64 => "os_error/errno_to_string";
 
@@ -455,6 +706,16 @@ declare_async_imports! {
 
     #[cfg(windows)]
     ported signal::set_console_control_handler(add: i32) -> i32 => "signal/set_console_control_handler";
+
+    #[cfg(unix)]
+    ported signal::start_signal_handler() -> void => "signal/start_signal_handler";
+    #[cfg(windows)]
+    fake signal::start_signal_handler() -> void => "signal/start_signal_handler";
+
+    #[cfg(unix)]
+    ported signal::terminate_signal_handler() -> void => "signal/terminate_signal_handler";
+    #[cfg(windows)]
+    fake signal::terminate_signal_handler() -> void => "signal/terminate_signal_handler";
 
     #[cfg(unix)]
     fake signal::set_console_control_handler(add: i32) -> i32 => "signal/set_console_control_handler";
@@ -569,6 +830,7 @@ declare_async_imports! {
     ported socket::disable_nagle(fd: u64) -> i32 => "socket/disable_nagle";
 
     ported socket::allow_reuse_addr(fd: u64) -> i32 => "socket/allow_reuse_addr";
+    ported socket::allow_reuse_port(fd: u64) -> i32 => "socket/allow_reuse_port";
 
     ported socket::set_ipv6_only(fd: u64, ipv6_only: i32) -> i32 => "socket/set_ipv6_only";
 
@@ -1371,7 +1633,7 @@ declare_async_imports! {
     ported thread_pool::make_wait_for_process_job(handle: u64, pid: i32) -> u64 => "thread_pool/make_wait_for_process_job";
 
     #[cfg(unix)]
-    ported thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
+    compat thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
 
     #[cfg(windows)]
     fake thread_pool::make_sigwait_job(signals: u32, signals_len: u32) -> u64 => "thread_pool/make_sigwait_job";
@@ -1485,6 +1747,7 @@ fn async_api_compat_imports() -> Vec<super::provenance::CompatImport> {
     imports.extend_from_slice(thread_pool::COMPAT_IMPORTS);
     imports.extend_from_slice(fd_util::COMPAT_IMPORTS);
     imports.extend_from_slice(process::COMPAT_IMPORTS);
+    imports.extend_from_slice(os_error::COMPAT_IMPORTS);
     imports
 }
 
@@ -1705,6 +1968,48 @@ mod tests {
                 Some(AsyncImportKind::Compat),
                 "removed native stat ABI {wasm_symbol} must remain available through a compatibility adapter"
             );
+        }
+    }
+
+    #[test]
+    fn signal_handler_imports_coexist_with_the_legacy_job_abi() {
+        for symbol in [
+            "signal/start_signal_handler",
+            "signal/terminate_signal_handler",
+        ] {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == symbol)
+                .unwrap();
+            assert!(import.params.is_empty());
+            assert_eq!(import.result, None);
+        }
+        let legacy = ASYNC_IMPORTS
+            .iter()
+            .find(|import| import.wasm_symbol == "thread_pool/make_sigwait_job")
+            .unwrap();
+        assert_eq!(legacy.params, &[WasmType::I32, WasmType::I32]);
+        assert_eq!(legacy.result, Some(WasmType::I64));
+        #[cfg(unix)]
+        assert_eq!(legacy.kind, AsyncImportKind::Compat);
+    }
+
+    #[test]
+    fn cancellation_retry_imports_preserve_the_legacy_abi() {
+        for (symbol, kind) in [
+            ("thread_pool/cancel_worker", AsyncImportKind::Compat),
+            (
+                "thread_pool/cancel_worker_with_retry",
+                AsyncImportKind::Ported,
+            ),
+        ] {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == symbol)
+                .unwrap();
+            assert_eq!(import.kind, kind);
+            assert_eq!(import.params, &[WasmType::I64]);
+            assert_eq!(import.result, Some(WasmType::I32));
         }
     }
 

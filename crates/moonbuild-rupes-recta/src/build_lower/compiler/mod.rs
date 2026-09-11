@@ -197,6 +197,8 @@ pub(super) struct CompilationFlags {
     pub no_opt: bool,
     /// Include debug symbols (adds -g)
     pub symbols: bool,
+    /// Include lightweight direct-native backtrace metadata (adds -stacktrace)
+    pub stacktrace: bool,
     /// Emit source map file for supported backends (JS and WASM)
     pub source_map: bool,
     /// Enable code coverage instrumentation.

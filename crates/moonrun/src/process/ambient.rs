@@ -31,6 +31,8 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 use crate::policy::PolicyInheritance;
@@ -508,12 +510,10 @@ fn spawn_process_windows(
 
     let mut inherited_handles =
         Vec::with_capacity(stdio.len() + usize::from(policy_transfer.is_some()));
-    for resource in &stdio {
-        let raw = match resource
-            .as_deref()
-            .ok_or(AsyncHostError::Badf)
-            .and_then(spawn_stdio_handle)
-        {
+    let mut stdio_handles = [std::ptr::null_mut(); 3];
+    for (slot, resource) in stdio_handles.iter_mut().zip(&stdio) {
+        let Some(resource) = resource else { continue };
+        let raw = match spawn_stdio_handle(resource) {
             Ok(raw) => raw,
             Err(error) => {
                 close_handles(&inherited_handles);
@@ -521,7 +521,10 @@ fn spawn_process_windows(
             }
         };
         match duplicate_inheritable_handle(raw) {
-            Ok(handle) => inherited_handles.push(handle),
+            Ok(handle) => {
+                *slot = handle;
+                inherited_handles.push(handle);
+            }
             Err(error) => {
                 close_handles(&inherited_handles);
                 return Err(error);
@@ -548,9 +551,9 @@ fn spawn_process_windows(
     let mut startup_info = unsafe { std::mem::zeroed::<STARTUPINFOEXW>() };
     startup_info.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
     startup_info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    startup_info.StartupInfo.hStdInput = inherited_handles[0];
-    startup_info.StartupInfo.hStdOutput = inherited_handles[1];
-    startup_info.StartupInfo.hStdError = inherited_handles[2];
+    startup_info.StartupInfo.hStdInput = stdio_handles[0];
+    startup_info.StartupInfo.hStdOutput = stdio_handles[1];
+    startup_info.StartupInfo.hStdError = stdio_handles[2];
 
     let attr_count = if job_object.is_some() { 2 } else { 1 };
     let mut attrs_size = 0;
@@ -573,17 +576,19 @@ fn spawn_process_windows(
         return Err(error);
     }
 
-    if unsafe {
-        UpdateProcThreadAttribute(
-            startup_info.lpAttributeList,
-            0,
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-            inherited_handles.as_ptr().cast(),
-            inherited_handles.len() * std::mem::size_of::<HANDLE>(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    } == 0
+    // Win32 rejects an empty explicit handle list with ERROR_BAD_LENGTH.
+    if !inherited_handles.is_empty()
+        && unsafe {
+            UpdateProcThreadAttribute(
+                startup_info.lpAttributeList,
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                inherited_handles.as_ptr().cast(),
+                inherited_handles.len() * std::mem::size_of::<HANDLE>(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        } == 0
     {
         let error = last_native_error();
         unsafe {
@@ -625,7 +630,7 @@ fn spawn_process_windows(
             command_line.as_mut_ptr(),
             std::ptr::null(),
             std::ptr::null(),
-            1,
+            i32::from(!inherited_handles.is_empty()),
             create_flags,
             env_block.as_ptr().cast(),
             cwd.as_ref().map_or(std::ptr::null(), |cwd| cwd.as_ptr()),
@@ -784,55 +789,59 @@ fn wait_for_process(
 
 #[cfg(target_os = "linux")]
 fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i64> {
-    let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-    // Policy mode reaps only after atomically revoking PID authority.
-    let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
-    if unsafe { libc::waitid(libc::P_PIDFD, pidfd as libc::id_t, &mut siginfo, flags) } < 0 {
-        return Err(last_native_error());
-    }
-    Ok(i64::from(
-        crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
-            siginfo.si_status()
-        }),
-    ))
+    with_cancellable_region(|| {
+        let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // Policy mode reaps only after atomically revoking PID authority.
+        let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
+        if unsafe { libc::waitid(libc::P_PIDFD, pidfd as libc::id_t, &mut siginfo, flags) } < 0 {
+            return Err(last_native_error());
+        }
+        Ok(i64::from(
+            crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
+                siginfo.si_status()
+            }),
+        ))
+    })
 }
 
 #[cfg(unix)]
 fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
-    if !defer_reap {
-        let mut status = 0;
-        let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
-        if ret < 0 {
+    with_cancellable_region(|| {
+        if !defer_reap {
+            let mut status = 0;
+            let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if ret < 0 {
+                return Err(last_native_error());
+            }
+            if ret != pid {
+                return Err(AsyncHostError::Inval);
+            }
+            return Ok(i64::from(
+                crate::async_sys::process::unix_wait_status_exit_code(status),
+            ));
+        }
+        let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // The host reaps after atomically revoking policy PID authority.
+        if unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut siginfo,
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        } < 0
+        {
             return Err(last_native_error());
         }
-        if ret != pid {
+        if unsafe { siginfo.si_pid() } != pid {
             return Err(AsyncHostError::Inval);
         }
-        return Ok(i64::from(
-            crate::async_sys::process::unix_wait_status_exit_code(status),
-        ));
-    }
-    let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-    // The host reaps after atomically revoking policy PID authority.
-    if unsafe {
-        libc::waitid(
-            libc::P_PID,
-            pid as libc::id_t,
-            &mut siginfo,
-            libc::WEXITED | libc::WNOWAIT,
-        )
-    } < 0
-    {
-        return Err(last_native_error());
-    }
-    if unsafe { siginfo.si_pid() } != pid {
-        return Err(AsyncHostError::Inval);
-    }
-    Ok(i64::from(
-        crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
-            siginfo.si_status()
-        }),
-    ))
+        Ok(i64::from(
+            crate::async_sys::process::unix_siginfo_exit_code(siginfo.si_code, unsafe {
+                siginfo.si_status()
+            }),
+        ))
+    })
 }
 
 #[cfg(windows)]
@@ -1045,6 +1054,83 @@ mod tests {
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
+
+    #[test]
+    fn spawn_without_standard_handles() {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
+        use windows_sys::Win32::System::Console::{
+            STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
+        };
+        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
+
+        const CHILD: &str = "MOONRUN_TEST_ABSENT_STDIO";
+        if std::env::var_os(CHILD).is_none() {
+            // Changing process stdio must not affect other tests or libtest's
+            // own output. Exercise both Win32 representations in isolated runs.
+            for missing in ["null", "invalid"] {
+                assert!(
+                    std::process::Command::new(std::env::current_exe().unwrap())
+                        .args([
+                            "--exact",
+                            "process::ambient::windows_tests::spawn_without_standard_handles"
+                        ])
+                        .env(CHILD, missing)
+                        .status()
+                        .unwrap()
+                        .success()
+                );
+            }
+            return;
+        }
+        let missing = if std::env::var(CHILD).unwrap() == "null" {
+            std::ptr::null_mut()
+        } else {
+            INVALID_HANDLE_VALUE
+        };
+        for stream in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            assert_ne!(unsafe { SetStdHandle(stream, missing) }, 0);
+        }
+
+        // Cover an empty inheritance list and a partial stdio set, with and
+        // without the child Job Object attribute.
+        for is_orphan in [false, true] {
+            for redirect_stdout in [false, true] {
+                let output = tempfile::tempfile().unwrap();
+                let stdout = redirect_stdout
+                    .then(|| std::sync::Arc::new(Resource::stdio_file(output.as_raw_handle())));
+                let command = std::env::var("COMSPEC").unwrap();
+                let mut job = super::super::Job::spawn_windows(
+                    format!("\"{command}\" /d /c exit 23").into(),
+                    vec![0, 0],
+                    None,
+                    stdout,
+                    None,
+                    None,
+                    SpawnOptions {
+                        no_console_window: true,
+                        is_orphan,
+                    },
+                );
+                job.configure_stdio(&crate::runtime::Stdio::Ambient)
+                    .unwrap();
+                assert!(job.run().unwrap() > 0);
+                let Some(ResourcePublication::Unpublished(process)) =
+                    job.take_spawn_result().unwrap()
+                else {
+                    panic!("spawn must publish its process handle");
+                };
+                let handle = process.as_file().unwrap().as_raw_handle();
+                assert_eq!(
+                    unsafe { WaitForSingleObject(handle, 10_000) },
+                    WAIT_OBJECT_0
+                );
+                let mut exit_code = 0;
+                assert_ne!(unsafe { GetExitCodeProcess(handle, &mut exit_code) }, 0);
+                assert_eq!(exit_code, 23);
+            }
+        }
+    }
 
     #[test]
     fn spawn_stdio_accepts_socket_resource() {

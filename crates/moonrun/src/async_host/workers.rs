@@ -29,7 +29,8 @@ use slotmap::SecondaryMap;
 
 use super::{AsyncHostError, AsyncHostResult, HandleKey};
 use crate::async_sys::internal::event_loop::thread_pool::{
-    self, HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId,
+    self, CancellationOutcome, HostWorkerHandle, HostWorkerJob, HostWorkerJobResult,
+    WorkerCompletionDestination,
 };
 
 pub(super) struct InstanceWorkers {
@@ -61,19 +62,21 @@ impl InstanceWorkers {
         worker: HandleKey,
         init_job: HostWorkerJob,
         run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        mut notify_completion: impl FnMut(WorkerCompletionId) + Send + 'static,
+        completion: WorkerCompletionDestination,
     ) -> AsyncHostResult<()> {
         let mut workers = self.workers.borrow_mut();
         if workers.contains_key(worker) {
             return Err(AsyncHostError::Badf);
         }
         let completed = self.completed_sender.clone();
-        let handle = thread_pool::spawn_worker(init_job, run_job, move |result| {
-            let completion_id = result.completion_id;
-            if completed.send(result).is_ok() {
-                notify_completion(completion_id);
-            }
-        });
+        let handle = thread_pool::spawn_worker(
+            init_job,
+            run_job,
+            move |result| {
+                let _ = completed.send(result);
+            },
+            completion,
+        );
         workers.insert(worker, handle);
         Ok(())
     }
@@ -94,10 +97,26 @@ impl InstanceWorkers {
         Ok(thread_pool::worker_enter_idle(worker))
     }
 
-    pub(super) fn cancel(&self, worker: HandleKey) -> AsyncHostResult<i32> {
+    pub(super) fn cancel(&self, worker: HandleKey) -> AsyncHostResult<CancellationOutcome> {
         let workers = self.workers.borrow();
         let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
-        cancel_host_worker(worker)
+        thread_pool::cancel_worker(worker)
+    }
+
+    pub(super) fn cancel_with_retry(
+        &self,
+        worker: HandleKey,
+        #[cfg(unix)] notifier: std::sync::Arc<
+            crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier,
+        >,
+    ) -> AsyncHostResult<CancellationOutcome> {
+        let workers = self.workers.borrow();
+        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
+        thread_pool::cancel_worker_with_retry(
+            worker,
+            #[cfg(unix)]
+            notifier,
+        )
     }
 
     pub(super) fn free(&self, worker: HandleKey) -> AsyncHostResult<Option<HostWorkerJob>> {
@@ -106,7 +125,7 @@ impl InstanceWorkers {
             .borrow_mut()
             .remove(worker)
             .ok_or(AsyncHostError::Badf)?;
-        let _ = cancel_host_worker(&worker);
+        let _ = thread_pool::cancel_worker(&worker);
         Ok(thread_pool::free_worker(worker))
     }
 
@@ -137,8 +156,13 @@ impl InstanceWorkers {
 
         // Cancellation must fan out before any join: one slow Worker must not
         // prevent the remaining Workers from receiving their stop request.
+        // FIXME: after the guest stops polling, a cancellation signal arriving
+        // before a blocking syscall may still need a retry to let join finish.
+        // Define cancellation retry ownership for Run teardown outside
+        // native free_worker; neither join nor repeated signals can forcibly
+        // stop noncooperative computation.
         for (_, worker) in &workers {
-            let _ = cancel_host_worker(worker);
+            let _ = thread_pool::cancel_worker(worker);
         }
         workers
             .into_iter()
@@ -161,24 +185,10 @@ pub(super) struct StoppedWorker {
     pub(super) unrun_job: Option<HostWorkerJob>,
 }
 
-fn cancel_host_worker(worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
-    #[cfg(windows)]
-    {
-        match thread_pool::worker_cancellation_target(worker) {
-            thread_pool::WorkerCancellationTarget::Resource(cancel) => {
-                crate::process::cancel_wait(&cancel)?;
-                return Ok(1);
-            }
-            thread_pool::WorkerCancellationTarget::Thread => {}
-        }
-    }
-    thread_pool::cancel_worker(worker)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::make_sleep_job;
+    use crate::async_sys::internal::event_loop::thread_pool::{WorkerCompletionId, make_sleep_job};
     use slotmap::KeyData;
     use std::time::Duration;
 
@@ -226,19 +236,21 @@ mod tests {
                     worker_may_proceed.recv().unwrap();
                     thread_pool::run_host_job(&mut job.job);
                 },
-                move |completion_id| completed.send(completion_id).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                    completed.send(completion_id).unwrap()
+                })),
             )
             .unwrap();
 
         worker_started.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(workers.cancel(worker), Ok(0));
+        assert_eq!(workers.cancel(worker), Ok(CancellationOutcome::RetryLater));
         proceed.send(()).unwrap();
 
         let first_completion = completion.recv_timeout(Duration::from_secs(1));
         if first_completion.is_err() {
             // Release the old implementation so a failing assertion does not
             // leave its Worker blocked in read(2).
-            assert_eq!(workers.cancel(worker), Ok(0));
+            assert_eq!(workers.cancel(worker), Ok(CancellationOutcome::RetryLater));
             completion.recv_timeout(Duration::from_secs(1)).unwrap();
         }
         let completion_id = first_completion.expect("the first cancellation was lost");
@@ -264,7 +276,9 @@ mod tests {
                 worker,
                 job(11, 101),
                 |_| {},
-                move |completion| first_sender.send(completion).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion| {
+                    first_sender.send(completion).unwrap()
+                })),
             )
             .unwrap();
         second
@@ -272,7 +286,9 @@ mod tests {
                 worker,
                 job(22, 202),
                 |_| {},
-                move |completion| second_sender.send(completion).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion| {
+                    second_sender.send(completion).unwrap()
+                })),
             )
             .unwrap();
 

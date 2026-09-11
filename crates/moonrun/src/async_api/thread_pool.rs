@@ -39,12 +39,12 @@ pub(super) fn free_job(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHo
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn job_get_ret(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
-    context.host.job_get_ret(job).map(|value| value as i32)
+    context.host.with_job(job, thread_pool::job_get_ret).map(|value| value as i32)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn job_get_err(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
-    context.host.job_get_err(job)
+    context.host.with_job(job, thread_pool::job_get_err)
 }
 
 pub(super) fn run_job(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<()> {
@@ -68,6 +68,15 @@ pub(super) fn spawn_worker(
     context.host.spawn_worker(completion_id, job)
 }
 
+pub(super) fn spawn_worker_with_pipe(
+    context: &mut ImportContext<'_, '_>,
+    completion_id: i32,
+    job: u64,
+    writer: u64,
+) -> AsyncHostResult<u64> {
+    context.host.spawn_worker_with_pipe(completion_id, job, writer)
+}
+
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn free_worker(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<()> {
     context.host.free_worker(worker)
@@ -88,9 +97,20 @@ pub(super) fn worker_enter_idle(context: &mut ImportContext<'_, '_>, worker: u64
     context.host.worker_enter_idle(worker)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[compat(
+    source = "src/internal/event_loop/thread_pool.wasm.mbt",
+    original = "thread_pool/cancel_worker",
+    upstream_pr = 595,
+    replacement = "thread_pool/cancel_worker_with_retry",
+    api_only = true
+)]
 pub(super) fn cancel_worker(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<i32> {
     context.host.cancel_worker(worker)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c", original = "moonbitlang_async_cancel_worker")]
+pub(super) fn cancel_worker_with_retry(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<i32> {
+    context.host.cancel_worker_with_retry(worker)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -808,7 +828,13 @@ pub(super) fn make_wait_for_process_job(
     context.host.make_wait_for_process_job(handle, pid)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[compat(
+    source = "src/internal/event_loop/thread_pool.c",
+    original = "moonbitlang_async_make_sigwait_job",
+    upstream_pr = 581,
+    replacement = "signal/start_signal_handler and signal/terminate_signal_handler",
+    api_only = true
+)]
 #[cfg(unix)]
 pub(super) fn make_sigwait_job(
     context: &mut ImportContext<'_, '_>,

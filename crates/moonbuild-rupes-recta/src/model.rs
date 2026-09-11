@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::{
-    compiler_flags::NativeAllocator,
+    compiler_flags::{CompilerPaths, NativeAllocator},
     resolution::{ModuleId, ResolvedEnv},
     target::TargetBackend,
 };
@@ -33,8 +33,8 @@ slotmap::new_key_type! {
 ///
 /// This is the single source of truth after the user-visible target backend is
 /// resolved. Keeping backend-specific options inside the matching variant
-/// prevents invalid combinations such as a native implementation mode on a
-/// Wasm build.
+/// prevents invalid combinations such as WASI linking on a Native build.
+/// Native payload form is derived by planning and is not a caller option.
 #[derive(Clone, Debug)]
 pub enum BackendConfig {
     Wasm {
@@ -46,15 +46,41 @@ pub enum BackendConfig {
     },
     Js,
     Native {
-        mode: NativeBackendMode,
+        /// Direct object target permitted by the caller's host/environment.
+        /// Planning may still select generated C based on profile and packages.
+        direct_object_candidate: Option<NativeTarget>,
         allocator: NativeAllocator,
+        /// Supplied by command orchestration; RR does not infer the host OS.
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
     },
     Llvm {
         allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
     },
 }
 
 pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
+
+/// Debug requirements selected by the caller before backend planning.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DebugInfoRequest {
+    pub symbols: DebugSymbols,
+    /// Request native runtime backtrace reporting independently of compiler
+    /// debug information. This alone does not guarantee source locations.
+    pub runtime_backtrace: bool,
+}
+
+/// Requested symbol detail, resolved after planning selects the payload form.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DebugSymbols {
+    #[default]
+    None,
+    /// Retain enough information to report MoonBit source locations on failure.
+    Backtrace,
+    Full,
+}
 
 /// Concrete native object-code backend selected under the `native` surface target.
 ///
@@ -69,7 +95,7 @@ pub enum NativeTarget {
 
 /// The native implementation selected under the user-visible `native` backend.
 #[derive(Clone, Debug)]
-pub enum NativeBackendMode {
+pub(crate) enum NativeBackendMode {
     /// Legacy generated-C native path.
     GeneratedC,
     /// Experimental direct object-code native path.
@@ -78,21 +104,13 @@ pub enum NativeBackendMode {
 
 /// Concrete direct object-code native implementation.
 #[derive(Clone, Debug)]
-pub enum DirectNativeMode {
+pub(crate) enum DirectNativeMode {
     Target(NativeTarget),
 }
 
 impl NativeTarget {
-    pub fn from_env_for_host() -> Option<Self> {
-        let env_value = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
-        Self::from_host_with_new_native_env(
-            std::env::consts::ARCH,
-            std::env::consts::OS,
-            env_value.as_deref(),
-        )
-    }
-
-    fn from_host_with_new_native_env(
+    /// Interpret caller-supplied host and `MOONBIT_NEW_NATIVE` observations.
+    pub fn from_host_with_new_native_env(
         arch: &str,
         os: &str,
         env_value: Option<&str>,
@@ -147,16 +165,25 @@ impl BackendConfig {
         }
     }
 
-    pub fn direct_native_target(&self) -> Option<NativeTarget> {
+    pub fn native_allocator(&self) -> Option<NativeAllocator> {
         match self {
-            Self::Native { mode, .. } => mode.direct_target(),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => None,
+            Self::Native { allocator, .. } | Self::Llvm { allocator, .. } => Some(*allocator),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
         }
     }
 
-    pub fn native_allocator(&self) -> Option<NativeAllocator> {
+    pub(crate) fn os(&self) -> OperatingSystem {
         match self {
-            Self::Native { allocator, .. } | Self::Llvm { allocator } => Some(*allocator),
+            Self::Native { os, .. } | Self::Llvm { os, .. } => *os,
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => OperatingSystem::None,
+        }
+    }
+
+    pub(crate) fn compiler_paths(&self) -> Option<&CompilerPaths> {
+        match self {
+            Self::Native { compiler_paths, .. } | Self::Llvm { compiler_paths, .. } => {
+                Some(compiler_paths)
+            }
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
         }
     }

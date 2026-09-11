@@ -27,9 +27,9 @@ use moonutil::{
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
-use super::{BuildOptions, CExecutableRealization, LoweringError};
+use super::{CExecutableRealization, LoweringError};
 use crate::{
-    ResolveOutput,
+    CompileConfig, ResolveOutput,
     build_plan::{
         ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildAction,
         PackagePrebuildKey, package_file_key,
@@ -38,12 +38,15 @@ use crate::{
     execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, InputObservation},
     model::{BackendConfig, BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
-    target_layout::ArtifactPathResolver,
+    target_layout::{
+        ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
+    },
 };
 
+/// Borrows the compilation inputs and keeps the working state for lowering.
 pub(crate) struct LoweringContext<'a> {
     // Physical paths for logical build artifacts.
-    pub(crate) artifact_paths: ArtifactPathResolver,
+    pub(crate) artifact_paths: &'a ArtifactPathResolver,
 
     // External state
     pub(crate) packages: &'a DiscoverResult,
@@ -51,7 +54,7 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) module_dirs: &'a DirSyncResult,
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildPlan,
-    pub(crate) opt: &'a BuildOptions,
+    pub(crate) opt: &'a CompileConfig,
 
     // Native compilation observes the selected Moon toolchain include tree.
     // Discover it at most once for all actions lowered by this context.
@@ -96,7 +99,7 @@ impl ActionArtifacts {
             ctx.action(provider_action),
             ctx.packages,
             ctx.modules,
-            ctx.opt.artifact_path_options(),
+            ctx.artifact_path_options(),
         );
         RealizedArtifact { artifact, paths }
     }
@@ -179,13 +182,12 @@ impl ActionArtifacts {
 
 impl<'a> LoweringContext<'a> {
     pub(super) fn new(
-        artifact_paths: ArtifactPathResolver,
         resolve_output: &'a ResolveOutput,
         plan: &'a BuildPlan,
-        opt: &'a BuildOptions,
+        opt: &'a CompileConfig,
     ) -> Self {
         Self {
-            artifact_paths,
+            artifact_paths: &opt.artifact_paths,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
             packages: &resolve_output.pkg_dirs,
@@ -196,9 +198,55 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
+    // Artifact forms combine compile-wide options with the Native mode already
+    // selected in the Backend Plan.
+    pub(super) fn artifact_path_options(&self) -> ArtifactPathOptions {
+        let os = self.opt.backend.os();
+        let (executable, linked_core) = match &self.opt.backend {
+            BackendConfig::Wasm { use_wat, .. } => (
+                ExecutableArtifact::Wasm { use_wat: *use_wat },
+                LinkedCoreArtifact::Wasm { use_wat: *use_wat },
+            ),
+            BackendConfig::WasmGc { use_wat } => (
+                ExecutableArtifact::WasmGC { use_wat: *use_wat },
+                LinkedCoreArtifact::WasmGC { use_wat: *use_wat },
+            ),
+            BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
+            BackendConfig::Native { .. } => (
+                ExecutableArtifact::NativeExecutable,
+                if self.plan.backend_plan().direct_native_target().is_some() {
+                    LinkedCoreArtifact::NativeObject { os }
+                } else {
+                    LinkedCoreArtifact::NativeC
+                },
+            ),
+            BackendConfig::Llvm { .. } => (
+                ExecutableArtifact::LlvmExecutable,
+                LinkedCoreArtifact::LlvmObject { os },
+            ),
+        };
+
+        ArtifactPathOptions {
+            os,
+            executable,
+            linked_core,
+        }
+    }
+
     fn toolchain_include_files(&mut self) -> Result<&[PathBuf], LoweringError> {
+        // TODO: Replace this walk with header paths observed by the toolchain
+        // module outside RR. Command orchestration should request that observation
+        // only when planned actions compile native sources; lowering then only
+        // attaches the supplied paths as inputs.
         if self.toolchain_include_files.is_none() {
-            let root = PathBuf::from(&self.opt.compiler_paths().include_path);
+            let root = PathBuf::from(
+                &self
+                    .opt
+                    .backend
+                    .compiler_paths()
+                    .expect("native lowering requires compiler paths")
+                    .include_path,
+            );
             let mut files = Vec::new();
             for entry in WalkDir::new(&root).follow_links(true).sort_by_file_name() {
                 let entry = entry.map_err(|source| LoweringError::ToolchainInclude {
@@ -260,113 +308,7 @@ impl<'a> LoweringContext<'a> {
                 };
             }
         };
-        match node {
-            BuildPlanNode::Check(target) => BuildAction::Check {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for Check nodes"),
-            },
-            BuildPlanNode::EmitProof(target) => BuildAction::EmitProof {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for EmitProof nodes"),
-            },
-            BuildPlanNode::Prove(target) => BuildAction::Prove {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for Prove nodes"),
-            },
-            BuildPlanNode::BuildCore(target) => BuildAction::BuildCore {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for BuildCore nodes"),
-            },
-            BuildPlanNode::BuildCStub(package, index) => BuildAction::BuildCStub {
-                package,
-                index,
-                info: self
-                    .plan
-                    .get_c_stubs_info(package)
-                    .expect("C stub info should be present for BuildCStub nodes"),
-            },
-            BuildPlanNode::ArchiveOrLinkCStubs(package) => BuildAction::ArchiveOrLinkCStubs {
-                package,
-                info: self
-                    .plan
-                    .get_c_stubs_info(package)
-                    .expect("C stubs info should be present for BuildCStubs nodes"),
-            },
-            BuildPlanNode::LinkCore(target) => BuildAction::LinkCore {
-                target,
-                info: self
-                    .plan
-                    .get_link_core_info(&target)
-                    .expect("Link core info should be present for LinkCore nodes"),
-                make_executable_info: self.plan.get_make_executable_info(&target),
-            },
-            BuildPlanNode::MakeExecutable(target) => BuildAction::MakeExecutable {
-                target,
-                info: self
-                    .plan
-                    .get_make_executable_info(&target)
-                    .expect("MakeExecutable nodes should contain native linking info"),
-            },
-            BuildPlanNode::GenerateDsym(target) => BuildAction::GenerateDsym {
-                target,
-                dsymutil: self
-                    .plan
-                    .get_dsymutil()
-                    .expect("dsymutil should be present for GenerateDsym nodes"),
-            },
-            BuildPlanNode::GenerateTestInfo(target) => BuildAction::GenerateTestInfo {
-                target,
-                info: self
-                    .plan
-                    .get_build_target_info(&target)
-                    .expect("Build target info should be present for GenerateTestInfo nodes"),
-            },
-            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
-                BuildAction::GenerateNodeTestPackageConfig { package }
-            }
-            BuildPlanNode::GenerateMbti(target) => BuildAction::GenerateMbti { target },
-            BuildPlanNode::BuildVirtual(package) => BuildAction::BuildVirtual {
-                package,
-                input: self
-                    .plan
-                    .virtual_contract_input(package)
-                    .expect("virtual contract input should be selected during build planning"),
-            },
-            BuildPlanNode::Bundle(module) => BuildAction::Bundle {
-                module,
-                targets: &self
-                    .plan
-                    .bundle_info(module)
-                    .expect("Bundle info should be present when lowering bundle node")
-                    .bundle_targets,
-            },
-            BuildPlanNode::BuildRuntimeObject(index) => BuildAction::BuildRuntimeObject {
-                index,
-                info: self
-                    .plan
-                    .get_runtime_info()
-                    .expect("Runtime info should be present for runtime object nodes"),
-            },
-            BuildPlanNode::BuildRuntimeLib => BuildAction::BuildRuntimeLib {
-                info: self
-                    .plan
-                    .get_runtime_info()
-                    .expect("Runtime info should be present for BuildRuntimeLib nodes"),
-            },
-            BuildPlanNode::BuildDocs(module) => BuildAction::BuildDocs { module },
-        }
+        self.plan.backend_plan().action(node)
     }
 
     fn human_desc(&self, action_key: &BuildPlanActionKey, action: BuildAction<'_>) -> String {
@@ -382,7 +324,7 @@ impl<'a> LoweringContext<'a> {
                 return node.human_desc(
                     self.modules,
                     self.packages,
-                    self.opt.target_backend().to_flag(),
+                    self.opt.backend.target_backend().to_flag(),
                 );
             }
             (BuildPlanActionKey::PackagePrebuild(key), BuildAction::RunPrebuild { info }) => {
@@ -532,7 +474,7 @@ impl<'a> LoweringContext<'a> {
         ) && let Some(stdlib_root) = &self.opt.stdlib_path
         {
             inputs.push(InputObservation::StandardLibraryInterfaces(
-                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend()),
+                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.backend.target_backend()),
             ));
         }
 
@@ -544,8 +486,8 @@ impl<'a> LoweringContext<'a> {
             BuildAction::MakeExecutable { .. }
                 if matches!(
                     &self.opt.backend,
-                    BackendConfig::Native { mode, .. }
-                        if mode.executable_realization()
+                    BackendConfig::Native { .. }
+                        if self.plan.backend_plan().native_mode().executable_realization()
                             == CExecutableRealization::CompileAndLinkGeneratedC
                 )
         );
@@ -561,11 +503,15 @@ impl<'a> LoweringContext<'a> {
         // These are the only Moon-owned libraries that command construction
         // may append as standalone argv. Compare their exact rendered paths;
         // arbitrary command arguments remain opaque to lowering.
-        for name in ["libmoonbitrun.o", "libbacktrace.a"] {
-            let path = Path::new(&self.opt.compiler_paths().lib_path).join(name);
-            let rendered = path.display().to_string();
-            if command.args().iter().any(|argument| argument == &rendered) {
-                inputs.push(InputObservation::File(path));
+        // TODO: Remove this argv scan once native command construction returns
+        // the selected toolchain library paths together with its arguments.
+        if let Some(compiler_paths) = self.opt.backend.compiler_paths() {
+            for name in ["libmoonbitrun.o", "libbacktrace.a"] {
+                let path = Path::new(&compiler_paths.lib_path).join(name);
+                let rendered = path.display().to_string();
+                if command.args().iter().any(|argument| argument == &rendered) {
+                    inputs.push(InputObservation::File(path));
+                }
             }
         }
         inputs.extend(
@@ -599,22 +545,19 @@ impl<'a> LoweringContext<'a> {
             BuildAction::ArchiveOrLinkCStubs { .. } => true,
             BuildAction::LinkCore { target, .. } => {
                 let package = self.get_package(target);
-                let package_link_flags =
-                    package
-                        .raw
-                        .link
-                        .as_ref()
-                        .and_then(|link| match self.opt.target_backend() {
-                            TargetBackend::Wasm => link
-                                .wasm
-                                .as_ref()
-                                .and_then(|config| config.flags.as_deref()),
-                            TargetBackend::WasmGC => link
-                                .wasm_gc
-                                .as_ref()
-                                .and_then(|config| config.flags.as_deref()),
-                            TargetBackend::Js | TargetBackend::Native | TargetBackend::LLVM => None,
-                        });
+                let package_link_flags = package.raw.link.as_ref().and_then(|link| {
+                    match self.opt.backend.target_backend() {
+                        TargetBackend::Wasm => link
+                            .wasm
+                            .as_ref()
+                            .and_then(|config| config.flags.as_deref()),
+                        TargetBackend::WasmGC => link
+                            .wasm_gc
+                            .as_ref()
+                            .and_then(|config| config.flags.as_deref()),
+                        TargetBackend::Js | TargetBackend::Native | TargetBackend::LLVM => None,
+                    }
+                });
                 self.packages
                     .module_info(package.module)
                     .link_flags
@@ -623,12 +566,19 @@ impl<'a> LoweringContext<'a> {
                     && package_link_flags.is_none_or(<[_]>::is_empty)
             }
             BuildAction::MakeExecutable { info, .. } => match &self.opt.backend {
-                BackendConfig::Native { mode, .. } => match mode.executable_realization() {
-                    CExecutableRealization::CompileAndLinkGeneratedC => {
-                        info.c_flags.is_empty() && info.link_flags.is_empty()
+                BackendConfig::Native { .. } => {
+                    match self
+                        .plan
+                        .backend_plan()
+                        .native_mode()
+                        .executable_realization()
+                    {
+                        CExecutableRealization::CompileAndLinkGeneratedC => {
+                            info.c_flags.is_empty() && info.link_flags.is_empty()
+                        }
+                        CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
                     }
-                    CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
-                },
+                }
                 BackendConfig::Llvm { .. } => info.c_flags.is_empty() && info.link_flags.is_empty(),
                 BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                     unreachable!("non-native plans do not contain MakeExecutable actions")
@@ -657,7 +607,7 @@ impl<'a> LoweringContext<'a> {
                     .dsym_bundle_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.artifact_path_options().executable,
+                        self.artifact_path_options().executable,
                     ),
             ],
             BuildAction::RunPrebuild { info } => info.resolved_outputs.clone(),

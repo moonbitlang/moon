@@ -1081,6 +1081,45 @@ fn convert_test_pkg_json(
 }
 
 #[test]
+fn convert_pkg_dsl_supports_u32_values() {
+    let json = crate::moon_pkg::parse(
+        r#"
+options(
+  link: { "wasm": { "heap-start-address": 2214592512 } },
+)
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, false).unwrap();
+
+    assert_eq!(
+        pkg.link.unwrap().wasm.unwrap().heap_start_address,
+        Some(2_214_592_512)
+    );
+}
+
+#[test]
+fn convert_pkg_dsl_supports_leading_zero_integers() {
+    let json = crate::moon_pkg::parse(r#"options("max-concurrent-tests": 08)"#).unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, false).unwrap();
+
+    assert_eq!(pkg.max_concurrent_tests, Some(8));
+}
+
+#[test]
+fn convert_pkg_dsl_rejects_values_above_u32() {
+    let json = crate::moon_pkg::parse(
+        r#"
+options(
+  link: { "wasm": { "heap-start-address": 4294967297 } },
+)
+"#,
+    )
+    .unwrap();
+    assert!(convert_test_pkg_dsl(json, false).is_err());
+}
+
+#[test]
 fn convert_pkg_dsl_supports_supported_targets_shorthand() {
     let json = crate::moon_pkg::parse(r#"supported_targets = "js""#).unwrap();
     let (pkg, decl_kind) = convert_test_pkg_dsl(json, true).unwrap();

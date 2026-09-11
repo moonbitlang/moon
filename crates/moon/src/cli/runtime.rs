@@ -245,10 +245,14 @@ fn dispatch(
         Package(command) => {
             super::mooncake_adapter::package_cli(flags, command, output.user_log()).map(Into::into)
         }
+        Deprecate(command) => {
+            super::mooncake_adapter::deprecate_cli(flags, command, output).map(Into::into)
+        }
         Remove(command) => super::remove_cli(flags, command, output.user_log()).map(Into::into),
         Run(command) => super::run_run(&flags, command, output).map(Into::into),
         RunWasm(command) => super::run_runwasm(&flags, command, output),
         Search(command) => super::run_search(command, output).map(Into::into),
+        View(command) => super::run_view(command, output).map(Into::into),
         Test(command) => super::run_test(flags, command, output).map(Into::into),
         Tree(command) => super::tree_cli(flags, command, output).map(Into::into),
         Update(command) => super::update_cli(flags, command, output.user_log()).map(Into::into),

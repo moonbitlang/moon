@@ -31,7 +31,9 @@ use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::project::{PackageDirs, ProjectProbe, SourceTargetDirs, WorkspaceEnv};
+use moonutil::project::{
+    PackageDirs, ProjectProbe, SingleFilePackageDirs, SourceTargetDirs, WorkspaceEnv,
+};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
     cache::{CacheKind, resolve_cache_root},
@@ -44,7 +46,6 @@ use tracing::{Level, instrument};
 
 use crate::filter::ensure_package_supports_backend;
 use crate::rr_build;
-use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 
 use super::{BuildFlags, UniversalFlags};
@@ -188,10 +189,10 @@ pub(crate) struct EmbeddedMbtxPolicy {
 
 /// A built executable plus the state needed to consume it.
 ///
-/// The build step keeps the target-directory lock alive until the caller either
-/// runs the program or explicitly releases the lock. This preserves the previous
-/// `moon run` behavior while allowing other consumers to reuse the same build
-/// stage.
+/// Normal builds keep the target-directory lock alive until the caller
+/// either runs the program or explicitly releases the lock. Other consumers can
+/// reuse the same build stage without releasing the lock between planning and
+/// compilation.
 pub(crate) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
     pub(crate) executable: PathBuf,
@@ -209,11 +210,6 @@ struct BuildExecutableFromPlanOptions {
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
     embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
-}
-
-enum RunBuildInput {
-    Ordinary(rr_build::BuildInput),
-    Standalone(rr_build::StandaloneBuildInput),
 }
 
 impl RunExecutable {
@@ -466,7 +462,8 @@ pub(crate) fn build_run_executable(
 /// The returned artifact is ready for a caller-owned execution path; no build
 /// lock remains held after this function returns.
 pub(crate) fn build_standalone_wasm(
-    input: String,
+    dirs: SingleFilePackageDirs,
+    frozen: bool,
     verbose: bool,
 ) -> anyhow::Result<StandaloneWasm> {
     // TODO(moonx-standalone-build-interface): Remove this command-layer adapter
@@ -488,7 +485,7 @@ pub(crate) fn build_standalone_wasm(
             .expect("empty unstable feature set must be valid"),
     };
     let cmd = RunSubcommand {
-        package_or_mbt_file: Some(input),
+        package_or_mbt_file: Some(dirs.file_path.to_string_lossy().into_owned()),
         command: None,
         build_flags: BuildFlags {
             target: vec![SurfaceTarget::Wasm],
@@ -496,14 +493,16 @@ pub(crate) fn build_standalone_wasm(
         },
         args: Vec::new(),
         moonrun_policy: None,
-        auto_sync_flags: AutoSyncFlags { frozen: false },
+        auto_sync_flags: AutoSyncFlags { frozen },
         build_only: false,
         profile: false,
     };
     let output = CommandOutput::new(user_log_level(verbose, !verbose));
-    let mut built = build_run_executable(
+    let mut built = build_single_file_executable(
         &cli,
         &cmd,
+        dirs.package_dirs,
+        dirs.file_path,
         BuildRunExecutableOptions::for_run(&cli),
         &output,
     )?;
@@ -559,9 +558,12 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         cmd,
@@ -577,7 +579,8 @@ fn build_package_executable(
         source_dir,
         target_dir,
         &build_meta,
-        RunBuildInput::Ordinary(build_graph),
+        build_graph,
+        lock,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -613,20 +616,15 @@ pub(crate) fn plan_run_rr_from_resolved(
             })
             .unwrap_or_default(),
     );
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+
+    let value_tracing = cmd.build_flags.enable_value_tracing;
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Run,
-    );
-    let value_tracing = cmd.build_flags.enable_value_tracing;
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -634,16 +632,17 @@ pub(crate) fn plan_run_rr_from_resolved(
         &input_path,
         &resolve_output,
         value_tracing,
-        planning_context.target_backend(),
+        compile_config.backend.target_backend(),
     )?;
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
@@ -782,18 +781,17 @@ fn build_single_file_executable(
         .or(backend)
         .unwrap_or(options.default_target_backend);
 
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         Some(selected_target_backend),
         target_dir,
         RunMode::Run,
-    );
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolved,
     )?;
@@ -806,15 +804,15 @@ fn build_single_file_executable(
         Default::default()
     };
     let intent = (vec![UserIntent::Run(package)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_standalone_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+        compile_config,
         user_log,
-        planning_context,
         intent,
-        package,
         mooncake_bin_dir,
         resolved,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
 
     build_executable_from_plan(
@@ -823,7 +821,8 @@ fn build_single_file_executable(
         source_dir,
         target_dir,
         &build_meta,
-        RunBuildInput::Standalone(build_graph),
+        build_graph,
+        lock,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -836,6 +835,8 @@ fn build_single_file_executable(
 #[instrument(level = Level::DEBUG, skip_all)]
 /// Execute the build graph and return the resulting run artifact without
 /// launching it.
+/// Normal builds transfer the target-directory lock acquired before planning.
+/// Dry-run planning acquires and releases its own lock only if scripts run.
 #[allow(clippy::too_many_arguments)]
 fn build_executable_from_plan(
     cli: &UniversalFlags,
@@ -843,7 +844,8 @@ fn build_executable_from_plan(
     source_dir: &Path,
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
-    build_graph: RunBuildInput,
+    build_graph: rr_build::BuildInput,
+    lock: Option<std::fs::File>,
     options: BuildExecutableFromPlanOptions,
     output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
@@ -854,22 +856,7 @@ fn build_executable_from_plan(
     let user_log = output.user_log();
     if cli.dry_run {
         output.write_result(|writer| {
-            match &build_graph {
-                RunBuildInput::Ordinary(build_graph) => rr_build::write_dry_run(
-                    writer,
-                    build_graph,
-                    build_meta.artifacts.values(),
-                    source_dir,
-                    target_dir,
-                )?,
-                RunBuildInput::Standalone(build_graph) => rr_build::write_standalone_dry_run(
-                    writer,
-                    build_graph,
-                    build_meta.artifacts.values(),
-                    source_dir,
-                    target_dir,
-                )?,
-            }
+            rr_build::write_dry_run(writer, &build_graph, source_dir)?;
 
             if options.print_dry_run_run_command {
                 let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);
@@ -893,21 +880,13 @@ fn build_executable_from_plan(
         });
     }
 
-    let lock = lock_directory(target_dir, user_log)?;
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(build_meta)?;
 
     let build_config =
         BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
             .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = match build_graph {
-        RunBuildInput::Ordinary(build_graph) => {
-            rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?
-        }
-        RunBuildInput::Standalone(build_graph) => {
-            rr_build::execute_standalone_build(&build_config, build_graph, target_dir, user_log)?
-        }
-    };
+    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
@@ -917,7 +896,7 @@ fn build_executable_from_plan(
         embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
         build_exit_code: Some(build_result.return_code_for_success()),
-        lock: Some(lock),
+        lock,
     })
 }
 

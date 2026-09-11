@@ -25,7 +25,7 @@ fn abort_with_tuple(data : (Int, String), opt : Option[Int]) -> Unit {
   abort("abort_with_tuple")
 }
 
-fn abort_generic[T](value : T) -> T {
+fn[T] abort_generic(value : T) -> T {
   ignore(value)
   abort("abort_generic")
 }

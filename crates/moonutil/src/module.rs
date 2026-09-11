@@ -238,9 +238,17 @@ pub struct MoonModJSON {
 
     /// **Experimental:** A relative path to the pre-build configuration script.
     ///
-    /// The script should be a **JavaScript or Python** file that is able to be
-    /// executed with vanilla Node.JS or Python interpreter. Since this is
-    /// experimental, the API may change at any time without warning.
+    /// The script may be JavaScript (`.js`, `.cjs`, `.mjs`), Python (`.py`), or
+    /// MoonBit (`.mbtx`), executed with Node.js, Python, or Moonrun respectively.
+    /// MoonBit scripts are compiled to Wasm. Each script receives the process
+    /// environment plus `MOON_MOD` (the module manifest path) and `MOON_BUILD_DIR`
+    /// (a writable prebuild output directory created by Moon).
+    /// `MOON_HOST_OS` and `MOON_HOST_ARCH` describe the Moon process's platform.
+    /// `MOON_BACKEND`, `MOON_PROFILE`, and `MOON_JOBS` describe the project build.
+    /// The original JSON input shape is still supplied on stdin for compatibility,
+    /// with `paths.out_dir` set to the same output directory. Scripts return build
+    /// configuration JSON on stdout.
+    /// Since this is experimental, the API may change at any time without warning.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub __moonbit_unstable_prebuild: Option<String>,
 }

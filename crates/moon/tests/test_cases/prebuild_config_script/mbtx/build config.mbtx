@@ -1,0 +1,50 @@
+import {
+  "moonbitlang/async@0.21.2",
+  "moonbitlang/async@0.21.2/stdio",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let input = @json.parse(@stdio.stdin.read_all().text())
+  guard input is {
+    "env": { "MOON_CC": String(cc), .. },
+    "paths": {
+      "module_root": String(module_root),
+      "out_dir": String(out_dir),
+      ..
+    },
+    ..
+  } else {
+    abort("missing prebuild environment or paths")
+  }
+  guard Some(cc) == @env.get_env_var("MOON_CC") else {
+    abort("prebuild environment was not passed through stdin")
+  }
+  guard Some(module_root) == @env.current_dir() else {
+    abort("prebuild working directory is not the module root")
+  }
+  guard @env.get_env_var("MOON_MOD") is Some(manifest) &&
+    manifest.has_prefix(module_root) && manifest.has_suffix("moon.mod.json") else {
+    abort("prebuild module manifest was not passed through the environment")
+  }
+  guard out_dir != "TODO" && Some(out_dir) == @env.get_env_var("MOON_BUILD_DIR") else {
+    abort("prebuild output directory was not passed through the environment")
+  }
+  guard @env.get_env_var("MOON_BACKEND") == Some("native") &&
+    @env.get_env_var("MOON_PROFILE") == Some("debug") &&
+    @env.get_env_var("MOON_JOBS") == Some("3") else {
+    abort("prebuild did not receive the outer build settings")
+  }
+  let output : Json = {
+    "vars": { "HELLO": "------this-is-added-by-config-script------" },
+    "link_configs": [{
+      "package": "username/hello/dep",
+      "link_flags": "-l______this_is_added_by_config_script_______",
+      "link_libs": ["mylib"],
+      "link_search_paths": ["/my-search-path"],
+    }],
+  }
+  @stdio.stdout.write(output.stringify())
+}

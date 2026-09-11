@@ -17,25 +17,63 @@ as the context needed to realize the artifact's physical path.
 
 ## Backend configuration
 
-After command adapters resolve the Target Backend and expand user intent to
-requested `ArtifactKey` values, Moon selects one `BackendConfig` value:
+Once the project is resolved, the CLI adapter selects the Target Backend and
+constructs `CompileConfig` directly from the original flags and captured
+environment inputs. Commands use its backend to expand user intent to requested
+`ArtifactKey` values. There is no preliminary compilation configuration;
+dependency synchronization and resolution use their own `ResolveConfig`.
+
+Each compilation has one `BackendConfig` value:
 
 ```rust
 pub enum BackendConfig {
     Wasm { use_wat: bool, wasi_link: bool },
     WasmGc { use_wat: bool },
     Js,
-    Native(NativeBackendMode),
-    Llvm,
+    Native {
+        direct_object_candidate: Option<NativeTarget>,
+        allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
+    },
+    Llvm {
+        allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
+    },
 }
 ```
 
-This value is the compile-wide source of truth passed through `CompileConfig`,
-`BuildEnvironment`, and `BuildOptions`. An `ArtifactKey` does not repeat the
-backend, optimization profile, or run mode because one `BuildPlan` is scoped
-to one such configuration. If one plan later contains multiple configurations,
-that scope must become an explicit part of artifact identity before providers
-can be shared safely.
+The command adapter captures the Native direct-object candidate from the host
+and environment. Native payload form is derived inside build planning from that
+explicit candidate, the profile, and requested packages, then stored in private
+Backend Plan metadata. The selected mode is not a `BackendConfig` input; both
+Native planning and lowering consume the one value stored in the plan.
+Backend-specific metadata queries and action hydration belong to `BackendPlan`.
+The outer `BuildPlan` exposes artifact relationships and subplan composition;
+RR lowering borrows its backend subplan to read the selected mode and hydrate
+backend actions, without copying that state into another configuration.
+
+The CLI also supplies a `DebugInfoRequest`, separating requested symbol detail
+from native runtime backtrace support. After selecting the payload form, Backend
+Plan resolves and stores whether MoonBit compilation emits debug information.
+`BuildCStubsInfo` and `MakeExecutableInfo` separately own their native compiler
+debug and optimization settings. A backtrace-only request may require debug
+information for generated C without changing C stubs. Runtime backtrace support
+is resolved into `BuildRuntimeInfo`, and dSYM requirements become `GenerateDsym`
+actions. Lowering consumes these resolved decisions from the plan.
+
+`BackendConfig` is the compile-wide source of truth held in `CompileConfig`.
+Planning and lowering borrow that same configuration. Lowering also borrows
+its artifact path resolver through `LoweringContext`; artifact-path selection
+rules stay in lowering. The command adapter supplies OS and compiler paths
+only for Native and LLVM, where the backend variants require them. These
+configuration values perform no lazy host or environment lookups inside RR.
+
+An `ArtifactKey` does not repeat the backend, optimization profile, or run mode
+because one `BuildPlan` is scoped to one such configuration. If one plan later
+contains multiple configurations, that scope must become an explicit part of
+artifact identity before providers can be shared safely.
 
 ## Build Artifact identity
 
@@ -267,9 +305,9 @@ physical outputs and are not used as a cross-backend namespace.
 
 Concrete output paths are the composition boundary. If two plans declare the
 same physical output, composition shares the provider only when the complete
-Execution Action, its complete output set, and all output annotations agree.
-Partial overlap or different execution behavior is rejected before n2 sees the
-graph. Package prebuild actions therefore collapse naturally without a
+Execution Action, its complete output set, all output artifact identities,
+and project/dependency membership agree. Conflicting membership, partial
+overlap, or different execution behavior is rejected before n2 sees the graph. Package prebuild actions therefore collapse naturally without a
 prebuild-specific merge rule, while backend outputs remain separate under
 their backend-specific paths.
 
@@ -300,8 +338,9 @@ The `ExecutionPlanBuilder` registers each realized semantic output, assigns
 `ActionId` handles, and rejects duplicate artifact providers or physical-output
 paths. An `ExecutionAction` combines input observations, declared outputs, the
 concrete process command, diagnostics, and executor/cache policy. Consumers
-resolve a regular input path through the plan's declared-output index; the n2
-adapter alone registers files and constructs `n2::Build` values.
+resolve a regular input path through the plan's declared-output index. The
+private `moon::rr_build::execution::n2` module alone registers n2 files and builds;
+Rupes Recta lowering and the Execution Plan expose no n2 projection interface.
 
 Every lowered command retains structured argv. Response files change only its
 execution transport. The first argument's resolved executable path is another
@@ -326,37 +365,55 @@ includes proof execution, documentation generation, arbitrary prebuild shell
 commands, and unstructured custom compiler or linker flags. Lowering does not
 infer inputs by parsing those flags.
 
-Current dry-run still renders the n2 graph and uses retained structured argv to
-recover commands hidden by response-file transport. A future dry-run can
-consume `ExecutionPlan` directly: each input path resolves to its declared
-output and producer action, while requested artifacts and physical-only outputs
-retain the distinct root semantics that n2 otherwise flattens into file IDs.
+Dry-run and planner graph snapshots consume `ExecutionPlan` directly. Commands
+retain their structured argv even when execution uses response files. Concrete
+file inputs resolve through the declared-output index to their producers;
+recursive standard-library observations are omitted from the file-edge dump.
+`default_output_paths` selects unconsumed declared outputs, including auxiliary
+and prebuild outputs. Dry-run also includes explicitly requested artifacts and
+preserves filename-first, dependency-before-consumer ordering.
 
-## Standalone build boundary
+## Project and dependency artifacts
 
-Standalone `.mbt` and `.mbtx` execution, and standalone `.mbtx` compilation
-through `moon build`, start from one complete `BuildPlan` per Target Backend
-and lower it once into one `ExecutionPlan`. Dependency preparation and script
-compilation are two `ActionId` selections over that plan. Following artifact
-providers to a fixed point includes package-less prerequisites such as the
-runtime library and runtime objects. Multi-backend standalone builds compose
-dependency selections separately from script selections so the phase ordering
-remains explicit.
+Manifest projects and synthesized single-file projects use the same planning,
+compilation, and execution entry points. `BuildInput` contains the complete
+`ExecutionPlan` and action-backend information for diagnostics. It has no
+execution mode, phase selection, or executor database location. Execution
+receives the target directory; its private `n2` module owns the `.moon_db` path
+and opens the database. Partial execution accepts requested output paths and
+resolves their prerequisites internally; callers never receive an n2 `Work`
+value.
 
-The dependency graph executes first, followed by the script graph. Both use the
-target directory's `.moon_db`; n2 ignores records whose outputs do not belong
-to the graph it is currently loading. If a provider belongs to dependency
-preparation, the script graph retains its realized path as an n2 input without
-duplicating the provider.
+Lowering records `is_dependency_artifact` on each artifact's declared physical
+outputs using the owning module's membership in the resolved project's root
+modules. Packages in a root module remain part of the project, including
+libraries imported by a requested main package. Local-path dependencies
+outside the root modules have the same role as registry dependencies.
+Module-wide artifacts use their module identity. Physical-only outputs and
+runtime artifacts without module ownership remain unmarked.
 
-Ordinary project and workspace commands execute one n2 graph per invocation.
+The marker expresses project membership independently of execution order,
+freshness, and cache eligibility. It preserves the distinction for future
+experiments with dependency-artifact reuse without adding a phase partitioner
+or a second artifact registry. Classification occurs before composition while
+package and module IDs belong to their originating resolution. Shared outputs
+must agree on this membership.
+
+All planned actions enter the same n2 graph. Each artifact's existing producer
+edges determine dependency ordering. Persistent scripts use the same
+incremental database as before; changing only the script does not require
+rebuilding unchanged dependencies. There is no invocation-wide barrier between
+dependency and project work.
+
+Project, workspace, and standalone builds execute one n2 graph per invocation.
 A single-backend invocation projects one Execution Plan directly; a
 multi-backend invocation first composes its independently lowered Execution
-Plans as described above. The n2 adapter preserves each Build ID's originating
-Action ID, which execution projects through the composed plan's action-backend
-map. n2 reports completed action output with that Build ID. This lets
-JSON-formatted `moon check` execute the same composed graph while the command
-layer still annotates each compiler diagnostic with its backend.
+Plans as described above. Execution translates the composed plan's
+action-backend map to a private map keyed by n2 Build ID. n2 reports completed
+action output with that Build ID; the execution module returns captured output
+with its backend already attached. This lets JSON-formatted `moon check` execute
+the same composed graph while the command layer still annotates each compiler
+diagnostic with its backend.
 
 The n2 failure budget applies to the composed invocation-wide graph rather
 than restarting for each backend. JSON output reports every diagnostic that

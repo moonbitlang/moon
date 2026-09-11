@@ -18,28 +18,15 @@
 
 //! Lowers the normalized action plan into an executor-neutral Execution Plan.
 
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-    str::FromStr,
-    sync::OnceLock,
-};
+use std::path::PathBuf;
 
 use log::{debug, info};
-use moonutil::{
-    build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel,
-    target::TargetBackend,
-};
 use tracing::instrument;
 
 use crate::{
-    ResolveOutput,
-    build_plan::{BuildPlan, BuildPlanActionKey},
-    execution_plan::{ActionId, ExecutionPlan, ExecutionPlanBuilder},
-    model::{BackendConfig, BuildPlanNode, OperatingSystem, PackageId},
-    target_layout::{
-        ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
-    },
+    CompileConfig, ResolveOutput,
+    build_plan::BuildPlan,
+    execution_plan::{ExecutionPlan, ExecutionPlanBuilder},
 };
 
 mod backend;
@@ -49,128 +36,15 @@ mod context;
 mod lower_aux;
 mod lower_build;
 mod moonc_command;
-mod utils;
 
 pub use crate::execution_plan::{
     InputObservation, LoweredCommand, LoweredCommandExecution, LoweredResponseFile,
 };
-pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 pub(crate) use backend::CExecutableRealization;
 
 use command::BuildCommand;
 use context::LoweringContext;
-
-/// Lazily resolved host/toolchain facts used during lowering.
-///
-/// The build pipeline passes this object explicitly so lower phases do not
-/// rediscover environment facts in place. Individual facts remain lazy because
-/// non-native backends do not need native OS/toolchain details.
-#[derive(Default)]
-pub struct LoweringEnvironment {
-    os: OnceLock<OperatingSystem>,
-    compiler_paths: OnceLock<CompilerPaths>,
-}
-
-impl Clone for LoweringEnvironment {
-    fn clone(&self) -> Self {
-        let cloned = Self::default();
-        if let Some(os) = self.os.get() {
-            let _ = cloned.os.set(*os);
-        }
-        if let Some(compiler_paths) = self.compiler_paths.get() {
-            let _ = cloned.compiler_paths.set(compiler_paths.clone());
-        }
-        cloned
-    }
-}
-
-impl LoweringEnvironment {
-    pub fn os(&self) -> OperatingSystem {
-        *self
-            .os
-            .get_or_init(|| OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"))
-    }
-
-    pub fn compiler_paths(&self) -> &CompilerPaths {
-        self.compiler_paths
-            .get_or_init(CompilerPaths::from_moon_dirs)
-    }
-}
-
-/// Knobs to tweak during build. Affects behaviors during lowering.
-pub struct BuildOptions {
-    pub artifact_paths: ArtifactPathResolver,
-    // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
-    pub backend: BackendConfig,
-    pub opt_level: OptLevel,
-    pub action: RunMode,
-
-    // Detailed configuration -- some of them might live better in configs
-    pub debug_symbols: bool,
-    pub enable_coverage: bool,
-    pub moonc_output_json: bool,
-    pub docs_serve: bool,
-    pub warning_condition: WarningCondition,
-    pub info_no_alias: bool,
-
-    // Environments
-    /// Only `Some` if we import standard library.
-    pub stdlib_path: Option<PathBuf>,
-    pub lowering_environment: LoweringEnvironment,
-}
-
-impl BuildOptions {
-    pub fn target_backend(&self) -> TargetBackend {
-        self.backend.target_backend()
-    }
-
-    pub fn os(&self) -> OperatingSystem {
-        self.lowering_environment.os()
-    }
-
-    pub fn compiler_paths(&self) -> &CompilerPaths {
-        self.lowering_environment.compiler_paths()
-    }
-
-    pub fn artifact_path_options(&self) -> ArtifactPathOptions {
-        let os = match &self.backend {
-            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                OperatingSystem::None
-            }
-            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => self.os(),
-        };
-        let (executable, linked_core) = match &self.backend {
-            BackendConfig::Wasm { use_wat, .. } => (
-                ExecutableArtifact::Wasm { use_wat: *use_wat },
-                LinkedCoreArtifact::Wasm { use_wat: *use_wat },
-            ),
-            BackendConfig::WasmGc { use_wat } => (
-                ExecutableArtifact::WasmGC { use_wat: *use_wat },
-                LinkedCoreArtifact::WasmGC { use_wat: *use_wat },
-            ),
-            BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
-            BackendConfig::Native { mode, .. } => (
-                ExecutableArtifact::NativeExecutable,
-                if mode.direct_target().is_some() {
-                    LinkedCoreArtifact::NativeObject { os }
-                } else {
-                    LinkedCoreArtifact::NativeC
-                },
-            ),
-            BackendConfig::Llvm { .. } => (
-                ExecutableArtifact::LlvmExecutable,
-                LinkedCoreArtifact::LlvmObject { os },
-            ),
-        };
-
-        ArtifactPathOptions {
-            os,
-            executable,
-            linked_core,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WarningCondition {
@@ -203,153 +77,27 @@ pub enum LoweringError {
 pub fn lower_build_plan(
     resolve_output: &ResolveOutput,
     plan: &BuildPlan,
-    opt: &BuildOptions,
+    opt: &CompileConfig,
 ) -> Result<ExecutionPlan, LoweringError> {
     info!("Starting action plan lowering to execution plan");
     debug!(
-        "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
-        opt.target_backend(),
+        "Lowering build: backend={:?}, opt_level={:?}, moonc_debug_info={}",
+        opt.backend.target_backend(),
         opt.opt_level,
-        opt.debug_symbols
+        plan.backend_plan().moonc_debug_info()
     );
 
-    let (result, _) = lower_actions(resolve_output, plan, opt)?;
-
-    info!("Action plan lowering completed successfully");
-    Ok(result)
-}
-
-pub(crate) struct StandaloneExecutionPlan {
-    pub(crate) plan: ExecutionPlan,
-    pub(crate) dependency_actions: Vec<ActionId>,
-    pub(crate) script_actions: Vec<ActionId>,
-}
-
-/// Lower one standalone Build Plan and retain its two execution projections.
-#[instrument(skip_all)]
-pub(crate) fn lower_standalone_build_plan(
-    resolve_output: &ResolveOutput,
-    plan: &BuildPlan,
-    opt: &BuildOptions,
-    script_package: PackageId,
-) -> Result<StandaloneExecutionPlan, LoweringError> {
-    info!("Projecting standalone dependency and script execution actions");
-    let (dependency_nodes, script_nodes) = partition_standalone_actions(plan, script_package);
-    debug!(
-        "Standalone execution projection contains {} dependency actions and {} script actions",
-        dependency_nodes.len(),
-        script_nodes.len()
-    );
-
-    let (plan, action_ids) = lower_actions(resolve_output, plan, opt)?;
-    Ok(StandaloneExecutionPlan {
-        plan,
-        dependency_actions: dependency_nodes
-            .into_iter()
-            .map(|node| action_ids[&node])
-            .collect(),
-        script_actions: script_nodes
-            .into_iter()
-            .map(|node| action_ids[&node])
-            .collect(),
-    })
-}
-
-fn lower_actions(
-    resolve_output: &ResolveOutput,
-    plan: &BuildPlan,
-    opt: &BuildOptions,
-) -> Result<(ExecutionPlan, HashMap<BuildPlanActionKey, ActionId>), LoweringError> {
-    let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
+    let mut ctx = LoweringContext::new(resolve_output, plan, opt);
     let mut execution = ExecutionPlanBuilder::default();
-    let mut action_ids = HashMap::new();
 
     for action_key in plan.all_actions() {
         debug!("Lowering action: {:?}", action_key);
-        let action = ctx.lower_action(&action_key, &mut execution)?;
-        action_ids.insert(action_key, action);
+        ctx.lower_action(&action_key, &mut execution)?;
     }
 
-    Ok((
-        execution.finish(plan.requested_artifacts().cloned()),
-        action_ids,
-    ))
-}
-
-/// Separate reusable package preparation from work owned by the synthesized
-/// script package while preserving the semantic plan's dependency closure.
-fn partition_standalone_actions(
-    plan: &BuildPlan,
-    script_package: PackageId,
-) -> (Vec<BuildPlanActionKey>, Vec<BuildPlanActionKey>) {
-    let action_package = |action: &BuildPlanActionKey| match action {
-        BuildPlanActionKey::Backend(node) => match node {
-            BuildPlanNode::Check(target)
-            | BuildPlanNode::EmitProof(target)
-            | BuildPlanNode::Prove(target)
-            | BuildPlanNode::BuildCore(target)
-            | BuildPlanNode::LinkCore(target)
-            | BuildPlanNode::MakeExecutable(target)
-            | BuildPlanNode::GenerateDsym(target)
-            | BuildPlanNode::GenerateTestInfo(target)
-            | BuildPlanNode::GenerateMbti(target) => Some(target.package),
-            BuildPlanNode::BuildCStub(package, _)
-            | BuildPlanNode::ArchiveOrLinkCStubs(package)
-            | BuildPlanNode::GenerateNodeTestPackageConfig(package)
-            | BuildPlanNode::BuildVirtual(package) => Some(*package),
-            BuildPlanNode::Bundle(_)
-            | BuildPlanNode::BuildRuntimeObject(_)
-            | BuildPlanNode::BuildRuntimeLib
-            | BuildPlanNode::BuildDocs(_) => None,
-        },
-        BuildPlanActionKey::PackagePrebuild(key) => Some(key.package()),
-    };
-    let actions = plan.all_actions().collect::<Vec<_>>();
-    let script_owned_actions = actions
-        .iter()
-        .filter(|action| action_package(action) == Some(script_package))
-        .cloned()
-        .collect::<HashSet<_>>();
-    assert!(
-        !script_owned_actions.is_empty(),
-        "standalone action plan should contain work for the synthesized script package"
-    );
-
-    let mut dependency_actions = actions
-        .iter()
-        .filter(|action| action_package(action).is_some_and(|package| package != script_package))
-        .cloned()
-        .collect::<HashSet<_>>();
-    let mut pending = dependency_actions.iter().cloned().collect::<Vec<_>>();
-    while let Some(action) = pending.pop() {
-        for dependency in plan.dependency_actions(&action) {
-            assert!(
-                !script_owned_actions.contains(&dependency),
-                "standalone dependency preparation action {action:?} depends on \
-                 script action {dependency:?}"
-            );
-            if dependency_actions.insert(dependency.clone()) {
-                pending.push(dependency);
-            }
-        }
-    }
-    assert!(
-        plan.requested_artifacts()
-            .map(|artifact| plan.artifact_provider(artifact))
-            .all(|action| !dependency_actions.contains(&action)),
-        "standalone root action should remain in the script execution phase"
-    );
-
-    let dependencies = actions
-        .iter()
-        .filter(|action| dependency_actions.contains(action))
-        .cloned()
-        .collect();
-    let script = actions
-        .into_iter()
-        .filter(|action| !dependency_actions.contains(action))
-        .collect();
-    (dependencies, script)
+    let mut execution = execution.finish(plan.requested_artifacts().cloned());
+    execution.mark_dependency_artifacts(resolve_output);
+    Ok(execution)
 }
 
 #[cfg(test)]
@@ -361,25 +109,27 @@ mod tests {
 
     use indexmap::IndexSet;
     use moonutil::{
-        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, NativeAllocator, Toolchain},
+        build_options::RunMode,
+        compiler_flags::{
+            ARKind, CC, CCKind, CompilerPaths, MsvcEnvironment, NativeAllocator, Toolchain,
+        },
+        cond_expr::OptLevel,
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
         target::TargetBackend,
         toolchain::BINARIES,
     };
-    use slotmap::KeyData;
-    use walkdir::WalkDir;
 
     use crate::{
         build_plan::{
-            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo,
-            LinkCoreInfo, MakeExecutableInfo,
+            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildPlanActionKey, BuildRuntimeInfo,
+            BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
             BackendConfig, BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode,
-            NativeTarget, TargetKind,
+            NativeTarget, OperatingSystem, TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::DepRelationship,
@@ -390,7 +140,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn non_native_artifact_options_do_not_resolve_operating_system() {
+    fn non_native_artifact_options_need_no_host_configuration() {
+        let (resolve_output, _) = single_package_resolve_output();
+        let plan = BuildPlan::default();
         for backend in [
             BackendConfig::Wasm {
                 use_wat: false,
@@ -408,24 +160,25 @@ mod tests {
                 ),
                 None,
             );
-            let options = BuildOptions {
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                debug_info: Default::default(),
+                warn_list: None,
                 artifact_paths,
                 backend,
                 opt_level: OptLevel::Debug,
                 action: RunMode::Build,
-                debug_symbols: false,
                 enable_coverage: false,
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
                 info_no_alias: false,
                 stdlib_path: None,
-                lowering_environment: LoweringEnvironment::default(),
             };
 
-            assert!(options.lowering_environment.os.get().is_none());
-            assert_eq!(options.artifact_path_options().os, OperatingSystem::None);
-            assert!(options.lowering_environment.os.get().is_none());
+            let context = LoweringContext::new(&resolve_output, &plan, &options);
+            assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
         }
     }
 
@@ -597,53 +350,20 @@ mod tests {
             .any(|arg| arg.replace('\\', "/").ends_with(suffix))
     }
 
-    fn n2_input_paths_for_command(
-        lowered: &AdaptedPlan,
+    fn input_paths_for_command(
+        plan: &crate::execution_plan::ExecutionPlan,
         matches: impl Fn(&[String]) -> bool,
     ) -> Vec<PathBuf> {
-        let output = lowered
-            .command_args_by_output
+        let action = plan
+            .action_ids()
+            .map(|id| plan.action(id))
+            .find(|action| matches(action.command().args()))
+            .expect("matching lowered command should be present");
+        action
+            .inputs()
             .iter()
-            .find_map(|(output, args)| matches(args).then_some(output))
-            .expect("matching lowered command should have an output");
-        let build = lowered
-            .build_graph
-            .builds
-            .iter()
-            .find(|build| {
-                build.outs.ids.iter().any(|id| {
-                    Path::new(&lowered.build_graph.files.by_id[*id].name) == output.as_path()
-                })
-            })
-            .expect("matching output should belong to an n2 build");
-
-        build
-            .ins
-            .ids
-            .iter()
-            .map(|id| PathBuf::from(&lowered.build_graph.files.by_id[*id].name))
+            .map(|input| input.path().to_owned())
             .collect()
-    }
-
-    struct AdaptedPlan {
-        build_graph: n2::graph::Graph,
-        command_args_by_output: crate::execution_plan::CommandArgMap,
-        artifacts: Vec<(ArtifactKey, Vec<PathBuf>)>,
-    }
-
-    fn adapt_execution_plan(plan: crate::execution_plan::ExecutionPlan) -> AdaptedPlan {
-        let artifacts = plan
-            .requested_artifact_paths()
-            .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
-            .collect();
-        let (build_graph, command_args_by_output) = plan
-            .all_to_n2_graph()
-            .expect("execution plan should adapt to n2");
-        AdaptedPlan {
-            build_graph,
-            command_args_by_output,
-            artifacts,
-        }
     }
 
     #[test]
@@ -670,30 +390,31 @@ mod tests {
             ),
             None,
         );
-        let options = BuildOptions {
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            debug_info: Default::default(),
+            warn_list: None,
             artifact_paths,
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Check,
-            debug_symbols: false,
             enable_coverage: false,
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             stdlib_path: None,
-            lowering_environment: LoweringEnvironment::default(),
         };
 
-        let lowered = adapt_execution_plan(
-            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed"),
-        );
+        let lowered =
+            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed");
 
         for (payload, source) in [
             (BINARIES.moonlex.as_path(), Path::new("main/lexer.mbl")),
             (BINARIES.moonyacc.as_path(), Path::new("main/parser.mby")),
         ] {
-            let inputs = n2_input_paths_for_command(&lowered, |command| {
+            let inputs = input_paths_for_command(&lowered, |command| {
                 command.get(1).map(Path::new) == Some(payload)
             });
             assert!(
@@ -749,22 +470,24 @@ mod tests {
             ),
             None,
         );
-        let options = BuildOptions {
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            debug_info: Default::default(),
+            warn_list: None,
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
-            debug_symbols: false,
             enable_coverage: false,
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             stdlib_path: None,
-            lowering_environment: LoweringEnvironment::default(),
         };
 
-        let mut context = LoweringContext::new(artifact_paths, &resolve_output, &plan, &options);
+        let mut context = LoweringContext::new(&resolve_output, &plan, &options);
         let mut execution = ExecutionPlanBuilder::default();
         let nodes = [check_node, link_core_node];
         let actions = nodes
@@ -786,146 +509,18 @@ mod tests {
     }
 
     #[test]
-    fn standalone_projection_uses_dependency_closure_for_shared_actions() {
-        let script_package = PackageId::from(KeyData::from_ffi(1));
-        let dependency_package = PackageId::from(KeyData::from_ffi(2));
-        let script_target = script_package.build_target(TargetKind::Source);
-        let script_node = BuildPlanNode::MakeExecutable(script_target);
-        let dependency_node = BuildPlanNode::ArchiveOrLinkCStubs(dependency_package);
-        let runtime_node = BuildPlanNode::BuildRuntimeLib;
-
-        let mut plan = BuildPlan::default();
-        plan.test_add_node(script_node);
-        plan.test_add_node(dependency_node);
-        plan.test_add_node(runtime_node);
-        connect_artifact(
-            &mut plan,
-            script_node,
-            dependency_node,
-            ArtifactKey::CStubLibrary {
-                package: dependency_package,
-            },
-        );
-        connect_artifact(
-            &mut plan,
-            script_node,
-            runtime_node,
-            ArtifactKey::RuntimeLibrary,
-        );
-        connect_artifact(
-            &mut plan,
-            dependency_node,
-            runtime_node,
-            ArtifactKey::RuntimeLibrary,
-        );
-        plan.test_insert_c_stubs_info(
-            dependency_package,
-            BuildCStubsInfo {
-                effective_native_toolchain: msvc_toolchain(),
-                cc_flags: Vec::new(),
-                link_flags: Vec::new(),
-                static_archive_fingerprint: None,
-            },
-        );
-        plan.test_insert_runtime_info(BuildRuntimeInfo {
-            effective_native_toolchain: msvc_toolchain(),
-            source_files: vec![PathBuf::from("runtime.c")],
-            simdutf_objects: Vec::new(),
-            static_archive_fingerprint: Some("runtime-test".to_string()),
-            native_allocator: NativeAllocator::Default,
-        });
-
-        let (dependency_nodes, script_nodes) = partition_standalone_actions(&plan, script_package);
-        let dependency_nodes = dependency_nodes.into_iter().collect::<HashSet<_>>();
-        let script_nodes = script_nodes.into_iter().collect::<HashSet<_>>();
-
-        assert_eq!(
-            dependency_nodes,
-            HashSet::from([
-                BuildPlanActionKey::Backend(dependency_node),
-                BuildPlanActionKey::Backend(runtime_node),
-            ])
-        );
-        assert_eq!(
-            script_nodes,
-            HashSet::from([BuildPlanActionKey::Backend(script_node)])
-        );
-    }
-
-    #[test]
-    fn standalone_projection_keeps_script_only_shared_actions_with_script() {
-        let script_package = PackageId::from(KeyData::from_ffi(1));
-        let script_target = script_package.build_target(TargetKind::Source);
-        let script_node = BuildPlanNode::MakeExecutable(script_target);
-        let runtime_node = BuildPlanNode::BuildRuntimeLib;
-
-        let mut plan = BuildPlan::default();
-        plan.test_add_node(script_node);
-        plan.test_add_node(runtime_node);
-        connect_artifact(
-            &mut plan,
-            script_node,
-            runtime_node,
-            ArtifactKey::RuntimeLibrary,
-        );
-        plan.test_insert_runtime_info(BuildRuntimeInfo {
-            effective_native_toolchain: msvc_toolchain(),
-            source_files: vec![PathBuf::from("runtime.c")],
-            simdutf_objects: Vec::new(),
-            static_archive_fingerprint: Some("runtime-test".to_string()),
-            native_allocator: NativeAllocator::Default,
-        });
-
-        let (dependency_actions, script_nodes) =
-            partition_standalone_actions(&plan, script_package);
-        let script_nodes = script_nodes.into_iter().collect::<HashSet<_>>();
-
-        assert!(dependency_actions.is_empty());
-        assert_eq!(
-            script_nodes,
-            HashSet::from([
-                BuildPlanActionKey::Backend(script_node),
-                BuildPlanActionKey::Backend(runtime_node),
-            ])
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "depends on script action")]
-    fn standalone_projection_rejects_dependency_work_requiring_script_action() {
-        let script_package = PackageId::from(KeyData::from_ffi(1));
-        let dependency_package = PackageId::from(KeyData::from_ffi(2));
-        let script_node =
-            BuildPlanNode::MakeExecutable(script_package.build_target(TargetKind::Source));
-        let dependency_node = BuildPlanNode::ArchiveOrLinkCStubs(dependency_package);
-
-        let mut plan = BuildPlan::default();
-        plan.test_add_node(script_node);
-        plan.test_add_node(dependency_node);
-        connect_artifact(
-            &mut plan,
-            dependency_node,
-            script_node,
-            ArtifactKey::Executable {
-                package: script_package,
-                target_kind: TargetKind::Source,
-            },
-        );
-        plan.test_insert_c_stubs_info(
-            dependency_package,
-            BuildCStubsInfo {
-                effective_native_toolchain: msvc_toolchain(),
-                cc_flags: Vec::new(),
-                link_flags: Vec::new(),
-                static_archive_fingerprint: None,
-            },
-        );
-
-        partition_standalone_actions(&plan, script_package);
-    }
-
-    #[test]
+    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
     fn lowered_windows_msvc_native_graph_contains_complete_commands_and_tool_inputs() {
+        let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
+        let include_dir = toolchain_dir.path().join("include");
+        std::fs::create_dir_all(include_dir.join("internal")).expect("create header directory");
+        let toolchain_headers = [
+            include_dir.join("moonbit.h"),
+            include_dir.join("internal/runtime.h"),
+        ];
+        for header in &toolchain_headers {
+            std::fs::write(header, "/* test header */").expect("write test header");
+        }
         let (resolve_output, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
         let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
@@ -1008,6 +603,8 @@ mod tests {
             target.package,
             BuildCStubsInfo {
                 effective_native_toolchain: toolchain.clone(),
+                debug_info: false,
+                opt_level: moonutil::compiler_flags::OptLevel::None,
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
                 link_flags: Vec::new(),
                 static_archive_fingerprint: None,
@@ -1015,6 +612,7 @@ mod tests {
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: toolchain.clone(),
+            enable_backtrace: false,
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
             static_archive_fingerprint: Some("runtime-test".to_string()),
@@ -1024,6 +622,8 @@ mod tests {
             target,
             MakeExecutableInfo {
                 effective_native_toolchain: toolchain.clone(),
+                c_debug_info: false,
+                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
                 c_flags: Vec::new(),
                 link_flags: vec!["dep.lib".to_string(), "/LIBPATH:pkg/lib".to_string()],
                 link_c_stubs: vec![target.package],
@@ -1031,11 +631,6 @@ mod tests {
             },
         );
 
-        let lowering_environment = LoweringEnvironment::default();
-        lowering_environment
-            .os
-            .set(OperatingSystem::Windows)
-            .expect("test OS should be set once");
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
                 PathBuf::from("_build"),
@@ -1048,48 +643,71 @@ mod tests {
         let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
             NativeTarget::X86_64PcWindowsMsvc,
         ));
-        let options = BuildOptions {
+        plan.test_backend_plan_mut()
+            .test_set_native_mode(Some(native_mode));
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            debug_info: Default::default(),
+            warn_list: None,
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::Native {
-                mode: native_mode,
+                direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
                 allocator: NativeAllocator::Default,
+                os: OperatingSystem::Windows,
+                compiler_paths: CompilerPaths {
+                    include_path: include_dir.display().to_string(),
+                    lib_path: toolchain_dir.path().join("lib").display().to_string(),
+                },
             },
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
-            debug_symbols: false,
             enable_coverage: false,
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             stdlib_path: None,
-            lowering_environment,
         };
 
-        let nodes = [c_stub_node, exe_node];
-        let (execution, actions) =
-            lower_actions(&resolve_output, &plan, &options).expect("lowering should succeed");
-        for node in nodes {
+        let execution =
+            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed");
+        let opaque_actions = execution
+            .action_ids()
+            .filter(|id| {
+                execution.action(*id).outputs().iter().any(|path| {
+                    matches!(
+                        execution
+                            .declared_output(path)
+                            .and_then(|output| output.artifact()),
+                        Some(ArtifactKey::CStubObject { .. } | ArtifactKey::Executable { .. })
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(opaque_actions.len(), 2);
+        for action in opaque_actions {
             assert!(
-                !execution
-                    .action(actions[&BuildPlanActionKey::Backend(node)])
-                    .is_cache_eligible(),
-                "{node:?} with opaque flags should be ineligible"
+                !execution.action(action).is_cache_eligible(),
+                "C stub and executable actions with opaque flags should be ineligible"
             );
         }
 
-        let lowered = adapt_execution_plan(
-            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed"),
-        );
+        let lowered = execution;
         let exe_path = artifact_paths.target_layout().executable_of_build_target(
             &resolve_output.pkg_dirs,
             &target,
             ExecutableArtifact::NativeExecutable,
         );
         let command = lowered
-            .command_args_by_output
-            .get(&exe_path)
-            .expect("executable command args should be captured");
+            .action(
+                lowered
+                    .declared_output(&exe_path)
+                    .expect("output should have a producer")
+                    .producer(),
+            )
+            .command()
+            .args();
 
         assert!(command.iter().any(|arg| arg == "msvc/bin/cl.exe"));
         assert!(command.iter().any(|arg| arg == "/subsystem:console"));
@@ -1122,8 +740,8 @@ mod tests {
         assert!(c_stub_position < runtime_position);
 
         let runtime_compile_command = lowered
-            .command_args_by_output
-            .values()
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
             .find(|command| command_arg_has_normalized_suffix(command, "runtime.c"))
             .expect("runtime compile command args should be captured");
         assert!(command_arg_has_normalized_suffix(
@@ -1137,8 +755,8 @@ mod tests {
         );
 
         let runtime_archive_command = lowered
-            .command_args_by_output
-            .values()
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
             .find(|command| {
                 command.iter().any(|arg| arg == "msvc/bin/lib.exe")
                     && command_arg_has_normalized_suffix(
@@ -1157,8 +775,8 @@ mod tests {
         ));
 
         let stub_compile_command = lowered
-            .command_args_by_output
-            .values()
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
             .find(|command| command_arg_has_normalized_suffix(command, "main/native/stub.c"))
             .expect("C stub compile command args should be captured");
         assert!(
@@ -1172,7 +790,7 @@ mod tests {
                 .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_C_STANDARD_FLAG)
         );
 
-        let moonc_inputs = n2_input_paths_for_command(&lowered, |command| {
+        let moonc_inputs = input_paths_for_command(&lowered, |command| {
             command.get(1).map(String::as_str) == Some("build-package")
         });
         assert_eq!(
@@ -1183,7 +801,7 @@ mod tests {
             1
         );
 
-        let compiler_inputs = n2_input_paths_for_command(&lowered, |command| {
+        let compiler_inputs = input_paths_for_command(&lowered, |command| {
             command_arg_has_normalized_suffix(command, "main/native/stub.c")
         });
         assert_eq!(
@@ -1199,17 +817,6 @@ mod tests {
                 .any(|input| input == Path::new("main/native/stub.h")),
             "package-local C headers should be inputs of every C-stub action"
         );
-        let toolchain_headers = WalkDir::new(&options.compiler_paths().include_path)
-            .follow_links(true)
-            .into_iter()
-            .map(|entry| entry.expect("inspect test toolchain include directory"))
-            .filter(|entry| entry.file_type().is_file())
-            .map(|entry| entry.into_path())
-            .collect::<Vec<_>>();
-        assert!(
-            !toolchain_headers.is_empty(),
-            "test toolchain should contain headers"
-        );
         for header in toolchain_headers {
             assert!(
                 compiler_inputs.contains(&header),
@@ -1218,7 +825,7 @@ mod tests {
             );
         }
 
-        let archiver_inputs = n2_input_paths_for_command(&lowered, |command| {
+        let archiver_inputs = input_paths_for_command(&lowered, |command| {
             command.first().map(String::as_str) == Some(toolchain.cc().ar_path.as_str())
         });
         assert_eq!(
@@ -1230,21 +837,28 @@ mod tests {
         );
 
         let msvc_env_build = lowered
-            .build_graph
-            .builds
-            .iter()
-            .find(|build| build.env.iter().any(|(key, _)| key == "INCLUDE"))
+            .action_ids()
+            .map(|id| lowered.action(id).command())
+            .find(|command| command.env().iter().any(|(key, _)| key == "INCLUDE"))
             .expect("MSVC build should carry command environment");
         assert!(
             msvc_env_build
-                .env
+                .env()
                 .iter()
                 .any(|(key, value)| key == "LIB" && value == "crt/lib;sdk/lib")
         );
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
     fn macos_debug_link_and_dsymutil_are_separate_structured_actions() {
+        let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
+        let libbacktrace = toolchain_dir.path().join("libbacktrace.a");
+        std::fs::write(&libbacktrace, "").expect("write test runtime library");
+        let compiler_paths = CompilerPaths {
+            include_path: "/toolchain/include".into(),
+            lib_path: toolchain_dir.path().display().to_string(),
+        };
         let (resolve_output, target) = single_package_resolve_output();
         let executable_node = BuildPlanNode::MakeExecutable(target);
         let dsym_node = BuildPlanNode::GenerateDsym(target);
@@ -1269,6 +883,8 @@ mod tests {
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
+                c_debug_info: true,
+                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
                 effective_native_toolchain: Toolchain::from_path_probe(CC {
                     cc_kind: CCKind::Clang,
                     cc_path: "/toolchain/bin/clang".to_string(),
@@ -1288,19 +904,23 @@ mod tests {
         for backend in [
             BackendConfig::Llvm {
                 allocator: NativeAllocator::Default,
+                os: OperatingSystem::MacOS,
+                compiler_paths: compiler_paths.clone(),
             },
             BackendConfig::Native {
-                mode: NativeBackendMode::DirectObject(DirectNativeMode::Target(
-                    NativeTarget::Aarch64AppleDarwin,
-                )),
+                direct_object_candidate: Some(NativeTarget::Aarch64AppleDarwin),
                 allocator: NativeAllocator::Default,
+                os: OperatingSystem::MacOS,
+                compiler_paths: compiler_paths.clone(),
             },
         ] {
-            let lowering_environment = LoweringEnvironment::default();
-            lowering_environment
-                .os
-                .set(OperatingSystem::MacOS)
-                .expect("test OS should be set once");
+            plan.test_backend_plan_mut().test_set_native_mode(
+                matches!(backend, BackendConfig::Native { .. }).then_some(
+                    NativeBackendMode::DirectObject(DirectNativeMode::Target(
+                        NativeTarget::Aarch64AppleDarwin,
+                    )),
+                ),
+            );
             let artifact_paths = ArtifactPathResolver::new(
                 TargetLayout::new(
                     PathBuf::from("_build"),
@@ -1310,81 +930,92 @@ mod tests {
                 ),
                 None,
             );
-            let options = BuildOptions {
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                debug_info: Default::default(),
+                warn_list: None,
                 artifact_paths: artifact_paths.clone(),
                 backend,
                 opt_level: OptLevel::Debug,
                 action: RunMode::Build,
-                debug_symbols: true,
                 enable_coverage: false,
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
                 info_no_alias: false,
                 stdlib_path: None,
-                lowering_environment,
             };
 
-            let lowered = adapt_execution_plan(
-                lower_build_plan(&resolve_output, &plan, &options)
-                    .expect("lowering should succeed"),
-            );
+            let lowered = lower_build_plan(&resolve_output, &plan, &options)
+                .expect("lowering should succeed");
+            let context = LoweringContext::new(&resolve_output, &plan, &options);
             let executable = artifact_paths.target_layout().executable_of_build_target(
                 &resolve_output.pkg_dirs,
                 &target,
-                options.artifact_path_options().executable,
+                context.artifact_path_options().executable,
             );
             let dsym_bundle = artifact_paths.target_layout().dsym_bundle_of_build_target(
                 &resolve_output.pkg_dirs,
                 &target,
-                options.artifact_path_options().executable,
+                context.artifact_path_options().executable,
             );
 
             let link_args = lowered
-                .command_args_by_output
-                .get(&executable)
-                .expect("link command should retain structured argv");
+                .action(
+                    lowered
+                        .declared_output(&executable)
+                        .expect("output should have a producer")
+                        .producer(),
+                )
+                .command()
+                .args();
             assert_eq!(
                 link_args.first().map(String::as_str),
                 Some("/toolchain/bin/clang")
             );
             assert!(!link_args.iter().any(|arg| arg == "&&"));
-            assert_eq!(
-                lowered.command_args_by_output.get(&dsym_bundle),
-                Some(&vec![
-                    dsymutil.display().to_string(),
-                    executable.display().to_string(),
-                ])
+            assert!(link_args.contains(&libbacktrace.display().to_string()));
+            let link_inputs = input_paths_for_command(&lowered, |command| {
+                command.first().map(String::as_str) == Some("/toolchain/bin/clang")
+            });
+            assert!(
+                link_inputs.contains(&libbacktrace),
+                "the library from the supplied compiler paths must be a linker input"
             );
-
-            let dsym_file_id = lowered
-                .build_graph
-                .files
-                .lookup(&dsym_bundle.to_string_lossy())
-                .expect("dSYM bundle should be registered");
+            let dsym_output = lowered
+                .declared_output(&dsym_bundle)
+                .expect("dSYM bundle should be declared");
+            let dsym_action = lowered.action(dsym_output.producer());
+            assert_eq!(
+                dsym_action.command().args(),
+                [
+                    dsymutil.display().to_string(),
+                    executable.display().to_string()
+                ],
+            );
             assert!(
                 lowered
-                    .build_graph
-                    .get_start_nodes()
-                    .contains(&dsym_file_id),
+                    .default_output_paths()
+                    .contains(&dsym_bundle.as_path()),
                 "an unconsumed dSYM output should remain an execution root"
             );
-            let dsym_build_id = lowered.build_graph.files.by_id[dsym_file_id]
-                .input
-                .expect("dSYM bundle should have a producer");
-            let dsym_inputs = lowered.build_graph.builds[dsym_build_id]
-                .ins
-                .ids
+            let dsym_inputs = dsym_action
+                .inputs()
                 .iter()
-                .map(|id| Path::new(&lowered.build_graph.files.by_id[*id].name))
+                .map(InputObservation::path)
                 .collect::<HashSet<_>>();
+
             assert_eq!(
                 dsym_inputs,
                 HashSet::from([dsymutil.as_path(), executable.as_path()])
             );
 
             assert_eq!(
-                lowered.artifacts,
+                lowered
+                    .requested_artifact_paths()
+                    .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
+                    .collect::<Vec<_>>(),
                 vec![(
                     ArtifactKey::Executable {
                         package: target.package,

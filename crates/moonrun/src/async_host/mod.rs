@@ -47,7 +47,8 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
-        self, HostHandle, HostWorkerJob, Job, JobPayload, ResourceTable, WorkerCompletionId,
+        self, HostHandle, HostWorkerJob, Job, JobPayload, ResourceTable,
+        WorkerCompletionDestination, WorkerCompletionId,
     },
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -521,8 +522,8 @@ impl HandleTable {
 }
 
 impl ResourceTable for HandleTable {
-    fn insert_file(&mut self, file: RawFd) -> AsyncHostResult<u64> {
-        Ok(self.insert_resource(Resource::new(file)))
+    fn insert_resource(&mut self, resource: Resource) -> AsyncHostResult<u64> {
+        Ok(HandleTable::insert_resource(self, resource))
     }
 }
 
@@ -1183,6 +1184,8 @@ pub(crate) struct AsyncHost {
     polls: RefCell<PollTable>,
     thread_pool_completions: RefCell<ThreadPoolCompletions>,
     signals: SignalReceiver,
+    #[cfg(unix)]
+    signal_handler: RefCell<Option<crate::run_signal::SignalTargetGuard>>,
     handles: RefCell<HandleTable>,
     tls_connections: RefCell<SecondaryMap<HandleKey, tls::TlsHandle>>,
     tls_error: RefCell<Option<String>>,
@@ -1223,6 +1226,8 @@ impl AsyncHost {
             polls: RefCell::new(PollTable::default()),
             thread_pool_completions: RefCell::new(ThreadPoolCompletions::default()),
             signals,
+            #[cfg(unix)]
+            signal_handler: RefCell::new(None),
             handles: RefCell::new(HandleTable::with_keys(keys, stdio)),
             tls_connections: RefCell::new(SecondaryMap::new()),
             tls_error: RefCell::new(None),
@@ -1523,6 +1528,7 @@ impl AsyncHost {
         #[cfg(unix)]
         {
             if let Some(source) = completion_source {
+                self.terminate_signal_handler();
                 let _ = self.handles.borrow_mut().remove_resource(source);
             }
             if let Some(old_signal_mask) = old_signal_mask {
@@ -1722,6 +1728,26 @@ impl AsyncHost {
     }
 
     #[cfg(unix)]
+    pub(crate) fn start_signal_handler(&self) -> AsyncHostResult<()> {
+        if self.signal_handler.borrow().is_none() {
+            let handler = crate::async_sys::signal::start_signal_handler(
+                &self.signals,
+                self.thread_pool_notifier()?,
+            )?;
+            *self.signal_handler.borrow_mut() = Some(handler);
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn terminate_signal_handler(&self) {
+        crate::async_sys::signal::terminate_signal_handler(
+            &self.signals,
+            self.signal_handler.borrow_mut().take(),
+        );
+    }
+
+    #[cfg(unix)]
     pub(crate) fn make_sigwait_job(&self, signals: Vec<i32>) -> AsyncHostResult<HostHandle> {
         let notifier = self.thread_pool_notifier()?;
         let job = crate::async_sys::signal::make_sigwait_job(&self.signals, &signals, notifier)?;
@@ -1764,7 +1790,19 @@ impl AsyncHost {
                 .handles
                 .borrow_mut()
                 .insert_resource(Resource::new(event_fd));
-            if let Err(error) = poll::poll_register(&poll.instance, event_fd, true, source) {
+            if let Err(error) =
+                poll::poll_register_completion_source(&poll.instance, event_fd, source)
+            {
+                let _ = self.handles.borrow_mut().remove_resource(source);
+                return Err(error);
+            }
+            let signal_fd = completion_notifier.signal_fd();
+            // Both sources use the same guest handle. fetch_completion merges
+            // pending Run signals with worker IDs without a forwarding thread.
+            if let Err(error) =
+                poll::poll_register_completion_source(&poll.instance, signal_fd, source)
+            {
+                let _ = poll::poll_unregister(&poll.instance, event_fd);
                 let _ = self.handles.borrow_mut().remove_resource(source);
                 return Err(error);
             }
@@ -1772,6 +1810,7 @@ impl AsyncHost {
                 let mut completions = self.thread_pool_completions.borrow_mut();
                 if completions.source.is_some() {
                     drop(completions);
+                    let _ = poll::poll_unregister(&poll.instance, signal_fd);
                     let _ = poll::poll_unregister(&poll.instance, event_fd);
                     let _ = self.handles.borrow_mut().remove_resource(source);
                     return Err(AsyncHostError::Inval);
@@ -1779,6 +1818,7 @@ impl AsyncHost {
                 // Publish the poll-side mapping before exposing the notifier:
                 // workers can notify as soon as completions.notifier is visible.
                 poll.registered_fds.insert(event_fd);
+                poll.registered_fds.insert(signal_fd);
                 poll.completion_notifier = Some(Arc::clone(&completion_notifier));
                 completions.notifier = Some(completion_notifier);
                 completions.source = Some(source);
@@ -1805,6 +1845,8 @@ impl AsyncHost {
     }
 
     pub(crate) fn destroy_thread_pool(&self) {
+        #[cfg(unix)]
+        self.terminate_signal_handler();
         for worker in self.workers.destroy() {
             self.handles.borrow_mut().remove_worker_key(worker.key);
             if let Some(unrun_job) = worker.unrun_job {
@@ -1834,7 +1876,11 @@ impl AsyncHost {
                 }
             }
             for poll in polls.polls.values_mut() {
-                poll.completion_notifier = None;
+                if let Some(notifier) = poll.completion_notifier.take() {
+                    let signal_fd = notifier.signal_fd();
+                    let _ = poll::poll_unregister(&poll.instance, signal_fd);
+                    poll.registered_fds.remove(&signal_fd);
+                }
             }
             if let Some(old_signal_mask) = old_signal_mask {
                 let _ = crate::async_sys::signal::restore_thread_pool_signal_mask(&old_signal_mask);
@@ -2305,6 +2351,28 @@ impl AsyncHost {
         Ok(handle_from_key(key))
     }
 
+    /// Domain adapters inspect their own payloads; the Async Host retains Job
+    /// identity and rejects access while a worker owns the payload.
+    /// Collect completed results first, including when a supplied pipe was
+    /// read without polling or fetching the default completion source.
+    pub(crate) fn with_job<T>(&self, handle: u64, f: impl FnOnce(&Job) -> T) -> AsyncHostResult<T> {
+        self.restore_completed_worker_jobs();
+        let key = self.handles.borrow().job(handle)?;
+        let jobs = self.jobs.borrow();
+        Ok(f(jobs.visible_job(key)?))
+    }
+
+    pub(crate) fn with_job_mut<T>(
+        &self,
+        handle: u64,
+        f: impl FnOnce(&mut Job) -> T,
+    ) -> AsyncHostResult<T> {
+        self.restore_completed_worker_jobs();
+        let key = self.handles.borrow().job(handle)?;
+        let mut jobs = self.jobs.borrow_mut();
+        Ok(f(jobs.visible_job_mut(key)?))
+    }
+
     pub(crate) fn free_job(&self, handle: u64) -> AsyncHostResult<()> {
         let mut handles = self.handles.borrow_mut();
         let key = handles.job(handle)?;
@@ -2326,20 +2394,6 @@ impl AsyncHost {
             let _ = self.free_c_buffer(buffer_handle);
         }
         Ok(())
-    }
-
-    pub(crate) fn job_get_ret(&self, handle: u64) -> AsyncHostResult<i64> {
-        let key = self.handles.borrow().job(handle)?;
-        let jobs = self.jobs.borrow();
-        let job = jobs.visible_job(key)?;
-        Ok(crate::async_sys::internal::event_loop::thread_pool::job_get_ret(job))
-    }
-
-    pub(crate) fn job_get_err(&self, handle: u64) -> AsyncHostResult<i32> {
-        let key = self.handles.borrow().job(handle)?;
-        let jobs = self.jobs.borrow();
-        let job = jobs.visible_job(key)?;
-        Ok(crate::async_sys::internal::event_loop::thread_pool::job_get_err(job))
     }
 
     pub(crate) fn open_job_get_fd(&self, handle: u64) -> AsyncHostResult<HostHandle> {
@@ -2511,8 +2565,13 @@ impl AsyncHost {
                 }
             };
             if completion_source_closed {
+                self.terminate_signal_handler();
                 for poll in polls.polls.values_mut() {
-                    poll.completion_notifier = None;
+                    if let Some(notifier) = poll.completion_notifier.take() {
+                        let signal_fd = notifier.signal_fd();
+                        let _ = poll::poll_unregister(&poll.instance, signal_fd);
+                        poll.registered_fds.remove(&signal_fd);
+                    }
                 }
                 if let Some(old_signal_mask) = old_signal_mask {
                     let _ =
@@ -3733,19 +3792,49 @@ impl AsyncHost {
         let worker = self.handles.borrow_mut().insert(HandleKind::Worker);
         #[cfg(unix)]
         {
-            self.spawn_worker_thread(worker, init_job, move |completion_id| {
-                let _ = completion_notifier.notify(completion_id.as_i32());
-            })?;
+            self.spawn_worker_thread(
+                worker,
+                init_job,
+                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                    let _ = completion_notifier.notify(completion_id.as_i32());
+                })),
+            )?;
         }
         #[cfg(windows)]
         {
-            self.spawn_worker_thread(worker, init_job, move |completion_id| {
-                let _ = poll::post_thread_pool_completion(
-                    &completion_target.port,
-                    completion_id.as_i32(),
-                );
-            })?;
+            self.spawn_worker_thread(
+                worker,
+                init_job,
+                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                    let _ = poll::post_thread_pool_completion(
+                        &completion_target.port,
+                        completion_id.as_i32(),
+                    );
+                })),
+            )?;
         }
+        Ok(handle_from_key(worker))
+    }
+
+    pub(crate) fn spawn_worker_with_pipe(
+        &self,
+        completion_id: i32,
+        job_handle: u64,
+        writer_handle: u64,
+    ) -> AsyncHostResult<u64> {
+        let job_key = self.handles.borrow().job(job_handle)?;
+        // Validate and acquire the writer before consuming the one-shot Job.
+        let notifier = crate::async_sys::internal::event_loop::PipeCompletionNotifier::new(
+            self.acquire_resource(writer_handle)?,
+        )?;
+        let init_job =
+            self.take_worker_job(WorkerCompletionId::from_abi(completion_id), job_key)?;
+        let worker = self.handles.borrow_mut().insert(HandleKind::Worker);
+        self.spawn_worker_thread(
+            worker,
+            init_job,
+            WorkerCompletionDestination::Pipe(notifier),
+        )?;
         Ok(handle_from_key(worker))
     }
 
@@ -3790,7 +3879,22 @@ impl AsyncHost {
 
     pub(crate) fn cancel_worker(&self, worker_handle: u64) -> AsyncHostResult<i32> {
         let worker_key = self.handles.borrow().worker(worker_handle)?;
-        self.workers.cancel(worker_key)
+        Ok(self.workers.cancel(worker_key)?.as_i32())
+    }
+
+    pub(crate) fn cancel_worker_with_retry(&self, worker_handle: u64) -> AsyncHostResult<i32> {
+        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        let status = self.workers.cancel_with_retry(
+            worker_key,
+            #[cfg(unix)]
+            self.thread_pool_notifier()?,
+        )?;
+        // Waiting is published only after the worker sends its owned result.
+        // Reacquire it even when this was originally a retry notification.
+        if status == thread_pool::CancellationOutcome::JobFinished {
+            self.restore_completed_worker_jobs();
+        }
+        Ok(status.as_i32())
     }
 
     #[cfg(unix)]
@@ -4209,7 +4313,7 @@ impl AsyncHost {
         &self,
         worker: HandleKey,
         init_job: HostWorkerJob,
-        complete_job: impl FnMut(WorkerCompletionId) + Send + 'static,
+        completion: WorkerCompletionDestination,
     ) -> AsyncHostResult<()> {
         let filesystem = Arc::clone(&self.filesystem);
         let process_for_runner = self.process.clone();
@@ -4219,7 +4323,7 @@ impl AsyncHost {
             move |worker_job| {
                 Self::run_policy_checked_job(&filesystem, &process_for_runner, &mut worker_job.job);
             },
-            complete_job,
+            completion,
         )
     }
 }
@@ -4551,9 +4655,9 @@ mod tests {
 
         host.run_job(job).unwrap();
 
-        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(host.with_job(job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(job).unwrap(),
+            host.with_job(job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         assert_eq!(
@@ -4573,8 +4677,8 @@ mod tests {
 
         host.run_job(spawn_job).unwrap();
 
-        assert_eq!(host.job_get_err(spawn_job).unwrap(), 0);
-        let pid = host.job_get_ret(spawn_job).unwrap() as i32;
+        assert_eq!(host.with_job(spawn_job, |job| job.err()).unwrap(), 0);
+        let pid = host.with_job(spawn_job, |job| job.ret()).unwrap() as i32;
         host.check_owned_child_pid(pid).unwrap();
         let process_handle = host.get_spawn_job_result_handle(spawn_job).unwrap();
         let process_resource = if process_handle == host.invalid_fd() {
@@ -4614,7 +4718,7 @@ mod tests {
 
         host.run_job(wait_job).unwrap();
 
-        assert_eq!(host.job_get_err(wait_job).unwrap(), 0);
+        assert_eq!(host.with_job(wait_job, |job| job.err()).unwrap(), 0);
         assert_eq!(
             host.check_owned_child_pid(pid),
             Err(AsyncHostError::PermissionDenied)
@@ -4658,7 +4762,7 @@ mod tests {
         host.run_job(wait_job).unwrap();
 
         assert_eq!(
-            host.job_get_err(wait_job).unwrap(),
+            host.with_job(wait_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.check_owned_child_pid(checked_pid).unwrap();
@@ -5135,6 +5239,173 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn signal_handler_reconfigures_restarts_and_detaches_with_the_pool() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+        let notifier = host.thread_pool_notifier().unwrap();
+        let all = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&all, &[libc::SIGINT])
+            .unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        host.start_signal_handler().unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(host.workers.len(), 0);
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        let mut event = [0; 4];
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        assert_eq!(i32::from_ne_bytes(event), libc::SIGINT | i32::MIN);
+
+        host.set_cancellation_signals(&all, &[libc::SIGTERM])
+            .unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert_eq!(sender.send(libc::SIGTERM), Ok(true));
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        assert_eq!(i32::from_ne_bytes(event), libc::SIGTERM | i32::MIN);
+
+        host.terminate_signal_handler();
+        assert_eq!(sender.send(libc::SIGTERM), Ok(false));
+        host.set_cancellation_signals(&all, &all).unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        assert_eq!(notifier.fetch(&mut event), Ok(4));
+        host.destroy_thread_pool();
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert!(host.signal_handler.borrow().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_bursts_do_not_wait_for_worker_completions() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        let source = host.init_thread_pool(poll).unwrap();
+        let signals = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        host.thread_pool_notifier()
+            .unwrap()
+            .fill_with_completions(17);
+
+        let (finished, result) = std::sync::mpsc::channel();
+        let broker = std::thread::spawn(move || {
+            let delivered = (0..65536).try_for_each(|index| {
+                sender
+                    .send(signals[index % signals.len()])
+                    .map(|accepted| assert!(accepted))
+            });
+            finished.send(delivered).unwrap();
+        });
+        let delivered = result.recv_timeout(std::time::Duration::from_secs(2));
+        if delivered.is_err() {
+            // Release a blocked writer so the regression fails without leaking a thread.
+            host.destroy_thread_pool();
+        }
+        broker.join().unwrap();
+        assert_eq!(
+            delivered,
+            Ok(Ok(())),
+            "signal delivery blocked on the full worker pipe"
+        );
+
+        let mut memory = [0; 12];
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 3)
+                .unwrap(),
+            12
+        );
+        let events: Vec<_> = memory
+            .chunks_exact(4)
+            .map(|bytes| i32::from_ne_bytes(bytes.try_into().unwrap()))
+            .collect();
+        assert_eq!(
+            events,
+            [libc::SIGINT | i32::MIN, libc::SIGTERM | i32::MIN, 17]
+        );
+        assert_eq!(host.workers.len(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_notifications_remain_ready_until_fetched_and_are_discarded_on_detach() {
+        let (sender, receiver) = crate::signal_channel();
+        let mut host = default_host();
+        host.signals = receiver;
+        let poll = host.poll_create().unwrap();
+        let source = host.init_thread_pool(poll).unwrap();
+        let signals = [libc::SIGINT, libc::SIGTERM];
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        for signal in signals {
+            assert_eq!(sender.send(signal), Ok(true));
+        }
+        let mut memory = [0; 4];
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(
+            host.poll_event_fd(host.poll_get_event(poll, 0).unwrap())
+                .unwrap(),
+            source
+        );
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 0)
+                .unwrap(),
+            0
+        );
+        for signal in signals {
+            assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
+            assert_eq!(
+                host.fetch_completion(memory.as_mut_slice(), source, 0, 1)
+                    .unwrap(),
+                4
+            );
+            assert_eq!(i32::from_ne_bytes(memory), signal | i32::MIN);
+        }
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+
+        assert_eq!(sender.send(libc::SIGTERM), Ok(true));
+        host.terminate_signal_handler();
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+        assert_eq!(sender.send(libc::SIGTERM), Ok(false));
+        host.set_cancellation_signals(&signals, &signals).unwrap();
+        host.start_signal_handler().unwrap();
+        assert_eq!(
+            host.fetch_completion(memory.as_mut_slice(), source, 0, 1)
+                .unwrap(),
+            0
+        );
+        assert_eq!(sender.send(libc::SIGINT), Ok(true));
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_delivery_detaches_when_its_poll_or_completion_source_closes() {
+        for close_poll in [false, true] {
+            let (sender, receiver) = crate::signal_channel();
+            let mut host = default_host();
+            host.signals = receiver;
+            let poll = host.poll_create().unwrap();
+            let source = host.init_thread_pool(poll).unwrap();
+            host.set_cancellation_signals(&[libc::SIGINT], &[libc::SIGINT])
+                .unwrap();
+            host.start_signal_handler().unwrap();
+            assert_eq!(sender.send(libc::SIGINT), Ok(true));
+            if close_poll {
+                host.poll_destroy(poll).unwrap();
+            } else {
+                host.close_fd(source).unwrap();
+            }
+            assert_eq!(sender.send(libc::SIGINT), Ok(false));
+            assert!(host.signal_handler.borrow().is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn thread_pool_exposes_its_concrete_child_signal_mask_only_while_active() {
         let mut child_signal_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
         assert_eq!(unsafe { libc::sigemptyset(&mut child_signal_mask) }, 0);
@@ -5246,7 +5517,7 @@ mod tests {
         let mut memory = [0xaa; 8];
 
         host.run_job(job).unwrap();
-        assert_eq!(host.job_get_err(job).unwrap(), error);
+        assert_eq!(host.with_job(job, |job| job.err()).unwrap(), error);
         host.get_stat_result(memory.as_mut_slice(), job, 0, 8)
             .unwrap();
 
@@ -5415,7 +5686,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn fetch_completion_leaves_unfetched_completion_ids_in_os_source() {
+    fn completion_source_remains_ready_until_all_ids_are_fetched() {
         let host = default_host();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
@@ -5427,22 +5698,26 @@ mod tests {
         }
 
         let mut memory = vec![0; 8];
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 0)
             .unwrap();
         assert_eq!(bytes, 0);
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
 
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 1)
             .unwrap();
         assert_eq!(bytes, 4);
         assert_eq!(i32::from_le_bytes(memory[0..4].try_into().unwrap()), 41);
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
 
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 4, 1)
             .unwrap();
         assert_eq!(bytes, 4);
         assert_eq!(i32::from_le_bytes(memory[4..8].try_into().unwrap()), 42);
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
     }
 
     #[test]
@@ -5452,7 +5727,10 @@ mod tests {
 
         host.free_job(job).unwrap();
 
-        assert_eq!(host.job_get_ret(job), Err(AsyncHostError::Badf));
+        assert_eq!(
+            host.with_job(job, |job| job.ret()),
+            Err(AsyncHostError::Badf)
+        );
         assert_eq!(host.free_job(job), Err(AsyncHostError::Badf));
     }
 
@@ -5514,9 +5792,9 @@ mod tests {
 
         host.run_job(job).unwrap();
 
-        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(host.with_job(job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(job).unwrap(),
+            host.with_job(job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_job(job).unwrap();
@@ -5542,9 +5820,9 @@ mod tests {
 
         host.run_job(job).unwrap();
 
-        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(host.with_job(job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(job).unwrap(),
+            host.with_job(job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_job(job).unwrap();
@@ -5591,9 +5869,9 @@ mod tests {
             assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
         }
 
-        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(host.with_job(job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(job).unwrap(),
+            host.with_job(job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_worker(worker).unwrap();
@@ -5637,9 +5915,9 @@ mod tests {
 
         host.run_job(job).unwrap();
 
-        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(host.with_job(job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(job).unwrap(),
+            host.with_job(job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_job(job).unwrap();
@@ -5678,14 +5956,14 @@ mod tests {
         host.run_job(remove_job).unwrap();
         host.run_job(rename_job).unwrap();
 
-        assert_eq!(host.job_get_ret(remove_job).unwrap(), -1);
+        assert_eq!(host.with_job(remove_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(remove_job).unwrap(),
+            host.with_job(remove_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
-        assert_eq!(host.job_get_ret(rename_job).unwrap(), -1);
+        assert_eq!(host.with_job(rename_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(rename_job).unwrap(),
+            host.with_job(rename_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         assert!(
@@ -5730,14 +6008,14 @@ mod tests {
         host.run_job(kind_job).unwrap();
         host.run_job(time_job).unwrap();
 
-        assert_eq!(host.job_get_ret(kind_job).unwrap(), -1);
+        assert_eq!(host.with_job(kind_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(kind_job).unwrap(),
+            host.with_job(kind_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
-        assert_eq!(host.job_get_ret(time_job).unwrap(), -1);
+        assert_eq!(host.with_job(time_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(time_job).unwrap(),
+            host.with_job(time_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_job(time_job).unwrap();
@@ -5795,10 +6073,10 @@ mod tests {
         host.run_job(allowed_link_job).unwrap();
         host.run_job(denied_link_job).unwrap();
 
-        assert_eq!(host.job_get_ret(allowed_link_job).unwrap(), 3);
-        assert_eq!(host.job_get_ret(denied_link_job).unwrap(), -1);
+        assert_eq!(host.with_job(allowed_link_job, |job| job.ret()).unwrap(), 3);
+        assert_eq!(host.with_job(denied_link_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(denied_link_job).unwrap(),
+            host.with_job(denied_link_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_job(denied_link_job).unwrap();
@@ -5841,14 +6119,14 @@ mod tests {
         host.run_job(size_job).unwrap();
         host.run_job(time_job).unwrap();
 
-        assert_eq!(host.job_get_ret(size_job).unwrap(), -1);
+        assert_eq!(host.with_job(size_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(size_job).unwrap(),
+            host.with_job(size_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
-        assert_eq!(host.job_get_ret(time_job).unwrap(), -1);
+        assert_eq!(host.with_job(time_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(time_job).unwrap(),
+            host.with_job(time_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_job(time_job).unwrap();
@@ -5937,9 +6215,9 @@ mod tests {
         host.run_job(identity_job).unwrap();
         host.run_job(metadata_job).unwrap();
 
-        assert_eq!(host.job_get_err(identity_job).unwrap(), 0);
+        assert_eq!(host.with_job(identity_job, |job| job.err()).unwrap(), 0);
         assert_eq!(
-            host.job_get_err(metadata_job).unwrap(),
+            host.with_job(metadata_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         let fd = host.open_job_get_fd(identity_job).unwrap();
@@ -6011,9 +6289,9 @@ mod tests {
 
         host.run_job(flock_job).unwrap();
 
-        assert_eq!(host.job_get_ret(flock_job).unwrap(), -1);
+        assert_eq!(host.with_job(flock_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
-            host.job_get_err(flock_job).unwrap(),
+            host.with_job(flock_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
         host.free_job(flock_job).unwrap();
@@ -6126,6 +6404,164 @@ mod tests {
     }
 
     #[test]
+    fn completion_pipe_validation_preserves_the_job() {
+        let host = default_host();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let [reader, writer] = host.pipe(true, false).unwrap();
+        for invalid_writer in [reader, writer] {
+            assert_eq!(
+                host.spawn_worker_with_pipe(1, job, invalid_writer),
+                Err(AsyncHostError::Inval),
+            );
+        }
+        host.close_fd(writer).unwrap();
+        assert_eq!(
+            host.spawn_worker_with_pipe(1, job, writer),
+            Err(AsyncHostError::Badf),
+        );
+        assert_eq!(host.workers.len(), 0);
+        host.run_job(job).unwrap();
+        assert_eq!(host.with_job(job, |job| job.ret()), Ok(0));
+        host.free_job(job).unwrap();
+        host.close_fd(reader).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn completion_pipe_cancellation_does_not_use_the_default_retry_source() {
+        use std::time::Duration;
+
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+        let [reader, writer] = host.pipe(true, true).unwrap();
+        let notifier = crate::async_sys::internal::event_loop::PipeCompletionNotifier::new(
+            host.acquire_resource(writer).unwrap(),
+        )
+        .unwrap();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let key = job_key(&host, job);
+        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
+        let worker = handle_from_key(worker_key);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        host.workers
+            .spawn(
+                worker_key,
+                host.take_worker_job(WorkerCompletionId::from_abi(42), key)
+                    .unwrap(),
+                move |worker_job| {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                    let error = thread_pool::with_cancellable_region(|| Ok(())).unwrap_err();
+                    worker_job.job.set_err(error.errno());
+                },
+                WorkerCompletionDestination::Pipe(notifier),
+            )
+            .unwrap();
+
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let retry_status = host.cancel_worker_with_retry(worker);
+        let legacy_status = host.cancel_worker(worker);
+        release_tx.send(()).unwrap();
+        // Cancellation happened before the blocking region. It must still be
+        // acknowledged there, and only the finished Job goes to our pipe.
+        let resource = host.acquire_resource(reader).unwrap();
+        let mut ready = libc::pollfd {
+            fd: resource.as_file().unwrap().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        assert_eq!(unsafe { libc::poll(&mut ready, 1, 5000) }, 1);
+        let mut bytes = [0u8; 4];
+        assert_eq!(
+            unsafe { libc::read(ready.fd, bytes.as_mut_ptr().cast(), bytes.len()) },
+            4
+        );
+        assert_eq!(i32::from_le_bytes(bytes), 42);
+        assert_eq!(retry_status, Err(AsyncHostError::Inval));
+        assert_eq!(legacy_status, Ok(0));
+        assert_eq!(host.with_job(job, |job| job.err()), Ok(libc::EINTR));
+        assert_eq!(host.cancel_worker(worker), Ok(1));
+        assert_eq!(host.poll_wait(poll, 0), Ok(0));
+
+        host.free_worker(worker).unwrap();
+        host.free_job(job).unwrap();
+        host.close_fd(writer).unwrap();
+        host.close_fd(reader).unwrap();
+        host.destroy_thread_pool();
+    }
+
+    #[test]
+    fn closed_completion_reader_does_not_block_worker_teardown() {
+        let host = default_host();
+        let [reader, writer] = host.pipe(true, true).unwrap();
+        let writer_weak = Arc::downgrade(&host.acquire_resource(writer).unwrap());
+        host.close_fd(reader).unwrap();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let worker = host.spawn_worker_with_pipe(1, job, writer).unwrap();
+        host.close_fd(writer).unwrap();
+        // Publish the Job before freeing the Worker, so notification races a
+        // closed reader rather than merely cancelling an unstarted Job.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while host.with_job(job, |job| job.ret()).is_err() {
+            assert!(std::time::Instant::now() < deadline, "Job did not finish");
+            std::thread::yield_now();
+        }
+        host.free_worker(worker).unwrap();
+        assert!(writer_weak.upgrade().is_none());
+        host.free_job(job).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn full_completion_pipe_does_not_block_worker_or_runtime_teardown() {
+        use std::time::{Duration, Instant};
+
+        for free_explicitly in [true, false] {
+            // The timeout bounds a broken join without making the test suite
+            // itself wait forever on a deliberately undrained pipe.
+            let (finished, completion) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let host = default_host();
+                let [reader, writer] = host.pipe(true, true).unwrap();
+                let resource = host.acquire_resource(writer).unwrap();
+                let fd = resource.as_file().unwrap().as_raw_fd();
+                let bytes = [0u8; 4];
+                loop {
+                    let written = unsafe { libc::write(fd, bytes.as_ptr().cast(), bytes.len()) };
+                    if written < 0 {
+                        assert_eq!(
+                            std::io::Error::last_os_error().raw_os_error(),
+                            Some(libc::EAGAIN)
+                        );
+                        break;
+                    }
+                    assert_eq!(written, 4);
+                }
+                drop(resource);
+                let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+                let worker = host.spawn_worker_with_pipe(1, job, writer).unwrap();
+                host.close_fd(writer).unwrap();
+                let deadline = Instant::now() + Duration::from_secs(1);
+                while host.with_job(job, |job| job.ret()).is_err() {
+                    assert!(Instant::now() < deadline, "Job did not finish");
+                    std::thread::yield_now();
+                }
+                // The result is ready even though the notification cannot fit.
+                if free_explicitly {
+                    host.free_worker(worker).unwrap();
+                    host.free_job(job).unwrap();
+                    host.close_fd(reader).unwrap();
+                }
+                drop(host);
+                finished.send(()).unwrap();
+            });
+            completion.recv_timeout(Duration::from_secs(3)).unwrap();
+        }
+    }
+
+    #[test]
     fn worker_result_is_available_after_completion_event() {
         let host = default_host();
         let poll = host.poll_create().unwrap();
@@ -6134,7 +6570,9 @@ mod tests {
         let worker = host.spawn_worker(42, job).unwrap();
 
         assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
-        assert_eq!(host.job_get_ret(job).unwrap(), 0);
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(2));
+        assert_eq!(host.cancel_worker(worker), Ok(1));
+        assert_eq!(host.with_job(job, |job| job.ret()).unwrap(), 0);
         assert_eq!(host.run_job(job), Err(AsyncHostError::Badf));
         assert_eq!(host.spawn_worker(43, job), Err(AsyncHostError::Badf));
         assert_eq!(host.wake_worker(worker, 44, job), Err(AsyncHostError::Badf));
@@ -6152,6 +6590,124 @@ mod tests {
             assert_eq!(host.poll_event_fd(event).unwrap(), completion_source);
             assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
         }
+
+        host.free_worker(worker).unwrap();
+        host.free_job(job).unwrap();
+        host.destroy_thread_pool();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn worker_teardown_does_not_require_guest_to_drain_completions() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        for destroy_pool in [false, true] {
+            let (notifier_tx, notifier_rx) = mpsc::channel();
+            let (finished_tx, finished_rx) = mpsc::channel();
+            let run = std::thread::spawn(move || {
+                let host = default_host();
+                let poll = host.poll_create().unwrap();
+                host.init_thread_pool(poll).unwrap();
+                let notifier = host.thread_pool_notifier().unwrap();
+                notifier.fill_with_completions(17);
+                let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+                let worker = host.spawn_worker(23, job).unwrap();
+                notifier_tx.send(notifier).unwrap();
+                if destroy_pool {
+                    host.destroy_thread_pool();
+                } else {
+                    host.free_worker(worker).unwrap();
+                }
+                assert_eq!(host.with_job(job, |job| job.ret()), Ok(0));
+                host.free_job(job).unwrap();
+                host.destroy_thread_pool();
+                finished_tx.send(()).unwrap();
+            });
+            let notifier = notifier_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            let finished_without_fetch = finished_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+            if !finished_without_fetch {
+                // Keep a failing transport regression from hanging the test
+                // process while the host is inside free_worker/destroy_thread_pool.
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !run.is_finished() && Instant::now() < deadline {
+                    notifier.fetch(&mut [0; 4096]).unwrap();
+                    std::thread::yield_now();
+                }
+                assert!(
+                    run.is_finished(),
+                    "teardown did not finish even after draining"
+                );
+            }
+            run.join().unwrap();
+            assert!(
+                finished_without_fetch,
+                "teardown required guest consumption (destroy_pool={destroy_pool})"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_status_waits_for_job_result_after_acknowledgement() {
+        use std::time::Duration;
+
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let key = job_key(&host, job);
+        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
+        let worker = handle_from_key(worker_key);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let (completed_tx, completed_rx) = std::sync::mpsc::channel();
+        host.workers
+            .spawn(
+                worker_key,
+                host.take_worker_job(WorkerCompletionId::from_abi(42), key)
+                    .unwrap(),
+                move |worker_job| {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    assert!(thread_pool::with_cancellable_region(|| Ok(())).is_err());
+                    ack_tx.send(()).unwrap();
+                    finish_rx.recv().unwrap();
+                    worker_job.job.set_ret(73);
+                },
+                WorkerCompletionDestination::Default(Box::new(move |_| {
+                    completed_tx.send(()).unwrap()
+                })),
+            )
+            .unwrap();
+
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(1));
+        release_tx.send(()).unwrap();
+        ack_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(1));
+        assert!(matches!(
+            host.jobs.borrow().jobs[key],
+            HostJobState::Reserved
+        ));
+
+        finish_tx.send(()).unwrap();
+        completed_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // No poll or fetch call has restored the result: the combined ABI
+        // must make it available before reporting that the worker finished.
+        assert!(matches!(
+            host.jobs.borrow().jobs[key],
+            HostJobState::Reserved
+        ));
+        assert_eq!(host.cancel_worker_with_retry(worker), Ok(2));
+        assert!(matches!(
+            host.jobs.borrow().jobs[key],
+            HostJobState::ResultReady(_)
+        ));
+        assert_eq!(host.with_job(job, |job| job.ret()), Ok(73));
+        assert_eq!(host.cancel_worker(worker), Ok(1));
 
         host.free_worker(worker).unwrap();
         host.free_job(job).unwrap();
@@ -6177,7 +6733,9 @@ mod tests {
                     release_receiver.recv().unwrap();
                     thread_pool::run_host_job(&mut worker_job.job);
                 },
-                move |completion_id| completion_sender.send(completion_id).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                    completion_sender.send(completion_id).unwrap()
+                })),
             )
             .unwrap();
         let worker = handle_from_key(worker_key);
@@ -6195,9 +6753,12 @@ mod tests {
             WorkerCompletionId::from_abi(1)
         );
         host.restore_completed_worker_jobs();
-        assert_eq!(host.job_get_ret(first_job), Err(AsyncHostError::Badf));
+        assert_eq!(
+            host.with_job(first_job, |job| job.ret()),
+            Err(AsyncHostError::Badf)
+        );
         host.run_job(replacement_job).unwrap();
-        assert_eq!(host.job_get_ret(replacement_job), Ok(0));
+        assert_eq!(host.with_job(replacement_job, |job| job.ret()), Ok(0));
         host.free_job(replacement_job).unwrap();
 
         host.free_worker(worker).unwrap();
@@ -6225,7 +6786,9 @@ mod tests {
                     }
                     thread_pool::run_host_job(&mut worker_job.job);
                 },
-                move |completion_id| completion_sender.send(completion_id).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                    completion_sender.send(completion_id).unwrap()
+                })),
             )
             .unwrap();
         let worker = handle_from_key(worker_key);
@@ -6261,7 +6824,10 @@ mod tests {
         host.run_job(displaced_job).unwrap();
         assert!(!displaced_path.exists());
         host.free_job(displaced_job).unwrap();
-        assert_eq!(host.job_get_ret(queued_job), Err(AsyncHostError::Badf));
+        assert_eq!(
+            host.with_job(queued_job, |job| job.ret()),
+            Err(AsyncHostError::Badf)
+        );
         assert_eq!(host.run_job(queued_job), Err(AsyncHostError::Badf));
         assert_eq!(host.spawn_worker(4, queued_job), Err(AsyncHostError::Badf));
         host.free_job(queued_job).unwrap();
@@ -6280,7 +6846,10 @@ mod tests {
         host.restore_completed_worker_jobs();
         host.free_job(first_job).unwrap();
         assert!(!queued_path.exists());
-        assert_eq!(host.job_get_ret(queued_job), Err(AsyncHostError::Badf));
+        assert_eq!(
+            host.with_job(queued_job, |job| job.ret()),
+            Err(AsyncHostError::Badf)
+        );
 
         host.free_worker(worker).unwrap();
         let _ = std::fs::remove_file(displaced_path);

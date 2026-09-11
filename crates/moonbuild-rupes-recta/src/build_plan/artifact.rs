@@ -130,6 +130,18 @@ pub enum ArtifactKey {
 }
 
 impl ArtifactKey {
+    /// Package ownership used to identify an artifact's module membership.
+    /// This does not form part of an artifact's execution or cache policy.
+    pub(crate) fn package(&self) -> Option<PackageId> {
+        match self {
+            Self::VirtualContractMi { package }
+            | Self::NodeTestPackageConfig { package }
+            | Self::CStubObject { package, .. }
+            | Self::CStubLibrary { package } => Some(*package),
+            _ => self.package_target().map(|target| target.package),
+        }
+    }
+
     /// The package target whose compilation lifecycle owns this artifact.
     /// Module-wide, package-wide, and runtime artifacts have no
     /// `BuildTarget` identity.

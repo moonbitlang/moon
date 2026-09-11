@@ -45,7 +45,7 @@ use tracing::debug;
 
 use crate::{
     cli::BuildFlags,
-    rr_build::{self, BuildConfig, preconfig_compile},
+    rr_build::{self, BuildConfig},
 };
 
 /// Represents a parsed package specification from the command line.
@@ -580,39 +580,34 @@ fn build_selected_package(
 
     user_log.info(format!("Building `{}`...", pkg.full_pkg_name));
 
+    let _lock = lock_directory(&prepared.target_dir, user_log)?;
     let build_flags = BuildFlags {
         release: true,
         warn_list: Some("-a".to_string()),
         ..BuildFlags::default()
     };
-    let preconfig = preconfig_compile(
-        &moonutil::cli_support::AutoSyncFlags { frozen: false },
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
         Some(TargetBackend::Native),
         &prepared.target_dir,
         RunMode::Build,
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        &prepared.target_dir,
         user_log,
         &prepared.resolve_output,
     )?;
     let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         &prepared.mooncake_bin_dir,
         prepared.resolve_output.clone(),
+        build_flags.jobs,
+        false,
+        false,
     )?;
 
-    let _lock = lock_directory(&prepared.target_dir, user_log)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
 
     let result = rr_build::execute_build(

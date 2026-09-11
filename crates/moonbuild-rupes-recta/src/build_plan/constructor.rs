@@ -24,7 +24,7 @@ use std::{
 };
 
 use crate::{
-    ResolveOutput,
+    CompileConfig, ResolveOutput,
     build_plan::InputDirective,
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
@@ -33,7 +33,7 @@ use moonutil::user_log::UserLog;
 use tracing::{Level, instrument};
 
 use super::{
-    BuildEnvironment, BuildPlan, BuildPlanConstructError,
+    BuildPlan, BuildPlanConstructError,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
 };
 
@@ -43,7 +43,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
     pub(super) input: &'a ResolveOutput,
     pub(super) mooncake_bin_dir: &'a Path,
-    pub(super) build_env: &'a BuildEnvironment,
+    pub(super) config: &'a CompileConfig,
     pub(super) input_directive: &'a InputDirective,
     pub(super) prebuild_config: Option<&'a PrebuildOutput>,
     pub(super) user_log: &'a UserLog,
@@ -77,7 +77,7 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn new(
         resolved: &'a ResolveOutput,
         mooncake_bin_dir: &'a Path,
-        build_env: &'a BuildEnvironment,
+        config: &'a CompileConfig,
         input_directive: &'a InputDirective,
         prebuild_config: Option<&'a PrebuildOutput>,
         user_log: &'a UserLog,
@@ -85,7 +85,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Self {
             input: resolved,
             mooncake_bin_dir,
-            build_env,
+            config,
             input_directive,
             prebuild_config,
             user_log,
@@ -226,9 +226,14 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::BuildCore(target) => {
-                let emits_mi = self.res.get_build_target_info(&target).is_some_and(|info| {
-                    info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
-                });
+                let emits_mi = self
+                    .res
+                    .backend
+                    .build_target_infos
+                    .get(&target)
+                    .is_some_and(|info| {
+                        info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
+                    });
                 if emits_mi {
                     self.res.artifacts.provide(
                         node,
@@ -307,7 +312,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     .provide(node, ArtifactKey::CStubLibrary { package });
             }
             BuildPlanNode::LinkCore(target) => {
-                let artifact = if self.build_env.target_backend().is_native() {
+                let artifact = if self.config.backend.target_backend().is_native() {
                     ArtifactKey::LinkedCore {
                         package: target.package,
                         target_kind: target.kind,
@@ -460,7 +465,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind,
             } => {
                 let target = package.build_target(*target_kind);
-                if self.build_env.target_backend().is_native() {
+                if self.config.backend.target_backend().is_native() {
                     BuildPlanNode::MakeExecutable(target)
                 } else {
                     BuildPlanNode::LinkCore(target)

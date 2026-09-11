@@ -16,9 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonbuild_debug::graph::ENV_VAR;
-
-use crate::{TestDir, build_graph::compare_graphs, get_stdout, get_stdout_with_envs, moon_cmd};
+use crate::{TestDir, build_graph, get_stdout, moon_cmd};
 
 use super::*;
 
@@ -131,23 +129,15 @@ fn test_moon_coverage_analyze() {
 #[test]
 fn test_moon_coverage_analyze_dry_run() {
     let dir = TestDir::new("test_coverage.in");
-    let dump_file = dir.join("coverage_analyze_dry_run.jsonl");
-    let _stdout = get_stdout_with_envs(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "coverage",
             "analyze",
             "--dry-run",
             "--test-flag=--target=wasm-gc",
             "--test-flag=--nostd",
             "--test-flag=--sort-input",
-        ],
-        [(ENV_VAR, dump_file.to_str().unwrap())],
-    );
-
-    // The expect part is just a dump, it is not compared line-by-line
-    compare_graphs(
-        &dump_file,
+        ]),
         expect![[r#"
             {"command":"moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/lib/__blackbox_test_info.json --doctest-only ./lib/hello.mbt --target wasm-gc --pkg-name username/hello/lib --enable-coverage --driver-kind blackbox","inputs":["./lib/hello.mbt","$MOON_HOME/bin/moon"],"outputs":["./_build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt","./_build/wasm-gc/debug/test/lib/__blackbox_test_info.json"]}
             {"command":"moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/lib/__internal_test_info.json ./lib/hello.mbt --target wasm-gc --pkg-name username/hello/lib --enable-coverage --driver-kind internal","inputs":["./lib/hello.mbt","$MOON_HOME/bin/moon"],"outputs":["./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt","./_build/wasm-gc/debug/test/lib/__internal_test_info.json"]}
@@ -180,22 +170,15 @@ fn test_moon_coverage_analyze_dry_run() {
 #[test]
 fn test_moon_coverage_analyze_third_party() {
     let dir = TestDir::new("third_party");
-    let dump_file = dir.join("coverage_third_party_dry_run.jsonl");
-    let _stdout = get_stdout_with_envs(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "coverage",
             "analyze",
             "--dry-run",
             "--test-flag=--target=wasm-gc",
             "--test-flag=--nostd",
             "--test-flag=--sort-input",
-        ],
-        [(ENV_VAR, dump_file.to_str().unwrap())],
-    );
-
-    compare_graphs(
-        &dump_file,
+        ]),
         expect_file!["third_party_coverage_dry_run.jsonl"],
     );
 }

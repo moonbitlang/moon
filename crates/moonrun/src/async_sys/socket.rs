@@ -1351,6 +1351,38 @@ ported_fns! {
 
     #[ported(
         source = "src/socket/socket.c",
+        original = "moonbitlang_async_allow_reuse_port"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn allow_reuse_port(fd: RawSocket) -> AsyncHostResult<()> {
+        let enable: libc::c_int = 1;
+        if unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_REUSEPORT,
+                (&raw const enable).cast(),
+                std::mem::size_of_val(&enable) as libc::socklen_t,
+            )
+        } < 0 {
+            Err(last_native_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    #[ported(
+        source = "src/socket/socket.c",
+        original = "moonbitlang_async_allow_reuse_port"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn allow_reuse_port(_fd: RawSocket) -> AsyncHostResult<()> {
+        // Native treats platforms without SO_REUSEPORT as a successful no-op.
+        Ok(())
+    }
+
+    #[ported(
+        source = "src/socket/socket.c",
         original = "moonbitlang_async_set_ipv6_only"
     )]
     #[cfg(unix)]
@@ -1817,6 +1849,46 @@ fn set_tcp_int(fd: RawSocket, option: libc::c_int, value: i32) -> AsyncHostResul
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn reuse_port_allows_two_listeners_on_the_same_address() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+        let [first, second] = std::array::from_fn(|_| {
+            let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
+            assert!(fd >= 0);
+            unsafe { OwnedFd::from_raw_fd(fd) }
+        });
+        let mut addr = unsafe { std::mem::zeroed::<libc::sockaddr_in>() };
+        addr.sin_family = libc::AF_INET as _;
+        addr.sin_addr.s_addr = u32::from_ne_bytes([127, 0, 0, 1]);
+        let mut len = std::mem::size_of_val(&addr) as libc::socklen_t;
+        allow_reuse_port(first.as_raw_fd()).unwrap();
+        assert_eq!(
+            unsafe { libc::bind(first.as_raw_fd(), (&raw const addr).cast(), len) },
+            0
+        );
+        listen(first.as_raw_fd()).unwrap();
+        assert_eq!(
+            unsafe { libc::getsockname(first.as_raw_fd(), (&raw mut addr).cast(), &mut len) },
+            0
+        );
+        assert_eq!(
+            unsafe { libc::bind(second.as_raw_fd(), (&raw const addr).cast(), len) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EADDRINUSE)
+        );
+        allow_reuse_port(second.as_raw_fd()).unwrap();
+        assert_eq!(
+            unsafe { libc::bind(second.as_raw_fd(), (&raw const addr).cast(), len) },
+            0
+        );
+        listen(second.as_raw_fd()).unwrap();
+    }
 
     #[test]
     fn if_nametoindex_rejects_unpaired_surrogate() {

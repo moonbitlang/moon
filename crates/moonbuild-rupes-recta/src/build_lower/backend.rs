@@ -41,50 +41,18 @@ impl NativeBackendMode {
 
 #[cfg(test)]
 mod tests {
-    use moonutil::compiler_flags::NativeAllocator;
-
-    use crate::model::{BackendConfig, DirectNativeMode};
+    use crate::model::DirectNativeMode;
 
     use super::*;
 
     #[test]
-    fn wasm_backend_carries_wat_setting() {
-        let backend = BackendConfig::Wasm {
-            use_wat: true,
-            wasi_link: false,
-        };
-
-        assert!(matches!(backend, BackendConfig::Wasm { use_wat: true, .. }));
-    }
-
-    #[test]
     fn c_direct_object_realizes_linker_executable() {
-        let backend = BackendConfig::Native {
-            mode: NativeBackendMode::DirectObject(DirectNativeMode::Target(
-                crate::model::NativeTarget::Aarch64AppleDarwin,
-            )),
-            allocator: NativeAllocator::Default,
-        };
-
-        let BackendConfig::Native {
-            mode: ref native_mode,
-            ..
-        } = backend
-        else {
-            panic!("native backend should select C lowering")
-        };
+        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
+            crate::model::NativeTarget::Aarch64AppleDarwin,
+        ));
         assert_eq!(
             native_mode.executable_realization(),
             CExecutableRealization::LinkDirectObject
         );
-    }
-
-    #[test]
-    fn llvm_backend_is_not_c_realization() {
-        let backend = BackendConfig::Llvm {
-            allocator: NativeAllocator::Default,
-        };
-
-        assert!(matches!(backend, BackendConfig::Llvm { .. }));
     }
 }

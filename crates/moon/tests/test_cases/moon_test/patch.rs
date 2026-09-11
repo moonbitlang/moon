@@ -1,15 +1,14 @@
 use expect_test::{expect, expect_file};
 
-use crate::{TestDir, assert_dry_run_graph, get_stdout, util::check};
+use crate::{TestDir, build_graph, get_stdout, moon_cmd, util::check};
 
 #[test]
 fn test_moon_test_patch() {
     let dir = TestDir::new("moon_test/patch");
 
     // Apply patch to normal build
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
@@ -22,7 +21,7 @@ fn test_moon_test_patch() {
             "--dry-run",
             "--sort-input",
             "--nostd",
-        ],
+        ]),
         expect_file!["patch_dry_run_graph.jsonl.snap"],
     );
     check(
@@ -48,9 +47,8 @@ fn test_moon_test_patch() {
     );
 
     // Apply patch to white box test
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
@@ -63,7 +61,7 @@ fn test_moon_test_patch() {
             "--dry-run",
             "--sort-input",
             "--nostd",
-        ],
+        ]),
         expect_file!["patch_wbtest_dry_run_graph.jsonl.snap"],
     );
 
@@ -90,9 +88,8 @@ fn test_moon_test_patch() {
     );
 
     // Apply patch to black box test
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
@@ -105,7 +102,7 @@ fn test_moon_test_patch() {
             "--dry-run",
             "--sort-input",
             "--nostd",
-        ],
+        ]),
         expect_file!["patch_bbtest_dry_run_graph.jsonl.snap"],
     );
 
@@ -132,9 +129,8 @@ fn test_moon_test_patch() {
     );
 
     // no _test.mbt and _wbtest.mbt in original package
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
@@ -147,7 +143,7 @@ fn test_moon_test_patch() {
             "--dry-run",
             "--sort-input",
             "--nostd",
-        ],
+        ]),
         expect_file!["patch_2_bbtest_dry_run_graph.jsonl.snap"],
     );
 
@@ -173,9 +169,8 @@ fn test_moon_test_patch() {
         "#]],
     );
 
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
@@ -188,7 +183,7 @@ fn test_moon_test_patch() {
             "--dry-run",
             "--sort-input",
             "--nostd",
-        ],
+        ]),
         expect_file!["patch_2_wbtest_dry_run_graph.jsonl.snap"],
     );
 

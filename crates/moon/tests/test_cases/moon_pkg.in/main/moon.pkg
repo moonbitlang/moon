@@ -3,8 +3,12 @@ import {
 }
 
 options(
-  "is-main": true 
+  "is-main": true,
+  link: {
+    "wasm": {
+      "heap-start-address": 2214592512,
+    },
+  },
 )
-
 
 

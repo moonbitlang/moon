@@ -22,10 +22,10 @@ use std::sync::{Arc, Mutex, Weak};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::{
     ThreadPoolCompletionNotifier,
-    thread_pool::{JobCancellation, JobCancellationOverride},
+    thread_pool::{CancellationOutcome, JobCancellation, JobCancellationOverride},
 };
 use crate::async_sys::internal::fd_util::stub as fd_util;
-use crate::run_signal::{SignalReceiver, SigwaitTargetGuard, signal_mask};
+use crate::run_signal::{SignalReceiver, SignalTargetGuard, signal_mask};
 
 #[derive(Clone, Debug)]
 pub(crate) struct SigwaitTarget {
@@ -79,10 +79,10 @@ struct SigwaitCancellation {
 }
 
 impl JobCancellationOverride for SigwaitCancellation {
-    fn cancel(&self) -> AsyncHostResult<i32> {
+    fn cancel(&self) -> AsyncHostResult<CancellationOutcome> {
         let mut state = self.state.lock().map_err(|_| AsyncHostError::Inval)?;
         if state.cancelled {
-            return Ok(0);
+            return Ok(CancellationOutcome::RetryLater);
         }
         state.cancelled = true;
         if let Some(wake) = self.wake.upgrade()
@@ -91,12 +91,12 @@ impl JobCancellationOverride for SigwaitCancellation {
             state.cancelled = false;
             return Err(error);
         }
-        Ok(0)
+        Ok(CancellationOutcome::RetryLater)
     }
 }
 
 pub(crate) struct SigwaitJob {
-    _target: SigwaitTargetGuard,
+    _target: SignalTargetGuard,
     state: Arc<Mutex<SigwaitState>>,
     cancellation: JobCancellation,
     wake: OwnedFd,
@@ -235,15 +235,22 @@ pub(crate) fn restore_thread_pool_signal_mask(old: &libc::sigset_t) -> AsyncHost
     })
 }
 
-pub(crate) fn set_worker_thread_signal_mask() -> AsyncHostResult<libc::sigset_t> {
+pub(crate) fn block_worker_thread_signals() -> AsyncHostResult<libc::sigset_t> {
     let mut worker_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
     check_signal_call(unsafe { libc::sigfillset(&mut worker_mask) })?;
-    check_signal_call(unsafe { libc::sigdelset(&mut worker_mask, libc::SIGUSR2) })?;
     let mut old = unsafe { std::mem::zeroed::<libc::sigset_t>() };
     check_pthread_call(unsafe {
         libc::pthread_sigmask(libc::SIG_SETMASK, &worker_mask, &mut old)
     })?;
     Ok(old)
+}
+
+pub(crate) fn unblock_worker_cancellation_signal() -> AsyncHostResult<()> {
+    let mut signal = empty_signal_set()?;
+    check_signal_call(unsafe { libc::sigaddset(&mut signal, libc::SIGUSR2) })?;
+    check_pthread_call(unsafe {
+        libc::pthread_sigmask(libc::SIG_UNBLOCK, &signal, std::ptr::null_mut())
+    })
 }
 
 pub(super) fn signal_int() -> i32 {
@@ -422,7 +429,10 @@ mod tests {
             make_sigwait_job(&receiver, &[libc::SIGINT], Arc::clone(&notifier)).unwrap();
 
         assert_eq!(sender.send(libc::SIGINT), Ok(true));
-        assert_eq!(waiter.cancellation_override().cancel(), Ok(0));
+        assert_eq!(
+            waiter.cancellation_override().cancel(),
+            Ok(CancellationOutcome::RetryLater)
+        );
         assert_eq!(sender.send(libc::SIGINT), Ok(false));
         assert_eq!(waiter.run(), Ok(0));
 

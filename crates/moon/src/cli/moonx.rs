@@ -144,7 +144,12 @@ pub(crate) fn prepare(
             let policy_relay = moonutil::policy_transport::PolicyTransfer::take_from_env()?
                 .map(moonutil::policy_transport::PolicyTransfer::into_relay);
             let (wasm_path, embedded_policy) = if is_mbtx_input(&input) {
-                let built = super::run::build_standalone_wasm(input, verbose)?;
+                let dirs = moonutil::project::SourceTargetDirs {
+                    cwd: None,
+                    target_dir: None,
+                }
+                .single_file_package_dirs(&input)?;
+                let built = super::run::build_standalone_wasm(dirs, false, verbose)?;
                 (built.executable, built.embedded_mbtx_policy)
             } else {
                 (

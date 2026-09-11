@@ -30,6 +30,7 @@ use moonutil::{
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
     locks::lock_directory,
+    path_normalizer::PathNormalizer,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
 };
@@ -151,9 +152,12 @@ fn run_cram_test(
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
 
     let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
         cli,
@@ -169,14 +173,8 @@ fn run_cram_test(
     let executable_dirs = collect_executable_dirs(&planned_runs, source_dir);
     if cli.dry_run {
         output.write_result(|writer| {
-            for (build_meta, build_graph) in &planned_runs {
-                rr_build::write_dry_run(
-                    writer,
-                    build_graph,
-                    build_meta.artifacts.values(),
-                    source_dir,
-                    target_dir,
-                )?;
+            for (_, build_graph) in &planned_runs {
+                rr_build::write_dry_run(writer, build_graph, source_dir)?;
             }
             write_dry_run_cram_command(
                 writer,
@@ -189,7 +187,6 @@ fn run_cram_test(
         return Ok(ProcessAction::Exit(0));
     }
 
-    let lock = lock_directory(target_dir, user_log)?;
     let cfg = BuildConfig::from_flags(&build_cmd.build_flags, &cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
@@ -311,7 +308,7 @@ fn write_dry_run_cram_command(
     executable_dirs: &[PathBuf],
     source_dir: &Path,
 ) -> std::io::Result<()> {
-    let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
+    let replacer = PathNormalizer::new(source_dir);
     let mut args = vec![
         format!(
             "PATH={}",
@@ -333,7 +330,7 @@ fn write_dry_run_cram_command(
 
 fn display_path_with_executable_dirs(
     executable_dirs: &[PathBuf],
-    replacer: &moonbuild::dry_run::PathNormalizer,
+    replacer: &PathNormalizer,
 ) -> String {
     let separator = if cfg!(windows) { ";" } else { ":" };
     executable_dirs

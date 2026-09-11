@@ -133,12 +133,11 @@ Implementation-wise:
 [n2]: https://github.com/moonbitlang/n2
 
 Rupes Recta executions in one target directory share the n2 database at
-`<target-dir>/.moon_db`. Target backend, profile, run mode, and standalone build
-phase are represented by concrete output paths and build hashes rather than
-separate database files. Separately planned graphs still open and load that
-database for each execution; sharing persistent state does not compose the
-graphs or reuse one open database handle. The dependency and script graphs of a
-standalone build execute sequentially against this database.
+`<target-dir>/.moon_db`. Target backend, profile, and run mode are represented
+by concrete output paths and build hashes rather than separate database files.
+Both ordinary projects and standalone scripts execute one complete graph per
+invocation, composing backend plans before n2 adaptation. Dependency ordering
+comes from producer edges, with no separate dependency phase.
 
 n2 records completed builds in an append-only log. When the database is at
 least 2 MiB, opening it compacts the log if all path records and live build
@@ -192,6 +191,16 @@ forward instead of letting later phases infer it again. In particular:
 - package and module directories come from discovery results, not from later
   path guessing.
 
+Standalone-file commands scope this target directory by the input's complete
+filename, including its extension. The default is
+`<source-dir>/_build/<filename>`; an explicit `--target-dir <dir>` produces
+`<dir>/<filename>`. The source-local default separates files in different
+source directories, while the complete filename separates differently named
+files within one target root. Callers that reuse an explicit target root for
+files with the same complete filename also reuse their synthetic package
+artifacts, metadata, dependency binaries, lock, and n2 database; they must
+choose distinct target roots when that isolation is required.
+
 Source directory, `.mooncakes` directory, target directory, and optional project
 manifest path are user/config facts from project discovery. The synced
 dependency result is derived data: it contains the resolved module
@@ -209,10 +218,11 @@ forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
 not need to be eager: non-native builds do not resolve native-only OS/toolchain
-details. Native-oriented compilation resolves compiler paths before planning
-and passes them through the build environment, so planning can select optional
+details. `rr_build` captures OS and compiler paths only for Native and LLVM,
+and stores them in the selected backend variant of `CompileConfig`. Planning
+and lowering borrow that same configuration, so planning can select optional
 runtime members such as SIMDUTF objects and lowering can consume the same paths
-without rediscovery.
+without rediscovery or a copied planning configuration.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment
@@ -563,8 +573,8 @@ During lowering:
   that are not produced by another execution action.
 - Each execution action receives a process-local `ActionId`; each declared
   output is registered by its concrete path.
-- The n2 adapter projects a selected set of execution actions into concrete
-  n2 build nodes.
+- The private `rr_build::execution::n2` module in `moon` adapts the complete
+  Execution Plan to n2 build nodes. Execution callers select roots by output path.
 
 Each semantic action currently maps to exactly one execution action and n2
 build node.
@@ -578,7 +588,7 @@ The concrete rules of lowering is performed in [its module](/crates/moonbuild-ru
 Lightweight commands that do not select logical Build Artifacts do not need a
 synthetic Build Plan. `moon fmt` performs its lightweight project discovery and
 constructs complete execution actions directly. Formatter execution and
-dry-run then use the same Execution Plan adapters as project builds.
+dry-run then use the same execution and plan-rendering entry points as project builds.
 
 Legacy manifest migration is one formatter execution action. Its internal
 formatting and legacy-file removal are encapsulated by the internal
@@ -595,6 +605,20 @@ which executes it in the usual Ninja-style way:
 incrementally (skipping up-to-date nodes)
 and with maximal parallelism subject to dependencies and its job limits.
 `moon` does not add extra scheduling logic on top of `n2`.
+
+The private `rr_build::execution::n2` module owns n2 adaptation, the `.moon_db`
+location and database access, root lookup, scheduling, and progress capture.
+Its parent `execution` module owns `BuildConfig`, execution entry points, and
+diagnostic processing. `BuildConfig` is re-exported from `rr_build`, where
+`BuildInput` remains defined with only the Execution Plan and action-backend
+metadata. Shared artifact paths remain in Rupes Recta's `target_layout` module.
+Dry-run and planner snapshots traverse the Execution Plan directly, without
+constructing an n2 graph or copying command arguments into a second map.
+
+The target-directory lock still spans mutable preparation, build execution,
+and the command's protected result collection. Database encapsulation does not
+shorten that lifetime; test and program execution retain their existing unlock
+points.
 
 ## Artifacts handling
 
@@ -646,13 +670,13 @@ and conditional metadata for all package files. This first migration step only
 relocates that document behind the selector; backend/profile projection and
 removal of redundant legacy fields are deferred to a follow-up change.
 
-Standalone-file checks similarly publish their selector and scoped document,
-and replace the shared backend index:
+Standalone-file checks publish the same relative metadata layout within their
+filename-scoped target directory:
 
 ```text
-_build/<filename>.packages.json
-_build/index.json
-_build/<backend>/<profile>/check/<filename>.packages.json
+_build/<filename>/packages.json
+_build/<filename>/index.json
+_build/<filename>/<backend>/<profile>/check/packages.json
 ```
 
 Project checks without a package or path selector publish metadata; focused

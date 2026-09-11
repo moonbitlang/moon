@@ -1911,6 +1911,7 @@ dependencies = [
  "anstream",
  "anstyle",
  "anyhow",
+ "ariadne",
  "blake3",
  "chrono",
  "clap",
@@ -1929,7 +1930,6 @@ dependencies = [
  "log",
  "moon-test-util",
  "moonbuild",
- "moonbuild-debug",
  "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",
@@ -1952,7 +1952,6 @@ dependencies = [
  "tracing",
  "tracing-chrome",
  "tracing-subscriber",
- "unicode-width 0.1.13",
  "walkdir",
  "which 6.0.2",
  "windows-sys 0.59.0",
@@ -1980,7 +1979,6 @@ dependencies = [
  "anstream",
  "anstyle",
  "anyhow",
- "ariadne",
  "base64",
  "clap",
  "colored",
@@ -1995,9 +1993,8 @@ dependencies = [
  "indexmap",
  "json-structural-diff",
  "line-index",
- "log",
+ "moonbuild-rupes-recta",
  "moonutil",
- "n2",
  "reqwest",
  "self-replace",
  "serde",
@@ -2011,17 +2008,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "moonbuild-debug"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "moonutil",
- "n2",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "moonbuild-rupes-recta"
 version = "0.1.0"
 dependencies = [
@@ -2030,10 +2016,8 @@ dependencies = [
  "dunce",
  "indexmap",
  "log",
- "moonbuild",
  "mooncake",
  "moonutil",
- "n2",
  "petgraph",
  "regex",
  "relative-path",
@@ -2041,6 +2025,7 @@ dependencies = [
  "sha2",
  "shlex",
  "slotmap",
+ "tempfile",
  "thiserror 1.0.63",
  "tracing",
  "walkdir",
@@ -2347,6 +2332,16 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "os_pipe"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
+dependencies = [
+ "libc",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -3130,10 +3125,14 @@ checksum = "96fa1ce81be900d083b30ec2d481e6658c2acfaa2cfc7be45ccc2cc1b820edb3"
 dependencies = [
  "anstream",
  "anstyle",
+ "libc",
  "normalize-line-endings",
+ "os_pipe",
  "regex",
  "similar",
  "snapbox-macros",
+ "wait-timeout",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3725,6 +3724,15 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "wait-timeout"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "walkdir"

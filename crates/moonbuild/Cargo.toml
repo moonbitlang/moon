@@ -28,7 +28,7 @@ rust-version.workspace = true
 anstream.workspace = true
 anstyle.workspace = true
 moonutil.workspace = true
-n2.workspace = true
+moonbuild-rupes-recta.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
@@ -41,7 +41,6 @@ similar.workspace = true
 line-index.workspace = true
 tokio.workspace = true
 text-size.workspace = true
-log.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 hyper-staticfile.workspace = true
@@ -51,7 +50,6 @@ reqwest.workspace = true
 json-structural-diff.workspace = true
 base64.workspace = true
 serde_json.workspace = true
-ariadne.workspace = true
 handlebars.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }
 

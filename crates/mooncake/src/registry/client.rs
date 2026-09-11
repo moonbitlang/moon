@@ -149,11 +149,75 @@ pub struct RegistrySearchResult {
     pub version: Version,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downloads: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_package_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_packages: Vec<RegistryPackageMatch>,
+}
+
+/// A matching package summary, which may come from an older module version.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct RegistryPackageMatch {
+    pub package: String,
+    pub name: String,
+    pub summary: String,
+    pub summary_version: String,
+    pub is_summary_current: bool,
+    #[serde(default)]
+    pub summary_fragments: Vec<RegistrySummaryFragment>,
+}
+
+/// Plain text from the registry's search excerpt, never terminal or HTML markup.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct RegistrySummaryFragment {
+    pub text: String,
+    pub matched: bool,
+}
+
+/// A published release and its current registry deprecation state.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RegistryRelease {
+    pub version: Version,
+    #[serde(default)]
+    pub yanked: bool,
+    #[serde(default)]
+    pub yanked_reason: Option<String>,
+}
+
+/// Live metadata for a selected module release, with its complete version list.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RegistryModuleManifest {
+    pub module: String,
+    #[serde(flatten)]
+    pub release: RegistryRelease,
+    pub latest_version: Version,
+    // Uploaded metadata is extensible. Preserve it for machine consumers, but
+    // use the outer registry fields for version and deprecation state.
+    pub metadata: serde_json::Map<String, serde_json::Value>,
+    pub versions: Vec<RegistryRelease>,
+    pub downloads: Option<u64>,
+}
+
+/// A module listed on a registry user's public profile.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RegistryPublishedModule {
+    pub name: String,
+    #[serde(flatten)]
+    pub release: RegistryRelease,
+}
+
+/// All published modules returned by a registry user's public profile.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RegistryUserModules {
+    pub username: String,
+    pub modules: Vec<RegistryPublishedModule>,
 }
 
 /// Access to a configured Mooncakes registry and its local state.
 ///
-/// This client owns remote search, synchronization of the Git index and symbols
+/// This client owns remote queries, synchronization of the Git index and symbols
 /// archive, and verified package and prebuilt wasm downloads. Resolution code
 /// can depend on the narrower [`super::Registry`] interface when it only needs
 /// local registry metadata.
@@ -210,6 +274,78 @@ impl RegistryClient {
         response
             .json()
             .with_context(|| format!("failed to parse registry search response from {url}"))
+    }
+
+    /// Inspect a module release using live registry metadata.
+    #[tracing::instrument(skip(self), fields(api = %self.config.api))]
+    pub fn module_manifest(
+        &self,
+        name: &ModuleName,
+        version: Option<&Version>,
+    ) -> anyhow::Result<RegistryModuleManifest> {
+        if name
+            .segments()
+            .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            bail!("module name must be in the form `username/module`");
+        }
+        let path = name
+            .segments()
+            .map(encode_path_segment)
+            .collect::<Vec<_>>()
+            .join("/");
+        let suffix = version
+            .map(|version| format!("@{version}"))
+            .unwrap_or_default();
+        let url = format!("{}/api/v0/manifest/{path}{suffix}", self.endpoints.api);
+        let mut manifest: RegistryModuleManifest = registry_http_client()?
+            .get(&url)
+            .send()
+            .with_context(|| format!("failed to fetch module metadata from {url}"))?
+            .error_for_status()
+            .with_context(|| format!("registry module request failed at {url}"))?
+            .json()
+            .with_context(|| format!("failed to parse registry module response from {url}"))?;
+        if manifest.module != name.to_string()
+            || version.is_some_and(|version| manifest.release.version != *version)
+        {
+            bail!("registry returned metadata for a different module or version");
+        }
+        manifest.versions.sort_by(|a, b| b.version.cmp(&a.version));
+        Ok(manifest)
+    }
+
+    /// List a user's published modules, including deprecated modules.
+    #[tracing::instrument(skip(self), fields(api = %self.config.api))]
+    pub fn user_modules(&self, username: &str) -> anyhow::Result<RegistryUserModules> {
+        moonutil::registry::validate_username(username).map_err(anyhow::Error::msg)?;
+        let url = format!(
+            "{}/api/v0/user/{}",
+            self.endpoints.api,
+            encode_path_segment(username)
+        );
+        // The public profile endpoint returns the complete collection without
+        // search limits or pagination. No publishing token is sent.
+        let mut profile: RegistryUserModules = registry_http_client()?
+            .get(&url)
+            .send()
+            .with_context(|| format!("failed to fetch published modules from {url}"))?
+            .error_for_status()
+            .with_context(|| format!("registry user request failed at {url}"))?
+            .json()
+            .with_context(|| format!("failed to parse registry user response from {url}"))?;
+        if profile.username != username
+            || profile.modules.iter().any(|module| {
+                module
+                    .name
+                    .split_once('/')
+                    .is_none_or(|(owner, _)| owner != username)
+            })
+        {
+            bail!("registry returned published modules for a different user");
+        }
+        profile.modules.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(profile)
     }
 
     /// Return a verified, locally cached prebuilt wasm asset.
@@ -886,6 +1022,30 @@ mod tests {
     }
 
     #[test]
+    fn registry_search_preserves_package_matches() {
+        let response = serde_json::json!({
+            "name": "alice/tools",
+            "version": "2.0.0",
+            "description": "Tools",
+            "downloads": 12345678901_u64,
+            "matched_package_count": 7,
+            "matched_packages": [{
+                "package": "fs",
+                "name": "alice/tools/fs",
+                "summary": "Read files",
+                "summary_version": "1.0.0",
+                "is_summary_current": false,
+                "summary_fragments": [
+                    {"text": "Read ", "matched": false},
+                    {"text": "files", "matched": true}
+                ]
+            }]
+        });
+        let result: RegistrySearchResult = serde_json::from_value(response.clone()).unwrap();
+        assert_eq!(serde_json::to_value(result).unwrap(), response);
+    }
+
+    #[test]
     fn registry_search_result_ignores_unneeded_response_fields() {
         let results: Vec<RegistrySearchResult> = serde_json::from_str(
             r#"[{"name":"mizchi/jq","version":"0.2.2","license":"Apache-2.0","description":"A jq clone","is_new":false}]"#,
@@ -898,6 +1058,9 @@ mod tests {
                 name: "mizchi/jq".to_owned(),
                 version: Version::new(0, 2, 2),
                 description: Some("A jq clone".to_owned()),
+                downloads: None,
+                matched_package_count: None,
+                matched_packages: Vec::new(),
             }]
         );
     }

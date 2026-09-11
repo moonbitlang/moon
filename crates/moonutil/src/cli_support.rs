@@ -23,6 +23,6 @@
 
 pub use crate::cli::{UniversalFlags, dialoguer_ctrlc_handler};
 pub use crate::mooncakes::{
-    LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
-    sync::AutoSyncFlags,
+    DeprecateSubcommand, LoginSubcommand, MooncakeSubcommands, PackageSubcommand,
+    PublishSubcommand, RegisterSubcommand, sync::AutoSyncFlags,
 };

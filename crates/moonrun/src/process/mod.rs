@@ -38,7 +38,7 @@ use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use job::Job;
-#[cfg(any(feature = "v8", test))]
+#[cfg(any(feature = "v8", feature = "wasmtime", test))]
 pub(crate) use job::SpawnOptions;
 
 /// Process operations and child ownership shared by guest and worker threads.

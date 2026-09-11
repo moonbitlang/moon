@@ -216,6 +216,9 @@ pub(crate) fn select(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap
                 MoonBuildSubcommands::Search(command) if command.json => {
                     MoonCommand::Json(super::search::json_command(command))
                 }
+                MoonBuildSubcommands::View(command) if command.json => {
+                    MoonCommand::Json(super::view::json_command(command))
+                }
                 MoonBuildSubcommands::Tree(command) if command.json => {
                     MoonCommand::Json(super::tree::json_command(command))
                 }

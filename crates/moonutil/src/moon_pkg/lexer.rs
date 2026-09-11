@@ -58,6 +58,8 @@ pub enum Token {
     RPAREN(Loc),
     #[token(";", with_span)]
     SEMI(Loc),
+    #[token("*", with_span)]
+    STAR(Loc),
     #[token("true", with_span)]
     TRUE(Loc),
     #[token("false", with_span)]
@@ -66,8 +68,8 @@ pub enum Token {
     FOR(Loc),
     #[regex(r#""([^"\\]|\\.)*""#, with_string)]
     STRING((Loc, String)),
-    #[regex(r"-?[0-9]+", with_int)]
-    INT((Loc, i32)),
+    #[regex(r"-?[0-9]+", with_lexeme)]
+    INT((Loc, String)),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", with_lexeme)]
     LIDENT((Loc, String)),
     #[token("as", with_span)]
@@ -110,13 +112,6 @@ fn with_lexeme<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, String) {
     let loc = get_loc(lex);
     let lexme = s.to_string();
     (loc, lexme)
-}
-
-fn with_int<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, i32) {
-    let s = lex.slice();
-    let loc = get_loc(lex);
-    let i = s.parse::<i32>().unwrap(); // Safe because regex ensures valid integer
-    (loc, i)
 }
 
 fn with_string<'a>(lex: &mut Lexer<'a, Token>) -> Result<(Loc, String), ()> {
@@ -180,6 +175,7 @@ pub enum TokenKind {
     LPAREN,
     RPAREN,
     SEMI,
+    STAR,
     TRUE,
     FALSE,
     FOR,
@@ -205,6 +201,7 @@ impl Token {
             | Token::LPAREN(r)
             | Token::RPAREN(r)
             | Token::SEMI(r)
+            | Token::STAR(r)
             | Token::TRUE(r)
             | Token::FALSE(r)
             | Token::FOR(r)
@@ -229,6 +226,7 @@ impl Token {
             Token::LPAREN(_) => TokenKind::LPAREN,
             Token::RPAREN(_) => TokenKind::RPAREN,
             Token::SEMI(_) => TokenKind::SEMI,
+            Token::STAR(_) => TokenKind::STAR,
             Token::TRUE(_) => TokenKind::TRUE,
             Token::FALSE(_) => TokenKind::FALSE,
             Token::FOR(_) => TokenKind::FOR,
@@ -256,6 +254,7 @@ impl Display for Token {
             Token::LPAREN(_) => write!(f, "("),
             Token::RPAREN(_) => write!(f, ")"),
             Token::SEMI(_) => write!(f, ";"),
+            Token::STAR(_) => write!(f, "*"),
             Token::TRUE(_) => write!(f, "true"),
             Token::FALSE(_) => write!(f, "false"),
             Token::FOR(_) => write!(f, "for"),
@@ -740,6 +739,12 @@ fn tokenize_package_name_with_dash() {
 }
 
 #[test]
+fn tokenize_import_all_alias() {
+    let tokens = tokenize(r#"import { "path/to/pkg" * }"#).unwrap();
+    assert!(matches!(&tokens[3], Token::STAR(_)));
+}
+
+#[test]
 fn test_comment_lexing() {
     // Single-line comments should be skipped
     let input = r#"
@@ -904,4 +909,13 @@ fn test_escape_sequences() {
         )
     "#]]
     .assert_debug_eq(&tokens);
+}
+
+#[test]
+fn tokenize_preserves_integer_lexemes() {
+    let tokens = tokenize("18446744073709551616").unwrap();
+    assert!(matches!(
+        &tokens[0],
+        Token::INT((_, value)) if value == "18446744073709551616"
+    ));
 }

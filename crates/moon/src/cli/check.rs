@@ -56,7 +56,7 @@ use crate::filter::{
     group_packages_by_preferred_backend, package_supports_backend, select_packages,
     select_supported_packages,
 };
-use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
+use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -589,38 +589,33 @@ fn run_check_for_single_file_rr(
 
     let mut planned_runs = Vec::with_capacity(target_backends.len());
     for target_backend in target_backends {
-        let preconfig = preconfig_compile(
-            &cmd.auto_sync_flags,
+        let compile_config = rr_build::prepare_resolved_build(
             cli,
             &cmd.build_flags,
             target_backend,
             target_dir,
             RunMode::Check,
-        );
-        let planning_context = rr_build::prepare_resolved_build(
-            &preconfig,
-            &cli.unstable_feature,
-            target_dir,
             user_log,
             &resolved,
         )?;
-        let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
+        let intent =
+            get_user_intents_single_file(&resolved, compile_config.backend.target_backend())?;
         planned_runs.push(
             rr_build::plan_resolved_build_from_intent(
-                preconfig,
-                &cli.unstable_feature,
+                compile_config,
                 user_log,
-                planning_context,
                 intent,
                 mooncake_bin_dir,
                 resolved.clone(),
+                cmd.build_flags.jobs,
+                cmd.auto_sync_flags.frozen,
+                cli.dry_run,
             )
             .context("Failed to calculate build plan")?,
         );
     }
 
-    let filename = single_file_path.file_name().and_then(|name| name.to_str());
-    run_planned_checks(cli, cmd, dirs, planned_runs, true, filename, output, json)
+    run_planned_checks(cli, cmd, dirs, planned_runs, true, output, json)
         .map(|ok| if ok { 0 } else { 1 })
 }
 
@@ -787,7 +782,6 @@ fn run_check_normal_rr_from_resolved(
         dirs,
         planned_runs,
         cmd.package_path.is_none() && cmd.path.is_empty(),
-        None,
         output,
         json,
     )?;
@@ -803,14 +797,12 @@ fn run_check_normal_rr_from_resolved(
 /// end.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run check.
-#[allow(clippy::too_many_arguments)]
 fn run_planned_checks(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     planned_runs: Vec<(rr_build::BuildMeta, rr_build::BuildInput)>,
     publish_metadata: bool,
-    metadata_filename: Option<&str>,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<bool> {
@@ -825,16 +817,10 @@ fn run_planned_checks(
     } = dirs;
     if cli.dry_run {
         output.write_result(|writer| {
-            let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
+            let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
             let build_input =
                 rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(
-                writer,
-                &build_input,
-                build_metas.iter().flat_map(|meta| meta.artifacts.values()),
-                source_dir,
-                target_dir,
-            )?;
+            rr_build::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
         return Ok(true);
@@ -851,7 +837,7 @@ fn run_planned_checks(
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(build_meta)?;
         if publish_metadata {
-            rr_build::generate_metadata(source_dir, build_meta, build_input, metadata_filename)?;
+            rr_build::generate_metadata(source_dir, build_meta, build_input)?;
         }
     }
     if publish_metadata {
@@ -862,7 +848,7 @@ fn run_planned_checks(
             .last()
             .expect("non-empty planned runs were checked above")
             .0;
-        rr_build::generate_metadata_selector(selected, metadata_filename)?;
+        rr_build::generate_metadata_selector(selected)?;
         rr_build::generate_metadata_index(planned_runs.iter().map(|(build_meta, _)| build_meta))?;
     }
 
@@ -1001,19 +987,12 @@ pub(crate) fn plan_check_rr_from_resolved(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Check,
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -1022,26 +1001,27 @@ pub(crate) fn plan_check_rr_from_resolved(
             &resolve_output,
             source_dir,
             filter_path,
-            planning_context.target_backend(),
+            compile_config.backend.target_backend(),
             cmd.patch_file.as_deref(),
         )?
     } else {
         calc_user_intent(
             &resolve_output,
             &cmd.path,
-            planning_context.target_backend(),
+            compile_config.backend.target_backend(),
             cmd.patch_file.as_deref(),
             user_log,
         )?
     };
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
@@ -1056,31 +1036,25 @@ fn plan_check_rr_from_selection(
     selection: ResolvedCheckSelection,
     user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
         Some(target_backend),
         target_dir,
         RunMode::Check,
-    );
-
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
         user_log,
         &resolve_output,
     )?;
-    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         selection.into_user_intent()?,
         mooncake_bin_dir,
         resolve_output,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 

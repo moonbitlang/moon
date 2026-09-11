@@ -21,7 +21,9 @@ The host-owned result of a finished job that is ready to wake or resume guest co
 _Avoid_: Callback, event
 
 **Completion Queue**:
-A host-owned queue of completed job identifiers that the guest event loop drains to resume waiting coroutines.
+A host-owned queue of job identifiers and signal notifications that the guest
+event loop drains. A job identifier may request a cancellation retry; only a
+finished Worker permits the guest to consume that Job's Completion.
 _Avoid_: Notify pipe, callback queue
 
 **Guest Memory**:
@@ -237,15 +239,21 @@ _Avoid_: Host exit, import-side exit, process-global termination state
 
 **Run Signals**:
 The destination for signals injected into one Run. It owns that guest's
-cancellation-signal selection and a channel shared with that Run's virtual
-signal-wait Job. A Signal Sender selects one Run by owning the sending half; it
-never raises an operating-system signal. On Unix the channel is a nonblocking
-self-pipe with a pending-signal mask: the pipe wakes the Job, the mask coalesces
-standard signals, and the Job publishes them to the Run's Completion target.
-The virtual Job supplies the thread pool's native-shaped optional cancellation
-hook, which records cancellation and wakes the same pipe without a timing race.
+cancellation-signal selection and its Completion target. A Signal Sender selects
+one Run by owning the sending half; it never raises an operating-system signal.
+The guest starts and stops delivery without consuming a Worker. On Unix the
+existing CLI signal broker coalesces pending signals in a bitset and wakes the
+poller through a separate nonblocking pipe. Its level-triggered read end reports
+the same guest Completion Source as the worker pipe; fetching completions drains
+pending signals before worker IDs. Partial signal fetches retain readiness.
+Acceptance and detachment share a lock, and detachment discards pending signals.
+The broker never waits for space in the worker pipe or falls back to process
+termination because that pipe closes during an accepted delivery.
+Older guests retain a virtual signal-wait Job with a nonblocking self-pipe and
+pending-signal mask. Its cancellation hook records cancellation before waking
+the same pipe, and remains isolated from the direct delivery path.
 Ordinary Unix Jobs retain the default `SIGUSR2` interruption path. Signals sent
-before the guest registration and virtual waiter are ready are not retained.
+before guest registration and delivery startup are ready are not retained.
 Forced interruption and broader Run lifecycle belong to a later control layer
 rather than this delivery seam.
 _Avoid_: process signal handler, global completion target, Run lifecycle
@@ -288,25 +296,31 @@ torn down.
 _Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
 **Async API**:
-The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm ABI values, reacquires guest memory, sets return values, and reports traps.
+The `moonbitlang/async` Wasm Adapter that registers imports through an Engine
+Backend, decodes wasm ABI values, reacquires Guest Memory, sets return values,
+and reports Host Errors.
 _Avoid_: Host state, native-stub implementation
 
 **Async Host**:
-Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace, materializes its reserved standard-stream Resources from the Runtime Stdio, and contains no SQLite state.
+Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace and materializes its reserved standard-stream Resources from the Runtime Stdio. It owns the common Job lifecycle for Filesystem, Network, Process, Run Signal, and SQLite payloads; domain semantics remain with their Host Domains.
 It owns one Run Signal receiver, translates guest cancellation registration
-into that receiver's interest, and constructs the Unix virtual signal-wait Job
-against the Run's Completion target.
+into that receiver's interest, starts and stops delivery to the Run's Completion
+target, and retains the Unix virtual signal-wait Job for older guests.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
-The V8-facing `moonbitlang/sqlite` adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. A SQLite Database Mutex is a stable, lifetime-checked Handle owned by its Database; the null Handle preserves SQLite's mutex no-op behavior when a connection has no mutex. UTF-8 filenames use a backing Bytes value plus its byte length; the adapter bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
+The `moonbitlang/sqlite` Wasm Adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. A SQLite Database Mutex is a stable, lifetime-checked Handle owned by its Database; the null Handle preserves SQLite's mutex no-op behavior when a connection has no mutex. UTF-8 filenames use a backing Bytes value plus its byte length; the adapter bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
 _Avoid_: SQLite Host, SQLite wrapper SDK
 
 **SQLite Host**:
 The backend-neutral SQLite implementation owned by one Runtime. It owns SQLite
 admission rules and operations, uses the Runtime's shared Host Key namespace,
-and contains the Database, Database Mutex, and Statement state, teardown, and
-leak accounting. Its Database Mutex depth counts recursive entries made through
+and contains Database, Database Mutex, and Statement state, teardown, and leak
+accounting. Its Job payloads pin their inputs and capture owned results while
+the Async Host owns their Handles, shared workers, completion, and release.
+The guest orders operations with a per-connection async Mutex. See
+[SQLite jobs](docs/dev/sqlite-jobs.md) for the shared-pool ABI and
+result acceptance and discard protocol. Its Database Mutex depth counts recursive entries made through
 the SQLite Host interface, not SQLite's internal mutex ownership. This protects
 the Database lifetime from unbalanced guest calls: the Host rejects unmatched
 leaves and Database close while entries remain, and releases those entries
@@ -332,7 +346,7 @@ _Avoid_: V8 adapter, placeholder unsupported imports
 **Thread Pool**:
 The shared host facility that schedules Jobs outside the guest coroutine loop.
 It owns the common Job result envelope, Workers, and Completion delivery. It
-does not interpret Filesystem, Network, Process, or Run Signal semantics.
+does not interpret Filesystem, Network, Process, Run Signal, or SQLite semantics.
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:
@@ -340,5 +354,8 @@ The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOC
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:
-The host-side notify handle corresponding to `thread_pool.c`'s `pool.notify_send`. Worker threads write or post completed job ids through it so `poll/wait` reports the completion source key, after which MoonBit drains `thread_pool/fetch_completion`.
+The host-side notify handle corresponding to `thread_pool.c`'s `pool.notify_send`.
+On Unix, host memory retains completed Job IDs and coalesced cancellation
+retries; a nonblocking pipe wakes the Host Poller so MoonBit can drain them
+through `thread_pool/fetch_completion`. Windows posts IDs directly to IOCP.
 _Avoid_: Host Poller, Barrier, worker wakeup

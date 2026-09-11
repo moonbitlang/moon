@@ -34,7 +34,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{ArtifactKey, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
-    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
+    model::{BuildTarget, PackageId, TargetKind},
 };
 
 use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts, moonc_command};
@@ -114,7 +114,7 @@ impl<'a> super::LoweringContext<'a> {
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,
-            target_backend: self.opt.target_backend(),
+            target_backend: self.opt.backend.target_backend(),
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,
@@ -183,6 +183,11 @@ impl<'a> super::LoweringContext<'a> {
         index: u32,
         info: &BuildRuntimeInfo,
     ) -> BuildCommand {
+        let compiler_paths = self
+            .opt
+            .backend
+            .compiler_paths()
+            .expect("native lowering requires compiler paths");
         let artifact_path = artifacts.single_output_path_matching(|artifact| {
             matches!(artifact, ArtifactKey::RuntimeObject { .. })
         });
@@ -196,7 +201,7 @@ impl<'a> super::LoweringContext<'a> {
                     runtime_toolchain,
                     source,
                     &artifact_path,
-                    &self.opt.compiler_paths().include_path,
+                    &compiler_paths.include_path,
                     crt,
                     info.native_allocator,
                 )
@@ -212,9 +217,7 @@ impl<'a> super::LoweringContext<'a> {
                         .output_ty(CCOutputType::Object)
                         .opt_level(CCOptLevel::Speed)
                         .debug_info(true)
-                        .allow_stacktrace(
-                            self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
-                        )
+                        .allow_stacktrace(info.enable_backtrace)
                         .link_moonbitrun(true)
                         .define_use_shared_runtime_macro(false)
                         .use_simdutf(!info.simdutf_objects.is_empty())
@@ -226,11 +229,11 @@ impl<'a> super::LoweringContext<'a> {
                     &self
                         .artifact_paths
                         .target_layout()
-                        .runtime_output_dir(self.opt.target_backend())
+                        .runtime_output_dir(self.opt.backend.target_backend())
                         .display()
                         .to_string(),
                     Some(&artifact_path.display().to_string()),
-                    self.opt.compiler_paths(),
+                    compiler_paths,
                 )
                 .into(),
                 Vec::new(),
@@ -271,7 +274,10 @@ impl<'a> super::LoweringContext<'a> {
             config,
             &member_args,
             &artifact_path.display().to_string(),
-            self.opt.compiler_paths(),
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
         );
 
         BuildCommand {
@@ -342,7 +348,7 @@ impl<'a> super::LoweringContext<'a> {
         let packages_json = self
             .artifact_paths
             .target_layout()
-            .packages_json_path(self.opt.target_backend());
+            .packages_json_path(self.opt.backend.target_backend());
         let cmd = MoondocCommand::new(
             path,
             self.artifact_paths.target_layout().doc_dir(),

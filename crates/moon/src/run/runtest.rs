@@ -72,13 +72,15 @@ use moonbuild::{
     benchmark::{BATCHBENCH, render_batch_bench_summary},
     entry::{CompactTestFormatter, TestArgs},
     expect::{
-        ERROR, EXPECT_FAILED, PackageSrcResolver, RUNTIME_ERROR, SNAPSHOT_TESTING,
-        render_expect_fail, render_snapshot_fail,
+        ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING, render_expect_fail,
+        render_snapshot_fail,
     },
     runtest::{TestDriverEvent, TestStatistics},
     section_capture::SectionCapture,
 };
-use moonbuild_rupes_recta::{build_plan::ArtifactKey, model::BuildTarget};
+use moonbuild_rupes_recta::{
+    build_plan::ArtifactKey, discover::DiscoverResult, model::BuildTarget,
+};
 use moonutil::{
     constants::{
         MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
@@ -491,9 +493,12 @@ fn format_test_identity(
     test: &TestInvocation,
     file: &str,
     index: u32,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) -> String {
-    let path = pkg_src.resolve_pkg_src(&test.args.package).join(file);
+    let package = pkg_src
+        .get_package_id_by_name(&test.args.package)
+        .expect("test package must exist");
+    let path = pkg_src.get_package(package).root_path.join(file);
     let location = path.display().to_string();
     let Some(info) = find_test_info(&test.meta, file, index) else {
         return location;
@@ -539,7 +544,7 @@ fn format_test_executable_failure(
     test: &TestInvocation,
     exit_status: std::process::ExitStatus,
     test_output: Option<&str>,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) -> String {
     const MAX_ACTIVE_TESTS_TO_PRINT: usize = 8;
 
@@ -612,20 +617,38 @@ pub(crate) fn collect_test_outline(
     include_skipped: bool,
     bench: bool,
 ) -> anyhow::Result<Vec<TestOutlineEntry>> {
-    let executables = gather_tests(build_meta);
-    debug!(count = executables.len(), "collecting test outline entries");
+    // Outline plans request metadata without executables. Collect it directly
+    // rather than requiring the executable/metadata pairs used for test runs.
+    let mut metadata = build_meta
+        .artifacts
+        .iter()
+        .filter_map(|(artifact, paths)| match artifact {
+            ArtifactKey::GeneratedTestMetadata {
+                package,
+                target_kind,
+            } => Some((
+                package.build_target(*target_kind),
+                paths
+                    .first()
+                    .expect("test metadata should resolve to one path"),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    metadata.sort_by_key(|(_, path)| *path);
+    debug!(count = metadata.len(), "collecting test outline entries");
     let mut entries = Vec::new();
 
-    for test in executables {
-        let (included, file_filt) = filter.check_package(test.target);
+    for (target, path) in metadata {
+        let (included, file_filt) = filter.check_package(target);
         if !included {
             continue;
         }
 
-        let meta_bytes = std::fs::read(test.meta)
-            .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
+        let meta_bytes = std::fs::read(path)
+            .with_context(|| format!("Failed to read test metadata at {}", path.display()))?;
         let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
-            .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
+            .with_context(|| format!("Failed to parse test metadata at {}", path.display()))?;
 
         let mut file_ranges = vec![];
         apply_filter(
@@ -653,7 +676,7 @@ pub(crate) fn collect_test_outline(
         let pkgname = build_meta
             .resolve_output
             .pkg_dirs
-            .get_package(test.target.package)
+            .get_package(target.package)
             .fqn
             .to_string();
         for (file, tests) in tests_by_file {
@@ -958,7 +981,7 @@ fn parse_test_results(
     meta: MooncGenTestInfo,
     cap: Option<String>,
     package: &str,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) -> anyhow::Result<TargetTestResult> {
     let Some(s) = cap else {
         debug!("no test output captured");
@@ -1042,7 +1065,7 @@ fn parse_test_results(
 fn parse_one_test_result(
     result: &TestStatistics,
     test_name: &str,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) -> anyhow::Result<TestResultKind> {
     use TestResultKind::*;
 
@@ -1081,7 +1104,7 @@ fn print_test_result(
     module_name: &str,
     verbose: bool,
     json: bool,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) {
     if json {
         print_test_result_json(res);
@@ -1131,7 +1154,7 @@ fn print_test_result_normal(
     res: &TestCaseResult,
     module_name: &str,
     verbose: bool,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) {
     let output = &res.raw;
     let message = &output.message;

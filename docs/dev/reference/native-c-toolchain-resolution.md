@@ -102,21 +102,60 @@ when the split runtime directory is absent.
 
 This is why Moon needs both a compiler driver and an archiver.
 
+## Debug information and optimization
+
+Moon's CLI profile and debug-information policy are described in
+[Default CLI profiles](build.md#default-cli-profiles). Compiler options with the
+same spelling are not interchangeable across the build stages:
+
+- `moonc build-package` and `moonc link-core` receive `-g` for MoonBit debug
+  information and `-O0` for the debug optimization profile. For generated C,
+  `link-core -g` preserves accurate MoonBit locations in C `#line` directives.
+  Direct-object source-backtrace requests add `-stacktrace` separately from
+  `-O0`; full-debug requests continue to use `-g`.
+- Compiling that C requires native debug information as well, so the C compiler
+  can retain those locations in the executable. GCC-like compilers use `-g`;
+  MSVC uses `/Z7`.
+- Direct-object executable linking does not compile the MoonBit program as C
+  and does not receive C debug or optimization settings. Required macOS dSYM
+  generation is a separate planned action.
+
+The native compiler actions have distinct settings:
+
+| Action | Debug information | Default optimization for GCC-like compilers |
+| --- | --- | --- |
+| Generated-C program | Enabled for source-backtrace or full-debug requests | Debug profile: `-Og`; release profile: `-O2` |
+| C stub | Enabled only for full-debug requests, independently of Native payload form | Full debug: `-Og`; otherwise debug profile: `-O0`, release profile: `-O2` |
+| Runtime C | Always enabled | `-O2` |
+
+The C-stub rule preserves the existing behavior, including `-Og` for stubs under
+`--release --no-strip`. MSVC uses `/Od` for the two debug optimization settings
+and `/O2` for speed optimization. User-provided C compiler flags suppress Moon's
+default C optimization flags, but do not suppress its requested debug flags.
+
+`MOONBIT_ALLOW_STACKTRACE` controls the runtime reporter separately from debug
+information in compiled code. `--strip` suppresses requested program debug
+information; this path does not run a stripping tool or erase the runtime's
+own debug information.
+
 ## Resolution Layers
 
 Tool resolution starts from `crates/moonutil/src/compiler_flags.rs`.
 
-There are three sources of C toolchain selection:
-
-1. global environment override
-2. package-level override
-3. default auto-detection
-
-When a native build step chooses its compiler, the current precedence is:
+For the regular native pipeline, compiler selection uses this precedence:
 
 1. `MOON_CC` / `MOON_AR`
 2. package-level override (`link.native.cc` or `link.native.stub_cc`)
-3. detected default toolchain
+3. Windows only: MSVC discovery through `find-msvc-tools`
+4. PATH probing: `cc`, then `gcc`, then `clang`
+
+`effective_native_toolchain()` applies environment and package overrides before automatic
+selection. `detected_default_native_toolchain()` tries Windows MSVC discovery before the
+cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in `detect_cc_on_path()`.
+
+The Windows MSVC direct object native target uses `windows_msvc_native_toolchain()` instead.
+It requires a cl-compatible driver, warns and ignores an incompatible `MOON_CC`, and has no
+GCC-like fallback.
 
 ## Global Environment Override
 
@@ -149,16 +188,15 @@ When `MOON_CC` is unset and no package-specific override is being applied to tha
 for a default native toolchain.
 
 On Windows, Moon first tries to discover an MSVC toolchain environment for the current 64-bit host
-architecture using the Visual Studio/MSVC discovery logic. The discovery target is
+architecture using `find-msvc-tools`. The discovery target is
 `x86_64-pc-windows-msvc` on x64 Windows hosts and `aarch64-pc-windows-msvc` on ARM64 Windows hosts.
 Moon does not model cross compilation in this path. This discovery is needed so generated-C builds
 can use `cl.exe` outside a Developer Command Prompt. If MSVC discovery fails, or on non-Windows
 hosts, Moon falls back to PATH probing in this order:
 
-1. `cl`
-2. `cc`
-3. `gcc`
-4. `clang`
+1. `cc`
+2. `gcc`
+3. `clang`
 
 Moon does not fall back to a bundled compiler. If no system toolchain is
 available, planning fails with the tool-resolution error.
@@ -268,6 +306,14 @@ The generated-C native backend does not require MSVC. If a user explicitly sets 
 `link.native.stub_cc` is resolved independently for that package's C stubs. Moon does not preflight
 whether an independently configured stub compiler is link-compatible with the executable compiler;
 incompatible objects or archives fail naturally when the final linker consumes them.
+
+Native payload selection is internal to RR build planning. `BackendConfig::Native`
+contains the allocator choice and a direct-object candidate captured by the CLI
+from the host and `MOONBIT_NEW_NATIVE`. Callers do not supply the final payload
+mode. The planner derives it from requested artifacts, the build profile, and
+that explicit candidate, without reading the process environment. It stores the
+mode once in its private Backend Plan metadata; toolchain selection and lowering
+consume that same derived value.
 
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 If any selected executable package sets these flags, Moon uses the generated-C native backend

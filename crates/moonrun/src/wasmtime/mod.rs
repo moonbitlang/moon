@@ -18,16 +18,18 @@
 
 //! Wasmtime Engine Backend for Moonrun's Wasm execution surface.
 
+mod host_imports;
 mod wasi;
 
 use std::collections::HashSet;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ::wasmtime as wt;
 use ::wasmtime::{
-    AsContext, AsContextMut, Collector, ExnRef, ExnRefPre, ExnType, ExternRef, ExternType,
-    FuncType, Global, HeapType, Linker, Mutability, RefType, Store, Strategy, Tag, Val, ValType,
+    AsContext, AsContextMut, Caller, Collector, ExnRef, ExnRefPre, ExnType, ExternRef, ExternType,
+    FuncType, Global, GlobalType, HeapType, Linker, Mutability, RefType, Rooted, Store, Strategy,
+    Tag, TagType, Val, ValType,
 };
 use anyhow::Context;
 
@@ -36,7 +38,7 @@ use crate::engine::{
     run_test_driver,
 };
 use crate::run_termination::{RunTermination, TerminationRequest};
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, Utf16Writer};
 use crate::source_map::SourceMap;
 use crate::wasm_diagnostic::{self, DiagnosticLine};
 
@@ -44,28 +46,25 @@ use crate::wasm_diagnostic::{self, DiagnosticLine};
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct JsString(Arc<[u16]>);
 
-/// An independent UTF-16 cursor. Wasmtime requires externref host data to be
-/// thread-safe even though one Moonrun Store executes synchronously.
-#[derive(Debug)]
-struct JsStringReader {
-    units: Arc<[u16]>,
-    index: Mutex<usize>,
-}
-
-#[derive(Default)]
-struct PrintState {
-    dangling_high_half: Option<u32>,
-}
-
 pub(crate) struct StoreData {
     runtime: Runtime,
     termination_request: TerminationRequest,
-    print: PrintState,
+    print: Utf16Writer,
     exception_tag: Option<Tag>,
     wasi: crate::wasi::WasiContext,
+    host_imports: host_imports::State,
+    memory_sanitizer: crate::memory_sanitizer::MemorySanitizer,
 }
 
 impl StoreData {
+    pub(crate) fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+
+    pub(crate) fn termination_request(&self) -> &TerminationRequest {
+        &self.termination_request
+    }
+
     pub(crate) fn wasi(&self) -> &crate::wasi::WasiContext {
         &self.wasi
     }
@@ -135,18 +134,22 @@ impl Engine {
             termination_request.clone(),
         );
         let stdio = Arc::clone(runtime.stdio());
+        let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
         let mut store = Store::new(
             engine,
             StoreData {
                 runtime,
                 termination_request: termination_request.clone(),
-                print: PrintState::default(),
+                print: Utf16Writer::default(),
                 exception_tag: None,
                 wasi,
+                host_imports: host_imports::State::new(module_name, &options.args),
+                memory_sanitizer: memory_sanitizer.clone(),
             },
         );
         let linker = linker_for_module(engine, &mut store, &module.0)
-            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+            .with_context(|| format!("failed to instantiate `{module_name}`"))?;
         let instance = match linker.instantiate(&mut store, &module.0) {
             Ok(instance) => instance,
             Err(error) => {
@@ -158,6 +161,13 @@ impl Engine {
                         source_map,
                         options.no_stack_trace,
                     ))
+                } else if error.downcast_ref::<wt::WasmBacktrace>().is_some() {
+                    return Err(anyhow::anyhow!(format_host_error(
+                        &error,
+                        source_map,
+                        options.no_stack_trace,
+                    )))
+                    .with_context(|| format!("failed to instantiate `{module_name}`"));
                 } else {
                     return Err(anyhow::Error::from(error)
                         .context(format!("failed to instantiate `{module_name}`")));
@@ -166,7 +176,7 @@ impl Engine {
             }
         };
 
-        if let Some(test_args) = test_args {
+        let result = if let Some(test_args) = test_args {
             let execute = instance
                 .get_func(&mut store, "moonbit_test_driver_internal_execute")
                 .context("test module does not export `moonbit_test_driver_internal_execute`")?;
@@ -199,7 +209,14 @@ impl Engine {
             complete_run_call(outcome, &stdio)
         } else {
             Ok(BackendRunOutcome::Completed)
+        };
+        drop(store);
+
+        let outcome = result?;
+        if matches!(outcome, BackendRunOutcome::Completed) {
+            memory_sanitizer.check_for_leaks()?;
         }
+        Ok(outcome)
     }
 }
 
@@ -220,6 +237,8 @@ fn linker_for_module(
 ) -> wt::Result<Linker<StoreData>> {
     let mut linker = Linker::new(engine);
     wasi::register_imports(&mut linker)?;
+    crate::async_api::register_wasmtime_imports(&mut linker)?;
+    crate::sqlite::wasm::register_wasmtime_imports(&mut linker)?;
     let mut defined = HashSet::new();
 
     for import in module.imports() {
@@ -229,119 +248,62 @@ fn linker_for_module(
         }
         match (import.module(), import.name(), import.ty()) {
             (wasi::WASI_SNAPSHOT_PREVIEW1_MODULE, _, ExternType::Func(_)) => {}
-            ("_", literal, ExternType::Global(ty)) => {
-                if ty.mutability() != Mutability::Const {
-                    wt::bail!("imported string constant `{literal}` is mutable");
-                }
-                validate_types(
-                    "imported string constant",
-                    [ty.content().clone()],
-                    [non_null_externref()],
-                )?;
+            (crate::async_api::MOONBIT_ASYNC_MODULE, _, ExternType::Func(_)) => {}
+            (crate::sqlite::wasm::MOONBIT_SQLITE_MODULE, _, ExternType::Func(_)) => {}
+            ("ffi-bytes", "memory", ExternType::Memory(_)) => {
+                host_imports::define_ffi_bytes_memory(&mut linker, store)?;
+            }
+            (namespace, name, ExternType::Func(_))
+                if host_imports::define_import(&mut linker, namespace, name)? => {}
+            ("_", literal, ExternType::Global(_)) => {
                 let value =
                     ExternRef::new(&mut *store, JsString(literal.encode_utf16().collect()))?;
+                let ty = GlobalType::new(non_null_externref(), Mutability::Const);
                 let global = Global::new(&mut *store, ty, Val::ExternRef(Some(value)))?;
                 linker.define(&mut *store, "_", literal, global)?;
             }
             ("wasm:js-string", name, ExternType::Func(ty)) => {
                 register_js_string_builtin(&mut linker, name, ty)?;
             }
-            ("__moonbit_fs_unstable", "begin_read_string", ExternType::Func(ty)) => {
-                validate_func(&ty, [ValType::EXTERNREF], [ValType::EXTERNREF])?;
-                linker.func_new(
-                    "__moonbit_fs_unstable",
-                    "begin_read_string",
-                    ty,
-                    |mut caller, params, results| {
-                        let units = Arc::clone(&require_string(caller.as_context(), &params[0])?.0);
-                        let reader = ExternRef::new(
-                            &mut caller,
-                            JsStringReader {
-                                units,
-                                index: Mutex::new(0),
-                            },
-                        )?;
-                        results[0] = Val::ExternRef(Some(reader));
+            ("console", "log", ExternType::Func(_)) => {
+                linker.func_wrap(
+                    "console",
+                    "log",
+                    |caller: Caller<'_, StoreData>, value: Rooted<ExternRef>| {
+                        let units = require_string(caller.as_context(), Some(&value))?;
+                        let value = String::from_utf16_lossy(&units.0);
+                        caller
+                            .data()
+                            .runtime
+                            .stdio()
+                            .with_stdout(|stdout| writeln!(stdout, "{value}"))?;
                         Ok(())
                     },
                 )?;
             }
-            ("__moonbit_fs_unstable", "string_read_char", ExternType::Func(ty)) => {
-                validate_func(&ty, [ValType::EXTERNREF], [ValType::I32])?;
-                linker.func_new(
-                    "__moonbit_fs_unstable",
-                    "string_read_char",
-                    ty,
-                    |caller, params, results| {
-                        let reference = params[0].unwrap_externref().ok_or_else(|| {
-                            wt::format_err!("string reader operation received null")
-                        })?;
-                        let data = reference
-                            .data(caller.as_context())?
-                            .ok_or_else(|| wt::format_err!("externref has no host reader data"))?;
-                        let reader = data
-                            .downcast_ref::<JsStringReader>()
-                            .ok_or_else(|| wt::format_err!("externref is not a string reader"))?;
-                        let mut index = reader
-                            .index
-                            .lock()
-                            .map_err(|_| wt::format_err!("string reader lock is poisoned"))?;
-                        results[0] = Val::I32(match reader.units.get(*index) {
-                            Some(unit) => {
-                                *index += 1;
-                                i32::from(*unit)
-                            }
-                            None => -1,
-                        });
-                        Ok(())
-                    },
-                )?;
-            }
-            ("__moonbit_fs_unstable", "finish_read_string", ExternType::Func(ty)) => {
-                validate_func(&ty, [ValType::EXTERNREF], [])?;
-                linker.func_new(
-                    "__moonbit_fs_unstable",
-                    "finish_read_string",
-                    ty,
-                    |_caller, _params, _results| Ok(()),
-                )?;
-            }
-            ("console", "log", ExternType::Func(ty)) => {
-                validate_func(&ty, [non_null_externref()], [])?;
-                linker.func_new("console", "log", ty, |caller, params, _results| {
-                    let units = require_string(caller.as_context(), &params[0])?;
-                    let value = String::from_utf16_lossy(&units.0);
-                    caller
-                        .data()
-                        .runtime
-                        .stdio()
-                        .with_stdout(|stdout| writeln!(stdout, "{value}"))?;
-                    Ok(())
-                })?;
-            }
-            ("spectest", "print_char", ExternType::Func(ty)) => {
-                validate_func(&ty, [ValType::I32], [])?;
-                linker.func_new(
+            ("spectest", "print_char", ExternType::Func(_)) => {
+                linker.func_wrap(
                     "spectest",
                     "print_char",
-                    ty,
-                    |mut caller, params, _results| {
-                        print_char(caller.data_mut(), params[0].unwrap_i32() as u32)?;
+                    |caller: Caller<'_, StoreData>, value: i32| {
+                        caller
+                            .data()
+                            .print
+                            .write_stdout(caller.data().runtime.stdio(), value as u32)?;
                         Ok(())
                     },
                 )?;
             }
-            ("exception", "tag", ExternType::Tag(ty)) => {
-                validate_func(ty.ty(), [], [])?;
+            ("exception", "tag", ExternType::Tag(_)) => {
+                let ty = TagType::new(FuncType::new(engine, [], []));
                 let tag = Tag::new(&mut *store, &ty)?;
                 if store.data_mut().exception_tag.replace(tag).is_some() {
                     wt::bail!("duplicate `exception.tag` import");
                 }
                 linker.define(&mut *store, "exception", "tag", tag)?;
             }
-            ("exception", "throw", ExternType::Func(ty)) => {
-                validate_func(&ty, [], [])?;
-                linker.func_new("exception", "throw", ty, |mut caller, _params, _results| {
+            ("exception", "throw", ExternType::Func(_)) => {
+                linker.func_wrap("exception", "throw", |mut caller: Caller<'_, StoreData>| {
                     let tag = caller
                         .data()
                         .exception_tag
@@ -349,32 +311,23 @@ fn linker_for_module(
                     let exception_type = ExnType::from_tag_type(&tag.ty(caller.as_context()))?;
                     let allocator = ExnRefPre::new(&mut caller, exception_type);
                     let exception = ExnRef::new(&mut caller, &allocator, &tag, &[])?;
-                    caller.as_context_mut().throw(exception)
+                    caller.as_context_mut().throw::<()>(exception)
                 })?;
             }
-            ("__moonbit_sys_unstable", "is_windows", ExternType::Func(ty)) => {
-                validate_func(&ty, [], [ValType::I32])?;
-                linker.func_new(
-                    "__moonbit_sys_unstable",
-                    "is_windows",
-                    ty,
-                    |_caller, _params, results| {
-                        results[0] = Val::I32(i32::from(cfg!(windows)));
-                        Ok(())
-                    },
-                )?;
+            ("__moonbit_sys_unstable", "is_windows", ExternType::Func(_)) => {
+                linker.func_wrap("__moonbit_sys_unstable", "is_windows", || {
+                    i32::from(cfg!(windows))
+                })?;
             }
-            ("__moonbit_sys_unstable", "exit", ExternType::Func(ty)) => {
-                validate_func(&ty, [ValType::I32], [])?;
-                linker.func_new(
+            ("__moonbit_sys_unstable", "exit", ExternType::Func(_)) => {
+                linker.func_wrap(
                     "__moonbit_sys_unstable",
                     "exit",
-                    ty,
-                    |caller, params, _results| {
+                    |caller: Caller<'_, StoreData>, code: i32| -> wt::Result<()> {
                         caller
                             .data()
                             .termination_request
-                            .request(RunTermination::Exit(params[0].unwrap_i32()));
+                            .request(RunTermination::Exit(code));
                         wt::bail!("run termination requested")
                     },
                 )?;
@@ -394,159 +347,173 @@ fn register_js_string_builtin(
 ) -> wt::Result<()> {
     match name {
         "cast" => {
-            validate_func(&ty, [ValType::EXTERNREF], [non_null_externref()])?;
-            linker.func_new("wasm:js-string", name, ty, |caller, params, results| {
-                require_builtin_string(caller.as_context(), &params[0])?;
-                results[0] = params[0];
-                Ok(())
-            })?;
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |caller: Caller<'_, StoreData>, value: Option<Rooted<ExternRef>>| {
+                    require_builtin_string(caller.as_context(), value.as_ref())?;
+                    value.ok_or_else(|| wt::Trap::UnreachableCodeReached.into())
+                },
+            )?;
         }
         "test" => {
-            validate_func(&ty, [ValType::EXTERNREF], [ValType::I32])?;
-            linker.func_new("wasm:js-string", name, ty, |caller, params, results| {
-                results[0] = Val::I32(i32::from(matches!(
-                    js_string_value(caller.as_context(), &params[0])?,
-                    JsStringValue::String(_)
-                )));
-                Ok(())
-            })?;
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |caller: Caller<'_, StoreData>, value: Option<Rooted<ExternRef>>| {
+                    Ok(i32::from(matches!(
+                        js_string_value(caller.as_context(), value.as_ref())?,
+                        JsStringValue::String(_)
+                    )))
+                },
+            )?;
         }
         "fromCharCode" => {
-            validate_func(&ty, [ValType::I32], [non_null_externref()])?;
-            linker.func_new("wasm:js-string", name, ty, |mut caller, params, results| {
-                let value = ExternRef::new(
-                    &mut caller,
-                    JsString(vec![params[0].unwrap_i32() as u16].into()),
-                )?;
-                results[0] = Val::ExternRef(Some(value));
-                Ok(())
-            })?;
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |mut caller: Caller<'_, StoreData>, value: i32| {
+                    ExternRef::new(&mut caller, JsString(vec![value as u16].into()))
+                },
+            )?;
         }
         "fromCodePoint" => {
-            validate_func(&ty, [ValType::I32], [non_null_externref()])?;
-            linker.func_new("wasm:js-string", name, ty, |mut caller, params, results| {
-                let code_point = params[0].unwrap_i32() as u32;
-                let units = match code_point {
-                    0..=0xffff => vec![code_point as u16],
-                    0x10000..=0x10ffff => {
-                        let value = code_point - 0x10000;
-                        vec![
-                            0xd800 | ((value >> 10) as u16),
-                            0xdc00 | ((value & 0x3ff) as u16),
-                        ]
-                    }
-                    _ => return js_string_trap(),
-                };
-                let value = ExternRef::new(&mut caller, JsString(units.into()))?;
-                results[0] = Val::ExternRef(Some(value));
-                Ok(())
-            })?;
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |mut caller: Caller<'_, StoreData>, code_point: i32| {
+                    let code_point = code_point as u32;
+                    let units = match code_point {
+                        0..=0xffff => vec![code_point as u16],
+                        0x10000..=0x10ffff => {
+                            let value = code_point - 0x10000;
+                            vec![
+                                0xd800 | ((value >> 10) as u16),
+                                0xdc00 | ((value & 0x3ff) as u16),
+                            ]
+                        }
+                        _ => return js_string_trap(),
+                    };
+                    ExternRef::new(&mut caller, JsString(units.into()))
+                },
+            )?;
         }
         "charCodeAt" => {
-            validate_func(&ty, [ValType::EXTERNREF, ValType::I32], [ValType::I32])?;
-            linker.func_new("wasm:js-string", name, ty, |caller, params, results| {
-                let units = require_builtin_string(caller.as_context(), &params[0])?;
-                let index = params[1].unwrap_i32() as u32;
-                let Some(code_unit) = units.0.get(index as usize) else {
-                    return js_string_trap();
-                };
-                results[0] = Val::I32(i32::from(*code_unit));
-                Ok(())
-            })?;
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |caller: Caller<'_, StoreData>, value: Option<Rooted<ExternRef>>, index: i32| {
+                    let units = require_builtin_string(caller.as_context(), value.as_ref())?;
+                    units
+                        .0
+                        .get(index as u32 as usize)
+                        .copied()
+                        .map(i32::from)
+                        .ok_or_else(|| wt::Trap::UnreachableCodeReached.into())
+                },
+            )?;
         }
         "codePointAt" => {
-            validate_func(&ty, [ValType::EXTERNREF, ValType::I32], [ValType::I32])?;
-            linker.func_new("wasm:js-string", name, ty, |caller, params, results| {
-                let units = require_builtin_string(caller.as_context(), &params[0])?;
-                let index = params[1].unwrap_i32() as u32 as usize;
-                let Some(&first) = units.0.get(index) else {
-                    return js_string_trap();
-                };
-                let code_point = match (first, units.0.get(index + 1).copied()) {
-                    (0xd800..=0xdbff, Some(second @ 0xdc00..=0xdfff)) => {
-                        0x10000 + ((u32::from(first) - 0xd800) << 10) + (u32::from(second) - 0xdc00)
-                    }
-                    _ => u32::from(first),
-                };
-                results[0] = Val::I32(code_point as i32);
-                Ok(())
-            })?;
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |caller: Caller<'_, StoreData>, value: Option<Rooted<ExternRef>>, index: i32| {
+                    let units = require_builtin_string(caller.as_context(), value.as_ref())?;
+                    let index = index as u32 as usize;
+                    let Some(&first) = units.0.get(index) else {
+                        return js_string_trap();
+                    };
+                    Ok(match (first, units.0.get(index + 1).copied()) {
+                        (0xd800..=0xdbff, Some(second @ 0xdc00..=0xdfff)) => {
+                            (0x10000
+                                + ((u32::from(first) - 0xd800) << 10)
+                                + (u32::from(second) - 0xdc00)) as i32
+                        }
+                        _ => i32::from(first),
+                    })
+                },
+            )?;
         }
         "length" => {
-            validate_func(&ty, [ValType::EXTERNREF], [ValType::I32])?;
-            linker.func_new("wasm:js-string", name, ty, |caller, params, results| {
-                let units = require_builtin_string(caller.as_context(), &params[0])?;
-                results[0] = Val::I32(i32::try_from(units.0.len())?);
-                Ok(())
-            })?;
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |caller: Caller<'_, StoreData>, value: Option<Rooted<ExternRef>>| {
+                    let units = require_builtin_string(caller.as_context(), value.as_ref())?;
+                    Ok(i32::try_from(units.0.len())?)
+                },
+            )?;
         }
         "concat" => {
-            validate_func(
-                &ty,
-                [ValType::EXTERNREF, ValType::EXTERNREF],
-                [non_null_externref()],
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |mut caller: Caller<'_, StoreData>,
+                 left: Option<Rooted<ExternRef>>,
+                 right: Option<Rooted<ExternRef>>| {
+                    let left = require_builtin_string(caller.as_context(), left.as_ref())?;
+                    let right = require_builtin_string(caller.as_context(), right.as_ref())?;
+                    let mut units = Vec::with_capacity(left.0.len() + right.0.len());
+                    units.extend_from_slice(&left.0);
+                    units.extend_from_slice(&right.0);
+                    ExternRef::new(&mut caller, JsString(units.into()))
+                },
             )?;
-            linker.func_new("wasm:js-string", name, ty, |mut caller, params, results| {
-                let left = require_builtin_string(caller.as_context(), &params[0])?;
-                let right = require_builtin_string(caller.as_context(), &params[1])?;
-                let mut units = Vec::with_capacity(left.0.len() + right.0.len());
-                units.extend_from_slice(&left.0);
-                units.extend_from_slice(&right.0);
-                let value = ExternRef::new(&mut caller, JsString(units.into()))?;
-                results[0] = Val::ExternRef(Some(value));
-                Ok(())
-            })?;
         }
         "substring" => {
-            validate_func(
-                &ty,
-                [ValType::EXTERNREF, ValType::I32, ValType::I32],
-                [non_null_externref()],
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |mut caller: Caller<'_, StoreData>,
+                 value: Option<Rooted<ExternRef>>,
+                 start: i32,
+                 end: i32| {
+                    let units = require_builtin_string(caller.as_context(), value.as_ref())?;
+                    let start = start as u32 as usize;
+                    let end = end as u32 as usize;
+                    let substring = if start > end || start > units.0.len() {
+                        Vec::new()
+                    } else {
+                        units.0[start..end.min(units.0.len())].to_vec()
+                    };
+                    ExternRef::new(&mut caller, JsString(substring.into()))
+                },
             )?;
-            linker.func_new("wasm:js-string", name, ty, |mut caller, params, results| {
-                let units = require_builtin_string(caller.as_context(), &params[0])?;
-                let start = params[1].unwrap_i32() as u32 as usize;
-                let end = params[2].unwrap_i32() as u32 as usize;
-                let substring = if start > end || start > units.0.len() {
-                    Vec::new()
-                } else {
-                    units.0[start..end.min(units.0.len())].to_vec()
-                };
-                let value = ExternRef::new(&mut caller, JsString(substring.into()))?;
-                results[0] = Val::ExternRef(Some(value));
-                Ok(())
-            })?;
         }
         "equals" => {
-            validate_func(
-                &ty,
-                [ValType::EXTERNREF, ValType::EXTERNREF],
-                [ValType::I32],
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |caller: Caller<'_, StoreData>,
+                 left: Option<Rooted<ExternRef>>,
+                 right: Option<Rooted<ExternRef>>| {
+                    let left = optional_builtin_string(caller.as_context(), left.as_ref())?;
+                    let right = optional_builtin_string(caller.as_context(), right.as_ref())?;
+                    Ok(i32::from(left == right))
+                },
             )?;
-            linker.func_new("wasm:js-string", name, ty, |caller, params, results| {
-                let left = optional_builtin_string(caller.as_context(), &params[0])?;
-                let right = optional_builtin_string(caller.as_context(), &params[1])?;
-                results[0] = Val::I32(i32::from(left == right));
-                Ok(())
-            })?;
         }
         "compare" => {
-            validate_func(
-                &ty,
-                [ValType::EXTERNREF, ValType::EXTERNREF],
-                [ValType::I32],
+            linker.func_wrap(
+                "wasm:js-string",
+                name,
+                |caller: Caller<'_, StoreData>,
+                 left: Option<Rooted<ExternRef>>,
+                 right: Option<Rooted<ExternRef>>| {
+                    let left = require_builtin_string(caller.as_context(), left.as_ref())?;
+                    let right = require_builtin_string(caller.as_context(), right.as_ref())?;
+                    Ok(match left.0.cmp(&right.0) {
+                        std::cmp::Ordering::Less => -1,
+                        std::cmp::Ordering::Equal => 0,
+                        std::cmp::Ordering::Greater => 1,
+                    })
+                },
             )?;
-            linker.func_new("wasm:js-string", name, ty, |caller, params, results| {
-                let left = require_builtin_string(caller.as_context(), &params[0])?;
-                let right = require_builtin_string(caller.as_context(), &params[1])?;
-                results[0] = Val::I32(match left.0.cmp(&right.0) {
-                    std::cmp::Ordering::Less => -1,
-                    std::cmp::Ordering::Equal => 0,
-                    std::cmp::Ordering::Greater => 1,
-                });
-                Ok(())
-            })?;
         }
+        // These imports name a concrete array type declared by the guest module. `func_wrap`
+        // can express only the abstract `(ref array)` type, which Wasmtime does not link as
+        // the same function parameter type. Preserve the concrete type after checking its
+        // mutable-i16 shape; all other callbacks above have statically declared host ABIs.
         "fromCharCodeArray" => {
             validate_from_char_code_array(&ty)?;
             linker.func_new("wasm:js-string", name, ty, |mut caller, params, results| {
@@ -573,7 +540,9 @@ fn register_js_string_builtin(
         "intoCharCodeArray" => {
             validate_into_char_code_array(&ty)?;
             linker.func_new("wasm:js-string", name, ty, |mut caller, params, results| {
-                let units = Arc::clone(&require_builtin_string(caller.as_context(), &params[0])?.0);
+                let units = Arc::clone(
+                    &require_builtin_string(caller.as_context(), params[0].unwrap_externref())?.0,
+                );
                 let Some(reference) = params[1].unwrap_anyref() else {
                     return js_string_trap();
                 };
@@ -620,7 +589,11 @@ fn call_export(
         Err(error) if is_guest_failure(&error) => Ok(BackendCallOutcome::GuestFailure(
             format_wasm_error(&error, source_map, no_stack_trace),
         )),
-        Err(error) => Err(error.into()),
+        Err(error) => Err(anyhow::anyhow!(format_host_error(
+            &error,
+            source_map,
+            no_stack_trace,
+        ))),
     }
 }
 
@@ -642,24 +615,27 @@ fn format_wasm_error(
         format!("Error: {root}")
     };
     let mut lines = vec![DiagnosticLine::Text(message)];
-    if thrown_exception {
-        lines.push(DiagnosticLine::Frame {
-            indentation: "    ".to_owned(),
-            function: "throw".to_owned(),
-            module_offset: None,
-        });
-    }
+    append_wasm_backtrace(&mut lines, error);
+    wasm_diagnostic::render(lines, source_map, no_stack_trace)
+}
+
+fn format_host_error(
+    error: &wasmtime::Error,
+    source_map: Option<&SourceMap>,
+    no_stack_trace: bool,
+) -> String {
+    let mut lines = vec![DiagnosticLine::Text(error.root_cause().to_string())];
+    append_wasm_backtrace(&mut lines, error);
+    wasm_diagnostic::render(lines, source_map, no_stack_trace)
+}
+
+fn append_wasm_backtrace(lines: &mut Vec<DiagnosticLine>, error: &wasmtime::Error) {
     if let Some(backtrace) = error.downcast_ref::<wasmtime::WasmBacktrace>() {
         for frame in backtrace.frames() {
             let raw_name = frame
                 .func_name()
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("wasm-function[{}]", frame.func_index()));
-            if moonutil::demangle::demangle_mangled_function_name(&raw_name)
-                .contains(".moonbit_test_driver_internal_execute_wrapper/")
-            {
-                continue;
-            }
             lines.push(DiagnosticLine::Frame {
                 indentation: "    ".to_owned(),
                 function: raw_name,
@@ -667,61 +643,6 @@ fn format_wasm_error(
             });
         }
     }
-    wasm_diagnostic::render(lines, source_map, no_stack_trace)
-}
-
-fn print_char(data: &mut StoreData, value: u32) -> wt::Result<()> {
-    let stdio = Arc::clone(data.runtime.stdio());
-    if (0xd800..=0xdbff).contains(&value) {
-        if data
-            .print
-            .dangling_high_half
-            .replace(value - 0xd800)
-            .is_some()
-        {
-            stdio.with_stdout(|stdout| write!(stdout, "\u{fffd}"))?;
-        }
-        return Ok(());
-    }
-
-    let value = if (0xdc00..=0xdfff).contains(&value) {
-        data.print
-            .dangling_high_half
-            .take()
-            .map_or(0xfffd, |high| 0x10000 + (high << 10) + (value - 0xdc00))
-    } else {
-        value
-    };
-    let value = char::from_u32(value).ok_or_else(|| wt::format_err!("invalid character"))?;
-    stdio.with_stdout(|stdout| write!(stdout, "{value}"))?;
-    Ok(())
-}
-
-pub(super) fn validate_func<const P: usize, const R: usize>(
-    ty: &FuncType,
-    params: [ValType; P],
-    results: [ValType; R],
-) -> wt::Result<()> {
-    validate_types("function parameters", ty.params(), params)?;
-    validate_types("function results", ty.results(), results)
-}
-
-pub(super) fn validate_types(
-    label: &str,
-    actual: impl IntoIterator<Item = ValType>,
-    expected: impl IntoIterator<Item = ValType>,
-) -> wt::Result<()> {
-    let actual = actual.into_iter().collect::<Vec<_>>();
-    let expected = expected.into_iter().collect::<Vec<_>>();
-    if actual.len() != expected.len()
-        || !actual
-            .iter()
-            .zip(&expected)
-            .all(|(actual, expected)| ValType::eq(actual, expected))
-    {
-        wt::bail!("invalid Wasmtime import {label}: expected {expected:?}, found {actual:?}");
-    }
-    Ok(())
 }
 
 fn validate_from_char_code_array(ty: &FuncType) -> wt::Result<()> {
@@ -770,7 +691,7 @@ fn non_null_externref() -> ValType {
 
 fn require_string<'a, T: 'static>(
     store: wt::StoreContext<'a, T>,
-    value: &Val,
+    value: Option<&Rooted<ExternRef>>,
 ) -> wt::Result<&'a JsString> {
     match js_string_value(store, value)? {
         JsStringValue::String(units) => Ok(units),
@@ -787,9 +708,9 @@ enum JsStringValue<'a> {
 
 fn js_string_value<'a, T: 'static>(
     store: wt::StoreContext<'a, T>,
-    value: &Val,
+    value: Option<&Rooted<ExternRef>>,
 ) -> wt::Result<JsStringValue<'a>> {
-    let Some(reference) = value.unwrap_externref() else {
+    let Some(reference) = value else {
         return Ok(JsStringValue::Null);
     };
     let Some(data) = reference.data(store)? else {
@@ -803,7 +724,7 @@ fn js_string_value<'a, T: 'static>(
 
 fn require_builtin_string<'a, T: 'static>(
     store: wt::StoreContext<'a, T>,
-    value: &Val,
+    value: Option<&Rooted<ExternRef>>,
 ) -> wt::Result<&'a JsString> {
     match js_string_value(store, value)? {
         JsStringValue::String(units) => Ok(units),
@@ -813,7 +734,7 @@ fn require_builtin_string<'a, T: 'static>(
 
 fn optional_builtin_string<'a, T: 'static>(
     store: wt::StoreContext<'a, T>,
-    value: &Val,
+    value: Option<&Rooted<ExternRef>>,
 ) -> wt::Result<Option<&'a JsString>> {
     match js_string_value(store, value)? {
         JsStringValue::Null => Ok(None),
@@ -837,13 +758,13 @@ mod tests {
             ),
             (
                 r#"(module (import "_" "value" (global (mut externref))))"#,
-                "imported string constant `value` is mutable",
+                "incompatible import type for `_::value`",
             ),
             (
                 r#"(module
                     (import "wasm:js-string" "length"
                         (func (param i32) (result i32))))"#,
-                "invalid Wasmtime import function parameters",
+                "incompatible import type for `wasm:js-string::length`",
             ),
         ] {
             let engine = crate::Engine::default();

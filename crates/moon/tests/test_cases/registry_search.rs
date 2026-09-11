@@ -20,7 +20,28 @@ use std::io::{Read, Write};
 
 use super::*;
 
-const SEARCH_RESULTS: &[u8] = br#"[{"name":"example/json","version":"1.2.3","description":"JSON query\ntools\r\u001b[31mwith color\u001b[0m\tand spaces for MoonBit package development and automation."},{"name":"example/no-description","version":"0.4.0"}]"#;
+const SEARCH_RESULTS: &[u8] = br#"[
+    {
+        "name": "example/json",
+        "version": "1.2.3",
+        "description": "JSON query\ntools\r\u001b[31mwith color\u001b[0m\tand spaces for MoonBit package development and automation.",
+        "downloads": 12345,
+        "matched_package_count": 3,
+        "matched_packages": [{
+            "package": "query",
+            "name": "example/json/query",
+            "summary": "Full package summary",
+            "summary_version": "1.1.0",
+            "is_summary_current": false,
+            "summary_fragments": [
+                {"text": "Query ", "matched": false},
+                {"text": "JSON", "matched": true},
+                {"text": " values.\n\nKeywords: JSON, query", "matched": false}
+            ]
+        }]
+    },
+    {"name": "example/no-description", "version": "0.4.0"}
+]"#;
 
 fn moon_search(
     args: &[&str],
@@ -94,9 +115,17 @@ fn test_moon_search_uses_configured_registry() {
     .stdout_eq(snapbox::str![[r#"
 2 modules found
 
-MODULE                  VERSION  DESCRIPTION
-example/json            1.2.3    JSON query tools with color and spaces for MoonBit package development and automation.
-example/no-description  0.4.0    —
+example/json@1.2.3 (12345 downloads)
+  JSON query tools with color and spaces for MoonBit package development and automation.
+
+  example/json/query (summary from v1.1.0)
+    Query JSON values.
+
+    Keywords: JSON, query
+  Showing 1 of 3 matching packages.
+
+example/no-description@0.4.0
+  —
 
 Run `moon add <module>@<version>` to add a dependency.
 
@@ -125,7 +154,21 @@ fn test_moon_search_json_is_one_complete_result() {
             {
                 "name": "example/json",
                 "version": "1.2.3",
-                "description": "JSON query\ntools\r\u{1b}[31mwith color\u{1b}[0m\tand spaces for MoonBit package development and automation."
+                "description": "JSON query\ntools\r\u{1b}[31mwith color\u{1b}[0m\tand spaces for MoonBit package development and automation.",
+                "downloads": 12345,
+                "matched_package_count": 3,
+                "matched_packages": [{
+                    "package": "query",
+                    "name": "example/json/query",
+                    "summary": "Full package summary",
+                    "summary_version": "1.1.0",
+                    "is_summary_current": false,
+                    "summary_fragments": [
+                        {"text": "Query ", "matched": false},
+                        {"text": "JSON", "matched": true},
+                        {"text": " values.\n\nKeywords: JSON, query", "matched": false}
+                    ]
+                }]
             },
             {
                 "name": "example/no-description",

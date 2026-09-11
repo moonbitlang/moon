@@ -22,7 +22,7 @@ use std::path::Path;
 use std::process::Command;
 
 use moonbuild::entry::TestArgs;
-use moonbuild_rupes_recta::model::{BackendConfig, NativeBackendMode};
+use moonbuild_rupes_recta::model::BackendConfig;
 
 /// The runtime mode used to execute one built artifact.
 #[derive(Clone, Copy)]
@@ -37,11 +37,7 @@ impl From<&BackendConfig> for ExecutionMode {
         match backend {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } => Self::MoonRun,
             BackendConfig::Js => Self::Node,
-            BackendConfig::Native {
-                mode: NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_),
-                ..
-            }
-            | BackendConfig::Llvm { .. } => Self::Native,
+            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => Self::Native,
         }
     }
 }

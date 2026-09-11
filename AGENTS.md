@@ -35,7 +35,6 @@ If you are working from mainland China, using the `.cn` domain may result in a s
     - `tests/test_cases/`: Integration snapshot tests, the majority of tests.
   - `moonbuild-rupes-recta/`: The new build graph generation engine (**now default**).
   - `moonbuild/`: The legacy build graph generation engine. Set `NEW_MOON=0` to use it if you encounter issues with Rupes Recta.
-  - `moonbuild-debug/`: Debugging utilities, mainly around dry-run printing and snapshotting.
   - `mooncake/`: Library to resolve and download dependencies.
   - `moonrun/`: The runtime of WASM MoonBit programs.
   - `moonutil/`: Misc utilities including feature flags (`src/features.rs`).
@@ -71,6 +70,7 @@ The project has transitioned from the legacy `moonbuild` to the new `moonbuild-r
 - Respect separation of concerns. Keep modules and functions single-purpose; prefer multiple explicit APIs or higher-order helpers over a single mode-switched function that multiplexes unrelated behaviors. When a complex control flow is shared but behavior differs drastically, factor out the common scaffolding and let callers inject the varying part via callbacks instead of encoding specific modes inside the function.
 - Consistency is critical for PL tooling. Don’t add a feature to only a subset of commands when it's applicable and easy to support in all of them.
 - Follow DRY. Don't leave three or more instances of the same logic around without a strong reason. If you see two copies and it's straightforward to merge them, do it.
+- Resolve each decision in the phase that owns it once the required inputs are available. Keep one authoritative source for each fact; later phases consume resolved decisions rather than recomputing them or copying them into parallel configurations. Capture external inputs only when needed, outside pure computation. Preserve useful phases while removing redundant intermediate layers.
 - Don’t hesitate to refactor APIs. Prefer adding explicit fields and/or arguments over relying on implicit properties or hidden coupling in existing code.
 - If a refactor significantly changes an API's mental model, present your plan for review before implementing it. If no maintainer is available, keep the refactor isolated and report it clearly afterwards.
 - Prefer small, fine-grained, self-contained commits. Each commit should compile (and pass tests where applicable) on its own. When adding a regression test, first add a failing test that captures the bug (or rebase it before the fix), then apply the fix.
@@ -83,4 +83,4 @@ The project has transitioned from the legacy `moonbuild` to the new `moonbuild-r
 - To format: `cargo fmt`. CI requires no format errors. MoonBit code here are explicitly not required to be formatted (some tests even mandate that).
 - To log: use `tracing`. Instrument potentially time-consuming functions.
 - Errors: use `thiserror` in concrete APIs with a fixed error scheme, and `anyhow` on flexible, higher-level ones.
-- Writing tests: most tests use `expect_test`, but `snapbox` is used when matching output patterns. Snapshot short outputs using `expect_test::expect![]`. Long outputs, especially command dry-runs, should go to `expect_test::expect_file![]`. Prefer graph comparison via `moon(test)::build_graph::compare_graphs` when snapshotting dry-run outputs. Only consider updating snapshots via `UPDATE_EXPECT=1` when you have changed behavior (e.g. commandline arguments).
+- Writing tests: most tests use `expect_test`, but `snapbox` is used when matching output patterns. Snapshot short outputs using `expect_test::expect![]`. Long outputs, especially command dry-runs, should go to `expect_test::expect_file![]`. Prefer `moon(test)::build_graph::assert` with a configured `moon_cmd` when snapshotting dry-run outputs. Only consider updating snapshots via `UPDATE_EXPECT=1` when you have changed behavior (e.g. commandline arguments).

@@ -372,37 +372,35 @@ fn plan_info_rr(
     output_plan: &imp::InfoOutputPlan,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, rr_build::BuildInput)> {
-    let mut preconfig = rr_build::preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &BuildFlags::default(),
-        Some(target),
-        target_dir,
-        RunMode::Check,
-    );
-    preconfig.info_no_alias = cmd.no_alias;
     let ctx = InfoIntentContext {
         selection,
         output_plan,
         target_kind,
         user_log,
     };
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
+    let mut compile_config = rr_build::prepare_resolved_build(
+        cli,
+        &BuildFlags::default(),
+        Some(target),
         target_dir,
+        RunMode::Check,
         user_log,
         &resolve_output,
     )?;
-    let intent =
-        calc_user_intent_for_info(&ctx, &resolve_output, planning_context.target_backend())?;
+    compile_config.info_no_alias = cmd.no_alias;
+    let intent = calc_user_intent_for_info(
+        &ctx,
+        &resolve_output,
+        compile_config.backend.target_backend(),
+    )?;
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
+        compile_config,
         user_log,
-        planning_context,
         intent,
         mooncake_bin_dir,
         resolve_output,
+        None,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }

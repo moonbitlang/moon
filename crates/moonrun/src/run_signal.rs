@@ -20,6 +20,8 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 #[cfg(windows)]
 use crate::async_sys::internal::event_loop::poll::{self, CompletionPort};
 #[cfg(unix)]
@@ -43,8 +45,15 @@ pub struct SignalReceiver {
 }
 
 #[cfg(unix)]
-pub(crate) struct SigwaitTargetGuard {
+pub(crate) struct SignalTargetGuard {
     shared: Arc<SignalState>,
+}
+
+#[cfg(unix)]
+enum SignalTarget {
+    // Older Wasm guests still submit a virtual sigwait Job.
+    CompatibilityWaiter(SigwaitTarget),
+    Completion(Arc<ThreadPoolCompletionNotifier>),
 }
 
 /// An error returned when a signal cannot be delivered to a Run.
@@ -92,25 +101,32 @@ impl SignalSender {
 
         #[cfg(unix)]
         {
-            let target = {
-                let state = self
-                    .shared
-                    .inner
-                    .lock()
-                    .map_err(|_| SignalSendError::Disconnected)?;
-                if !state.receiver_alive {
-                    return Err(SignalSendError::Disconnected);
-                }
-                if state.interested & bit == 0 {
-                    return Ok(false);
-                }
-                state.target.clone()
-            };
-            target.map_or(Ok(false), |target| {
-                target
+            let state = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| SignalSendError::Disconnected)?;
+            if !state.receiver_alive {
+                return Err(SignalSendError::Disconnected);
+            }
+            if state.interested & bit == 0 {
+                return Ok(false);
+            }
+            // Both Unix targets use nonblocking, coalesced wakeups. Keep the
+            // registration lock until acceptance so detach cannot turn an
+            // in-flight delivery into an error and process-level fallback.
+            match &state.target {
+                None => Ok(false),
+                Some(SignalTarget::CompatibilityWaiter(target)) => target
                     .send(bit)
-                    .map_err(|_| SignalSendError::DeliveryFailed)
-            })
+                    .map_err(|_| SignalSendError::DeliveryFailed),
+                Some(SignalTarget::Completion(target)) => {
+                    target
+                        .notify_signal(bit)
+                        .map_err(|_| SignalSendError::DeliveryFailed)?;
+                    Ok(true)
+                }
+            }
         }
 
         #[cfg(windows)]
@@ -159,7 +175,20 @@ impl SignalReceiver {
     }
 
     #[cfg(unix)]
-    pub(crate) fn attach_target(&self, target: SigwaitTarget) -> Option<SigwaitTargetGuard> {
+    pub(crate) fn attach_target(&self, target: SigwaitTarget) -> Option<SignalTargetGuard> {
+        self.attach_unix_target(SignalTarget::CompatibilityWaiter(target))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn attach_completion_target(
+        &self,
+        target: Arc<ThreadPoolCompletionNotifier>,
+    ) -> Option<SignalTargetGuard> {
+        self.attach_unix_target(SignalTarget::Completion(target))
+    }
+
+    #[cfg(unix)]
+    fn attach_unix_target(&self, target: SignalTarget) -> Option<SignalTargetGuard> {
         let Ok(mut state) = self.shared.inner.lock() else {
             return None;
         };
@@ -167,7 +196,7 @@ impl SignalReceiver {
             return None;
         }
         state.target = Some(target);
-        Some(SigwaitTargetGuard {
+        Some(SignalTargetGuard {
             shared: Arc::clone(&self.shared),
         })
     }
@@ -184,9 +213,12 @@ impl SignalReceiver {
 }
 
 #[cfg(unix)]
-impl Drop for SigwaitTargetGuard {
+impl Drop for SignalTargetGuard {
     fn drop(&mut self) {
-        self.shared.inner.lock().unwrap().target = None;
+        let mut state = self.shared.inner.lock().unwrap();
+        if let Some(SignalTarget::Completion(target)) = state.target.take() {
+            target.discard_signals();
+        }
     }
 }
 
@@ -206,7 +238,7 @@ struct SignalStateInner {
     receiver_alive: bool,
     interested: u32,
     #[cfg(unix)]
-    target: Option<SigwaitTarget>,
+    target: Option<SignalTarget>,
     #[cfg(windows)]
     target: Option<CompletionPort>,
 }

@@ -22,7 +22,7 @@ use crate::moon_pkg::{lexer, syntax::Dsl};
 
 use super::lexer::{Token, TokenKind};
 use anyhow::anyhow;
-use serde_json_lenient::{Map, Value, json};
+use serde_json_lenient::{Map, Number, Value, json};
 use std::{cell::Cell, fmt, ops::Range};
 
 /// Parser for MoonPkg DSL
@@ -36,6 +36,7 @@ pub struct Parser {
 #[derive(Debug)]
 pub enum ParseError {
     UnexpectedToken(Token),
+    IntegerOutOfRange { literal: String, loc: lexer::Loc },
     LexingError(Range<usize>),
 }
 
@@ -48,6 +49,13 @@ impl fmt::Display for ParseError {
                     f,
                     "unexpected token {} at line {}, column {}",
                     token, loc.start.line, loc.start.column
+                )
+            }
+            ParseError::IntegerOutOfRange { literal, loc } => {
+                write!(
+                    f,
+                    "integer literal `{literal}` is out of range at line {}, column {}",
+                    loc.start.line, loc.start.column
                 )
             }
             ParseError::LexingError(range) => {
@@ -181,6 +189,24 @@ impl Parser {
         Ok(Value::Object(Map::from_iter(elems)))
     }
 
+    fn parse_integer(&self) -> Result<Value, ParseError> {
+        let Token::INT((loc, literal)) = self.peek() else {
+            return Err(ParseError::UnexpectedToken(self.peek().clone()));
+        };
+        // TODO: Replace this JSON-number bridge with a DSL integer node once
+        // package conversion no longer deserializes DSL values through `MoonPkgJSON`.
+        let number = literal
+            .parse::<i64>()
+            .map(Number::from)
+            .or_else(|_| literal.parse::<u64>().map(Number::from))
+            .map_err(|_| ParseError::IntegerOutOfRange {
+                literal: literal.clone(),
+                loc: loc.clone(),
+            })?;
+        self.skip();
+        Ok(Value::Number(number))
+    }
+
     fn parse_expr(&self) -> Result<Value, ParseError> {
         match self.peek() {
             Token::LBRACKET(_) => self.parse_array(),
@@ -197,10 +223,7 @@ impl Parser {
                 self.skip();
                 Ok(json!(s))
             }
-            Token::INT((_, i)) => {
-                self.skip();
-                Ok(json!(i))
-            }
+            Token::INT(_) => self.parse_integer(),
             other => Err(ParseError::UnexpectedToken(other.clone())),
         }
     }
@@ -284,6 +307,10 @@ impl Parser {
                         s.skip();
                         Some(alias)
                     }
+                    Token::STAR(_) => {
+                        s.skip();
+                        Some("*".to_string())
+                    }
                     _ => None,
                 };
                 Ok(match alias {
@@ -349,10 +376,13 @@ impl Parser {
     }
 }
 
-/// Parse MoonPkg DSL input string into serde_json_lenient::Value
+/// Parse MoonPkg DSL input into its current JSON-shaped compatibility model.
+///
+/// Package conversion reuses the typed `MoonPkgJSON` deserializer until the DSL
+/// has its own typed AST, so expressions are lowered to JSON values here.
 pub fn parse(input: &str) -> anyhow::Result<Dsl> {
     let tokens = lexer::tokenize(input)?;
-    Parser::parse(tokens).map_err(|e| anyhow!("Parsing error: {:?}", e))
+    Parser::parse(tokens).map_err(|e| anyhow!("Parsing error: {e}"))
 }
 
 #[test]
@@ -502,6 +532,30 @@ import {
 }
 
 #[test]
+fn parse_import_all_alias() {
+    let source = r#"
+import {
+  "path/to/pkg" *,
+}
+    "#;
+
+    let tokens = tokenize(source).unwrap();
+    let ast = Parser::parse(tokens).unwrap();
+
+    assert_eq!(ast.entries.len(), 1);
+    assert_eq!(ast.entries[0].0, "import");
+    assert_eq!(
+        ast.entries[0].1,
+        json!([
+            {
+                "path": "path/to/pkg",
+                "alias": "*"
+            }
+        ])
+    );
+}
+
+#[test]
 fn parse_legacy_import_syntax() {
     let source = r#"
 import "test" {
@@ -533,4 +587,14 @@ import "wbtest" {
         }
     "#]]
     .assert_debug_eq(&ast);
+}
+
+#[test]
+fn parse_reports_integer_overflow() {
+    let literal = format!("1{}", "0".repeat(400));
+    let error = parse(&format!("options(value: {literal})")).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!("Parsing error: integer literal `{literal}` is out of range at line 1, column 16")
+    );
 }

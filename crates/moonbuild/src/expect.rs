@@ -22,6 +22,7 @@ use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
 use core::fmt;
+use moonbuild_rupes_recta::discover::DiscoverResult;
 use moonutil::text::line_col_to_byte_idx;
 use similar::DiffOp;
 use similar::DiffTag;
@@ -31,10 +32,6 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-pub trait PackageSrcResolver {
-    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf;
-}
 
 #[derive(Debug, Default)]
 pub struct PackagePatch {
@@ -148,7 +145,7 @@ impl std::str::FromStr for ExpectFailedRaw {
 }
 
 fn parse_snapshot_result(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     output: &TestStatistics,
 ) -> anyhow::Result<SnapshotResult> {
     let json_str = &output.message[SNAPSHOT_TESTING.len()..];
@@ -319,7 +316,7 @@ fn test_decode() {
 }
 
 fn parse_expect_failed_message(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     output: &TestStatistics,
 ) -> anyhow::Result<Replace> {
     let msg = &output.message[EXPECT_FAILED.len()..];
@@ -370,9 +367,12 @@ fn parse_expect_failed_message(
 }
 
 impl LocationJson {
-    fn resolve(&self, pkg_src: &impl PackageSrcResolver, pkg: &str) -> Location {
+    fn resolve(&self, pkg_src: &DiscoverResult, pkg: &str) -> Location {
         let actual_pkg = pkg.strip_suffix("_blackbox_test").unwrap_or(pkg);
-        let mut full_path = pkg_src.resolve_pkg_src(actual_pkg);
+        let package = pkg_src
+            .get_package_id_by_name(actual_pkg)
+            .expect("test package must exist");
+        let mut full_path = pkg_src.get_package(package).root_path.clone();
         full_path.push(
             Path::new(&self.filename)
                 .file_name()
@@ -391,7 +391,7 @@ impl LocationJson {
 }
 
 fn collect<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     outputs: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<HashMap<String, BTreeSet<Target>>> {
     let mut targets: HashMap<String, BTreeSet<Target>> = HashMap::new();
@@ -763,7 +763,7 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
 }
 
 pub fn apply_snapshot<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     outputs: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
     for output in outputs {
@@ -798,7 +798,7 @@ pub fn apply_snapshot<'a>(
 }
 
 pub fn apply_expect<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     messages: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
     // dbg!(&messages);
@@ -976,10 +976,7 @@ fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
     )
 }
 
-pub fn render_expect_fail(
-    pkg_src: &impl PackageSrcResolver,
-    output: &TestStatistics,
-) -> anyhow::Result<()> {
+pub fn render_expect_fail(pkg_src: &DiscoverResult, output: &TestStatistics) -> anyhow::Result<()> {
     assert!(output.message.starts_with(EXPECT_FAILED));
     let rep = parse_expect_failed_message(pkg_src, output)?;
 
@@ -1013,10 +1010,7 @@ pub fn render_expect_fail(
     Ok(())
 }
 
-pub fn snapshot_eq(
-    pkg_src: &impl PackageSrcResolver,
-    output: &TestStatistics,
-) -> anyhow::Result<bool> {
+pub fn snapshot_eq(pkg_src: &DiscoverResult, output: &TestStatistics) -> anyhow::Result<bool> {
     assert!(output.message.starts_with(SNAPSHOT_TESTING));
     let snapshot = parse_snapshot_result(pkg_src, output)?;
     let filename = snapshot.loc.filename;
@@ -1042,7 +1036,7 @@ pub fn snapshot_eq(
 }
 
 pub fn render_snapshot_fail(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     output: &TestStatistics,
 ) -> anyhow::Result<(bool, String, String)> {
     assert!(output.message.starts_with(SNAPSHOT_TESTING));

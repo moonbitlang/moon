@@ -55,8 +55,7 @@ use std::{
 use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
-    build_options::RunMode,
-    compiler_flags::{CompilerPaths, NativeAllocator, Toolchain},
+    compiler_flags::{NativeAllocator, OptLevel as CCOptLevel, Toolchain},
     cond_expr::OptLevel,
     resolution::ModuleId,
     target::TargetBackend,
@@ -66,8 +65,11 @@ use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use crate::{
-    ResolveOutput,
-    model::{BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, OperatingSystem, PackageId},
+    CompileConfig, ResolveOutput,
+    model::{
+        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
+        PackageId,
+    },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -108,7 +110,18 @@ impl From<BuildPlanNode> for BuildPlanActionKey {
 /// planned action. Keeping both here makes that invariant local to backend
 /// planning.
 #[derive(Default)]
-struct BackendPlan {
+pub(crate) struct BackendPlan {
+    /// Derived once from the requested artifacts before expanding actions.
+    /// Present only for Native; all Native planning and lowering read this value.
+    native_mode: Option<NativeBackendMode>,
+
+    /// Debug information for MoonBit compilation, resolved after payload selection.
+    /// Native compiler settings belong to their individual action metadata.
+    moonc_debug_info: bool,
+
+    /// Lightweight source backtraces for direct MoonBit object output.
+    moonc_stacktrace: bool,
+
     /// Planned backend actions, in stable insertion order.
     actions: IndexSet<BuildPlanNode>,
 
@@ -144,6 +157,26 @@ struct BackendPlan {
 }
 
 impl BackendPlan {
+    pub(crate) fn moonc_debug_info(&self) -> bool {
+        self.moonc_debug_info
+    }
+
+    pub(crate) fn moonc_stacktrace(&self) -> bool {
+        self.moonc_stacktrace
+    }
+
+    pub(crate) fn native_mode(&self) -> &NativeBackendMode {
+        self.native_mode
+            .as_ref()
+            .expect("Native planning must select a payload form")
+    }
+
+    pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
+        self.native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::direct_target)
+    }
+
     fn actions(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.actions.iter().copied()
     }
@@ -182,6 +215,11 @@ pub struct BuildPlan {
 }
 
 impl BuildPlan {
+    /// Borrow the backend-owned actions and metadata for backend lowering.
+    pub(crate) fn backend_plan(&self) -> &BackendPlan {
+        &self.backend
+    }
+
     /// Get the semantic actions that **the given action depends on**.
     pub(crate) fn dependency_actions(
         &self,
@@ -219,6 +257,7 @@ impl BuildPlan {
         .cloned()
     }
 
+    #[cfg(test)]
     pub(crate) fn artifact_provider(&self, artifact: &ArtifactKey) -> BuildPlanActionKey {
         BuildPlanActionKey::Backend(
             self.artifacts
@@ -231,53 +270,11 @@ impl BuildPlan {
         self.requested_artifacts.iter()
     }
 
-    /// Get build target information for the given target.
-    pub fn get_build_target_info(&self, target: &BuildTarget) -> Option<&BuildTargetInfo> {
-        self.backend.build_target_infos.get(target)
-    }
-
-    /// Get link core information for the given target.
-    pub fn get_link_core_info(&self, target: &BuildTarget) -> Option<&LinkCoreInfo> {
-        self.backend.link_core_info.get(target)
-    }
-
-    /// Get C stubs information for the given target.
-    pub fn get_c_stubs_info(&self, target: PackageId) -> Option<&BuildCStubsInfo> {
-        self.backend.c_stubs_info.get(&target)
-    }
-
-    /// Get make executable information for the given target.
-    pub fn get_make_executable_info(&self, target: &BuildTarget) -> Option<&MakeExecutableInfo> {
-        self.backend.make_executable_info.get(target)
-    }
-
-    /// Get the resolved dsymutil executable.
-    pub fn get_dsymutil(&self) -> Option<&Path> {
-        self.backend.dsymutil.as_deref()
-    }
-
-    /// Get runtime library build information.
-    pub fn get_runtime_info(&self) -> Option<&BuildRuntimeInfo> {
-        self.backend.runtime_info.as_ref()
-    }
-
     pub(crate) fn package_prebuild_action(
         &self,
         key: &PackagePrebuildKey,
     ) -> Option<&PackagePrebuildAction> {
         self.package_prebuild.action(key)
-    }
-
-    pub(crate) fn virtual_contract_input(&self, package: PackageId) -> Option<&Path> {
-        self.backend
-            .virtual_contract_inputs
-            .get(&package)
-            .map(PathBuf::as_path)
-    }
-
-    /// Get bundle information for the given module.
-    pub fn bundle_info(&self, module_id: ModuleId) -> Option<&BuildBundleInfo> {
-        self.backend.bundle_info.get(&module_id)
     }
 
     pub(crate) fn all_actions(&self) -> impl Iterator<Item = BuildPlanActionKey> + '_ {
@@ -297,7 +294,18 @@ impl BuildPlan {
 }
 
 #[cfg(test)]
+impl BackendPlan {
+    pub(crate) fn test_set_native_mode(&mut self, mode: Option<NativeBackendMode>) {
+        self.native_mode = mode;
+    }
+}
+
+#[cfg(test)]
 impl BuildPlan {
+    pub(crate) fn test_backend_plan_mut(&mut self) -> &mut BackendPlan {
+        &mut self.backend
+    }
+
     pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
         self.backend.insert(node);
     }
@@ -466,6 +474,9 @@ pub struct LinkCoreInfo {
 pub struct BuildCStubsInfo {
     /// The effective native toolchain for compiling the C stubs
     pub(crate) effective_native_toolchain: Toolchain,
+    /// C-stub code generation is independent of the main program's payload form.
+    pub(crate) debug_info: bool,
+    pub(crate) opt_level: CCOptLevel,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
     /// Legacy C-stub linker flags retained for manifest compatibility.
@@ -482,6 +493,10 @@ pub struct BuildCStubsInfo {
 pub struct MakeExecutableInfo {
     /// The effective native toolchain for this executable step
     pub(crate) effective_native_toolchain: Toolchain,
+    /// Settings for the compiler-driver step. Direct-object linking does not
+    /// compile C and therefore does not consume these settings.
+    pub(crate) c_debug_info: bool,
+    pub(crate) c_opt_level: CCOptLevel,
     /// The flags to pass to the C compiler when compiling the package itself
     pub(crate) c_flags: Vec<String>,
     /// The flags to pass to the C compiler driver when linking the executable
@@ -496,6 +511,8 @@ pub struct MakeExecutableInfo {
 pub struct BuildRuntimeInfo {
     /// The effective native toolchain for compiling the runtime library.
     pub(crate) effective_native_toolchain: Toolchain,
+    /// Whether this runtime build enables its native backtrace reporter.
+    pub(crate) enable_backtrace: bool,
     /// Runtime C translation units shipped by the selected MoonBit toolchain.
     pub(crate) source_files: Vec<PathBuf>,
     /// Prebuilt objects selected as additional static archive members.
@@ -622,34 +639,6 @@ pub struct BuildBundleInfo {
     pub(crate) bundle_targets: Vec<BuildTarget>,
 }
 
-/// Represents the environment in which the build is being performed.
-pub struct BuildEnvironment {
-    // FIXME: Target backend should go into the solver, not here
-    pub backend: BackendConfig,
-    pub opt_level: OptLevel,
-    pub action: RunMode,
-    pub debug_symbols: bool,
-    pub os: OperatingSystem,
-    /// Toolchain include/lib paths selected for native-oriented backends.
-    pub compiler_paths: Option<CompilerPaths>,
-    /// Whether compiling requires the standard library.
-    ///
-    /// MAINTAINERS: Potentially useful to move this to per-package/module.
-    pub std: bool,
-    /// Commandline_level warnings to enable/disable
-    pub warn_list: Option<String>,
-}
-
-impl BuildEnvironment {
-    pub(crate) fn target_backend(&self) -> TargetBackend {
-        self.backend.target_backend()
-    }
-
-    pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
-        self.backend.direct_native_target()
-    }
-}
-
 /// How package-level prebuild participates in this plan.
 ///
 /// Package-level prebuild includes custom `pre-build` rules, `moonlex`, and
@@ -759,12 +748,49 @@ pub enum BuildPlanConstructError {
     },
 }
 
+/// Select one Native payload form for all requested artifacts in a plan.
+/// Host capability is supplied by the caller; package policy belongs to RR.
+pub(super) fn resolve_native_backend_mode(
+    resolved: &ResolveOutput,
+    requested_artifacts: &[ArtifactKey],
+    opt_level: OptLevel,
+    native_target: Option<crate::model::NativeTarget>,
+) -> crate::model::NativeBackendMode {
+    use crate::model::{DirectNativeMode, NativeBackendMode};
+
+    // TODO: Before selecting payload form per executable, key shared runtime
+    // and C-stub artifacts by toolchain and realization. A plan currently
+    // requires one mode so its executables can safely share those artifacts.
+    let Some(native_target) = native_target.filter(|_| opt_level == OptLevel::Debug) else {
+        return NativeBackendMode::GeneratedC;
+    };
+    let needs_c_compiler = requested_artifacts.iter().any(|artifact| {
+        let ArtifactKey::Executable { package, .. } = artifact else {
+            return false;
+        };
+        resolved
+            .pkg_dirs
+            .get_package(*package)
+            .raw
+            .link
+            .as_ref()
+            .and_then(|link| link.native.as_ref())
+            .is_some_and(|native| native.cc_flags.is_some())
+    });
+    if needs_c_compiler {
+        tracing::info!("Disabling direct object native output: C/C++ compiler flags are set");
+        NativeBackendMode::GeneratedC
+    } else {
+        NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target))
+    }
+}
+
 /// Construct a Build Plan that produces the requested artifacts.
 #[instrument(skip_all)]
 pub fn build_plan(
     resolved: &ResolveOutput,
     mooncake_bin_dir: &Path,
-    build_env: &BuildEnvironment,
+    config: &CompileConfig,
     input: impl Iterator<Item = ArtifactKey>,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
@@ -772,20 +798,51 @@ pub fn build_plan(
 ) -> Result<BuildPlan, BuildPlanConstructError> {
     info!("Constructing build plan");
     debug!(
-        "Build environment: backend={:?}, opt_level={:?}",
-        build_env.target_backend(),
-        build_env.opt_level
+        "Compile configuration: backend={:?}, opt_level={:?}",
+        config.backend.target_backend(),
+        config.opt_level
     );
 
     let mut constructor = BuildPlanConstructor::new(
         resolved,
         mooncake_bin_dir,
-        build_env,
+        config,
         input_directive,
         prebuild_config,
         user_log,
     );
-    constructor.build(input)?;
+    let input = input.collect::<Vec<_>>();
+    if let BackendConfig::Native {
+        direct_object_candidate,
+        ..
+    } = &config.backend
+    {
+        constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
+            resolved,
+            &input,
+            config.opt_level,
+            *direct_object_candidate,
+        ));
+    }
+    constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {
+        DebugSymbols::None => false,
+        DebugSymbols::Full => true,
+        // Direct objects use -stacktrace for backtrace metadata. Generated C
+        // needs moonc -g for accurate source locations in its #line directives.
+        DebugSymbols::Backtrace => constructor.res.backend.direct_native_target().is_none(),
+    };
+    constructor.res.backend.moonc_stacktrace = config.debug_info.symbols == DebugSymbols::Backtrace
+        && constructor.res.backend.direct_native_target().is_some();
+    // Preserve the caller-requested executable scope for Native selection,
+    // then drop test artifacts excluded by the standard-library special cases.
+    constructor.build(input.into_iter().filter(|artifact| {
+        artifact.package_target().is_none_or(|target| {
+            !target.kind.is_test()
+                || !crate::special_cases::should_skip_tests(
+                    &resolved.pkg_dirs.get_package(target.package).fqn,
+                )
+        })
+    }))?;
     let result = constructor.finish();
 
     info!(

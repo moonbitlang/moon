@@ -1,6 +1,7 @@
 use std::cell::OnceCell;
 
-use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs};
+use crate::util::cache_registry_package;
+use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs, moon_cmd};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]
@@ -15,12 +16,491 @@ fn test_prebuild_config_py() {
     test_prebuild_config_common(dir);
 }
 
+#[test]
+fn test_prebuild_config_mbtx() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    test_prebuild_config_common(dir);
+}
+
+#[test]
+fn test_prebuild_config_skipped_dry_runs_do_not_lock() {
+    let dir = TestDir::new_empty();
+    let target = dir.join("custom build");
+    // A directory at the lock-file path makes any attempt to open the lock
+    // fail immediately, without hanging the test on an intentionally held lock.
+    std::fs::create_dir_all(target.join(".moon-lock")).unwrap();
+    std::fs::create_dir(dir.join("main")).unwrap();
+    std::fs::write(dir.join("main/moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(dir.join("main/main.mbt"), "fn main {}").unwrap();
+    std::fs::write(
+        dir.join("build.js"),
+        "throw new Error('prebuild must be skipped')",
+    )
+    .unwrap();
+
+    for (has_script, preferred, targets) in [
+        (true, "js", ["wasm", "wasm-gc", "js"].as_slice()),
+        (false, "native", ["native", "llvm"].as_slice()),
+    ] {
+        let mut manifest = serde_json::json!({
+            "name": "testuser/unlocked",
+            "preferred-target": preferred,
+        });
+        if has_script {
+            manifest["--moonbit-unstable-prebuild"] = "build.js".into();
+        }
+        std::fs::write(dir.join("moon.mod.json"), manifest.to_string()).unwrap();
+
+        for command in ["build", "run", "test", "bench", "bundle"] {
+            for target_backend in std::iter::once(None).chain(targets.iter().copied().map(Some)) {
+                moon_cmd(&dir)
+                    .arg("--target-dir")
+                    .arg(&target)
+                    .arg(command)
+                    .args((command == "run").then_some("main"))
+                    .args(
+                        target_backend
+                            .into_iter()
+                            .flat_map(|target| ["--target", target]),
+                    )
+                    .args(["--dry-run", "--nostd"])
+                    .assert()
+                    .success();
+            }
+        }
+    }
+
+    let standalone = TestDir::new_empty();
+    std::fs::write(standalone.join("standalone.mbtx"), "fn main {}").unwrap();
+    std::fs::create_dir_all(target.join("standalone.mbtx/.moon-lock")).unwrap();
+    for command in ["build", "run", "test"] {
+        moon_cmd(&standalone)
+            .arg("--target-dir")
+            .arg(&target)
+            .args([
+                command,
+                "standalone.mbtx",
+                "--target",
+                "wasm",
+                "--dry-run",
+                "--nostd",
+            ])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn test_prebuild_config_holds_target_lock() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+          "name": "testuser/locked",
+          "preferred-target": "native",
+          "--moonbit-unstable-prebuild": "build.js"
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(dir.join("main.mbt"), "fn main { println(42) }").unwrap();
+    std::fs::write(dir.join("why3.conf"), "").unwrap();
+
+    // Probe from a separate process using the same cross-platform locking API
+    // as Moon. This detects unlocked prebuild execution without timing a race.
+    std::fs::write(
+        dir.join("lock_probe.rs"),
+        r#"fn main() {
+    let lock = std::fs::OpenOptions::new()
+        .read(true).write(true)
+        .open(std::env::args_os().nth(1).unwrap()).unwrap();
+    assert!(matches!(lock.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+        "prebuild ran without holding the target lock");
+}
+"#,
+    )
+    .unwrap();
+    let probe = dir.join(format!("lock_probe{}", std::env::consts::EXE_SUFFIX));
+    snapbox::cmd::Command::new("rustc")
+        .arg(dir.join("lock_probe.rs"))
+        .arg("-o")
+        .arg(&probe)
+        .assert()
+        .success();
+    std::fs::write(
+        dir.join("build.js"),
+        r#"const { execFileSync } = require('node:child_process')
+execFileSync(process.env.MOON_TEST_LOCK_PROBE, [process.env.MOON_TEST_TARGET_LOCK], { stdio: 'inherit' })
+console.error('prebuild target is locked')
+// Stop before compilation so this test does not need native or proof artifacts.
+process.exit(1)
+"#,
+    )
+    .unwrap();
+
+    let target = dir.join("custom build");
+    for args in [
+        ["run", "."].as_slice(),
+        ["prove", "--why3-config", "why3.conf"].as_slice(),
+        ["build"].as_slice(),
+        ["build", "--target", "native"].as_slice(),
+        ["build", "--target", "wasm,native"].as_slice(),
+        ["test"].as_slice(),
+        ["test", "--target", "native"].as_slice(),
+        ["bench"].as_slice(),
+        ["bench", "--target", "native"].as_slice(),
+        ["bundle"].as_slice(),
+        ["bundle", "--target", "native"].as_slice(),
+    ] {
+        for dry_run in [false, true] {
+            moon_cmd(&dir)
+                .env("MOON_TEST_LOCK_PROBE", &probe)
+                .env("MOON_TEST_TARGET_LOCK", target.join(".moon-lock"))
+                .arg("--target-dir")
+                .arg(&target)
+                .args(args)
+                .args(dry_run.then_some("--dry-run"))
+                .assert()
+                .failure()
+                .stderr_eq(snapbox::str![[r#"
+...
+prebuild target is locked
+...
+"#]]);
+        }
+    }
+}
+
+#[test]
+fn test_prebuild_config_build_environment() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+          "name": "testuser/environment",
+          "preferred-target": "llvm",
+          "--moonbit-unstable-prebuild": "build.js"
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(dir.join("main.mbt"), "fn main { println(42) }").unwrap();
+    std::fs::write(
+        dir.join("build.js"),
+        r#"const fs = require('node:fs')
+const names = ['MOON_HOST_OS', 'MOON_HOST_ARCH', 'MOON_BACKEND', 'MOON_PROFILE', 'MOON_JOBS']
+fs.writeFileSync('environment.json', JSON.stringify(Object.fromEntries(names.map(name => [name, process.env[name]]))))
+// Stop before compilation: this test does not require LLVM standard-library artifacts.
+process.exit(1)
+"#,
+    )
+    .unwrap();
+
+    for (args, backend, profile, jobs) in [
+        (
+            ["build", "--target", "native", "--debug", "--jobs", "2"].as_slice(),
+            "native",
+            "debug",
+            2,
+        ),
+        (
+            ["build", "--target", "llvm", "--release", "-j", "3"].as_slice(),
+            "llvm",
+            "release",
+            3,
+        ),
+        (
+            ["run", ".", "--target", "native", "-j", "4"].as_slice(),
+            "native",
+            "debug",
+            4,
+        ),
+        (
+            ["test", "--target", "native", "-j", "5"].as_slice(),
+            "native",
+            "debug",
+            5,
+        ),
+        (
+            ["bench", "--target", "native", "-j", "6"].as_slice(),
+            "native",
+            "release",
+            6,
+        ),
+        (
+            ["build"].as_slice(),
+            "llvm",
+            "debug",
+            std::thread::available_parallelism().map_or(1, usize::from),
+        ),
+    ] {
+        moon_cmd(&dir)
+            .env("MOON_HOST_OS", "inherited-host-os")
+            .env("MOON_HOST_ARCH", "inherited-host-arch")
+            .env("MOON_BACKEND", "inherited-backend")
+            .env("MOON_PROFILE", "inherited-profile")
+            .env("MOON_JOBS", "inherited-jobs")
+            .args(args)
+            .arg("--dry-run")
+            .assert()
+            .failure();
+        let environment: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("environment.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            environment,
+            serde_json::json!({
+                "MOON_HOST_OS": std::env::consts::OS,
+                "MOON_HOST_ARCH": std::env::consts::ARCH,
+                "MOON_BACKEND": backend,
+                "MOON_PROFILE": profile,
+                "MOON_JOBS": jobs.to_string(),
+            })
+        );
+        std::fs::remove_file(dir.join("environment.json")).unwrap();
+    }
+}
+
+#[test]
+fn test_prebuild_config_build_dirs() {
+    let dir = TestDir::new_empty();
+    let dependency = dir.join("dep");
+    let target = dir.join("custom build");
+    std::fs::create_dir(&dependency).unwrap();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+          "name": "testuser/consumer",
+          "deps": { "testuser/config": { "path": "./dep" } },
+          "--moonbit-unstable-prebuild": "build.js"
+        }"#,
+    )
+    .unwrap();
+    // The preferred DSL manifest must be reported when both formats exist.
+    std::fs::write(
+        dependency.join("moon.mod"),
+        "name = \"testuser/config\"\nversion = \"0.1.0\"\noptions(\"--moonbit-unstable-prebuild\": \"build.js\")\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dependency.join("moon.mod.json"),
+        r#"{"name":"testuser/config","version":"0.1.0"}"#,
+    )
+    .unwrap();
+    for module_dir in [dir.as_ref(), dependency.as_path()] {
+        std::fs::write(module_dir.join("moon.pkg.json"), "{}").unwrap();
+        std::fs::write(module_dir.join("lib.mbt"), "pub fn value() -> Int { 42 }").unwrap();
+        std::fs::write(
+            module_dir.join("build.js"),
+            r#"const fs = require('node:fs')
+const path = require('node:path')
+fs.appendFileSync(path.join(process.env.MOON_BUILD_DIR, 'runs.txt'), process.env.MOON_MOD + '\n')
+console.log('{}')
+"#,
+        )
+        .unwrap();
+    }
+
+    for profile in ["--debug", "--debug", "--release"] {
+        moon_cmd(&dir)
+            .arg("--target-dir")
+            .arg(&target)
+            .args(["build", "--target", "native", "--dry-run", profile])
+            .assert()
+            .success();
+    }
+
+    for (profile, runs) in [("debug", 2), ("release", 1)] {
+        let outputs = std::fs::read_dir(target.join(format!("native/{profile}/build/prebuild")))
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path().join("runs.txt")).unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        let expected = [dir.join("moon.mod.json"), dependency.join("moon.mod")]
+            .map(|manifest| {
+                format!("{}\n", dunce::canonicalize(manifest).unwrap().display()).repeat(runs)
+            })
+            .into_iter()
+            .collect();
+        assert_eq!(outputs, expected);
+    }
+    assert!(!dependency.join("_build").exists());
+}
+
+#[test]
+fn test_prebuild_config_mbtx_preserves_frozen_dependencies() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    let moon_home = tempfile::tempdir().unwrap();
+    cache_registry_package(
+        moon_home.path(),
+        "testuser/prebuild-input",
+        "0.1.0",
+        &[
+            (
+                "moon.mod.json",
+                br#"{"name":"testuser/prebuild-input","version":"0.1.0"}"#.to_vec(),
+            ),
+            ("moon.pkg.json", b"{}".to_vec()),
+            (
+                "lib.mbt",
+                br#"pub fn value() -> String { "ready" }"#.to_vec(),
+            ),
+        ],
+    );
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        r#"import { "testuser/prebuild-input@0.1.0" @input }
+fn main {
+  let output : Json = { "vars": { "HELLO": @input.value() } }
+  println(output.stringify())
+}
+"#,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["build", "--target", "native", "--dry-run", "--frozen"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+[..]`frozen` is set[..]
+...
+"#]]);
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_OVERRIDE", dir.join("unused-moon"))
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .success();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_OVERRIDE", dir.join("unused-moon"))
+        .args(["build", "--target", "native", "--dry-run", "--frozen"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_prebuild_config_mbtx_keeps_dependency_sources_read_only() {
+    let project = tempfile::tempdir().unwrap();
+    let dependency = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    std::fs::write(
+        project.path().join("moon.mod.json"),
+        serde_json::json!({
+            "name": "testuser/consumer",
+            "deps": { "testuser/config": { "path": dependency.path() } }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("moon.pkg.json"),
+        r#"{"import":["testuser/config"]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("lib.mbt"),
+        "pub fn value() -> Int { @config.value() }",
+    )
+    .unwrap();
+    std::fs::write(
+        dependency.path().join("moon.mod.json"),
+        r#"{"name":"testuser/config","version":"0.1.0","--moonbit-unstable-prebuild":"build.mbtx"}"#,
+    )
+    .unwrap();
+    std::fs::write(dependency.path().join("moon.pkg.json"), "{}").unwrap();
+    std::fs::write(
+        dependency.path().join("lib.mbt"),
+        "pub fn value() -> Int { 42 }",
+    )
+    .unwrap();
+    std::fs::write(
+        dependency.path().join("build.mbtx"),
+        "fn main { println(\"{}\") }",
+    )
+    .unwrap();
+
+    #[cfg(unix)]
+    let permissions = {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::metadata(dependency.path()).unwrap().permissions();
+        std::fs::set_permissions(dependency.path(), std::fs::Permissions::from_mode(0o555))
+            .unwrap();
+        permissions
+    };
+    let result = moon_cmd(&project)
+        .arg("--target-dir")
+        .arg(target.path())
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert();
+    #[cfg(unix)]
+    std::fs::set_permissions(dependency.path(), permissions).unwrap();
+    result.success();
+    assert!(!dependency.path().join("_build").exists());
+    assert!(!dependency.path().join(".mooncakes").exists());
+    assert!(target.path().join("prebuild").is_dir());
+}
+
+#[test]
+fn test_prebuild_config_mbtx_failure() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        "fn main { abort(\"prebuild script failed\") }",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+Error: failed to run build for target Native
+
+Caused by:
+    0: Failed to run prebuild script for module username/hello
+    1: prebuild script `build config.mbtx` for module `username/hello@0.0.0 (local [..])` failed
+
+"#]]);
+}
+
+#[test]
+fn test_prebuild_config_mbtx_invalid_json() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        "fn main { println(\"not json\") }",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to run build for target Native
+
+Caused by:
+    0: Failed to run prebuild script for module username/hello
+    1: failed to deserialize prebuild script `build config.mbtx` for module `username/hello@0.0.0 (local [..])`
+    2: expected ident at line 1 column 2
+
+"#]]);
+}
+
 fn test_prebuild_config_common(dir: TestDir) {
     let cc = if cfg!(windows) { "cl" } else { "cc" };
     let stdout = get_stdout_with_envs(
         &dir,
-        ["build", "--target", "native", "--dry-run"],
-        [("MOON_CC", cc)],
+        ["build", "--target", "native", "--dry-run", "--jobs", "3"],
+        [
+            ("MOON_CC", cc),
+            ("MOON_MOD", "inherited-module-manifest"),
+            ("MOON_BUILD_DIR", "inherited-build-dir"),
+            ("MOON_BACKEND", "inherited-backend"),
+        ],
     );
     println!("{}", &stdout);
     let lines = stdout.lines().collect::<Vec<_>>();
@@ -61,13 +541,76 @@ fn test_prebuild_config_common(dir: TestDir) {
 fn test_prebuild_config_not_run_in_check() {
     let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
 
-    let build_err = get_err_stderr(&dir, ["build", "--dry-run"]);
+    let build_err = get_err_stderr(&dir, ["build", "--target", "native", "--dry-run"]);
     assert!(
         build_err.contains("prebuild script `fail.js`"),
         "expected build to execute prebuild script and fail, got:\n{build_err}"
     );
 
-    assert_success(&dir, ["check"]);
+    for target in ["native", "llvm"] {
+        // Prebuild eligibility is decided during planning; LLVM standard-library
+        // artifacts are not available on every platform running this test.
+        assert_success(&dir, ["check", "--target", target, "--dry-run"]);
+    }
+}
+
+#[test]
+fn test_unstable_prebuild_config_only_runs_for_native_backends() {
+    for target in ["wasm", "wasm-gc", "js"] {
+        let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
+        moon_cmd(&dir)
+            .args(["build", "--target", target, "--release"])
+            .assert()
+            .success();
+        moon_cmd(&dir)
+            .args(["build", "--target", target, "--release", "--dry-run"])
+            .assert()
+            .success();
+    }
+
+    for target in ["native", "llvm"] {
+        let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
+        moon_cmd(&dir)
+            .args(["build", "--target", target, "--release", "--dry-run"])
+            .assert()
+            .failure()
+            .stderr_eq(snapbox::str![[r#"
+...
+[..]Failed to run prebuild script for module username/check_skip_on_check
+...
+"#]]);
+    }
+}
+
+#[test]
+fn test_unstable_prebuild_config_uses_preferred_backend() {
+    for target in ["wasm", "wasm-gc", "js", "native", "llvm"] {
+        let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
+        let manifest_path = dir.join("moon.mod.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["preferred-target"] = target.into();
+        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let result = moon_cmd(&dir)
+            .args(["build", "--release", "--dry-run"])
+            .assert();
+        if matches!(target, "native" | "llvm") {
+            result.failure().stderr_eq(snapbox::str![[r#"
+...
+[..]Failed to run prebuild script for module username/check_skip_on_check
+...
+"#]]);
+        } else {
+            result.success();
+        }
+
+        // An explicit backend overrides the module's preferred backend.
+        moon_cmd(&dir)
+            .args(["build", "--target", "wasm", "--release", "--dry-run"])
+            .assert()
+            .success();
+    }
 }
 
 #[test]

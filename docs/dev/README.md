@@ -73,7 +73,7 @@ teaches coding agents how to use this index without copying its routing table.
 - [0002: Native ABI Policy Belongs to Toolchains](../adr/0002-native-abi-policy-belongs-to-toolchains.md)
 - [0003: Dispatch Moonx By Executable Name](../adr/0003-dispatch-moonx-by-executable-name.md)
 - [0004: Separate Command Results from User Logs](../adr/0004-separate-command-results-from-user-logs.md)
-- [0005: Prepare Standalone Dependencies Before Script Execution](../adr/0005-plan-standalone-dependencies-separately.md)
+- [0005: Use Unified Planning and Execution for Standalone Builds](../adr/0005-plan-standalone-dependencies-separately.md)
 - [0006: Model Providers as Build Graph Topology](../adr/0006-model-providers-as-build-graph-topology.md)
 
 ## How to Build and Test
@@ -145,25 +145,25 @@ cargo install --path ./crates/moon --debug --offline
       binary
     - `src/cli/generate_test_driver.rs`: as the name suggests
   - `src/rr_build`: integration with the Rupes Recta build engine
+    - `execution/n2.rs`: n2 graph adaptation, incremental state, and execution
+    - `dry_run.rs`: renders commands and graph snapshots from Execution Plans
   - `tests/test_cases`: end-to-end tests organized into modules by purpose;
     `mod.rs` contains their shared imports and module registrations
+  - `tests/support/build_graph.rs`: graph capture and snapshot assertions; owns
+    temporary dumps, JSONL reading/writing, normalization, and comparison
 
 - `crates/moonbuild-rupes-recta`: the new build graph generation engine (now default)
-  - `src/build_lower`: lowers resolved modules to n2 build commands
+  - `src/build_lower`: lowers Build Plans to executor-neutral Execution Plans
   - `src/fmt.rs`: formatting support
   - `src/metadata.rs`: metadata generation for IDE/tooling
   - See `docs/dev/reference/compiler-cmd-ref.md` for compiler command reference
 
-- `crates/moonbuild`: the legacy build graph generation engine
-  - Being phased out in favor of `moonbuild-rupes-recta`
-  - `src/{check, gen, build, bundle, entry, runtest}`: generate
-    commands and n2 state according to `moon.mod.json` and `moon.pkg.json`
-  - `src/bundle.rs`: only for `moonbitlang/core`, not visible
-    to users
-  - `src/dry_run.rs`: prints commands without executing them,
-    mainly used by end-to-end tests.
-  - `src/expect.rs`: the implementation of expect tests in
-    `moon`
+- `crates/moonbuild`: support code retained from the former build engine
+  - `src/{entry, runtest, section_capture}`: test arguments, results, formatting,
+    and child-output capture
+  - `src/expect.rs`: expect and snapshot comparison and promotion
+  - `src/{bench, benchmark}`: benchmark generation and result handling
+  - `src/{new, upgrade, doc_http}`: project creation, self-upgrade, and documentation serving
 
 - `crates/mooncake`: package manager
   - `src/pkg/add`: `moon add`
@@ -185,8 +185,6 @@ cargo install --path ./crates/moon --debug --offline
   - `src/build.rs`: for `moon version`
 
 - `crates/moonrun`: runtime for executing WASM MoonBit programs
-
-- `crates/moonbuild-debug`: debugging utilities for dry-run printing and snapshotting
 
 ## Before PR
 

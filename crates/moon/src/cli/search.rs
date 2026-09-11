@@ -18,19 +18,26 @@
 
 use std::io::Write;
 
-use mooncake::registry::{RegistryClient, RegistrySearchResult};
+use mooncake::registry::{RegistryClient, RegistryPackageMatch, RegistrySearchResult};
 use moonutil::{
     command_output::CommandOutput,
     user_log::{UserLogCapture, UserLogEntry, UserLogEntryLevel},
 };
 use serde::Serialize;
-use unicode_width::UnicodeWidthStr;
 
 use super::invocation::{JsonCommand, JsonCommandOutcome};
 
 const SEARCH_JSON_ERROR_EXIT_CODE: i32 = -1;
 
-/// Search for modules in the package registry
+/// Search modules and package summaries in the registry
+///
+/// Results follow the registry's ranking, as on mooncakes.io (most downloaded
+/// first). Each module includes its version, description, download count, and
+/// matching package excerpts when available. Summaries from older versions are
+/// labeled, and a count indicates when only some matching packages are shown.
+///
+/// With --json, the result also preserves the registry's summary fragments and
+/// match markers. Registries without package summaries remain supported.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct SearchSubcommand {
     /// The keyword to search for
@@ -161,14 +168,23 @@ fn render_search_results(
 ) -> std::io::Result<()> {
     // Validate every name before writing anything so one malformed registry
     // result cannot leave a partial, trusted-looking list of coordinates.
-    if results
-        .iter()
-        .any(|result| !is_safe_registry_module_name(&result.name))
-    {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "registry search response contains an invalid module name",
-        ));
+    for result in results {
+        if !is_safe_registry_module_name(&result.name) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "registry search response contains an invalid module name",
+            ));
+        }
+        if result
+            .matched_packages
+            .iter()
+            .any(|package| !is_safe_registry_module_name(&package.name))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "registry search response contains an invalid package name",
+            ));
+        }
     }
 
     if results.is_empty() {
@@ -176,18 +192,6 @@ fn render_search_results(
         return Ok(());
     }
 
-    let module_width = results
-        .iter()
-        .map(|result| result.name.width())
-        .max()
-        .unwrap_or_default()
-        .max("MODULE".len());
-    let version_width = results
-        .iter()
-        .map(|result| result.version.to_string().len())
-        .max()
-        .unwrap_or_default()
-        .max("VERSION".len());
     writeln!(
         writer,
         "{} {} found\n",
@@ -198,35 +202,52 @@ fn render_search_results(
             "modules"
         }
     )?;
-    writeln!(
-        writer,
-        "{:<module_width$}  {:<version_width$}  DESCRIPTION",
-        "MODULE", "VERSION"
-    )?;
+    let heading = anstyle::Style::new().bold();
     for result in results {
-        let module_padding = module_width.saturating_sub(result.name.width());
+        write!(
+            writer,
+            "{heading}{}@{}{heading:#}",
+            result.name, result.version
+        )?;
+        if let Some(downloads) = result.downloads {
+            write!(writer, " ({downloads} downloads)")?;
+        }
+        writeln!(writer)?;
         let description = result
             .description
             .as_deref()
-            .map(sanitize_registry_description)
+            .map(sanitize_registry_text)
             .filter(|description| !description.is_empty());
-        writeln!(
-            writer,
-            "{}{:module_padding$}  {:<version_width$}  {}",
-            result.name,
-            "",
-            result.version,
-            description.as_deref().unwrap_or("—")
-        )?;
+        writeln!(writer, "  {}", description.as_deref().unwrap_or("—"))?;
+        for package in &result.matched_packages {
+            writeln!(writer)?;
+            write!(writer, "  {}", package.name)?;
+            if !package.is_summary_current {
+                write!(
+                    writer,
+                    " (summary from v{})",
+                    sanitize_registry_text(&package.summary_version)
+                )?;
+            }
+            writeln!(writer)?;
+            write!(writer, "    ")?;
+            render_package_summary(writer, package)?;
+            writeln!(writer)?;
+        }
+        let shown = result.matched_packages.len();
+        if let Some(total) = result.matched_package_count.filter(|&total| total > shown) {
+            writeln!(writer, "  Showing {shown} of {total} matching packages.")?;
+        }
+        writeln!(writer)?;
     }
     writeln!(
         writer,
-        "\nRun `moon add <module>@<version>` to add a dependency."
+        "Run `moon add <module>@<version>` to add a dependency."
     )?;
     Ok(())
 }
 
-fn is_safe_registry_module_name(name: &str) -> bool {
+pub(super) fn is_safe_registry_module_name(name: &str) -> bool {
     name.split('/').all(|component| {
         !component.is_empty()
             && component != "."
@@ -253,9 +274,74 @@ fn is_bidirectional_format_control(character: char) -> bool {
     )
 }
 
-fn sanitize_registry_description(description: &str) -> String {
-    // Preserve word boundaries across lines before stripping terminal escape
-    // sequences, which would otherwise discard newlines along with controls.
+fn render_package_summary(
+    writer: &mut dyn Write,
+    package: &RegistryPackageMatch,
+) -> std::io::Result<()> {
+    let fragments = package
+        .summary_fragments
+        .iter()
+        .map(|fragment| (fragment.text.as_str(), fragment.matched))
+        .chain(
+            package
+                .summary_fragments
+                .is_empty()
+                .then_some((package.summary.as_str(), false)),
+        );
+
+    // Keep parser state across fragments so registry escape sequences cannot
+    // bypass filtering by spanning fragment boundaries. Add styling afterwards.
+    let mut strip = anstream::adapter::StripBytes::new();
+    let highlight = anstyle::Style::new().bold();
+    let mut has_text = false;
+    let mut pending_space = false;
+    let mut pending_newlines = 0;
+    for (fragment, matched) in fragments {
+        let mut text = String::new();
+        let printable = strip
+            .strip_next(fragment.as_bytes())
+            .flatten()
+            .copied()
+            .collect();
+        let printable = String::from_utf8(printable)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        for character in printable.chars() {
+            if character == '\n' {
+                if has_text {
+                    pending_newlines += 1;
+                }
+            } else if character.is_whitespace()
+                || character.is_control()
+                || is_bidirectional_format_control(character)
+            {
+                pending_space = has_text;
+            } else {
+                if pending_newlines > 0 {
+                    // Only preserve explicit line breaks; the terminal owns
+                    // wrapping. Empty lines have no trailing indentation.
+                    text.extend(std::iter::repeat_n('\n', pending_newlines));
+                    text.push_str("    ");
+                } else if pending_space {
+                    text.push(' ');
+                }
+                pending_newlines = 0;
+                pending_space = false;
+                text.push(character);
+                has_text = true;
+            }
+        }
+        if matched && !text.is_empty() {
+            write!(writer, "{highlight}{text}{highlight:#}")?;
+        } else {
+            write!(writer, "{text}")?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn sanitize_registry_text(description: &str) -> String {
+    // Keep descriptions and version labels on one line while preserving word
+    // boundaries and stripping terminal escape sequences.
     let single_line = description
         .chars()
         .map(|character| {
@@ -294,7 +380,113 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_search_results_as_a_table() {
+    fn renders_package_matches_in_registry_order() {
+        let results: Vec<RegistrySearchResult> = serde_json::from_value(serde_json::json!([
+            {
+                "name": "z/tools", "version": "2.0.0", "downloads": 100,
+                "matched_package_count": 7,
+                "matched_packages": [
+                    {
+                        "package": "fs", "name": "z/tools/fs",
+                        "summary": "Full summary omitted by the excerpt",
+                        "summary_version": "1.0.0\u{1b}[2J\u{202e}",
+                        "is_summary_current": false,
+                        "summary_fragments": [
+                            {"text": "  Read\r", "matched": false},
+                            {"text": "\n", "matched": false},
+                            {"text": "files", "matched": true},
+                            {"text": "\t safely.\n\nKeywords: 文件, IO  ", "matched": false}
+                        ]
+                    },
+                    {
+                        "package": "", "name": "z/tools",
+                        "summary": "Root\n\nsummary\u{1b}[31m.\u{1b}[0m",
+                        "summary_version": "2.0.0", "is_summary_current": true
+                    }
+                ]
+            },
+            {"name": "a/tools", "version": "3.0.0", "downloads": 1000}
+        ]))
+        .unwrap();
+        let mut output = Vec::new();
+        render_search_results(&mut output, &results).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        let plain = anstream::adapter::strip_str(&output).to_string();
+        expect_test::expect![[r#"
+            2 modules found
+
+            z/tools@2.0.0 (100 downloads)
+              —
+
+              z/tools/fs (summary from v1.0.0)
+                Read
+                files safely.
+
+                Keywords: 文件, IO
+
+              z/tools
+                Root
+
+                summary.
+              Showing 2 of 7 matching packages.
+
+            a/tools@3.0.0 (1000 downloads)
+              —
+
+            Run `moon add <module>@<version>` to add a dependency.
+        "#]]
+        .assert_eq(&plain);
+        assert!(output.contains("\u{1b}[1mz/tools@2.0.0\u{1b}[0m"));
+        assert!(output.contains("\u{1b}[1m\n    files\u{1b}[0m"));
+    }
+
+    #[test]
+    fn sanitizes_terminal_controls_across_summary_fragments() {
+        let package: RegistryPackageMatch = serde_json::from_value(serde_json::json!({
+            "package": "fs", "name": "alice/tools/fs",
+            "summary": "Unused full summary",
+            "summary_version": "1.0.0", "is_summary_current": true,
+            "summary_fragments": [
+                {"text": "Read \u{1b}[", "matched": false},
+                {"text": "2Jfiles\u{1b}]8;;https://example.com", "matched": true},
+                {"text": "\u{7} here\u{1b}]8;;\u{7}\u{202e} safely", "matched": false}
+            ]
+        }))
+        .unwrap();
+        let mut output = Vec::new();
+        render_package_summary(&mut output, &package).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "Read\u{1b}[1m files\u{1b}[0m here safely"
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_package_names_before_rendering_any_results() {
+        let results: Vec<RegistrySearchResult> = serde_json::from_value(serde_json::json!([
+            {"name": "alice/valid", "version": "1.0.0"},
+            {
+                "name": "alice/tools", "version": "1.0.0",
+                "matched_packages": [{
+                    "package": "fs", "name": "alice/tools/fs\nforged/coordinate",
+                    "summary": "Read files", "summary_version": "1.0.0",
+                    "is_summary_current": true
+                }]
+            }
+        ]))
+        .unwrap();
+        let mut output = Vec::new();
+        let error = render_search_results(&mut output, &results).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            "registry search response contains an invalid package name"
+        );
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn renders_legacy_search_results() {
         let mut output = Vec::new();
         render_search_results(
             &mut output,
@@ -302,6 +494,9 @@ mod tests {
                 RegistrySearchResult {
                     name: "mizchi/jq".to_owned(),
                     version: Version::new(0, 2, 2),
+                    downloads: None,
+                    matched_package_count: None,
+                    matched_packages: Vec::new(),
                     description: Some(
                         "A jq clone\nfor MoonBit\r\x1b[31mwith color\x1b[0m\tand\u{202e}spaces"
                             .to_owned(),
@@ -310,11 +505,17 @@ mod tests {
                 RegistrySearchResult {
                     name: "example/no-description".to_owned(),
                     version: Version::new(1, 0, 0),
+                    downloads: None,
+                    matched_package_count: None,
+                    matched_packages: Vec::new(),
                     description: None,
                 },
                 RegistrySearchResult {
                     name: "example/empty-description".to_owned(),
                     version: Version::new(2, 0, 0),
+                    downloads: None,
+                    matched_package_count: None,
+                    matched_packages: Vec::new(),
                     description: Some("\x1b[2J\r\n".to_owned()),
                 },
             ],
@@ -322,14 +523,19 @@ mod tests {
         .unwrap();
 
         let output = String::from_utf8(output).unwrap();
+        let output = anstream::adapter::strip_str(&output).to_string();
 
         expect_test::expect![[r#"
             3 modules found
 
-            MODULE                     VERSION  DESCRIPTION
-            mizchi/jq                  0.2.2    A jq clone for MoonBit with color and spaces
-            example/no-description     1.0.0    —
-            example/empty-description  2.0.0    —
+            mizchi/jq@0.2.2
+              A jq clone for MoonBit with color and spaces
+
+            example/no-description@1.0.0
+              —
+
+            example/empty-description@2.0.0
+              —
 
             Run `moon add <module>@<version>` to add a dependency.
         "#]]
@@ -337,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn aligns_unicode_module_names_by_display_width() {
+    fn preserves_unicode_module_names() {
         let mut output = Vec::new();
         render_search_results(
             &mut output,
@@ -345,16 +551,25 @@ mod tests {
                 RegistrySearchResult {
                     name: "example/ascii".to_owned(),
                     version: Version::new(1, 0, 0),
+                    downloads: None,
+                    matched_package_count: None,
+                    matched_packages: Vec::new(),
                     description: None,
                 },
                 RegistrySearchResult {
                     name: "example/中".to_owned(),
                     version: Version::new(2, 0, 0),
+                    downloads: None,
+                    matched_package_count: None,
+                    matched_packages: Vec::new(),
                     description: None,
                 },
                 RegistrySearchResult {
                     name: "example/e\u{301}".to_owned(),
                     version: Version::new(3, 0, 0),
+                    downloads: None,
+                    matched_package_count: None,
+                    matched_packages: Vec::new(),
                     description: None,
                 },
             ],
@@ -362,21 +577,22 @@ mod tests {
         .unwrap();
 
         let output = String::from_utf8(output).unwrap();
-        let version_columns = [
-            ("example/ascii", "1.0.0"),
-            ("example/中", "2.0.0"),
-            ("example/e\u{301}", "3.0.0"),
-        ]
-        .map(|(name, version)| {
-            let row = output
-                .lines()
-                .find(|line| line.starts_with(name))
-                .expect("module row should be present");
-            let version_start = row.find(version).expect("version should be present");
-            unicode_width::UnicodeWidthStr::width(&row[..version_start])
-        });
+        let output = anstream::adapter::strip_str(&output).to_string();
+        expect_test::expect![[r#"
+            3 modules found
 
-        assert_eq!(version_columns, [15, 15, 15]);
+            example/ascii@1.0.0
+              —
+
+            example/中@2.0.0
+              —
+
+            example/é@3.0.0
+              —
+
+            Run `moon add <module>@<version>` to add a dependency.
+        "#]]
+        .assert_eq(&output);
     }
 
     #[test]
@@ -408,11 +624,17 @@ mod tests {
                     RegistrySearchResult {
                         name: "example/valid".to_owned(),
                         version: Version::new(1, 0, 0),
+                        downloads: None,
+                        matched_package_count: None,
+                        matched_packages: Vec::new(),
                         description: None,
                     },
                     RegistrySearchResult {
                         name: name.to_owned(),
                         version: Version::new(2, 0, 0),
+                        downloads: None,
+                        matched_package_count: None,
+                        matched_packages: Vec::new(),
                         description: None,
                     },
                 ],

@@ -90,7 +90,7 @@ enum MoonCommand {
 }
 ```
 
-`check`, `search`, and `tree` currently select JSON through command-local
+`check`, `search`, `view`, and `tree` currently select JSON through command-local
 `--json` flags. The distinction is an output contract, not a JSON-specific
 command variant. Invocation selection attaches that command's run and
 bootstrap-error hooks once. Each hook returns an opaque outcome that owns its

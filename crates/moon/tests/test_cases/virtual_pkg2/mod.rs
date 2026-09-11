@@ -7,9 +7,8 @@ fn normalized_path(value: &serde_json::Value) -> &str {
 #[test]
 fn implement_third_party1() {
     let dir = TestDir::new("virtual_pkg2.in/p");
-    assert_dry_run_graph(
-        &dir,
-        ["check", "--target", "wasm-gc", ".", "--dry-run"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["check", "--target", "wasm-gc", ".", "--dry-run"]),
         expect_file!["./check_graph.jsonl"],
     );
 
@@ -77,9 +76,8 @@ fn implement_third_party1() {
 #[test]
 fn implement_third_party2() {
     let dir = TestDir::new("virtual_pkg2.in/p");
-    assert_dry_run_graph(
-        &dir,
-        ["build", "--target", "wasm-gc", "--dry-run"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run"]),
         expect_file!["./build_graph.jsonl"],
     );
 
