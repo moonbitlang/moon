@@ -54,7 +54,8 @@ fn commands(dir: &TestDir, args: &[&str], value: Option<&str>) -> Vec<Vec<String
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .filter_map(|node| node["command"].as_str().map(str::to_owned))
-        .map(|command| moonutil::shlex::split_native(&command))
+        // Build graph dumps use Unix quoting on every platform.
+        .map(|command| shlex::split(&command).expect("invalid build graph command"))
         .collect()
 }
 
