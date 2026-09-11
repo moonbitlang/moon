@@ -1,9 +1,7 @@
 use expect_test::{expect, expect_file};
 
 use crate::{
-    TestDir,
-    build_graph::compare_graphs,
-    get_err_stderr, get_stdout, snap_dry_run_graph,
+    TestDir, build_graph, get_err_stderr, get_stdout, moon_cmd,
     util::{check, moon_bin},
 };
 
@@ -11,52 +9,31 @@ use crate::{
 fn test_blackbox_test_core_override() {
     let dir = TestDir::new("blackbox_test_core_override.in");
 
-    let graph = dir.join("out.jsonl");
-    let output = snap_dry_run_graph(
-        &dir,
-        [
+    // Blackbox compilation must omit coverage instrumentation and the self override.
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
             "--enable-coverage",
             "--dry-run",
             "--sort-input",
-        ],
-        &graph,
-    );
-    compare_graphs(
-        &graph,
+        ]),
         expect_file!["test_blackbox_test_core_override.jsonl.snap"],
-    );
-
-    let mut found = false;
-    for line in output.lines() {
-        // For the command compiling builtin's blackbox tests,
-        if line.contains("moonc build-package") && line.contains("builtin_blackbox_test") {
-            found = true;
-            // it should not have the -enable-coverage flag
-            assert!(
-                !line.contains("-enable-coverage"),
-                "Black box tests themselves should not contain coverage, since all they contain are tests of various kinds. {line}"
-            );
-            // and should not contain -coverage-package-override to itself
-            assert!(
-                !line.contains("-coverage-package-override=@self"),
-                "Unexpected -coverage-package-override=@self found in the command: {line}"
-            );
-        }
-    }
-    assert!(found, "builtin's blackbox tests not found in the output");
+    )
+    .stdout_eq(snapbox::str![[r#"
+...
+moonc build-package ./builtin/main_test.mbt ./_build/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -doctest-only ./builtin/main.mbt -o ./_build/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -pkg-type executable -i ./_build/wasm-gc/debug/test/builtin/builtin.mi:builtin -i ./_build/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path . -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
+...
+"#]]);
 }
 
 #[test]
 fn test_blackbox_success() {
     let dir = TestDir::new("blackbox_success_test.in");
 
-    let graph_1 = dir.join("test.jsonl");
-    let _output_1 = snap_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
@@ -69,11 +46,7 @@ fn test_blackbox_success() {
             "--nostd",
             "--sort-input",
             "--dry-run",
-        ],
-        &graph_1,
-    );
-    compare_graphs(
-        &graph_1,
+        ]),
         expect_file!["test_blackbox_success_test.jsonl.snap"],
     );
 
@@ -111,14 +84,8 @@ fn test_blackbox_success() {
         "#]],
     );
 
-    let graph_2 = dir.join("check.jsonl");
-    let _output_2 = snap_dry_run_graph(
-        &dir,
-        ["check", "--target", "wasm-gc", "--sort-input", "--dry-run"],
-        &graph_2,
-    );
-    compare_graphs(
-        &graph_2,
+    build_graph::assert(
+        moon_cmd(&dir).args(["check", "--target", "wasm-gc", "--sort-input", "--dry-run"]),
         expect_file!["test_blackbox_success_check.jsonl.snap"],
     );
 

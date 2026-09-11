@@ -149,6 +149,8 @@ cargo install --path ./crates/moon --debug --offline
     - `dry_run.rs`: renders commands and graph snapshots from Execution Plans
   - `tests/test_cases`: end-to-end tests organized into modules by purpose;
     `mod.rs` contains their shared imports and module registrations
+  - `tests/support/build_graph.rs`: graph capture and snapshot assertions; owns
+    temporary dumps, JSONL reading/writing, normalization, and comparison
 
 - `crates/moonbuild-rupes-recta`: the new build graph generation engine (now default)
   - `src/build_lower`: lowers Build Plans to executor-neutral Execution Plans
@@ -183,8 +185,6 @@ cargo install --path ./crates/moon --debug --offline
   - `src/build.rs`: for `moon version`
 
 - `crates/moonrun`: runtime for executing WASM MoonBit programs
-
-- `crates/moonbuild-debug`: graph snapshot data and JSONL reading/writing used by tests
 
 ## Before PR
 

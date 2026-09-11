@@ -1,8 +1,5 @@
-use crate::build_graph::compare_graphs;
-
 use super::*;
 use expect_test::expect_file;
-use moonbuild_debug::graph::ENV_VAR;
 
 #[test]
 fn dummy_core_writes_packages_json_for_selected_target() {
@@ -38,76 +35,40 @@ fn dummy_core_bundle_dry_run_matches_snapshots() {
     let test_dir = TestDir::new("dummy_core");
     let dir = dunce::canonicalize(test_dir.as_ref()).unwrap();
 
-    let test_coverage_dry_run_dump_file = test_dir.join("test_coverage.jsonl");
-    get_stdout_with_envs(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
             "--dry-run",
             "--enable-coverage",
             "--sort-input",
-        ],
-        [(ENV_VAR, &test_coverage_dry_run_dump_file)],
-    );
-    compare_graphs(
-        &test_coverage_dry_run_dump_file,
+        ]),
         expect_file!["./coverage.jsonl.snap"],
     );
 
-    let bundle_dry_run_dump_file = test_dir.join("bundle_dry_run.jsonl");
-    get_stdout_with_envs(
-        &dir,
-        ["bundle", "--target", "wasm-gc", "--dry-run", "--sort-input"],
-        [(ENV_VAR, &bundle_dry_run_dump_file)],
-    );
-    compare_graphs(
-        &bundle_dry_run_dump_file,
+    build_graph::assert(
+        moon_cmd(&dir).args(["bundle", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
         expect_file!["./bundle.jsonl.snap"],
     );
 
-    let wasm_bundle_dry_run_dump_file = test_dir.join("bundle_wasm_dry_run.jsonl");
-    get_stdout_with_envs(
-        &dir,
-        ["bundle", "--dry-run", "--target", "wasm", "--sort-input"],
-        [(ENV_VAR, &wasm_bundle_dry_run_dump_file)],
-    );
-    compare_graphs(
-        &wasm_bundle_dry_run_dump_file,
+    build_graph::assert(
+        moon_cmd(&dir).args(["bundle", "--dry-run", "--target", "wasm", "--sort-input"]),
         expect_file!["./bundle_wasm.jsonl.snap"],
     );
 
-    let wasm_gc_bundle_dry_run_dump_file = test_dir.join("bundle_wasm_gc_dry_run.jsonl");
-    get_stdout_with_envs(
-        &dir,
-        ["bundle", "--dry-run", "--target", "wasm-gc", "--sort-input"],
-        [(ENV_VAR, &wasm_gc_bundle_dry_run_dump_file)],
-    );
-    compare_graphs(
-        &wasm_gc_bundle_dry_run_dump_file,
+    build_graph::assert(
+        moon_cmd(&dir).args(["bundle", "--dry-run", "--target", "wasm-gc", "--sort-input"]),
         expect_file!["./bundle_wasm_gc.jsonl.snap"],
     );
 
-    let js_bundle_dry_run_dump_file = test_dir.join("bundle_js_dry_run.jsonl");
-    get_stdout_with_envs(
-        &dir,
-        ["bundle", "--dry-run", "--target", "js", "--sort-input"],
-        [(ENV_VAR, &js_bundle_dry_run_dump_file)],
-    );
-    compare_graphs(
-        &js_bundle_dry_run_dump_file,
+    build_graph::assert(
+        moon_cmd(&dir).args(["bundle", "--dry-run", "--target", "js", "--sort-input"]),
         expect_file!["./bundle_js.jsonl.snap"],
     );
 
-    let all_targets_bundle_dry_run_dump_file = test_dir.join("bundle_all_targets_dry_run.jsonl");
-    get_stdout_with_envs(
-        &dir,
-        ["bundle", "--target", "all", "--dry-run", "--sort-input"],
-        [(ENV_VAR, &all_targets_bundle_dry_run_dump_file)],
-    );
-    compare_graphs(
-        &all_targets_bundle_dry_run_dump_file,
+    build_graph::assert(
+        moon_cmd(&dir).args(["bundle", "--target", "all", "--dry-run", "--sort-input"]),
         expect_file!["./bundle_all_targets.jsonl.snap"],
     );
 }

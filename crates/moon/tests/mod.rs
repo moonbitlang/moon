@@ -19,7 +19,6 @@
 mod support;
 mod test_cases;
 
-use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
 
@@ -164,34 +163,6 @@ pub fn get_stdout_with_envs(
         OutputStream::Stdout,
     );
     replace_dir(&s, dir)
-}
-
-/// Snapshot the dry run graph output to a file, returning the regular stdout
-/// and outputting the graph to the specified file via an environment variable.
-///
-/// Note: You must pass a dry-run related command in `args`.
-#[track_caller]
-pub fn snap_dry_run_graph(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    to_file: &impl AsRef<std::path::Path>,
-) -> String {
-    get_stdout_with_envs(
-        dir,
-        args,
-        [(ENV_VAR, to_file.as_ref().to_string_lossy().into_owned())],
-    )
-}
-
-#[track_caller]
-pub(crate) fn assert_dry_run_graph(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    expected: impl build_graph::IExpect,
-) {
-    let graph = tempfile::NamedTempFile::new().expect("dry-run graph temp file should create");
-    snap_dry_run_graph(dir, args, &graph.path());
-    build_graph::compare_graphs(graph.path(), expected);
 }
 
 #[track_caller]

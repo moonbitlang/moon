@@ -3,9 +3,8 @@ use super::*;
 #[test]
 fn no_export_when_test() {
     let dir = TestDir::new("no_export_when_test.in");
-    assert_dry_run_graph(
-        &dir,
-        ["test", "--target", "wasm-gc", "--dry-run"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["test", "--target", "wasm-gc", "--dry-run"]),
         expect_file!["./build_graph.jsonl"],
     );
 

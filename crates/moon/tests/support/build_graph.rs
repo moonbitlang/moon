@@ -16,20 +16,64 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Utilities for testing with build graphs
+//! Capture and compare build graphs from Moon commands.
 
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
-    path::Path,
+    io::{BufRead, Write},
 };
 
 use colored::Colorize;
-use moonbuild_debug::graph::BuildGraphDump;
 use similar::DiffTag;
 
+const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
+
 const ALGORITHM: similar::Algorithm = similar::Algorithm::Patience;
+
+/// The JSONL graph snapshot emitted by Moon's dry-run renderer.
+#[derive(Debug)]
+struct BuildGraphDump {
+    nodes: Vec<BuildNode>,
+}
+
+impl BuildGraphDump {
+    /// Dump the build graph dump to the given output, in JSONL format
+    fn dump_to(&self, out: impl Write) -> anyhow::Result<()> {
+        let mut writer = std::io::BufWriter::new(out);
+        for node in &self.nodes {
+            serde_json::to_writer(&mut writer, node)?;
+            writeln!(&mut writer)?;
+        }
+        Ok(())
+    }
+
+    /// Read the build graph dump from the given input, in JSONL format.
+    ///
+    /// This will deplete the input.
+    fn read_from(input: impl std::io::Read) -> anyhow::Result<BuildGraphDump> {
+        let reader = std::io::BufReader::new(input);
+        let mut nodes = vec![];
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let node: BuildNode = serde_json::from_str(&line)?;
+            nodes.push(node);
+        }
+        Ok(BuildGraphDump { nodes })
+    }
+}
+
+/// The node in the build graph dump
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct BuildNode {
+    command: Option<String>,
+    inputs: Vec<String>,
+    outputs: Vec<String>,
+}
 
 /// Trait for various snapshot types, since we have both [`expect_test::Expect`]
 /// and [`expect_test::ExpectFile`] to handle.
@@ -74,25 +118,34 @@ fn expect_test_update() -> bool {
     std::env::var("UPDATE_EXPECT").is_ok_and(|x| x == "1")
 }
 
-/// Compare the graph in the path specified by `actual` with that expected by
-/// `expected`. Updates `expected` when the corresponding environment var
-/// (usually `UPDATE_EXPECT`) is set from the actual graph.
+/// Run a successful Moon command and compare its graph with the snapshot.
+/// The command must include the appropriate dry-run arguments. Graph capture
+/// and temporary-file cleanup are owned here; the returned assertion supports
+/// additional checks on the command's stdout and stderr.
 #[track_caller]
-pub(crate) fn compare_graphs(actual: &Path, expected: impl IExpect) {
-    compare_graphs_with_replacements(actual, expected, |_| {});
+pub(crate) fn assert(
+    command: snapbox::cmd::Command,
+    expected: impl IExpect,
+) -> snapbox::cmd::OutputAssert {
+    assert_with_replacements(command, expected, |_| {})
 }
 
-/// Compare two graphs, with a replacement function.
-///
-/// `transform` will be called on all files and commandlines to further
-/// normalize the output of the graph.
+/// Capture and compare a graph with test-specific normalization of its paths
+/// and commands. The expected snapshot is left unchanged unless UPDATE_EXPECT
+/// enables snapshot updates.
 #[track_caller]
-pub(crate) fn compare_graphs_with_replacements(
-    actual: &Path,
+pub(crate) fn assert_with_replacements(
+    command: snapbox::cmd::Command,
     expected: impl IExpect,
     transform: impl Fn(&mut String),
-) {
-    let actual_file = std::fs::File::open(actual).expect("Failed to open actual graph output file");
+) -> snapbox::cmd::OutputAssert {
+    // Keep the path alive through capture and comparison without holding a file
+    // open while the child process writes it, including on Windows.
+    let graph_dir = tempfile::tempdir().expect("Failed to create graph capture directory");
+    let graph_path = graph_dir.path().join("graph.jsonl");
+    let output = command.env(ENV_VAR, &graph_path).assert().success();
+    let actual_file =
+        std::fs::File::open(&graph_path).expect("Failed to open actual graph output file");
     let mut actual_graph =
         BuildGraphDump::read_from(actual_file).expect("Failed to read actual graph");
     transform_graph(&mut actual_graph, |s| {
@@ -110,7 +163,7 @@ pub(crate) fn compare_graphs_with_replacements(
             actual_graph.dump_to(&mut actual_graph_s).unwrap();
             let actual_graph_str = String::from_utf8(actual_graph_s).unwrap();
             expected.update(&actual_graph_str);
-            return;
+            return output;
         }
     };
 
@@ -131,6 +184,7 @@ pub(crate) fn compare_graphs_with_replacements(
     } else if differ {
         panic!("Graph snapshot differs:\n{out}");
     }
+    output
 }
 
 fn normalize_current_moon_binary(s: &mut String) {

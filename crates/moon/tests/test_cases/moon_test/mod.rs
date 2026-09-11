@@ -90,16 +90,15 @@ fn test_moon_test_hello_exec() {
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
             "--dry-run",
             "--debug",
             "--sort-input",
-        ],
+        ]),
         expect_file!["moon_test_hello_exec_graph.jsonl.snap"],
     );
 }
@@ -114,16 +113,15 @@ fn test_moon_test_hello_exec_fntest() {
         "#]],
     );
 
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
             "--target",
             "wasm-gc",
             "-v",
             "--dry-run",
             "--sort-input",
-        ],
+        ]),
         expect_file!["moon_test_hello_exec_fntest_graph.jsonl.snap"],
     );
 

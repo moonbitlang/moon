@@ -3,19 +3,16 @@ use super::*;
 #[test]
 fn test_specify_source_dir_001() {
     let dir = TestDir::new("specify_source_dir_001.in");
-    assert_dry_run_graph(
-        &dir,
-        ["check", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["check", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
         expect_file!["check_graph.jsonl.snap"],
     );
-    assert_dry_run_graph(
-        &dir,
-        ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
         expect_file!["build_graph.jsonl.snap"],
     );
-    assert_dry_run_graph(
-        &dir,
-        ["test", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["test", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
         expect_file!["test_graph.jsonl.snap"],
     );
     check(
