@@ -636,8 +636,8 @@ fn detect_cc_on_path() -> anyhow::Result<CC> {
     // MSVC discovery separately resolves the target architecture and command environment.
     let candidates = [
         ("cc", CCKind::SystemCC),
-        ("clang", CCKind::Clang),
         ("gcc", CCKind::Gcc),
+        ("clang", CCKind::Clang),
     ];
     let mut errors = Vec::new();
     for (name, kind) in candidates {

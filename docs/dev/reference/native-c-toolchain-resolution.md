@@ -147,7 +147,7 @@ For the regular native pipeline, compiler selection uses this precedence:
 1. `MOON_CC` / `MOON_AR`
 2. package-level override (`link.native.cc` or `link.native.stub_cc`)
 3. Windows only: MSVC discovery through `find-msvc-tools`
-4. PATH probing: `cc`, then `clang`, then `gcc`
+4. PATH probing: `cc`, then `gcc`, then `clang`
 
 `effective_native_toolchain()` applies environment and package overrides before automatic
 selection. `detected_default_native_toolchain()` tries Windows MSVC discovery before the
@@ -195,8 +195,8 @@ can use `cl.exe` outside a Developer Command Prompt. If MSVC discovery fails, or
 hosts, Moon falls back to PATH probing in this order:
 
 1. `cc`
-2. `clang`
-3. `gcc`
+2. `gcc`
+3. `clang`
 
 Moon does not fall back to a bundled compiler. If no system toolchain is
 available, planning fails with the tool-resolution error.
