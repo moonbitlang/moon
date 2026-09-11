@@ -321,6 +321,10 @@ fn parse_fn_type_text(s: &str, i: usize) -> Option<(String, usize)> {
     if is_async {
         j += 1;
     }
+    let is_nocancel = is_async && byte_at(s, j) == Some(b'N');
+    if is_nocancel {
+        j += 1;
+    }
     let is_raw = byte_at(s, j) == Some(b'X');
     if is_raw {
         j += 1;
@@ -342,7 +346,19 @@ fn parse_fn_type_text(s: &str, i: usize) -> Option<(String, usize)> {
     }
 
     let async_prefix = if is_async { "async " } else { "" };
-    let signature = format!("{async_prefix}({}) -> {ret}{raises}", params.join(", "));
+    let nocancel_suffix = if is_nocancel {
+        if raises.is_empty() {
+            " nocancel"
+        } else {
+            " + nocancel"
+        }
+    } else {
+        ""
+    };
+    let signature = format!(
+        "{async_prefix}({}) -> {ret}{raises}{nocancel_suffix}",
+        params.join(", ")
+    );
     if is_raw {
         Some((format!("FuncRef[{signature}]"), j))
     } else {
@@ -870,6 +886,14 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("_M0FP03fooGVXWiEsE"),
             "foo[FuncRef[async (Int) -> String]]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP03fooGVNWiEsQiE"),
+            "foo[async (Int) -> String raise Int + nocancel]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP03fooGVNXWiEsE"),
+            "foo[FuncRef[async (Int) -> String nocancel]]"
         );
     }
 
