@@ -17,6 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
+use moonbuild::execution::{BuildConfig, OutputStyle};
+use moonutil::features::FeatureGate;
 use moonutil::{
     build_options::RunMode,
     cond_expr::OptLevel as BuildProfile,
@@ -136,6 +138,22 @@ impl Default for BuildFlags {
 }
 
 impl BuildFlags {
+    pub(crate) fn execution_config(
+        &self,
+        unstable_features: &FeatureGate,
+        verbose: bool,
+    ) -> BuildConfig {
+        BuildConfig {
+            parallelism: self.jobs,
+            output_style: self.output_style(),
+            render_no_loc: self.render_no_loc,
+            diagnostic_limit: self.diagnostic_limit,
+            n2_explain: unstable_features.rr_n2_explain,
+            verbose,
+            ..Default::default()
+        }
+    }
+
     pub fn resolve_single_target_backend(&self) -> anyhow::Result<Option<TargetBackend>> {
         if self.target.is_empty() {
             return Ok(None);
@@ -151,24 +169,6 @@ impl BuildFlags {
         } else {
             bail!("`--target` only supports one target backend");
         }
-    }
-}
-
-/// The style to render diagnostics in.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OutputStyle {
-    /// The human-readable raw format directly from `moonc`
-    Raw,
-    /// Source code snippets with colors and formatting, rendered from JSON
-    Fancy,
-    /// Machine-readable output in JSON
-    Json,
-}
-
-impl OutputStyle {
-    /// Whether the output style requires `moonc` to emit JSON diagnostics.
-    pub fn needs_moonc_json(&self) -> bool {
-        matches!(self, OutputStyle::Fancy | OutputStyle::Json)
     }
 }
 

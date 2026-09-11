@@ -17,6 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
 use moonutil::{
     build_options::RunMode,
@@ -31,7 +33,7 @@ use moonutil::{
 use std::path::Path;
 use tracing::instrument;
 
-use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput};
+use crate::rr_build::{self, CalcUserIntentOutput};
 
 use super::BuildFlags;
 
@@ -169,8 +171,7 @@ fn run_bundle_rr_from_resolved(
     if cli.dry_run {
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-            let build_input =
-                rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
+            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
             rr_build::write_dry_run(writer, &build_input, source_dir)
         })?;
         Ok(0)
@@ -180,10 +181,11 @@ fn run_bundle_rr_from_resolved(
             rr_build::generate_all_pkgs_json(build_meta)?;
         }
         let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-        let build_input = rr_build::compose_build_inputs(build_inputs)?;
+        let build_input = BuildInput::compose(build_inputs)?;
 
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),
+        let result = moonbuild::execution::execute_build(
+            &cmd.build_flags
+                .execution_config(&cli.unstable_feature, cli.verbose),
             build_input,
             target_dir,
             user_log,
@@ -216,7 +218,7 @@ pub(crate) fn plan_bundle_rr_from_resolved(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let mut compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,

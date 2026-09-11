@@ -573,7 +573,7 @@ During lowering:
   that are not produced by another execution action.
 - Each execution action receives a process-local `ActionId`; each declared
   output is registered by its concrete path.
-- The private `rr_build::execution::n2` module in `moon` adapts the complete
+- The private `moonbuild::execution::n2` module adapts the complete
   Execution Plan to n2 build nodes. Execution callers select roots by output path.
 
 Each semantic action currently maps to exactly one execution action and n2
@@ -604,14 +604,15 @@ For current builds, the execution plan is adapted to an n2 graph and handed to [
 which executes it in the usual Ninja-style way:
 incrementally (skipping up-to-date nodes)
 and with maximal parallelism subject to dependencies and its job limits.
-`moon` does not add extra scheduling logic on top of `n2`.
+`moonbuild` does not add extra scheduling logic on top of `n2`.
 
-The private `rr_build::execution::n2` module owns n2 adaptation, the `.moon_db`
+The private `moonbuild::execution::n2` module owns n2 adaptation, the `.moon_db`
 location and database access, root lookup, scheduling, and progress capture.
-Its parent `execution` module owns `BuildConfig`, execution entry points, and
-diagnostic processing. `BuildConfig` is re-exported from `rr_build`, where
-`BuildInput` remains defined with only the Execution Plan and action-backend
-metadata. Shared artifact paths remain in Rupes Recta's `target_layout` module.
+Its parent `execution` module owns `BuildConfig`, `BuildInput`, execution entry
+points, and diagnostic processing. `BuildInput` keeps the Execution Plan and
+action-backend metadata together through composition. The CLI translates its
+flags into `BuildConfig`; execution does not depend on CLI parsing types.
+Shared artifact paths remain in Rupes Recta's `target_layout` module.
 Dry-run and planner snapshots traverse the Execution Plan directly, without
 constructing an n2 graph or copying command arguments into a second map.
 

@@ -339,7 +339,7 @@ The `ExecutionPlanBuilder` registers each realized semantic output, assigns
 paths. An `ExecutionAction` combines input observations, declared outputs, the
 concrete process command, diagnostics, and executor/cache policy. Consumers
 resolve a regular input path through the plan's declared-output index. The
-private `moon::rr_build::execution::n2` module alone registers n2 files and builds;
+private `moonbuild::execution::n2` module alone registers n2 files and builds;
 Rupes Recta lowering and the Execution Plan expose no n2 projection interface.
 
 Every lowered command retains structured argv. Response files change only its

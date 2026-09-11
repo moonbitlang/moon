@@ -1911,7 +1911,6 @@ dependencies = [
  "anstream",
  "anstyle",
  "anyhow",
- "ariadne",
  "blake3",
  "chrono",
  "clap",
@@ -1933,7 +1932,6 @@ dependencies = [
  "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",
- "n2",
  "notify",
  "petgraph",
  "rand 0.8.6",
@@ -1979,7 +1977,9 @@ dependencies = [
  "anstream",
  "anstyle",
  "anyhow",
+ "ariadne",
  "base64",
+ "blake3",
  "clap",
  "colored",
  "ctrlc",
@@ -1995,6 +1995,7 @@ dependencies = [
  "line-index",
  "moonbuild-rupes-recta",
  "moonutil",
+ "n2",
  "reqwest",
  "self-replace",
  "serde",
@@ -2005,6 +2006,7 @@ dependencies = [
  "text-size",
  "tokio",
  "toml",
+ "tracing",
 ]
 
 [[package]]

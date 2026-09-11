@@ -17,6 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
@@ -37,7 +39,7 @@ use crate::filter::{
     select_packages, select_supported_packages,
 };
 use crate::rr_build;
-use crate::rr_build::BuildConfig;
+
 use crate::rr_build::CalcUserIntentOutput;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
@@ -214,8 +216,7 @@ fn run_build_for_single_file_rr(
     let ok = if cli.dry_run {
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-            let build_input =
-                rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
+            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
             rr_build::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
@@ -224,14 +225,17 @@ fn run_build_for_single_file_rr(
         for (build_meta, _) in &planned_runs {
             rr_build::generate_all_pkgs_json(build_meta)?;
         }
-        let build_input = rr_build::compose_build_inputs(
+        let build_input = BuildInput::compose(
             planned_runs
                 .into_iter()
                 .map(|(_, build_input)| build_input)
                 .collect(),
         )?;
-        let config = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
-        let result = rr_build::execute_build(&config, build_input, target_dir, user_log)?;
+        let config = cmd
+            .build_flags
+            .execution_config(&cli.unstable_feature, cli.verbose);
+        let result =
+            moonbuild::execution::execute_build(&config, build_input, target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         result.successful()
     };
@@ -372,20 +376,21 @@ fn run_build_rr_from_resolved(
     let ok = if cli.dry_run {
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-            let build_input =
-                rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
+            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
             rr_build::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
         true
     } else {
-        let cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+        let cfg = cmd
+            .build_flags
+            .execution_config(&cli.unstable_feature, cli.verbose);
         for (build_meta, _) in &planned_runs {
             rr_build::generate_all_pkgs_json(build_meta)?;
         }
         let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-        let build_input = rr_build::compose_build_inputs(build_inputs)?;
-        let result = rr_build::execute_build(&cfg, build_input, target_dir, user_log)?;
+        let build_input = BuildInput::compose(build_inputs)?;
+        let result = moonbuild::execution::execute_build(&cfg, build_input, target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         result.successful()
     };
@@ -404,7 +409,7 @@ pub(crate) fn plan_build_rr_from_resolved(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
@@ -443,7 +448,7 @@ fn plan_build_rr_from_resolved_with_scope(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     scoped_packages: Vec<PackageId>,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
@@ -481,7 +486,7 @@ fn plan_build_rr_from_selection(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     selection: ResolvedBuildSelection,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
@@ -514,7 +519,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
-) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
+) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     if let Some(target_backend) = selected_target_backend {
         if has_explicit_build_selector(cmd) {
             let packages = resolve_selected_build_packages(

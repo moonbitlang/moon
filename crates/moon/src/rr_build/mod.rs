@@ -28,20 +28,20 @@
 //!   two parts: [``]
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     io::Write,
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::LazyLock,
+    path::Path,
 };
 
 use anyhow::Context;
-use indexmap::IndexMap;
+use moonbuild::{
+    BuildMeta,
+    execution::{BuildInput, resolve_parallelism},
+};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
-    execution_plan::{ActionId, ExecutionPlan},
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
@@ -65,17 +65,11 @@ use tracing::{Level, info, instrument};
 
 use crate::build_flags::BuildFlags;
 
-pub mod action_identity;
 mod dry_run;
-mod execution;
 mod prebuild;
 #[cfg(test)]
 pub(crate) use dry_run::write_build_graph;
 pub(crate) use dry_run::{format_dry_run_command, write_dry_run};
-pub(crate) use execution::{
-    BuildConfig, JsonBuildOutput, execute_build, execute_build_json, execute_build_partial,
-    execute_test_build,
-};
 
 /// Synchronize dependencies and return resolved project data.
 /// This step does not acquire the target-directory lock.
@@ -232,31 +226,6 @@ pub fn build_patch_directive_for_package(
         value_tracing,
         ..Default::default()
     })
-}
-
-/// Build metadata containing information needed for build context and results.
-/// The build graph is kept separate to allow execute_build to take ownership of it.
-pub struct BuildMeta {
-    /// The result of the resolve step, containing package metadata
-    pub resolve_output: ResolveOutput,
-
-    /// The list of artifacts that will be produced
-    pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,
-
-    /// The backend and backend-specific configuration used by this build.
-    pub backend: BackendConfig,
-
-    /// The main optimization level used in this compile process
-    pub opt_level: BuildProfile,
-
-    /// Physical artifact path resolver selected for this build.
-    pub artifact_paths: ArtifactPathResolver,
-}
-
-impl BuildMeta {
-    pub fn target_backend(&self) -> TargetBackend {
-        self.backend.target_backend()
-    }
 }
 
 /// Represents the result of the build process
@@ -522,12 +491,6 @@ pub(crate) fn plan_resolved_build_from_intent(
         .requested_artifact_paths()
         .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
         .collect();
-    let action_backends = compile_output
-        .execution_plan
-        .action_ids()
-        .map(|id| (id, Some(cx.backend.target_backend())))
-        .collect();
-    let execution_plan = Rc::new(compile_output.execution_plan);
     let build_meta = BuildMeta {
         resolve_output,
         artifacts,
@@ -536,10 +499,10 @@ pub(crate) fn plan_resolved_build_from_intent(
         artifact_paths: cx.artifact_paths.clone(),
     };
 
-    let input = BuildInput {
-        execution_plan,
-        action_backends,
-    };
+    let input = BuildInput::new(
+        compile_output.execution_plan,
+        Some(cx.backend.target_backend()),
+    );
 
     info!("Build planning completed successfully");
 
@@ -554,22 +517,15 @@ pub fn plan_fmt(
     project_manifest: &ProjectManifest,
     user_log: &UserLog,
 ) -> anyhow::Result<BuildInput> {
-    let execution_plan = Rc::new(moonbuild_rupes_recta::fmt::build_execution_plan_for_fmt(
+    let execution_plan = moonbuild_rupes_recta::fmt::build_execution_plan_for_fmt(
         resolved,
         cfg,
         target_dir,
         selected_packages,
         project_manifest,
         user_log,
-    )?);
-    let action_backends = execution_plan
-        .action_ids()
-        .map(|action| (action, None))
-        .collect();
-    Ok(BuildInput {
-        execution_plan,
-        action_backends,
-    })
+    )?;
+    Ok(BuildInput::new(execution_plan, None))
 }
 
 /// Generate the backend/profile/run-mode-scoped `packages.json` document.
@@ -674,8 +630,8 @@ fn collect_check_commands_by_output(
     build_input: &BuildInput,
 ) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
     let mut commands = BTreeMap::new();
-    for id in build_input.execution_plan.action_ids() {
-        let action = build_input.execution_plan.action(id);
+    for id in build_input.execution_plan().action_ids() {
+        let action = build_input.execution_plan().action(id);
         let Some(command_args) = check_command_args_without_executable(action.command().args())
         else {
             continue;
@@ -724,65 +680,6 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
         ))?;
     }
     Ok(())
-}
-
-/// Share the default observation between prebuild scripts and the executor so
-/// both see the same job limit throughout this Moon process.
-fn resolve_parallelism(jobs: Option<usize>) -> usize {
-    static DEFAULT_PARALLELISM: LazyLock<usize> =
-        LazyLock::new(|| std::thread::available_parallelism().map_or(1, usize::from));
-    jobs.unwrap_or_else(|| *DEFAULT_PARALLELISM)
-}
-
-/// A complete execution plan and the context needed to execute it.
-#[derive(Debug, Clone)]
-pub struct BuildInput {
-    /// Executor-neutral actions shared by execution and its projections.
-    execution_plan: Rc<ExecutionPlan>,
-
-    /// Target Backend for each action. Shared actions have no single backend.
-    action_backends: HashMap<ActionId, Option<TargetBackend>>,
-}
-
-impl BuildInput {
-    fn compose(inputs: Vec<Self>) -> anyhow::Result<Self> {
-        let mut inputs = inputs.into_iter();
-        let first = inputs
-            .next()
-            .context("cannot compose an empty build invocation")?;
-        let Some(second) = inputs.next() else {
-            return Ok(first);
-        };
-
-        let mut execution_plan = ExecutionPlan::default();
-        let mut action_backends = HashMap::new();
-
-        for input in std::iter::once(first)
-            .chain(std::iter::once(second))
-            .chain(inputs)
-        {
-            let existing_actions = execution_plan.action_ids().collect::<HashSet<_>>();
-            let remapped = execution_plan.merge(&input.execution_plan)?;
-            for (old, new) in input.execution_plan.action_ids().zip(remapped) {
-                if existing_actions.contains(&new) {
-                    if action_backends.get(&new) != input.action_backends.get(&old) {
-                        action_backends.insert(new, None);
-                    }
-                } else {
-                    action_backends.insert(new, input.action_backends.get(&old).copied().flatten());
-                }
-            }
-        }
-
-        Ok(Self {
-            execution_plan: Rc::new(execution_plan),
-            action_backends,
-        })
-    }
-}
-
-pub(crate) fn compose_build_inputs(inputs: Vec<BuildInput>) -> anyhow::Result<BuildInput> {
-    BuildInput::compose(inputs)
 }
 
 #[cfg(test)]

@@ -32,6 +32,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use moonbuild::BuildMeta;
 use moonbuild_rupes_recta::{
     ResolveConfig,
     build_plan::{ArtifactKey, InputDirective, PackagePrebuildPolicy},
@@ -47,7 +48,7 @@ use moonutil::{
 use crate::{
     cli::BuildFlags,
     filter::match_packages_by_name_rr,
-    rr_build::{self, BuildConfig, BuildMeta},
+    rr_build::{self},
 };
 
 #[derive(clap::Args, Debug)]
@@ -186,8 +187,8 @@ pub(crate) fn run_build_binary_dep(
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&build_meta)?;
 
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose),
+        let result = moonbuild::execution::execute_build(
+            &build_flags.execution_config(&cli.unstable_feature, cli.verbose),
             build_graph,
             target_dir,
             user_log,

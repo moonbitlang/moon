@@ -25,6 +25,8 @@ use std::{
 
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonutil::{
     cli_support::AutoSyncFlags,
@@ -41,7 +43,7 @@ use crate::{
         BuildSubcommand,
         process::{self, ProcessAction},
     },
-    rr_build::{self, BuildConfig},
+    rr_build::{self},
 };
 
 use super::{BuildFlags, UniversalFlags};
@@ -187,10 +189,12 @@ fn run_cram_test(
         return Ok(ProcessAction::Exit(0));
     }
 
-    let cfg = BuildConfig::from_flags(&build_cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let cfg = build_cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
-        let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+        let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {
             return Ok(ProcessAction::Exit(result.return_code_for_success()));
@@ -263,7 +267,7 @@ fn is_scrut_help_request(cram_args: &[String]) -> bool {
 }
 
 fn collect_executable_dirs(
-    planned_runs: &[(rr_build::BuildMeta, rr_build::BuildInput)],
+    planned_runs: &[(BuildMeta, BuildInput)],
     source_dir: &Path,
 ) -> Vec<PathBuf> {
     let mut dirs = Vec::new();

@@ -31,7 +31,7 @@ use tracing::instrument;
 use super::UniversalFlags;
 
 use crate::cli::BuildFlags;
-use crate::rr_build::{self, BuildConfig};
+use crate::rr_build::{self};
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
@@ -180,8 +180,8 @@ pub(crate) fn run_doc_rr(
     rr_build::generate_metadata(source_dir, &build_meta, &build_graph)?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
+    let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
     if !result.successful() {
