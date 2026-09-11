@@ -375,11 +375,13 @@ pub(crate) fn prepare_resolved_build(
         runtime_backtrace: target_backend.is_native()
             && (!strip || (action == RunMode::Run && opt_level == BuildProfile::Debug)),
     };
+    let collect_ref_cycle = std::env::var("MOON_COLLECT_REF_CYCLE").as_deref() == Ok("1");
     let backend = match target_backend {
         TargetBackend::Wasm => BackendConfig::Wasm {
             use_wat: build_flags.output_wat,
             wasi_link: cli.unstable_feature.wasi_link
                 && std::env::var("MOON_WASI_LINK").as_deref() != Ok("0"),
+            collect_ref_cycle,
         },
         TargetBackend::WasmGC => BackendConfig::WasmGc {
             use_wat: build_flags.output_wat,
@@ -394,6 +396,7 @@ pub(crate) fn prepare_resolved_build(
                     new_native_env.as_deref(),
                 ),
                 allocator: compiler_flags::NativeAllocator::from_env()?,
+                collect_ref_cycle,
                 os: std::env::consts::OS
                     .parse::<OperatingSystem>()
                     .expect("Unknown"),

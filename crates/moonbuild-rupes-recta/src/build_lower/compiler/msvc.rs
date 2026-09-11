@@ -39,6 +39,7 @@ pub(crate) fn compile_runtime_command(
     moon_include_path: &str,
     crt: MsvcCrtPolicy,
     native_allocator: NativeAllocator,
+    collect_ref_cycle: bool,
 ) -> Vec<String> {
     let mut command = vec![
         toolchain.cc_command_path(),
@@ -57,6 +58,9 @@ pub(crate) fn compile_runtime_command(
         "/DMOONBIT_ALLOCATOR={}",
         native_allocator.moonbit_allocator_macro(toolchain.cc(), false)
     ));
+    if collect_ref_cycle {
+        command.push("/DMOONBIT_TRIAL_DELETION=1".to_string());
+    }
     command.push(source.display().to_string());
     command
 }
@@ -112,31 +116,40 @@ mod tests {
 
     #[test]
     fn runtime_compile_command_uses_command_env_for_msvc_environment() {
-        let command = compile_runtime_command(
-            &fake_msvc_toolchain(),
-            Path::new("runtime.c"),
-            Path::new("runtime.obj"),
-            "moon/include",
-            MsvcCrtPolicy::StaticMt,
-            NativeAllocator::Default,
-        );
+        for collect_ref_cycle in [false, true] {
+            let command = compile_runtime_command(
+                &fake_msvc_toolchain(),
+                Path::new("runtime.c"),
+                Path::new("runtime.obj"),
+                "moon/include",
+                MsvcCrtPolicy::StaticMt,
+                NativeAllocator::Default,
+                collect_ref_cycle,
+            );
 
-        assert!(command.iter().any(|arg| arg == "/Imoon/include"));
-        assert!(
-            command
-                .iter()
-                .any(|arg| arg == WINDOWS_MSVC_C_STANDARD_FLAG)
-        );
-        assert!(
-            command
-                .iter()
-                .any(|arg| arg == MsvcCrtPolicy::StaticMt.compiler_flag())
-        );
-        assert!(
-            command
-                .iter()
-                .any(|arg| arg == "/DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
-        );
+            assert!(command.iter().any(|arg| arg == "/Imoon/include"));
+            assert!(
+                command
+                    .iter()
+                    .any(|arg| arg == WINDOWS_MSVC_C_STANDARD_FLAG)
+            );
+            assert!(
+                command
+                    .iter()
+                    .any(|arg| arg == MsvcCrtPolicy::StaticMt.compiler_flag())
+            );
+            assert!(
+                command
+                    .iter()
+                    .any(|arg| arg == "/DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
+            );
+            assert_eq!(
+                command
+                    .iter()
+                    .any(|arg| arg == "/DMOONBIT_TRIAL_DELETION=1"),
+                collect_ref_cycle
+            );
+        }
     }
 
     #[test]
