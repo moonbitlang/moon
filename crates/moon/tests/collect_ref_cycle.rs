@@ -52,7 +52,8 @@ fn commands(dir: &TestDir, args: &[&str], value: Option<&str>) -> Vec<Vec<String
         .nodes
         .into_iter()
         .filter_map(|node| node.command)
-        .map(|command| moonutil::shlex::split_native(&command))
+        // Build graph dumps use Unix quoting on every platform.
+        .map(|command| shlex::split(&command).expect("invalid build graph command"))
         .collect()
 }
 
