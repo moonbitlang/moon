@@ -55,6 +55,7 @@ fn deprecate_delegates_without_a_project() {
         serde_json::from_slice(&std::fs::read(subdir.join("handoff.json")).unwrap()).unwrap();
     assert_eq!(flags["dry_run"], false);
     assert_eq!(flags["quiet"], true);
+    assert_eq!(flags["source_tgt_dir"]["cwd"], serde_json::Value::Null);
     assert_eq!(
         command,
         serde_json::json!({"Deprecate": {

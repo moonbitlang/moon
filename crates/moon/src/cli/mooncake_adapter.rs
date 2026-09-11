@@ -113,7 +113,7 @@ pub(crate) fn package_cli(
 }
 
 pub(crate) fn deprecate_cli(
-    cli: UniversalFlags,
+    mut cli: UniversalFlags,
     cmd: DeprecateSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -131,6 +131,8 @@ pub(crate) fn deprecate_cli(
             .write_result(|writer| render_deprecation_preview(writer, &cmd, &manifest.versions))?;
         Ok(0)
     } else {
+        // Moon already applied -C; the backend inherits the effective directory.
+        cli.source_tgt_dir.cwd = None;
         execute_cli(
             cli,
             MooncakeSubcommands::Deprecate(cmd),
