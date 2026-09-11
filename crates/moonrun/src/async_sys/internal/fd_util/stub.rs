@@ -19,7 +19,7 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::{HostHandle, ResourceTable};
 use crate::async_sys::ported_fns;
-use crate::resource::FileRef;
+use crate::resource::{FileRef, Resource};
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -444,8 +444,14 @@ pub(crate) fn pipe_resources(
     #[cfg(unix)]
     {
         let fds = pipe(read_end_is_async, write_end_is_async)?;
-        let read = resources.insert_file(fds[0])?;
-        let write = resources.insert_file(fds[1])?;
+        let read = Resource::new(fds[0]);
+        let write = if write_end_is_async {
+            Resource::async_pipe_writer(fds[1])
+        } else {
+            Resource::new(fds[1])
+        };
+        let read = resources.insert_resource(read)?;
+        let write = resources.insert_resource(write)?;
         Ok([read, write])
     }
 
@@ -476,8 +482,14 @@ pub(crate) fn pipe_resources(
             return Err(last_native_error());
         }
 
-        let read = resources.insert_file(read)?;
-        let write = resources.insert_file(write)?;
+        let read = Resource::new(read);
+        let write = if write_end_is_async {
+            Resource::async_pipe_writer(write)
+        } else {
+            Resource::new(write)
+        };
+        let read = resources.insert_resource(read)?;
+        let write = resources.insert_resource(write)?;
         Ok([read, write])
     }
 }

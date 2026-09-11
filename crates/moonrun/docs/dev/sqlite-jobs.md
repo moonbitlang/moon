@@ -11,9 +11,10 @@ mechanism, while SQLite owns operation semantics and result lifetimes.
 
 The Async Host owns Job Handles, scheduling, Workers, Completions, and Job
 destruction. The SQLite Host owns SQLite inputs, captured results, and lifetime
-leases. There are no SQLite executor Handles, dedicated threads, or per-job
-notification pipes. The guest uses a FIFO async Mutex per connection to order
-its operations; independent connections and other async domains share the pool.
+leases. There are no SQLite executor Handles or SQLite-specific host threads.
+The guest uses a FIFO async Mutex per connection to order its operations. All
+domains use the same host Worker machinery; guest libraries can supply their
+own completion pipe without accessing async's private scheduler.
 
 Job creation copies filenames and UTF-16 SQL out of Guest Memory. A prepare,
 step, or finalizer Job pins its Database until destruction, including when a
@@ -56,8 +57,9 @@ An ordinary finalizer constructor validates its Database and Statement before
 consuming the Statement Handle. Discard consumes only a completed Job's owned
 result. Discard returns the Runtime's null Handle when no unclaimed resource
 remains. There is no public cleanup reservation or later statement binding.
-Construction and pool insertion need no fallible OS-resource allocation;
-allocator exhaustion retains the existing Rust allocation-failure behavior.
+Job construction and submission to an existing Worker need no fallible
+OS-resource allocation; allocator exhaustion retains the existing Rust
+allocation-failure behavior.
 
 Cancellation keeps the existing finish-then-cancel contract. The wrapper shields
 the wait, checks cancellation outside that shield, and shields required discard
@@ -105,23 +107,68 @@ backing String. Diagnostics use UTF-16 length-and-copy imports and are empty
 for successful Jobs. Invalid Handles, sequencing, and memory arguments trap;
 output buffers are validated before result copying.
 
+## Worker completion pipes
+
+Libraries can await host Jobs without accessing async's private scheduler:
+
+```text
+// Imports under moonbitlang/async; i64 values are opaque Runtime Handles.
+spawn_worker_with_pipe(completion_id: i32, job: i64, writer: i64) -> i64
+wake_worker(worker: i64, completion_id: i32, job: i64) -> void  // unchanged
+```
+
+The writer must be an async write end from `fd_util/pipe`, as returned by
+public `@pipe.pipe()`. Validation happens before consuming the Job. The Worker
+retains the writer for its lifetime, so the guest can close its writer Handle
+after spawning. All subsequent Jobs use the same pipe. This path does not
+require `init_thread_pool`; ordinary `spawn_worker` keeps its default notifier.
+
+After publishing each Job result and marking itself Waiting, the Worker writes
+its completion ID as four little-endian bytes. Unlike the default Unix notifier,
+whose pipe carries only wake bytes for a host completion queue, this pipe carries
+the IDs themselves. The reader accumulates a full record and routes the ID to
+its awaiting coroutine. The guest reads `job_get_err` / `job_get_ret` before
+operation-specific results, following the existing Job protocol. Those common
+status getters and SQLite's existing Job-access helpers collect completed
+results without requiring the private `fetch_completion` path.
+
+The reader must keep draining while Workers are active. Freeing a Worker or
+tearing down the Runtime interrupts notification waits even if the pipe is
+full, then releases the retained writer. EOF is not a successful completion.
+As with the default notifier, a closed reader does not retire the Worker or
+change Job ownership; the guest still releases both. On Windows private
+writes use overlapped I/O without posting their own packets to the guest IOCP.
+
+These records report finished Jobs only. `cancel_worker_with_retry` is reserved
+for async's default completion source and is rejected for Workers with supplied
+pipes, since their IDs cannot safely enter async's private cancellation queue.
+External callers can use legacy `cancel_worker` and arrange its requested
+retries themselves. SQLite keeps its shielded finish-then-cancel contract and
+does not interrupt the Worker.
+
+The Runtime continues to own Worker execution and teardown. Choosing a pipe
+adds no scheduler or thread limit and does not promise an OS-thread identity.
+
 ## Guest integration and coverage
 
 The upstream SQLite Wasm wrapper must enable its shared async code, represent
 its executor as an async Mutex, and lower its operation-specific Job wrappers
-to these imports. It also needs a companion `@async.perform_host_job` entry
-point that forwards a host Job Handle to the existing `perform_job_in_worker`.
+to these imports. It can create a Worker with a public async pipe and await
+completion records through `@io.Reader`, without a public `perform_host_job`.
 The caller retains ownership and frees the Job after taking or discarding owned
 results, or copying scalar results.
-The currently pinned async version does not expose that entry point.
 
-`tests/test_cases/test_sqlite_async.in/support` contains the companion async
-entry point and public re-export. The integration harness applies them to a
-disposable copy of the pinned async source. The MoonBit fixture uses async tests
+The integration harness uses a disposable copy of the pinned async source
+without modifying its scheduler or exports. The MoonBit fixture uses async tests
 for SQL views, captured diagnostics, discard, cancellation, event-loop progress,
-and SQLite ordering alongside filesystem work. The test runner owns the event
-loop. The harness runs all cases through `moon test` with its moonrun override
-and leak checking enabled.
+and SQLite ordering alongside filesystem work. Its convenience helper creates
+a Worker per operation; a separate case reuses a Worker after closing the guest
+writer Handle, including after Windows IOCP registration. The test runner owns
+the event loop. The harness runs all cases through `moon test` with its moonrun override
+and leak checking enabled. The engine ABI regression additionally checks EOF
+after Worker release and result access without an async event loop. Host tests
+cover invalid writer admission, closed readers, full-pipe teardown, and legacy
+cancellation without leaking retry IDs into the default completion source.
 
 `src/sqlite/jobs/tests.rs` covers worker reuse, pinned lifetimes, detached and
 unclaimed result cleanup, single-transfer results, discard without publishing

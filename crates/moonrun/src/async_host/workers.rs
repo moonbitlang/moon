@@ -30,7 +30,7 @@ use slotmap::SecondaryMap;
 use super::{AsyncHostError, AsyncHostResult, HandleKey};
 use crate::async_sys::internal::event_loop::thread_pool::{
     self, CancellationOutcome, HostWorkerHandle, HostWorkerJob, HostWorkerJobResult,
-    WorkerCompletionId,
+    WorkerCompletionDestination,
 };
 
 pub(super) struct InstanceWorkers {
@@ -62,7 +62,7 @@ impl InstanceWorkers {
         worker: HandleKey,
         init_job: HostWorkerJob,
         run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        notify_completion: impl FnMut(WorkerCompletionId) + Send + 'static,
+        completion: WorkerCompletionDestination,
     ) -> AsyncHostResult<()> {
         let mut workers = self.workers.borrow_mut();
         if workers.contains_key(worker) {
@@ -75,7 +75,7 @@ impl InstanceWorkers {
             move |result| {
                 let _ = completed.send(result);
             },
-            notify_completion,
+            completion,
         );
         workers.insert(worker, handle);
         Ok(())
@@ -188,7 +188,7 @@ pub(super) struct StoppedWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::make_sleep_job;
+    use crate::async_sys::internal::event_loop::thread_pool::{WorkerCompletionId, make_sleep_job};
     use slotmap::KeyData;
     use std::time::Duration;
 
@@ -236,7 +236,9 @@ mod tests {
                     worker_may_proceed.recv().unwrap();
                     thread_pool::run_host_job(&mut job.job);
                 },
-                move |completion_id| completed.send(completion_id).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                    completed.send(completion_id).unwrap()
+                })),
             )
             .unwrap();
 
@@ -274,7 +276,9 @@ mod tests {
                 worker,
                 job(11, 101),
                 |_| {},
-                move |completion| first_sender.send(completion).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion| {
+                    first_sender.send(completion).unwrap()
+                })),
             )
             .unwrap();
         second
@@ -282,7 +286,9 @@ mod tests {
                 worker,
                 job(22, 202),
                 |_| {},
-                move |completion| second_sender.send(completion).unwrap(),
+                WorkerCompletionDestination::Default(Box::new(move |completion| {
+                    second_sender.send(completion).unwrap()
+                })),
             )
             .unwrap();
 

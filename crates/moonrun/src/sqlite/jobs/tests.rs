@@ -41,8 +41,11 @@ fn shared_jobs_transfer_results_once_and_finalizers_consume_statements() {
         ))
         .unwrap();
     pool.run_job(job).unwrap();
-    assert_eq!(pool.job_get_ret(job), Ok(i64::from(ffi::SQLITE_OK)));
-    assert_eq!(pool.job_get_err(job), Ok(0));
+    assert_eq!(
+        pool.with_job(job, |job| job.ret()),
+        Ok(i64::from(ffi::SQLITE_OK))
+    );
+    assert_eq!(pool.with_job(job, |job| job.err()), Ok(0));
     let database = take_handle(&runtime, job).unwrap();
     assert_eq!(
         take_handle(&runtime, job),
@@ -75,7 +78,10 @@ fn shared_jobs_transfer_results_once_and_finalizers_consume_statements() {
         .unwrap();
     assert_eq!(host.step(statement), Err(SqliteHostError::InvalidHandle));
     pool.run_job(finalizer).unwrap();
-    assert_eq!(pool.job_get_ret(finalizer), Ok(i64::from(ffi::SQLITE_OK)));
+    assert_eq!(
+        pool.with_job(finalizer, |job| job.ret()),
+        Ok(i64::from(ffi::SQLITE_OK))
+    );
     pool.free_job(finalizer).unwrap();
     host.close(database).unwrap();
     assert!(host.leak_summary().is_none());
@@ -100,7 +106,10 @@ fn detached_submitted_jobs_keep_their_sqlite_inputs_alive() {
         .unwrap();
     let worker = pool.spawn_worker(42, job).unwrap();
     pool.free_job(job).unwrap();
-    assert_eq!(pool.job_get_ret(job), Err(AsyncHostError::Badf));
+    assert_eq!(
+        pool.with_job(job, |job| job.ret()),
+        Err(AsyncHostError::Badf)
+    );
     assert_eq!(host.close(database), Err(SqliteHostError::InvalidInput));
     assert_eq!(host.finalize(statement), Err(SqliteHostError::InvalidInput));
     assert_eq!(host.reset(statement), Err(SqliteHostError::InvalidInput));
@@ -201,7 +210,10 @@ fn detached_preparing_jobs_destroy_unclaimed_results_before_releasing_the_databa
         .unwrap();
     let worker = pool.spawn_worker(1, job).unwrap();
     pool.free_job(job).unwrap();
-    assert_eq!(pool.job_get_ret(job), Err(AsyncHostError::Badf));
+    assert_eq!(
+        pool.with_job(job, |job| job.ret()),
+        Err(AsyncHostError::Badf)
+    );
     assert_eq!(host.close(database), Err(SqliteHostError::InvalidInput));
     let replacement = pool
         .insert_job(crate::async_sys::internal::event_loop::thread_pool::make_sleep_job(0))
@@ -209,7 +221,10 @@ fn detached_preparing_jobs_destroy_unclaimed_results_before_releasing_the_databa
     drop(guard);
     assert_eq!(pool.poll_wait(poll, 10_000), Ok(1));
     pool.free_worker(worker).unwrap();
-    assert_eq!(pool.job_get_ret(job), Err(AsyncHostError::Badf));
+    assert_eq!(
+        pool.with_job(job, |job| job.ret()),
+        Err(AsyncHostError::Badf)
+    );
     pool.run_job(replacement).unwrap();
     pool.free_job(replacement).unwrap();
     // SQLITE_BUSY here would reveal an unclaimed native Statement leak.
@@ -262,7 +277,7 @@ fn idle_async_workers_can_run_sqlite_and_existing_jobs() {
         .unwrap();
     let worker = pool.spawn_worker(1, sleep).unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while pool.job_get_ret(sleep) != Ok(0) {
+    while pool.with_job(sleep, |job| job.ret()) != Ok(0) {
         assert!(std::time::Instant::now() < deadline);
         pool.poll_wait(poll, 10).unwrap();
     }
@@ -311,8 +326,11 @@ fn captured_diagnostics_survive_other_operations_on_the_connection() {
         )
         .unwrap();
     pool.run_job(failed).unwrap();
-    assert_eq!(pool.job_get_ret(failed), Ok(i64::from(ffi::SQLITE_ERROR)));
-    assert_eq!(pool.job_get_err(failed), Ok(0));
+    assert_eq!(
+        pool.with_job(failed, |job| job.ret()),
+        Ok(i64::from(ffi::SQLITE_ERROR))
+    );
+    assert_eq!(pool.with_job(failed, |job| job.err()), Ok(0));
     let statement = host
         .prepare16_v2(database, &utf16le("SELECT 42"))
         .unwrap()
@@ -456,7 +474,10 @@ fn unclaimed_open_results_are_discarded_without_publishing_database_handles() {
     pool.free_job(open).unwrap();
     let discard = pool.insert_job(discard).unwrap();
     pool.run_job(discard).unwrap();
-    assert_eq!(pool.job_get_ret(discard), Ok(i64::from(ffi::SQLITE_OK)));
+    assert_eq!(
+        pool.with_job(discard, |job| job.ret()),
+        Ok(i64::from(ffi::SQLITE_OK))
+    );
     pool.free_job(discard).unwrap();
     assert!(host.leak_summary().is_none());
 }

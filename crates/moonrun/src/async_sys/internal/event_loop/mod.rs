@@ -18,6 +18,8 @@
 
 #[cfg(unix)]
 mod completion;
+mod completion_pipe;
+pub(crate) use completion_pipe::PipeCompletionNotifier;
 pub(crate) mod io;
 pub(crate) mod poll;
 pub(crate) mod thread_pool;

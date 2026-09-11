@@ -19,15 +19,14 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
-#[cfg(windows)]
-use crate::async_host::AsyncHostError;
-use crate::async_host::{AsyncHostResult, HandleKey};
+use crate::async_host::{AsyncHostError, AsyncHostResult, HandleKey};
 use crate::async_sys::ported_fns;
 #[cfg(windows)]
 use crate::resource::ResourceRef;
 #[cfg(unix)]
 use std::os::unix::thread::JoinHandleExt;
 
+use super::super::PipeCompletionNotifier;
 #[cfg(unix)]
 use super::JobCancellation;
 use super::cancellation::WorkerCancellation;
@@ -109,8 +108,17 @@ struct HostWorkerState {
     terminating: bool,
 }
 
-#[derive(Debug)]
+// A Worker chooses exactly one completion destination at spawn and retains it
+// for its lifetime. Cancellation checks the same destination used for delivery.
+pub(crate) enum WorkerCompletionDestination {
+    // Async's Completion Source also supports cancellation retry notifications.
+    Default(Box<dyn Fn(WorkerCompletionId) + Send + Sync>),
+    // A supplied pipe carries only finished Job IDs.
+    Pipe(PipeCompletionNotifier),
+}
+
 struct HostWorkerShared {
+    completion: WorkerCompletionDestination,
     cancellation: WorkerCancellation,
     state: Mutex<HostWorkerState>,
     wakeup: Condvar,
@@ -159,7 +167,7 @@ impl HostWorkerHandle {
         init_job: HostWorkerJob,
         mut run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         mut complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
-        mut notify_completion: impl FnMut(WorkerCompletionId) + Send + 'static,
+        completion: WorkerCompletionDestination,
     ) -> Self {
         #[cfg(unix)]
         init_worker_signal_handler();
@@ -167,6 +175,7 @@ impl HostWorkerHandle {
         let init_cancel = init_job.job.cancellation_override();
 
         let shared = Arc::new(HostWorkerShared {
+            completion,
             cancellation: WorkerCancellation::new(),
             state: Mutex::new(HostWorkerState {
                 job: Some(init_job),
@@ -249,7 +258,16 @@ impl HostWorkerHandle {
                     }
                     state.terminating
                 };
-                notify_completion(completion_id);
+                match &worker_shared.completion {
+                    WorkerCompletionDestination::Default(notify) => notify(completion_id),
+                    WorkerCompletionDestination::Pipe(pipe) => {
+                        // Delivery is outside the Job's cancellation scope;
+                        // only Worker teardown interrupts a full pipe.
+                        let _ = pipe.notify(completion_id.as_i32(), &|| {
+                            worker_shared.state.lock().unwrap().terminating
+                        });
+                    }
+                }
                 if terminating {
                     break;
                 }
@@ -336,6 +354,11 @@ impl HostWorkerHandle {
         &self,
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<CancellationOutcome> {
+        // Retry IDs belong to async's default completion source. A supplied
+        // pipe carries finished Jobs only and cannot route those retries.
+        if matches!(self.shared.completion, WorkerCompletionDestination::Pipe(_)) {
+            return Err(AsyncHostError::Inval);
+        }
         if self.shared.cancellation.is_waiting() {
             return Ok(CancellationOutcome::JobFinished);
         }
@@ -418,9 +441,9 @@ ported_fns! {
         init_job: HostWorkerJob,
         run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
-        notify_completion: impl FnMut(WorkerCompletionId) + Send + 'static,
+        completion: WorkerCompletionDestination,
     ) -> HostWorkerHandle {
-        HostWorkerHandle::spawn(init_job, run_job, complete_job, notify_completion)
+        HostWorkerHandle::spawn(init_job, run_job, complete_job, completion)
     }
 
     #[ported(
@@ -478,7 +501,7 @@ mod tests {
     fn spawn_worker(
         job: HostWorkerJob,
         run: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        mut complete: impl FnMut(HostWorkerJobResult) + Send + 'static,
+        complete: impl Fn(HostWorkerJobResult) + Send + Sync + 'static,
     ) -> HostWorkerHandle {
         // Existing lifecycle tests observe completed jobs after notification.
         let pending = Arc::new(Mutex::new(None));
@@ -487,7 +510,9 @@ mod tests {
             job,
             run,
             move |job| *published.lock().unwrap() = Some(job),
-            move |_| complete(pending.lock().unwrap().take().unwrap()),
+            WorkerCompletionDestination::Default(Box::new(move |_| {
+                complete(pending.lock().unwrap().take().unwrap())
+            })),
         )
     }
 
@@ -565,7 +590,9 @@ mod tests {
                 job.job.set_ret(73);
             },
             move |job| result_tx.send(job.job.ret()).unwrap(),
-            move |id| completion.notify(id.as_i32()).unwrap(),
+            WorkerCompletionDestination::Default(Box::new(move |id| {
+                completion.notify(id.as_i32()).unwrap()
+            })),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -637,7 +664,9 @@ mod tests {
                 });
             },
             move |job| result_tx.send(job.job.ret()).unwrap(),
-            move |id| completion.notify(id.as_i32()).unwrap(),
+            WorkerCompletionDestination::Default(Box::new(move |id| {
+                completion.notify(id.as_i32()).unwrap()
+            })),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -728,7 +757,9 @@ mod tests {
                 finish_rx.recv().unwrap();
             },
             |_| {},
-            move |id| completion.notify(id.as_i32()).unwrap(),
+            WorkerCompletionDestination::Default(Box::new(move |id| {
+                completion.notify(id.as_i32()).unwrap()
+            })),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -781,7 +812,9 @@ mod tests {
                 finish_rx.recv().unwrap();
             },
             |_| {},
-            move |id| completion.notify(id.as_i32()).unwrap(),
+            WorkerCompletionDestination::Default(Box::new(move |id| {
+                completion.notify(id.as_i32()).unwrap()
+            })),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
@@ -1041,6 +1074,7 @@ mod tests {
         assert!(queued_job.cancel.is_some());
         let worker = HostWorkerHandle {
             shared: Arc::new(HostWorkerShared {
+                completion: WorkerCompletionDestination::Default(Box::new(|_| {})),
                 cancellation: WorkerCancellation::new(),
                 state: Mutex::new(HostWorkerState {
                     job: Some(queued_job),

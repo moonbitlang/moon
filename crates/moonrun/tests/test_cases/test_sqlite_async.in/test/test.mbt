@@ -19,12 +19,12 @@
 ///|
 async test "discard an unaccepted open without publishing a database handle" {
   let unaccepted = make_open_job(b":memory:", 8, 6)
-  assert_eq(@async.perform_host_job(unaccepted, context="unaccepted open"), 0)
+  assert_eq(perform_host_job(unaccepted, context="unaccepted open"), 0)
   let discard = make_discard_job(unaccepted)
   assert_true(discard != null_handle())
   assert_eq(make_discard_job(unaccepted), null_handle())
   free_job(unaccepted)
-  assert_eq(@async.perform_host_job(discard, context="discard open"), 0)
+  assert_eq(perform_host_job(discard, context="discard open"), 0)
   free_job(discard)
 }
 
