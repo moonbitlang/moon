@@ -39,12 +39,12 @@ pub(super) fn free_job(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHo
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn job_get_ret(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
-    context.host.job_get_ret(job).map(|value| value as i32)
+    context.host.with_job(job, thread_pool::job_get_ret).map(|value| value as i32)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn job_get_err(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
-    context.host.job_get_err(job)
+    context.host.with_job(job, thread_pool::job_get_err)
 }
 
 pub(super) fn run_job(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<()> {
@@ -66,6 +66,15 @@ pub(super) fn spawn_worker(
     job: u64,
 ) -> AsyncHostResult<u64> {
     context.host.spawn_worker(completion_id, job)
+}
+
+pub(super) fn spawn_worker_with_pipe(
+    context: &mut ImportContext<'_, '_>,
+    completion_id: i32,
+    job: u64,
+    writer: u64,
+) -> AsyncHostResult<u64> {
+    context.host.spawn_worker_with_pipe(completion_id, job, writer)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]

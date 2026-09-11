@@ -84,7 +84,7 @@ chrono.workspace = true
 [dev-dependencies]
 escargot.workspace = true
 moon-test-util.workspace = true
-snapbox.workspace = true
+snapbox = { workspace = true, features = ["cmd"] }
 tokio = { workspace = true, features = ["io-util", "net", "time"] }
 wat.workspace = true
 

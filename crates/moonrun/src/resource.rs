@@ -116,6 +116,9 @@ enum ResourcePayload {
     Invalid,
     File {
         raw: OwnedRawFile,
+        // Only fd_util/pipe's async write end can be used for interruptible
+        // Worker notifications (O_NONBLOCK on Unix, OVERLAPPED on Windows).
+        async_pipe_writer: bool,
         // Best-effort pathname provenance for current filesystem authorization.
         // This is not a stable identity for the opened Resource.
         canonical_path: Option<PathBuf>,
@@ -139,6 +142,7 @@ impl Resource {
         }
         Self::from_payload(ResourcePayload::File {
             raw: owned_raw_file(raw),
+            async_pipe_writer: false,
             canonical_path: None,
         })
     }
@@ -152,8 +156,27 @@ impl Resource {
         }
         Self::from_payload(ResourcePayload::File {
             raw: owned_raw_file(raw),
+            async_pipe_writer: false,
             canonical_path,
         })
+    }
+
+    pub(crate) fn async_pipe_writer(raw: fd_util::stub::RawFd) -> Self {
+        Self::from_payload(ResourcePayload::File {
+            raw: owned_raw_file(raw),
+            async_pipe_writer: true,
+            canonical_path: None,
+        })
+    }
+
+    pub(crate) fn is_async_pipe_writer(&self) -> bool {
+        matches!(
+            self.payload,
+            ResourcePayload::File {
+                async_pipe_writer: true,
+                ..
+            }
+        )
     }
 
     pub(crate) fn stdio_file(raw: fd_util::stub::RawFd) -> Self {

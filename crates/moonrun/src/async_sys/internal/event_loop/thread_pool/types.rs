@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::fd_util;
 #[cfg(unix)]
 use crate::async_sys::signal::SigwaitJob;
 use crate::filesystem::Job as FilesystemJob;
@@ -221,7 +220,10 @@ pub(crate) enum JobPayload {
 }
 
 pub(crate) trait ResourceTable {
-    fn insert_file(&mut self, file: fd_util::stub::RawFd) -> AsyncHostResult<HostHandle>;
+    fn insert_resource(
+        &mut self,
+        resource: crate::resource::Resource,
+    ) -> AsyncHostResult<HostHandle>;
 }
 
 pub(crate) fn platform() -> i32 {

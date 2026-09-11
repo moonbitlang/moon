@@ -628,6 +628,8 @@ declare_async_imports! {
 
     ported thread_pool::spawn_worker(completion_id: i32, job: u64) -> u64 => "thread_pool/spawn_worker";
 
+    helper thread_pool::spawn_worker_with_pipe(completion_id: i32, job: u64, writer: u64) -> u64 => "thread_pool/spawn_worker_with_pipe";
+
     ported thread_pool::free_worker(worker: u64) -> void => "thread_pool/free_worker";
 
     ported thread_pool::wake_worker(worker: u64, completion_id: i32, job: u64) -> void => "thread_pool/wake_worker";

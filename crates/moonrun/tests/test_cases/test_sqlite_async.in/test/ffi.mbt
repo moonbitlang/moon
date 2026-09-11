@@ -104,7 +104,7 @@ async fn Database::open() -> Database {
   @async.protect_from_cancel() <| () => {
     let job = make_open_job(b":memory:", 8, 6)
     defer free_job(job)
-    assert_eq(@async.perform_host_job(job, context="sqlite open"), 0)
+    assert_eq(perform_host_job(job, context="sqlite open"), 0)
     { handle: take_handle(job), mutex: @async.Mutex(), }
   }
 }
@@ -113,7 +113,7 @@ async fn Database::open() -> Database {
 async fn Database::run(self : Database, job : UInt64) -> Int {
   self.mutex.acquire()
   defer self.mutex.release()
-  @async.perform_host_job(job, context="sqlite job")
+  perform_host_job(job, context="sqlite job")
 }
 
 ///|
