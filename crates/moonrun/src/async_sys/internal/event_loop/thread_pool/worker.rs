@@ -696,6 +696,62 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn switching_to_legacy_cancellation_preserves_a_published_retry() {
+        use super::super::with_cancellable_region;
+        use std::os::fd::{FromRawFd, OwnedFd};
+        use std::time::Duration;
+
+        let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
+        let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
+        let notifier = Arc::new(notifier);
+        let completion = Arc::clone(&notifier);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (signal_tx, signal_rx) = mpsc::channel();
+        let (handled_tx, handled_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let worker = super::spawn_worker(
+            make_worker_job(23, 29),
+            move |_| {
+                with_cancellable_region(|| {
+                    started_tx.send(()).unwrap();
+                    for _ in 0..2 {
+                        signal_rx.recv().unwrap();
+                        // Complete the real handler before acknowledging each
+                        // phase, independently of pthread_kill delivery timing.
+                        assert_eq!(unsafe { libc::raise(libc::SIGUSR2) }, 0);
+                        handled_tx.send(()).unwrap();
+                    }
+                })
+                .unwrap();
+                finish_rx.recv().unwrap();
+            },
+            |_| {},
+            move |id| completion.notify(id.as_i32()).unwrap(),
+        );
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            Ok(1)
+        );
+        signal_tx.send(()).unwrap();
+        handled_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        assert_eq!(cancel_worker(&worker), Ok(0));
+        signal_tx.send(()).unwrap();
+        handled_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut bytes = [0; 4];
+        assert_eq!(notifier.fetch(&mut bytes).unwrap(), 4);
+        assert_eq!(i32::from_ne_bytes(bytes), 23);
+        assert_eq!(notifier.fetch(&mut bytes).unwrap(), 0);
+
+        finish_tx.send(()).unwrap();
+        assert!(free_worker(worker).is_none());
+        assert_eq!(notifier.fetch(&mut bytes).unwrap(), 4);
+        assert_eq!(i32::from_ne_bytes(bytes), 23);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn legacy_cancellation_does_not_publish_retry_events() {
         use super::super::with_cancellable_region;
         use std::os::fd::{FromRawFd, OwnedFd};
