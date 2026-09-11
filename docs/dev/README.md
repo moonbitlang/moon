@@ -160,7 +160,8 @@ cargo install --path ./crates/moon --debug --offline
 - `crates/moonbuild`: build execution and shared build support
   - `src/execution`: execution options, plan composition, and diagnostics
     - `n2.rs`: private n2 adaptation, incremental state, scheduling, and output capture
-    - `action_identity.rs`: canonical action hashing, not yet connected to execution
+    - `hash.rs`: experimental Wasm execution and global action-result caching
+    - `action_identity.rs`: private canonical action hashing used by the hash executor
   - `src/{entry, runtest, section_capture}`: test arguments, results, formatting,
     and child-output capture
   - `src/expect.rs`: expect and snapshot comparison and promotion
