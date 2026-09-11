@@ -198,15 +198,8 @@ pub(crate) fn run_prove(
     let proof_reports = planned_proof_reports(&build_meta);
 
     if cli.dry_run {
-        output.write_result(|writer| {
-            rr_build::write_dry_run(
-                writer,
-                &build_graph,
-                build_meta.artifacts.values(),
-                project_root,
-                target_dir,
-            )
-        })?;
+        output
+            .write_result(|writer| rr_build::write_dry_run(writer, &build_graph, project_root))?;
         return Ok(0);
     }
 

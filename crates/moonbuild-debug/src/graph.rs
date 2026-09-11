@@ -18,21 +18,11 @@
 
 //! Test utilities
 
-use std::{
-    collections::{BTreeMap, HashSet},
-    io::{BufRead, Write},
-    path::{Path, PathBuf},
-    sync::LazyLock,
-};
-
-pub use moonutil::path_normalizer::PathNormalizer;
-use n2::graph::{BuildId, FileId};
+use std::io::{BufRead, Write};
 
 pub const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
-static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
-    LazyLock::new(|| std::env::var(ENV_VAR).ok());
 
-/// The in-memory format for dumping a `n2` build graph
+/// The JSONL graph snapshot emitted by Moon's dry-run renderer.
 #[derive(Debug)]
 pub struct BuildGraphDump {
     pub nodes: Vec<BuildNode>,
@@ -73,113 +63,4 @@ pub struct BuildNode {
     pub command: Option<String>,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
-}
-
-/// Dump the `n2` build graph for debugging purposes
-pub fn debug_dump_build_graph(
-    graph: &n2::graph::Graph,
-    input_files: &[FileId],
-    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
-    source_dir: &Path,
-) -> BuildGraphDump {
-    let replacer = PathNormalizer::new(source_dir);
-
-    let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
-    generate_from_nodes(graph, accessible_nodes, logical_commands, &replacer)
-}
-
-pub fn try_debug_dump_build_graph_to_file(
-    build_graph: &n2::graph::Graph,
-    default_files: &[n2::graph::FileId],
-    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
-    source_dir: &Path,
-) {
-    let Some(out_file) = DRY_RUN_TEST_OUTPUT.as_deref() else {
-        return;
-    };
-
-    let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
-    let dump = debug_dump_build_graph(build_graph, default_files, logical_commands, source_dir);
-    dump.dump_to(file).expect("Failed to dump to target output");
-}
-
-fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) -> Vec<BuildId> {
-    let mut stack = Vec::<FileId>::new();
-    stack.extend_from_slice(start_files);
-    let mut visited_builds = HashSet::new();
-    let mut accessible_builds = vec![];
-
-    while let Some(fid) = stack.pop() {
-        let file = graph
-            .files
-            .by_id
-            .lookup(fid)
-            .expect("Unknown file in graph");
-        if let Some(bid) = file.input
-            && visited_builds.insert(bid)
-        {
-            let build = graph.builds.lookup(bid).expect("Unknown build in graph");
-            accessible_builds.push(bid);
-            for &in_fid in &build.ins.ids {
-                stack.push(in_fid);
-            }
-        }
-    }
-
-    accessible_builds
-}
-
-fn generate_from_nodes(
-    graph: &n2::graph::Graph,
-    accessible_nodes: impl IntoIterator<Item = BuildId>,
-    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
-    replacer: &PathNormalizer,
-) -> BuildGraphDump {
-    let mut nodes = vec![];
-    for node in accessible_nodes {
-        let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node.cmdline.as_ref().map(|cmd| {
-            let logical_args = node.outs.ids.iter().find_map(|id| {
-                let file = graph.files.by_id.lookup(*id)?;
-                logical_commands.get(Path::new(&file.name))
-            });
-            let command = logical_args.map_or_else(
-                || cmd.clone(),
-                |args| moonutil::shlex::join_native(args.iter().map(String::as_str)),
-            );
-            replacer.normalize_command(&command)
-        });
-        let mut inputs = node
-            .ins
-            .ids
-            .iter()
-            .map(|&id| {
-                let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
-                replacer.normalize_path(&file.name)
-            })
-            .collect::<Vec<_>>();
-        inputs.sort();
-        let outputs = node
-            .outs
-            .ids
-            .iter()
-            .map(|&id| {
-                let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
-                replacer.normalize_path(&file.name)
-            })
-            .collect::<Vec<_>>();
-        nodes.push(BuildNode {
-            command,
-            inputs,
-            outputs,
-        });
-    }
-
-    // To ensure a stable ordering for tests
-    //
-    // Note: because build graphs requires outputs to be unique, it is
-    // sufficient to sort by outputs only.
-    nodes.sort_by(|a, b| a.outputs.cmp(&b.outputs));
-
-    BuildGraphDump { nodes }
 }

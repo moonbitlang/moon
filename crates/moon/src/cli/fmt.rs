@@ -109,9 +109,7 @@ fn run_fmt_rr(
     )?;
 
     if cli.dry_run {
-        output.write_result(|writer| {
-            rr_build::write_dry_run_all(writer, &build_input, &source_dir, &target_dir)
-        })?;
+        output.write_result(|writer| rr_build::write_dry_run(writer, &build_input, &source_dir))?;
         Ok(0)
     } else {
         std::fs::create_dir_all(&target_dir)?;

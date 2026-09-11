@@ -805,11 +805,7 @@ mod tests {
                 .any(|action| action == BuildPlanNode::BuildCore(dependency_target).into())
         );
 
-        let (graph, _) = output
-            .execution_plan
-            .all_to_n2_graph()
-            .expect("complete plan should adapt to n2");
-        assert_eq!(graph.builds.iter().count(), 3);
+        assert_eq!(output.execution_plan.action_ids().count(), 3);
     }
 
     #[test]
@@ -887,11 +883,8 @@ mod tests {
         .expect("the default directive should select the toolchain proof prelude");
 
         let proof_prelude = moonutil::toolchain::prelude_proof().display().to_string();
-        let (_, command_args_by_output) = output
-            .execution_plan
-            .all_to_n2_graph()
-            .expect("execution plan should adapt to n2");
-        assert!(command_args_by_output.values().any(|args| {
+        assert!(output.execution_plan.action_ids().any(|id| {
+            let args = output.execution_plan.action(id).command().args();
             args.windows(2)
                 .any(|pair| pair[0] == "-why3-loadpath" && pair[1] == proof_prelude)
         }));

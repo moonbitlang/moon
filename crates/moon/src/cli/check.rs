@@ -817,16 +817,10 @@ fn run_planned_checks(
     } = dirs;
     if cli.dry_run {
         output.write_result(|writer| {
-            let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
+            let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
             let build_input =
                 rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(
-                writer,
-                &build_input,
-                build_metas.iter().flat_map(|meta| meta.artifacts.values()),
-                source_dir,
-                target_dir,
-            )?;
+            rr_build::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
         return Ok(true);
