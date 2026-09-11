@@ -64,11 +64,9 @@ metadata directly and does not require executable artifacts.
    `--test-failure-json` is on).
 
 Coverage uses the toolchain's `moon_cove_report` by default. Setting
-`MOON_COVE_REPORT_ENABLED=1` (or `true`) switches reporting to the in-process
-moonx path for `moonbitlang/moon_cove@<version>`; Moon does not start another
-copy of itself. The optional `MOON_COVE_REPORT_VERSION` defaults to `0.3.1` and
-does not enable `moon_cove` by itself. Dry-run renders this path as `moonx
-moonbitlang/moon_cove@<version> -- ...`. When this path is disabled,
+`MOON_COVE_REPORT_ENABLED=1` (or `true`) switches reporting to
+`moonrun <toolchain-root>/bin/moon_cove.wasm -- ...`, without registry access
+or a separate version selection. When this path is disabled,
 `MOON_COVE_REPORT_OVERRIDE` may select the legacy reporter executable.
 
 ## Expect / snapshot promotion loop

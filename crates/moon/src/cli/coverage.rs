@@ -25,17 +25,9 @@ use clap::Parser;
 use moonutil::{command_output::CommandOutput, project::PackageDirs, user_log::UserLog};
 use walkdir::WalkDir;
 
-use super::{
-    TestSubcommand, UniversalFlags,
-    moonx::{self, MoonxInvocation},
-    process::ProcessAction,
-    run_test,
-};
+use super::{TestSubcommand, UniversalFlags, process::ProcessAction, run_test};
 
-const MOON_COVE_PACKAGE: &str = "moonbitlang/moon_cove";
-const DEFAULT_MOON_COVE_REPORT_VERSION: &str = "0.3.1";
 const MOON_COVE_REPORT_ENABLED_ENV: &str = "MOON_COVE_REPORT_ENABLED";
-const MOON_COVE_REPORT_VERSION_ENV: &str = "MOON_COVE_REPORT_VERSION";
 
 #[derive(Debug, clap::Parser, Default)]
 #[clap(
@@ -65,10 +57,9 @@ pub(crate) enum CoverageSubcommands {
 
 /// Code coverage utilities
 ///
-/// Set `MOON_COVE_REPORT_ENABLED=1` (or `true`) to run
-/// `moonbitlang/moon_cove` through `moonx`. `MOON_COVE_REPORT_VERSION`
-/// optionally selects its version and defaults to 0.3.1. When disabled, Moon
-/// uses the toolchain's `moon_cove_report`.
+/// Set `MOON_COVE_REPORT_ENABLED=1` (or `true`) to run the toolchain's
+/// `bin/moon_cove.wasm` through `moonrun`. When disabled, Moon uses
+/// `moon_cove_report`.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct CoverageSubcommand {
     #[clap(subcommand)]
@@ -205,49 +196,24 @@ fn run_coverage_reporter(
         .and_then(|value| value.into_string().ok())
         .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
 
-    if use_moon_cove {
-        let version = std::env::var(MOON_COVE_REPORT_VERSION_ENV)
-            .ok()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| DEFAULT_MOON_COVE_REPORT_VERSION.to_owned());
-        let coordinate = format!("{MOON_COVE_PACKAGE}@{version}");
-
-        if dry_run {
-            let mut command = vec!["moonx".to_owned(), coordinate, "--".to_owned()];
-            command.extend(args);
-            output.write_result(|writer| {
-                writeln!(writer, "(cd {} && {})", cwd.display(), command.join(" "))
-            })?;
-            return Ok(ProcessAction::Exit(0));
-        }
-
-        let mut action = moonx::prepare(
-            MoonxInvocation::wasm_package(coordinate, args),
-            output.user_log(),
+    let mut command = if use_moon_cove {
+        crate::run::command_for(
+            crate::run::ExecutionMode::MoonRun,
+            &moonutil::toolchain::bin().join("moon_cove.wasm"),
+            None,
         )
-        .context(error_context)?;
-        match &mut action {
-            ProcessAction::Delegate(command)
-            | ProcessAction::DelegateWithPolicyRelay(command, _) => {
-                command
-                    .current_dir(cwd)
-                    .env_remove(MOON_COVE_REPORT_ENABLED_ENV)
-                    .env_remove(MOON_COVE_REPORT_VERSION_ENV);
-            }
-            ProcessAction::Exit(_) => {}
-        }
-        return Ok(action);
-    }
-
-    let mut command = std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_cove_report);
+    } else {
+        std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_cove_report)
+    };
     command
         .current_dir(cwd)
         .env_remove(MOON_COVE_REPORT_ENABLED_ENV)
-        .env_remove(MOON_COVE_REPORT_VERSION_ENV)
         .args(args);
     if dry_run {
         output.write_result(|writer| write_coverage_report_command(writer, &command, cwd))?;
         Ok(ProcessAction::Exit(0))
+    } else if use_moon_cove {
+        Ok(ProcessAction::Delegate(command))
     } else {
         let code = command
             .status()

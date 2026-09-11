@@ -25,31 +25,30 @@ fn test_coverage_report_with_moon_cove() {
     let dir = TestDir::new("test_coverage.in");
     moon_cmd(&dir)
         .env("MOON_COVE_REPORT_ENABLED", "true")
-        .env_remove("MOON_COVE_REPORT_VERSION")
+        .env("MOON_COVE_REPORT_OVERRIDE", "unused-legacy-reporter")
         .args(["coverage", "report", "--dry-run", "-f=summary"])
         .assert()
         .success()
-        .stdout_eq("(cd [..] && moonx moonbitlang/moon_cove@0.3.1 -- -f=summary)\n");
+        .stdout_eq("(cd [..] && [..]moonrun[..] [..]/bin/moon_cove.wasm -- -f=summary)\n");
 }
 
 #[test]
-fn test_coverage_report_with_moon_cove_version() {
-    let dir = TestDir::new("test_coverage.in");
+fn test_coverage_report_help_dry_run() {
+    let dir = TestDir::new_empty();
     moon_cmd(&dir)
         .env("MOON_COVE_REPORT_ENABLED", "1")
-        .env("MOON_COVE_REPORT_VERSION", "0.4.0")
-        .args(["coverage", "report", "--dry-run", "-f=summary"])
+        .args(["coverage", "report", "--dry-run", "--help"])
         .assert()
         .success()
-        .stdout_eq("(cd [..] && moonx moonbitlang/moon_cove@0.4.0 -- -f=summary)\n");
+        .stdout_eq("(cd [..] && [..]moonrun[..] [..]/bin/moon_cove.wasm -- --help)\n");
 }
 
 #[test]
-fn test_coverage_report_version_does_not_enable_moon_cove() {
+fn test_coverage_report_uses_legacy_by_default() {
     let dir = TestDir::new("test_coverage.in");
     moon_cmd(&dir)
         .env_remove("MOON_COVE_REPORT_ENABLED")
-        .env("MOON_COVE_REPORT_VERSION", "0.4.0")
+        .env_remove("MOON_COVE_REPORT_OVERRIDE")
         .args(["coverage", "report", "--dry-run", "-f=summary"])
         .assert()
         .success()

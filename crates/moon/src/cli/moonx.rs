@@ -88,18 +88,6 @@ pub(crate) struct MoonxInvocation {
     args: Vec<String>,
 }
 
-impl MoonxInvocation {
-    pub(crate) fn wasm_package(input: String, args: Vec<String>) -> Self {
-        Self {
-            target: MoonxTarget::Wasm,
-            experimental_policy: None,
-            verbose: false,
-            input,
-            args,
-        }
-    }
-}
-
 pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
     raw_args
         .first()
