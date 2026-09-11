@@ -21,6 +21,8 @@ use std::os::windows::io::AsRawHandle;
 use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
     ResolveOutput,
     build_plan::{ArtifactKey, InputDirective},
@@ -46,7 +48,7 @@ use tracing::{Level, instrument};
 
 use crate::filter::ensure_package_supports_backend;
 use crate::rr_build;
-use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
+use crate::rr_build::CalcUserIntentOutput;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -599,7 +601,7 @@ pub(crate) fn plan_run_rr_from_resolved(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: ResolveOutput,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let input_path = cmd
         .package_or_mbt_file
         .clone()
@@ -648,7 +650,7 @@ pub(crate) fn plan_run_rr_from_resolved(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn get_run_cmd(
-    build_meta: &rr_build::BuildMeta,
+    build_meta: &BuildMeta,
     argv: &[String],
     moonrun_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,
@@ -680,7 +682,7 @@ pub(crate) fn effective_moonrun_policy<'a>(
 }
 
 /// Extract the single executable artifact emitted for a `UserIntent::Run` plan.
-fn get_run_executable(build_meta: &rr_build::BuildMeta) -> &Path {
+fn get_run_executable(build_meta: &BuildMeta) -> &Path {
     let (_, paths) = build_meta
         .artifacts
         .iter()
@@ -843,8 +845,8 @@ fn build_executable_from_plan(
     cmd: &RunSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    build_meta: &rr_build::BuildMeta,
-    build_graph: rr_build::BuildInput,
+    build_meta: &BuildMeta,
+    build_graph: BuildInput,
     lock: Option<std::fs::File>,
     options: BuildExecutableFromPlanOptions,
     output: &CommandOutput,
@@ -883,10 +885,12 @@ fn build_executable_from_plan(
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(build_meta)?;
 
-    let build_config =
-        BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
-            .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
+    let build_config = cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose)
+        .with_suppressed_progress(options.output.suppress_build_progress());
+    let build_result =
+        moonbuild::execution::execute_build(&build_config, build_graph, target_dir, user_log)?;
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),

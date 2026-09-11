@@ -21,72 +21,60 @@
 //! The private `n2` module owns graph adaptation, scheduling, and the database.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
+    rc::Rc,
+    sync::LazyLock,
 };
 
+use anyhow::Context;
 use ariadne::ReportKind;
 use clap::ValueEnum;
 use colored::Colorize;
-use moonbuild_rupes_recta::target_layout::GENERATED_TEST_DRIVER_PREFIX;
+use moonbuild_rupes_recta::{
+    execution_plan::{ActionId, ExecutionPlan},
+    target_layout::GENERATED_TEST_DRIVER_PREFIX,
+};
 use moonutil::{
-    features::FeatureGate, render::MooncDiagnostic, target::TargetBackend,
-    test_metadata::DiagnosticLevel, user_log::UserLog,
+    render::MooncDiagnostic, target::TargetBackend, test_metadata::DiagnosticLevel,
+    user_log::UserLog,
 };
 use tracing::instrument;
 
-use super::{BuildInput, BuildMeta};
-use crate::build_flags::{BuildFlags, OutputStyle};
+use crate::BuildMeta;
 
+pub mod action_identity;
 mod n2;
 
 /// Execution and diagnostic options. Planning inputs live in `BuildInput`.
 #[derive(Clone)]
-pub(crate) struct BuildConfig {
+pub struct BuildConfig {
     /// The level of parallelism to use. If `None`, will use the number of
     /// available CPU cores.
-    parallelism: Option<usize>,
+    pub parallelism: Option<usize>,
     /// The output style for errors and warnings
-    output_style: OutputStyle,
+    pub output_style: OutputStyle,
     /// Render no-location diagnostics above this level
-    render_no_loc: DiagnosticLevel,
+    pub render_no_loc: DiagnosticLevel,
     /// Maximum number of diagnostics to display after deduplication.
-    diagnostic_limit: Option<usize>,
+    pub diagnostic_limit: Option<usize>,
 
     /// Explain and warnings in diagnostics
     pub explain_errors: bool,
 
     /// Ask n2 to explain rerun reasons
-    n2_explain: bool,
+    pub n2_explain: bool,
 
     /// Verbose output for build progress and command echo
-    verbose: bool,
-    suppress_progress: bool,
+    pub verbose: bool,
+    pub suppress_progress: bool,
 
     /// The patch file to use
     pub patch_file: Option<PathBuf>,
 }
 
 impl BuildConfig {
-    pub(crate) fn from_flags(
-        flags: &BuildFlags,
-        unstable_features: &FeatureGate,
-        verbose: bool,
-    ) -> Self {
-        BuildConfig {
-            parallelism: flags.jobs,
-            output_style: flags.output_style(),
-            render_no_loc: flags.render_no_loc,
-            diagnostic_limit: flags.diagnostic_limit,
-            explain_errors: false,
-            n2_explain: unstable_features.rr_n2_explain,
-            verbose,
-            suppress_progress: false,
-            patch_file: None,
-        }
-    }
-
-    pub(crate) fn with_suppressed_progress(mut self, suppress_progress: bool) -> Self {
+    pub fn with_suppressed_progress(mut self, suppress_progress: bool) -> Self {
         self.suppress_progress = suppress_progress;
         self
     }
@@ -105,6 +93,94 @@ impl Default for BuildConfig {
             suppress_progress: false,
             patch_file: None,
         }
+    }
+}
+
+/// The style to render diagnostics in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OutputStyle {
+    /// The human-readable raw format directly from `moonc`
+    Raw,
+    /// Source code snippets with colors and formatting, rendered from JSON
+    Fancy,
+    /// Machine-readable output in JSON
+    Json,
+}
+
+impl OutputStyle {
+    /// Whether the output style requires `moonc` to emit JSON diagnostics.
+    pub fn needs_moonc_json(&self) -> bool {
+        matches!(self, OutputStyle::Fancy | OutputStyle::Json)
+    }
+}
+
+/// Share the default observation between prebuild scripts and the executor so
+/// both see the same job limit throughout this Moon process.
+pub fn resolve_parallelism(jobs: Option<usize>) -> usize {
+    static DEFAULT_PARALLELISM: LazyLock<usize> =
+        LazyLock::new(|| std::thread::available_parallelism().map_or(1, usize::from));
+    jobs.unwrap_or_else(|| *DEFAULT_PARALLELISM)
+}
+
+/// A complete execution plan and the context needed to execute it.
+#[derive(Debug, Clone)]
+pub struct BuildInput {
+    /// Executor-neutral actions shared by execution and its projections.
+    execution_plan: Rc<ExecutionPlan>,
+
+    /// Target Backend for each action. Shared actions have no single backend.
+    action_backends: HashMap<ActionId, Option<TargetBackend>>,
+}
+
+impl BuildInput {
+    pub fn new(execution_plan: ExecutionPlan, backend: Option<TargetBackend>) -> Self {
+        let action_backends = execution_plan
+            .action_ids()
+            .map(|id| (id, backend))
+            .collect();
+        Self {
+            execution_plan: Rc::new(execution_plan),
+            action_backends,
+        }
+    }
+
+    pub fn execution_plan(&self) -> &ExecutionPlan {
+        &self.execution_plan
+    }
+
+    pub fn compose(inputs: Vec<Self>) -> anyhow::Result<Self> {
+        let mut inputs = inputs.into_iter();
+        let first = inputs
+            .next()
+            .context("cannot compose an empty build invocation")?;
+        let Some(second) = inputs.next() else {
+            return Ok(first);
+        };
+
+        let mut execution_plan = ExecutionPlan::default();
+        let mut action_backends = HashMap::new();
+
+        for input in std::iter::once(first)
+            .chain(std::iter::once(second))
+            .chain(inputs)
+        {
+            let existing_actions = execution_plan.action_ids().collect::<HashSet<_>>();
+            let remapped = execution_plan.merge(&input.execution_plan)?;
+            for (old, new) in input.execution_plan.action_ids().zip(remapped) {
+                if existing_actions.contains(&new) {
+                    if action_backends.get(&new) != input.action_backends.get(&old) {
+                        action_backends.insert(new, None);
+                    }
+                } else {
+                    action_backends.insert(new, input.action_backends.get(&old).copied().flatten());
+                }
+            }
+        }
+
+        Ok(Self {
+            execution_plan: Rc::new(execution_plan),
+            action_backends,
+        })
     }
 }
 
@@ -138,7 +214,7 @@ impl ResultCatcher {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct BuildStats {
+pub struct BuildStats {
     /// Number of build tasks executed, `None` means build failure
     n_tasks_executed: Option<usize>,
 
@@ -148,16 +224,16 @@ pub(crate) struct BuildStats {
 
 impl BuildStats {
     /// Whether the run was successful (i.e. didn't fail to execute).
-    pub(crate) fn successful(&self) -> bool {
+    pub fn successful(&self) -> bool {
         self.n_tasks_executed.is_some()
     }
 
     /// Get the return code that should be returned to the shell.
-    pub(crate) fn return_code_for_success(&self) -> i32 {
+    pub fn return_code_for_success(&self) -> i32 {
         if self.successful() { 0 } else { 1 }
     }
 
-    pub(crate) fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
+    pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
         match self.n_tasks_executed {
             None => {
                 eprintln!(
@@ -248,7 +324,7 @@ impl CapturedBuildExecution {
 /// The caller must hold the target-directory lock. All executions in
 /// that directory share one n2 database, and n2 does not lock it internally.
 #[instrument(skip_all)]
-pub(crate) fn execute_build(
+pub fn execute_build(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
@@ -260,7 +336,7 @@ pub(crate) fn execute_build(
 
 /// Structured output from one build execution for a command-level JSON
 /// renderer. The executor does not write diagnostics or summaries itself.
-pub(crate) struct JsonBuildOutput {
+pub struct JsonBuildOutput {
     pub n_tasks_executed: Option<usize>,
     pub n_errors: usize,
     pub n_warnings: usize,
@@ -273,19 +349,19 @@ pub(crate) struct JsonBuildOutput {
 /// One compiler diagnostic and the backend of the action that emitted it.
 /// The command layer remains responsible for projecting this into its JSON
 /// schema.
-pub(crate) struct JsonBuildDiagnostic {
+pub struct JsonBuildDiagnostic {
     pub target_backend: Option<TargetBackend>,
     pub value: serde_json::Value,
 }
 
 impl JsonBuildOutput {
-    pub(crate) fn successful(&self) -> bool {
+    pub fn successful(&self) -> bool {
         self.n_tasks_executed.is_some()
     }
 }
 
 /// Execute a build while returning all Moonc diagnostics to the CLI seam.
-pub(crate) fn execute_build_json(
+pub fn execute_build_json(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
@@ -344,7 +420,7 @@ pub(crate) fn execute_build_json(
 /// Test builds may report diagnostics for generated drivers using their
 /// source-tree paths. The test build metadata lets the diagnostic processing
 /// stage resolve those paths through the target layout.
-pub(crate) fn execute_test_build(
+pub fn execute_test_build(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
@@ -365,7 +441,7 @@ pub(crate) fn execute_test_build(
 /// Rebuild only the requested outputs and their prerequisites, for example
 /// after snapshot promotion. The caller holds the same target lock as a full build.
 #[instrument(skip_all)]
-pub(crate) fn execute_build_partial<'a>(
+pub fn execute_build_partial<'a>(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,

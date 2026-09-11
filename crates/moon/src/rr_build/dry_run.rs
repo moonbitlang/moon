@@ -18,6 +18,7 @@
 
 //! Render concrete execution actions without adapting them to an executor.
 
+use moonbuild::execution::BuildInput;
 use std::{
     collections::{HashMap, HashSet},
     io::Write,
@@ -29,15 +30,13 @@ use std::{
 use moonbuild_rupes_recta::execution_plan::{ActionId, ExecutionPlan, InputObservation};
 use moonutil::path_normalizer::PathNormalizer;
 
-use super::BuildInput;
-
 /// Print commands for default execution roots and explicitly requested artifacts.
 pub(crate) fn write_dry_run(
     output: &mut dyn Write,
     input: &BuildInput,
     source_dir: &Path,
 ) -> std::io::Result<()> {
-    let plan = &input.execution_plan;
+    let plan = input.execution_plan();
     let roots = plan.default_output_paths().into_iter().chain(
         plan.requested_artifact_paths()
             .flat_map(|(_, paths)| paths.iter().map(PathBuf::as_path)),
@@ -90,8 +89,8 @@ pub(crate) fn write_build_graph<'a>(
 ) -> std::io::Result<()> {
     write_action_graph(
         output,
-        &input.execution_plan,
-        ordered_actions(&input.execution_plan, roots),
+        input.execution_plan(),
+        ordered_actions(input.execution_plan(), roots),
         &PathNormalizer::new(source_dir),
     )
 }

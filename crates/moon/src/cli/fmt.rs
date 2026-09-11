@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use moonbuild::execution::BuildConfig;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -23,7 +24,7 @@ use moonbuild_rupes_recta::fmt::FmtConfig;
 use moonutil::{command_output::CommandOutput, locks::lock_directory, project::PackageDirs};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
-use crate::rr_build::{self, BuildConfig, plan_fmt};
+use crate::rr_build::{self, plan_fmt};
 
 use super::UniversalFlags;
 
@@ -114,8 +115,12 @@ fn run_fmt_rr(
     } else {
         std::fs::create_dir_all(&target_dir)?;
         let _lock = lock_directory(&target_dir, user_log)?;
-        let res =
-            rr_build::execute_build(&BuildConfig::default(), build_input, &target_dir, user_log)?;
+        let res = moonbuild::execution::execute_build(
+            &BuildConfig::default(),
+            build_input,
+            &target_dir,
+            user_log,
+        )?;
         res.print_info(cli.quiet, "formatting")?;
         Ok(res.return_code_for_success())
     }

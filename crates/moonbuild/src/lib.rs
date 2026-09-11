@@ -22,9 +22,43 @@ pub mod bench;
 pub mod benchmark;
 pub mod doc_http;
 pub mod entry;
+pub mod execution;
 pub mod expect;
 pub mod new;
 pub mod runtest;
 pub mod section_capture;
 pub mod test_utils;
 pub mod upgrade;
+
+use indexmap::IndexMap;
+use moonbuild_rupes_recta::{
+    ResolveOutput, build_plan::ArtifactKey, model::BackendConfig,
+    target_layout::ArtifactPathResolver,
+};
+use moonutil::{cond_expr::OptLevel as BuildProfile, target::TargetBackend};
+use std::path::PathBuf;
+
+/// Build metadata containing information needed for build context and results.
+/// The build graph is kept separate to allow execute_build to take ownership of it.
+pub struct BuildMeta {
+    /// The result of the resolve step, containing package metadata
+    pub resolve_output: ResolveOutput,
+
+    /// The list of artifacts that will be produced
+    pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,
+
+    /// The backend and backend-specific configuration used by this build.
+    pub backend: BackendConfig,
+
+    /// The main optimization level used in this compile process
+    pub opt_level: BuildProfile,
+
+    /// Physical artifact path resolver selected for this build.
+    pub artifact_paths: ArtifactPathResolver,
+}
+
+impl BuildMeta {
+    pub fn target_backend(&self) -> TargetBackend {
+        self.backend.target_backend()
+    }
+}

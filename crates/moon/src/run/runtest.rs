@@ -68,6 +68,7 @@ use std::{
 
 use anyhow::Context;
 use indexmap::IndexMap;
+use moonbuild::BuildMeta;
 use moonbuild::{
     benchmark::{BATCHBENCH, render_batch_bench_summary},
     entry::{CompactTestFormatter, TestArgs},
@@ -91,7 +92,7 @@ use moonutil::{
 use tokio::runtime::Runtime;
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::{rr_build::BuildMeta, run::default_rt};
+use crate::run::default_rt;
 
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};

@@ -67,8 +67,9 @@
        ([`crate::build_plan`]).
     7. Lower the semantic graph into a concrete, executor-neutral action and
        output graph ([`crate::execution_plan`], via [`crate::build_lower`]).
-    8. Return the Execution Plan to `moon`, which owns execution, incremental
-       state, and diagnostic collection. Dry-run consumes the plan directly.
+    8. Return the Execution Plan to the caller. `moonbuild` owns execution,
+       incremental state, and diagnostic collection; CLI dry-run consumes the
+       plan directly.
 
     Additional information about the build process, project layout, special
     cases, and random quirks of build systems can be found in the repository's

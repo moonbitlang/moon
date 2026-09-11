@@ -33,6 +33,8 @@
 //!
 use anyhow::Context;
 use log::LevelFilter;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
@@ -56,7 +58,7 @@ use crate::filter::{
     group_packages_by_preferred_backend, package_supports_backend, select_packages,
     select_supported_packages,
 };
-use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput};
+use crate::rr_build::{self, CalcUserIntentOutput};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -124,7 +126,7 @@ struct CheckJsonAccumulator {
 }
 
 impl CheckJsonAccumulator {
-    fn append_build(&mut self, result: rr_build::JsonBuildOutput, user_log: &UserLog) {
+    fn append_build(&mut self, result: moonbuild::execution::JsonBuildOutput, user_log: &UserLog) {
         let successful = result.successful();
         self.diagnostics
             .extend(result.diagnostics.into_iter().map(|diagnostic| {
@@ -801,7 +803,7 @@ fn run_planned_checks(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
-    planned_runs: Vec<(rr_build::BuildMeta, rr_build::BuildInput)>,
+    planned_runs: Vec<(BuildMeta, BuildInput)>,
     publish_metadata: bool,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
@@ -818,19 +820,16 @@ fn run_planned_checks(
     if cli.dry_run {
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-            let build_input =
-                rr_build::compose_build_inputs(build_inputs).map_err(std::io::Error::other)?;
+            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
             rr_build::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
         return Ok(true);
     }
 
-    let mut cfg = BuildConfig::from_flags(
-        &cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose && json.is_none(),
-    );
+    let mut cfg = cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose && json.is_none());
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
     for (build_meta, build_input) in &planned_runs {
@@ -853,9 +852,9 @@ fn run_planned_checks(
     }
 
     let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-    let build_input = rr_build::compose_build_inputs(build_inputs)?;
+    let build_input = BuildInput::compose(build_inputs)?;
     if let Some(json) = json {
-        let result = rr_build::execute_build_json(
+        let result = moonbuild::execution::execute_build_json(
             &cfg.with_suppressed_progress(true),
             build_input,
             target_dir,
@@ -864,7 +863,8 @@ fn run_planned_checks(
         json.append_build(result, output.user_log());
         Ok(successful)
     } else {
-        let result = rr_build::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+        let result =
+            moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
         result.print_info(cli.quiet, "checking")?;
         Ok(result.successful())
     }
@@ -904,7 +904,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
-) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
+) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     validate_selector_flags_before_split(
         &resolve_output,
         cmd,
@@ -986,7 +986,7 @@ pub(crate) fn plan_check_rr_from_resolved(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
@@ -1035,7 +1035,7 @@ fn plan_check_rr_from_selection(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     selection: ResolvedCheckSelection,
     user_log: &UserLog,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,

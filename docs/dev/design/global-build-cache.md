@@ -6,8 +6,9 @@ This document records the intended direction for global dependency and build
 caches. Cache-root configuration and cleaning are implemented. Standalone
 `moon run` inputs reuse immutable registry dependency sources through the
 dependency cache. The pure canonical identity calculation for execution actions
-is also implemented, but builds do not yet read from or write to the global
-artifact cache and identity calculation is not connected to execution.
+is also implemented in `moonbuild::execution::action_identity`, but builds do
+not yet read from or write to the global artifact cache and identity calculation
+is not connected to execution.
 
 ## Problem
 

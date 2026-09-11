@@ -34,7 +34,7 @@ If you are working from mainland China, using the `.cn` domain may result in a s
     - `src/rr_build/`: Integration with Rupes Recta build engine.
     - `tests/test_cases/`: Integration snapshot tests, the majority of tests.
   - `moonbuild-rupes-recta/`: The new build graph generation engine (**now default**).
-  - `moonbuild/`: The legacy build graph generation engine. Set `NEW_MOON=0` to use it if you encounter issues with Rupes Recta.
+  - `moonbuild/`: Build execution and shared build support.
   - `mooncake/`: Library to resolve and download dependencies.
   - `moonrun/`: The runtime of WASM MoonBit programs.
   - `moonutil/`: Misc utilities including feature flags (`src/features.rs`).

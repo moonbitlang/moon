@@ -27,6 +27,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use chrono::Local;
+use moonbuild::BuildMeta;
 use moonutil::{
     build_options::RunMode,
     command_output::CommandOutput,
@@ -524,7 +525,7 @@ pub(crate) fn profile_tests(
     cli: &UniversalFlags,
     source_dir: &Path,
     target_dir: &Path,
-    builds: &[(crate::rr_build::BuildMeta, crate::run::TestFilter)],
+    builds: &[(BuildMeta, crate::run::TestFilter)],
     include_skipped: bool,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -548,7 +549,7 @@ fn profile_test_invocations(
     cli: &UniversalFlags,
     source_dir: &Path,
     target_dir: &Path,
-    build_meta: &crate::rr_build::BuildMeta,
+    build_meta: &BuildMeta,
     filter: &crate::run::TestFilter,
     include_skipped: bool,
     output: &CommandOutput,

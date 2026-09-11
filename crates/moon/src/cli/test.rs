@@ -27,7 +27,7 @@ use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
 use crate::filter::select_packages;
 use crate::rr_build;
-use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
+use crate::rr_build::CalcUserIntentOutput;
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
@@ -35,6 +35,9 @@ use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
 use colored::Colorize;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildConfig;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildTarget;
@@ -206,7 +209,7 @@ fn print_test_summary(
 }
 
 fn print_test_outlines(
-    builds: &[(rr_build::BuildMeta, TestFilter)],
+    builds: &[(BuildMeta, TestFilter)],
     include_skipped: bool,
     bench: bool,
     user_log: &UserLog,
@@ -710,7 +713,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
-) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
+) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
     // Keep the planning flow explicit:
     // 1. derive the effective build flags used by test/bench,
     // 2. resolve the backend and construct the compile configuration,
@@ -762,7 +765,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     user_log: &UserLog,
-) -> Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>, anyhow::Error> {
+) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
     if let Some(target_backend) = selected_target_backend {
         return plan_test_or_bench_rr_from_resolved(
             cli,
@@ -854,7 +857,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     resolved_selection: ResolvedTestSelection,
     user_log: &UserLog,
-) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
+) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
     let build_flags = BuildFlags {
         no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
         ..cmd.build_flags.clone()
@@ -1089,7 +1092,7 @@ fn run_test_workflow(
     source_dir: &Path,
     target_dir: &Path,
     display_backend_hint: bool,
-    planned_runs: Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>,
+    planned_runs: Vec<(BuildMeta, BuildInput, TestFilter)>,
     lock: Option<std::fs::File>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -1102,7 +1105,7 @@ fn run_test_workflow(
         .into_iter()
         .map(|(meta, input, filter)| ((meta, filter), input))
         .unzip();
-    let build_graph = rr_build::compose_build_inputs(build_inputs)?;
+    let build_graph = BuildInput::compose(build_inputs)?;
 
     if cli.dry_run {
         output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
@@ -1114,14 +1117,16 @@ fn run_test_workflow(
     for (build_meta, _) in &build_metas_and_filters {
         rr_build::generate_all_pkgs_json(build_meta)?;
     }
-    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let build_config = cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose);
     // n2 consumes its graph, so retain a copy for snapshot-update rebuilds.
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
     let build_metas = build_metas_and_filters
         .iter()
         .map(|(meta, _)| meta)
         .collect::<Vec<_>>();
-    let result = rr_build::execute_test_build(
+    let result = moonbuild::execution::execute_test_build(
         &build_config,
         build_graph,
         target_dir,
@@ -1188,9 +1193,9 @@ fn run_tests_with_updates(
     source_dir: &Path,
     target_dir: &Path,
     display_backend_hint: bool,
-    builds: Vec<(rr_build::BuildMeta, TestFilter)>,
+    builds: Vec<(BuildMeta, TestFilter)>,
     build_config: &BuildConfig,
-    build_graph_backup: Option<rr_build::BuildInput>,
+    build_graph_backup: Option<BuildInput>,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut exit_code = 0;
@@ -1267,7 +1272,7 @@ fn run_tests_with_updates(
                         .expect("test result from the last test run should be present")
                         .as_slice()
                 });
-            let result = rr_build::execute_build_partial(
+            let result = moonbuild::execution::execute_build_partial(
                 build_config,
                 build_graph,
                 target_dir,
@@ -1803,7 +1808,7 @@ fn validate_original_package_selection_filters(
 /// For other backends, lists executable paths directly.
 /// Only includes artifacts that have actual tests (skips empty test executables).
 fn print_test_artifacts(
-    builds: &[(rr_build::BuildMeta, TestFilter)],
+    builds: &[(BuildMeta, TestFilter)],
     include_skipped: bool,
     bench: bool,
 ) -> anyhow::Result<()> {

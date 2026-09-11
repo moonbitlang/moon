@@ -27,8 +27,8 @@ use std::{collections::HashMap, path::Path, rc::Rc, sync::mpsc};
 use anyhow::Context;
 use moonbuild_rupes_recta::execution_plan::{InputObservation, LoweredCommandExecution};
 
+use super::resolve_parallelism;
 use super::{BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution, ResultCatcher};
-use crate::rr_build::resolve_parallelism;
 
 // Progress and compiler diagnostics share terminal setup, including enabling
 // virtual terminal processing on Windows.

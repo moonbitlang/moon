@@ -17,6 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use clap::Parser;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use std::path::PathBuf;
 
 use moonbuild_rupes_recta::{ResolveOutput, build_plan::ArtifactKey, model::PackageId};
@@ -41,8 +43,8 @@ pub(super) struct PlanningFixture {
 }
 
 pub(super) struct PlannedGraph {
-    build_meta: crate::rr_build::BuildMeta,
-    build_graph: crate::rr_build::BuildInput,
+    build_meta: BuildMeta,
+    build_graph: BuildInput,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -59,10 +61,7 @@ pub(super) struct PlannedPackageIntent {
 }
 
 impl PlannedGraph {
-    fn new(
-        build_meta: crate::rr_build::BuildMeta,
-        build_graph: crate::rr_build::BuildInput,
-    ) -> Self {
+    fn new(build_meta: BuildMeta, build_graph: BuildInput) -> Self {
         Self {
             build_meta,
             build_graph,
@@ -427,7 +426,7 @@ pub(super) fn planned_graph_inputs(graph: &str) -> std::collections::BTreeSet<St
         .collect()
 }
 
-fn root_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
+fn root_package_names(meta: &BuildMeta) -> Vec<String> {
     package_names(meta, |artifact| match artifact {
         ArtifactKey::CheckMi { package, .. }
         | ArtifactKey::BuildMi { package, .. }
@@ -444,7 +443,7 @@ fn root_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
     })
 }
 
-fn check_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
+fn check_package_names(meta: &BuildMeta) -> Vec<String> {
     package_names(meta, |artifact| match artifact {
         ArtifactKey::CheckMi { package, .. } => Some(*package),
         _ => None,
@@ -452,7 +451,7 @@ fn check_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
 }
 
 fn package_names(
-    meta: &crate::rr_build::BuildMeta,
+    meta: &BuildMeta,
     package_of: impl Fn(&ArtifactKey) -> Option<PackageId>,
 ) -> Vec<String> {
     meta.artifacts

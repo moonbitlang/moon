@@ -21,6 +21,8 @@ mod imp;
 use std::path::PathBuf;
 
 use anyhow::bail;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
     ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve_synced_project,
     sync_dependencies,
@@ -41,7 +43,7 @@ use crate::{
         canonicalize_with_filename, filter_pkg_by_dir, format_supported_backends,
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
-    rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
+    rr_build::{self, CalcUserIntentOutput},
 };
 
 use super::UniversalFlags;
@@ -341,10 +343,11 @@ pub(crate) fn run_info(
         .into_iter()
         .map(|(target, meta, input)| ((target, meta), input))
         .unzip();
-    let build_input = rr_build::compose_build_inputs(build_inputs)?;
+    let build_input = BuildInput::compose(build_inputs)?;
     // TODO: UX: Consider mirroring flags from `moon check`?
-    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
-    let result = rr_build::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+    let cfg = BuildFlags::default().execution_config(&cli.unstable_feature, cli.verbose);
+    let result =
+        moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
     let print_result = result.print_info(cli.quiet, "generating mbti files");
     if !result.successful() {
         return Ok(1);
@@ -371,7 +374,7 @@ fn plan_info_rr(
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
     user_log: &UserLog,
-) -> anyhow::Result<(BuildMeta, rr_build::BuildInput)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let ctx = InfoIntentContext {
         selection,
         output_plan,

@@ -34,12 +34,10 @@ mooncake.workspace = true
 moonutil.workspace = true
 moonbuild-rupes-recta.workspace = true
 
-n2.workspace = true
 semver.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 colored.workspace = true
-ariadne.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
 serde_json.workspace = true

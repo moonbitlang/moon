@@ -145,7 +145,6 @@ cargo install --path ./crates/moon --debug --offline
       binary
     - `src/cli/generate_test_driver.rs`: as the name suggests
   - `src/rr_build`: integration with the Rupes Recta build engine
-    - `execution/n2.rs`: n2 graph adaptation, incremental state, and execution
     - `dry_run.rs`: renders commands and graph snapshots from Execution Plans
   - `tests/test_cases`: end-to-end tests organized into modules by purpose;
     `mod.rs` contains their shared imports and module registrations
@@ -158,7 +157,10 @@ cargo install --path ./crates/moon --debug --offline
   - `src/metadata.rs`: metadata generation for IDE/tooling
   - See `docs/dev/reference/compiler-cmd-ref.md` for compiler command reference
 
-- `crates/moonbuild`: support code retained from the former build engine
+- `crates/moonbuild`: build execution and shared build support
+  - `src/execution`: execution options, plan composition, and diagnostics
+    - `n2.rs`: private n2 adaptation, incremental state, scheduling, and output capture
+    - `action_identity.rs`: canonical action hashing, not yet connected to execution
   - `src/{entry, runtest, section_capture}`: test arguments, results, formatting,
     and child-output capture
   - `src/expect.rs`: expect and snapshot comparison and promotion

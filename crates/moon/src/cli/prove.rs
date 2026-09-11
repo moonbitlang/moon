@@ -19,6 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
+use moonbuild::BuildMeta;
 use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
@@ -35,7 +36,7 @@ use crate::{
         canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
         package_supports_backend,
     },
-    rr_build::{self, BuildConfig, CalcUserIntentOutput},
+    rr_build::{self, CalcUserIntentOutput},
 };
 
 const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
@@ -204,8 +205,8 @@ pub(crate) fn run_prove(
     }
 
     rr_build::generate_all_pkgs_json(&build_meta)?;
-    let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
+    let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
     if !cli.quiet && !build_flags.output_json {
         let _ = print_prove_summary(project_root, &proof_reports);
     }
@@ -586,7 +587,7 @@ impl ProofReportSummary {
     }
 }
 
-fn planned_proof_reports(build_meta: &rr_build::BuildMeta) -> Vec<PlannedProofReport> {
+fn planned_proof_reports(build_meta: &BuildMeta) -> Vec<PlannedProofReport> {
     let mut paths_by_target =
         std::collections::HashMap::<BuildTarget, (Option<PathBuf>, Option<PathBuf>)>::new();
     for (artifact, paths) in &build_meta.artifacts {
