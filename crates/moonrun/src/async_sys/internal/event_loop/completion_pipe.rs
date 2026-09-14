@@ -21,6 +21,8 @@ use crate::resource::ResourceRef;
 
 /// A Worker's acquired async pipe writer, independent of the guest scheduler.
 /// Each successful notification appends one little-endian i32 record.
+/// The Worker checks teardown before calling `notify`; only retries or pending
+/// I/O need to check again through `is_stopping`.
 #[derive(Debug)]
 pub(crate) struct PipeCompletionNotifier {
     writer: ResourceRef,
@@ -65,9 +67,6 @@ impl PipeCompletionNotifier {
         let fd = self.writer.as_file()?.as_raw_fd();
         let bytes = completion_id.to_le_bytes();
         loop {
-            if is_stopping() {
-                return Err(AsyncHostError::Inval);
-            }
             let n = unsafe { libc::write(fd, bytes.as_ptr().cast(), bytes.len()) };
             if n == bytes.len() as isize {
                 return Ok(());
@@ -77,24 +76,26 @@ impl PipeCompletionNotifier {
                 return Err(AsyncHostError::Io);
             }
             let errno = last_errno();
-            if errno == libc::EINTR {
-                continue;
-            }
-            if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
-                return Err(AsyncHostError::Native(errno));
-            }
-            let mut pollfd = libc::pollfd {
-                fd,
-                events: libc::POLLOUT,
-                revents: 0,
-            };
-            // Bound the wait so free_worker can stop delivery even when the
-            // reader is still open but no coroutine will ever drain it.
-            if unsafe { libc::poll(&mut pollfd, 1, 50) } < 0 {
-                let errno = last_errno();
-                if errno != libc::EINTR {
+            if errno != libc::EINTR {
+                if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
                     return Err(AsyncHostError::Native(errno));
                 }
+                let mut pollfd = libc::pollfd {
+                    fd,
+                    events: libc::POLLOUT,
+                    revents: 0,
+                };
+                // Bound the wait so free_worker can stop delivery even when the
+                // reader is still open but no coroutine will ever drain it.
+                if unsafe { libc::poll(&mut pollfd, 1, 50) } < 0 {
+                    let errno = last_errno();
+                    if errno != libc::EINTR {
+                        return Err(AsyncHostError::Native(errno));
+                    }
+                }
+            }
+            if is_stopping() {
+                return Err(AsyncHostError::Inval);
             }
         }
     }
@@ -113,9 +114,6 @@ impl PipeCompletionNotifier {
         use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
         use windows_sys::Win32::System::Threading::{ResetEvent, WaitForSingleObject};
 
-        if is_stopping() {
-            return Err(AsyncHostError::Inval);
-        }
         let writer = self.writer.as_file()?.as_raw_handle();
         let event = self.event.as_raw_handle();
         if unsafe { ResetEvent(event) } == 0 {

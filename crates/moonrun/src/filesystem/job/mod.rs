@@ -803,13 +803,6 @@ impl Job {
 }
 
 impl OpenJobResult {
-    pub(crate) fn published_resource_handle(&self) -> AsyncHostResult<u64> {
-        match &self.resource {
-            ResourcePublication::Published(handle) => Ok(*handle),
-            ResourcePublication::Unpublished(_) => Err(AsyncHostError::Inval),
-        }
-    }
-
     pub(crate) fn file_kind(&self) -> AsyncHostResult<i32> {
         self.stat
             .scalar(STAT_FILE_KIND)

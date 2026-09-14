@@ -28,14 +28,15 @@ use std::sync::mpsc;
 use slotmap::SecondaryMap;
 
 use super::{AsyncHostError, AsyncHostResult, HandleKey};
+#[cfg(test)]
+use crate::async_sys::internal::event_loop::thread_pool::WorkerCompletionDestination;
 use crate::async_sys::internal::event_loop::thread_pool::{
     self, CancellationOutcome, HostWorkerHandle, HostWorkerJob, HostWorkerJobResult,
-    WorkerCompletionDestination,
 };
 
 pub(super) struct InstanceWorkers {
-    workers: RefCell<SecondaryMap<HandleKey, HostWorkerHandle>>,
-    completed_sender: mpsc::Sender<HostWorkerJobResult>,
+    pub(super) workers: RefCell<SecondaryMap<HandleKey, HostWorkerHandle>>,
+    pub(super) completed_sender: mpsc::Sender<HostWorkerJobResult>,
     completed: mpsc::Receiver<HostWorkerJobResult>,
 }
 
@@ -57,28 +58,23 @@ impl InstanceWorkers {
         }
     }
 
-    pub(super) fn spawn(
+    #[cfg(test)]
+    pub(super) fn spawn_with_runner(
         &self,
         worker: HandleKey,
         init_job: HostWorkerJob,
         run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         completion: WorkerCompletionDestination,
-    ) -> AsyncHostResult<()> {
-        let mut workers = self.workers.borrow_mut();
-        if workers.contains_key(worker) {
-            return Err(AsyncHostError::Badf);
-        }
+    ) {
+        // Tests pause custom runners at specific lifecycle transitions.
         let completed = self.completed_sender.clone();
         let handle = thread_pool::spawn_worker(
             init_job,
             run_job,
-            move |result| {
-                let _ = completed.send(result);
-            },
+            move |result| completed.send(result).unwrap(),
             completion,
         );
-        workers.insert(worker, handle);
-        Ok(())
+        self.workers.borrow_mut().insert(worker, handle);
     }
 
     pub(super) fn wake(
@@ -117,16 +113,6 @@ impl InstanceWorkers {
             #[cfg(unix)]
             notifier,
         )
-    }
-
-    pub(super) fn free(&self, worker: HandleKey) -> AsyncHostResult<Option<HostWorkerJob>> {
-        let worker = self
-            .workers
-            .borrow_mut()
-            .remove(worker)
-            .ok_or(AsyncHostError::Badf)?;
-        let _ = thread_pool::cancel_worker(&worker);
-        Ok(thread_pool::free_worker(worker))
     }
 
     pub(super) fn try_recv_completed(&self) -> Result<HostWorkerJobResult, mpsc::TryRecvError> {
@@ -227,20 +213,18 @@ mod tests {
         let (started, worker_started) = mpsc::sync_channel(0);
         let (proceed, worker_may_proceed) = mpsc::sync_channel(0);
 
-        workers
-            .spawn(
-                worker,
-                worker_job,
-                move |job| {
-                    started.send(()).unwrap();
-                    worker_may_proceed.recv().unwrap();
-                    thread_pool::run_host_job(&mut job.job);
-                },
-                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
-                    completed.send(completion_id).unwrap()
-                })),
-            )
-            .unwrap();
+        workers.spawn_with_runner(
+            worker,
+            worker_job,
+            move |job| {
+                started.send(()).unwrap();
+                worker_may_proceed.recv().unwrap();
+                thread_pool::run_host_job(&mut job.job);
+            },
+            WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                completed.send(completion_id).unwrap()
+            })),
+        );
 
         worker_started.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(workers.cancel(worker), Ok(CancellationOutcome::RetryLater));
@@ -271,26 +255,22 @@ mod tests {
         let (first_sender, first_receiver) = mpsc::channel();
         let (second_sender, second_receiver) = mpsc::channel();
 
-        first
-            .spawn(
-                worker,
-                job(11, 101),
-                |_| {},
-                WorkerCompletionDestination::Default(Box::new(move |completion| {
-                    first_sender.send(completion).unwrap()
-                })),
-            )
-            .unwrap();
-        second
-            .spawn(
-                worker,
-                job(22, 202),
-                |_| {},
-                WorkerCompletionDestination::Default(Box::new(move |completion| {
-                    second_sender.send(completion).unwrap()
-                })),
-            )
-            .unwrap();
+        first.spawn_with_runner(
+            worker,
+            job(11, 101),
+            |_| {},
+            WorkerCompletionDestination::Default(Box::new(move |completion| {
+                first_sender.send(completion).unwrap()
+            })),
+        );
+        second.spawn_with_runner(
+            worker,
+            job(22, 202),
+            |_| {},
+            WorkerCompletionDestination::Default(Box::new(move |completion| {
+                second_sender.send(completion).unwrap()
+            })),
+        );
 
         assert_eq!(
             first_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
@@ -304,7 +284,9 @@ mod tests {
         );
         assert_eq!(first.try_recv_completed().unwrap().job_key, key(101));
         assert_eq!(second.try_recv_completed().unwrap().job_key, key(202));
-        assert!(first.free(worker).unwrap().is_none());
-        assert!(second.free(worker).unwrap().is_none());
+        for instance in [&first, &second] {
+            let worker = instance.workers.borrow_mut().remove(worker).unwrap();
+            assert!(thread_pool::free_worker(worker).is_none());
+        }
     }
 }
