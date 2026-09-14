@@ -40,6 +40,7 @@ pub use crate::moon_dir::{
 /// Reserved binary names that cannot be overwritten by user-installed packages.
 pub const RESERVED_BIN_NAMES: &[&str] = &[
     "moon",
+    "moonx",
     "moonc",
     "mooncake",
     "moondoc",

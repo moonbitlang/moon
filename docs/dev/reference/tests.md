@@ -63,6 +63,12 @@ metadata directly and does not require executable artifacts.
    final report is rendered either as compact text (default) or JSON lines (when
    `--test-failure-json` is on).
 
+Coverage uses the toolchain's `moon_cove_report` by default. Setting
+`MOON_COVE_REPORT_ENABLED=1` (or `true`) switches reporting to
+`moonrun <toolchain-root>/bin/moon_cove.wasm -- ...`, without registry access
+or a separate version selection. When this path is disabled,
+`MOON_COVE_REPORT_OVERRIDE` may select the legacy reporter executable.
+
 ## Expect / snapshot promotion loop
 
 > TODO: this behavior is suboptimal. See:
