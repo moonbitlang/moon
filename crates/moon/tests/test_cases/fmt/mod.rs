@@ -170,13 +170,13 @@ fn test_moon_fmt_extra_args() {
             ],
         ),
         expect![[r#"
-            moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md c d
+            moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md -- c d
             moon tool format-and-diff --old ./main/moon.pkg.json --new ./_build/wasm-gc/release/format/main/moon.pkg
             moon tool format-and-diff --old ./lib/moon.pkg.json --new ./_build/wasm-gc/release/format/lib/moon.pkg
             moon tool format-and-diff --old ./moon.mod.json --new ./_build/wasm-gc/release/format/moon.mod
-            moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt c d
-            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt c d
-            moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt c d
+            moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt -- c d
+            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt -- c d
+            moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt -- c d
         "#]],
     );
 }
