@@ -77,16 +77,6 @@ impl InstanceWorkers {
         self.workers.borrow_mut().insert(worker, handle);
     }
 
-    pub(super) fn wake(
-        &self,
-        worker: HandleKey,
-        job: HostWorkerJob,
-    ) -> AsyncHostResult<Option<HostWorkerJob>> {
-        let workers = self.workers.borrow();
-        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
-        Ok(thread_pool::wake_worker(worker, job))
-    }
-
     pub(super) fn enter_idle(&self, worker: HandleKey) -> AsyncHostResult<Option<HostWorkerJob>> {
         let workers = self.workers.borrow();
         let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
@@ -124,21 +114,7 @@ impl InstanceWorkers {
     }
 
     pub(super) fn destroy(&self) -> Vec<StoppedWorker> {
-        let worker_keys = self
-            .workers
-            .borrow()
-            .iter()
-            .map(|(key, _)| key)
-            .collect::<Vec<_>>();
-        let workers = worker_keys
-            .into_iter()
-            .filter_map(|key| {
-                self.workers
-                    .borrow_mut()
-                    .remove(key)
-                    .map(|worker| (key, worker))
-            })
-            .collect::<Vec<_>>();
+        let workers = self.workers.borrow_mut().drain().collect::<Vec<_>>();
 
         // Cancellation must fan out before any join: one slow Worker must not
         // prevent the remaining Workers from receiving their stop request.
