@@ -3817,8 +3817,13 @@ impl AsyncHost {
             let handles = self.handles.borrow();
             (handles.worker(worker_handle)?, handles.job(job_handle)?)
         };
-        let job = self.take_worker_job(completion_id, job_key)?;
-        let replaced_job = self.workers.wake(worker_key, job)?;
+        let replaced_job = {
+            // Resolve the Worker before consuming the one-shot Job.
+            let workers = self.workers.workers.borrow();
+            let worker = workers.get(worker_key).ok_or(AsyncHostError::Badf)?;
+            let job = self.take_worker_job(completion_id, job_key)?;
+            thread_pool::wake_worker(worker, job)
+        };
         if let Some(replaced_job) = replaced_job {
             self.restore_unrun_worker_job(replaced_job);
         }
@@ -6833,6 +6838,23 @@ mod tests {
         host.free_worker(worker).unwrap();
         let _ = std::fs::remove_file(displaced_path);
         let _ = std::fs::remove_file(queued_path);
+    }
+
+    #[test]
+    fn missing_worker_registration_preserves_ready_job() {
+        let host = default_host();
+        // Exercise registry lookup failure after the Handle itself validates.
+        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+
+        assert_eq!(
+            host.wake_worker(handle_from_key(worker_key), 42, job),
+            Err(AsyncHostError::Badf)
+        );
+        host.handles.borrow_mut().remove_worker_key(worker_key);
+        host.run_job(job).unwrap();
+        assert_eq!(host.with_job(job, |job| job.err()), Ok(0));
+        host.free_job(job).unwrap();
     }
 
     #[test]
