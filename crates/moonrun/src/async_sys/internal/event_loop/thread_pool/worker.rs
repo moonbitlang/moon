@@ -263,9 +263,14 @@ impl HostWorkerHandle {
                     WorkerCompletionDestination::Pipe(pipe) => {
                         // Delivery is outside the Job's cancellation scope;
                         // only Worker teardown interrupts a full pipe.
-                        let _ = pipe.notify(completion_id.as_i32(), &|| {
-                            worker_shared.state.lock().unwrap().terminating
-                        });
+                        // Reuse the state read above for the first write; the
+                        // notifier checks again only if delivery needs to wait
+                        // or retry. Teardown can race either check with a write.
+                        if !terminating {
+                            let _ = pipe.notify(completion_id.as_i32(), &|| {
+                                worker_shared.state.lock().unwrap().terminating
+                            });
+                        }
                     }
                 }
                 if terminating {
@@ -558,6 +563,53 @@ mod tests {
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(17));
         assert!(free_worker(worker).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminating_worker_publishes_job_without_writing_completion() {
+        use crate::async_sys::internal::fd_util;
+        use crate::resource::Resource;
+        use std::os::fd::AsRawFd;
+        use std::time::Duration;
+
+        let [reader, writer] = fd_util::stub::pipe(true, true).unwrap();
+        let reader = Resource::new(reader);
+        let writer =
+            PipeCompletionNotifier::new(Arc::new(Resource::async_pipe_writer(writer))).unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let (completed_tx, completed_rx) = mpsc::channel();
+        let worker = super::spawn_worker(
+            make_worker_job(7, 11),
+            move |_| {
+                started_tx.send(()).unwrap();
+                resume_rx.recv().unwrap();
+            },
+            move |job| completed_tx.send(job.job_key).unwrap(),
+            WorkerCompletionDestination::Pipe(writer),
+        );
+
+        started_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        // Teardown starts while the Job is running. Its result must still be
+        // published, but the Worker must skip notification once it sees this.
+        assert!(worker.wake(None).is_none());
+        resume_tx.send(()).unwrap();
+        assert_eq!(
+            completed_rx.recv_timeout(Duration::from_secs(3)).unwrap(),
+            make_job_key(11)
+        );
+        assert!(free_worker(worker).is_none());
+
+        let mut bytes = [0u8; 4];
+        let read = unsafe {
+            libc::read(
+                reader.as_file().unwrap().as_raw_fd(),
+                bytes.as_mut_ptr().cast(),
+                bytes.len(),
+            )
+        };
+        assert_eq!(read, 0, "expected EOF without a completion record");
     }
 
     #[cfg(unix)]

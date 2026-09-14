@@ -408,10 +408,6 @@ impl HandleTable {
         self.key(handle, HandleKind::Worker)
     }
 
-    fn remove_worker(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::Worker)
-    }
-
     fn remove_worker_key(&mut self, worker_key: HandleKey) {
         let mut keys = self.keys.borrow_mut();
         if keys.kind(worker_key) == Some(HandleKind::Worker) {
@@ -1339,23 +1335,16 @@ impl AsyncHost {
     fn publish_open_job_result(&self, key: HandleKey) -> AsyncHostResult<HostHandle> {
         let mut jobs = self.jobs.borrow_mut();
         let placeholder = ResourcePublication::Published(self.invalid_fd());
-        let file = {
-            let job = jobs.visible_job_mut(key)?;
-            let result = job.filesystem_mut()?.open_result_mut()?;
-            match std::mem::replace(&mut result.resource, placeholder) {
-                ResourcePublication::Published(fd) => {
-                    result.resource = ResourcePublication::Published(fd);
-                    return Ok(fd);
-                }
-                ResourcePublication::Unpublished(file) => file,
-            }
-        };
-
-        let fd = self.handles.borrow_mut().insert_resource(file);
         let job = jobs.visible_job_mut(key)?;
         let result = job.filesystem_mut()?.open_result_mut()?;
+        let fd = match std::mem::replace(&mut result.resource, placeholder) {
+            ResourcePublication::Published(fd) => fd,
+            ResourcePublication::Unpublished(file) => {
+                self.handles.borrow_mut().insert_resource(file)
+            }
+        };
         result.resource = ResourcePublication::Published(fd);
-        result.published_resource_handle()
+        Ok(fd)
     }
 
     /// Describe live async payloads without inspecting another domain's keys.
@@ -3789,31 +3778,16 @@ impl AsyncHost {
             .ok_or(AsyncHostError::Badf)?;
 
         let init_job = self.take_worker_job(completion_id, job_key)?;
-        let worker = self.handles.borrow_mut().insert(HandleKind::Worker);
         #[cfg(unix)]
-        {
-            self.spawn_worker_thread(
-                worker,
-                init_job,
-                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
-                    let _ = completion_notifier.notify(completion_id.as_i32());
-                })),
-            )?;
-        }
+        let completion = WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+            let _ = completion_notifier.notify(completion_id.as_i32());
+        }));
         #[cfg(windows)]
-        {
-            self.spawn_worker_thread(
-                worker,
-                init_job,
-                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
-                    let _ = poll::post_thread_pool_completion(
-                        &completion_target.port,
-                        completion_id.as_i32(),
-                    );
-                })),
-            )?;
-        }
-        Ok(handle_from_key(worker))
+        let completion = WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+            let _ =
+                poll::post_thread_pool_completion(&completion_target.port, completion_id.as_i32());
+        }));
+        Ok(self.spawn_worker_thread(init_job, completion))
     }
 
     pub(crate) fn spawn_worker_with_pipe(
@@ -3829,13 +3803,7 @@ impl AsyncHost {
         )?;
         let init_job =
             self.take_worker_job(WorkerCompletionId::from_abi(completion_id), job_key)?;
-        let worker = self.handles.borrow_mut().insert(HandleKind::Worker);
-        self.spawn_worker_thread(
-            worker,
-            init_job,
-            WorkerCompletionDestination::Pipe(notifier),
-        )?;
-        Ok(handle_from_key(worker))
+        Ok(self.spawn_worker_thread(init_job, WorkerCompletionDestination::Pipe(notifier)))
     }
 
     pub(crate) fn wake_worker(
@@ -3867,9 +3835,25 @@ impl AsyncHost {
     }
 
     pub(crate) fn free_worker(&self, worker_handle: u64) -> AsyncHostResult<()> {
-        let worker_key = self.handles.borrow().worker(worker_handle)?;
-        let replaced_job = self.workers.free(worker_key)?;
-        self.handles.borrow_mut().remove_worker(worker_handle)?;
+        // Remove both registrations together, then release the table borrows
+        // before cancellation or joining the Worker.
+        let worker = {
+            let handles = self.handles.borrow();
+            let mut keys = handles.keys.borrow_mut();
+            let worker_key = keys
+                .key(worker_handle, HandleKind::Worker)
+                .ok_or(AsyncHostError::Badf)?;
+            let worker = self
+                .workers
+                .workers
+                .borrow_mut()
+                .remove(worker_key)
+                .ok_or(AsyncHostError::Badf)?;
+            keys.remove(worker_key);
+            worker
+        };
+        let _ = thread_pool::cancel_worker(&worker);
+        let replaced_job = thread_pool::free_worker(worker);
         if let Some(replaced_job) = replaced_job {
             self.restore_unrun_worker_job(replaced_job);
         }
@@ -4311,20 +4295,25 @@ impl AsyncHost {
 
     fn spawn_worker_thread(
         &self,
-        worker: HandleKey,
         init_job: HostWorkerJob,
         completion: WorkerCompletionDestination,
-    ) -> AsyncHostResult<()> {
+    ) -> u64 {
         let filesystem = Arc::clone(&self.filesystem);
         let process_for_runner = self.process.clone();
-        self.workers.spawn(
-            worker,
+        let completed = self.workers.completed_sender.clone();
+        let handle = thread_pool::spawn_worker(
             init_job,
             move |worker_job| {
                 Self::run_policy_checked_job(&filesystem, &process_for_runner, &mut worker_job.job);
             },
+            move |result| {
+                let _ = completed.send(result);
+            },
             completion,
-        )
+        );
+        let worker = self.handles.borrow_mut().insert(HandleKind::Worker);
+        self.workers.workers.borrow_mut().insert(worker, handle);
+        handle_from_key(worker)
     }
 }
 
@@ -6445,20 +6434,18 @@ mod tests {
         let worker = handle_from_key(worker_key);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        host.workers
-            .spawn(
-                worker_key,
-                host.take_worker_job(WorkerCompletionId::from_abi(42), key)
-                    .unwrap(),
-                move |worker_job| {
-                    started_tx.send(()).unwrap();
-                    release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                    let error = thread_pool::with_cancellable_region(|| Ok(())).unwrap_err();
-                    worker_job.job.set_err(error.errno());
-                },
-                WorkerCompletionDestination::Pipe(notifier),
-            )
-            .unwrap();
+        host.workers.spawn_with_runner(
+            worker_key,
+            host.take_worker_job(WorkerCompletionId::from_abi(42), key)
+                .unwrap(),
+            move |worker_job| {
+                started_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                let error = thread_pool::with_cancellable_region(|| Ok(())).unwrap_err();
+                worker_job.job.set_err(error.errno());
+            },
+            WorkerCompletionDestination::Pipe(notifier),
+        );
 
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let retry_status = host.cancel_worker_with_retry(worker);
@@ -6664,24 +6651,20 @@ mod tests {
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
         let (finish_tx, finish_rx) = std::sync::mpsc::channel();
         let (completed_tx, completed_rx) = std::sync::mpsc::channel();
-        host.workers
-            .spawn(
-                worker_key,
-                host.take_worker_job(WorkerCompletionId::from_abi(42), key)
-                    .unwrap(),
-                move |worker_job| {
-                    started_tx.send(()).unwrap();
-                    release_rx.recv().unwrap();
-                    assert!(thread_pool::with_cancellable_region(|| Ok(())).is_err());
-                    ack_tx.send(()).unwrap();
-                    finish_rx.recv().unwrap();
-                    worker_job.job.set_ret(73);
-                },
-                WorkerCompletionDestination::Default(Box::new(move |_| {
-                    completed_tx.send(()).unwrap()
-                })),
-            )
-            .unwrap();
+        host.workers.spawn_with_runner(
+            worker_key,
+            host.take_worker_job(WorkerCompletionId::from_abi(42), key)
+                .unwrap(),
+            move |worker_job| {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                assert!(thread_pool::with_cancellable_region(|| Ok(())).is_err());
+                ack_tx.send(()).unwrap();
+                finish_rx.recv().unwrap();
+                worker_job.job.set_ret(73);
+            },
+            WorkerCompletionDestination::Default(Box::new(move |_| completed_tx.send(()).unwrap())),
+        );
 
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(host.cancel_worker_with_retry(worker), Ok(1));
@@ -6723,21 +6706,19 @@ mod tests {
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
         let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        host.workers
-            .spawn(
-                worker_key,
-                host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
-                    .unwrap(),
-                move |worker_job| {
-                    started_sender.send(worker_job.completion_id).unwrap();
-                    release_receiver.recv().unwrap();
-                    thread_pool::run_host_job(&mut worker_job.job);
-                },
-                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
-                    completion_sender.send(completion_id).unwrap()
-                })),
-            )
-            .unwrap();
+        host.workers.spawn_with_runner(
+            worker_key,
+            host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
+                .unwrap(),
+            move |worker_job| {
+                started_sender.send(worker_job.completion_id).unwrap();
+                release_receiver.recv().unwrap();
+                thread_pool::run_host_job(&mut worker_job.job);
+            },
+            WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                completion_sender.send(completion_id).unwrap()
+            })),
+        );
         let worker = handle_from_key(worker_key);
 
         assert_eq!(
@@ -6774,23 +6755,21 @@ mod tests {
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
         let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        host.workers
-            .spawn(
-                worker_key,
-                host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
-                    .unwrap(),
-                move |worker_job| {
-                    started_sender.send(worker_job.completion_id).unwrap();
-                    if worker_job.job_key == first_key {
-                        release_receiver.recv().unwrap();
-                    }
-                    thread_pool::run_host_job(&mut worker_job.job);
-                },
-                WorkerCompletionDestination::Default(Box::new(move |completion_id| {
-                    completion_sender.send(completion_id).unwrap()
-                })),
-            )
-            .unwrap();
+        host.workers.spawn_with_runner(
+            worker_key,
+            host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
+                .unwrap(),
+            move |worker_job| {
+                started_sender.send(worker_job.completion_id).unwrap();
+                if worker_job.job_key == first_key {
+                    release_receiver.recv().unwrap();
+                }
+                thread_pool::run_host_job(&mut worker_job.job);
+            },
+            WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+                completion_sender.send(completion_id).unwrap()
+            })),
+        );
         let worker = handle_from_key(worker_key);
 
         assert_eq!(
