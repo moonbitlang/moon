@@ -93,9 +93,14 @@ with the notified Job. The host also preserves an early wake from direct
 callers, as tested by `wake_during_running_job_is_not_lost`, but after the Worker
 advances, its cancellation status no longer describes the previous Job.
 
-Worker freeing follows native's termination wakeup and join. Notification
-publication no longer depends on guest consumption. Cancellation after a Run
-stops executing its guest event loop remains a correctness FIXME for teardown:
+Worker freeing follows native's termination wakeup and join. Internally, Job
+submission and stopping are separate operations: stopping returns any queued
+Job and permanently closes admission, while the active Job can finish. A later
+submission returns the unaccepted Job to its caller. Joining consumes the Rust
+Worker handle, so there is no usable handle without an owned thread. The guest
+imports remain unchanged. Notification publication no longer depends on guest
+consumption. Cancellation after a Run stops executing its guest event loop
+remains a correctness FIXME for teardown:
 a signal arriving before a blocking syscall may still require another attempt,
 and no guest remains to request it. The backport does not add a retry loop to
 `free_worker` or attempt to forcibly stop noncooperative computation.

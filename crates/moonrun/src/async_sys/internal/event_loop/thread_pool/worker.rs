@@ -127,21 +127,16 @@ struct HostWorkerShared {
 // MoonBit owns the pool scheduler. Each host worker handle owns one long-lived
 // OS thread and follows thread_pool.c's worker state machine: run current job,
 // publish completion, wait until MoonBit either assigns another job or parks it.
+// Joining consumes the handle, so every usable handle still owns its thread.
 pub(crate) struct HostWorkerHandle {
     shared: Arc<HostWorkerShared>,
-    thread: Option<JoinHandle<()>>,
+    thread: JoinHandle<()>,
 }
 
 impl std::fmt::Debug for HostWorkerHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HostWorkerHandle")
-            .field(
-                "alive",
-                &self
-                    .thread
-                    .as_ref()
-                    .is_some_and(|thread| !thread.is_finished()),
-            )
+            .field("alive", &!self.thread.is_finished())
             .field("state", &self.shared.state.lock().ok())
             .finish()
     }
@@ -285,21 +280,16 @@ impl HostWorkerHandle {
                     crate::async_sys::signal::restore_thread_pool_signal_mask(&parent_signal_mask);
             }
         }
-        Self {
-            shared,
-            thread: Some(thread),
-        }
+        Self { shared, thread }
     }
 
-    pub(crate) fn wake(&self, job: Option<HostWorkerJob>) -> Option<HostWorkerJob> {
+    /// Return any displaced queued Job, or the submitted Job if stopping.
+    pub(crate) fn submit(&self, job: HostWorkerJob) -> Option<HostWorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
-        // A missing job is only used by `free_worker`; keep it as an explicit
-        // termination state so a wake sent during `run_job` is still observed.
-        if job.is_none() {
-            state.terminating = true;
+        if state.terminating {
+            return Some(job);
         }
-        let previous_job = state.job.take();
-        state.job = job;
+        let previous_job = state.job.replace(job);
         #[cfg(unix)]
         if !state.running {
             state.cancel_override = state
@@ -307,17 +297,28 @@ impl HostWorkerHandle {
                 .as_ref()
                 .and_then(|job| job.job.cancellation_override());
         }
-        if state.job.is_some() {
-            #[cfg(unix)]
-            let idle = !state.running;
-            #[cfg(windows)]
-            let idle = matches!(state.running_cancel, RunningCancellation::Idle);
-            if idle {
-                self.shared.cancellation.start();
-            }
+        #[cfg(unix)]
+        let idle = !state.running;
+        #[cfg(windows)]
+        let idle = matches!(state.running_cancel, RunningCancellation::Idle);
+        if idle {
+            self.shared.cancellation.start();
         }
         self.shared.wakeup.notify_one();
         previous_job
+    }
+
+    /// Close admission and return any queued Job; the active Job finishes normally.
+    fn request_stop(&self) -> Option<HostWorkerJob> {
+        let mut state = self.shared.state.lock().unwrap();
+        state.terminating = true;
+        let pending = state.job.take();
+        #[cfg(unix)]
+        if !state.running {
+            state.cancel_override = None;
+        }
+        self.shared.wakeup.notify_one();
+        pending
     }
 
     pub(crate) fn enter_idle(&self) -> Option<HostWorkerJob> {
@@ -385,11 +386,8 @@ impl HostWorkerHandle {
             if let Some(cancel) = cancel {
                 return cancel.cancel();
             }
-            let Some(thread) = &self.thread else {
-                return Err(crate::async_host::AsyncHostError::Badf);
-            };
             unsafe {
-                libc::pthread_kill(thread.as_pthread_t(), libc::SIGUSR2);
+                libc::pthread_kill(self.thread.as_pthread_t(), libc::SIGUSR2);
             }
             Ok(if self.shared.cancellation.retry_enabled() {
                 CancellationOutcome::NeedWait
@@ -408,10 +406,7 @@ impl HostWorkerHandle {
                 crate::process::cancel_wait(&cancel)?;
                 return Ok(CancellationOutcome::NeedWait);
             }
-            let Some(thread) = &self.thread else {
-                return Err(AsyncHostError::Badf);
-            };
-            if unsafe { CancelSynchronousIo(thread.as_raw_handle()) } != 0 {
+            if unsafe { CancelSynchronousIo(self.thread.as_raw_handle()) } != 0 {
                 Ok(CancellationOutcome::NeedWait)
             } else {
                 let error = unsafe { GetLastError() };
@@ -424,16 +419,10 @@ impl HostWorkerHandle {
         }
     }
 
-    pub(crate) fn join(&mut self) -> Option<HostWorkerJob> {
-        let previous_job = if self.thread.is_some() {
-            self.wake(None)
-        } else {
-            None
-        };
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-        previous_job
+    pub(crate) fn join(self) -> Option<HostWorkerJob> {
+        let pending = self.request_stop();
+        let _ = self.thread.join();
+        pending
     }
 }
 
@@ -459,7 +448,7 @@ ported_fns! {
         worker: &HostWorkerHandle,
         job: HostWorkerJob,
     ) -> Option<HostWorkerJob> {
-        worker.wake(Some(job))
+        worker.submit(job)
     }
 
     #[ported(
@@ -485,7 +474,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_free_worker"
     )]
-    pub(crate) fn free_worker(mut worker: HostWorkerHandle) -> Option<HostWorkerJob> {
+    pub(crate) fn free_worker(worker: HostWorkerHandle) -> Option<HostWorkerJob> {
         worker.join()
     }
 }
@@ -593,7 +582,7 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         // Teardown starts while the Job is running. Its result must still be
         // published, but the Worker must skip notification once it sees this.
-        assert!(worker.wake(None).is_none());
+        assert!(worker.request_stop().is_none());
         resume_tx.send(()).unwrap();
         assert_eq!(
             completed_rx.recv_timeout(Duration::from_secs(3)).unwrap(),
@@ -1076,7 +1065,49 @@ mod tests {
     }
 
     #[test]
-    fn termination_wake_during_job_exits_after_completion() {
+    fn stopping_worker_returns_pending_job_and_rejects_submission() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            make_worker_job(1, 2),
+            move |_| {
+                started_sender.send(()).unwrap();
+                release_receiver.recv().unwrap();
+            },
+            move |job| completion_sender.send(job.job_key).unwrap(),
+        );
+
+        started_receiver.recv().unwrap();
+        let displaced = wake_worker(&worker, make_worker_job(3, 4));
+        let pending = worker.request_stop();
+        let rejected = wake_worker(&worker, make_worker_job(5, 6));
+        let stopped_again = worker.request_stop();
+
+        // Let the active Job finish and join before checking admission, so a
+        // failed assertion cannot leave its thread waiting for this test.
+        release_sender.send(()).unwrap();
+        let remaining = free_worker(worker);
+
+        assert!(displaced.is_none());
+        assert_eq!(
+            pending.as_ref().map(worker_job_summary),
+            Some((WorkerCompletionId::from_abi(3), make_job_key(4)))
+        );
+        assert_eq!(
+            rejected.as_ref().map(worker_job_summary),
+            Some((WorkerCompletionId::from_abi(5), make_job_key(6)))
+        );
+        assert!(stopped_again.is_none());
+        assert!(remaining.is_none());
+        assert_eq!(
+            completion_receiver.into_iter().collect::<Vec<_>>(),
+            [make_job_key(2)]
+        );
+    }
+
+    #[test]
+    fn stop_during_job_exits_after_completion() {
         let (started_sender, started_receiver) = mpsc::channel();
         let (release_sender, release_receiver) = mpsc::channel();
         let (completion_sender, completion_receiver) = mpsc::channel();
@@ -1093,25 +1124,15 @@ mod tests {
             started_receiver.recv().unwrap().0,
             WorkerCompletionId::from_abi(21)
         );
-        assert!(worker.wake(None).is_none());
+        assert!(worker.request_stop().is_none());
         release_sender.send(()).unwrap();
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(34));
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
-        while worker
-            .thread
-            .as_ref()
-            .is_some_and(|thread| !thread.is_finished())
-            && std::time::Instant::now() < deadline
-        {
+        while !worker.thread.is_finished() && std::time::Instant::now() < deadline {
             std::thread::yield_now();
         }
-        assert!(
-            worker
-                .thread
-                .as_ref()
-                .is_some_and(|thread| thread.is_finished())
-        );
+        assert!(worker.thread.is_finished());
         assert!(free_worker(worker).is_none());
     }
 
@@ -1135,12 +1156,13 @@ mod tests {
                 }),
                 wakeup: Condvar::new(),
             }),
-            thread: None,
+            thread: std::thread::spawn(|| {}),
         };
 
         assert!(matches!(
             worker.cancellation_target(),
             WorkerCancellationTarget::Thread
         ));
+        assert!(free_worker(worker).is_some());
     }
 }
