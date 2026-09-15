@@ -10,13 +10,10 @@ behavior can change.
 An explicit `.mbtx` path selects a standalone script before project discovery.
 It uses the script's imports and does not load the surrounding project. Exactly
 one path is accepted in this mode; package-wide testing does not discover scripts.
-The synthesized script package is always executable. `moon build` and `moon run`
-require a user `fn main`, while `moon test` accepts zero or one user main and
-uses the generated test entrypoint instead. Inline tests compile alongside the
-script. Doctests remain blackbox tests and import the inline-test compilation's
-interface and core, avoiding a separate source compilation that would require a
-user main. Linking selects the doctest package's driver, so neither the script's
-main nor its inline tests execute as a side effect of running doctests.
+The synthesized script package is always executable. Building, running, and
+testing it require a user `fn main`. Inline tests compile alongside the script;
+doctests remain blackbox tests and import its source compilation. Test targets
+use the generated test entrypoint and do not execute the script's main.
 Legacy standalone `.mbt` and `.mbt.md` tests retain their library package
 declaration and do not require a main.
 

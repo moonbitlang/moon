@@ -74,7 +74,7 @@ test "bench" (b : @bench.T) {{ assert_eq(check(), 0); b.bench(fn() {{ () }}) }}
 }
 
 #[test]
-fn standalone_test_allows_check_during_execution() {
+fn standalone_test_rejects_missing_main_before_execution() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("script.mbtx"),
@@ -85,7 +85,9 @@ fn standalone_test_allows_check_during_execution() {
         .env("MOON_TEST_CHECK_PATH", "script.mbtx")
         .args(["test", "script.mbtx", "--target", "js"])
         .assert()
-        .success();
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("Error: [4067] Missing main function in the main package.\n");
 }
 
 #[test]

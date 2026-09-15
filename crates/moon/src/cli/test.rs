@@ -315,8 +315,8 @@ pub(crate) struct TestSubcommand {
     /// Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
     ///
     /// An explicit `.mbtx` path tests only that script, even inside a project.
-    /// The script may omit `fn main`; tests use a generated entrypoint and do
-    /// not execute the script's main. Package-wide testing excludes `.mbtx` scripts.
+    /// The script must define `fn main`, but tests use a generated entrypoint
+    /// and do not execute the script's main. Package-wide testing excludes `.mbtx` scripts.
     /// Outside a project, a single `.mbt` or `.mbt.md` file can also be tested.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub path: Vec<PathBuf>,

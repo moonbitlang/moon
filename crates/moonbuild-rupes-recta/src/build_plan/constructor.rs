@@ -226,24 +226,13 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::BuildCore(target) => {
-                // Test compilations normally have no importers. Standalone
-                // doctests import the inline-test target and need its interface.
-                let has_dependents = self
-                    .input
-                    .pkg_rel
-                    .dep_graph
-                    .neighbors_directed(target, petgraph::Direction::Incoming)
-                    .next()
-                    .is_some();
                 let emits_mi = self
                     .res
                     .backend
                     .build_target_infos
                     .get(&target)
                     .is_some_and(|info| {
-                        info.check_mi_against.is_none()
-                            && !info.no_mi()
-                            && (!target.kind.is_test() || has_dependents)
+                        info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
                     });
                 if emits_mi {
                     self.res.artifacts.provide(

@@ -1,21 +1,18 @@
 use super::*;
 
 #[test]
-fn test_mbtx_test_graph_compiles_source_with_driver() {
+fn test_mbtx_requires_main() {
     let dir = TestDir::new_empty();
-    std::fs::write(
-        dir.join("script.mbtx"),
-        "import { \"moonbitlang/core/int\" }\ntest { assert_eq(@int.MAX_VALUE, 2147483647) }\n",
-    )
-    .unwrap();
-    crate::build_graph::assert(
-        moon_cmd(&dir).args(["test", "script.mbtx", "--target", "wasm", "--dry-run"]),
-        expect_file!["single_file_test/standalone.jsonl"],
-    );
+    std::fs::write(dir.join("script.mbtx"), "test { assert_eq(1, 1) }\n").unwrap();
+    moon_cmd(&dir)
+        .args(["test", "script.mbtx"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: [4067] Missing main function in the main package.\n");
 }
 
 #[test]
-fn test_mbtx_tests_accept_optional_main() {
+fn test_mbtx_runs_tests_without_running_main() {
     let dir = TestDir::new_empty();
     std::fs::write(
         dir.join("script.mbtx"),
@@ -37,42 +34,12 @@ test "maximum" {
     )
     .unwrap();
 
-    for with_main in [true, false] {
-        if !with_main {
-            let source = read(dir.join("script.mbtx"));
-            std::fs::write(
-                dir.join("script.mbtx"),
-                source.replace("fn main { println(\"script main must not run\") }", ""),
-            )
-            .unwrap();
-        }
+    for backend in ["wasm", "wasm-gc", "js", "native"] {
         moon_cmd(&dir)
-            .args(["check", "script.mbtx"])
-            .assert()
-            .success();
-        for backend in ["wasm", "wasm-gc", "js", "native"] {
-            moon_cmd(&dir)
-                .args(["test", "script.mbtx", "--target", backend])
-                .assert()
-                .success()
-                .stdout_eq("Total tests: 2, passed: 2, failed: 0.\n");
-        }
-        moon_cmd(&dir)
-            .args(["test", "script.mbtx", "--doc-index", "0"])
+            .args(["test", "script.mbtx", "--target", backend])
             .assert()
             .success()
-            .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
-        for command in ["build", "run"] {
-            let result = moon_cmd(&dir).args([command, "script.mbtx"]).assert();
-            if with_main {
-                result.success();
-            } else {
-                result.failure().stderr_eq(snapbox::str![[r#"
-Error: [4067] Missing main function in the main package.
-...
-"#]]);
-            }
-        }
+            .stdout_eq("Total tests: 2, passed: 2, failed: 0.\n");
     }
 }
 
