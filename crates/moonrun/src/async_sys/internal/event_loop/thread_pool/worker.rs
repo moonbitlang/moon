@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::JoinHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, HandleKey};
@@ -76,45 +76,52 @@ pub(crate) struct HostWorkerJobResult {
     pub(crate) job: Job,
 }
 
-#[cfg(windows)]
-#[derive(Debug)]
-// The worker removes its Job from `state` while running it, but cancellation
-// still needs to distinguish an idle worker from an active operation. Most
-// jobs are cancelled through the worker thread; process waits instead retain
-// the job's dedicated cancellation event until that operation returns.
-enum RunningCancellation {
-    Idle,
-    Active(Option<ResourceRef>),
-}
-
-#[cfg(windows)]
-pub(crate) enum WorkerCancellationTarget {
+#[derive(Debug, Clone)]
+enum WorkerCancellationTarget {
     Thread,
+    #[cfg(unix)]
+    Override(JobCancellation),
+    #[cfg(windows)]
     Resource(ResourceRef),
 }
 
 #[derive(Debug)]
+// This slot lives in the Worker's shared allocation. Keeping its Job inline
+// avoids another allocation and indirection for the queued payload.
+#[allow(clippy::large_enum_variant)]
+enum Admission {
+    Open(Option<HostWorkerJob>),
+    Closed,
+}
+
+#[derive(Debug)]
+enum Activity {
+    // No Job is executing; notification delivery may still be in progress.
+    Idle,
+    Running(WorkerCancellationTarget),
+}
+
+#[derive(Debug)]
 struct HostWorkerState {
-    job: Option<HostWorkerJob>,
-    // Rust moves the active Job out of this state. Retain only its optional
-    // native-shaped cancellation hook, and distinguish it from a queued Job
-    // whose hook must replace this one before that Job can start.
-    #[cfg(unix)]
-    cancel_override: Option<JobCancellation>,
-    #[cfg(windows)]
-    running_cancel: RunningCancellation,
-    #[cfg(unix)]
-    running: bool,
-    terminating: bool,
+    // Admission and execution are independent: closing returns queued work
+    // while preserving the active operation's cancellation target.
+    admission: Admission,
+    activity: Activity,
 }
 
 // A Worker chooses exactly one completion destination at spawn and retains it
 // for its lifetime. Cancellation checks the same destination used for delivery.
 pub(crate) enum WorkerCompletionDestination {
     // Async's Completion Source also supports cancellation retry notifications.
-    Default(Box<dyn Fn(WorkerCompletionId) + Send + Sync>),
+    #[cfg(unix)]
+    Default(Arc<ThreadPoolCompletionNotifier>),
+    #[cfg(windows)]
+    Default(super::super::poll::CompletionPort),
     // A supplied pipe carries only finished Job IDs.
     Pipe(PipeCompletionNotifier),
+    // Lifecycle tests can observe or pause notification after real publication.
+    #[cfg(test)]
+    Test(Box<dyn Fn(WorkerCompletionId) + Send + Sync>),
 }
 
 struct HostWorkerShared {
@@ -161,26 +168,17 @@ impl HostWorkerHandle {
     pub(crate) fn spawn(
         init_job: HostWorkerJob,
         mut run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        mut complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
+        completed: mpsc::Sender<HostWorkerJobResult>,
         completion: WorkerCompletionDestination,
     ) -> Self {
         #[cfg(unix)]
         init_worker_signal_handler();
-        #[cfg(unix)]
-        let init_cancel = init_job.job.cancellation_override();
-
         let shared = Arc::new(HostWorkerShared {
             completion,
             cancellation: WorkerCancellation::new(),
             state: Mutex::new(HostWorkerState {
-                job: Some(init_job),
-                #[cfg(unix)]
-                cancel_override: init_cancel,
-                #[cfg(windows)]
-                running_cancel: RunningCancellation::Idle,
-                #[cfg(unix)]
-                running: false,
-                terminating: false,
+                admission: Admission::Open(Some(init_job)),
+                activity: Activity::Idle,
             }),
             wakeup: Condvar::new(),
         });
@@ -196,22 +194,27 @@ impl HostWorkerHandle {
             loop {
                 let job = {
                     let mut state = worker_shared.state.lock().unwrap();
-                    while state.job.is_none() && !state.terminating {
+                    while matches!(state.admission, Admission::Open(None)) {
                         state = worker_shared.wakeup.wait(state).unwrap();
                     }
-                    let job = (!state.terminating).then(|| state.job.take()).flatten();
-                    #[cfg(unix)]
-                    {
-                        state.running = job.is_some();
-                        state.cancel_override =
-                            job.as_ref().and_then(|job| job.job.cancellation_override());
-                    }
-                    #[cfg(windows)]
-                    {
-                        state.running_cancel = match job.as_ref() {
-                            Some(job) => RunningCancellation::Active(job.cancel.clone()),
-                            None => RunningCancellation::Idle,
-                        };
+                    let job = match &mut state.admission {
+                        Admission::Open(job) => job.take(),
+                        Admission::Closed => None,
+                    };
+                    if let Some(job) = &job {
+                        // The payload moves onto the executing thread. Retain
+                        // only the target needed to cancel that operation.
+                        #[cfg(unix)]
+                        let target = job.job.cancellation_override().map_or(
+                            WorkerCancellationTarget::Thread,
+                            WorkerCancellationTarget::Override,
+                        );
+                        #[cfg(windows)]
+                        let target = job.cancel.clone().map_or(
+                            WorkerCancellationTarget::Thread,
+                            WorkerCancellationTarget::Resource,
+                        );
+                        state.activity = Activity::Running(target);
                     }
                     job
                 };
@@ -222,39 +225,40 @@ impl HostWorkerHandle {
                     .cancellation
                     .run(job.completion_id, || run_job(&mut job));
                 let completion_id = job.completion_id;
-                complete_job(HostWorkerJobResult {
+                let _ = completed.send(HostWorkerJobResult {
                     job_key: job.job_key,
                     job: job.job,
                 });
 
                 let terminating = {
                     let mut state = worker_shared.state.lock().unwrap();
-                    #[cfg(unix)]
-                    {
-                        state.running = false;
-                        state.cancel_override = state
-                            .job
-                            .as_ref()
-                            .and_then(|next_job| next_job.job.cancellation_override());
-                    }
-                    #[cfg(windows)]
-                    {
-                        state.running_cancel = RunningCancellation::Idle;
-                    }
+                    state.activity = Activity::Idle;
                     // Publish Job payload -> Waiting -> notify. A pending
                     // cancellation-retry event must never expose an unfinished
                     // payload as a completed Job.
                     worker_shared.cancellation.finish();
-                    if state.job.is_some() {
+                    if matches!(state.admission, Admission::Open(Some(_))) {
                         // An early wake from a direct caller advances cancellation
                         // to the next Job. Async's guest accepts the previous
                         // completion before waking us again.
                         worker_shared.cancellation.start();
                     }
-                    state.terminating
+                    matches!(state.admission, Admission::Closed)
                 };
                 match &worker_shared.completion {
-                    WorkerCompletionDestination::Default(notify) => notify(completion_id),
+                    #[cfg(unix)]
+                    WorkerCompletionDestination::Default(notifier) => {
+                        let _ = notifier.notify(completion_id.as_i32());
+                    }
+                    #[cfg(windows)]
+                    WorkerCompletionDestination::Default(port) => {
+                        let _ = super::super::poll::post_thread_pool_completion(
+                            port,
+                            completion_id.as_i32(),
+                        );
+                    }
+                    #[cfg(test)]
+                    WorkerCompletionDestination::Test(notify) => notify(completion_id),
                     WorkerCompletionDestination::Pipe(pipe) => {
                         // Delivery is outside the Job's cancellation scope;
                         // only Worker teardown interrupts a full pipe.
@@ -263,7 +267,10 @@ impl HostWorkerHandle {
                         // or retry. Teardown can race either check with a write.
                         if !terminating {
                             let _ = pipe.notify(completion_id.as_i32(), &|| {
-                                worker_shared.state.lock().unwrap().terminating
+                                matches!(
+                                    worker_shared.state.lock().unwrap().admission,
+                                    Admission::Closed
+                                )
                             });
                         }
                     }
@@ -286,22 +293,11 @@ impl HostWorkerHandle {
     /// Return any displaced queued Job, or the submitted Job if stopping.
     pub(crate) fn submit(&self, job: HostWorkerJob) -> Option<HostWorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
-        if state.terminating {
-            return Some(job);
-        }
-        let previous_job = state.job.replace(job);
-        #[cfg(unix)]
-        if !state.running {
-            state.cancel_override = state
-                .job
-                .as_ref()
-                .and_then(|job| job.job.cancellation_override());
-        }
-        #[cfg(unix)]
-        let idle = !state.running;
-        #[cfg(windows)]
-        let idle = matches!(state.running_cancel, RunningCancellation::Idle);
-        if idle {
+        let previous_job = match &mut state.admission {
+            Admission::Open(pending) => pending.replace(job),
+            Admission::Closed => return Some(job),
+        };
+        if matches!(state.activity, Activity::Idle) {
             self.shared.cancellation.start();
         }
         self.shared.wakeup.notify_one();
@@ -311,39 +307,36 @@ impl HostWorkerHandle {
     /// Close admission and return any queued Job; the active Job finishes normally.
     fn request_stop(&self) -> Option<HostWorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
-        state.terminating = true;
-        let pending = state.job.take();
-        #[cfg(unix)]
-        if !state.running {
-            state.cancel_override = None;
-        }
+        let pending = match std::mem::replace(&mut state.admission, Admission::Closed) {
+            Admission::Open(pending) => pending,
+            Admission::Closed => None,
+        };
         self.shared.wakeup.notify_one();
         pending
     }
 
     pub(crate) fn enter_idle(&self) -> Option<HostWorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
-        let job = state.job.take();
-        #[cfg(unix)]
-        if !state.running {
-            state.cancel_override = None;
+        match &mut state.admission {
+            Admission::Open(pending) => pending.take(),
+            Admission::Closed => None,
         }
-        job
     }
 
-    #[cfg(windows)]
-    pub(crate) fn cancellation_target(&self) -> WorkerCancellationTarget {
+    fn cancellation_target(&self) -> WorkerCancellationTarget {
         let state = self.shared.state.lock().unwrap();
-        match &state.running_cancel {
-            RunningCancellation::Active(Some(cancel)) => {
-                WorkerCancellationTarget::Resource(Arc::clone(cancel))
-            }
-            RunningCancellation::Active(None) => WorkerCancellationTarget::Thread,
-            // A queued Job is not yet the worker thread's current operation.
-            // Match native by targeting the thread; if cancellation races job
-            // startup, CancelSynchronousIo returns RetryLater and MoonBit
-            // retries after the worker publishes the Active target.
-            RunningCancellation::Idle => WorkerCancellationTarget::Thread,
+        match (&state.activity, &state.admission) {
+            (Activity::Running(target), _) => target.clone(),
+            // Unix overrides support cancellation before execution. Their
+            // queued Job is still present, so no second copy needs updating.
+            #[cfg(unix)]
+            (Activity::Idle, Admission::Open(Some(job))) => job.job.cancellation_override().map_or(
+                WorkerCancellationTarget::Thread,
+                WorkerCancellationTarget::Override,
+            ),
+            // Windows queues target the thread until the operation starts;
+            // CancelSynchronousIo can return RetryLater during that transition.
+            _ => WorkerCancellationTarget::Thread,
         }
     }
 
@@ -353,23 +346,34 @@ impl HostWorkerHandle {
         self.cancel_inner()
     }
 
+    /// The host validates registration lifetime; the Worker retains transport
+    /// ownership. Reinitializing the pool must not redirect an old Worker's retries.
+    #[cfg(unix)]
+    pub(crate) fn check_completion_source(
+        &self,
+        source: &Arc<ThreadPoolCompletionNotifier>,
+    ) -> AsyncHostResult<()> {
+        match &self.shared.completion {
+            WorkerCompletionDestination::Default(bound) if Arc::ptr_eq(bound, source) => Ok(()),
+            WorkerCompletionDestination::Default(_) => Err(AsyncHostError::Badf),
+            _ => Err(AsyncHostError::Inval),
+        }
+    }
+
     /// Inspect or cancel the current Job, not an earlier completion ID.
     /// The guest must accept completion before assigning the next Job; an
     /// early wake can advance this state before the old notification is read.
-    pub(crate) fn cancel_with_retry(
-        &self,
-        #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
-    ) -> AsyncHostResult<CancellationOutcome> {
+    pub(crate) fn cancel_with_retry(&self) -> AsyncHostResult<CancellationOutcome> {
         // Retry IDs belong to async's default completion source. A supplied
         // pipe carries finished Jobs only and cannot route those retries.
-        if matches!(self.shared.completion, WorkerCompletionDestination::Pipe(_)) {
+        let WorkerCompletionDestination::Default(_source) = &self.shared.completion else {
             return Err(AsyncHostError::Inval);
-        }
+        };
         if self.shared.cancellation.is_waiting() {
             return Ok(CancellationOutcome::JobFinished);
         }
         #[cfg(unix)]
-        self.shared.cancellation.enable_retry(&notifier);
+        self.shared.cancellation.enable_retry(_source);
         self.cancel_inner()
     }
 
@@ -379,11 +383,7 @@ impl HostWorkerHandle {
         }
         #[cfg(unix)]
         {
-            let cancel = {
-                let state = self.shared.state.lock().unwrap();
-                state.cancel_override.clone()
-            };
-            if let Some(cancel) = cancel {
+            if let WorkerCancellationTarget::Override(cancel) = self.cancellation_target() {
                 return cancel.cancel();
             }
             unsafe {
@@ -434,10 +434,10 @@ ported_fns! {
     pub(crate) fn spawn_worker(
         init_job: HostWorkerJob,
         run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
+        completed: mpsc::Sender<HostWorkerJobResult>,
         completion: WorkerCompletionDestination,
     ) -> HostWorkerHandle {
-        HostWorkerHandle::spawn(init_job, run_job, complete_job, completion)
+        HostWorkerHandle::spawn(init_job, run_job, completed, completion)
     }
 
     #[ported(
@@ -465,9 +465,8 @@ ported_fns! {
     )]
     pub(crate) fn cancel_worker_with_retry(
         worker: &HostWorkerHandle,
-        #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<CancellationOutcome> {
-        worker.cancel_with_retry(#[cfg(unix)] notifier)
+        worker.cancel_with_retry()
     }
 
     #[ported(
@@ -497,15 +496,16 @@ mod tests {
         run: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         complete: impl Fn(HostWorkerJobResult) + Send + Sync + 'static,
     ) -> HostWorkerHandle {
-        // Existing lifecycle tests observe completed jobs after notification.
-        let pending = Arc::new(Mutex::new(None));
-        let published = Arc::clone(&pending);
+        // Observe the real result channel after notification, so tests exercise
+        // the same publication order as production.
+        let (completed, results) = mpsc::channel();
+        let results = Mutex::new(results);
         super::spawn_worker(
             job,
             run,
-            move |job| *published.lock().unwrap() = Some(job),
-            WorkerCompletionDestination::Default(Box::new(move |_| {
-                complete(pending.lock().unwrap().take().unwrap())
+            completed,
+            WorkerCompletionDestination::Test(Box::new(move |_| {
+                complete(results.lock().unwrap().try_recv().unwrap())
             })),
         )
     }
@@ -575,7 +575,7 @@ mod tests {
                 started_tx.send(()).unwrap();
                 resume_rx.recv().unwrap();
             },
-            move |job| completed_tx.send(job.job_key).unwrap(),
+            completed_tx,
             WorkerCompletionDestination::Pipe(writer),
         );
 
@@ -585,7 +585,10 @@ mod tests {
         assert!(worker.request_stop().is_none());
         resume_tx.send(()).unwrap();
         assert_eq!(
-            completed_rx.recv_timeout(Duration::from_secs(3)).unwrap(),
+            completed_rx
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap()
+                .job_key,
             make_job_key(11)
         );
         assert!(free_worker(worker).is_none());
@@ -630,14 +633,12 @@ mod tests {
                 .unwrap();
                 job.job.set_ret(73);
             },
-            move |job| result_tx.send(job.job.ret()).unwrap(),
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            result_tx,
+            WorkerCompletionDestination::Default(completion),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            cancel_worker_with_retry(&worker),
             Ok(CancellationOutcome::NeedWait)
         );
         release_tx.send(()).unwrap();
@@ -662,7 +663,7 @@ mod tests {
             );
         }
         join.join().unwrap();
-        assert_eq!(result_rx.try_recv().unwrap(), 73);
+        assert_eq!(result_rx.try_recv().unwrap().job.ret(), 73);
         assert!(
             joined_without_fetch,
             "Worker join depended on guest draining the full pipe"
@@ -704,14 +705,12 @@ mod tests {
                     ret as i64
                 });
             },
-            move |job| result_tx.send(job.job.ret()).unwrap(),
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            result_tx,
+            WorkerCompletionDestination::Default(completion),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            cancel_worker_with_retry(&worker),
             Ok(CancellationOutcome::NeedWait)
         );
 
@@ -729,7 +728,7 @@ mod tests {
             "a retry is not job completion"
         );
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            cancel_worker_with_retry(&worker),
             Ok(CancellationOutcome::NeedWait)
         );
         release_tx.send(()).unwrap();
@@ -742,10 +741,8 @@ mod tests {
                 && notifier.fetch(&mut bytes).unwrap() == 4
             {
                 assert_eq!(i32::from_ne_bytes(bytes), 17);
-                if cancel_worker_with_retry(&worker, Arc::clone(&notifier)).unwrap()
-                    == CancellationOutcome::JobFinished
-                {
-                    result_at_completion = result_rx.try_recv().ok();
+                if cancel_worker_with_retry(&worker).unwrap() == CancellationOutcome::JobFinished {
+                    result_at_completion = result_rx.try_recv().ok().map(|result| result.job.ret());
                     finished = true;
                     break;
                 }
@@ -780,6 +777,7 @@ mod tests {
         let (signal_tx, signal_rx) = mpsc::channel();
         let (handled_tx, handled_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
+        let (completed, _results) = mpsc::channel();
         let worker = super::spawn_worker(
             make_worker_job(23, 29),
             move |_| {
@@ -797,14 +795,12 @@ mod tests {
                 .unwrap();
                 finish_rx.recv().unwrap();
             },
-            |_| {},
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            completed,
+            WorkerCompletionDestination::Default(completion),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            cancel_worker_with_retry(&worker),
             Ok(CancellationOutcome::NeedWait)
         );
         signal_tx.send(()).unwrap();
@@ -839,6 +835,7 @@ mod tests {
         let (release_tx, release_rx) = mpsc::channel();
         let (ack_tx, ack_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
+        let (completed, _results) = mpsc::channel();
         let worker = super::spawn_worker(
             make_worker_job(23, 29),
             move |_| {
@@ -852,10 +849,8 @@ mod tests {
                 ack_tx.send(()).unwrap();
                 finish_rx.recv().unwrap();
             },
-            |_| {},
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            completed,
+            WorkerCompletionDestination::Default(completion),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
@@ -1065,6 +1060,68 @@ mod tests {
     }
 
     #[test]
+    fn worker_protocol_preserves_jobs_across_admission_sequences() {
+        #[derive(Clone, Copy, Debug)]
+        enum Operation {
+            Submit,
+            Withdraw,
+            Stop,
+        }
+        let operations = [Operation::Submit, Operation::Withdraw, Operation::Stop];
+        for first in operations {
+            for second in operations {
+                for third in operations {
+                    let sequence = [first, second, third];
+                    let (started, running) = mpsc::channel();
+                    let (release, resume) = mpsc::channel();
+                    let (completed, results) = mpsc::channel();
+                    let worker = spawn_worker(
+                        make_worker_job(1, 1),
+                        move |job| {
+                            if job.job_key == make_job_key(1) {
+                                started.send(()).unwrap();
+                                resume.recv().unwrap();
+                            }
+                        },
+                        move |job| completed.send(job.job_key).unwrap(),
+                    );
+                    running.recv().unwrap();
+
+                    let mut submitted = Vec::new();
+                    let mut returned = Vec::new();
+                    for (index, operation) in sequence.into_iter().enumerate() {
+                        let job = match operation {
+                            Operation::Submit => {
+                                let key = index as u64 + 2;
+                                submitted.push(make_job_key(key));
+                                wake_worker(&worker, make_worker_job(index as i32 + 2, key))
+                            }
+                            Operation::Withdraw => worker_enter_idle(&worker),
+                            Operation::Stop => worker.request_stop(),
+                        };
+                        returned.extend(job.map(|job| job.job_key));
+                    }
+                    returned.extend(worker.request_stop().map(|job| job.job_key));
+                    release.send(()).unwrap();
+                    let unrun = free_worker(worker);
+
+                    // Each submitted Job must come back exactly once, regardless
+                    // of replacement, withdrawal, or when admission closed.
+                    submitted.sort();
+                    returned.sort();
+                    assert_eq!(returned, submitted, "{sequence:?}");
+                    assert!(unrun.is_none(), "{sequence:?}");
+                    assert_eq!(
+                        results.into_iter().collect::<Vec<_>>(),
+                        [make_job_key(1)],
+                        "only the active Job should execute: {sequence:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn stopping_worker_returns_pending_job_and_rejects_submission() {
         let (started_sender, started_receiver) = mpsc::channel();
         let (release_sender, release_receiver) = mpsc::channel();
@@ -1147,12 +1204,11 @@ mod tests {
         assert!(queued_job.cancel.is_some());
         let worker = HostWorkerHandle {
             shared: Arc::new(HostWorkerShared {
-                completion: WorkerCompletionDestination::Default(Box::new(|_| {})),
+                completion: WorkerCompletionDestination::Test(Box::new(|_| {})),
                 cancellation: WorkerCancellation::new(),
                 state: Mutex::new(HostWorkerState {
-                    job: Some(queued_job),
-                    running_cancel: RunningCancellation::Idle,
-                    terminating: false,
+                    admission: Admission::Open(Some(queued_job)),
+                    activity: Activity::Idle,
                 }),
                 wakeup: Condvar::new(),
             }),

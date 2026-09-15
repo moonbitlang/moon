@@ -44,12 +44,13 @@ The region mark remains atomic for access by the interrupting signal handler;
 cancellation status and retry mode remain atomic for access by the requesting
 thread. No reference counts are changed when entering or leaving a region.
 
-Native writes its shared Job result before setting `Waiting`. Moonrun preserves
-that order using its existing result channel: send the host-owned Job, set
-`Waiting`, then notify. This transfers Rust ownership within the same process;
-it does not copy result buffers. Before accepting completion, the host restores
-the result to its Job table. The guest wrapper copies output into Wasm memory
-when it subsequently requests that output.
+Native writes its shared Job result before setting `Waiting`. The Worker owns
+Moonrun's publication sequence: send the host-owned Job through a concrete result
+channel, set `Waiting`, then notify. Its runner supplies domain execution; result
+publication is implemented by the Worker itself. This transfers Rust ownership
+within the same process; it does not copy result buffers. Before accepting
+completion, the host restores the result to its Job table. The guest wrapper
+copies output into Wasm memory when it subsequently requests that output.
 
 Unix notification transport deliberately differs from native's pipe of IDs.
 Ordinary completion IDs stay in a host FIFO queue. Each Worker that enables
@@ -88,6 +89,16 @@ disables further retry publication, but cannot retract a pending retry or one
 already being published by a signal handler. A guest that has enabled retries
 must still check completion before accepting those notifications.
 
+A Worker binds its default Completion endpoint when it is created. On Unix,
+finished notifications and cancellation retries use that same endpoint. The
+Async Host validates that it is still the registered source before requesting
+a retry check. Closing the source or destroying its poll makes that check return
+`Badf`, even if a new pool source has since been initialized. Reinitialization
+does not rebind existing Workers. Their owned results remain readable, and
+legacy cancellation and freeing remain available. Windows keeps its bound IOCP
+destination and existing cancellation behavior; supplied pipes never carry
+cancellation retries.
+
 The completion check describes the Worker's current Job; the import takes no
 Job ID. Async's `EventLoop::handle_completed_job` accepts the previous completion
 before calling `worker.wake` for the next Job. Pending Jobs stay in the guest's
@@ -95,6 +106,14 @@ queue until then. This sequencing keeps the checked Worker state associated
 with the notified Job. The host also preserves an early wake from direct
 callers, as tested by `wake_during_running_job_is_not_lost`, but after the Worker
 advances, its cancellation status no longer describes the previous Job.
+
+The Worker's scheduling mutex protects two independent facts: admission is
+`Open` with at most one queued Job, or `Closed`; activity is `Idle` or `Running`
+with the active cancellation target. Closing admission returns queued work
+without changing the active target. An idle Worker's queued Unix override is
+derived from its Job, while Windows targets the thread until execution starts.
+`Idle` means no Job is executing: notification delivery can still be in progress.
+Cancellation acknowledgement retains its separate signal-safe atomic protocol.
 
 Worker freeing follows native's termination wakeup and join. Internally, Job
 submission and stopping are separate operations: stopping returns any queued
