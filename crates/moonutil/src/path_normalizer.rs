@@ -18,11 +18,14 @@
 
 use std::path::{Path, PathBuf};
 
+use relative_path::PathExt;
+
 use crate::{MOON_HOME, binaries::configured_binary_overrides, moon_dir::toolchain_root};
 
 /// Best-effort privacy and stability normalization for dry-run paths.
 pub struct PathNormalizer {
     project_root: Option<PathBuf>,
+    relative_paths: Vec<(String, String)>,
     override_aliases: Vec<(String, String)>,
     current_program_alias: Option<(String, String)>,
     show_toolchain_root: bool,
@@ -71,12 +74,37 @@ impl PathNormalizer {
 
         PathNormalizer {
             project_root: dunce::canonicalize(source_dir).ok(),
+            relative_paths: Vec::new(),
             override_aliases,
             current_program_alias,
             show_toolchain_root,
             toolchain_root: Self::display_path(&toolchain_root),
             moon_home: Self::display_path(&moon_home),
         }
+    }
+
+    /// Display selected input/output paths relative to `base`, including paths
+    /// outside it. Only complete path arguments are rewritten; arbitrary command
+    /// arguments and unrelated paths retain the usual masking behavior.
+    pub fn with_relative_paths<'a>(
+        mut self,
+        base: &Path,
+        paths: impl IntoIterator<Item = &'a Path>,
+    ) -> Self {
+        let base = dunce::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
+        self.relative_paths
+            .extend(paths.into_iter().filter_map(|path| {
+                // Paths on different Windows drives cannot be made relative.
+                let relative = path.relative_to(&base).ok()?.normalize();
+                let relative = match relative.as_str() {
+                    "" => ".".to_owned(),
+                    ".." => "..".to_owned(),
+                    value if value.starts_with("../") => value.to_owned(),
+                    value => format!("./{value}"),
+                };
+                Some((Self::display_path(path), relative))
+            }));
+        self
     }
 
     pub fn normalize_command(&self, command: &str) -> String {
@@ -136,6 +164,9 @@ impl PathNormalizer {
     pub fn normalize_command_arg(&self, value: &str) -> String {
         let value = value.replace('\\', "/");
         let value = Self::exact_alias(&self.override_aliases, &value).unwrap_or(value);
+        if let Some(relative) = Self::exact_alias(&self.relative_paths, &value) {
+            return relative;
+        }
         let value = if let Some(root) = &self.project_root {
             Self::replace_path_prefix(value, &Self::display_path(root), ".")
         } else {
@@ -148,6 +179,9 @@ impl PathNormalizer {
         let normalized = path.replace('\\', "/");
         if let Some(masked) = Self::exact_alias(&self.override_aliases, &normalized) {
             return self.mask_roots(masked);
+        }
+        if let Some(relative) = Self::exact_alias(&self.relative_paths, &normalized) {
+            return relative;
         }
         let path_obj = Path::new(path);
         if let Some(root) = &self.project_root
@@ -376,6 +410,49 @@ mod tests {
         assert_eq!(
             normalizer.normalize_command_program(&format!("{toolchain_spelling}/bin/moonc.exe")),
             "moonc"
+        );
+    }
+
+    #[test]
+    fn relativizes_only_selected_paths_including_missing_outputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let base = root.join("project/work");
+        std::fs::create_dir_all(&base).unwrap();
+        let paths = [
+            base.join("local.mbtx"),
+            root.join("project/build.mbtx"),
+            root.join("sibling scripts/build.mbtx"),
+            root.join("output/build.mbtx/format/build.mbtx"),
+        ];
+        let normalizer = PathNormalizer::from_paths(
+            &base,
+            root.join("toolchain"),
+            root.join("home"),
+            vec![],
+            None,
+        )
+        .with_relative_paths(&base, paths.iter().map(PathBuf::as_path));
+
+        for (path, expected) in paths.iter().zip([
+            "./local.mbtx",
+            "../build.mbtx",
+            "../../sibling scripts/build.mbtx",
+            "../../output/build.mbtx/format/build.mbtx",
+        ]) {
+            let path = path.to_string_lossy();
+            assert_eq!(normalizer.normalize_command_arg(&path), expected);
+            assert_eq!(normalizer.normalize_path(&path), expected);
+        }
+        let unrelated = PathNormalizer::display_path(&root.join("unselected.mbtx"));
+        assert_eq!(normalizer.normalize_command_arg(&unrelated), unrelated);
+        let literal = format!("--literal={}", PathNormalizer::display_path(&paths[2]));
+        assert_eq!(normalizer.normalize_command_arg(&literal), literal);
+        assert_eq!(
+            normalizer.normalize_command_program(&PathNormalizer::display_path(
+                &root.join("toolchain/bin/moonfmt")
+            )),
+            "moonfmt"
         );
     }
 

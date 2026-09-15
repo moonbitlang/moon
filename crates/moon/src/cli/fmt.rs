@@ -21,7 +21,9 @@ use std::{collections::HashSet, path::PathBuf};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::{FmtConfig, build_execution_plan_for_fmt_file};
-use moonutil::{command_output::CommandOutput, locks::lock_directory};
+use moonutil::{
+    command_output::CommandOutput, locks::lock_directory, path_normalizer::PathNormalizer,
+};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, plan_fmt};
@@ -104,7 +106,18 @@ fn run_fmt_rr(
             &script.file_path,
             &script.package_dirs.target_dir,
         )?;
-        plans.push((script.package_dirs, BuildInput::new(execution_plan, None)));
+        let normalizer = script_dry_run_root.as_deref().map(|root| {
+            PathNormalizer::new(root).with_relative_paths(
+                root,
+                std::iter::once(script.file_path.as_path())
+                    .chain(execution_plan.default_output_paths()),
+            )
+        });
+        plans.push((
+            script.package_dirs,
+            BuildInput::new(execution_plan, None),
+            normalizer,
+        ));
     }
 
     if cmd.path.is_empty() || !package_paths.is_empty() {
@@ -135,18 +148,23 @@ fn run_fmt_rr(
                 &dirs.project_manifest,
                 user_log,
             )?;
-            plans.push((dirs, build_input));
+            plans.push((dirs, build_input, None));
         }
     }
 
-    for (dirs, build_input) in plans {
+    for (dirs, build_input, normalizer) in plans {
         if cli.dry_run {
             output.write_result(|writer| {
-                rr_build::write_dry_run(
-                    writer,
-                    &build_input,
-                    script_dry_run_root.as_deref().unwrap_or(&dirs.source_dir),
-                )
+                if let Some(normalizer) = &normalizer {
+                    rr_build::write_dry_run_with_normalizer(
+                        writer,
+                        &build_input,
+                        &dirs.source_dir,
+                        normalizer,
+                    )
+                } else {
+                    rr_build::write_dry_run(writer, &build_input, &dirs.source_dir)
+                }
             })?;
             continue;
         }

@@ -69,7 +69,7 @@ mod dry_run;
 mod prebuild;
 #[cfg(test)]
 pub(crate) use dry_run::write_build_graph;
-pub(crate) use dry_run::{format_dry_run_command, write_dry_run};
+pub(crate) use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_with_normalizer};
 
 /// Synchronize dependencies and return resolved project data.
 /// This step does not acquire the target-directory lock.

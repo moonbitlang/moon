@@ -198,6 +198,76 @@ moonfmt ./control.mbt -w -o ./_build/wasm-gc/release/format/control.mbt
 }
 
 #[test]
+fn test_fmt_mbtx_dry_run_outside_current_directory() {
+    let dir = TestDir::new_empty();
+    std::fs::create_dir_all(dir.join("first/work")).unwrap();
+    std::fs::create_dir(dir.join("second")).unwrap();
+    for file in ["first/build.mbtx", "second/build.mbtx"] {
+        std::fs::write(dir.join(file), "fn main{}\n").unwrap();
+    }
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir.join("first/work"))
+        .args([
+            "fmt",
+            "--dry-run",
+            "../build.mbtx",
+            "../../second/build.mbtx",
+        ])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonfmt ../build.mbtx -w -o ../_build/build.mbtx/format/build.mbtx
+moonfmt ../../second/build.mbtx -w -o ../../second/_build/build.mbtx/format/build.mbtx
+
+"#]]);
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir.join("first/work"))
+        .args(["fmt", "--dry-run", "--check", "../../second/build.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon tool format-and-diff --old ../../second/build.mbtx --new ../../second/_build/build.mbtx/format/build.mbtx
+
+"#]]);
+}
+
+#[test]
+fn test_fmt_mbtx_dry_run_preserves_package_root() {
+    let dir = TestDir::new_empty();
+    std::fs::create_dir(dir.join("work")).unwrap();
+    std::fs::write(dir.join("moon.mod"), "name=\"test/fmt\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "\n").unwrap();
+    for file in ["build.mbtx", "control.mbt"] {
+        std::fs::write(dir.join(file), "fn main{}\n").unwrap();
+    }
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir.join("work"))
+        .args(["fmt", "--dry-run", ".."])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonfmt ./moon.pkg -w -o ./_build/wasm-gc/release/format/moon.pkg
+moonfmt ./control.mbt -w -o ./_build/wasm-gc/release/format/control.mbt
+
+"#]]);
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir.join("work"))
+        .args(["fmt", "--dry-run", "../build.mbtx", ".."])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonfmt ../build.mbtx -w -o ../_build/build.mbtx/format/build.mbtx
+moonfmt ./moon.pkg -w -o ./_build/wasm-gc/release/format/moon.pkg
+moonfmt ./control.mbt -w -o ./_build/wasm-gc/release/format/control.mbt
+
+"#]]);
+}
+
+#[test]
 fn test_fmt_path() {
     let dir = TestDir::new("fmt_path.in");
 

@@ -335,8 +335,10 @@ without changing the script.
 Package-wide formatting continues to exclude `.mbtx` files, and other file
 paths continue to select their containing package. Explicit script paths are
 validated before formatting begins, and repeated paths to the same script
-are formatted once. Dry runs involving scripts render paths relative to the
-invocation directory so scripts in different directories remain distinguishable.
+are formatted once. Script dry runs render input and output paths relative to the
+invocation directory, including `../` paths, so scripts in different directories
+remain distinguishable. Package plans retain project-relative paths even when
+combined with scripts. Paths on different Windows drives remain absolute.
 
 ## Module dependency management
 
