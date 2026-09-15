@@ -93,6 +93,8 @@ pub(crate) struct WasmConfig<'a> {
     pub module_name: Option<Cow<'a, str>>,
     /// Whether to enable WASI-oriented linking.
     pub wasi: bool,
+    /// Enable trial-deletion cycle collection for the linear-memory Wasm backend.
+    pub collect_ref_cycle: bool,
     /// The name of the exported WASM memory, if any.
     ///
     /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#exports%E2%91%A0
@@ -222,6 +224,9 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // WASM-specific config
         if self.target_backend.is_wasm() {
+            if self.target_backend == TargetBackend::Wasm && self.wasm_config.collect_ref_cycle {
+                args.push("-enable-trial-deletion".to_string());
+            }
             if let Some(module_name) = &self.wasm_config.module_name {
                 args.push("-wasm-module-name".to_string());
                 args.push(module_name.to_string());

@@ -27,12 +27,13 @@ Each compilation has one `BackendConfig` value:
 
 ```rust
 pub enum BackendConfig {
-    Wasm { use_wat: bool, wasi_link: bool },
+    Wasm { use_wat: bool, wasi_link: bool, collect_ref_cycle: bool },
     WasmGc { use_wat: bool },
     Js,
     Native {
         direct_object_candidate: Option<NativeTarget>,
         allocator: NativeAllocator,
+        collect_ref_cycle: bool,
         os: OperatingSystem,
         compiler_paths: CompilerPaths,
     },
@@ -46,9 +47,13 @@ pub enum BackendConfig {
 
 The command adapter captures the Native direct-object candidate from the host
 and environment. Native payload form is derived inside build planning from that
-explicit candidate, the profile, and requested packages, then stored in private
-Backend Plan metadata. The selected mode is not a `BackendConfig` input; both
-Native planning and lowering consume the one value stored in the plan.
+explicit candidate, cycle-collection setting, profile, and requested packages,
+then stored in private Backend Plan metadata. The selected mode is not a
+`BackendConfig` input; both Native planning and lowering consume the one value
+stored in the plan.
+`MOON_COLLECT_REF_CYCLE=1` is captured by the command adapter into the Wasm or
+Native configuration. Native planning selects generated C when it is enabled,
+because the direct object targets do not support cycle collection yet.
 Backend-specific metadata queries and action hydration belong to `BackendPlan`.
 The outer `BuildPlan` exposes artifact relationships and subplan composition;
 RR lowering borrows its backend subplan to read the selected mode and hydrate

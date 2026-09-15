@@ -40,6 +40,7 @@ pub enum BackendConfig {
     Wasm {
         use_wat: bool,
         wasi_link: bool,
+        collect_ref_cycle: bool,
     },
     WasmGc {
         use_wat: bool,
@@ -50,6 +51,8 @@ pub enum BackendConfig {
         /// Planning may still select generated C based on profile and packages.
         direct_object_candidate: Option<NativeTarget>,
         allocator: NativeAllocator,
+        /// Enable cycle collection through the generated-C runtime.
+        collect_ref_cycle: bool,
         /// Supplied by command orchestration; RR does not infer the host OS.
         os: OperatingSystem,
         compiler_paths: CompilerPaths,
@@ -169,6 +172,18 @@ impl BackendConfig {
         match self {
             Self::Native { allocator, .. } | Self::Llvm { allocator, .. } => Some(*allocator),
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
+        }
+    }
+
+    pub(crate) fn collect_ref_cycle(&self) -> bool {
+        match self {
+            Self::Wasm {
+                collect_ref_cycle, ..
+            }
+            | Self::Native {
+                collect_ref_cycle, ..
+            } => *collect_ref_cycle,
+            Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => false,
         }
     }
 
