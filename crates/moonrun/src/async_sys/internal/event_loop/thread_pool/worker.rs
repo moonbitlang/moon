@@ -52,20 +52,14 @@ pub(crate) struct HostWorkerJob {
     pub(crate) completion_id: WorkerCompletionId,
     pub(crate) job_key: HandleKey,
     pub(crate) job: Job,
-    #[cfg(windows)]
-    cancel: Option<ResourceRef>,
 }
 
 impl HostWorkerJob {
     pub(crate) fn new(completion_id: WorkerCompletionId, job_key: HandleKey, job: Job) -> Self {
-        #[cfg(windows)]
-        let cancel = job.cancellation_resource();
         Self {
             completion_id,
             job_key,
             job,
-            #[cfg(windows)]
-            cancel,
         }
     }
 }
@@ -210,7 +204,7 @@ impl HostWorkerHandle {
                             WorkerCancellationTarget::Override,
                         );
                         #[cfg(windows)]
-                        let target = job.cancel.clone().map_or(
+                        let target = job.job.cancellation_resource().map_or(
                             WorkerCancellationTarget::Thread,
                             WorkerCancellationTarget::Resource,
                         );
@@ -315,7 +309,8 @@ impl HostWorkerHandle {
         pending
     }
 
-    pub(crate) fn enter_idle(&self) -> Option<HostWorkerJob> {
+    /// Withdraw queued work without changing the active operation.
+    fn withdraw_pending(&self) -> Option<HostWorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
         match &mut state.admission {
             Admission::Open(pending) => pending.take(),
@@ -456,7 +451,7 @@ ported_fns! {
         original = "moonbitlang_async_worker_enter_idle"
     )]
     pub(crate) fn worker_enter_idle(worker: &HostWorkerHandle) -> Option<HostWorkerJob> {
-        worker.enter_idle()
+        worker.withdraw_pending()
     }
 
     #[ported(
@@ -951,7 +946,7 @@ mod tests {
             make_job_key(4),
             ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
-        assert!(queued_job.cancel.is_some());
+        assert!(queued_job.job.cancellation_resource().is_some());
         assert!(wake_worker(&worker, queued_job).is_none());
         assert!(matches!(
             worker.cancellation_target(),
@@ -1201,7 +1196,7 @@ mod tests {
             make_job_key(4),
             ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
-        assert!(queued_job.cancel.is_some());
+        assert!(queued_job.job.cancellation_resource().is_some());
         let worker = HostWorkerHandle {
             shared: Arc::new(HostWorkerShared {
                 completion: WorkerCompletionDestination::Test(Box::new(|_| {})),
