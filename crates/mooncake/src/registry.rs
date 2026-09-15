@@ -38,6 +38,9 @@ use semver::Version;
 #[derive(Debug, Clone, Default)]
 pub struct RegistryVersionInfo {
     pub deps: IndexMap<String, SourceDependencyInfo>,
+    /// Advisory only: deprecated releases remain eligible for version selection.
+    pub yanked: bool,
+    pub yanked_reason: Option<String>,
 }
 
 pub trait Registry {

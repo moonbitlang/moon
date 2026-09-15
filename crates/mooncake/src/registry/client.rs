@@ -51,6 +51,10 @@ struct RegistryIndexEntry {
     version: Option<String>,
     deps: Option<IndexMap<String, SourceDependencyInfo>>,
     checksum: Option<String>,
+    #[serde(default)]
+    yanked: bool,
+    #[serde(rename = "yanked_reason")]
+    yanked_reason: Option<String>,
 }
 
 struct RegistryEndpoints {
@@ -576,6 +580,8 @@ impl super::Registry for RegistryClient {
                     Version::parse(v)?,
                     RegistryVersionInfo {
                         deps: entry.deps.unwrap_or_default(),
+                        yanked: entry.yanked,
+                        yanked_reason: entry.yanked_reason,
                     },
                 );
             }
@@ -1702,5 +1708,128 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(home.root());
+    }
+
+    #[test]
+    fn deprecated_dependencies_warn_after_mvs_selection() {
+        use crate::registry::mock::create_mock_module;
+        use crate::resolver::{ResolveConfig, resolve_with_default_env_and_resolver};
+        use moonutil::resolution::{ModuleSource, ResolvedModule, ResolvedRootModules};
+        use serde_json::json;
+        let dir = tempfile::tempdir().unwrap();
+        let home = MoonHomeLayout::new(dir.path().to_owned());
+        for (name, releases) in [
+            (
+                "dep/direct",
+                vec![json!({"version": "1.0.0", "yanked": true,
+                    "yanked_reason": "Use\n  \u{1b}[31mdep/replacement\u{1b}[0m.  See its migration guide.\u{1b}]52;c;aWdub3JlZA==\u{7}"})],
+            ),
+            (
+                "dep/left",
+                vec![json!({"version": "1.0.0", "deps": {"dep/transitive": "1.0.0"}})],
+            ),
+            (
+                "dep/right",
+                vec![json!({"version": "1.0.0", "deps": {
+                    "dep/transitive": "1.0.0", "dep/upgraded": "1.1.0"
+                }})],
+            ),
+            (
+                "dep/transitive",
+                vec![
+                    json!({"version": "1.0.0", "yanked": true}),
+                    json!({"version": "1.1.0", "yanked": false}),
+                ],
+            ),
+            (
+                "dep/upgraded",
+                vec![
+                    json!({"version": "1.0.0", "yanked": true,
+                        "deps": {"dep/unused": "1.0.0"}}),
+                    json!({"version": "1.1.0", "yanked": false,
+                        "yanked_reason": "A stale reason is not a deprecation."}),
+                ],
+            ),
+            (
+                "dep/unused",
+                vec![json!({"version": "1.0.0", "yanked": true})],
+            ),
+            (
+                "dep/local",
+                vec![json!({"version": "1.0.0", "yanked": true})],
+            ),
+        ] {
+            let index = home.registry_index_file(&name.into());
+            std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+            std::fs::write(
+                index,
+                releases
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .unwrap();
+        }
+        let registry = RegistryClient::with_home(
+            RegistryConfig {
+                api: String::new(),
+                index: String::new(),
+                download: String::new(),
+                symbols: None,
+                legacy_asset_urls: false,
+            },
+            home,
+        );
+        let mut roots = ResolvedRootModules::with_key();
+        for (name, deps) in [
+            (
+                "app/a",
+                vec![
+                    ("dep/direct", "1.0.0"),
+                    ("dep/left", "1.0.0"),
+                    ("dep/upgraded", "1.0.0"),
+                    ("dep/local", "1.0.0"),
+                ],
+            ),
+            ("app/b", vec![("dep/right", "1.0.0")]),
+            ("dep/local", vec![]),
+        ] {
+            let module = Arc::new(create_mock_module(name, "1.0.0", deps));
+            let source = ModuleSource::from_local_module(&module, &dir.path().join(name));
+            roots.insert(ResolvedModule::new(source, module));
+        }
+        let config = ResolveConfig {
+            registry: &registry,
+            inject_std: false,
+        };
+        for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
+            let (user_log, capture) = UserLog::captured(level);
+            let resolved =
+                resolve_with_default_env_and_resolver(&config, roots.clone(), &user_log).unwrap();
+            let selected = resolved
+                .all_modules()
+                .map(|source| (source.name().to_string(), source.version().to_string()))
+                .collect::<HashMap<_, _>>();
+            assert_eq!(selected["dep/transitive"], "1.0.0");
+            assert_eq!(selected["dep/upgraded"], "1.1.0");
+            assert!(!selected.contains_key("dep/unused"));
+            let warnings = capture
+                .take()
+                .into_iter()
+                .map(|entry| format!("{}\n", entry.message))
+                .collect::<String>();
+            if level == log::LevelFilter::Warn {
+                expect_test::expect![[r#"
+                    Dependency `dep/direct@1.0.0` is deprecated: Use
+                      dep/replacement.  See its migration guide.
+                    Dependency `dep/transitive@1.0.0` is deprecated.
+                      required through app/a@1.0.0 -> dep/left@1.0.0 -> dep/transitive@1.0.0
+                "#]]
+                .assert_eq(&warnings);
+            } else {
+                assert_eq!(warnings, "");
+            }
+        }
     }
 }
