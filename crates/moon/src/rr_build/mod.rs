@@ -349,6 +349,7 @@ pub(crate) fn prepare_resolved_build(
             use_wat: build_flags.output_wat,
             wasi_link: cli.unstable_feature.wasi_link
                 && std::env::var("MOON_WASI_LINK").as_deref() != Ok("0"),
+            new_allocator: std::env::var("MOON_WASM_NEW_ALLOCATOR").as_deref() == Ok("1"),
         },
         TargetBackend::WasmGC => BackendConfig::WasmGc {
             use_wat: build_flags.output_wat,

@@ -147,6 +147,7 @@ mod tests {
             BackendConfig::Wasm {
                 use_wat: false,
                 wasi_link: false,
+                new_allocator: false,
             },
             BackendConfig::WasmGc { use_wat: false },
             BackendConfig::Js,

@@ -21,6 +21,71 @@ use moonutil::constants::BUILD_DIR;
 use super::*;
 
 #[test]
+fn test_wasm_new_allocator() {
+    let dir = TestDir::new("backend_config");
+
+    for (args, backend, value) in [
+        (vec!["build"], "wasm", None),
+        (vec!["build"], "wasm", Some("0")),
+        (vec!["build"], "wasm", Some("true")),
+        (vec!["build"], "wasm", Some("1")),
+        (vec!["build", "--output-wat"], "wasm", Some("1")),
+        (vec!["run", "main"], "wasm", Some("1")),
+        (vec!["test"], "wasm", Some("1")),
+        (vec!["bench"], "wasm", Some("1")),
+        (vec!["build"], "wasm-gc", Some("1")),
+        (vec!["build"], "js", Some("1")),
+    ] {
+        let graph_path = dir.join("allocator-graph.jsonl");
+        let mut command = moon_cmd(&dir)
+            .args(&args)
+            .args(["--target", backend, "--dry-run"])
+            .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph_path);
+        command = match value {
+            Some(value) => command.env("MOON_WASM_NEW_ALLOCATOR", value),
+            None => command.env_remove("MOON_WASM_NEW_ALLOCATOR"),
+        };
+        command.assert().success();
+
+        // Inspect every action: the allocator belongs only on link-core, and
+        // must reach library and test links as well as executable links.
+        let graph = std::fs::read_to_string(&graph_path).unwrap();
+        let mut link_count = 0;
+        for line in graph.lines() {
+            let node: serde_json::Value = serde_json::from_str(line).unwrap();
+            let Some(command) = node["command"].as_str() else {
+                continue;
+            };
+            let argv = shlex::split(command).expect("valid command arguments");
+            let is_link = argv.get(1).is_some_and(|arg| arg == "link-core");
+            link_count += usize::from(is_link);
+            let allocator = argv.iter().position(|arg| arg == "-allocator");
+            let enabled = is_link && backend == "wasm" && value == Some("1");
+            assert_eq!(
+                allocator.is_some(),
+                enabled,
+                "{args:?}, target={backend}, env={value:?}: {command}"
+            );
+            if let Some(index) = allocator {
+                assert_eq!(argv.get(index + 1).map(String::as_str), Some("tlsf-mbt"));
+            }
+        }
+        assert!(link_count > 0, "{args:?} should include linking");
+    }
+}
+
+#[test]
+fn test_wasm_new_allocator_run() {
+    let dir = TestDir::new("backend_config");
+    moon_cmd(&dir)
+        .args(["run", "main", "--target", "wasm"])
+        .env("MOON_WASM_NEW_ALLOCATOR", "1")
+        .assert()
+        .success()
+        .stdout_eq("Hello, world!\n");
+}
+
+#[test]
 fn test_export_memory_name() {
     let dir = TestDir::new("export_memory.in");
 

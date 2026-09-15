@@ -93,6 +93,8 @@ pub(crate) struct WasmConfig<'a> {
     pub module_name: Option<Cow<'a, str>>,
     /// Whether to enable WASI-oriented linking.
     pub wasi: bool,
+    /// Whether to select the MoonBit TLSF allocator for linear-memory Wasm.
+    pub new_allocator: bool,
     /// The name of the exported WASM memory, if any.
     ///
     /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#exports%E2%91%A0
@@ -232,6 +234,11 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
             // aliases to that same memory instead of requiring multi-memory.
             if self.wasm_config.wasi {
                 args.push("-wasi".to_string());
+            }
+
+            if self.wasm_config.new_allocator {
+                args.push("-allocator".to_string());
+                args.push("tlsf-mbt".to_string());
             }
 
             // Export memory name

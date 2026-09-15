@@ -27,7 +27,7 @@ Each compilation has one `BackendConfig` value:
 
 ```rust
 pub enum BackendConfig {
-    Wasm { use_wat: bool, wasi_link: bool },
+    Wasm { use_wat: bool, wasi_link: bool, new_allocator: bool },
     WasmGc { use_wat: bool },
     Js,
     Native {
