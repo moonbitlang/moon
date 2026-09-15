@@ -549,6 +549,16 @@ pub(super) fn register_core_imports<'s>(
         core_import::current_exe,
         ()
     );
+    register_async_import!(
+        helper,
+        obj,
+        scope,
+        context_ptr,
+        "env/current_exe_dir",
+        u64,
+        core_import::current_exe_dir,
+        ()
+    );
 }
 
 #[cfg(feature = "v8")]
@@ -557,6 +567,10 @@ mod core_import {
 
     pub(super) fn current_exe(context: &mut ImportContext<'_, '_>) -> u64 {
         core_api::current_exe(context.runtime())
+    }
+
+    pub(super) fn current_exe_dir(context: &mut ImportContext<'_, '_>) -> u64 {
+        core_api::current_exe_dir(context.runtime())
     }
 }
 

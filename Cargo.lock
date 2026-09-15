@@ -2069,6 +2069,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "dunce",
  "escargot",
  "libc",
  "libsqlite3-sys",

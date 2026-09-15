@@ -217,6 +217,15 @@ the moonrun process, not the guest wasm module. The guest contract should be:
    invalid handle and set async errno on failure. The guest copies the UTF-16
    units into a MoonBit `String` and frees the handle using the existing async
    C-buffer API.
+7. `current_exe_dir` returns the parent of the same stored executable path,
+   using the same handle and error convention. It performs no new filesystem
+   lookup and never falls back to the current working directory. An unavailable
+   origin, missing parent, or unrepresentable directory is an error.
+
+`current_exe_dir` is a convenience for locating sibling resources, not a
+resource-directory abstraction: application bundles and other deployment layouts
+may keep resources elsewhere. Like `current_exe`, it preserves the load-time
+symlink spelling and may become stale after a rename or removal.
 
 `std::path::absolute` is specifically suitable because it makes a path
 absolute without canonicalizing through the filesystem; its precise lexical
@@ -229,7 +238,8 @@ The implementation keeps the display `name` and executable origin as separate
 `ModuleData` fields. `Engine::load_file` captures an absolute, lexical
 `runtime::Executable` once, while `Engine::compile(name, bytes)` stores an
 unavailable origin because its name is only diagnostic. Each run clones that
-value into the backend-neutral `Runtime`.
+value into the backend-neutral `Runtime`. Its `Executable::directory` accessor
+derives the parent without additional stored state or OS calls.
 
 The `moonbitlang/core` adapter reads the executable through `Runtime`, converts
 its path to MoonBit UTF-16, allocates the result in the existing async C-buffer
@@ -238,6 +248,11 @@ V8 context retains only the `Runtime`; it neither derives nor owns executable
 state. Consequently, cwd changes between module loading and execution do not
 change the result, and non-UTF-8 Unix paths reach the intended guest-visible
 error path without passing through the lossy diagnostic name.
+
+Both V8 and Wasmtime register `env/current_exe` and `env/current_exe_dir` in
+`moonbitlang/core`. Both imports share path encoding, C-buffer allocation, and
+errno propagation. Directory encoding applies only to the returned parent;
+on Unix, a non-UTF-8 basename does not prevent returning a UTF-8 directory.
 
 Tests should cover relative file loading followed by a cwd change, module reuse
 after a rename/unlink, symlink spelling preservation, in-memory module failure,

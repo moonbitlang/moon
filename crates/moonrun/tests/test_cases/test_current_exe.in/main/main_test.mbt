@@ -22,6 +22,10 @@ fn current_exe() -> UInt64 = "moonbitlang/core" "env/current_exe"
 
 ///|
 #unsafe_skip_stub_check
+fn current_exe_dir() -> UInt64 = "moonbitlang/core" "env/current_exe_dir"
+
+///|
+#unsafe_skip_stub_check
 fn c_buffer_length(handle : UInt64) -> Int = "moonbitlang/async" "c_buffer/length"
 
 ///|
@@ -44,8 +48,7 @@ fn c_buffer_free(handle : UInt64) -> Unit = "moonbitlang/async" "c_buffer/free"
 fn get_errno() -> Int = "moonbitlang/async" "os_error/get_errno"
 
 ///|
-test "current executable is the absolute loaded wasm path" {
-  let handle = current_exe()
+fn read_path(handle : UInt64) -> String raise {
   if handle == 0 {
     fail("failed to obtain the current executable path: errno=\{get_errno()}")
   }
@@ -57,19 +60,17 @@ test "current executable is the absolute loaded wasm path" {
   )
   let path = String::make(byte_length / 2, '\u{0}')
   c_buffer_copy_to_string(handle, 0, path, 0, byte_length)
-  let relative_path = "_build/wasm/debug/test/main/main.blackbox_test.wasm"
-  let windows_relative_path =
-    "_build\\wasm\\debug\\test\\main\\main.blackbox_test.wasm"
-  assert_true(
-    path.length() > relative_path.length(),
-    msg="current executable path is not absolute",
+  path
+}
+
+///|
+test "current executable and directory are absolute loaded wasm paths" {
+  assert_eq(
+    Some(read_path(current_exe())),
+    @env.get_env_var("MOONRUN_TEST_CURRENT_EXE"),
   )
-  let suffix = path.unsafe_substring(
-    start=path.length() - relative_path.length(),
-    end=path.length(),
-  )
-  assert_true(
-    suffix == relative_path || suffix == windows_relative_path,
-    msg="current executable path does not identify the loaded wasm file",
+  assert_eq(
+    Some(read_path(current_exe_dir())),
+    @env.get_env_var("MOONRUN_TEST_CURRENT_EXE_DIR"),
   )
 }

@@ -106,6 +106,12 @@ pub(super) fn define_import(
             })?;
             Ok(true)
         }
+        crate::core_api::MOONBIT_CORE_MODULE if name == "env/current_exe_dir" => {
+            linker.func_wrap(namespace, name, |caller: Caller<'_, StoreData>| {
+                crate::core_api::current_exe_dir(caller.data().runtime()) as i64
+            })?;
+            Ok(true)
+        }
         FS_MODULE => define_filesystem_import(linker, name),
         IO_MODULE => define_io_import(linker, namespace, name),
         "spectest" if name == "read_char" => define_io_import(linker, namespace, name),

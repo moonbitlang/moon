@@ -20,13 +20,21 @@
 
 use std::path::Path;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, INVALID_HOST_HANDLE};
-use crate::runtime::{Executable, Runtime};
+use crate::async_host::{AsyncHostResult, INVALID_HOST_HANDLE};
+use crate::runtime::Runtime;
 
 pub(crate) const MOONBIT_CORE_MODULE: &str = "moonbitlang/core";
 
 pub(crate) fn current_exe(runtime: &Runtime) -> u64 {
-    match current_exe_buffer(runtime.executable()) {
+    path_to_handle(runtime, runtime.executable().path())
+}
+
+pub(crate) fn current_exe_dir(runtime: &Runtime) -> u64 {
+    path_to_handle(runtime, runtime.executable().directory())
+}
+
+fn path_to_handle(runtime: &Runtime, path: AsyncHostResult<&Path>) -> u64 {
+    match path.and_then(path_to_moonbit_string_buffer) {
         Ok(buffer) => runtime.async_host().insert_c_buffer(buffer),
         Err(error) => {
             runtime.async_host().record_error(error);
@@ -35,12 +43,9 @@ pub(crate) fn current_exe(runtime: &Runtime) -> u64 {
     }
 }
 
-fn current_exe_buffer(executable: &Executable) -> AsyncHostResult<Box<[u8]>> {
-    path_to_moonbit_string_buffer(executable.path()?)
-}
-
 #[cfg(unix)]
 fn path_to_moonbit_string_buffer(path: &Path) -> AsyncHostResult<Box<[u8]>> {
+    use crate::async_host::AsyncHostError;
     use std::os::unix::ffi::OsStrExt;
 
     let path =
@@ -66,6 +71,8 @@ fn utf16_buffer(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::async_host::AsyncHostError;
+    use crate::runtime::Executable;
 
     #[test]
     fn in_memory_module_cannot_produce_current_exe() {
@@ -87,11 +94,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(current_exe(&runtime), INVALID_HOST_HANDLE);
-        assert_eq!(
-            runtime.async_host().get_errno(),
-            AsyncHostError::Inval.errno()
-        );
+        for import in [current_exe, current_exe_dir] {
+            runtime.async_host().set_errno(0);
+            assert_eq!(import(&runtime), INVALID_HOST_HANDLE);
+            assert_eq!(
+                runtime.async_host().get_errno(),
+                AsyncHostError::Inval.errno()
+            );
+        }
     }
 
     #[test]
@@ -109,9 +119,14 @@ mod tests {
         use std::os::unix::ffi::OsStringExt;
 
         let path = std::path::PathBuf::from(OsString::from_vec(vec![b'/', 0xff]));
+        let executable = Executable::from_file(&path);
         assert_eq!(
-            current_exe_buffer(&Executable::from_file(&path)),
+            path_to_moonbit_string_buffer(executable.path().unwrap()),
             Err(AsyncHostError::Inval)
+        );
+        assert_eq!(
+            path_to_moonbit_string_buffer(executable.directory().unwrap()),
+            Ok(utf16_buffer("/".encode_utf16()))
         );
     }
 }

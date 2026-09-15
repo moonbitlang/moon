@@ -17,6 +17,37 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[test]
+fn current_exe_imports_report_missing_origin_to_guest() {
+    let engine = moonrun::Engine::default();
+    for import in ["env/current_exe", "env/current_exe_dir"] {
+        let module = engine
+            .compile(
+                "diagnostic-name.wasm",
+                wat::parse_str(format!(
+                    r#"(module
+                        (import "moonbitlang/core" "{import}"
+                            (func $path (result i64)))
+                        (import "moonbitlang/async" "os_error/get_errno"
+                            (func $errno (result i32)))
+                        (memory (export "memory") 1)
+                        (func (export "_start")
+                            (if (call $errno) (then unreachable))
+                            (if (i64.ne (call $path) (i64.const 0))
+                                (then unreachable))
+                            (if (i32.eqz (call $errno)) (then unreachable))))"#
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+            moonrun::RunOutcome::Completed,
+            "{import} must return a null buffer and set errno"
+        );
+    }
+}
+
+#[test]
 fn engine_backends_reuse_worker_with_owned_completion_pipe() {
     let wasm = tempfile::Builder::new()
         .prefix("worker-completion-pipe.")

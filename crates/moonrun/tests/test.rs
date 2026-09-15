@@ -375,16 +375,23 @@ fn test_moon_run_with_cli_args() {
 #[test]
 fn test_moonrun_current_exe_absolutizes_relative_module_path() {
     let dir = TestDir::new("test_current_exe.in");
+    // Resolve Unix cwd symlinks, but do not introduce a Windows verbatim prefix.
+    let load_dir = dunce::canonicalize(&dir).unwrap();
+    let module_path =
+        std::path::absolute(load_dir.join("_build/wasm/debug/test/main/main.blackbox_test.wasm"))
+            .unwrap();
 
     moon_cmd()
-        .current_dir(&dir)
+        .current_dir(&load_dir)
         .args(["test", "main", "--target", "wasm", "--build-only"])
         .assert()
         .success();
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
-        .current_dir(&dir)
+        .current_dir(&load_dir)
         .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("MOONRUN_TEST_CURRENT_EXE", &module_path)
+        .env("MOONRUN_TEST_CURRENT_EXE_DIR", module_path.parent().unwrap())
         .arg("--test-args")
         .arg(
             r#"{"package":"username/current_exe/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,

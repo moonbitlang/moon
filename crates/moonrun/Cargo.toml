@@ -83,6 +83,7 @@ vergen.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
+dunce.workspace = true
 escargot.workspace = true
 moon-test-util.workspace = true
 snapbox = { workspace = true, features = ["cmd"] }

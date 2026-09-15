@@ -41,6 +41,10 @@ impl Executable {
     pub(crate) fn path(&self) -> AsyncHostResult<&Path> {
         self.0.as_deref().map_err(|error| *error)
     }
+
+    pub(crate) fn directory(&self) -> AsyncHostResult<&Path> {
+        self.path()?.parent().ok_or(AsyncHostError::Inval)
+    }
 }
 
 fn io_error(error: std::io::Error) -> AsyncHostError {
@@ -63,10 +67,18 @@ mod tests {
             executable.path().unwrap(),
             std::path::absolute(path).unwrap()
         );
+        assert_eq!(
+            executable.directory().unwrap(),
+            std::path::absolute(path).unwrap().parent().unwrap()
+        );
     }
 
     #[test]
     fn in_memory_module_has_no_executable_path() {
         assert_eq!(Executable::unavailable().path(), Err(AsyncHostError::Inval));
+        assert_eq!(
+            Executable::unavailable().directory(),
+            Err(AsyncHostError::Inval)
+        );
     }
 }

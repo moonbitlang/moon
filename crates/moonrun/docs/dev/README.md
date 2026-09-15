@@ -2,6 +2,9 @@
 
 ## Developer workflows
 
+- [Current executable path semantics](current-exe-semantics.md): load-time path
+  capture, mutation behavior, executable-directory lookup, and guest-visible
+  errors for file-backed and in-memory modules.
 - [SQLite jobs](sqlite-jobs.md): SQLite payloads in the shared async pool,
   result ownership, asynchronous discard, and upstream Wasm wrapper integration.
 - [Porting `moonbitlang/async` changes](async-upstream-porting.md): audit the
