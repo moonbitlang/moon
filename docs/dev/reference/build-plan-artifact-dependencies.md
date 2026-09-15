@@ -205,6 +205,11 @@ The central artifact rule maps each key to its provider action and schedules
 that action. Builders do not encode `Check`, `BuildCore`, or another provider
 in a dependency edge.
 
+`BuildCore` provides a `BuildMi` unless interface emission is disabled or the
+target is a test compilation without importers. Standalone script doctests
+import the inline-test target, which therefore provides both its interface and
+core. Lowering derives `-no-mi` from the planned outputs.
+
 The same rule handles invocation roots. `UserIntent` names results such as
 `CheckMi`, `CoreIr`, or `Executable`; it does not construct provider actions.
 For example, `Executable` selects `LinkCore` for Wasm/JS backends and

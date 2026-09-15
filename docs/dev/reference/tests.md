@@ -7,6 +7,19 @@ behavior can change.
 
 ## Build + run pipeline
 
+An explicit `.mbtx` path selects a standalone script before project discovery.
+It uses the script's imports and does not load the surrounding project. Exactly
+one path is accepted in this mode; package-wide testing does not discover scripts.
+The synthesized script package is always executable. `moon build` and `moon run`
+require a user `fn main`, while `moon test` accepts zero or one user main and
+uses the generated test entrypoint instead. Inline tests compile alongside the
+script. Doctests remain blackbox tests and import the inline-test compilation's
+interface and core, avoiding a separate source compilation that would require a
+user main. Linking selects the doctest package's driver, so neither the script's
+main nor its inline tests execute as a side effect of running doctests.
+Legacy standalone `.mbt` and `.mbt.md` tests retain their library package
+declaration and do not require a main.
+
 Project tests, standalone-file tests, and benchmarks enter the same
 `run_test_workflow` after planning. It owns the initial build and dispatches the
 selected mode. Dry-run stops at the build graph. After the initial build,

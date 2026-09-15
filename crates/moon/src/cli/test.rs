@@ -312,9 +312,12 @@ pub(crate) struct TestSubcommand {
     #[clap(long = "doc", hide = true)]
     pub doc_test: bool,
 
-    /// Run tests for a filesystem path. If in a project, `PATH` may point to a
-    /// package directory or a file inside a package; otherwise, runs in a
-    /// temporary project.
+    /// Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
+    ///
+    /// An explicit `.mbtx` path tests only that script, even inside a project.
+    /// The script may omit `fn main`; tests use a generated entrypoint and do
+    /// not execute the script's main. Package-wide testing excludes `.mbtx` scripts.
+    /// Outside a project, a single `.mbt` or `.mbt.md` file can also be tested.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub path: Vec<PathBuf>,
 
@@ -371,7 +374,18 @@ fn run_test_impl(
         path_filters = cmd.path.len(),
         "starting moon test command"
     );
-    // Check if we're running within a project
+    if let Some(path) = super::standalone_mbtx_path(&cmd.path, "moon test")? {
+        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+        return run_test_in_single_file(
+            cli,
+            cmd,
+            &single_file.file_path,
+            &single_file.package_dirs,
+            output,
+        );
+    }
+
+    // Other paths select packages in a project or use the legacy single-file fallback.
     let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let dirs = match query.probe_project()? {
         ProjectProbe::Found(_) => query.select(user_log)?.package_dirs()?,

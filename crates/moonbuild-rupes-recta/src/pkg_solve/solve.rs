@@ -203,6 +203,14 @@ fn solve_one_package(
 /// and replace the duplicated one's alias with its full name.
 fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &DiscoveredPackage) {
     let short_alias = pkg_data.fqn.short_alias_owned();
+    // Scripts may omit their user main when tested. Compile their source with
+    // the inline test driver so the executable package still has an entrypoint.
+    // Doctests import that compilation; linking selects the doctest driver.
+    let source = pid.build_target(if pkg_data.is_mbtx_single_file() {
+        TargetKind::InlineTest
+    } else {
+        TargetKind::Source
+    });
     let mut violating = None;
 
     // Check for violation
@@ -214,7 +222,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
         pid.build_target(TargetKind::BlackboxTest),
         petgraph::Direction::Outgoing,
     ) {
-        if t == pid.build_target(TargetKind::Source) {
+        if t == source {
             // If the edge points to the source package, we don't need to do
             // anything -- the edge is already inserted, nothing more to check.
             return;
@@ -264,7 +272,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
     // Finally, add the edge from black box test to source package
     env.res.dep_graph.add_edge(
         pid.build_target(TargetKind::BlackboxTest),
-        pid.build_target(TargetKind::Source),
+        source,
         DepEdge {
             short_alias,
             kind: TargetKind::BlackboxTest,

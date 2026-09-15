@@ -560,23 +560,23 @@ impl<'a> LoweringContext<'a> {
                 } if *package == target.package && *target_kind == target.kind
             )
         });
-        let mi_output = artifacts
-            .optional_single_output_path_matching(|artifact| {
-                matches!(
-                    artifact,
-                    ArtifactKey::BuildMi {
-                        package,
-                        target_kind,
-                    } if *package == target.package && *target_kind == target.kind
-                )
-            })
-            .unwrap_or_else(|| {
-                self.artifact_paths.mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.backend.target_backend(),
-                )
-            });
+        let mi_output = artifacts.optional_single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                ArtifactKey::BuildMi {
+                    package,
+                    target_kind,
+                } if *package == target.package && *target_kind == target.kind
+            )
+        });
+        let no_mi = mi_output.is_none();
+        let mi_output = mi_output.unwrap_or_else(|| {
+            self.artifact_paths.mi_of_build_target(
+                self.packages,
+                &target,
+                self.opt.backend.target_backend(),
+            )
+        });
 
         let mi_inputs = self.mi_inputs_of(artifacts, target);
 
@@ -627,7 +627,8 @@ impl<'a> LoweringContext<'a> {
         // Propagate debug/coverage flags and common settings
         (cmd.flags.enable_coverage, cmd.flags.self_coverage) =
             self.get_coverage_flags(target, package, &package.fqn, true);
-        cmd.defaults.no_mi |= target.kind.is_test() | (cmd.defaults.check_mi.is_some());
+        // Artifact planning owns whether this compilation provides an interface.
+        cmd.defaults.no_mi = no_mi;
 
         // Include doctest-only files as inputs to track dependency correctly
         // Note: This is the *extra* inputs, trivial dependencies are already
