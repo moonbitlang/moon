@@ -421,7 +421,7 @@ fn run_check_impl(
         super::standalone_mbtx_path(&cmd.path, "moon check")?
     {
         let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-        (single_file.package_dirs, Some(single_file.file_path))
+        (single_file.package_dirs, Some(single_file.input_path))
     } else {
         // Check if we're running within a project.
         let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
@@ -433,7 +433,7 @@ fn run_check_impl(
             ProjectProbe::NotFound(not_found) => match cmd.path.as_slice() {
                 [path] => {
                     let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-                    (single_file.package_dirs, Some(single_file.file_path))
+                    (single_file.package_dirs, Some(single_file.input_path))
                 }
                 [] => return Err(not_found.into_error().into()),
                 _ => {

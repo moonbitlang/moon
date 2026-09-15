@@ -165,7 +165,7 @@ fn run_script_cmd(
             cwd: None,
             target_dir: Some(target_dir.join("prebuild").join(script_id.as_str())),
         }
-        .single_file_package_dirs(script)?;
+        .single_file_package_dirs(dir.join(prebuild))?;
         let built = build_standalone_wasm(dirs, frozen, false)?;
         let (policy, policy_source_dir) =
             effective_moonrun_policy(None, built.embedded_mbtx_policy.as_ref());

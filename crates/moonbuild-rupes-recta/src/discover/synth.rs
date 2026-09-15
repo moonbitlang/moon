@@ -46,7 +46,8 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 /// - Use explicit front matter package imports, or
 /// - Import all discovered packages (excluding internal-only packages).
 ///
-/// If `run_mode` is true, the package will be marked as a main package.
+/// Scripts are executable packages. Other single-file formats are marked as
+/// main packages only in `run_mode`.
 pub fn build_synth_single_file_package(
     file: &Path,
     source_kind: SingleFileSourceKind,
@@ -113,7 +114,7 @@ pub fn build_synth_single_file_package(
     }
     let moon_pkg = MoonPkg {
         name: None,
-        is_main: run_mode,
+        is_main: run_mode || source_kind == SingleFileSourceKind::Mbtx,
         force_link: false,
         sub_package: None,
         imports,
@@ -140,7 +141,9 @@ pub fn build_synth_single_file_package(
     };
 
     // Assign file to appropriate list
-    let file_path = dunce::canonicalize(file).expect("Failed to canonicalize single-file input");
+    // Keep the invoked filename through compiler and test-file classification.
+    // Following a renamed symlink here would change the source interpretation.
+    let file_path = file.to_path_buf();
     let files = vec![file_path.clone()];
     let (source_files, mbt_md_files) = match source_kind {
         SingleFileSourceKind::Mbt | SingleFileSourceKind::Mbtx => (files, Vec::new()),

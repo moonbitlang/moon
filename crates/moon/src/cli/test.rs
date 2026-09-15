@@ -312,9 +312,12 @@ pub(crate) struct TestSubcommand {
     #[clap(long = "doc", hide = true)]
     pub doc_test: bool,
 
-    /// Run tests for a filesystem path. If in a project, `PATH` may point to a
-    /// package directory or a file inside a package; otherwise, runs in a
-    /// temporary project.
+    /// Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
+    ///
+    /// An explicit `.mbtx` path tests only that script, even inside a project.
+    /// The script must define `fn main`, but tests use a generated entrypoint
+    /// and do not execute the script's main. Package-wide testing excludes `.mbtx` scripts.
+    /// Outside a project, a single `.mbt` or `.mbt.md` file can also be tested.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub path: Vec<PathBuf>,
 
@@ -371,7 +374,18 @@ fn run_test_impl(
         path_filters = cmd.path.len(),
         "starting moon test command"
     );
-    // Check if we're running within a project
+    if let Some(path) = super::standalone_mbtx_path(&cmd.path, "moon test")? {
+        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+        return run_test_in_single_file(
+            cli,
+            cmd,
+            &single_file.input_path,
+            &single_file.package_dirs,
+            output,
+        );
+    }
+
+    // Other paths select packages in a project or use the legacy single-file fallback.
     let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let dirs = match query.probe_project()? {
         ProjectProbe::Found(_) => query.select(user_log)?.package_dirs()?,
@@ -384,7 +398,7 @@ fn run_test_impl(
                     return run_test_in_single_file(
                         cli,
                         cmd,
-                        &single_file.file_path,
+                        &single_file.input_path,
                         &single_file.package_dirs,
                         output,
                     );
@@ -522,6 +536,12 @@ fn run_test_in_single_file_rr(
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
+    let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
+    let targets = lower_surface_targets(&build_flags.target);
+    anyhow::ensure!(
+        !cmd.update || targets.len() <= 1,
+        "cannot update test on multiple targets"
+    );
     let PackageDirs {
         source_dir,
         target_dir,
@@ -550,10 +570,10 @@ fn run_test_in_single_file_rr(
         false,
         user_log,
     )?;
-    let selected_target_backend = if cmd.profile {
-        Some(TargetBackend::Native)
+    let target_backends = if targets.is_empty() {
+        vec![backend]
     } else {
-        cmd.build_flags.resolve_single_target_backend()?.or(backend)
+        targets.into_iter().map(Some).collect()
     };
 
     let lock = if cli.dry_run {
@@ -561,17 +581,6 @@ fn run_test_in_single_file_rr(
     } else {
         Some(lock_directory(target_dir, user_log)?)
     };
-    let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
-
-    let compile_config = rr_build::prepare_resolved_build(
-        cli,
-        &build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Test,
-        user_log,
-        &resolved,
-    )?;
     let pkg = rr_build::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
@@ -594,19 +603,35 @@ fn run_test_in_single_file_rr(
     } else {
         None
     };
-    let directive = rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
-    let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        compile_config,
-        user_log,
-        intent,
-        mooncake_bin_dir,
-        resolved,
-        cmd.build_flags.jobs,
-        cmd.auto_sync_flags.frozen,
-        cli.dry_run,
-    )?;
+    let planned_runs = target_backends
+        .into_iter()
+        .map(|target_backend| {
+            let compile_config = rr_build::prepare_resolved_build(
+                cli,
+                &build_flags,
+                target_backend,
+                target_dir,
+                RunMode::Test,
+                user_log,
+                &resolved,
+            )?;
+            let directive =
+                rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
+            let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
+            let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+                compile_config,
+                user_log,
+                intent,
+                mooncake_bin_dir,
+                resolved.clone(),
+                cmd.build_flags.jobs,
+                cmd.auto_sync_flags.frozen,
+                cli.dry_run,
+            )?;
+            Ok((build_meta, build_graph, filter.clone()))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     run_test_workflow(
         cli,
@@ -614,7 +639,7 @@ fn run_test_in_single_file_rr(
         source_dir,
         target_dir,
         false,
-        vec![(build_meta, build_graph, filter)],
+        planned_runs,
         lock,
         output,
     )

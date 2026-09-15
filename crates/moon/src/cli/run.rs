@@ -487,7 +487,7 @@ pub(crate) fn build_standalone_wasm(
             .expect("empty unstable feature set must be valid"),
     };
     let cmd = RunSubcommand {
-        package_or_mbt_file: Some(dirs.file_path.to_string_lossy().into_owned()),
+        package_or_mbt_file: Some(dirs.input_path.to_string_lossy().into_owned()),
         command: None,
         build_flags: BuildFlags {
             target: vec![SurfaceTarget::Wasm],
@@ -504,7 +504,7 @@ pub(crate) fn build_standalone_wasm(
         &cli,
         &cmd,
         dirs.package_dirs,
-        dirs.file_path,
+        dirs.input_path,
         BuildRunExecutableOptions::for_run(&cli),
         &output,
     )?;
@@ -720,7 +720,7 @@ fn build_single_file_executable_from_arg(
         cli,
         cmd,
         single_file_dirs.package_dirs,
-        single_file_dirs.file_path,
+        single_file_dirs.input_path,
         options,
         output,
     )

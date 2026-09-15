@@ -37,9 +37,9 @@ use crate::{
 
 /// The source format of a synthetic single-file package.
 ///
-/// This is determined when resolving the single-file input. Later build
-/// stages consume this interpretation instead of inferring semantics from the
-/// source path again.
+/// This is determined from the invoked filename when resolving the single-file
+/// input. Later build stages consume this interpretation instead of inferring
+/// semantics from the canonical file identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SingleFileSourceKind {
     Mbt,

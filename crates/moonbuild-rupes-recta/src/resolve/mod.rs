@@ -387,6 +387,8 @@ pub fn resolve_synced_project(
 
 /// Performs the resolving process for a single file project. Will try to
 /// synthesize a minimal MoonBit project around the given file.
+/// `source_file` must be the absolute invoked path from
+/// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
 #[instrument(skip_all, fields(run_mode = run_mode))]
 pub fn resolve_single_file_project(
     cfg: &ResolveConfig,

@@ -142,6 +142,9 @@ impl SourceTargetDirs {
     ) -> Result<SingleFilePackageDirs, PackageDirsError> {
         // This only builds the synthetic package directories. Whether a command
         // may fall back to single-file mode depends on that command's argv.
+        let input_path = std::path::absolute(file_path.as_ref())
+            .context("failed to resolve input path")
+            .map_err(PackageDirsError::from)?;
         let file_path = dunce::canonicalize(file_path.as_ref())
             .with_context(|| {
                 format!(
@@ -150,6 +153,20 @@ impl SourceTargetDirs {
                 )
             })
             .map_err(PackageDirsError::from)?;
+        // Resolve directory aliases, but retain the invoked filename: its suffix
+        // determines the source format even when the file itself is a symlink.
+        let input_path = dunce::canonicalize(
+            input_path
+                .parent()
+                .context("file path must have a parent directory")?,
+        )
+        .context("failed to resolve input directory")
+        .map_err(PackageDirsError::from)?
+        .join(
+            input_path
+                .file_name()
+                .context("file path must have a file name")?,
+        );
         let source_dir = file_path
             .parent()
             .context("file path must have a parent directory")
@@ -170,6 +187,7 @@ impl SourceTargetDirs {
             ..package_dirs
         };
         Ok(SingleFilePackageDirs {
+            input_path,
             file_path,
             package_dirs,
         })
@@ -328,6 +346,9 @@ impl SelectedProject {
 }
 
 pub struct SingleFilePackageDirs {
+    /// Absolute source path retaining the invoked filename for source processing.
+    pub input_path: PathBuf,
+    /// Canonical identity used for build storage and deduplication.
     pub file_path: PathBuf,
     pub package_dirs: PackageDirs,
 }
@@ -906,6 +927,33 @@ mod tests {
         assert_eq!(
             dirs.package_dirs.mooncakes_dir,
             dirs.package_dirs.target_dir.join(DEP_PATH)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn single_file_package_dirs_preserve_input_filename_and_canonical_identity() {
+        let project = tempfile::tempdir().expect("create test project");
+        let source = project.path().join("sources/source.mbt");
+        write_file(&source, "fn main {}\n");
+        std::os::unix::fs::symlink("sources/source.mbt", project.path().join("alias.mbtx"))
+            .unwrap();
+
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        }
+        .single_file_package_dirs(project.path().join("alias.mbtx"))
+        .unwrap();
+
+        assert_eq!(
+            dirs.input_path,
+            canonical(project.path()).join("alias.mbtx")
+        );
+        assert_eq!(dirs.file_path, canonical(&source));
+        assert_eq!(
+            dirs.package_dirs.target_dir,
+            canonical(project.path().join("sources/_build/source.mbt"))
         );
     }
 

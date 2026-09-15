@@ -102,6 +102,7 @@ fn standalone_mbtx_path<'a>(
     let Some(path) = paths.iter().find(|path| {
         path.extension()
             .is_some_and(|extension| extension == "mbtx")
+            && path.is_file()
     }) else {
         return Ok(None);
     };

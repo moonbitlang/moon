@@ -78,14 +78,15 @@ fn standalone_test_allows_check_during_execution() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("script.mbtx"),
-        format!("{CHECK}\ntest {{ assert_eq(check(), 0) }}\n"),
+        format!("{CHECK}\nfn main {{}}\ntest {{ assert_eq(check(), 0) }}\n"),
     )
     .unwrap();
     moon(dir.path())
         .env("MOON_TEST_CHECK_PATH", "script.mbtx")
         .args(["test", "script.mbtx", "--target", "js"])
         .assert()
-        .success();
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 }
 
 #[test]
