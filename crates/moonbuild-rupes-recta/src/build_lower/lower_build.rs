@@ -778,6 +778,7 @@ impl<'a> LoweringContext<'a> {
                 heap_start_address: cfg.heap_start_address,
                 link_flags: cfg.flags.as_deref(),
                 wasi: false,
+                new_allocator: false,
             }
         } else if self.opt.backend.target_backend() == TargetBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
@@ -791,10 +792,19 @@ impl<'a> LoweringContext<'a> {
                 heap_start_address: None,
                 link_flags: cfg.flags.as_deref(),
                 wasi: false,
+                new_allocator: false,
             }
         } else {
             WasmConfig::default()
         };
+
+        wasm_config.new_allocator = matches!(
+            self.opt.backend,
+            BackendConfig::Wasm {
+                new_allocator: true,
+                ..
+            }
+        );
 
         if self.should_link_wasi(target, pkg) {
             wasm_config.wasi = true;

@@ -40,6 +40,8 @@ pub enum BackendConfig {
     Wasm {
         use_wat: bool,
         wasi_link: bool,
+        /// Select the MoonBit TLSF allocator when linking linear-memory Wasm.
+        new_allocator: bool,
     },
     WasmGc {
         use_wat: bool,
