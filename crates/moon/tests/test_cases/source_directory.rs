@@ -24,6 +24,7 @@ fn test_specify_source_dir_003() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
@@ -35,6 +36,7 @@ fn test_specify_source_dir_004() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
@@ -81,12 +83,16 @@ fn test_specify_source_dir_with_deps() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello19' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
     check(
         get_stderr(&dir, ["build"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello19' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
@@ -112,6 +118,11 @@ fn test_specify_source_dir_with_deps_002() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello004' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello003' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello002' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello001' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
@@ -121,6 +132,11 @@ fn test_specify_source_dir_with_deps_002() {
     check(
         get_stderr(&dir, ["build"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello004' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello003' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello002' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps/hello001' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`

@@ -61,8 +61,10 @@ fn test_all_pkgs() {
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
-        Finished. moon: ran 10 tasks, now up to date
-    "#]],
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Finished. moon: ran 10 tasks, now up to date
+        "#]],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
@@ -73,6 +75,8 @@ fn test_all_pkgs() {
     check(
         get_stderr(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
@@ -110,6 +114,8 @@ fn test_all_pkgs() {
     check(
         get_stderr(&dir, ["info", "--target", "wasm-gc"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
@@ -129,6 +135,8 @@ fn test_indirect_dep_bundle() {
     check(
         get_stderr(&dir, ["bundle", "--target", "wasm-gc"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );

@@ -3,9 +3,16 @@
 ## High-level constructs
 
 A **module** in MoonBit is the unit of dependency version resolution.
-The root of a module is signified by a file named `moon.mod.json`.
+The root of a module is signified by `moon.mod` or the legacy `moon.mod.json`.
 A module recursively contain all directories and files under its root,
 until another module is met.
+
+Commands that discover modules, including `moon check`, warn when a module uses
+`moon.mod.json` and suggest `moon fmt` to migrate it to `moon.mod`. When both
+files exist, `moon.mod` takes precedence and a single format warning asks the
+user to remove the old file. Manifest warnings follow the user-log level
+(`--quiet` suppresses them) and are suppressed for dependency cache files under
+`.mooncakes`.
 
 A module may contain one or more **package**s,
 which is the unit of compilation in MoonBit.

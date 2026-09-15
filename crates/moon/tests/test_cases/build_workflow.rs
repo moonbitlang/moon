@@ -202,6 +202,7 @@ fn test_failed_to_fill_whole_buffer() {
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
@@ -420,6 +421,7 @@ fn test_diag_source_map_remaps_generated_sources() {
     check(
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: [4014]
                ╭─[ $ROOT/toy.src:2:7 ]
                │
@@ -454,23 +456,28 @@ fn test_dont_link_third_party() {
 #[test]
 fn test_no_warn_deps() {
     let dir = TestDir::new("no_warn_deps.in");
-    let dir = dir.join("user.in");
 
     check(
-        get_stderr(&dir, ["check"]),
+        get_stderr(&dir, ["-C", "user.in", "check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT/user.in' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps.in' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
-        get_stderr(&dir, ["check", "--deny-warn"]),
+        get_stderr(&dir, ["-C", "user.in", "check", "--deny-warn"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT/user.in' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps.in' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
-        get_stderr(&dir, ["build"]),
+        get_stderr(&dir, ["-C", "user.in", "build"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT/user.in' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/deps.in' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );

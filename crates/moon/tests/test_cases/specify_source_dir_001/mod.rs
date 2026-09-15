@@ -18,6 +18,7 @@ fn test_specify_source_dir_001() {
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
@@ -282,6 +283,7 @@ fn test_specify_source_dir_001() {
     check(
         get_stderr(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );

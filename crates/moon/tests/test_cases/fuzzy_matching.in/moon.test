@@ -4,6 +4,8 @@
   x whitebox test
   Total tests: 3, passed: 3, failed: 0.
   
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+  
   $ moon test -p x --sort-input --no-parallelize
   x blackbox test
   x inline test
@@ -13,17 +15,23 @@
   x_y whitebox test
   Total tests: 6, passed: 6, failed: 0.
   
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+  
   $ moon test -p x/y --sort-input --no-parallelize
   x_y blackbox test
   x_y inline test
   x_y whitebox test
   Total tests: 3, passed: 3, failed: 0.
   
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+  
   $ moon test -p u/h/x/y --sort-input --no-parallelize
   x_y blackbox test
   x_y inline test
   x_y whitebox test
   Total tests: 3, passed: 3, failed: 0.
+  
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
   
   $ moon test -p y --sort-input --no-parallelize
   x_y blackbox test
@@ -34,14 +42,18 @@
   y whitebox test
   Total tests: 6, passed: 6, failed: 0.
   
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+  
   $ moon test -p asdf --sort-input --no-parallelize
   Total tests: 0, passed: 0, failed: 0.
   
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
   Warning: package `asdf` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)
   Warning: no test entry found.
   
   $ moon test -p y --file asdf --sort-input --no-parallelize
   [255]
   
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
   Error: Cannot filter by file or index when multiple packages are specified. Matched packages: ["username/hello/x/y", "username/hello/y"]
   

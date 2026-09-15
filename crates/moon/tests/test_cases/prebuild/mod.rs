@@ -440,12 +440,14 @@ fn test_pre_build_dirty() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: no work to do
         "#]],
     );
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: no work to do
         "#]],
     );

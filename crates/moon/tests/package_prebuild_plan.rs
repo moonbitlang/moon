@@ -100,6 +100,7 @@ fn builtin_embed_rejects_shell_syntax() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 error: unexpected argument '&&' found
 Usage: moon[EXE] tool embed [OPTIONS] --input <INPUT> --output <OUTPUT>
 For more information, try '--help'.
@@ -132,6 +133,7 @@ fn builtin_embed_rejects_malformed_quoting() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Error: failed to run check for target WasmGC
 
 Caused by:
@@ -258,6 +260,7 @@ fn generated_mbt_md_warns_for_main_package() {
         .assert()
         .success()
         .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 [..]Warning: Main package `username/generated_main_mbt_md/main` uses blackbox-only test inputs (`.mbt.md` files) [..]
 
 "#]]);

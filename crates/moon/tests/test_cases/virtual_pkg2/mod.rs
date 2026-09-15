@@ -16,6 +16,8 @@ fn implement_third_party1() {
     check(
         s,
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/v' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
@@ -85,7 +87,9 @@ fn implement_third_party2() {
     check(
         s,
         expect![[r#"
-        Finished. moon: ran 2 tasks, now up to date
-    "#]],
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/v' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 }

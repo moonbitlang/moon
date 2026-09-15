@@ -1,5 +1,6 @@
   $ moon info
   
+  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
   Finished. moon: ran 4 tasks, now up to date
   
   $ xcat src/lib/pkg.generated.mbti

@@ -188,6 +188,7 @@ fn test_warn_list_real_run() {
     check(
         get_stderr(&dir, ["build", "--sort-input", "--no-render"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
@@ -197,7 +198,9 @@ fn test_warn_list_real_run() {
             .lines()
             .filter(|it| !it.starts_with("Blocking waiting for file lock"))
             .collect::<String>(),
-        expect![""],
+        expect![
+            "Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`."
+        ],
     );
     check(
         get_stdout(&dir, ["test", "--sort-input"]),
@@ -209,6 +212,7 @@ fn test_warn_list_real_run() {
     check(
         get_stderr(&dir, ["bundle", "--sort-input", "--no-render"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
@@ -219,6 +223,7 @@ fn test_warn_list_real_run() {
     check(
         get_stderr(&dir, ["check", "--sort-input", "--no-render"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
@@ -319,6 +324,8 @@ fn test_warn_list_alerts() {
             ["-C", "a", "check", "--target", "wasm-gc", "--sort-input"],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT/a' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/b' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0014]
                ╭─[ $ROOT/a/main.mbt:2:3 ]
                │
@@ -383,6 +390,7 @@ fn test_deny_warn() {
     check(
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                ╭─[ $ROOT/lib/hello.mbt:4:7 ]
                │
@@ -423,6 +431,7 @@ fn test_deny_warn() {
     check(
         get_stderr(&dir, ["build", "--sort-input"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                ╭─[ $ROOT/lib/hello.mbt:4:7 ]
                │

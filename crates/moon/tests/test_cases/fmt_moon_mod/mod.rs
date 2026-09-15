@@ -96,7 +96,9 @@ fn test_fmt_with_moon_mod_feature_disabled() {
             ["fmt", "--dry-run", "--sort-input"],
             [("NEW_MOON_MOD", "0")],
         ),
-        expect![[r#""#]],
+        expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+        "#]],
     );
 
     check(
@@ -166,6 +168,7 @@ fn test_fmt_moon_mod_json_migration_dry_run() {
             ],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
         "#]],
     );
@@ -265,6 +268,29 @@ warnings = "+w1-w2"
 readme = "README.md""#
     );
     assert!(!dir.join("moon.mod.json").exists());
+}
+
+#[test]
+fn test_check_warns_when_only_legacy_module_manifest_exists() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod.json"), r#"{"name": "test/legacy"}"#).unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(dir.join("lib.mbt"), "").unwrap();
+
+    moon_cmd(&dir)
+        .args(["check", "--dry-run"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+
+"#]]);
+
+    moon_cmd(&dir)
+        .args(["check", "--dry-run", "--quiet"])
+        .assert()
+        .success()
+        .stderr_eq("");
 }
 
 #[test]
