@@ -41,6 +41,28 @@ test "maximum" {
             .success()
             .stdout_eq("Total tests: 2, passed: 2, failed: 0.\n");
     }
+
+    moon_cmd(&dir)
+        .args(["test", "script.mbtx", "--target", "all", "--serial"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+Total tests: 2, passed: 2, failed: 0. [wasm]
+Total tests: 2, passed: 2, failed: 0. [wasm-gc]
+Total tests: 2, passed: 2, failed: 0. [js]
+Total tests: 2, passed: 2, failed: 0. [native]
+
+"#]]);
+
+    moon_cmd(&dir)
+        .args(["test", "script.mbtx", "--target", "js,wasm", "--serial"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+Total tests: 2, passed: 2, failed: 0. [wasm]
+Total tests: 2, passed: 2, failed: 0. [js]
+
+"#]]);
 }
 
 #[test]
@@ -55,6 +77,12 @@ test "update" { inspect(2, content="1") }
 "#,
     )
     .unwrap();
+
+    moon_cmd(&dir)
+        .args(["test", "script.mbtx", "--target", "wasm,js", "--update"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: cannot update test on multiple targets\n");
 
     moon_cmd(&dir)
         .args(["test", "script.mbtx", "--filter", "selected"])
@@ -149,6 +177,39 @@ fn test_mbtx_explicit_selection_inside_project() {
             .failure()
             .stderr_eq("Error: standalone `.mbtx` `moon test` expects exactly one `PATH`\n");
     }
+}
+
+#[test]
+fn test_mbtx_directory_selects_package() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/project\"\n").unwrap();
+    for package in ["foo.mbtx", "other"] {
+        std::fs::create_dir(dir.join(package)).unwrap();
+        std::fs::write(dir.join(package).join("moon.pkg"), "\n").unwrap();
+        std::fs::write(
+            dir.join(package).join("test.mbt"),
+            "test { assert_eq(1, 1) }\n",
+        )
+        .unwrap();
+    }
+
+    // The shared script selector must leave package directories to each command.
+    for command in ["build", "check", "test"] {
+        moon_cmd(&dir)
+            .args([command, "foo.mbtx"])
+            .assert()
+            .success();
+        moon_cmd(&dir)
+            .args([command, "foo.mbtx", "other"])
+            .assert()
+            .success();
+    }
+
+    moon_cmd(&dir)
+        .args(["test", "foo.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 }
 
 #[test]

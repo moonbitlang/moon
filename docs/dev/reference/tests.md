@@ -7,9 +7,12 @@ behavior can change.
 
 ## Build + run pipeline
 
-An explicit `.mbtx` path selects a standalone script before project discovery.
+An explicit `.mbtx` file path selects a standalone script before project discovery.
 It uses the script's imports and does not load the surrounding project. Exactly
 one path is accepted in this mode; package-wide testing does not discover scripts.
+Directories ending in `.mbtx` still select packages. Standalone tests accept
+`--target all` and comma-separated backends, composing their plans before any test
+runs. Without `--target`, the script's preferred backend supplies the default.
 The synthesized script package is always executable. Building, running, and
 testing it require a user `fn main`. Inline tests compile alongside the script;
 doctests remain blackbox tests and import its source compilation. Test targets
