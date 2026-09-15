@@ -27,6 +27,7 @@ fn test_moon_run_rendered_output() {
     check(
         get_stderr(&dir, ["run", "main", "--sort-input", "-j1", "-q"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                ╭─[ $ROOT/lib/hello.mbt:4:7 ]
                │

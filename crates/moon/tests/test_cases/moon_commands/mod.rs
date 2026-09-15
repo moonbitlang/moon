@@ -491,6 +491,7 @@ Warning: `moonx --target native` is deprecated and scheduled for removal after 2
 Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
 Using cached testuser/runner@1.2.3
 Using cached testuser/dependency@1.0.0
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Building `testuser/runner/tool`...
 ...
 Finished. moon: ran 9 tasks, now up to date

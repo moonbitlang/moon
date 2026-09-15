@@ -41,6 +41,7 @@ fn test_diagnostic_limit_output_json() {
     check(
         err,
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: diagnostic output limited by --diagnostic-limit: 0 errors and 1 warnings were not displayed.
         "#]],
     )
@@ -54,6 +55,7 @@ fn test_diagnostic_limit_rendered_output() {
     check(
         err,
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                ╭─[ $ROOT/test.mbt:3:7 ]
                │
@@ -74,6 +76,7 @@ fn test_diagnostic_limit_prioritizes_errors() {
     check(
         err,
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: [4021]
                ╭─[ $ROOT/z_error.mbt:3:3 ]
                │

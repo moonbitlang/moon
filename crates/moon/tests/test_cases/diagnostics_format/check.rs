@@ -22,7 +22,15 @@ fn test_moon_check_complete_json_success() {
 
     assert_eq!(report["version"], 1);
     assert_eq!(report["status"], "success");
-    assert_eq!(report["messages"], serde_json::json!([]));
+    assert_eq!(report["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(report["messages"][0]["level"], "warning");
+    assert!(
+        report["messages"][0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("`moon.mod.json`")
+    );
+    assert_eq!(report["summary"]["moon_warnings"], 1);
     assert_eq!(report["diagnostics"].as_array().unwrap().len(), 4);
     assert_eq!(report["summary"]["diagnostic_errors"], 0);
     assert_eq!(report["summary"]["diagnostic_warnings"], 4);
@@ -67,7 +75,7 @@ fn test_moon_check_complete_json_compiler_failure() {
     assert_eq!(report["diagnostics"][0]["target_backend"], "wasm");
     assert_eq!(report["messages"][0]["$message_type"], "moon");
     assert_eq!(report["messages"][0]["level"], "warning");
-    assert_eq!(report["summary"]["moon_warnings"], 1);
+    assert_eq!(report["summary"]["moon_warnings"], 2);
     assert_eq!(report["summary"]["diagnostic_errors"], 1);
     assert_eq!(report["summary"]["diagnostic_warnings"], 3);
 }
@@ -154,7 +162,7 @@ fn test_moon_check_complete_json_target_all_preserves_backend_provenance() {
         .failure()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":1,"status":"failure","diagnostics":[[..]"target_backend":"wasm"[..]"target_backend":"wasm-gc"[..]"target_backend":"js"[..]"target_backend":"native"[..]],"messages":[{"$message_type":"moon","level":"warning","message":"diagnostic output limited by --diagnostic-limit: 0 errors and 12 warnings were not displayed."}],"summary":{"tasks_executed":null,"moon_errors":0,"moon_warnings":1,"diagnostic_errors":4,"diagnostic_warnings":12,"hidden_diagnostic_warnings":12}}
+{"version":1,"status":"failure","diagnostics":[[..]"target_backend":"wasm"[..]"target_backend":"wasm-gc"[..]"target_backend":"js"[..]"target_backend":"native"[..]],"messages":[{"$message_type":"moon","level":"warning","message":"`moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`."},{"$message_type":"moon","level":"warning","message":"diagnostic output limited by --diagnostic-limit: 0 errors and 12 warnings were not displayed."}],"summary":{"tasks_executed":null,"moon_errors":0,"moon_warnings":2,"diagnostic_errors":4,"diagnostic_warnings":12,"hidden_diagnostic_warnings":12}}
 
 "#]]);
 }
@@ -215,7 +223,7 @@ fn test_moon_check_complete_json_captures_moon_warnings() {
             .unwrap()
             .contains("preferred_target")
     );
-    assert_eq!(report["summary"]["moon_warnings"], 1);
+    assert_eq!(report["summary"]["moon_warnings"], 2);
 }
 
 #[test]
@@ -432,7 +440,7 @@ fn test_moon_check_complete_json_runs_bin_dep_unstable_prebuild_config() {
     );
 
     assert_eq!(report["status"], "success");
-    assert_eq!(report["summary"]["moon_warnings"], 1);
+    assert_eq!(report["summary"]["moon_warnings"], 3);
     assert!(
         report["messages"]
             .as_array()

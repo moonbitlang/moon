@@ -480,6 +480,7 @@ fn test_prebuild_config_mbtx_invalid_json() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Error: failed to run build for target Native
 
 Caused by:

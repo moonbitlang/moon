@@ -434,7 +434,8 @@ pub fn warn_module_manifest(dir: &Path, location: &str, user_log: &UserLog) {
         ManifestFormat::New => read_module_from_dsl(&manifest_path),
         ManifestFormat::Legacy => {
             user_log.warn(format!(
-                "`{MOON_MOD_JSON}` is deprecated. Run `moon fmt` to migrate to `{MOON_MOD}`."
+                "`{MOON_MOD_JSON}` at '{}' is deprecated. Run `moon fmt` to migrate to `{MOON_MOD}`.",
+                dir.display()
             ));
             read_module_from_json(&manifest_path).map_err(anyhow::Error::from)
         }

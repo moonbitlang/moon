@@ -225,6 +225,7 @@ fn test_moon_package_list() {
         get_stderr(&dir, ["package", "--list"]),
         expect![[r#"
             Running moon check ...
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 4 tasks, now up to date
             Check passed
             README.md

@@ -11,6 +11,7 @@ fn test_third_party() {
 
     let actual = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
     expect![[r#"
+        Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
         Finished. moon: ran 5 tasks, now up to date
     "#]]
     .assert_eq(&actual);
@@ -31,6 +32,7 @@ fn test_third_party() {
 
     let actual = get_stderr(&dir, ["build", "--target", "wasm-gc"]);
     expect![[r#"
+        Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
         Finished. moon: ran 3 tasks, now up to date
     "#]]
     .assert_eq(&actual);

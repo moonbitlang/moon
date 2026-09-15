@@ -236,9 +236,14 @@ fn test_moon_build_package_selection_preserves_warning_labels() {
         ])
         .assert()
         .success()
-        .stderr_eq(
-            "Warning: Package 'local/jsdep/lib' matched by name 'local/jsdep/lib' is not in the main module, it may not be accessible.\n",
-        );
+        .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+Warning: `moon.mod.json` at '[..]/deps/jsdep' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+Warning: `moon.mod.json` at '[..]/deps/unuseddep' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+Warning: `moon.mod.json` at '[..]/deps/nativedep' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+Warning: Package 'local/jsdep/lib' matched by name 'local/jsdep/lib' is not in the main module, it may not be accessible.
+
+"#]]);
 }
 
 #[test]

@@ -114,6 +114,40 @@ fn read_module_desc_prefers_dsl() {
 }
 
 #[test]
+fn warn_module_manifest_reports_legacy_format_without_a_dsl_manifest() {
+    let dir = temp_dir("legacy-module-format");
+    std::fs::write(dir.join("moon.mod.json"), r#"{"name": "example/legacy"}"#).unwrap();
+    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+    warn_module_manifest(&dir, "at test module root", &user_log);
+
+    let entries = capture.take();
+    assert_eq!(entries.len(), 1);
+    assert!(matches!(
+        entries[0].level,
+        moonutil::user_log::UserLogEntryLevel::Warning
+    ));
+    assert_eq!(
+        entries[0].message,
+        format!(
+            "`moon.mod.json` at '{}' is deprecated. Run `moon fmt` to migrate to `moon.mod`.",
+            dir.display()
+        )
+    );
+
+    std::fs::write(dir.join("moon.mod"), "name = \"example/legacy\"\n").unwrap();
+    warn_module_manifest(&dir, "at test module root", &user_log);
+    let entries = capture.take();
+    assert_eq!(entries.len(), 1);
+    expect_test::expect![[r#"Both moon.mod.json and moon.mod exist at test module root, using the new format moon.mod. Please remove the deprecated moon.mod.json."#]]
+        .assert_eq(&entries[0].message);
+
+    std::fs::remove_file(dir.join("moon.mod.json")).unwrap();
+    warn_module_manifest(&dir, "at test module root", &user_log);
+    assert!(capture.take().is_empty());
+}
+
+#[test]
 fn warn_module_manifest_reports_deprecated_packaging_fields() {
     let dir = temp_dir("deprecated-packaging-fields");
     std::fs::write(
@@ -131,9 +165,9 @@ fn warn_module_manifest_reports_deprecated_packaging_fields() {
     warn_module_manifest(&dir, "at test module root", &user_log);
 
     let entries = capture.take();
-    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.len(), 2);
     assert_eq!(
-        entries[0].message,
+        entries[1].message,
         format!(
             "`include` and `exclude` in `{}` are deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
             dir.join("moon.mod.json").display()

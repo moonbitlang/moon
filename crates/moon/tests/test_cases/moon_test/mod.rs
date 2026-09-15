@@ -532,20 +532,15 @@ fn test_pkg_source_in() {
 fn test_moon_test_no_entry_warning() {
     let dir = TestDir::new("moon_test/no_entry_warning");
 
-    let out = moon_cmd(&dir)
+    moon_cmd(&dir)
         .args(["test"])
         .assert()
         .success()
-        .get_output()
-        .stderr
-        .to_owned();
+        .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+Warning: no test entry found.
 
-    check(
-        std::str::from_utf8(&out).unwrap(),
-        expect![[r#"
-            Warning: no test entry found.
-        "#]],
-    );
+"#]]);
 }
 
 #[test]

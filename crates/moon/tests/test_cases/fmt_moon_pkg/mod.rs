@@ -25,6 +25,7 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
             ],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
             Warning: Migrating to moon.pkg in package 'test/fmt_moon_pkg/lib', deprecated moon.pkg.json is removed.
         "#]],
@@ -124,6 +125,7 @@ fn test_fmt_moon_pkg_both_exist() {
             ],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Both moon.pkg.json and moon.pkg exist at package root '$ROOT/both', using the new format moon.pkg. Please remove the deprecated moon.pkg.json.
             Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
             Warning: Migrating to moon.pkg in package 'test/fmt_moon_pkg_both', deprecated moon.pkg.json is removed.

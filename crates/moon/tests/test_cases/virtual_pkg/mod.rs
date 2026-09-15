@@ -95,6 +95,7 @@ fn test_virtual_pkg_err() {
     check(
         get_err_stderr(&err, ["build"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: [4159]
                ╭─[ $ROOT/lib1/pkg.mbti:5:1 ]
                │

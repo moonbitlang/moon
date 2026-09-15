@@ -3,7 +3,12 @@ use super::*;
 const DIAGNOSTIC_RENDER_WARNING: &str = "Warning: Some diagnostics could not be rendered, please run with --no-render to see raw output.";
 
 fn check_build_only_stderr(stderr: String) {
-    let stderr = stderr.trim();
+    let stderr = stderr
+        .strip_prefix(
+            "Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.\n",
+        )
+        .expect("legacy module manifest warning")
+        .trim();
     assert!(
         stderr.is_empty() || stderr == DIAGNOSTIC_RENDER_WARNING,
         "unexpected stderr:\n{stderr}"

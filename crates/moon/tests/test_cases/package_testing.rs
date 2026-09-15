@@ -44,6 +44,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: Failed to calculate build plan
 
             Caused by:
@@ -54,6 +55,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["build"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: Failed to solve package relationship
 
             Caused by:
@@ -63,6 +65,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["test"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: Failed to solve package relationship
 
             Caused by:
@@ -72,6 +75,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["bundle"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: Failed to solve package relationship
 
             Caused by:
@@ -99,6 +103,8 @@ fn test_nonexistent_package() {
     check(
         get_err_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/pkg/transient' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: Failed to calculate build plan
 
             Caused by:
@@ -362,6 +368,7 @@ fn test_render_diagnostic_in_patch_file() {
             ],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                ╭─[ hello_2_test.mbt:2:6 ]
                │
@@ -386,6 +393,7 @@ fn test_render_diagnostic_in_patch_file() {
             ],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                ╭─[ hello_1_wbtest.mbt:2:6 ]
                │
@@ -410,6 +418,7 @@ fn test_render_diagnostic_in_patch_file() {
             ],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                ╭─[ hello_0.mbt:2:6 ]
                │
@@ -437,6 +446,7 @@ fn test_render_diagnostic_in_patch_file() {
             ],
         ),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: 
                ╭─[ hello_2_test.mbt:2:6 ]
                │
@@ -559,6 +569,7 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 8 tasks, now up to date
         "#]],
     );
@@ -734,6 +745,7 @@ fn test_in_main_pkg() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Main package `username/hello/main` uses blackbox-only test inputs (`_test.mbt` files) in package directory "$ROOT/main". Main packages will stop generating blackbox tests in a future release. Move public behavior into a non-main package and keep the main package as an entrypoint.
             Warning: [0002]
                ╭─[ $ROOT/lib/1_test.mbt:2:7 ]

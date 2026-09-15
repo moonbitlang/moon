@@ -13,9 +13,12 @@ fn test_moon_info_user_log_output() {
         .assert()
         .success()
         .stdout_eq("")
-        .stderr_eq(
-            "Warning: `--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092\nFinished. moon: ran 4 tasks, now up to date\n",
-        );
+        .stderr_eq(snapbox::str![[r#"
+Warning: `--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+Finished. moon: ran 4 tasks, now up to date
+
+"#]]);
 
     let quiet_dir = TestDir::new("moon_info_001.in");
     moon_cmd(&quiet_dir)

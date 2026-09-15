@@ -28,6 +28,7 @@ fn test_moon_info_composes_backend_builds() {
         .assert()
         .success()
         .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: ran [..] tasks, now up to date
 
 "#]]);

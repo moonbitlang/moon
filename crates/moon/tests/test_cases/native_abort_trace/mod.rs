@@ -22,6 +22,7 @@ fn test_generated_c_native_run_preserves_abort_trace() {
         // with generated C and --debug. Allow that existing tail while keeping
         // MoonBit frames and source lines exact to catch missing -g.
         .stderr_eq(snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 PanicError
     at @moonbitlang/core/option.Option::unwrap[Int] ([CORE_PATH]/builtin/option.mbt:[..])
     at @username/scratch/cmd/main.g ([..]cmd/main/main.mbt:14)
@@ -44,6 +45,7 @@ fn test_native_abort_trace() {
     ));
     let expected_stderr = if exits_via_signal {
         snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 PanicError
     at [..]Option::unwrap[..]Int[..] ([CORE_PATH]/builtin/option.mbt:[..])
     at [..]username/scratch/cmd/main.g ([..]/cmd/main/main.mbt:[..])
@@ -55,6 +57,7 @@ PanicError
 "#]]
     } else {
         snapbox::str![[r#"
+Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 RUNTIME ERROR: abort() called
 [CORE_PATH]/builtin/option.mbt[LINE_NUMBER] at @moonbitlang/core/option.Option::unwrap[Int]
 [..]/cmd/main/main.mbt[LINE_NUMBER] by @username/scratch/cmd/main.g

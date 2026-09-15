@@ -398,6 +398,8 @@ preferred_target = "wasm-gc"
         get_stderr(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+            Warning: `moon.mod.json` at '$ROOT/app' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/liba' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
         "#]],
     );
 
@@ -405,6 +407,8 @@ preferred_target = "wasm-gc"
         get_stderr(&dir, ["-C", "app", "build", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+            Warning: `moon.mod.json` at '$ROOT/app' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Warning: `moon.mod.json` at '$ROOT/liba' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
         "#]],
     );
 
@@ -419,6 +423,7 @@ preferred_target = "wasm-gc"
         get_stderr(&dir, ["work", "use", "app"]),
         expect![[r#"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+            Warning: `moon.mod.json` at '$ROOT/app' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
         "#]],
     );
 
@@ -436,6 +441,7 @@ fn test_workspace_fmt_removes_deprecated_preferred_target() {
         get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+            Warning: `moon.mod.json` at '$ROOT/app' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Migrating to moon.mod at module root '$ROOT/app', deprecated moon.mod.json is removed.
         "#]],
     );
@@ -995,7 +1001,7 @@ fn test_member_dir_tree_package_json_output() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"rel":"main"},{"module":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"rel":"lib"}],"edges":[{"from":0,"to":1,"alias":"lib","kinds":["source"]}],"logs":[]}
+{"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"rel":"main"},{"module":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"rel":"lib"}],"edges":[{"from":0,"to":1,"alias":"lib","kinds":["source"]}],"logs":[{"level":"warning","message":"`moon.mod.json` at '[..]/app' is deprecated. Run `moon fmt` to migrate to `moon.mod`."},{"level":"warning","message":"`moon.mod.json` at '[..]/liba' is deprecated. Run `moon fmt` to migrate to `moon.mod`."}]}
 
 "#]]);
 }
@@ -1199,10 +1205,11 @@ fn test_same_root_workspace_warns_when_module_is_not_a_member() {
         .args(["build", "--dry-run", "--sort-input"])
         .assert()
         .success()
-        .stderr_eq(
-            "Warning: `moon.work` takes precedence over the module manifest in the same directory, \
-but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.\n",
-        );
+        .stderr_eq(snapbox::str![[r#"
+Warning: `moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.
+Warning: `moon.mod.json` at '[..]/dep' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+
+"#]]);
 
     moon_cmd(&dir)
         .args(["--quiet", "build", "--dry-run", "--sort-input"])

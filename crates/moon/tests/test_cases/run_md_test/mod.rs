@@ -7,6 +7,7 @@ fn test_run_md_test() {
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
+            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
                 ╭─[ $ROOT/src/lib/1.mbt.md:39:9 ]
                 │
