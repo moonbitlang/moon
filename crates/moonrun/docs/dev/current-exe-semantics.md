@@ -208,19 +208,29 @@ the moonrun process, not the guest wasm module. The guest contract should be:
 4. `Engine::compile(name, bytes)` creates an in-memory module. Its `name` is a
    diagnostic label, not a path; `current_exe` must report an error unless a
    separate API explicitly supplies a file origin.
-5. If the path cannot be made absolute or represented as a MoonBit string,
-   preserve that failure and report it to the guest. On Unix this includes a
-   non-UTF-8 path if the MoonBit API requires a string. On Windows the native
-   UTF-16 units can be copied directly.
+5. If the path cannot be made absolute, preserve that failure and report it
+   to the guest. Preserve the native path encoding in the returned buffer:
+   arbitrary bytes on Unix and little-endian UTF-16 units on Windows.
 6. For linear wasm, `moonbitlang/core` should return a buffer handle allocated
    through the existing `moonbitlang/async` host resource table. Return the
-   invalid handle and set async errno on failure. The guest copies the UTF-16
-   units into a MoonBit `String` and frees the handle using the existing async
-   C-buffer API.
+   invalid handle (`0`) and set async errno on failure. The buffer includes a
+   native NUL terminator (one zero byte on Unix, one zero UTF-16 unit on
+   Windows). The guest uses async's `os_string/decode_len` and
+   `os_string/decode` with offset `0` and length `-1`, then frees the handle
+   using `c_buffer/free`.
 7. `current_exe_dir` returns the parent of the same stored executable path,
    using the same handle and error convention. It performs no new filesystem
    lookup and never falls back to the current working directory. An unavailable
-   origin, missing parent, or unrepresentable directory is an error.
+   origin or missing parent is an error.
+
+String conversion follows the existing async decoder: invalid UTF-8 on Unix
+and unpaired UTF-16 surrogates on Windows become replacement characters. Thus a
+decoded string is not guaranteed to round-trip to an arbitrary native path.
+There is no additional Unix encoding rejection in these imports. `decode_len`
+returns the decoded UTF-16 code-unit count, not a negative error sentinel;
+invalid handles, bounds, or buffer contracts cause a host-import exception or
+trap. The guest checks the returned path handle for query failures before
+decoding and releases every successful handle after use.
 
 `current_exe_dir` is a convenience for locating sibling resources, not a
 resource-directory abstraction: application bundles and other deployment layouts
@@ -241,20 +251,20 @@ unavailable origin because its name is only diagnostic. Each run clones that
 value into the backend-neutral `Runtime`. Its `Executable::directory` accessor
 derives the parent without additional stored state or OS calls.
 
-The `moonbitlang/core` adapter reads the executable through `Runtime`, converts
-its path to MoonBit UTF-16, allocates the result in the existing async C-buffer
-table, and records async errno when the origin or encoding is unavailable. The
+The `moonbitlang/core` adapter reads the executable through `Runtime`, copies
+its native-encoded path with a terminator into the existing async C-buffer
+table, and records async errno when the path query fails. The
 V8 context retains only the `Runtime`; it neither derives nor owns executable
 state. Consequently, cwd changes between module loading and execution do not
-change the result, and non-UTF-8 Unix paths reach the intended guest-visible
-error path without passing through the lossy diagnostic name.
+change the result, and non-UTF-8 Unix paths retain their original bytes until
+the guest requests decoding through async's existing OS-string imports.
 
 Both V8 and Wasmtime register `env/current_exe` and `env/current_exe_dir` in
 `moonbitlang/core`. Both imports share path encoding, C-buffer allocation, and
-errno propagation. Directory encoding applies only to the returned parent;
-on Unix, a non-UTF-8 basename does not prevent returning a UTF-8 directory.
+errno propagation. Directory encoding applies only to the returned parent.
+Neither backend introduces a separate string handle or decoder.
 
 Tests should cover relative file loading followed by a cwd change, module reuse
 after a rename/unlink, symlink spelling preservation, in-memory module failure,
-non-UTF-8 Unix failure, Windows wide-string preservation, errno propagation,
-and buffer release.
+lossy non-UTF-8 Unix decoding, native byte and Windows wide-unit preservation,
+NUL termination, errno propagation, and buffer release.

@@ -34,7 +34,7 @@ pub(crate) fn current_exe_dir(runtime: &Runtime) -> u64 {
 }
 
 fn path_to_handle(runtime: &Runtime, path: AsyncHostResult<&Path>) -> u64 {
-    match path.and_then(path_to_moonbit_string_buffer) {
+    match path.map(path_to_native_string_buffer) {
         Ok(buffer) => runtime.async_host().insert_c_buffer(buffer),
         Err(error) => {
             runtime.async_host().record_error(error);
@@ -44,25 +44,22 @@ fn path_to_handle(runtime: &Runtime, path: AsyncHostResult<&Path>) -> u64 {
 }
 
 #[cfg(unix)]
-fn path_to_moonbit_string_buffer(path: &Path) -> AsyncHostResult<Box<[u8]>> {
-    use crate::async_host::AsyncHostError;
+fn path_to_native_string_buffer(path: &Path) -> Box<[u8]> {
     use std::os::unix::ffi::OsStrExt;
 
-    let path =
-        std::str::from_utf8(path.as_os_str().as_bytes()).map_err(|_| AsyncHostError::Inval)?;
-    Ok(utf16_buffer(path.encode_utf16()))
+    // Preserve native bytes; async's os_string decoder owns the Unicode policy.
+    let mut bytes = path.as_os_str().as_bytes().to_vec();
+    bytes.push(0);
+    bytes.into_boxed_slice()
 }
 
 #[cfg(windows)]
-fn path_to_moonbit_string_buffer(path: &Path) -> AsyncHostResult<Box<[u8]>> {
+fn path_to_native_string_buffer(path: &Path) -> Box<[u8]> {
     use std::os::windows::ffi::OsStrExt;
 
-    Ok(utf16_buffer(path.as_os_str().encode_wide()))
-}
-
-fn utf16_buffer(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
-    units
-        .into_iter()
+    path.as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
         .flat_map(u16::to_le_bytes)
         .collect::<Vec<_>>()
         .into_boxed_slice()
@@ -104,29 +101,34 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     #[test]
-    fn string_buffer_contains_little_endian_utf16() {
+    fn native_string_buffer_preserves_wide_units_and_terminates() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+
+        let path = std::path::PathBuf::from(OsString::from_wide(&[b'a' as u16, 0xd800]));
         assert_eq!(
-            utf16_buffer("a\u{10000}".encode_utf16()).as_ref(),
-            &[b'a', 0, 0, 0xd8, 0, 0xdc]
+            path_to_native_string_buffer(&path).as_ref(),
+            &[b'a', 0, 0, 0xd8, 0, 0]
         );
     }
 
     #[cfg(unix)]
     #[test]
-    fn non_utf8_path_reports_an_error() {
+    fn native_string_buffer_preserves_non_utf8_bytes_and_terminates() {
         use std::ffi::OsString;
         use std::os::unix::ffi::OsStringExt;
 
         let path = std::path::PathBuf::from(OsString::from_vec(vec![b'/', 0xff]));
         let executable = Executable::from_file(&path);
         assert_eq!(
-            path_to_moonbit_string_buffer(executable.path().unwrap()),
-            Err(AsyncHostError::Inval)
+            path_to_native_string_buffer(executable.path().unwrap()).as_ref(),
+            &[b'/', 0xff, 0]
         );
         assert_eq!(
-            path_to_moonbit_string_buffer(executable.directory().unwrap()),
-            Ok(utf16_buffer("/".encode_utf16()))
+            path_to_native_string_buffer(executable.directory().unwrap()).as_ref(),
+            &[b'/', 0]
         );
     }
 }

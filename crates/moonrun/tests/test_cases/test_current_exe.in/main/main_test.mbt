@@ -26,18 +26,18 @@ fn current_exe_dir() -> UInt64 = "moonbitlang/core" "env/current_exe_dir"
 
 ///|
 #unsafe_skip_stub_check
-fn c_buffer_length(handle : UInt64) -> Int = "moonbitlang/async" "c_buffer/length"
+fn os_string_decode_len(handle : UInt64, offset : Int, len : Int) -> Int = "moonbitlang/async" "os_string/decode_len"
 
 ///|
 #unsafe_skip_stub_check
 #borrow(path)
-fn c_buffer_copy_to_string(
+fn os_string_decode(
   handle : UInt64,
-  source_offset : Int,
+  offset : Int,
+  len : Int,
   path : String,
-  destination_offset : Int,
-  byte_length : Int,
-) -> Unit = "moonbitlang/async" "c_buffer/blit_from_c"
+  path_len : Int,
+) -> Unit = "moonbitlang/async" "os_string/decode"
 
 ///|
 #unsafe_skip_stub_check
@@ -53,13 +53,9 @@ fn read_path(handle : UInt64) -> String raise {
     fail("failed to obtain the current executable path: errno=\{get_errno()}")
   }
   defer c_buffer_free(handle)
-  let byte_length = c_buffer_length(handle)
-  assert_true(
-    byte_length % 2 == 0,
-    msg="current executable path is not a MoonBit string",
-  )
-  let path = String::make(byte_length / 2, '\u{0}')
-  c_buffer_copy_to_string(handle, 0, path, 0, byte_length)
+  let len = os_string_decode_len(handle, 0, -1)
+  let path = String::make(len, '\u{0}')
+  os_string_decode(handle, 0, -1, path, len)
   path
 }
 

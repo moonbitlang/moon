@@ -377,9 +377,7 @@ fn test_moonrun_current_exe_absolutizes_relative_module_path() {
     let dir = TestDir::new("test_current_exe.in");
     // Resolve Unix cwd symlinks, but do not introduce a Windows verbatim prefix.
     let load_dir = dunce::canonicalize(&dir).unwrap();
-    let module_path =
-        std::path::absolute(load_dir.join("_build/wasm/debug/test/main/main.blackbox_test.wasm"))
-            .unwrap();
+    let built_module = load_dir.join("_build/wasm/debug/test/main/main.blackbox_test.wasm");
 
     moon_cmd()
         .current_dir(&load_dir)
@@ -387,19 +385,39 @@ fn test_moonrun_current_exe_absolutizes_relative_module_path() {
         .assert()
         .success();
 
-    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
-        .current_dir(&load_dir)
-        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
-        .env("MOONRUN_TEST_CURRENT_EXE", &module_path)
-        .env("MOONRUN_TEST_CURRENT_EXE_DIR", module_path.parent().unwrap())
-        .arg("--test-args")
-        .arg(
-            r#"{"package":"username/current_exe/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-        )
-        .arg("_build/wasm/debug/test/main/main.blackbox_test.wasm")
-        .assert()
-        .success()
-        .stdout_eq(snapbox::str![[r#"
+    let module_paths = [
+        PathBuf::from("executable/main.wasm"),
+        PathBuf::from("路径-\u{10000}/程序.wasm"),
+        // Filesystems such as APFS reject these names; exercise them on Linux.
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            PathBuf::from(std::ffi::OsString::from_vec(
+                b"non-utf8-\xff/module-\xfe.wasm".to_vec(),
+            ))
+        },
+    ];
+    for relative_path in module_paths {
+        let module_path = std::path::absolute(load_dir.join(&relative_path)).unwrap();
+        std::fs::create_dir_all(module_path.parent().unwrap()).unwrap();
+        std::fs::copy(&built_module, &module_path).unwrap();
+
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .current_dir(&load_dir)
+            .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+            .env("MOONRUN_TEST_CURRENT_EXE", module_path.to_string_lossy().as_ref())
+            .env(
+                "MOONRUN_TEST_CURRENT_EXE_DIR",
+                module_path.parent().unwrap().to_string_lossy().as_ref(),
+            )
+            .arg("--test-args")
+            .arg(
+                r#"{"package":"username/current_exe/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
+            )
+            .arg(&relative_path)
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
 ----- BEGIN MOON TEST RESULT -----
 {"type":"start","file":"main_test.mbt","index":0}
 ----- END MOON TEST RESULT -----
@@ -408,7 +426,8 @@ fn test_moonrun_current_exe_absolutizes_relative_module_path() {
 ----- END MOON TEST RESULT -----
 
 "#]])
-        .stderr_eq("");
+            .stderr_eq("");
+    }
 }
 
 #[test]
