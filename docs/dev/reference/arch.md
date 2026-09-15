@@ -326,6 +326,20 @@ An explicit `.mbtx` path selects single-file mode for `moon build` and
 file is therefore the synthetic package's source; it is not interpreted as a
 selector for the containing package.
 
+`moon fmt` also accepts explicit `.mbtx` paths, including several scripts mixed
+with package selectors. Each script is formatted on its own without loading
+the surrounding project or resolving its dependencies. Scripts use the same
+formatter invocation as ordinary source files. `--check` compares the formatted
+result with the script and fails if they differ; `--warn` reports differences
+without changing the script.
+Package-wide formatting continues to exclude `.mbtx` files, and other file
+paths continue to select their containing package. Explicit script paths are
+validated before formatting begins, and repeated paths to the same script
+are formatted once. Script dry runs render input and output paths relative to the
+invocation directory, including `../` paths, so scripts in different directories
+remain distinguishable. Package plans retain project-relative paths even when
+combined with scripts. Paths on different Windows drives remain absolute.
+
 ## Module dependency management
 
 There are two types of dependencies in a module.

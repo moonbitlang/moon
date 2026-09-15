@@ -24,7 +24,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
-    sync::LazyLock,
+    sync::{LazyLock, Mutex},
 };
 
 use moonbuild_rupes_recta::execution_plan::{ActionId, ExecutionPlan, InputObservation};
@@ -36,13 +36,22 @@ pub(crate) fn write_dry_run(
     input: &BuildInput,
     source_dir: &Path,
 ) -> std::io::Result<()> {
+    write_dry_run_with_normalizer(output, input, source_dir, &PathNormalizer::new(source_dir))
+}
+
+/// Render with caller-selected path display rules without changing the plan.
+pub(crate) fn write_dry_run_with_normalizer(
+    output: &mut dyn Write,
+    input: &BuildInput,
+    source_dir: &Path,
+    replacer: &PathNormalizer,
+) -> std::io::Result<()> {
     let plan = input.execution_plan();
     let roots = plan.default_output_paths().into_iter().chain(
         plan.requested_artifact_paths()
             .flat_map(|(_, paths)| paths.iter().map(PathBuf::as_path)),
     );
     let actions = ordered_actions(plan, roots);
-    let replacer = PathNormalizer::new(source_dir);
     for &id in &actions {
         let command = plan.action(id).command();
         let args = moonutil::shlex::join_native(command.args().iter().map(String::as_str));
@@ -69,11 +78,20 @@ pub(crate) fn write_dry_run(
 
     // FIXME: Keep the integration-test dump hook until all graph snapshots
     // start from the planner harness and no longer need the compiled CLI.
-    static DUMP_PATH: LazyLock<Option<String>> =
-        LazyLock::new(|| std::env::var("MOON_TEST_DUMP_BUILD_GRAPH").ok());
-    if let Some(path) = DUMP_PATH.as_deref() {
-        let mut file = std::fs::File::create(path).expect("Failed to create dry-run dump target");
-        write_action_graph(&mut file, plan, actions, &replacer)
+    // A CLI invocation can render several plans. Replace any previous dump
+    // once, then retain the writer so every plan is included in the same graph.
+    static DUMP_FILE: LazyLock<Option<Mutex<std::fs::File>>> = LazyLock::new(|| {
+        std::env::var("MOON_TEST_DUMP_BUILD_GRAPH")
+            .ok()
+            .map(|path| {
+                Mutex::new(
+                    std::fs::File::create(path).expect("Failed to create dry-run dump target"),
+                )
+            })
+    });
+    if let Some(file) = DUMP_FILE.as_ref() {
+        let mut file = file.lock().expect("Failed to lock dry-run dump target");
+        write_action_graph(&mut *file, plan, actions, replacer)
             .expect("Failed to dump to target output");
     }
     Ok(())

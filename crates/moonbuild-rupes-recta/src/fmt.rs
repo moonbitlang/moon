@@ -161,6 +161,21 @@ pub fn build_execution_plan_for_fmt(
     Ok(execution.finish([]))
 }
 
+/// Format one explicitly selected file without loading a project or its dependencies.
+/// `target_dir` is the target directory scoped to the standalone input.
+pub fn build_execution_plan_for_fmt_file(
+    cfg: &FmtConfig,
+    file: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<ExecutionPlan> {
+    let out_file = target_dir
+        .join("format")
+        .join(file.file_name().expect("Should have filename"));
+    let mut execution = ExecutionPlanBuilder::default();
+    format_node(&mut execution, cfg, file, &out_file)?;
+    Ok(execution.finish([]))
+}
+
 fn add_format_action<I, O>(
     execution: &mut ExecutionPlanBuilder,
     external_files: I,
@@ -406,7 +421,9 @@ fn build_for_package(
             return Ok(());
         }
 
-        format_node(execution, cfg, layout, pkg, file)?;
+        let out_file =
+            layout.format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"));
+        format_node(execution, cfg, file, &out_file)?;
         Ok(())
     };
 
@@ -426,14 +443,10 @@ fn build_for_package(
 fn format_node(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
-    layout: &TargetLayout,
-    pkg: &DiscoveredPackage,
     file: &Path,
+    out_file: &Path,
 ) -> anyhow::Result<()> {
-    let out_file = layout
-        .format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"))
-        .to_string_lossy()
-        .into_owned();
+    let out_file = out_file.to_string_lossy().into_owned();
     let cmd: Vec<String> = if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
             BINARIES.moonbuild.to_string_lossy().into_owned(),
@@ -446,6 +459,9 @@ fn format_node(
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
+        }
+        if !cfg.extra_args.is_empty() {
+            cmd.push("--".into());
         }
         cmd.extend_from_slice(&cfg.extra_args);
         cmd

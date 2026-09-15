@@ -380,7 +380,9 @@ Format source code
 
 ###### **Arguments:**
 
-* `<PATH>` — Paths to package directories or files inside packages to format
+* `<PATH>` — Paths to packages, files selecting their containing package, or standalone `.mbtx` scripts
+
+   An explicit `.mbtx` path formats only that script, with or without a surrounding project. Multiple scripts and package paths can be combined. Without paths, standalone scripts are excluded from package formatting. `--check` fails if a selected script needs formatting.
 * `<ARGS>` — Extra arguments passed to the formatter (after --)
 
 ###### **Options:**
