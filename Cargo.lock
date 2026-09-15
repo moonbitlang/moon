@@ -2037,6 +2037,7 @@ dependencies = [
 name = "mooncake"
 version = "0.1.0"
 dependencies = [
+ "anstream",
  "anyhow",
  "arcstr",
  "bytes",

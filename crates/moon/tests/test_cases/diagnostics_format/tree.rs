@@ -2,6 +2,72 @@ use super::json_command_with_postadd;
 use crate::{TestDir, moon_cmd};
 
 #[test]
+fn test_moon_tree_reports_deprecated_dependencies() {
+    let dir = TestDir::new_empty();
+    let registry_dir = tempfile::tempdir().unwrap();
+    let home = moonutil::MoonHomeLayout::new(registry_dir.path().to_owned());
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{"name":"test/app","version":"1.0.0","deps":{"dep/direct":"1.0.0"}}"#,
+    )
+    .unwrap();
+    for (name, entry) in [
+        (
+            "dep/direct",
+            r#"{"version":"1.0.0","deps":{"dep/transitive":"1.0.0"},"yanked":true,"yanked_reason":"Use dep/replacement."}"#,
+        ),
+        (
+            "dep/transitive",
+            r#"{"version":"1.0.0","yanked":true,"yanked_reason":" "}"#,
+        ),
+    ] {
+        let index = home.registry_index_file(&name.into());
+        std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+        std::fs::write(index, entry).unwrap();
+    }
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", home.root())
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Warning: Dependency `dep/direct@1.0.0` is deprecated: Use dep/replacement.
+Warning: Dependency `dep/transitive@1.0.0` is deprecated.
+  required through test/app@1.0.0 -> dep/direct@1.0.0 -> dep/transitive@1.0.0
+
+"#]])
+        .stdout_eq(snapbox::str![[r#"
+test/app@1.0.0 (local [..]):
+└─ dep/direct -> dep/direct@1.0.0
+   └─ dep/transitive -> dep/transitive@1.0.0
+
+"#]]);
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", home.root())
+        .args(["tree", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","error":null,"root":2,"modules":[{"name":"dep/direct","version":"1.0.0","source":{"kind":"registry"},"workspace_member":false},{"name":"dep/transitive","version":"1.0.0","source":{"kind":"registry"},"workspace_member":false},{"name":"test/app","version":"1.0.0","source":{"kind":"local","path":"[..]"},"workspace_member":false}],"edges":[{"from":0,"to":1,"name":"dep/transitive","kind":"regular"},{"from":2,"to":0,"name":"dep/direct","kind":"regular"}],"logs":[{"level":"warning","message":"Dependency `dep/direct@1.0.0` is deprecated: Use dep/replacement."},{"level":"warning","message":"Dependency `dep/transitive@1.0.0` is deprecated./n  required through test/app@1.0.0 -> dep/direct@1.0.0 -> dep/transitive@1.0.0"}]}
+
+"#]]);
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", home.root())
+        .args(["tree", "--json", "--quiet"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","error":null,"root":2,"modules":[{"name":"dep/direct","version":"1.0.0","source":{"kind":"registry"},"workspace_member":false},{"name":"dep/transitive","version":"1.0.0","source":{"kind":"registry"},"workspace_member":false},{"name":"test/app","version":"1.0.0","source":{"kind":"local","path":"[..]"},"workspace_member":false}],"edges":[{"from":0,"to":1,"name":"dep/transitive","kind":"regular"},{"from":2,"to":0,"name":"dep/direct","kind":"regular"}],"logs":[]}
+
+"#]]);
+}
+
+#[test]
 fn test_moon_tree_package_json_captures_postadd_output() {
     json_command_with_postadd(&["tree", "--package", "--json"], "moon --version")
         .success()

@@ -807,6 +807,11 @@ pub struct PackageSubcommand {
 /// Versions published later start undeprecated. Restoring clears all reasons;
 /// it does not recover previous per-version states.
 ///
+/// Deprecation does not affect version selection. Commands that resolve
+/// dependencies warn about every selected deprecated module, including
+/// transitive dependencies, using the local registry index without refreshing
+/// it. `--quiet` hides these warnings.
+///
 /// With `--dry-run`, fetch the module's currently published versions and print
 /// the intended change for each release without modifying the registry.
 /// The preview requires registry access but does not load publishing credentials.

@@ -108,6 +108,17 @@ Additionally, due to limitations of the MoonBit compiler,
 only one module with a specific name may be present in the resolved dependency graph.
 The build system will reject violating graph with an error.
 
+Registry deprecation is advisory and does not affect MVS version selection.
+After successful resolution, Moon warns once per selected deprecated registry
+module/version, including transitive dependencies. A warning includes the
+registry's reason when present and one shortest dependency path for transitive
+dependencies. Local and workspace modules are not checked against registry
+deprecation. Versions and dependencies visited but discarded by MVS do not
+produce warnings. The check assumes the local registry index is up to date and
+reuses it without refreshing the index or making additional network requests.
+These warnings are User Logs, so `--quiet` suppresses them and
+structured commands capture them with their other logs.
+
 [semver]: https://semver.org/
 [mvs]: https://go.dev/ref/mod#minimal-version-selection
 

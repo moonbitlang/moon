@@ -21,7 +21,9 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
-use moonutil::resolution::{ModuleId, ModuleName, ModuleSource, ResolvedEnv, ResolvedRootModules};
+use moonutil::resolution::{
+    ModuleId, ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv, ResolvedRootModules,
+};
 use moonutil::toolchain;
 use moonutil::user_log::UserLog;
 use semver::Version;
@@ -259,7 +261,54 @@ pub(crate) fn resolve_with_default_env(
             panic!("The resolver should not return `false` when no errors are found");
         }
         assert_no_duplicate_module_names(&res)?;
+        warn_deprecated_dependencies(&res, config.registry, user_log);
         Ok(res)
+    }
+}
+
+fn warn_deprecated_dependencies(result: &ResolvedEnv, registry: &dyn Registry, user_log: &UserLog) {
+    if !user_log.is_enabled(log::Level::Warn) {
+        return;
+    }
+
+    // Only inspect the final graph: MVS can visit versions and dependencies that
+    // it later discards. Each selected module appears once, even in a diamond.
+    let mut modules = result.all_modules_and_id().collect::<Vec<_>>();
+    modules.sort_unstable_by(|(_, a), (_, b)| a.name().cmp(b.name()));
+    for (id, source) in modules {
+        if !matches!(source.source(), ModuleSourceKind::Registry) {
+            continue;
+        }
+        // RegistryClient reuses the index metadata already read by resolution.
+        let Ok(versions) = registry.all_versions_of(source.name()) else {
+            continue;
+        };
+        let Some(release) = versions
+            .get(source.version())
+            .filter(|release| release.yanked)
+        else {
+            continue;
+        };
+        // Registry-authored reasons may contain terminal control sequences.
+        // Strip those while preserving ordinary newlines and spacing.
+        let reason = anstream::adapter::strip_str(release.yanked_reason.as_deref().unwrap_or(""))
+            .to_string();
+        let mut warning = if reason.trim().is_empty() {
+            format!("Dependency `{source}` is deprecated.")
+        } else {
+            format!("Dependency `{source}` is deprecated: {reason}")
+        };
+        if let Some(chain) = describe_dependency_chain(result, id)
+            && chain.len() > 2
+        {
+            let path = chain
+                .iter()
+                .map(|module| format!("{}@{}", module.name(), module.version()))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            warning.push_str(&format!("\n  required through {path}"));
+        }
+        user_log.warn(warning);
     }
 }
 

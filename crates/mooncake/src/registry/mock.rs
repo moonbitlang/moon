@@ -161,6 +161,7 @@ impl Registry for MockRegistry {
                             version.clone(),
                             RegistryVersionInfo {
                                 deps: module.deps.clone(),
+                                ..Default::default()
                             },
                         )
                     })
