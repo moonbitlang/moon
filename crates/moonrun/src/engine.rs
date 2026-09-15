@@ -18,7 +18,7 @@
 
 use crate::run_signal::{SignalReceiver, signal_channel};
 use crate::run_termination::RunTermination;
-use crate::runtime::{Runtime, Stdio, WorkingDirectory};
+use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
 use crate::source_map;
 #[cfg(feature = "v8")]
 use crate::v8 as backend;
@@ -246,6 +246,7 @@ pub(crate) fn run_test_driver<D>(
 
 struct ModuleData {
     name: String,
+    executable: Executable,
     compiled: backend::CompiledModule,
     source_map: Option<source_map::SourceMap>,
 }
@@ -265,6 +266,10 @@ impl Module {
 
     pub(crate) fn compiled(&self) -> &backend::CompiledModule {
         &self.0.compiled
+    }
+
+    pub(crate) fn executable(&self) -> &Executable {
+        &self.0.executable
     }
 
     pub(crate) fn source_map(&self) -> Option<&source_map::SourceMap> {
@@ -318,6 +323,7 @@ impl Engine {
             .with_context(|| format!("failed to compile `{name}`"))?;
         Ok(Module(Arc::new(ModuleData {
             name,
+            executable: Executable::unavailable(),
             compiled,
             source_map: None,
         })))
@@ -326,6 +332,7 @@ impl Engine {
     /// Compile a Wasm file into a reusable immutable Module.
     pub fn load_file(&self, file: impl AsRef<Path>) -> anyhow::Result<Module> {
         let file = file.as_ref();
+        let executable = Executable::from_file(file);
         if !file.exists() {
             anyhow::bail!("no such file");
         }
@@ -340,6 +347,7 @@ impl Engine {
             .with_context(|| format!("failed to compile `{name}`"))?;
         Ok(Module(Arc::new(ModuleData {
             name,
+            executable,
             compiled,
             source_map: source_map::load(file, &bytes),
         })))
@@ -371,6 +379,7 @@ impl Engine {
             options.policy_source_dir.as_deref(),
             options.inherited_policy.as_deref(),
             options.working_directory.clone(),
+            module.executable().clone(),
             signals,
             #[cfg(unix)]
             child_signal_mask,
@@ -460,6 +469,36 @@ mod tests {
                 file: "main.mbt",
                 line: 1,
             })
+        );
+    }
+
+    #[test]
+    fn loaded_module_captures_its_absolute_executable_path() {
+        let current_dir = std::env::current_dir().unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("moonrun-executable-origin.")
+            .tempdir_in(&current_dir)
+            .unwrap();
+        let wasm_path = dir.path().join("main.wasm");
+        std::fs::write(&wasm_path, b"\0asm\x01\0\0\0").unwrap();
+        let relative_path = wasm_path.strip_prefix(&current_dir).unwrap();
+
+        let module = Engine::default().load_file(relative_path).unwrap();
+        let expected = std::path::absolute(relative_path).unwrap();
+        std::fs::rename(&wasm_path, dir.path().join("renamed.wasm")).unwrap();
+
+        assert_eq!(module.executable().path(), Ok(expected.as_path()));
+    }
+
+    #[test]
+    fn module_compiled_from_bytes_has_no_executable_path() {
+        let module = Engine::default()
+            .compile("diagnostic-name", b"\0asm\x01\0\0\0")
+            .unwrap();
+
+        assert_eq!(
+            module.executable().path(),
+            Err(crate::async_host::AsyncHostError::Inval)
         );
     }
 }

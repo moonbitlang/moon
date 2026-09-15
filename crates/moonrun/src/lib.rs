@@ -27,6 +27,7 @@ compile_error!("moonrun requires an engine feature: `v8` or `wasmtime`");
 mod async_api;
 mod async_host;
 mod async_sys;
+mod core_api;
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
 mod engine;
 mod filesystem;

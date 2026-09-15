@@ -142,6 +142,7 @@ pub(super) mod tests {
             None,
             None,
             WorkingDirectory::Ambient,
+            crate::runtime::Executable::unavailable(),
             crate::signal_channel().1,
             #[cfg(unix)]
             mask,

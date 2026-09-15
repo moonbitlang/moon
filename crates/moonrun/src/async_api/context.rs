@@ -22,6 +22,8 @@ use crate::async_host::{AsyncHost, AsyncHostResult};
 use crate::filesystem::HostFs;
 use crate::run_termination::{RunTermination, TerminationRequest};
 #[cfg(feature = "v8")]
+use crate::runtime::Runtime;
+#[cfg(feature = "v8")]
 use crate::v8::context::{V8ImportError, V8MemoryBinding, V8RunContext};
 
 #[cfg(feature = "v8")]
@@ -40,6 +42,8 @@ pub(super) struct ImportContext<'a, 'scope> {
     pub(super) host: &'a AsyncHost,
     filesystem: &'a HostFs,
     #[cfg(feature = "v8")]
+    runtime: &'a Runtime,
+    #[cfg(feature = "v8")]
     memory_binding: &'a V8MemoryBinding,
     #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
     memory: &'a mut [u8],
@@ -55,6 +59,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
             scope,
             host: context.runtime().async_host(),
             filesystem: context.runtime().filesystem(),
+            runtime: context.runtime(),
             memory_binding: context.memory_binding(),
             termination_request: context.termination_request(),
         }
@@ -72,6 +77,11 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
 
     pub(super) fn filesystem(&self) -> &HostFs {
         self.filesystem
+    }
+
+    #[cfg(feature = "v8")]
+    pub(super) fn runtime(&self) -> &Runtime {
+        self.runtime
     }
 
     pub(super) fn with_host_and_memory_mut<T>(

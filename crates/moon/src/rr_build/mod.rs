@@ -685,11 +685,10 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[cfg(unix)]
     #[test]
     fn metadata_write_preserves_equal_files_and_replaces_changed_files() {
+        use super::write_metadata_if_changed;
         use std::os::unix::fs::MetadataExt;
 
         let dir = tempfile::tempdir().unwrap();
