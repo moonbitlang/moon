@@ -268,6 +268,53 @@ moonfmt ./control.mbt -w -o ./_build/wasm-gc/release/format/control.mbt
 }
 
 #[test]
+fn test_fmt_mbtx_dry_run_dumps_all_plans() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name=\"test/fmt\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "\n").unwrap();
+    for file in ["first.mbtx", "second.mbtx", "control.mbt"] {
+        std::fs::write(dir.join(file), "fn main{}\n").unwrap();
+    }
+    let dump = dir.join("graph.jsonl");
+
+    for (paths, expected) in [
+        (
+            ["first.mbtx", "second.mbtx"],
+            vec![
+                "moonfmt ./first.mbtx -w -o ./_build/first.mbtx/format/first.mbtx",
+                "moonfmt ./second.mbtx -w -o ./_build/second.mbtx/format/second.mbtx",
+            ],
+        ),
+        (
+            ["first.mbtx", "."],
+            vec![
+                "moonfmt ./first.mbtx -w -o ./_build/first.mbtx/format/first.mbtx",
+                "moonfmt ./control.mbt -w -o ./_build/wasm-gc/release/format/control.mbt",
+                "moonfmt ./moon.pkg -w -o ./_build/wasm-gc/release/format/moon.pkg",
+            ],
+        ),
+    ] {
+        // Each invocation replaces an earlier dump, then accumulates its plans.
+        std::fs::write(&dump, "stale dump\n").unwrap();
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&dir)
+            .env("MOON_TEST_DUMP_BUILD_GRAPH", &dump)
+            .args(["fmt", "--dry-run"])
+            .args(paths)
+            .assert()
+            .success();
+        let commands = read(&dump)
+            .lines()
+            .map(|line| {
+                let node: serde_json::Value = serde_json::from_str(line).unwrap();
+                node["command"].as_str().unwrap().to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(commands, expected);
+    }
+}
+
+#[test]
 fn test_fmt_path() {
     let dir = TestDir::new("fmt_path.in");
 

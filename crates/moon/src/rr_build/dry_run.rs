@@ -24,7 +24,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
-    sync::LazyLock,
+    sync::{LazyLock, Mutex},
 };
 
 use moonbuild_rupes_recta::execution_plan::{ActionId, ExecutionPlan, InputObservation};
@@ -78,11 +78,20 @@ pub(crate) fn write_dry_run_with_normalizer(
 
     // FIXME: Keep the integration-test dump hook until all graph snapshots
     // start from the planner harness and no longer need the compiled CLI.
-    static DUMP_PATH: LazyLock<Option<String>> =
-        LazyLock::new(|| std::env::var("MOON_TEST_DUMP_BUILD_GRAPH").ok());
-    if let Some(path) = DUMP_PATH.as_deref() {
-        let mut file = std::fs::File::create(path).expect("Failed to create dry-run dump target");
-        write_action_graph(&mut file, plan, actions, replacer)
+    // A CLI invocation can render several plans. Replace any previous dump
+    // once, then retain the writer so every plan is included in the same graph.
+    static DUMP_FILE: LazyLock<Option<Mutex<std::fs::File>>> = LazyLock::new(|| {
+        std::env::var("MOON_TEST_DUMP_BUILD_GRAPH")
+            .ok()
+            .map(|path| {
+                Mutex::new(
+                    std::fs::File::create(path).expect("Failed to create dry-run dump target"),
+                )
+            })
+    });
+    if let Some(file) = DUMP_FILE.as_ref() {
+        let mut file = file.lock().expect("Failed to lock dry-run dump target");
+        write_action_graph(&mut *file, plan, actions, replacer)
             .expect("Failed to dump to target output");
     }
     Ok(())
