@@ -141,7 +141,9 @@ pub fn build_synth_single_file_package(
     };
 
     // Assign file to appropriate list
-    let file_path = dunce::canonicalize(file).expect("Failed to canonicalize single-file input");
+    // Keep the invoked filename through compiler and test-file classification.
+    // Following a renamed symlink here would change the source interpretation.
+    let file_path = file.to_path_buf();
     let files = vec![file_path.clone()];
     let (source_files, mbt_md_files) = match source_kind {
         SingleFileSourceKind::Mbt | SingleFileSourceKind::Mbtx => (files, Vec::new()),

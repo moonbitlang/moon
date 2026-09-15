@@ -99,7 +99,7 @@ pub(crate) fn run_build(
         return run_build_for_single_file_rr(
             cli,
             &cmd,
-            &single_file.file_path,
+            &single_file.input_path,
             &single_file.package_dirs,
             &targets,
             output,

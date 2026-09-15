@@ -1,5 +1,80 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn test_mbtx_symlink_preserves_script_semantics() {
+    let dir = TestDir::new_empty();
+    std::fs::create_dir(dir.join("sources")).unwrap();
+    std::fs::write(dir.join("sources/source.mbt"), "test { assert_eq(1, 1) }\n").unwrap();
+    std::os::unix::fs::symlink("sources/source.mbt", dir.join("alias.mbtx")).unwrap();
+
+    moon_cmd(&dir)
+        .args(["test", "alias.mbtx"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: [4067] Missing main function in the main package.\n");
+
+    std::fs::write(
+        dir.join("sources/source.mbt"),
+        "import { \"moonbitlang/core/int\", }\nfn main { println(\"script main ran\") }\ntest { assert_eq(@int.MAX_VALUE, 2147483647) }\n",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["test", "alias.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+
+    for command in ["build", "check"] {
+        moon_cmd(&dir)
+            .args([command, "alias.mbtx"])
+            .assert()
+            .success();
+    }
+    moon_cmd(&dir)
+        .args(["run", "alias.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq("script main ran\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_mbt_symlink_preserves_library_semantics() {
+    let dir = TestDir::new_empty();
+    std::fs::create_dir(dir.join("sources")).unwrap();
+    std::fs::write(
+        dir.join("sources/source.mbtx"),
+        "test { assert_eq(1, 1) }\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("sources/source.mbtx", dir.join("alias.mbt")).unwrap();
+
+    moon_cmd(&dir)
+        .args(["test", "alias.mbt"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_markdown_symlink_preserves_source_format() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("source.mbt"),
+        "---\nmoonbit:\n  backend: js\n---\n```mbt test\nassert_eq(1, 1)\n```\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("source.mbt", dir.join("alias.mbt.md")).unwrap();
+
+    moon_cmd(&dir)
+        .args(["test", "alias.mbt.md"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+}
+
 #[test]
 fn test_mbtx_requires_main() {
     let dir = TestDir::new_empty();

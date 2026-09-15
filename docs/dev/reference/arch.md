@@ -325,6 +325,9 @@ An explicit `.mbtx` file path selects single-file mode for `moon build`,
 `moon check`, and `moon test` even when the path is inside an ordinary package.
 The `.mbtx` file is therefore the synthetic package's source; it is not
 interpreted as a selector for the containing package.
+Source interpretation follows the invoked filename, including when a symlink's
+target has a different suffix. The canonical file identity still determines
+standalone build storage.
 The synthetic `.mbtx` package is always executable. Building, running, and
 testing a script require a user `fn main`; tests execute the generated test
 entrypoint instead of the script's main.

@@ -19,6 +19,8 @@ doctests remain blackbox tests and import its source compilation. Test targets
 use the generated test entrypoint and do not execute the script's main.
 Legacy standalone `.mbt` and `.mbt.md` tests retain their library package
 declaration and do not require a main.
+For file symlinks, these semantics follow the invoked filename, and the compiler
+and test runner also receive that filename rather than the target's filename.
 
 Project tests, standalone-file tests, and benchmarks enter the same
 `run_test_workflow` after planning. It owns the initial build and dispatches the

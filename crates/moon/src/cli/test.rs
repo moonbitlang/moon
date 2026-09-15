@@ -379,7 +379,7 @@ fn run_test_impl(
         return run_test_in_single_file(
             cli,
             cmd,
-            &single_file.file_path,
+            &single_file.input_path,
             &single_file.package_dirs,
             output,
         );
@@ -398,7 +398,7 @@ fn run_test_impl(
                     return run_test_in_single_file(
                         cli,
                         cmd,
-                        &single_file.file_path,
+                        &single_file.input_path,
                         &single_file.package_dirs,
                         output,
                     );
