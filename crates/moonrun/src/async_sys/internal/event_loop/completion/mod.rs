@@ -16,11 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod completion;
-pub(crate) use completion::PipeCompletionNotifier;
-pub(crate) mod io;
-pub(crate) mod poll;
-pub(crate) mod thread_pool;
-
+mod pipe;
 #[cfg(unix)]
-pub(crate) use completion::{CancellationRetryNotifier, ThreadPoolCompletionNotifier};
+mod unix;
+
+pub(crate) use pipe::PipeCompletionNotifier;
+#[cfg(unix)]
+pub(crate) use unix::{CancellationRetryNotifier, ThreadPoolCompletionNotifier};
