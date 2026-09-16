@@ -111,10 +111,16 @@ struct HostWorkerState {
 // A Worker chooses exactly one completion destination at spawn and retains it
 // for its lifetime. Cancellation checks the same destination used for delivery.
 pub(crate) enum WorkerCompletionDestination {
-    // Async's Completion Source also supports cancellation retry notifications.
-    Default(Box<dyn Fn(WorkerCompletionId) + Send + Sync>),
+    // Retain the Unix source so retry checks can validate its identity.
+    #[cfg(unix)]
+    Pool(Arc<ThreadPoolCompletionNotifier>),
+    #[cfg(windows)]
+    Pool(super::super::poll::CompletionPort),
     // A supplied pipe carries only finished Job IDs.
     Pipe(PipeCompletionNotifier),
+    // Lifecycle tests observe or pause delivery after result publication.
+    #[cfg(test)]
+    Test(Box<dyn Fn(WorkerCompletionId) + Send + Sync>),
 }
 
 struct HostWorkerShared {
@@ -254,7 +260,17 @@ impl HostWorkerHandle {
                     state.terminating
                 };
                 match &worker_shared.completion {
-                    WorkerCompletionDestination::Default(notify) => notify(completion_id),
+                    #[cfg(unix)]
+                    WorkerCompletionDestination::Pool(source) => {
+                        let _ = source.notify(completion_id.as_i32());
+                    }
+                    #[cfg(windows)]
+                    WorkerCompletionDestination::Pool(port) => {
+                        let _ = super::super::poll::post_thread_pool_completion(
+                            port,
+                            completion_id.as_i32(),
+                        );
+                    }
                     WorkerCompletionDestination::Pipe(pipe) => {
                         // Delivery is outside the Job's cancellation scope;
                         // only Worker teardown interrupts a full pipe.
@@ -267,6 +283,8 @@ impl HostWorkerHandle {
                             });
                         }
                     }
+                    #[cfg(test)]
+                    WorkerCompletionDestination::Test(notify) => notify(completion_id),
                 }
                 if terminating {
                     break;
@@ -364,6 +382,14 @@ impl HostWorkerHandle {
         // pipe carries finished Jobs only and cannot route those retries.
         if matches!(self.shared.completion, WorkerCompletionDestination::Pipe(_)) {
             return Err(AsyncHostError::Inval);
+        }
+        // Reinitializing the pool must not redirect retries while finished
+        // notifications still target the source retained at spawn.
+        #[cfg(unix)]
+        if let WorkerCompletionDestination::Pool(bound) = &self.shared.completion
+            && !Arc::ptr_eq(bound, &notifier)
+        {
+            return Err(AsyncHostError::Badf);
         }
         if self.shared.cancellation.is_waiting() {
             return Ok(CancellationOutcome::JobFinished);
@@ -504,7 +530,7 @@ mod tests {
             job,
             run,
             move |job| *published.lock().unwrap() = Some(job),
-            WorkerCompletionDestination::Default(Box::new(move |_| {
+            WorkerCompletionDestination::Test(Box::new(move |_| {
                 complete(pending.lock().unwrap().take().unwrap())
             })),
         )
@@ -612,7 +638,6 @@ mod tests {
         let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
         let notifier = Arc::new(notifier);
         notifier.fill_with_completions(17);
-        let completion = Arc::clone(&notifier);
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
@@ -631,9 +656,7 @@ mod tests {
                 job.job.set_ret(73);
             },
             move |job| result_tx.send(job.job.ret()).unwrap(),
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -679,7 +702,6 @@ mod tests {
         let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
         let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
         let notifier = Arc::new(notifier);
-        let completion = Arc::clone(&notifier);
         let fds = crate::async_sys::internal::fd_util::stub::pipe(false, false).unwrap();
         let read = unsafe { OwnedFd::from_raw_fd(fds[0]) };
         let write = unsafe { OwnedFd::from_raw_fd(fds[1]) };
@@ -705,9 +727,7 @@ mod tests {
                 });
             },
             move |job| result_tx.send(job.job.ret()).unwrap(),
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -775,7 +795,6 @@ mod tests {
         let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
         let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
         let notifier = Arc::new(notifier);
-        let completion = Arc::clone(&notifier);
         let (started_tx, started_rx) = mpsc::channel();
         let (signal_tx, signal_rx) = mpsc::channel();
         let (handled_tx, handled_rx) = mpsc::channel();
@@ -798,9 +817,7 @@ mod tests {
                 finish_rx.recv().unwrap();
             },
             |_| {},
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -834,7 +851,6 @@ mod tests {
         let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
         let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
         let notifier = Arc::new(notifier);
-        let completion = Arc::clone(&notifier);
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let (ack_tx, ack_rx) = mpsc::channel();
@@ -853,9 +869,7 @@ mod tests {
                 finish_rx.recv().unwrap();
             },
             |_| {},
-            WorkerCompletionDestination::Default(Box::new(move |id| {
-                completion.notify(id.as_i32()).unwrap()
-            })),
+            WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
@@ -1147,7 +1161,7 @@ mod tests {
         assert!(queued_job.cancel.is_some());
         let worker = HostWorkerHandle {
             shared: Arc::new(HostWorkerShared {
-                completion: WorkerCompletionDestination::Default(Box::new(|_| {})),
+                completion: WorkerCompletionDestination::Test(Box::new(|_| {})),
                 cancellation: WorkerCancellation::new(),
                 state: Mutex::new(HostWorkerState {
                     job: Some(queued_job),
