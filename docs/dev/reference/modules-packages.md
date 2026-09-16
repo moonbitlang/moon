@@ -27,6 +27,12 @@ A package may import other packages within its containing module,
 or within the modules its containing module depends on.
 Cyclic dependencies are currently prohibited both in module and package level.
 
+Named import aliases must be unique within each build target's dependencies.
+The special alias `*` marks an import-all declaration rather than a package
+name, so multiple dependencies may use it, including in `.mbtx` scripts.
+Moon passes each import-all declaration to the compiler, which resolves the
+imported names.
+
 A package can be **internal** to restrict importing,
 see the [Internal Packages](#internal-packages) section for details.
 

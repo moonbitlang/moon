@@ -472,6 +472,16 @@ fn test_single_file_mbtx_builds_original_source() {
 }
 
 #[test]
+fn test_single_file_mbtx_run_multiple_import_all_aliases() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    moon_cmd(&dir)
+        .args(["run", "import_all_alias.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq("8\nhello\n");
+}
+
+#[test]
 fn test_single_file_mbtx_dry_run_preserves_import_all_alias() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["run", "import_all_alias.mbtx", "--dry-run"]);
@@ -480,7 +490,8 @@ fn test_single_file_mbtx_dry_run_preserves_import_all_alias() {
         .find(|line| line.contains("-pkg moon/test/single "))
         .expect("dry-run should contain the synthetic package build");
 
-    assert!(command.contains("stack/stack.mi:*"), "command: {command}");
+    assert!(command.contains("math/math.mi:*"), "command: {command}");
+    assert!(command.contains("utf8/utf8.mi:*"), "command: {command}");
 }
 
 #[test]
