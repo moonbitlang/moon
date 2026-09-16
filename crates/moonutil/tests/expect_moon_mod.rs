@@ -671,9 +671,8 @@ fn write_module_dsl_rejects_local_deps() {
 }
 
 #[test]
-fn write_module_dsl_rejects_git_deps() {
-    let dir = temp_dir("git-module");
-    let module: MoonModJSON = serde_json_lenient::from_str(
+fn module_manifest_rejects_git_deps() {
+    let err = serde_json_lenient::from_str::<MoonModJSON>(
         r#"{
           "name": "example/mod",
           "deps": {
@@ -681,13 +680,9 @@ fn write_module_dsl_rejects_git_deps() {
           }
         }"#,
     )
-    .unwrap();
-
-    let err = write_module_dsl_to_file(&module, &dir).unwrap_err();
+    .unwrap_err();
     assert!(
-        err.to_string().contains(
-            "moon.mod only supports registry dependencies in `import`, found structured dependency `example/git`"
-        ),
+        err.to_string().contains("did not match any variant"),
         "{err:?}"
     );
 }

@@ -88,7 +88,6 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
         let color = match src.source() {
             moonutil::resolution::ModuleSourceKind::Local(_) => "lightgreen",
             moonutil::resolution::ModuleSourceKind::Registry => "lightblue",
-            moonutil::resolution::ModuleSourceKind::Git(_) => "lightyellow",
             moonutil::resolution::ModuleSourceKind::Stdlib(_) => "lightgray",
             moonutil::resolution::ModuleSourceKind::SingleFile(_) => "orange",
         };

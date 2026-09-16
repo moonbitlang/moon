@@ -124,9 +124,6 @@ pub enum ModuleSourceKind {
     /// Module comes from the registry.
     #[default]
     Registry,
-    /// Module comes from a git repository.
-    // TODO: add branch/commit
-    Git(String),
     /// Module comes from a local path. The path must be absolute.
     Local(PathBuf),
 
@@ -156,7 +153,6 @@ impl std::fmt::Display for ModuleSourceKind {
         match self {
             ModuleSourceKind::Registry => write!(f, "registry"),
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
-            ModuleSourceKind::Git(url) => write!(f, "git {url}"),
             ModuleSourceKind::Stdlib(_) => write!(f, "stdlib"),
             ModuleSourceKind::SingleFile(path) => write!(f, "single file {}", path.display()),
         }
@@ -239,14 +235,6 @@ impl ModuleSource {
                 .clone()
                 .unwrap_or_else(|| DEFAULT_VERSION.clone()),
             source: ModuleSourceKind::Stdlib(path.to_owned()),
-        })
-    }
-
-    pub fn git(name: ModuleName, url: String, version: Version) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name,
-            version,
-            source: ModuleSourceKind::Git(url),
         })
     }
 

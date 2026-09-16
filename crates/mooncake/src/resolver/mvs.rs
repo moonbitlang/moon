@@ -136,18 +136,6 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
     match dependant.source() {
         ModuleSourceKind::Registry => false,
         ModuleSourceKind::Local(_) => true,
-        ModuleSourceKind::Git(_) => true,
-        ModuleSourceKind::Stdlib(_) => true,
-        ModuleSourceKind::SingleFile(_) => true,
-    }
-}
-
-/// Checks whether resolving git dependency is allowed for the dependant package
-fn git_dep_allowed(dependant: &ModuleSource) -> bool {
-    match dependant.source() {
-        ModuleSourceKind::Registry => false,
-        ModuleSourceKind::Local(_) => true,
-        ModuleSourceKind::Git(_) => true,
         ModuleSourceKind::Stdlib(_) => true,
         ModuleSourceKind::SingleFile(_) => true,
     }
@@ -161,9 +149,6 @@ fn root_path_of(dependant: &ModuleSource) -> PathBuf {
             panic!("Registry dependencies don't have a local root path!")
         }
         ModuleSourceKind::Local(path) => path.clone(),
-        ModuleSourceKind::Git(repo) => {
-            todo!("Resolve local downloaded path for git repo: {}", repo)
-        }
         ModuleSourceKind::Stdlib(path) => path.clone(),
         ModuleSourceKind::SingleFile(path) => path.clone(),
     }
@@ -199,22 +184,6 @@ impl From<ModuleSource> for ModuleSourceOrdWrapper {
 impl From<ModuleSourceOrdWrapper> for ModuleSource {
     fn from(value: ModuleSourceOrdWrapper) -> Self {
         value.0
-    }
-}
-
-fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource, user_log: &UserLog) {
-    match ms.source() {
-        ModuleSourceKind::Local(_) => {
-            user_log.warn(format!(
-                "A local dependency was skipped during version resolution: {ms}"
-            ));
-        }
-        ModuleSourceKind::Git(_) => {
-            user_log.warn(format!(
-                "A git dependency was skipped during version selection: {ms}"
-            ));
-        }
-        _ => (),
     }
 }
 
@@ -336,8 +305,12 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
         for v in versions {
             if same_mvs_compatibility_set(curr.version(), v.version()) {
                 // v >= curr, as implied by btreeset
-                // Emit a warning if the skipped dep is local or git, as they are manually specified
-                warn_about_skipped_local_or_git_dep(&curr, user_log);
+                // Local dependencies were explicitly chosen by the user.
+                if matches!(curr.source(), ModuleSourceKind::Local(_)) {
+                    user_log.warn(format!(
+                        "A local dependency was skipped during version resolution: {curr}"
+                    ));
+                }
                 curr = v;
             } else {
                 tracing::debug!(version = %curr, "selected version");
@@ -548,12 +521,7 @@ fn resolve_pkg(
         }
         return Ok((ms, res));
     }
-    if req.git().is_some() && git_dep_allowed(dependant) {
-        // TODO: Try resolving using git dependency
-    }
-    // If neither git nor local dependencies can be resolved (either because the user
-    // didn't specify it at all, or because the repo comes from a registry), we fallback
-    // to resolving from a registry.
+    // Registry dependencies do not apply local path overrides from published modules.
     let (version, module) =
         select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req, user_log)?;
     tracing::debug!(

@@ -151,12 +151,6 @@ pub fn validate_module_dsl_deps(
                     name
                 );
             }
-            SourceDependencyInfo::Git(_) => {
-                bail!(
-                    "moon.mod only supports registry dependencies in `import`, found structured dependency `{}`",
-                    name
-                );
-            }
         }
     }
 

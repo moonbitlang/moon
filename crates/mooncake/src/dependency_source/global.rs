@@ -166,9 +166,6 @@ impl DependencySource for ImmutableDependencySource<'_> {
                 ModuleSourceKind::Local(path)
                 | ModuleSourceKind::Stdlib(path)
                 | ModuleSourceKind::SingleFile(path) => path.clone(),
-                ModuleSourceKind::Git(url) => {
-                    anyhow::bail!("Git dependencies are not supported: {url}")
-                }
             };
             result.insert(id, directory);
         }

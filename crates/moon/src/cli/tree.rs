@@ -327,8 +327,6 @@ struct SourceJSON {
     kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -654,27 +652,18 @@ fn source_json(source: &ModuleSourceKind) -> SourceJSON {
         ModuleSourceKind::Registry => SourceJSON {
             kind: "registry",
             path: None,
-            url: None,
         },
         ModuleSourceKind::Local(path) => SourceJSON {
             kind: "local",
             path: Some(path.display().to_string()),
-            url: None,
-        },
-        ModuleSourceKind::Git(url) => SourceJSON {
-            kind: "git",
-            path: None,
-            url: Some(url.clone()),
         },
         ModuleSourceKind::Stdlib(path) => SourceJSON {
             kind: "stdlib",
             path: Some(path.display().to_string()),
-            url: None,
         },
         ModuleSourceKind::SingleFile(path) => SourceJSON {
             kind: "single-file",
             path: Some(path.display().to_string()),
-            url: None,
         },
     }
 }

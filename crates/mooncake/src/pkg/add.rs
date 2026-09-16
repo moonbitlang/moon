@@ -128,7 +128,7 @@ pub fn add(
             );
         };
 
-        if dep.path().is_some() || dep.git().is_some() {
+        if dep.path().is_some() {
             bail!("dependency `{pkg_name_str}` is not a registry dependency");
         }
 
