@@ -169,9 +169,6 @@
           "$ref": "#/definitions/SourceLocalDependencyInfo"
         },
         {
-          "$ref": "#/definitions/SourceGitDependencyInfo"
-        },
-        {
           "$ref": "#/definitions/SourceRegistryDependencyInfo"
         }
       ],
@@ -243,33 +240,9 @@
           "$ref": "#/definitions/SourceLocalDependencyInfo"
         },
         {
-          "$ref": "#/definitions/SourceGitDependencyInfo"
-        },
-        {
           "$ref": "#/definitions/SourceRegistryDependencyInfo"
         }
       ]
-    },
-    "SourceGitDependencyInfo": {
-      "type": "object",
-      "required": [
-        "git"
-      ],
-      "properties": {
-        "branch": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "git": {
-          "type": "string"
-        },
-        "version": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
     },
     "SourceLocalDependencyInfo": {
       "type": "object",

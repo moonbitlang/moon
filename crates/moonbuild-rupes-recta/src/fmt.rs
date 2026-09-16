@@ -128,9 +128,7 @@ pub fn build_execution_plan_for_fmt(
                     has_module_manifest |=
                         format_moon_mod_node(&mut execution, cfg, &layout, module, path, user_log)?
                 }
-                ModuleSourceKind::Registry
-                | ModuleSourceKind::Git(_)
-                | ModuleSourceKind::SingleFile(_) => (),
+                ModuleSourceKind::Registry | ModuleSourceKind::SingleFile(_) => (),
             };
         }
     }

@@ -337,7 +337,7 @@ impl<'a> super::LoweringContext<'a> {
         let module = self.modules.module_source(module_id);
         let path = match module.source() {
             ModuleSourceKind::Local(path) => path,
-            ModuleSourceKind::Registry | ModuleSourceKind::Git(_) | ModuleSourceKind::Stdlib(_) => {
+            ModuleSourceKind::Registry | ModuleSourceKind::Stdlib(_) => {
                 panic!("Remote modules for docs are not supported")
             }
             ModuleSourceKind::SingleFile(_) => {

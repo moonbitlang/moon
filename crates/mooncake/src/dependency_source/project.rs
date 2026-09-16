@@ -125,7 +125,6 @@ fn pkg_list_to_dep_dir_state<'a>(
         match pkg.source() {
             ModuleSourceKind::Registry => {}
             ModuleSourceKind::Local(_) => continue,
-            ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
             ModuleSourceKind::Stdlib(_) => continue,
             ModuleSourceKind::SingleFile(_) => continue,
         }
@@ -322,9 +321,6 @@ fn map_source_to_dir(
             pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
         }
         ModuleSourceKind::Local(path) => path.clone(),
-        ModuleSourceKind::Git(url) => {
-            anyhow::bail!("Git dependencies are not supported: {url}")
-        }
         ModuleSourceKind::Stdlib(path) => path.clone(),
         ModuleSourceKind::SingleFile(path) => path.clone(),
     })

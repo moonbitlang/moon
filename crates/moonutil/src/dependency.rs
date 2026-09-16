@@ -41,17 +41,6 @@ pub struct SourceLocalDependencyInfo {
     pub version: Option<Version>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SourceGitDependencyInfo {
-    pub git: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "branch")]
-    pub git_branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "String")]
-    pub version: Option<Version>,
-}
-
 /// Information about a specific dependency. This supports both simple string
 /// syntax and detailed object syntax in `moon.mod.json`.
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
@@ -60,7 +49,6 @@ pub enum SourceDependencyInfo {
     #[schemars(with = "String")]
     Simple(Version),
     Local(SourceLocalDependencyInfo),
-    Git(SourceGitDependencyInfo),
     Registry(SourceRegistryDependencyInfo),
 }
 
@@ -75,7 +63,6 @@ impl SourceDependencyInfo {
         match self {
             SourceDependencyInfo::Simple(version) => Some(version),
             SourceDependencyInfo::Local(info) => info.version.as_ref(),
-            SourceDependencyInfo::Git(info) => info.version.as_ref(),
             SourceDependencyInfo::Registry(info) => info.version.as_ref(),
         }
     }
@@ -92,7 +79,6 @@ impl SourceDependencyInfo {
                 }
             }
             SourceDependencyInfo::Local(info) => info.version = version,
-            SourceDependencyInfo::Git(info) => info.version = version,
             SourceDependencyInfo::Registry(info) => info.version = version,
         }
     }
@@ -100,20 +86,6 @@ impl SourceDependencyInfo {
     pub fn path(&self) -> Option<&str> {
         match self {
             SourceDependencyInfo::Local(info) => Some(info.path.as_str()),
-            _ => None,
-        }
-    }
-
-    pub fn git(&self) -> Option<&str> {
-        match self {
-            SourceDependencyInfo::Git(info) => Some(info.git.as_str()),
-            _ => None,
-        }
-    }
-
-    pub fn git_branch(&self) -> Option<&str> {
-        match self {
-            SourceDependencyInfo::Git(info) => info.git_branch.as_deref(),
             _ => None,
         }
     }
@@ -132,8 +104,6 @@ impl std::fmt::Debug for SourceDependencyInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(version) = self.version()
             && self.path().is_none()
-            && self.git().is_none()
-            && self.git_branch().is_none()
         {
             return write!(f, "{version}");
         }
@@ -143,15 +113,6 @@ impl std::fmt::Debug for SourceDependencyInfo {
             SourceDependencyInfo::Local(info) => f
                 .debug_struct("SourceDependencyInfo::Local")
                 .field("path", &info.path)
-                .field(
-                    "version",
-                    &info.version.as_ref().map(std::string::ToString::to_string),
-                )
-                .finish(),
-            SourceDependencyInfo::Git(info) => f
-                .debug_struct("SourceDependencyInfo::Git")
-                .field("git", &info.git)
-                .field("git_branch", &info.git_branch)
                 .field(
                     "version",
                     &info.version.as_ref().map(std::string::ToString::to_string),
@@ -248,6 +209,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dependencies_reject_git_and_branch_fields() {
+        for json in [
+            r#"{"git":"https://example.com/dep.git"}"#,
+            r#"{"git":"https://example.com/dep.git","branch":"main"}"#,
+            r#"{"version":"1.0.0","branch":"main"}"#,
+            r#"{"version":"1.0.0","git":"https://example.com/dep.git"}"#,
+            r#"{"path":"../dep","branch":"main"}"#,
+        ] {
+            assert!(
+                serde_json_lenient::from_str::<SourceDependencyInfo>(json).is_err(),
+                "accepted source dependency {json}"
+            );
+            assert!(
+                serde_json_lenient::from_str::<BinaryDependencyInfoJson>(json).is_err(),
+                "accepted binary dependency {json}"
+            );
+        }
+    }
+
+    #[test]
     fn detailed_dependency_allows_missing_version() {
         let dep: SourceDependencyInfo =
             serde_json_lenient::from_str(r#"{"path":"../dep"}"#).unwrap();
@@ -287,16 +268,12 @@ mod tests {
     }
 
     #[test]
-    fn binary_dependency_allows_git_source_with_bin_pkg() {
-        let dep: BinaryDependencyInfoJson = serde_json_lenient::from_str(
-            r#"{"git":"https://example.com/dep.git","branch":"main","bin_pkg":["tool"]}"#,
-        )
-        .unwrap();
-        let BinaryDependencyInfoJson::Detailed(dep) = dep else {
-            panic!("expected detailed dependency");
-        };
-        assert_eq!(dep.common.git(), Some("https://example.com/dep.git"));
-        assert_eq!(dep.common.git_branch(), Some("main"));
-        assert_eq!(dep.bin_pkg, Some(vec!["tool".to_string()]));
+    fn binary_dependency_rejects_git_source_with_bin_pkg() {
+        assert!(
+            serde_json_lenient::from_str::<BinaryDependencyInfoJson>(
+                r#"{"git":"https://example.com/dep.git","branch":"main","bin_pkg":["tool"]}"#,
+            )
+            .is_err()
+        );
     }
 }
