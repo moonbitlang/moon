@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::JoinHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, HandleKey};
@@ -167,7 +167,7 @@ impl HostWorkerHandle {
     pub(crate) fn spawn(
         init_job: HostWorkerJob,
         mut run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        mut complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
+        completed: mpsc::Sender<HostWorkerJobResult>,
         completion: WorkerCompletionDestination,
     ) -> Self {
         #[cfg(unix)]
@@ -228,7 +228,7 @@ impl HostWorkerHandle {
                     .cancellation
                     .run(job.completion_id, || run_job(&mut job));
                 let completion_id = job.completion_id;
-                complete_job(HostWorkerJobResult {
+                let _ = completed.send(HostWorkerJobResult {
                     job_key: job.job_key,
                     job: job.job,
                 });
@@ -460,10 +460,10 @@ ported_fns! {
     pub(crate) fn spawn_worker(
         init_job: HostWorkerJob,
         run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
+        completed: mpsc::Sender<HostWorkerJobResult>,
         completion: WorkerCompletionDestination,
     ) -> HostWorkerHandle {
-        HostWorkerHandle::spawn(init_job, run_job, complete_job, completion)
+        HostWorkerHandle::spawn(init_job, run_job, completed, completion)
     }
 
     #[ported(
@@ -523,15 +523,16 @@ mod tests {
         run: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         complete: impl Fn(HostWorkerJobResult) + Send + Sync + 'static,
     ) -> HostWorkerHandle {
-        // Existing lifecycle tests observe completed jobs after notification.
-        let pending = Arc::new(Mutex::new(None));
-        let published = Arc::clone(&pending);
+        // Observe the real result channel after notification. A nonblocking
+        // receive verifies that publication already happened before delivery.
+        let (completed, results) = mpsc::channel();
+        let results = Mutex::new(results);
         super::spawn_worker(
             job,
             run,
-            move |job| *published.lock().unwrap() = Some(job),
+            completed,
             WorkerCompletionDestination::Test(Box::new(move |_| {
-                complete(pending.lock().unwrap().take().unwrap())
+                complete(results.lock().unwrap().try_recv().unwrap())
             })),
         )
     }
@@ -601,7 +602,7 @@ mod tests {
                 started_tx.send(()).unwrap();
                 resume_rx.recv().unwrap();
             },
-            move |job| completed_tx.send(job.job_key).unwrap(),
+            completed_tx,
             WorkerCompletionDestination::Pipe(writer),
         );
 
@@ -611,7 +612,10 @@ mod tests {
         assert!(worker.request_stop().is_none());
         resume_tx.send(()).unwrap();
         assert_eq!(
-            completed_rx.recv_timeout(Duration::from_secs(3)).unwrap(),
+            completed_rx
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap()
+                .job_key,
             make_job_key(11)
         );
         assert!(free_worker(worker).is_none());
@@ -655,7 +659,7 @@ mod tests {
                 .unwrap();
                 job.job.set_ret(73);
             },
-            move |job| result_tx.send(job.job.ret()).unwrap(),
+            result_tx,
             WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -685,7 +689,7 @@ mod tests {
             );
         }
         join.join().unwrap();
-        assert_eq!(result_rx.try_recv().unwrap(), 73);
+        assert_eq!(result_rx.try_recv().unwrap().job.ret(), 73);
         assert!(
             joined_without_fetch,
             "Worker join depended on guest draining the full pipe"
@@ -726,7 +730,7 @@ mod tests {
                     ret as i64
                 });
             },
-            move |job| result_tx.send(job.job.ret()).unwrap(),
+            result_tx,
             WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -765,7 +769,7 @@ mod tests {
                 if cancel_worker_with_retry(&worker, Arc::clone(&notifier)).unwrap()
                     == CancellationOutcome::JobFinished
                 {
-                    result_at_completion = result_rx.try_recv().ok();
+                    result_at_completion = result_rx.try_recv().ok().map(|result| result.job.ret());
                     finished = true;
                     break;
                 }
@@ -799,6 +803,7 @@ mod tests {
         let (signal_tx, signal_rx) = mpsc::channel();
         let (handled_tx, handled_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
+        let (completed, _results) = mpsc::channel();
         let worker = super::spawn_worker(
             make_worker_job(23, 29),
             move |_| {
@@ -816,7 +821,7 @@ mod tests {
                 .unwrap();
                 finish_rx.recv().unwrap();
             },
-            |_| {},
+            completed,
             WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -855,6 +860,7 @@ mod tests {
         let (release_tx, release_rx) = mpsc::channel();
         let (ack_tx, ack_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
+        let (completed, _results) = mpsc::channel();
         let worker = super::spawn_worker(
             make_worker_job(23, 29),
             move |_| {
@@ -868,7 +874,7 @@ mod tests {
                 ack_tx.send(()).unwrap();
                 finish_rx.recv().unwrap();
             },
-            |_| {},
+            completed,
             WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1008,7 +1014,12 @@ mod tests {
             move |job| completion_sender.send(job.job.ret()).unwrap(),
         );
 
-        assert_eq!(completion_receiver.recv().unwrap(), 123);
+        assert_eq!(
+            completion_receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            123
+        );
         assert!(free_worker(worker).is_none());
     }
 

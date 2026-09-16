@@ -67,13 +67,8 @@ impl InstanceWorkers {
         completion: WorkerCompletionDestination,
     ) {
         // Tests pause custom runners at specific lifecycle transitions.
-        let completed = self.completed_sender.clone();
-        let handle = thread_pool::spawn_worker(
-            init_job,
-            run_job,
-            move |result| completed.send(result).unwrap(),
-            completion,
-        );
+        let handle =
+            thread_pool::spawn_worker(init_job, run_job, self.completed_sender.clone(), completion);
         self.workers.borrow_mut().insert(worker, handle);
     }
 

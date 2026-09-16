@@ -44,12 +44,13 @@ The region mark remains atomic for access by the interrupting signal handler;
 cancellation status and retry mode remain atomic for access by the requesting
 thread. No reference counts are changed when entering or leaving a region.
 
-Native writes its shared Job result before setting `Waiting`. Moonrun preserves
-that order using its existing result channel: send the host-owned Job, set
-`Waiting`, then notify. This transfers Rust ownership within the same process;
-it does not copy result buffers. Before accepting completion, the host restores
-the result to its Job table. The guest wrapper copies output into Wasm memory
-when it subsequently requests that output.
+The caller supplies the Worker with a Job runner and a result sender. After the
+runner returns, the Worker sends the host-owned Job result, sets `Waiting`, and
+notifies the guest. This follows native's result-before-`Waiting` ordering. The
+result channel transfers Rust ownership within the same process without copying
+result buffers. Before accepting completion, the host restores the result to its
+Job table. The guest wrapper copies output into Wasm memory when it subsequently
+requests that output.
 
 Unix notification transport deliberately differs from native's pipe of IDs.
 Ordinary completion IDs stay in a host FIFO queue. Each Worker that enables
@@ -99,19 +100,18 @@ before calling `worker.wake` for the next Job. Pending Jobs stay in the guest's
 queue until then. This sequencing keeps the checked Worker state associated
 with the notified Job. The host also preserves an early wake from direct
 callers, as tested by `wake_during_running_job_is_not_lost`, but after the Worker
-advances, its cancellation status no longer describes the previous Job.
+advances, its cancellation status describes the new Job.
 
 Worker freeing follows native's termination wakeup and join. Internally, Job
 submission and stopping are separate operations: stopping returns any queued
 Job and permanently closes admission, while the active Job can finish. A later
 submission returns the unaccepted Job to its caller. Joining consumes the Rust
-Worker handle, so there is no usable handle without an owned thread. The guest
-imports remain unchanged. Notification publication no longer depends on guest
-consumption. Cancellation after a Run stops executing its guest event loop
-remains a correctness FIXME for teardown:
-a signal arriving before a blocking syscall may still require another attempt,
-and no guest remains to request it. The backport does not add a retry loop to
-`free_worker` or attempt to forcibly stop noncooperative computation.
+Worker handle, so there is no usable handle without an owned thread. Pool
+completion publication is independent of guest consumption. Cancellation after
+a Run stops executing its guest event loop remains a correctness FIXME for
+teardown: a signal arriving before a blocking syscall may still require another
+attempt, and no guest remains to request it. `free_worker` has no cancellation
+retry loop and cannot forcibly stop noncooperative computation.
 
 ## How to Build and Test
 

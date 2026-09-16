@@ -4295,15 +4295,12 @@ impl AsyncHost {
     ) -> u64 {
         let filesystem = Arc::clone(&self.filesystem);
         let process_for_runner = self.process.clone();
-        let completed = self.workers.completed_sender.clone();
         let handle = thread_pool::spawn_worker(
             init_job,
             move |worker_job| {
                 Self::run_policy_checked_job(&filesystem, &process_for_runner, &mut worker_job.job);
             },
-            move |result| {
-                let _ = completed.send(result);
-            },
+            self.workers.completed_sender.clone(),
             completion,
         );
         let worker = self.handles.borrow_mut().insert(HandleKind::Worker);
