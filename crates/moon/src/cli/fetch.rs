@@ -16,16 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
 use colored::Colorize;
 use mooncake::{
     pkg::legacy_postadd,
-    registry::{Registry, RegistryClient},
+    registry::{RegistryClient, path::parse_module_path},
 };
 use moonutil::{
     child_process::{ChildOutputMode, ManagedChildRunner},
     project::PackageDirs,
-    resolution::ModuleName,
     user_log::UserLog,
 };
 
@@ -51,15 +49,13 @@ pub(crate) fn fetch_cli(
     cmd: FetchSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
+    let path = parse_module_path(&cmd.package_path)?;
     let registry = RegistryClient::configured();
-    let mut index_updated = false;
 
     if !cmd.no_update {
         let had_index = registry.has_cached_index();
         match registry.sync(user_log) {
-            Ok(()) => {
-                index_updated = true;
-            }
+            Ok(()) => {}
             Err(e) => {
                 if had_index {
                     user_log.warn(format!(
@@ -72,42 +68,12 @@ pub(crate) fn fetch_cli(
         }
     }
 
-    let package_path = cmd.package_path;
-    let parts: Vec<&str> = package_path.splitn(2, '@').collect();
-
-    let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if author_pkg.len() != 2 || author_pkg[0].is_empty() || author_pkg[1].is_empty() {
-        bail!("registry module name must be in the form of <author>/<module_name>[@<version>]");
+    let module = path.resolve(&registry)?;
+    let pkg_name = module.name();
+    let version = module.version();
+    if path.version.is_none() && !cli.quiet {
+        println!("Latest version of {pkg_name} is {version}");
     }
-    let username = author_pkg[0];
-    let pkgname = author_pkg[1];
-    let pkg_name = ModuleName {
-        username: username.into(),
-        unqual: pkgname.into(),
-    };
-
-    let version = if parts.len() == 2 {
-        let version_str = parts[1];
-        version_str.parse()?
-    } else {
-        let latest_version = registry
-            .get_latest_version(&pkg_name)
-            .ok_or_else(|| {
-                if index_updated {
-                    anyhow::anyhow!(
-                        "Could not find the latest published version of `{pkg_name}` in the registry"
-                    )
-                } else {
-                    anyhow::anyhow!(
-                        "Could not find the latest published version of `{pkg_name}` in the registry. Please consider running `moon update` to update the index."
-                    )
-                }
-            })?;
-        if !cli.quiet {
-            println!("Latest version of {pkg_name} is {latest_version}");
-        }
-        latest_version
-    };
 
     // If we are under a project, put it into `.repos` next to `.mooncakes`
     let source_dir = match cli
@@ -121,8 +87,8 @@ pub(crate) fn fetch_cli(
     };
     let repo_dir = source_dir.join(".repos");
     let pkg_dir = repo_dir
-        .join(username)
-        .join(pkgname)
+        .join(&*pkg_name.username)
+        .join(&*pkg_name.unqual)
         .join(version.to_string());
 
     if pkg_dir.exists() {
@@ -141,7 +107,7 @@ pub(crate) fn fetch_cli(
         println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
     }
 
-    registry.materialize_source_to(&pkg_name, &version, &pkg_dir, user_log)?;
+    registry.materialize_source_to(pkg_name, version, &pkg_dir, user_log)?;
     let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
     legacy_postadd::run(&pkg_dir, &child)?;
 

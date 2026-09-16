@@ -161,7 +161,7 @@ fn split_mbtx_import_path(
         let full_path_without_version = parsed.full_path_without_version();
         return Ok((
             parsed.module.to_string(),
-            parsed.version,
+            parsed.version.expect("versioned path has a version"),
             full_path_without_version,
         ));
     }
