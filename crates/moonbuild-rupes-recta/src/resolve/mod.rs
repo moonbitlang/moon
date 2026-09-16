@@ -209,7 +209,11 @@ fn parse_front_matter_imports(
 
 fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, Option<String>)> {
     let parsed = registry_path::parse_front_matter_import_path(path)?;
-    Ok((parsed.module, parsed.version, parsed.package))
+    Ok((
+        parsed.module.to_string(),
+        parsed.version,
+        (!parsed.package.is_empty()).then_some(parsed.package),
+    ))
 }
 
 #[cfg(test)]

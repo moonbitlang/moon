@@ -199,20 +199,22 @@ fn parse_executable_package_coordinate(
         bail!("Invalid package coordinate `{input}`: wildcard package paths are not supported");
     }
 
-    if input.contains('@') {
-        let parsed = if let Ok(parsed) = registry_path::parse_module_at_version_path(input) {
-            parsed
-        } else if let Ok(parsed) = registry_path::parse_package_at_version_path(input) {
-            parsed
+    if let Some((_, version_tail)) = input.split_once('@') {
+        let parsed = if version_tail.contains('/') {
+            registry_path::parse_module_at_version_path(input)
         } else {
-            bail!("Invalid package coordinate `{input}`");
-        };
-        let version = if parsed.version == "latest" {
+            registry_path::parse_package_at_version_path(input)
+        }
+        .with_context(|| format!("Invalid package coordinate `{input}`"))?;
+        let version = if parsed.version.as_deref() == Some("latest") {
             ExecutablePackageVersionSelector::RefreshLatest
         } else {
-            ExecutablePackageVersionSelector::Exact(Version::parse(&parsed.version).with_context(
-                || format!("Invalid version `{}` in package coordinate", parsed.version),
-            )?)
+            ExecutablePackageVersionSelector::Exact(
+                parsed
+                    .exact_version()
+                    .with_context(|| format!("Invalid version in package coordinate `{input}`"))?
+                    .expect("versioned path has a version"),
+            )
         };
         return Ok((parsed.module, parsed.package, version));
     }

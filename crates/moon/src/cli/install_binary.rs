@@ -26,7 +26,7 @@ use moonbuild_rupes_recta::{
 };
 use mooncake::{
     pkg::{legacy_postadd, sync::SyncOutputOptions},
-    registry::{Registry, RegistryClient, path as registry_path},
+    registry::{Registry, RegistryClient, path::RegistryPath},
 };
 use moonutil::{
     build_options::RunMode,
@@ -47,15 +47,6 @@ use crate::{
     cli::BuildFlags,
     rr_build::{self},
 };
-
-/// Represents a parsed package specification from the command line.
-#[derive(Debug, Clone)]
-pub(super) struct PackageSpec {
-    pub module_name: ModuleName,
-    pub package_path: Option<String>,
-    pub version: Option<Version>,
-    pub is_wildcard: bool,
-}
 
 /// How to filter packages for installation.
 #[derive(Debug, Clone, Copy)]
@@ -191,52 +182,10 @@ pub(super) fn is_local_path(s: &str) -> bool {
         || s.chars().nth(1) == Some(':') // Windows drive letter
 }
 
-pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
-    let (path_part, version) = if let Some(at_pos) = input.rfind('@') {
-        let path = &input[..at_pos];
-        let version_str = &input[at_pos + 1..];
-        (path, Some(version_str))
-    } else {
-        (input, None)
-    };
-
-    let (path_part, is_wildcard) = if let Some(stripped) = strip_wildcard_suffix(path_part) {
-        (stripped, true)
-    } else {
-        (path_part, false)
-    };
-
-    let (parsed, version) = if let Some(version) = version {
-        let normalized = format!("{path_part}@{version}");
-        let parsed = registry_path::parse_package_at_version_path(&normalized)
-            .with_context(|| format!("Invalid package path `{input}`"))?;
-        let version = Version::parse(&parsed.version)
-            .with_context(|| format!("Invalid version `{}`", parsed.version))?;
-        (
-            registry_path::InstallStylePath {
-                module: parsed.module,
-                package: parsed.package,
-            },
-            Some(version),
-        )
-    } else {
-        let parsed = registry_path::parse_install_style_path(path_part)
-            .with_context(|| format!("Invalid package path `{input}`"))?;
-        (parsed, None)
-    };
-
-    Ok(PackageSpec {
-        module_name: parsed.module,
-        package_path: Some(parsed.package),
-        version,
-        is_wildcard,
-    })
-}
-
 /// Install a binary package from the registry.
 pub(super) fn install_binary(
     cli: &UniversalFlags,
-    spec: &PackageSpec,
+    path: &RegistryPath,
     install_dir: &Path,
     install_all: bool,
     user_log: &UserLog,
@@ -258,30 +207,22 @@ pub(super) fn install_binary(
         }
     }
 
-    let version = if let Some(v) = &spec.version {
-        v.clone()
-    } else {
-        registry
-            .get_latest_version(&spec.module_name)
-            .ok_or_else(|| anyhow::anyhow!("Module `{}` not found in registry", spec.module_name))?
-    };
-
-    user_log.info(format!("Installing {}@{}", spec.module_name, version));
+    let module = path.resolve(&registry)?;
+    user_log.info(format!("Installing {}@{}", module.name(), module.version()));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let module_dir = tmp_dir.path();
 
-    registry.materialize_source_to(&spec.module_name, &version, module_dir, user_log)?;
+    registry.materialize_source_to(module.name(), module.version(), module_dir, user_log)?;
     let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
     legacy_postadd::run(module_dir, &child)?;
 
-    let filter =
-        PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
+    let filter = PackageFilter::package_path(path.package.clone(), install_all);
 
     let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
     build_and_install_packages(
         cli,
-        &spec.module_name,
+        module.name(),
         module_dir,
         package_dirs,
         install_dir,
@@ -999,66 +940,6 @@ mod tests {
         // Not local paths (git URLs)
         assert!(!is_local_path("https://github.com/user/repo"));
         assert!(!is_local_path("git@github.com:user/repo.git"));
-    }
-
-    #[test]
-    fn test_parse_package_spec_basic() {
-        // Basic user/module
-        let spec = parse_package_spec("user/module").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert_eq!(spec.package_path, Some(String::new()));
-        assert_eq!(spec.version, None);
-        assert!(!spec.is_wildcard);
-
-        // user/module/package
-        let spec = parse_package_spec("user/module/cmd/main").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
-        assert!(!spec.is_wildcard);
-    }
-
-    #[test]
-    fn test_parse_package_spec_with_version() {
-        let spec = parse_package_spec("user/module@1.0.0").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert_eq!(spec.version.unwrap().to_string(), "1.0.0");
-        assert!(!spec.is_wildcard);
-
-        let spec = parse_package_spec("user/module/cmd/main@2.3.4").unwrap();
-        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
-        assert_eq!(spec.version.unwrap().to_string(), "2.3.4");
-    }
-
-    #[test]
-    fn test_parse_package_spec_wildcard() {
-        // user/module/...
-        let spec = parse_package_spec("user/module/...").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert!(spec.is_wildcard);
-        assert_eq!(spec.package_path, Some(String::new()));
-
-        // user/module/cmd/...
-        let spec = parse_package_spec("user/module/cmd/...").unwrap();
-        assert!(spec.is_wildcard);
-        assert_eq!(spec.package_path, Some("cmd".to_string()));
-
-        // Alternate syntax: user/module...
-        let spec = parse_package_spec("user/module...").unwrap();
-        assert!(spec.is_wildcard);
-    }
-
-    #[test]
-    fn test_parse_package_spec_invalid() {
-        // Too few components
-        assert!(parse_package_spec("user").is_err());
-        assert!(parse_package_spec("single").is_err());
-
-        // Invalid version
-        assert!(parse_package_spec("user/module@invalid").is_err());
     }
 
     #[test]

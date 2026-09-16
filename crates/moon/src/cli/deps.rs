@@ -16,13 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use mooncake::{
     pkg::{
         add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand,
         sync::SyncOutputOptions,
     },
-    registry::RegistryClient,
+    registry::{RegistryClient, path::parse_install_package_path},
 };
 use moonutil::{
     cli_support::AutoSyncFlags,
@@ -50,7 +50,7 @@ pub(crate) fn require_selected_module(
 }
 use super::install_binary::{
     GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
-    parse_package_spec, strip_wildcard_suffix,
+    strip_wildcard_suffix,
 };
 
 /// Returns the local filesystem path used for wildcard local install.
@@ -175,9 +175,9 @@ pub(crate) fn install_cli(
     if cmd.path_in_repo.is_some() {
         anyhow::bail!("Path in repo can only be used with git URLs");
     }
-    let spec = parse_package_spec(&source)?;
-    let install_all = spec.is_wildcard;
-    install_binary(&cli, &spec, &install_dir, install_all, user_log)
+    let (path, install_all) = parse_install_package_path(&source)
+        .with_context(|| format!("Invalid package path `{source}`"))?;
+    install_binary(&cli, &path, &install_dir, install_all, user_log)
 }
 
 pub(crate) fn remove_cli(
