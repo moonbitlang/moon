@@ -40,7 +40,7 @@ use std::os::windows::io::{AsRawHandle, AsRawSocket, RawHandle};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use slotmap::{Key, SecondaryMap};
+use slotmap::{Key, KeyData, SecondaryMap};
 
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
@@ -60,7 +60,7 @@ use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 use crate::run_signal::SignalReceiver;
 pub(crate) use crate::runtime::HostKey as HandleKey;
-use crate::runtime::{Env, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream};
+use crate::runtime::{Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -242,6 +242,10 @@ fn handle_from_key(key: HandleKey) -> HostHandle {
     key.data().as_ffi()
 }
 
+fn key_from_handle(handle: HostHandle) -> HandleKey {
+    KeyData::from_ffi(handle).into()
+}
+
 #[cfg(unix)]
 fn error_message_buffer(message: String) -> Box<[u8]> {
     let mut bytes = message.into_bytes();
@@ -415,14 +419,6 @@ impl HandleTable {
         }
     }
 
-    fn c_buffer(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::CBuffer)
-    }
-
-    fn remove_c_buffer(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::CBuffer)
-    }
-
     #[cfg(windows)]
     fn windows_watcher_buffer(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
         self.key(handle, HandleKind::WindowsWatcherBuffer)
@@ -457,14 +453,6 @@ impl HandleTable {
 
     fn remove_process_env_builder(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
         self.remove(handle, HandleKind::ProcessEnvBuilder)
-    }
-
-    fn addrinfo(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::AddrInfo)
-    }
-
-    fn remove_addrinfo(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::AddrInfo)
     }
 
     fn tls_connection(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
@@ -1155,8 +1143,8 @@ pub(crate) struct AsyncHost {
     environment: Arc<Env>,
     network: HostNetwork,
     errno: Cell<i32>,
-    addr_infos: RefCell<SecondaryMap<HandleKey, HostAddrInfo>>,
-    c_buffers: RefCell<SecondaryMap<HandleKey, HostCBuffer>>,
+    addr_infos: RefCell<Handles<HostAddrInfo>>,
+    c_buffers: RefCell<Handles<HostCBuffer>>,
     #[cfg(windows)]
     windows_watcher_buffers: RefCell<SecondaryMap<HandleKey, HostWindowsWatcherBuffer>>,
     #[cfg(unix)]
@@ -1197,8 +1185,8 @@ impl AsyncHost {
             environment,
             network,
             errno: Cell::new(0),
-            addr_infos: RefCell::new(SecondaryMap::new()),
-            c_buffers: RefCell::new(SecondaryMap::new()),
+            addr_infos: RefCell::new(Handles::new(keys.clone(), HandleKind::AddrInfo)),
+            c_buffers: RefCell::new(Handles::new(keys.clone(), HandleKind::CBuffer)),
             #[cfg(windows)]
             windows_watcher_buffers: RefCell::new(SecondaryMap::new()),
             #[cfg(unix)]
@@ -1821,10 +1809,10 @@ impl AsyncHost {
     }
 
     pub(crate) fn insert_c_buffer(&self, buffer: Box<[u8]>) -> u64 {
-        let key = self.handles.borrow_mut().insert(HandleKind::CBuffer);
-        self.c_buffers
+        let key = self
+            .c_buffers
             .borrow_mut()
-            .insert(key, HostCBuffer::Available(buffer));
+            .insert(HostCBuffer::Available(buffer));
         handle_from_key(key)
     }
 
@@ -1832,10 +1820,9 @@ impl AsyncHost {
         if handle == INVALID_HOST_HANDLE {
             return Ok(());
         }
-        let key = self.handles.borrow_mut().remove_c_buffer(handle)?;
         self.c_buffers
             .borrow_mut()
-            .remove(key)
+            .remove(key_from_handle(handle))
             .map(|_| ())
             .ok_or(AsyncHostError::Badf)
     }
@@ -1848,7 +1835,7 @@ impl AsyncHost {
         // A c_buffer handle always names a whole host-owned buffer entry.
         // Callers that need a subrange must pass explicit offset/length
         // arguments; never reinterpret raw or interior pointers as handles.
-        let key = self.handles.borrow().c_buffer(handle)?;
+        let key = key_from_handle(handle);
         let buffers = self.c_buffers.borrow();
         match buffers.get(key).ok_or(AsyncHostError::Badf)? {
             HostCBuffer::Available(buffer) => f(buffer),
@@ -1861,7 +1848,7 @@ impl AsyncHost {
         handle: u64,
         f: impl FnOnce(&mut [u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let key = self.handles.borrow().c_buffer(handle)?;
+        let key = key_from_handle(handle);
         let mut buffers = self.c_buffers.borrow_mut();
         match buffers.get_mut(key).ok_or(AsyncHostError::Badf)? {
             HostCBuffer::Available(buffer) => f(buffer),
@@ -1873,7 +1860,7 @@ impl AsyncHost {
         if handle == INVALID_HOST_HANDLE {
             return Err(AsyncHostError::Badf);
         }
-        let key = self.handles.borrow().c_buffer(handle)?;
+        let key = key_from_handle(handle);
         let mut buffers = self.c_buffers.borrow_mut();
         let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
         match std::mem::replace(entry, HostCBuffer::Leased) {
@@ -2366,21 +2353,11 @@ impl AsyncHost {
             };
             self.network.getaddrinfo_result(job)?
         };
-        let (entries, next) = {
-            let mut handles = self.handles.borrow_mut();
-            let mut entries = Vec::new();
-            let mut next = None;
-            for addr in addrs.into_iter().rev() {
-                let key = handles.insert(HandleKind::AddrInfo);
-                let handle = handle_from_key(key);
-                entries.push((key, HostAddrInfo { addr, next }));
-                next = Some(handle);
-            }
-            (entries, next)
-        };
         let mut addr_infos = self.addr_infos.borrow_mut();
-        for (key, addrinfo) in entries {
-            addr_infos.insert(key, addrinfo);
+        let mut next = None;
+        for addr in addrs.into_iter().rev() {
+            let key = addr_infos.insert(HostAddrInfo { addr, next });
+            next = Some(handle_from_key(key));
         }
         Ok(next.unwrap_or(INVALID_HOST_HANDLE))
     }
@@ -2430,14 +2407,14 @@ impl AsyncHost {
         if handle == INVALID_HOST_HANDLE {
             return Ok(INVALID_HOST_HANDLE);
         }
-        let key = self.handles.borrow().addrinfo(handle)?;
+        let key = key_from_handle(handle);
         let addr_infos = self.addr_infos.borrow();
         let addrinfo = addr_infos.get(key).ok_or(AsyncHostError::Badf)?;
         Ok(addrinfo.next.unwrap_or(INVALID_HOST_HANDLE))
     }
 
     pub(crate) fn addrinfo_addr(&self, handle: u64) -> AsyncHostResult<Box<[u8]>> {
-        let key = self.handles.borrow().addrinfo(handle)?;
+        let key = key_from_handle(handle);
         let addr_infos = self.addr_infos.borrow();
         let addrinfo = addr_infos.get(key).ok_or(AsyncHostError::Badf)?;
         Ok(addrinfo.addr.clone())
@@ -2449,9 +2426,10 @@ impl AsyncHost {
         }
         let mut current = Some(handle);
         while let Some(handle) = current {
-            let key = self.handles.borrow_mut().remove_addrinfo(handle)?;
             let mut addr_infos = self.addr_infos.borrow_mut();
-            let addrinfo = addr_infos.remove(key).ok_or(AsyncHostError::Badf)?;
+            let addrinfo = addr_infos
+                .remove(key_from_handle(handle))
+                .ok_or(AsyncHostError::Badf)?;
             current = addrinfo.next;
         }
         Ok(())
@@ -3864,13 +3842,7 @@ impl AsyncHost {
         // Keep the mutable job borrow through publication so its ownership of
         // the resulting c_buffer changes atomically on the V8 thread.
         let job = job.filesystem_mut()?;
-        job.publish_realpath_result(|buffer| {
-            let buffer_key = self.handles.borrow_mut().insert(HandleKind::CBuffer);
-            self.c_buffers
-                .borrow_mut()
-                .insert(buffer_key, HostCBuffer::Available(buffer));
-            handle_from_key(buffer_key)
-        })
+        job.publish_realpath_result(|buffer| self.insert_c_buffer(buffer))
     }
 
     #[cfg(unix)]
@@ -5459,6 +5431,67 @@ mod tests {
     }
 
     #[test]
+    fn address_info_handles_preserve_results_and_reject_other_families() {
+        let host = default_host();
+        let job = host
+            .make_getaddrinfo_job(OsString::from("127.0.0.1"))
+            .unwrap();
+        host.run_job(job).unwrap();
+        let expected = host
+            .with_job(job, |job| {
+                let JobPayload::Network(job) = job.payload() else {
+                    panic!()
+                };
+                host.network.getaddrinfo_result(job).unwrap()
+            })
+            .unwrap();
+        assert!(!expected.is_empty());
+        let head = host.get_getaddrinfo_result(job).unwrap();
+        let buffer = host.insert_c_buffer(b"buffer".to_vec().into_boxed_slice());
+
+        assert_eq!(host.addrinfo_addr(buffer), Err(AsyncHostError::Badf));
+        assert_eq!(host.addrinfo_next(buffer), Err(AsyncHostError::Badf));
+        assert_eq!(host.free_addrinfo(buffer), Err(AsyncHostError::Badf));
+        assert_eq!(
+            host.with_c_buffer(head, |_| Ok(())),
+            Err(AsyncHostError::Badf)
+        );
+        assert_eq!(
+            host.with_c_buffer_mut(head, |_| Ok(())),
+            Err(AsyncHostError::Badf)
+        );
+        assert!(matches!(
+            host.lease_c_buffer(head),
+            Err(AsyncHostError::Badf)
+        ));
+        assert_eq!(host.free_c_buffer(head), Err(AsyncHostError::Badf));
+
+        let mut handles = Vec::new();
+        let mut current = head;
+        for addr in expected {
+            assert_eq!(host.addrinfo_addr(current).unwrap(), addr);
+            handles.push(current);
+            current = host.addrinfo_next(current).unwrap();
+        }
+        assert_eq!(current, INVALID_HOST_HANDLE);
+        host.free_addrinfo(head).unwrap();
+        let replacement = host.insert_c_buffer(b"replacement".to_vec().into_boxed_slice());
+        for handle in handles {
+            assert_eq!(host.addrinfo_addr(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.free_addrinfo(handle), Err(AsyncHostError::Badf));
+        }
+        host.with_c_buffer(replacement, |bytes| {
+            assert_eq!(bytes, b"replacement");
+            Ok(())
+        })
+        .unwrap();
+        host.free_c_buffer(buffer).unwrap();
+        host.free_c_buffer(replacement).unwrap();
+        host.free_job(job).unwrap();
+        assert!(host.leak_summary().is_none());
+    }
+
+    #[test]
     fn c_buffer_access_rejects_interior_raw_pointer() {
         let host = default_host();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
@@ -5485,7 +5518,7 @@ mod tests {
     fn readdir_job_exclusively_leases_and_restores_c_buffer() {
         let host = default_host();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
-        let key = host.handles.borrow().c_buffer(handle).unwrap();
+        let key = key_from_handle(handle);
         assert!(matches!(
             host.c_buffers.borrow().get(key),
             Some(HostCBuffer::Available(_))

@@ -21,6 +21,7 @@
 mod environment;
 mod environment_provisioning;
 mod executable;
+mod handles;
 mod stdio;
 mod working_directory;
 
@@ -44,6 +45,7 @@ use crate::sqlite::SqliteHost;
 pub(crate) use environment::Env;
 pub(crate) use environment_provisioning::EnvProvisioning;
 pub(crate) use executable::Executable;
+pub(crate) use handles::Handles;
 pub(crate) use stdio::{Stdio, StdioStream, Utf16Writer};
 pub use working_directory::WorkingDirectory;
 
