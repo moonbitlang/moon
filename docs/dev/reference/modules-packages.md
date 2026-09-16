@@ -100,11 +100,6 @@ or `%`, because they have URL syntax meaning.
 
 ## Dependency resolving
 
-Module dependencies use registry versions or local paths in legacy
-`moon.mod.json` manifests. Git URL and branch fields are rejected in both
-`deps` and `bin-deps`; Git dependency resolution is not supported.
-`moon.mod` imports use registry versions, with local modules provided by a workspace.
-
 Modules are versioned using [SemVer][] (Semantic Versioning),
 with the (common) extension of breaking change happens on the first non-zero version component.
 
