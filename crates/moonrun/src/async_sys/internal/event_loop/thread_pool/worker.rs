@@ -90,11 +90,10 @@ pub(crate) enum WorkerCancellationTarget {
 #[derive(Debug)]
 struct WorkerState {
     job: Option<WorkerJob>,
-    // Rust moves the active Job out of this state. Retain only its optional
-    // native-shaped cancellation hook, and distinguish it from a queued Job
-    // whose hook must replace this one before that Job can start.
+    // The running Job lives on the worker thread's stack, so retain its hook
+    // here for cancellation. A queued Job supplies its own hook when needed.
     #[cfg(unix)]
-    cancel_override: Option<JobCancellation>,
+    active_cancel: Option<JobCancellation>,
     #[cfg(windows)]
     running_cancel: RunningCancellation,
     #[cfg(unix)]
@@ -166,16 +165,13 @@ impl Worker {
     ) -> Self {
         #[cfg(unix)]
         init_worker_signal_handler();
-        #[cfg(unix)]
-        let first_cancel = first_job.job.cancellation_override();
-
         let shared = Arc::new(WorkerShared {
             completion,
             cancellation: WorkerCancellation::new(),
             state: Mutex::new(WorkerState {
                 job: Some(first_job),
                 #[cfg(unix)]
-                cancel_override: first_cancel,
+                active_cancel: None,
                 #[cfg(windows)]
                 running_cancel: RunningCancellation::Idle,
                 #[cfg(unix)]
@@ -203,7 +199,7 @@ impl Worker {
                     #[cfg(unix)]
                     {
                         state.running = job.is_some();
-                        state.cancel_override =
+                        state.active_cancel =
                             job.as_ref().and_then(|job| job.job.cancellation_override());
                     }
                     #[cfg(windows)]
@@ -234,10 +230,7 @@ impl Worker {
                     #[cfg(unix)]
                     {
                         state.running = false;
-                        state.cancel_override = state
-                            .job
-                            .as_ref()
-                            .and_then(|next_job| next_job.job.cancellation_override());
+                        state.active_cancel = None;
                     }
                     #[cfg(windows)]
                     {
@@ -305,13 +298,6 @@ impl Worker {
         }
         let previous_job = state.job.replace(job);
         #[cfg(unix)]
-        if !state.running {
-            state.cancel_override = state
-                .job
-                .as_ref()
-                .and_then(|job| job.job.cancellation_override());
-        }
-        #[cfg(unix)]
         let idle = !state.running;
         #[cfg(windows)]
         let idle = matches!(state.running_cancel, RunningCancellation::Idle);
@@ -327,23 +313,13 @@ impl Worker {
         let mut state = self.shared.state.lock().unwrap();
         state.terminating = true;
         let pending = state.job.take();
-        #[cfg(unix)]
-        if !state.running {
-            state.cancel_override = None;
-        }
         self.shared.wakeup.notify_one();
         pending
     }
 
     /// Remove the queued Job; an active Job keeps running.
     fn take_pending(&self) -> Option<WorkerJob> {
-        let mut state = self.shared.state.lock().unwrap();
-        let job = state.job.take();
-        #[cfg(unix)]
-        if !state.running {
-            state.cancel_override = None;
-        }
-        job
+        self.shared.state.lock().unwrap().job.take()
     }
 
     #[cfg(windows)]
@@ -404,7 +380,14 @@ impl Worker {
         {
             let cancel = {
                 let state = self.shared.state.lock().unwrap();
-                state.cancel_override.clone()
+                if state.running {
+                    state.active_cancel.clone()
+                } else {
+                    state
+                        .job
+                        .as_ref()
+                        .and_then(|job| job.job.cancellation_override())
+                }
             };
             if let Some(cancel) = cancel {
                 return cancel.cancel();
@@ -943,6 +926,105 @@ mod tests {
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(4));
         assert!(free_worker(worker).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_distinguishes_queued_and_running_jobs() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        use std::time::Duration;
+
+        for cancel_while_running in [true, false] {
+            let (_signals, receiver) = crate::signal_channel();
+            let (notifier, reader) = ThreadPoolCompletionNotifier::new().unwrap();
+            let _reader = unsafe { OwnedFd::from_raw_fd(reader) };
+            let wait_job = crate::async_sys::signal::make_sigwait_job(
+                &receiver,
+                &[libc::SIGINT],
+                Arc::new(notifier),
+            )
+            .unwrap();
+            let wait_cancel = wait_job.cancellation_override();
+            let (started, start) = mpsc::channel();
+            let (resume_run, run_resume) = mpsc::channel();
+            let (completed, completion) = mpsc::channel();
+            let (resume_delivery, delivery_resume) = mpsc::channel();
+            let delivery_resume = Mutex::new(delivery_resume);
+            let worker = spawn_worker(
+                make_worker_job(1, 2),
+                move |job| {
+                    started.send(job.job_key).unwrap();
+                    if job.job_key == make_job_key(2) {
+                        run_resume.recv_timeout(Duration::from_secs(5)).unwrap();
+                    }
+                    super::super::run_host_job(&mut job.job);
+                },
+                move |result| {
+                    completed.send((result.job_key, result.job.err())).unwrap();
+                    if result.job_key == make_job_key(2) {
+                        delivery_resume
+                            .lock()
+                            .unwrap()
+                            .recv_timeout(Duration::from_secs(5))
+                            .unwrap();
+                    }
+                },
+            );
+
+            assert_eq!(
+                start.recv_timeout(Duration::from_secs(5)).unwrap(),
+                make_job_key(2)
+            );
+            assert!(
+                wake_worker(
+                    &worker,
+                    WorkerJob::new(
+                        WorkerCompletionId::from_abi(3),
+                        make_job_key(4),
+                        wait_job.into()
+                    ),
+                )
+                .is_none()
+            );
+            if cancel_while_running {
+                // The active ordinary Job has no override; cancellation must
+                // not fall through to the queued signal-wait Job's hook.
+                assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
+            }
+            resume_run.send(()).unwrap();
+            assert_eq!(
+                completion.recv_timeout(Duration::from_secs(5)).unwrap().0,
+                make_job_key(2)
+            );
+            if !cancel_while_running {
+                // Delivery is paused after execution ends, keeping the next
+                // Job queued. Its cancellation must survive until it starts.
+                assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
+            }
+            resume_delivery.send(()).unwrap();
+            assert_eq!(
+                start.recv_timeout(Duration::from_secs(5)).unwrap(),
+                make_job_key(4)
+            );
+            let result = completion.recv_timeout(if cancel_while_running {
+                Duration::from_millis(100)
+            } else {
+                Duration::from_secs(1)
+            });
+
+            // Release the signal wait even when the queued cancellation was
+            // lost, so a failing assertion cannot leave a blocked Worker.
+            wait_cancel.cancel().unwrap();
+            if result.is_err() {
+                completion.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+            assert!(free_worker(worker).is_none());
+            if cancel_while_running {
+                assert_eq!(result, Err(mpsc::RecvTimeoutError::Timeout));
+            } else {
+                assert_eq!(result.unwrap(), (make_job_key(4), 0));
+            }
+        }
     }
 
     #[cfg(windows)]
