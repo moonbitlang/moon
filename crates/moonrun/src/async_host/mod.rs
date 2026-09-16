@@ -5432,6 +5432,9 @@ mod tests {
 
     #[test]
     fn address_info_handles_preserve_results_and_reject_other_families() {
+        #[cfg(windows)]
+        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+
         let host = default_host();
         let job = host
             .make_getaddrinfo_job(OsString::from("127.0.0.1"))
@@ -5439,6 +5442,8 @@ mod tests {
         host.run_job(job).unwrap();
         let expected = host
             .with_job(job, |job| {
+                assert_eq!(job.err(), 0);
+                assert_eq!(job.ret(), 0);
                 let JobPayload::Network(job) = job.payload() else {
                     panic!()
                 };
@@ -5489,6 +5494,9 @@ mod tests {
         host.free_c_buffer(replacement).unwrap();
         host.free_job(job).unwrap();
         assert!(host.leak_summary().is_none());
+
+        #[cfg(windows)]
+        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
     }
 
     #[test]
