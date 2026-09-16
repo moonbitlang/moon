@@ -97,15 +97,8 @@ pub(crate) fn run_build_binary_dep(
             .without_bin_deps();
     let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
 
-    // Note: There's a cyclic dependency!
-    //
-    // We need to know the target backend in order to find linkable packages,
-    // but the preferred target backend for each package is stored in its
-    // `bin_target` field, which is only known after resolution.
-    //
-    // To break the cycle, our strategy is to check if each package is linkable
-    // in its own `bin_target`, and if not present, fall back to the main
-    // module's preferred target backend (or default backend if not specified).
+    // Select linkable packages using each package's declared bin target, falling
+    // back to the module preference, before resolving those backends.
     let &[main_module_id] = resolve_output.local_modules() else {
         panic!("Expected exactly one main module when building all packages");
     };
@@ -141,6 +134,12 @@ pub(crate) fn run_build_binary_dep(
         }
         result_pkgs
     };
+
+    let resolve_output = resolve_output.resolve(
+        &pkgs.iter().map(|&(_, backend)| backend).collect::<Vec<_>>(),
+        resolve_cfg.enable_coverage,
+        user_log,
+    )?;
 
     // For each package we need to get its target backend and then we can build it
     let _lock = lock_directory(target_dir, user_log)?;
@@ -202,7 +201,7 @@ pub(crate) fn run_build_binary_dep(
 }
 
 fn get_linkable_pkgs_for_bin_dep(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: impl Iterator<Item = PackageId>,
     default_backend: TargetBackend,
     user_log: &UserLog,

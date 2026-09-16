@@ -131,7 +131,7 @@ fn run_bundle_rr_from_resolved(
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: moonbuild_rupes_recta::ProjectDeclarations,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
@@ -140,33 +140,29 @@ fn run_bundle_rr_from_resolved(
         target_dir,
         ..
     } = dirs;
-    let planned_runs = if selected_target_backends.is_empty() {
-        vec![plan_bundle_rr_from_resolved(
-            cli,
-            cmd,
-            target_dir,
-            &dirs.mooncake_bin_dir,
-            None,
-            resolve_output,
-            user_log,
-        )?]
+    let backends = if selected_target_backends.is_empty() {
+        vec![
+            rr_build::local_modules_preferred_target(&resolve_output, user_log).unwrap_or_default(),
+        ]
     } else {
-        selected_target_backends
-            .iter()
-            .copied()
-            .map(|target| {
-                plan_bundle_rr_from_resolved(
-                    cli,
-                    cmd,
-                    target_dir,
-                    &dirs.mooncake_bin_dir,
-                    Some(target),
-                    resolve_output.clone(),
-                    user_log,
-                )
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
+        selected_target_backends.to_vec()
     };
+    let resolve_output =
+        resolve_output.resolve(&backends, cmd.build_flags.enable_coverage, user_log)?;
+    let planned_runs = backends
+        .into_iter()
+        .map(|target| {
+            plan_bundle_rr_from_resolved(
+                cli,
+                cmd,
+                target_dir,
+                &dirs.mooncake_bin_dir,
+                Some(target),
+                resolve_output.clone(),
+                user_log,
+            )
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     if cli.dry_run {
         output.write_result(|writer| {
@@ -200,7 +196,7 @@ fn sync_and_resolve_bundle_project(
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
+) -> anyhow::Result<moonbuild_rupes_recta::ProjectDeclarations> {
     let resolve_config = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         !cmd.build_flags.std(),

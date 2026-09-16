@@ -560,19 +560,32 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let declarations = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let input_path = cmd
+        .package_or_mbt_file
+        .as_ref()
+        .expect("package run planning requires a positional input");
+    let selection = resolve_run_selection(input_path, &declarations)?;
+    let package = declarations.pkg_dirs.get_package(selection.package);
+    let target_backend = selected_target_backend
+        .or(declarations.module_info(package.module).preferred_target)
+        .unwrap_or_default();
+    let resolve_output =
+        declarations.resolve(&[target_backend], resolve_cfg.enable_coverage, user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
         Some(lock_directory(target_dir, user_log)?)
     };
-    let (build_meta, build_graph) = plan_run_rr_from_resolved(
+    let (build_meta, build_graph) = plan_run_rr_from_selection(
         cli,
         cmd,
         target_dir,
         mooncake_bin_dir,
-        selected_target_backend,
+        Some(target_backend),
         resolve_output,
+        input_path,
+        selection,
         user_log,
     )?;
     build_executable_from_plan(
@@ -592,6 +605,7 @@ fn build_package_executable(
     )
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_run_rr_from_resolved(
     cli: &UniversalFlags,
@@ -619,6 +633,31 @@ pub(crate) fn plan_run_rr_from_resolved(
             .unwrap_or_default(),
     );
 
+    plan_run_rr_from_selection(
+        cli,
+        cmd,
+        target_dir,
+        mooncake_bin_dir,
+        selected_target_backend,
+        resolve_output,
+        &input_path,
+        selection,
+        user_log,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_run_rr_from_selection(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: ResolveOutput,
+    input_path: &str,
+    selection: ResolvedRunSelection,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
     let compile_config = rr_build::prepare_resolved_build(
@@ -631,7 +670,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         &resolve_output,
     )?;
     let intent = selection.into_user_intent(
-        &input_path,
+        input_path,
         &resolve_output,
         value_tracing,
         compile_config.backend.target_backend(),
@@ -696,7 +735,7 @@ fn get_run_executable(build_meta: &BuildMeta) -> &Path {
 #[instrument(level = Level::DEBUG, skip_all)]
 fn resolve_run_selection(
     input_path: &str,
-    resolve_output: &ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
 ) -> Result<ResolvedRunSelection, anyhow::Error> {
     let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
     let package = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
@@ -782,6 +821,12 @@ fn build_single_file_executable(
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
+
+    let resolved = resolved.resolve(
+        &[selected_target_backend],
+        resolve_cfg.enable_coverage,
+        user_log,
+    )?;
 
     let lock = if cli.dry_run {
         None

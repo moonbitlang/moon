@@ -84,9 +84,11 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Sync module-level dependencies into the `.mooncakes` directory when needed.
    - Resolve module-level dependencies from the synced dependency result.
    - Discover packages within modules.
-   - Resolve package-level dependencies.
+   - Select the requested backends, using selected packages' module preferences when implicit.
+   - Resolve complete package relationships for each requested backend; fail if any fails.
 2. Generate build graph based on the intent of the user [^graph]
    - Determine the user intent ("build package X to executable", "check package Y", etc.)
+   - Select the build configuration and its already-resolved dependency relationship.
    - Determine the logical artifacts requested by that intent.
    - Select provider actions and expand their transitive artifact requirements.
    - Generate a concrete build graph containing the final commandlines to execute.
@@ -208,6 +210,15 @@ relationships and module source directories produced by dependency sync.
 `ResolveOutput` should contain resolved
 build-model data derived from those inputs, not repeat the captured discovery
 paths.
+
+`ProjectDeclarations` contains module resolution and package declarations, which
+command adapters use to select packages and target backends. Its `resolve` method
+constructs `ResolveOutput` only after every requested backend resolves successfully.
+`ResolveOutput.pkg_rel` maps backends to complete `DepRelationship` values: import
+edges, virtual users, implementation mappings, and support derived from active
+edges. Errors are returned immediately; unrequested backends are not resolved.
+Intent expansion, planning, lowering, metadata, and graph export consume the
+selected relationship without further solving or mutation.
 
 Toolchain and host facts follow the same rule. `moonutil::toolchain` owns facts
 about the selected MoonBit toolchain tree, including known tool binaries and
@@ -447,6 +458,12 @@ Each package has an import (dependency) list that applies to all its build targe
 Additionally, whitebox tests and blackbox tests have their own list of dependencies.
 Together, these imports determine the package-level dependency edges in the resolved graph
 and, by extension, between build-plan nodes.
+
+Import blocks may have [backend conditions](cond-comp.md#conditional-package-imports).
+Package solving validates each requested backend's full `DepRelationship` before
+returning `ResolveOutput`. Module resolution and package discovery run once;
+virtual-package relationships belong to each backend's relationship alongside
+its import graph.
 
 Main packages are being tightened relative to ordinary packages:
 

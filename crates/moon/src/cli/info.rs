@@ -24,7 +24,7 @@ use anyhow::bail;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve_synced_project,
+    ResolveConfig, ResolveOutput, discover_synced_project, intent::UserIntent, model::PackageId,
     sync_dependencies,
 };
 use moonutil::{
@@ -100,7 +100,7 @@ enum SelectionMode {
 impl PackageSelection {
     fn new(
         cmd: &InfoSubcommand,
-        resolve_output: &ResolveOutput,
+        resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
         let package_ids: Vec<_> = resolve_output
@@ -300,7 +300,7 @@ pub(crate) fn run_info(
         cli.workspace_env.clone(),
     );
     let synced_env = sync_dependencies(&resolve_cfg, &dirs, output.user_log())?;
-    let resolve_output = resolve_synced_project(&resolve_cfg, synced_env, output.user_log())?;
+    let resolve_output = discover_synced_project(&resolve_cfg, synced_env, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
 
     let requested_targets = cmd
@@ -311,6 +311,15 @@ pub(crate) fn run_info(
     let output_plan =
         imp::plan_info_outputs(&resolve_output, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
+    let resolve_output = resolve_output.resolve(
+        &execution_targets
+            .iter()
+            .map(|&(backend, _)| backend)
+            .collect::<Vec<_>>(),
+        resolve_cfg.enable_coverage,
+        output.user_log(),
+    )?;
+
     std::fs::create_dir_all(target_dir)?;
     let _lock = lock_directory(target_dir, output.user_log())?;
 

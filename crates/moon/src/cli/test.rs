@@ -571,10 +571,11 @@ fn run_test_in_single_file_rr(
         user_log,
     )?;
     let target_backends = if targets.is_empty() {
-        vec![backend]
+        vec![backend.unwrap_or_default()]
     } else {
-        targets.into_iter().map(Some).collect()
+        targets
     };
+    let resolved = resolved.resolve(&target_backends, resolve_cfg.enable_coverage, user_log)?;
 
     let lock = if cli.dry_run {
         None
@@ -610,7 +611,7 @@ fn run_test_in_single_file_rr(
             let compile_config = rr_build::prepare_resolved_build(
                 cli,
                 &build_flags,
-                target_backend,
+                Some(target_backend),
                 target_dir,
                 RunMode::Test,
                 user_log,
@@ -806,7 +807,29 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
 
     validate_original_package_selection_filters(&resolve_output, cmd)?;
     let selections = resolve_test_target_selections(&resolve_output, cmd, user_log)?;
+    plan_test_or_bench_rr_from_selections(
+        cli,
+        cmd,
+        target_dir,
+        mooncake_bin_dir,
+        selected_target_backend,
+        resolve_output,
+        selections,
+        user_log,
+    )
+}
 
+#[allow(clippy::too_many_arguments)]
+fn plan_test_or_bench_rr_from_selections(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    selections: Vec<TargetPackageGroup>,
+    user_log: &UserLog,
+) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
     if has_explicit_test_selector(cmd) {
         if selections.is_empty() {
             return plan_test_or_bench_rr_from_resolved(
@@ -814,7 +837,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                 cmd,
                 target_dir,
                 mooncake_bin_dir,
-                None,
+                selected_target_backend,
                 resolve_output,
                 user_log,
             )
@@ -846,7 +869,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             cmd,
             target_dir,
             mooncake_bin_dir,
-            None,
+            selected_target_backend,
             resolve_output,
             user_log,
         )
@@ -1000,7 +1023,7 @@ pub(crate) fn sync_and_resolve_test_or_bench_project(
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
+) -> anyhow::Result<moonbuild_rupes_recta::ProjectDeclarations> {
     let resolve_config = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         !cmd.build_flags.std(),
@@ -1032,7 +1055,7 @@ fn run_test_rr(
     )
 }
 
-/// Plans, builds, and runs tests from resolved project data.
+/// Selects backends, resolves relationships, and runs tests.
 ///
 /// Holds the target-directory lock through planning and the initial build,
 /// then releases it before executing tests or benchmarks.
@@ -1043,7 +1066,7 @@ pub(crate) fn run_test_or_bench_from_resolved(
     dirs: &PackageDirs,
     display_backend_hint: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: moonbuild_rupes_recta::ProjectDeclarations,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let user_log = output.user_log();
@@ -1053,20 +1076,39 @@ pub(crate) fn run_test_or_bench_from_resolved(
         mooncake_bin_dir,
         ..
     } = dirs;
+    let selections = if selected_target_backends.is_empty() {
+        validate_original_package_selection_filters(&resolve_output, cmd)?;
+        Some(resolve_test_target_selections(
+            &resolve_output,
+            cmd,
+            user_log,
+        )?)
+    } else {
+        None
+    };
+    let (resolve_output, fallback_backend) = rr_build::resolve_project_for_targets(
+        resolve_output,
+        selected_target_backends,
+        selections.as_deref(),
+        cmd.build_flags.enable_coverage,
+        user_log,
+    )?;
+
     let lock = if cli.dry_run {
         None
     } else {
         Some(lock_directory(target_dir, user_log)?)
     };
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let planned_runs = if selected_target_backends.is_empty() {
-        plan_test_or_bench_rr_from_resolved_all(
+    let planned_runs = if let Some(selections) = selections {
+        plan_test_or_bench_rr_from_selections(
             cli,
             cmd,
             target_dir,
             mooncake_bin_dir,
-            None,
+            fallback_backend,
             resolve_output,
+            selections,
             user_log,
         )?
     } else {
@@ -1702,7 +1744,7 @@ fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
 }
 
 fn resolve_test_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
@@ -1723,7 +1765,7 @@ fn resolve_test_target_selections(
 }
 
 fn resolve_selected_test_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
@@ -1770,7 +1812,7 @@ fn resolve_selected_test_packages(
 }
 
 fn validate_original_package_selection_filters(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
 ) -> anyhow::Result<()> {
     let Some(package_filter) = cmd.package.as_deref() else {

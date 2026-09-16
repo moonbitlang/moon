@@ -188,7 +188,7 @@ impl<'a> LoweringContext<'a> {
     ) -> Self {
         Self {
             artifact_paths: &opt.artifact_paths,
-            rel: &resolve_output.pkg_rel,
+            rel: &resolve_output.pkg_rel[&opt.backend.target_backend()],
             modules: &resolve_output.module_rel,
             packages: &resolve_output.pkg_dirs,
             module_dirs: &resolve_output.module_dirs,

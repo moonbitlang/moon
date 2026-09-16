@@ -177,10 +177,17 @@ fn run_build_for_single_file_rr(
         user_log,
     )?;
     let target_backends = if selected_target_backends.is_empty() {
-        vec![cmd.build_flags.resolve_single_target_backend()?.or(backend)]
+        vec![
+            cmd.build_flags
+                .resolve_single_target_backend()?
+                .or(backend)
+                .unwrap_or_default(),
+        ]
     } else {
-        selected_target_backends.iter().copied().map(Some).collect()
+        selected_target_backends.to_vec()
     };
+
+    let resolved = resolved.resolve(&target_backends, resolve_config.enable_coverage, user_log)?;
 
     let _lock;
     if !cli.dry_run {
@@ -195,7 +202,7 @@ fn run_build_for_single_file_rr(
         let compile_config = rr_build::prepare_resolved_build(
             cli,
             &cmd.build_flags,
-            target_backend,
+            Some(target_backend),
             target_dir,
             RunMode::Build,
             user_log,
@@ -265,7 +272,7 @@ fn sync_and_resolve_build_project(
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
+) -> anyhow::Result<moonbuild_rupes_recta::ProjectDeclarations> {
     let resolve_config = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
@@ -304,7 +311,7 @@ fn run_build_rr(
     )
 }
 
-/// Plans and executes a build from resolved project data.
+/// Selects backends, resolves relationships, and executes a build.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run build.
 #[allow(clippy::too_many_arguments)]
@@ -314,7 +321,7 @@ fn run_build_rr_from_resolved(
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: moonbuild_rupes_recta::ProjectDeclarations,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
@@ -324,6 +331,29 @@ fn run_build_rr_from_resolved(
         mooncake_bin_dir,
         ..
     } = dirs;
+    let selections = if selected_target_backends.is_empty() {
+        Some(resolve_build_target_selections(
+            &resolve_output,
+            cmd,
+            None,
+            user_log,
+        )?)
+    } else {
+        None
+    };
+    // A watch pass may plan one backend, but resolution must validate every
+    // explicitly requested backend before that pass can proceed.
+    let watch_backends = watch.then(|| lower_surface_targets(&cmd.build_flags.target));
+    let (resolve_output, fallback_backend) = rr_build::resolve_project_for_targets(
+        resolve_output,
+        watch_backends
+            .as_deref()
+            .unwrap_or(selected_target_backends),
+        selections.as_deref(),
+        cmd.build_flags.enable_coverage,
+        user_log,
+    )?;
+
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
     } else {
@@ -332,15 +362,15 @@ fn run_build_rr_from_resolved(
             watched_paths: Vec::new(),
         }
     };
-    let planned_runs = if selected_target_backends.is_empty() {
-        plan_build_rr_from_resolved_all(
+    let planned_runs = if let Some(selections) = selections {
+        plan_build_rr_from_selections(
             cli,
             cmd,
-            source_dir,
             target_dir,
             mooncake_bin_dir,
-            None,
+            fallback_backend,
             resolve_output,
+            selections,
             user_log,
         )?
     } else {
@@ -558,7 +588,29 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     }
 
     let selections = resolve_build_target_selections(&resolve_output, cmd, None, user_log)?;
+    plan_build_rr_from_selections(
+        cli,
+        cmd,
+        target_dir,
+        mooncake_bin_dir,
+        selected_target_backend,
+        resolve_output,
+        selections,
+        user_log,
+    )
+}
 
+#[allow(clippy::too_many_arguments)]
+fn plan_build_rr_from_selections(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    selections: Vec<TargetPackageGroup>,
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     if has_explicit_build_selector(cmd) {
         return selections
             .into_iter()
@@ -589,7 +641,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             cmd,
             target_dir,
             mooncake_bin_dir,
-            None,
+            selected_target_backend,
             resolve_output,
             user_log,
         )
@@ -618,7 +670,7 @@ fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
 }
 
 fn resolve_build_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &BuildSubcommand,
     selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
@@ -652,7 +704,7 @@ fn resolve_build_target_selections(
 }
 
 fn resolve_selected_build_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &BuildSubcommand,
     target_backend: Option<TargetBackend>,
     user_log: &UserLog,

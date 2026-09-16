@@ -3,28 +3,77 @@
 Sometimes one may want to use different implementations on different platforms.
 MoonBuild provides conditional compilation features for this case.
 
-**All conditional compilation features are currently file-based.**
-MoonBuild currently does not support conditional compilation on granularity less than one file.
-It also does not support that based on the architecture or operating system of native target platforms.
+MoonBuild supports conditional source-file selection and conditional package imports.
+It does not select individual declarations within a source file; the compiler
+handles source-level `#cfg` attributes. Import conditions do not currently
+support architecture, operating system, optimization level, or custom cfg keys.
 
-## Import attribute parsing
+## Conditional package imports
 
-The `moon.pkg` parser recognizes `#cfg(...)` on the immediately following import
-block, including test and whitebox-test imports. Conditions accept the five
-target backends, boolean constants, and nested `all(...)`, `any(...)`, and
-`not(...)` expressions. `not` and `#cfg` each take exactly one expression;
-`all()` is true and `any()` is false. Stacked attributes are combined with AND.
-Unsupported expressions and unknown targets produce errors with source locations.
+The compiler and formatter also parse `moon.pkg`, so compiling or formatting
+these manifests requires toolchain support for `#cfg` import blocks. Moon's
+parser, dependency graphs, and dry-run planning support the syntax independently.
 
-The parser records the selected backend names in each conditional import's
-`targets` array in the JSON-shaped DSL model. Unannotated imports keep their
-existing representation, and repeated blocks remain separate DSL entries.
+In `moon.pkg`, `#cfg` applies to the immediately following import block:
 
-This is parser support only. Package conversion rejects conditional imports
-until dependency resolution supports them, so build commands cannot silently
-treat a conditional import as unconditional. Module and workspace manifests do
-not support conditional imports. Legacy imports and duplicate-import behavior
-are unchanged.
+```moonbit
+#cfg(target = "native")
+import {
+  "example/platform/native" @platform,
+}
+
+#cfg(not(target = "native"))
+import {
+  "example/platform/portable" @platform,
+}
+
+#cfg(any(target = "native", target = "js"))
+import {
+  "example/platform/test_helpers",
+} for "test"
+```
+
+Conditions support `target = "wasm"`, `"wasm-gc"`, `"js"`, `"native"`, or
+`"llvm"`, the constants `true` and `false`, and nested `all(...)`, `any(...)`,
+and `not(...)`. `not` takes exactly one condition. `all()` is true and `any()`
+is false. Each `#cfg(...)` takes exactly one condition; stacked attributes
+are combined with AND. Unknown targets and unsupported expressions are errors.
+
+Repeated import blocks are concatenated in declaration order. Conditions work
+with regular imports, `for "test"`, and `for "wbtest"` (including their legacy
+prefix forms). Unannotated blocks remain unconditional. Aliases, including
+`*`, retain their existing meaning.
+
+Package declarations retain each import's selected backend set. Module resolution
+and package discovery run once. Command adapters then select the requested
+backends, including module preferences when `--target` is omitted, before solving
+package relationships. `ResolveOutput.pkg_rel` maps each requested backend to a
+complete `DepRelationship`, including its import graph, virtual users,
+implementation mappings, and transitive support.
+
+Any requested backend's resolution error fails the command immediately. For
+example, `moon check --target js,native` fails if JS resolution fails, even if
+Native succeeds. `moon check --target native` does not resolve erroneous JS-only
+imports. Errors are neither stored in `ResolveOutput` nor deferred to planning.
+An inactive import does not resolve, create an alias, or contribute to cycle
+checks or transitive backend support. Virtual implementation and override syntax
+remains unconditional, with the resolved data owned by each backend's relationship.
+
+Planning, lowering, and backend-scoped metadata consume the same resolved
+relationship. Its derived support sets describe the intersection of active
+dependencies' declared backends; they do not predict another backend's imports.
+This applies across build, check, run, test, bench, info, doc, bundle, and proof
+operations. `moon tree --package` requests all backends and shows the union of
+their imports; any backend's resolution failure fails the command.
+
+Conditions do not declare module dependencies or infer package
+`supported_targets`. Imports from another module still require that module
+to be declared in the module's dependencies. Only active import edges
+participate in dependency compatibility checks.
+
+Conditional imports are a `moon.pkg` feature. The parser retains its JSON-shaped
+DSL representation; package conversion preserves import conditions in the package
+model. Legacy `moon.pkg.json` imports remain unconditional.
 
 ## Filename-based conditional compilation
 

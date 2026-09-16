@@ -29,9 +29,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
 use moonbuild::expect::write_diff;
-use moonbuild_rupes_recta::{
-    ResolveOutput, build_plan::ArtifactKey, model::PackageId, pkg_name::PackageFQN,
-};
+use moonbuild_rupes_recta::{build_plan::ArtifactKey, model::PackageId, pkg_name::PackageFQN};
 use moonutil::{constants::MBTI_GENERATED, target::TargetBackend};
 use sha2::Digest;
 use tracing::error;
@@ -100,7 +98,7 @@ impl<'a> PackageOutputGroup<'a> {
 }
 
 pub(super) fn plan_info_outputs(
-    resolve_output: &ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> InfoOutputPlan {
     let mut planned = IndexMap::new();

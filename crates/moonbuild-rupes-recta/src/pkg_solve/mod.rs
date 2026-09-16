@@ -27,7 +27,7 @@ use crate::{
     pkg_solve::verify::{compute_realizable_supported_targets, verify},
 };
 use log::info;
-use moonutil::{resolution::ResolvedEnv, user_log::UserLog};
+use moonutil::{resolution::ResolvedEnv, target::TargetBackend, user_log::UserLog};
 use tracing::{Level, instrument};
 
 pub use model::{DepEdge, DepRelationship, SolveError};
@@ -40,11 +40,12 @@ pub fn solve(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
     enable_coverage: bool,
+    backend: TargetBackend,
     user_log: &UserLog,
 ) -> Result<DepRelationship, SolveError> {
     info!("Starting dependency resolution");
 
-    let mut res = solve_only(modules, packages, enable_coverage, user_log)?;
+    let mut res = solve_only(modules, packages, enable_coverage, backend, user_log)?;
     verify(&res, packages, user_log)?;
     res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
 

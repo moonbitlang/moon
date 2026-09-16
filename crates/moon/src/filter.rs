@@ -26,7 +26,7 @@ use std::{
 };
 
 use anyhow::Context;
-use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
+use moonbuild_rupes_recta::{ProjectDeclarations, fmt::FmtResolveOutput, model::PackageId};
 use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
@@ -136,7 +136,7 @@ where
 
 /// Perform fuzzy matching over package names and return the matching package IDs.
 pub(crate) fn match_packages_by_name_rr(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     main_modules: &[moonutil::resolution::ModuleId],
     needle: &str,
     user_log: &UserLog,
@@ -176,7 +176,7 @@ impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
 /// When a package cannot be found, returns a descriptive error that can be
 /// reported to the user.
 pub(crate) fn filter_pkg_by_dir(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
     let mut all_local_packages = resolve_output.local_modules().iter().flat_map(|&it| {
@@ -291,7 +291,7 @@ pub(crate) fn report_package_not_found(
 }
 
 pub(crate) fn format_supported_backends(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
 ) -> String {
     let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
@@ -305,7 +305,7 @@ pub(crate) fn format_supported_backends(
 }
 
 pub(crate) fn package_supports_backend(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> bool {
@@ -323,7 +323,7 @@ pub(crate) struct TargetPackageGroup {
 }
 
 pub(crate) fn preferred_target_backend_for_package(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
 ) -> TargetBackend {
     let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
@@ -334,7 +334,7 @@ pub(crate) fn preferred_target_backend_for_package(
 }
 
 pub(crate) fn group_packages_by_preferred_backend(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> Vec<TargetPackageGroup> {
     let mut groups = BTreeMap::<TargetBackend, Vec<PackageId>>::new();
@@ -355,7 +355,7 @@ pub(crate) fn group_packages_by_preferred_backend(
 }
 
 pub(crate) fn ensure_package_supports_backend(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()> {
@@ -373,7 +373,7 @@ pub(crate) fn ensure_package_supports_backend(
 }
 
 pub(crate) fn ensure_packages_support_backend<I>(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     packages: I,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()>
@@ -413,7 +413,7 @@ where
 }
 
 pub(crate) fn select_supported_packages<I>(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     paths: I,
     target_backend: TargetBackend,
     user_log: &UserLog,
@@ -473,7 +473,7 @@ pub(crate) struct PackageMatchResult {
 /// matched by their fully qualified names, preferring exact matches and falling back to fuzzy
 /// suggestions. Results are deduplicated while preserving the order returned by the matcher.
 pub(crate) fn match_packages_with_fuzzy<I, S>(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     candidates: impl IntoIterator<Item = PackageId>,
     names: I,
 ) -> PackageMatchResult
@@ -579,7 +579,7 @@ mod tests {
         dunce::canonicalize(path).unwrap()
     }
 
-    fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
+    fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ProjectDeclarations {
         let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
         let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
@@ -593,7 +593,7 @@ mod tests {
         .package_dirs()
         .unwrap();
         let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs, &user_log).unwrap();
-        moonbuild_rupes_recta::resolve_synced_project(&cfg, synced_env, &user_log).unwrap()
+        moonbuild_rupes_recta::discover_synced_project(&cfg, synced_env, &user_log).unwrap()
     }
 
     #[test]

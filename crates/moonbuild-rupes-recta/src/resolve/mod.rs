@@ -19,11 +19,15 @@
 //! High-level abstraction that handles module and package resolving.
 //!
 //! Normal project resolution is split into an explicit dependency sync step and
-//! a package discovery/solve step. This keeps dependency-directory mutation
-//! visible to command adapters before RR consumes the synced dependencies as
-//! input.
+//! package discovery and backend-specific package solving. This keeps
+//! dependency-directory mutation visible to command adapters before RR consumes
+//! the synced dependencies as input.
 
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, HashSet},
+    ops::Deref,
+    path::Path,
+};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -58,20 +62,75 @@ use crate::{
     pkg_solve::{self, DepRelationship},
 };
 
-/// Represents the overall result of a resolve process.
+/// Module and package declarations available before choosing target backends.
 #[derive(Debug, Clone)]
-pub struct ResolveOutput {
+pub struct ProjectDeclarations {
     /// Module dependency relationship
     pub module_rel: ResolvedEnv,
     /// Module directories
     pub module_dirs: DirSyncResult,
     /// Package directories
     pub pkg_dirs: DiscoverResult,
-    /// Package dependency relationship
-    pub pkg_rel: DepRelationship,
 }
 
-impl ResolveOutput {
+/// Fully resolved package relationships for the requested target backends.
+#[derive(Debug, Clone)]
+pub struct ResolveOutput {
+    pub declarations: ProjectDeclarations,
+    /// Each backend owns its import graph, virtual relationships, and support.
+    pub pkg_rel: BTreeMap<TargetBackend, DepRelationship>,
+}
+
+impl Deref for ResolveOutput {
+    type Target = ProjectDeclarations;
+
+    fn deref(&self) -> &Self::Target {
+        &self.declarations
+    }
+}
+
+impl ProjectDeclarations {
+    /// Resolve exactly the requested backends, returning any error immediately.
+    /// No `ResolveOutput` is constructed until every requested graph is valid.
+    pub fn resolve(
+        self,
+        backends: &[TargetBackend],
+        enable_coverage: bool,
+        user_log: &UserLog,
+    ) -> Result<ResolveOutput, ResolveError> {
+        let mut pkg_rel = BTreeMap::new();
+        let mut warnings = HashSet::new();
+        let (graph_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        for &backend in backends {
+            if pkg_rel.contains_key(&backend) {
+                continue;
+            }
+            let result = pkg_solve::solve(
+                &self.module_rel,
+                &self.pkg_dirs,
+                enable_coverage,
+                backend,
+                &graph_log,
+            );
+            for entry in capture.take() {
+                if warnings.insert(entry.message.clone()) {
+                    user_log.warn(entry.message);
+                }
+            }
+            let dep_relationship = result.map_err(|e| ResolveError::SolveError(Box::new(e)))?;
+            info!("Package dependency resolution completed successfully");
+            debug!(
+                "Package dependency graph has {} nodes",
+                dep_relationship.dep_graph.node_count()
+            );
+            pkg_rel.insert(backend, dep_relationship);
+        }
+        Ok(ResolveOutput {
+            declarations: self,
+            pkg_rel,
+        })
+    }
+
     /// Returns the input/root modules of the current resolve.
     ///
     /// This is a role in the current resolution graph, not a check of
@@ -179,10 +238,12 @@ fn parse_front_matter_imports(
                 path: _,
                 alias,
                 sub_package,
+                targets,
             } => Import::Alias {
                 path: normalized_path,
                 alias,
                 sub_package,
+                targets,
             },
         };
         normalized_imports.push(normalized_import);
@@ -343,13 +404,28 @@ pub fn sync_dependencies(
     Ok((resolved_env, dir_sync_result))
 }
 
-/// Resolves packages and package relationships from already synced dependencies.
+/// Resolve package relationships for the requested backends from synced dependencies.
 #[instrument(skip_all)]
 pub fn resolve_synced_project(
     cfg: &ResolveConfig,
     synced_dependencies: (ResolvedEnv, DirSyncResult),
+    backends: &[TargetBackend],
     user_log: &UserLog,
 ) -> Result<ResolveOutput, ResolveError> {
+    discover_synced_project(cfg, synced_dependencies, user_log)?.resolve(
+        backends,
+        cfg.enable_coverage,
+        user_log,
+    )
+}
+
+/// Read package declarations before selecting target backends.
+#[instrument(skip_all)]
+pub fn discover_synced_project(
+    cfg: &ResolveConfig,
+    synced_dependencies: (ResolvedEnv, DirSyncResult),
+    user_log: &UserLog,
+) -> Result<ProjectDeclarations, ResolveError> {
     let (resolved_env, dir_sync_result) = synced_dependencies;
 
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
@@ -367,30 +443,15 @@ pub fn resolve_synced_project(
         discover_result.package_count()
     );
 
-    let dep_relationship = pkg_solve::solve(
-        &resolved_env,
-        &discover_result,
-        cfg.enable_coverage,
-        user_log,
-    )
-    .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
-
-    info!("Package dependency resolution completed successfully");
-    debug!(
-        "Package dependency graph has {} nodes",
-        dep_relationship.dep_graph.node_count()
-    );
-
-    Ok(ResolveOutput {
+    Ok(ProjectDeclarations {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
-        pkg_rel: dep_relationship,
     })
 }
 
-/// Performs the resolving process for a single file project. Will try to
-/// synthesize a minimal MoonBit project around the given file.
+/// Synthesize single-file project declarations and read its preferred backend.
+/// The caller chooses explicit/header/default backends before package solving.
 /// `source_file` must be the absolute invoked path from
 /// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
 #[instrument(skip_all, fields(run_mode = run_mode))]
@@ -400,7 +461,7 @@ pub fn resolve_single_file_project(
     source_file: &Path,
     run_mode: bool,
     user_log: &UserLog,
-) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
+) -> Result<(ProjectDeclarations, Option<TargetBackend>), ResolveError> {
     let source_kind = if source_file.extension().is_some_and(|ext| ext == "mbtx") {
         SingleFileSourceKind::Mbtx
     } else if source_file.extension().is_some_and(|ext| ext == "md") {
@@ -467,20 +528,10 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         front_matter_config.package_imports,
     )?;
 
-    // Solve package dependency relationship
-    let dep_relationship = pkg_solve::solve(
-        &resolved_env,
-        &discover_result,
-        cfg.enable_coverage,
-        user_log,
-    )
-    .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
-
-    let res = ResolveOutput {
+    let res = ProjectDeclarations {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
-        pkg_rel: dep_relationship,
     };
     Ok((res, backend))
 }

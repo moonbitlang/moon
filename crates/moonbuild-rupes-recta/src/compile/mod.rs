@@ -314,10 +314,15 @@ mod tests {
             let mut module_dirs = DirSyncResult::default();
             module_dirs.insert(module, PathBuf::from("."));
             let resolved = ResolveOutput {
-                module_rel: modules,
-                module_dirs,
-                pkg_dirs: packages,
-                pkg_rel: relationship,
+                declarations: crate::resolve::ProjectDeclarations {
+                    module_rel: modules,
+                    module_dirs,
+                    pkg_dirs: packages,
+                },
+                pkg_rel: moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&b| (b, relationship.clone()))
+                    .collect(),
             };
             for symbols in [
                 DebugSymbols::None,
@@ -528,10 +533,15 @@ mod tests {
             with_flags,
         );
         let resolved = ResolveOutput {
-            module_rel: modules,
-            module_dirs: DirSyncResult::default(),
-            pkg_dirs: packages,
-            pkg_rel: DepRelationship::default(),
+            declarations: crate::resolve::ProjectDeclarations {
+                module_rel: modules,
+                module_dirs: DirSyncResult::default(),
+                pkg_dirs: packages,
+            },
+            pkg_rel: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, DepRelationship::default()))
+                .collect(),
         };
         // Empty plans exercise capability forwarding without resolving host tools.
         // Include foreign targets and None so a planner-side host read cannot pass.
@@ -729,10 +739,15 @@ mod tests {
         module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
-            module_rel: modules,
-            module_dirs,
-            pkg_dirs: packages,
-            pkg_rel: relationship,
+            declarations: crate::resolve::ProjectDeclarations {
+                module_rel: modules,
+                module_dirs,
+                pkg_dirs: packages,
+            },
+            pkg_rel: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, relationship.clone()))
+                .collect(),
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
@@ -841,10 +856,15 @@ mod tests {
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
-            module_rel: modules,
-            module_dirs,
-            pkg_dirs: packages,
-            pkg_rel: DepRelationship::default(),
+            declarations: crate::resolve::ProjectDeclarations {
+                module_rel: modules,
+                module_dirs,
+                pkg_dirs: packages,
+            },
+            pkg_rel: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, DepRelationship::default()))
+                .collect(),
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
