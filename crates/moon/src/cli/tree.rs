@@ -819,6 +819,7 @@ mod tests {
             version.parse().unwrap(),
             ModuleSourceKind::Local(path.into()),
         )
+        .unwrap()
     }
 
     fn local_module(name: &str, version: &str) -> Arc<MoonMod> {

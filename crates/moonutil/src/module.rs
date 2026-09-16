@@ -18,6 +18,7 @@
 
 use crate::dependency::{BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo};
 use crate::manifest::{MoonModJSONFormatErrorKind, NameError};
+use crate::mooncakes::ModuleName;
 use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
 use crate::target::TargetBackend;
 use indexmap::map::IndexMap;
@@ -272,9 +273,19 @@ impl TryFrom<MoonModJSON> for MoonMod {
             Some(d) => d,
         };
 
-        let bin_deps = j
+        let bin_deps: Option<IndexMap<String, BinaryDependencyInfo>> = j
             .bin_deps
             .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect());
+
+        ModuleName::from(j.name.as_str()).validate_version(version.as_ref())?;
+        for (name, dep) in deps.iter().chain(
+            bin_deps
+                .iter()
+                .flatten()
+                .map(|(name, dep)| (name, &dep.common)),
+        ) {
+            ModuleName::from(name.as_str()).validate_version(dep.version())?;
+        }
 
         let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
         let preferred_target = j

@@ -105,7 +105,7 @@ fn select_min_version_satisfying_in_env(
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
     user_log: &UserLog,
-) -> Result<(Version, Arc<MoonMod>), ResolverError> {
+) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
     let all_versions = env.all_versions_of(dependency).ok_or_else(|| {
         user_log.warn("you may need to run `moon update` to update the registry");
         ResolverError::ModuleMissing {
@@ -118,14 +118,15 @@ fn select_min_version_satisfying_in_env(
         select_min_version_satisfying(dependency, dependant, req, all_versions.keys(), user_log);
     match min_version_satisfying {
         Ok(version) => {
-            let source = ModuleSource::from_version(dependency.clone(), version.clone());
+            let source = ModuleSource::from_version(dependency.clone(), version)
+                .map_err(|err| ResolverError::Other(err.into()))?;
             let module = env
                 .get(&source)
                 .ok_or_else(|| ResolverError::ModuleMissing {
                     dependency: dependency.clone(),
                     dependant: dependant.clone(),
                 })?;
-            Ok((version, module))
+            Ok((source, module))
         }
         Err(err) => Err(err),
     }
@@ -447,6 +448,11 @@ fn resolve_pkg(
     pkg_name: &ModuleName,
     user_log: &UserLog,
 ) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
+    // Registry metadata bypasses manifest parsing, so check transitive
+    // requirements here as well as declarations read from manifests.
+    pkg_name
+        .validate_version(req.version())
+        .map_err(|err| ResolverError::Other(err.into()))?;
     if let Some((source, module)) = workspace_roots.get(pkg_name) {
         if let Some(warning) = workspace_version_override_warning(req, dependant, source) {
             user_log.warn(warning);
@@ -506,7 +512,8 @@ fn resolve_pkg(
             pkg_name.clone(),
             res.version.clone().expect("Expected version in module"),
             ModuleSourceKind::Local(dep_path),
-        );
+        )
+        .map_err(|err| ResolverError::Other(err.into()))?;
         // Assert version matches
         if let Some(actual) = &res.version
             && let Some(required) = req.version()
@@ -522,15 +529,14 @@ fn resolve_pkg(
         return Ok((ms, res));
     }
     // Registry dependencies do not apply local path overrides from published modules.
-    let (version, module) =
+    let (ms, module) =
         select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req, user_log)?;
     tracing::debug!(
         dependency = %pkg_name,
         required = ?req,
-        selected = %version,
+        selected = %ms.version(),
         "resolved registry dependency"
     );
-    let ms = ModuleSource::new_full(pkg_name.clone(), version, ModuleSourceKind::Registry);
     Ok((ms, module))
 }
 
@@ -584,7 +590,7 @@ mod test {
         let mut resolver = MvsSolver;
         let module_name: ModuleName = "dep/three".parse().unwrap();
         let version: Version = "0.1.0".parse().unwrap();
-        let root_ms = ModuleSource::from_version(module_name.clone(), version.clone());
+        let root_ms = ModuleSource::from_version(module_name.clone(), version.clone()).unwrap();
         let root = Arc::new(create_mock_module(
             "dep/three",
             "0.1.0",
@@ -763,6 +769,7 @@ mod test {
             module.name.parse().unwrap(),
             module.version.clone().unwrap(),
         )
+        .unwrap()
     }
 
     fn create_mock_workspace_source(module: &MoonMod, path: &str) -> ModuleSource {
@@ -771,6 +778,7 @@ mod test {
             PathBuf::from(path),
             module.version.clone().unwrap(),
         )
+        .unwrap()
     }
 
     fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> ResolvedRootModules {
@@ -788,6 +796,23 @@ mod test {
             resolved_roots.insert(ResolvedModule::new(source, root));
         }
         resolved_roots
+    }
+
+    #[test]
+    fn major_version_suffixes_are_checked_in_transitive_requirements() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("a/b/v2", "1.5.0", [])
+            .add_module_full("dep/middle", "1.0.0", [("a/b/v2", "1.5.0")]);
+        let root = create_mock_module("test/app", "1.0.0", [("dep/middle", "1.0.0")]);
+        let mut env = ResolverEnv::new(&registry);
+        let mut result = ResolvedEnv::from_root_modules(create_mock_root(root));
+        assert!(!resolve_silently(&mut MvsSolver, &mut env, &mut result));
+        assert!(
+            ResolverErrors(env.into_errors())
+                .to_string()
+                .contains("module `a/b/v2` requires major version 2, but got 1.5.0")
+        );
     }
 
     #[test]

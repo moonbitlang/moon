@@ -29,6 +29,7 @@ use mooncake::{
 };
 use moonutil::{
     cli_support::AutoSyncFlags,
+    constants::MOD_NAME_STDLIB,
     project::{PackageDirs, ProjectContext},
     user_log::UserLog,
 };
@@ -215,9 +216,12 @@ pub(crate) fn add_cli(
     let dirs = project.package_dirs()?;
 
     let path = parse_module_path(&cmd.package_path)?;
-    let version = path.exact_version()?;
     if cmd.upgrade && cmd.bin {
         bail!("--bin cannot be used with --upgrade");
+    }
+    if path.module == MOD_NAME_STDLIB {
+        user_log.warn(format!("no need to add `{MOD_NAME_STDLIB}` as dependency"));
+        return Ok(0);
     }
 
     // Update registry index by default (issue #963).
@@ -225,13 +229,10 @@ pub(crate) fn add_cli(
     // - If an index already exists, update failures are treated as warnings so users can proceed
     //   with the existing local index.
     let registry = RegistryClient::configured();
-    let mut index_updated = false;
-    if !cmd.no_update && (!cmd.upgrade || version.is_none()) {
+    if !cmd.no_update && (!cmd.upgrade || path.version.is_none()) {
         let had_index = registry.has_cached_index();
         match registry.sync(user_log) {
-            Ok(()) => {
-                index_updated = true;
-            }
+            Ok(()) => {}
             Err(e) => {
                 if had_index {
                     user_log.warn(format!(
@@ -244,28 +245,8 @@ pub(crate) fn add_cli(
         }
     }
 
-    if let Some(version) = version {
-        mooncake::pkg::add::add(
-            &module_dir,
-            &dirs,
-            &path.module,
-            cmd.bin,
-            &version,
-            cmd.upgrade,
-            user_log,
-        )
-    } else {
-        mooncake::pkg::add::add_latest(
-            &registry,
-            &module_dir,
-            &dirs,
-            &path.module,
-            cmd.bin,
-            index_updated,
-            cmd.upgrade,
-            user_log,
-        )
-    }
+    let module = path.resolve(&registry)?;
+    mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.bin, cmd.upgrade, user_log)
 }
 
 #[cfg(test)]

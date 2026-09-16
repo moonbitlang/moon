@@ -31,7 +31,7 @@ pub use client::{
 pub use executable::ResolvedExecutablePackage;
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
-use moonutil::resolution::ModuleName;
+use moonutil::resolution::{ModuleName, ModuleSource};
 use moonutil::user_log::UserLog;
 use semver::Version;
 
@@ -58,7 +58,7 @@ pub trait Registry {
     /// Resolution rules:
     /// - `moonbitlang/core[/package]` is resolved directly and uses
     ///   [`DEFAULT_VERSION`] as its version.
-    /// - Otherwise, resolve the first two path segments as the module name.
+    /// - Otherwise, resolve `user/module[/vN]` as the module name.
     ///
     /// Returns an error if the path is malformed, contains an explicit version,
     /// or no module can be resolved from registry metadata.
@@ -84,13 +84,12 @@ pub(crate) trait RegistrySource {
     /// Materialize verified published source without executing package hooks.
     fn materialize_source_to(
         &self,
-        name: &ModuleName,
-        version: &Version,
+        module: &ModuleSource,
         to: &Path,
         user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        let checksum = self.source_archive_checksum(name, version)?;
-        self.acquire_source_to(name, version, &checksum, to, user_log)
+        let checksum = self.source_archive_checksum(module)?;
+        self.acquire_source_to(module, &checksum, to, user_log)
     }
 
     /// Ensure the published source archive is available, verify it against the
@@ -101,8 +100,7 @@ pub(crate) trait RegistrySource {
     /// acquire it remotely; callers do not need to prepare an archive first.
     fn acquire_source_to(
         &self,
-        name: &ModuleName,
-        version: &Version,
+        module: &ModuleSource,
         expected_checksum: &str,
         to: &Path,
         user_log: &UserLog,
@@ -110,11 +108,7 @@ pub(crate) trait RegistrySource {
 
     /// Return the registry index's SHA-256 checksum for the published source
     /// ZIP archive.
-    fn source_archive_checksum(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<String>;
+    fn source_archive_checksum(&self, module: &ModuleSource) -> anyhow::Result<String>;
 }
 
 impl<R> Registry for &mut R

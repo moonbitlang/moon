@@ -107,7 +107,7 @@ pub(crate) fn fetch_cli(
         println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
     }
 
-    registry.materialize_source_to(pkg_name, version, &pkg_dir, user_log)?;
+    registry.materialize_source_to(&module, &pkg_dir, user_log)?;
     let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
     legacy_postadd::run(&pkg_dir, &child)?;
 

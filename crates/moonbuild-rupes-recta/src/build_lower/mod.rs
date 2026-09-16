@@ -191,6 +191,7 @@ mod tests {
             PathBuf::from(format!("/tmp/{name}")),
             DEFAULT_VERSION.clone(),
         )
+        .expect("test module should have a valid version")
     }
 
     fn moon_mod(name: &str) -> MoonMod {

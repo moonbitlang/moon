@@ -123,16 +123,15 @@ fn cached_native_executable(
     verbose: bool,
 ) -> anyhow::Result<PathBuf> {
     let cache_path = MOON_HOME.registry_executable_artifact_path(
-        &package.module_name,
-        &package.version,
+        package.module.name(),
+        package.module.version(),
         &package.package_path,
         &package.artifact_name(".exe"),
     );
 
     ensure_cached_file(&cache_path, user_log, |staged| {
         super::install_binary::build_registry_native_executable_to(
-            &package.module_name,
-            &package.version,
+            &package.module,
             &package.package_path,
             staged,
             quiet,

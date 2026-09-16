@@ -35,7 +35,7 @@ use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::lock_directory,
     project::{PackageDirs, SourceTargetDirs, WorkspaceEnv},
-    resolution::{ModuleName, ModuleSourceKind},
+    resolution::{ModuleName, ModuleSource, ModuleSourceKind},
     target::TargetBackend,
     user_log::UserLog,
 };
@@ -213,7 +213,7 @@ pub(super) fn install_binary(
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let module_dir = tmp_dir.path();
 
-    registry.materialize_source_to(module.name(), module.version(), module_dir, user_log)?;
+    registry.materialize_source_to(&module, module_dir, user_log)?;
     let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
     legacy_postadd::run(module_dir, &child)?;
 
@@ -621,14 +621,15 @@ fn build_native_executable_to(
 }
 
 pub(super) fn build_registry_native_executable_to(
-    module_name: &ModuleName,
-    version: &Version,
+    module: &ModuleSource,
     package_path: &str,
     destination: &Path,
     quiet: bool,
     verbose: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
+    let module_name = module.name();
+    let version = module.version();
     let registry = RegistryClient::configured();
     ensure_registry_version_available(
         module_name,
@@ -644,8 +645,8 @@ pub(super) fn build_registry_native_executable_to(
     let source = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     // Moonx needs the sources for its temporary build, but must not run package
     // installation hooks or let acquisition progress precede program stdout.
-    let checksum = registry.source_archive_checksum(module_name, version)?;
-    registry.acquire_source_to(module_name, version, &checksum, source.path(), user_log)?;
+    let checksum = registry.source_archive_checksum(module)?;
+    registry.acquire_source_to(module, &checksum, source.path(), user_log)?;
 
     let cli = UniversalFlags {
         source_tgt_dir: SourceTargetDirs {

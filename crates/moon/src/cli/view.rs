@@ -94,7 +94,7 @@ impl FromStr for ViewTarget {
             return Ok(Self::User(input.to_owned()));
         }
         let path = parse_module_path(input)?;
-        let version = path.exact_version()?;
+        let version = path.exact_module()?.map(|module| module.version().clone());
         Ok(Self::Module {
             name: path.module,
             version,
@@ -306,6 +306,9 @@ mod tests {
             vec!["moon", "view", "alice/\u{1b}[31mtools"],
             vec!["moon", "view", "alice/white space"],
             vec!["moon", "view", "alice/tools\u{202e}"],
+            vec!["moon", "view", "alice/tools/v0"],
+            vec!["moon", "view", "alice/tools/v1"],
+            vec!["moon", "view", "alice/tools/v2@1.0.0"],
         ] {
             assert!(MoonBuildCli::try_parse_from(&args).is_err(), "{args:?}");
         }
@@ -313,6 +316,8 @@ mod tests {
             vec!["moon", "view", "alice"],
             vec!["moon", "view", "Alice-123", "--json"],
             vec!["moon", "view", "alice/tools"],
+            vec!["moon", "view", "alice/tools/v2"],
+            vec!["moon", "view", "alice/tools/v2@2.0.0-beta.1"],
             vec![
                 "moon",
                 "view",

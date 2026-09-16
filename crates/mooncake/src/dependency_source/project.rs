@@ -286,12 +286,7 @@ fn sync(
             let ModuleSourceKind::Registry = version.source() else {
                 unreachable!()
             };
-            registry.materialize_source_to(
-                version.name(),
-                version.version(),
-                &pkg_path,
-                user_log,
-            )?;
+            registry.materialize_source_to(version, &pkg_path, user_log)?;
             legacy_postadd::run(&pkg_path, postadd_runner)?;
             // TODO: parallelize this
         }
@@ -386,7 +381,8 @@ mod test {
                             },
                             version,
                             ModuleSourceKind::Registry,
-                        );
+                        )
+                        .unwrap();
                         let leaked = Box::leak(Box::new(res));
                         (module, &*leaked)
                     })
@@ -413,7 +409,8 @@ mod test {
                             },
                             version,
                             ModuleSourceKind::Registry,
-                        );
+                        )
+                        .unwrap();
                         let leaked = Box::leak(Box::new(res));
                         (pkg.into(), &*leaked)
                     })

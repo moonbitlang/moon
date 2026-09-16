@@ -2083,7 +2083,8 @@ mod tests {
             moonutil::resolution::ModuleSource::from_local_module(
                 module,
                 std::path::Path::new("."),
-            ),
+            )
+            .expect("test module should have a valid version"),
             crate::pkg_name::PackagePath::new("").expect("empty package path should parse"),
         )
     }

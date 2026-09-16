@@ -147,7 +147,12 @@ pub fn discover_local_project(
             }
         })?;
         let module = Arc::new(module);
-        let source = ModuleSource::from_local_module(&module, &module_dir);
+        let source = ModuleSource::from_local_module(&module, &module_dir).map_err(|inner| {
+            DiscoverError::CantReadLocalModuleFile {
+                path: module_dir.clone(),
+                inner: inner.into(),
+            }
+        })?;
         let id = root_modules.insert(ResolvedModule::new(source, module));
         root_module_ids.push(id);
 

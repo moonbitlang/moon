@@ -1093,7 +1093,7 @@ mod tests {
         compiler_flags::{ARKind, CC, CCKind, NativeAllocator, Toolchain},
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::{DEFAULT_VERSION, ModuleName, ModuleSource},
+        resolution::ModuleSource,
     };
 
     use super::*;
@@ -1106,12 +1106,14 @@ mod tests {
     };
 
     fn module(name: &str) -> ModuleSource {
-        ModuleSource::local_path(
-            name.parse::<ModuleName>()
-                .expect("test module name should parse"),
-            PathBuf::from(format!("/tmp/{name}")),
-            DEFAULT_VERSION.clone(),
+        ModuleSource::from_local_module(
+            &MoonMod {
+                name: name.to_owned(),
+                ..Default::default()
+            },
+            &PathBuf::from(format!("/tmp/{name}")),
         )
+        .expect("test module should have a valid version")
     }
 
     fn layout(mode: TargetLayoutMode) -> TargetLayout {

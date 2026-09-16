@@ -96,6 +96,136 @@ fn dependency_commands_preserve_nested_module_names() {
 }
 
 #[test]
+fn major_version_modules_coexist_in_projects_and_scripts() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::tempdir().unwrap();
+    for (name, version, source) in [
+        ("a/b", "1.0.0", "pub fn value() -> Int { 1 }\n"),
+        ("a/b/v2", "2.0.0", "pub fn value() -> String { \"v2\" }\n"),
+    ] {
+        cache_registry_package(
+            moon_home.path(),
+            name,
+            version,
+            &[
+                (
+                    "moon.mod",
+                    format!("name = \"{name}\"\nversion = \"{version}\"\n").into_bytes(),
+                ),
+                ("moon.pkg.json", b"{}".to_vec()),
+                ("lib.mbt", source.as_bytes().to_vec()),
+            ],
+        );
+    }
+    std::fs::write(dir.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    for module in ["a/b", "a/b/v2"] {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["add", "--no-update", module])
+            .assert()
+            .success();
+    }
+    let module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
+    assert_eq!(module.deps.len(), 2);
+    assert_eq!(module.deps["a/b"].version().unwrap().to_string(), "1.0.0");
+    assert_eq!(
+        module.deps["a/b/v2"].version().unwrap().to_string(),
+        "2.0.0"
+    );
+    assert!(dir.join(".mooncakes/a/b/moon.mod").is_file());
+    assert!(dir.join(".mooncakes/a/b+v2/moon.mod").is_file());
+
+    std::fs::write(
+        dir.join("moon.pkg.json"),
+        r#"{
+  "is-main": true,
+  "import": [
+    { "path": "a/b", "alias": "legacy" },
+    { "path": "a/b/v2", "alias": "modern" }
+  ]
+}"#,
+    )
+    .unwrap();
+    let main = "fn main {\n  println(@legacy.value())\n  println(@modern.value())\n}\n";
+    std::fs::write(dir.join("main.mbt"), main).unwrap();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["run", ".", "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq("1\nv2\n");
+
+    for (filename, imports) in [
+        (
+            "pinned.mbtx",
+            "import { \"a/b@1.0.0\" @legacy, \"a/b/v2@2.0.0\" @modern }\n",
+        ),
+        (
+            "latest.mbtx",
+            "import { \"a/b\" @legacy, \"a/b/v2\" @modern }\n",
+        ),
+    ] {
+        std::fs::write(dir.join(filename), format!("{imports}{main}")).unwrap();
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["run", filename, "--target", "wasm-gc"])
+            .assert()
+            .success()
+            .stdout_eq("1\nv2\n");
+    }
+}
+
+#[test]
+fn major_version_mismatch_does_not_modify_manifest() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::tempdir().unwrap();
+    cache_registry_package(moon_home.path(), "a/b/v2", "1.5.0", &[]);
+    std::fs::write(dir.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    for coordinate in ["a/b/v2@1.5.0", "a/b/v2"] {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["add", "--no-update", coordinate])
+            .assert()
+            .failure()
+            .stderr_eq("Error: module `a/b/v2` requires major version 2, but got 1.5.0\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+            "name = \"test/app\"\n"
+        );
+    }
+}
+
+#[test]
+fn major_version_mismatch_is_reported_before_registry_update() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::tempdir().unwrap();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    // An accidental index update would fail with a Git error. The malformed
+    // coordinate must be rejected before the registry is consulted.
+    std::fs::write(
+        moon_home.path().join("config.json"),
+        serde_json::json!({
+            "registry": "https://registry.invalid",
+            "index": moon_home.path().join("missing-index"),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    for command in ["add", "fetch", "install"] {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args([command, "a/b/v2@1.5.0"])
+            .assert()
+            .failure()
+            .stderr_eq(if command == "install" {
+                "Error: Invalid package path `a/b/v2@1.5.0`\n\nCaused by:\n    module `a/b/v2` requires major version 2, but got 1.5.0\n"
+            } else {
+                "Error: module `a/b/v2` requires major version 2, but got 1.5.0\n"
+            });
+    }
+}
+
+#[test]
 fn deprecate_delegates_without_a_project() {
     let dir = TestDir::new_empty();
     let subdir = dir.join("subdir");

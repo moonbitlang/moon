@@ -53,18 +53,36 @@ For example, if a module is named `rabbit/containers`,
 its username part is `rabbit` (and thus submitted by this user),
 and its unqualified name is `containers`.
 
-Legacy modules may consist of more or less than 2 parts in its name,
-like `containers` or `rabbit/containers/new`.
-Such behavior is not supported for newer modules,
-and will be phased out in the future.
+The unqualified name may include a major-version suffix `/vN`, where `N` is
+an integer at least 2 without leading zeroes and matches the version's major
+component. For example, `rabbit/containers/v2` uses versions `2.x.y`, including
+prereleases such as `2.0.0-rc.1`. A mismatched explicit or registry-selected
+version is rejected. For `rabbit/containers/v2`,
+the username is `rabbit` and the unqualified name is `containers/v2`.
+The suffix is part of the module identity: `rabbit/containers` and
+`rabbit/containers/v2` can appear together in a dependency graph, each with
+its own version requirements and imports.
+Versions 0.x and 1.x use the unsuffixed module name; `/v0` and `/v1` module
+suffixes are rejected, including in declarations with no version.
+
+Name/version agreement is checked when constructing a module source, before
+manifest mutation or registry acquisition. Local modules may omit their version;
+the internal default used for them is not a declared release.
+
+Other name forms, such as `containers` or `rabbit/containers/new`, are legacy.
+Local manifests accept names without a username; registry CLI coordinates
+require at least a username and a module component. Module-only commands such
+as `moon add`, `moon fetch`, and `moon view` also accept legacy module names
+with additional components.
 
 The following table shows the module name string and its parts.
 
-| Module name           | Username | Unqualified name | Supported   |
-| --------------------- | -------- | ---------------- | ----------- |
-| rabbit/containers     | rabbit   | containers       | Yes         |
-| containers            | N/A      | containers       | No (legacy) |
-| rabbit/containers/new | rabbit   | containers/new   | No (legacy) |
+| Module name           | Username | Unqualified name | Handling                        |
+| --------------------- | -------- | ---------------- | ------------------------------- |
+| rabbit/containers     | rabbit   | containers       | Standard                        |
+| rabbit/containers/v2  | rabbit   | containers/v2    | Standard; version major is 2    |
+| containers            | N/A      | containers       | Legacy; local manifests         |
+| rabbit/containers/new | rabbit   | containers/new   | Legacy; module-only coordinates |
 
 A package's (fully-qualified) name consists of its containing module,
 and an unqualified _package path_ within the module.
@@ -80,17 +98,29 @@ specified in the following [Package discovery](#package-discovery) section.
 
 The following table shows the package's full name in relationship with its module name and path.
 
-| Module name       | Package path | Package full name (derived)   |
-| ----------------- | ------------ | ----------------------------- |
-| rabbit/containers | (empty)      | rabbit/containers             |
-| rabbit/containers | hashmap      | rabbit/containers/hashmap     |
-| rabbit/containers | hashmap/raw  | rabbit/containers/hashmap/raw |
-| octocat/list      | linked       | octocat/list/linked           |
+| Module name          | Package path | Package full name (derived)   |
+| -------------------- | ------------ | ---------------------------- |
+| rabbit/containers    | (empty)      | rabbit/containers            |
+| rabbit/containers    | hashmap      | rabbit/containers/hashmap    |
+| rabbit/containers    | hashmap/raw  | rabbit/containers/hashmap/raw |
+| octocat/list         | linked       | octocat/list/linked           |
+| rabbit/containers/v2 | hashmap      | rabbit/containers/v2/hashmap  |
 
-With legacy modules, packages from different modules may share the same full name.
-Currently, no ambiguity is allowed when resolving package names.
-If two packages resolves to the same full name when building,
-the build system should abort and return an error.
+Registry package coordinates use `user/module[/vN][/package]`.
+For example, `rabbit/containers/v2/hashmap` selects package `hashmap` in
+module `rabbit/containers/v2`. An explicit module version follows the suffix:
+`rabbit/containers/v2@2.1.0/hashmap`. Commands that accept a version after the
+package also accept `rabbit/containers/v2/hashmap@2.1.0`.
+An explicit version fixes the module boundary, so
+`rabbit/containers@1.0.0/v2/hashmap` selects package `v2/hashmap` in
+module `rabbit/containers`.
+
+Packages from different modules may share the same full name. For example,
+package `v2` in module `a/b@0.1.0` and the root package in module
+`a/b/v2@2.0.0` both have the import path `a/b/v2`. Each can be used separately,
+but discovering both in one build produces a duplicate-package-name error.
+Versioned registry coordinates select modules; versions are not part of
+package import paths.
 
 Although technically module and package name components are allowed to contain any character except `/`,
 we recommend and plan to restrict the character set to ASCII identifiers,

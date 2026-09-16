@@ -102,13 +102,7 @@ impl<'a> ImmutableDependencySource<'a> {
                     module.version(),
                     directory.display()
                 );
-                registry.acquire_source_to(
-                    module.name(),
-                    module.version(),
-                    checksum,
-                    staging.path(),
-                    user_log,
-                )?;
+                registry.acquire_source_to(module, checksum, staging.path(), user_log)?;
                 validate_source(staging.path(), module)?;
                 std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
                 let staging = staging.into_path();
@@ -148,8 +142,7 @@ impl DependencySource for ImmutableDependencySource<'_> {
             let directory = match module.source() {
                 ModuleSourceKind::Registry if module.is_core() => toolchain::core(),
                 ModuleSourceKind::Registry => {
-                    let checksum =
-                        registry.source_archive_checksum(module.name(), module.version())?;
+                    let checksum = registry.source_archive_checksum(module)?;
                     if checksum.len() != 64
                         || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
                     {
