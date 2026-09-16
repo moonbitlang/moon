@@ -197,7 +197,7 @@ mod tests {
                 worker_may_proceed.recv().unwrap();
                 thread_pool::run_host_job(&mut job.job);
             },
-            WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+            WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completed.send(completion_id).unwrap()
             })),
         );
@@ -235,7 +235,7 @@ mod tests {
             worker,
             job(11, 101),
             |_| {},
-            WorkerCompletionDestination::Default(Box::new(move |completion| {
+            WorkerCompletionDestination::Test(Box::new(move |completion| {
                 first_sender.send(completion).unwrap()
             })),
         );
@@ -243,7 +243,7 @@ mod tests {
             worker,
             job(22, 202),
             |_| {},
-            WorkerCompletionDestination::Default(Box::new(move |completion| {
+            WorkerCompletionDestination::Test(Box::new(move |completion| {
                 second_sender.send(completion).unwrap()
             })),
         );

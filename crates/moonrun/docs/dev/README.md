@@ -88,6 +88,11 @@ disables further retry publication, but cannot retract a pending retry or one
 already being published by a signal handler. A guest that has enabled retries
 must still check completion before accepting those notifications.
 
+On Unix, a retry check requires the registered completion source to match the
+source retained by the Worker at spawn. Closing or replacing that source makes
+the check return `Badf`, even for a finished Job. Results remain readable, and
+legacy cancellation and freeing remain available.
+
 The completion check describes the Worker's current Job; the import takes no
 Job ID. Async's `EventLoop::handle_completed_job` accepts the previous completion
 before calling `worker.wake` for the next Job. Pending Jobs stay in the guest's

@@ -3770,23 +3770,13 @@ impl AsyncHost {
             .clone()
             .ok_or(AsyncHostError::Badf)?;
         #[cfg(windows)]
-        let completion_target = self
-            .thread_pool_completions
-            .borrow()
-            .target
-            .clone()
-            .ok_or(AsyncHostError::Badf)?;
+        let completion_port = self.thread_pool_completion_target()?;
 
         let init_job = self.take_worker_job(completion_id, job_key)?;
         #[cfg(unix)]
-        let completion = WorkerCompletionDestination::Default(Box::new(move |completion_id| {
-            let _ = completion_notifier.notify(completion_id.as_i32());
-        }));
+        let completion = WorkerCompletionDestination::Pool(completion_notifier);
         #[cfg(windows)]
-        let completion = WorkerCompletionDestination::Default(Box::new(move |completion_id| {
-            let _ =
-                poll::post_thread_pool_completion(&completion_target.port, completion_id.as_i32());
-        }));
+        let completion = WorkerCompletionDestination::Pool(completion_port);
         Ok(self.spawn_worker_thread(init_job, completion))
     }
 
@@ -6590,6 +6580,53 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn worker_retry_rejects_closed_and_replaced_completion_sources() {
+        for destroy_poll in [false, true] {
+            let host = default_host();
+            let poll = host.poll_create().unwrap();
+            let source = host.init_thread_pool(poll).unwrap();
+            let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+            let worker = host.spawn_worker(42, job).unwrap();
+            assert_eq!(host.poll_wait(poll, 1000), Ok(1));
+
+            if destroy_poll {
+                host.poll_destroy(poll).unwrap();
+            } else {
+                host.close_fd(source).unwrap();
+            }
+            assert_eq!(
+                host.cancel_worker_with_retry(worker),
+                Err(AsyncHostError::Badf)
+            );
+
+            let poll = if destroy_poll {
+                host.poll_create().unwrap()
+            } else {
+                poll
+            };
+            host.init_thread_pool(poll).unwrap();
+            // A replacement source must not validate retry checks for a Worker
+            // whose finished notifications are still bound to the old source.
+            assert_eq!(
+                host.cancel_worker_with_retry(worker),
+                Err(AsyncHostError::Badf)
+            );
+            assert_eq!(host.with_job(job, |job| job.err()), Ok(0));
+
+            let next_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+            let next_worker = host.spawn_worker(43, next_job).unwrap();
+            assert_eq!(host.poll_wait(poll, 1000), Ok(1));
+            assert_eq!(host.cancel_worker_with_retry(next_worker), Ok(2));
+            host.free_worker(worker).unwrap();
+            host.free_worker(next_worker).unwrap();
+            host.free_job(job).unwrap();
+            host.free_job(next_job).unwrap();
+            host.destroy_thread_pool();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn worker_teardown_does_not_require_guest_to_drain_completions() {
         use std::sync::mpsc;
         use std::time::{Duration, Instant};
@@ -6668,7 +6705,7 @@ mod tests {
                 finish_rx.recv().unwrap();
                 worker_job.job.set_ret(73);
             },
-            WorkerCompletionDestination::Default(Box::new(move |_| completed_tx.send(()).unwrap())),
+            WorkerCompletionDestination::Test(Box::new(move |_| completed_tx.send(()).unwrap())),
         );
 
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -6720,7 +6757,7 @@ mod tests {
                 release_receiver.recv().unwrap();
                 thread_pool::run_host_job(&mut worker_job.job);
             },
-            WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+            WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completion_sender.send(completion_id).unwrap()
             })),
         );
@@ -6771,7 +6808,7 @@ mod tests {
                 }
                 thread_pool::run_host_job(&mut worker_job.job);
             },
-            WorkerCompletionDestination::Default(Box::new(move |completion_id| {
+            WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completion_sender.send(completion_id).unwrap()
             })),
         );
