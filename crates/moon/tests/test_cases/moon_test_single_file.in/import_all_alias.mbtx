@@ -1,7 +1,11 @@
+///|
 import {
-  "moonbitlang/x@0.4.38/stack" *,
+  "moonbitlang/core/math" *,
+  "moonbitlang/core/encoding/utf8" *,
 }
 
+///|
 fn main {
-  println("hello")
+  println(pow(2.0, 3.0).to_int())
+  println(decode_lossy(b"hello"))
 }

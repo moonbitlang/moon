@@ -41,7 +41,7 @@ use super::model::MultipleError;
 ///
 /// This function checks the following:
 /// - No loops (except test imports, which don't currently have a workaround)
-/// - Aliases are unique within one package
+/// - Named aliases are unique within one package
 pub(super) fn verify(
     dep: &DepRelationship,
     packages: &DiscoverResult,
@@ -186,7 +186,7 @@ impl WorkStackItem {
     }
 }
 
-/// Verify that there's no duplicated alias for each build node within the graph.
+/// Verify that there's no duplicated named alias for each build node within the graph.
 fn verify_no_duplicated_alias(
     dep: &DepRelationship,
     packages: &DiscoverResult,
@@ -200,6 +200,11 @@ fn verify_no_duplicated_alias(
             .dep_graph
             .edges_directed(node, petgraph::Direction::Outgoing)
         {
+            // `*` imports names unqualified; the compiler resolves those names.
+            if edge.short_alias == "*" {
+                continue;
+            }
+
             match map.entry(&edge.short_alias) {
                 Entry::Occupied(e) => {
                     let (first_to, first_edge) = e.get();
