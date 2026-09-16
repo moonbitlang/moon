@@ -48,13 +48,13 @@ impl WorkerCompletionId {
 }
 
 #[derive(Debug)]
-pub(crate) struct HostWorkerJob {
+pub(crate) struct WorkerJob {
     pub(crate) completion_id: WorkerCompletionId,
     pub(crate) job_key: HandleKey,
     pub(crate) job: Job,
 }
 
-impl HostWorkerJob {
+impl WorkerJob {
     pub(crate) fn new(completion_id: WorkerCompletionId, job_key: HandleKey, job: Job) -> Self {
         Self {
             completion_id,
@@ -65,7 +65,7 @@ impl HostWorkerJob {
 }
 
 #[derive(Debug)]
-pub(crate) struct HostWorkerJobResult {
+pub(crate) struct CompletedJob {
     pub(crate) job_key: HandleKey,
     pub(crate) job: Job,
 }
@@ -88,8 +88,8 @@ pub(crate) enum WorkerCancellationTarget {
 }
 
 #[derive(Debug)]
-struct HostWorkerState {
-    job: Option<HostWorkerJob>,
+struct WorkerState {
+    job: Option<WorkerJob>,
     // Rust moves the active Job out of this state. Retain only its optional
     // native-shaped cancellation hook, and distinguish it from a queued Job
     // whose hook must replace this one before that Job can start.
@@ -117,25 +117,25 @@ pub(crate) enum WorkerCompletionDestination {
     Test(Box<dyn Fn(WorkerCompletionId) + Send + Sync>),
 }
 
-struct HostWorkerShared {
+struct WorkerShared {
     completion: WorkerCompletionDestination,
     cancellation: WorkerCancellation,
-    state: Mutex<HostWorkerState>,
+    state: Mutex<WorkerState>,
     wakeup: Condvar,
 }
 
-// MoonBit owns the pool scheduler. Each host worker handle owns one long-lived
+// MoonBit owns the pool scheduler. Each Worker owns one long-lived
 // OS thread and follows thread_pool.c's worker state machine: run current job,
 // publish completion, wait until MoonBit either assigns another job or parks it.
-// Joining consumes the handle, so every usable handle still owns its thread.
-pub(crate) struct HostWorkerHandle {
-    shared: Arc<HostWorkerShared>,
+// Joining consumes the Worker.
+pub(crate) struct Worker {
+    shared: Arc<WorkerShared>,
     thread: JoinHandle<()>,
 }
 
-impl std::fmt::Debug for HostWorkerHandle {
+impl std::fmt::Debug for Worker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HostWorkerHandle")
+        f.debug_struct("Worker")
             .field("alive", &!self.thread.is_finished())
             .field("state", &self.shared.state.lock().ok())
             .finish()
@@ -157,25 +157,25 @@ fn init_worker_signal_handler() {
     });
 }
 
-impl HostWorkerHandle {
+impl Worker {
     pub(crate) fn spawn(
-        init_job: HostWorkerJob,
-        mut run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        completed: mpsc::Sender<HostWorkerJobResult>,
+        first_job: WorkerJob,
+        mut run_job: impl FnMut(&mut WorkerJob) + Send + 'static,
+        completed: mpsc::Sender<CompletedJob>,
         completion: WorkerCompletionDestination,
     ) -> Self {
         #[cfg(unix)]
         init_worker_signal_handler();
         #[cfg(unix)]
-        let init_cancel = init_job.job.cancellation_override();
+        let first_cancel = first_job.job.cancellation_override();
 
-        let shared = Arc::new(HostWorkerShared {
+        let shared = Arc::new(WorkerShared {
             completion,
             cancellation: WorkerCancellation::new(),
-            state: Mutex::new(HostWorkerState {
-                job: Some(init_job),
+            state: Mutex::new(WorkerState {
+                job: Some(first_job),
                 #[cfg(unix)]
-                cancel_override: init_cancel,
+                cancel_override: first_cancel,
                 #[cfg(windows)]
                 running_cancel: RunningCancellation::Idle,
                 #[cfg(unix)]
@@ -224,7 +224,7 @@ impl HostWorkerHandle {
                     .cancellation
                     .run(job.completion_id, || run_job(&mut job));
                 let completion_id = job.completion_id;
-                let _ = completed.send(HostWorkerJobResult {
+                let _ = completed.send(CompletedJob {
                     job_key: job.job_key,
                     job: job.job,
                 });
@@ -298,7 +298,7 @@ impl HostWorkerHandle {
     }
 
     /// Return any displaced queued Job, or the submitted Job if stopping.
-    pub(crate) fn submit(&self, job: HostWorkerJob) -> Option<HostWorkerJob> {
+    pub(crate) fn submit(&self, job: WorkerJob) -> Option<WorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
         if state.terminating {
             return Some(job);
@@ -323,7 +323,7 @@ impl HostWorkerHandle {
     }
 
     /// Close admission and return any queued Job; the active Job finishes normally.
-    fn request_stop(&self) -> Option<HostWorkerJob> {
+    fn request_stop(&self) -> Option<WorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
         state.terminating = true;
         let pending = state.job.take();
@@ -335,7 +335,8 @@ impl HostWorkerHandle {
         pending
     }
 
-    pub(crate) fn enter_idle(&self) -> Option<HostWorkerJob> {
+    /// Remove the queued Job; an active Job keeps running.
+    fn take_pending(&self) -> Option<WorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
         let job = state.job.take();
         #[cfg(unix)]
@@ -441,7 +442,7 @@ impl HostWorkerHandle {
         }
     }
 
-    pub(crate) fn join(self) -> Option<HostWorkerJob> {
+    pub(crate) fn join(self) -> Option<WorkerJob> {
         let pending = self.request_stop();
         let _ = self.thread.join();
         pending
@@ -454,12 +455,12 @@ ported_fns! {
         original = "moonbitlang_async_spawn_worker"
     )]
     pub(crate) fn spawn_worker(
-        init_job: HostWorkerJob,
-        run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        completed: mpsc::Sender<HostWorkerJobResult>,
+        first_job: WorkerJob,
+        run_job: impl FnMut(&mut WorkerJob) + Send + 'static,
+        completed: mpsc::Sender<CompletedJob>,
         completion: WorkerCompletionDestination,
-    ) -> HostWorkerHandle {
-        HostWorkerHandle::spawn(init_job, run_job, completed, completion)
+    ) -> Worker {
+        Worker::spawn(first_job, run_job, completed, completion)
     }
 
     #[ported(
@@ -467,9 +468,9 @@ ported_fns! {
         original = "moonbitlang_async_wake_worker"
     )]
     pub(crate) fn wake_worker(
-        worker: &HostWorkerHandle,
-        job: HostWorkerJob,
-    ) -> Option<HostWorkerJob> {
+        worker: &Worker,
+        job: WorkerJob,
+    ) -> Option<WorkerJob> {
         worker.submit(job)
     }
 
@@ -477,8 +478,8 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_worker_enter_idle"
     )]
-    pub(crate) fn worker_enter_idle(worker: &HostWorkerHandle) -> Option<HostWorkerJob> {
-        worker.enter_idle()
+    pub(crate) fn worker_enter_idle(worker: &Worker) -> Option<WorkerJob> {
+        worker.take_pending()
     }
 
     #[ported(
@@ -486,7 +487,7 @@ ported_fns! {
         original = "moonbitlang_async_cancel_worker"
     )]
     pub(crate) fn cancel_worker_with_retry(
-        worker: &HostWorkerHandle,
+        worker: &Worker,
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<CancellationOutcome> {
         worker.cancel_with_retry(#[cfg(unix)] notifier)
@@ -496,12 +497,12 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_free_worker"
     )]
-    pub(crate) fn free_worker(worker: HostWorkerHandle) -> Option<HostWorkerJob> {
+    pub(crate) fn free_worker(worker: Worker) -> Option<WorkerJob> {
         worker.join()
     }
 }
 
-pub(crate) fn cancel_worker(worker: &HostWorkerHandle) -> AsyncHostResult<CancellationOutcome> {
+pub(crate) fn cancel_worker(worker: &Worker) -> AsyncHostResult<CancellationOutcome> {
     worker.cancel()
 }
 
@@ -515,10 +516,10 @@ mod tests {
     use std::sync::mpsc;
 
     fn spawn_worker(
-        job: HostWorkerJob,
-        run: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        complete: impl Fn(HostWorkerJobResult) + Send + Sync + 'static,
-    ) -> HostWorkerHandle {
+        job: WorkerJob,
+        run: impl FnMut(&mut WorkerJob) + Send + 'static,
+        observe_result: impl Fn(CompletedJob) + Send + Sync + 'static,
+    ) -> Worker {
         // Observe the real result channel after notification. A nonblocking
         // receive verifies that publication already happened before delivery.
         let (completed, results) = mpsc::channel();
@@ -528,7 +529,7 @@ mod tests {
             run,
             completed,
             WorkerCompletionDestination::Test(Box::new(move |_| {
-                complete(results.lock().unwrap().try_recv().unwrap())
+                observe_result(results.lock().unwrap().try_recv().unwrap())
             })),
         )
     }
@@ -537,12 +538,12 @@ mod tests {
         KeyData::from_ffi(value).into()
     }
 
-    fn worker_job_summary(job: &HostWorkerJob) -> (WorkerCompletionId, HandleKey) {
+    fn worker_job_summary(job: &WorkerJob) -> (WorkerCompletionId, HandleKey) {
         (job.completion_id, job.job_key)
     }
 
-    fn make_worker_job(completion_id: i32, job_key: u64) -> HostWorkerJob {
-        HostWorkerJob::new(
+    fn make_worker_job(completion_id: i32, job_key: u64) -> WorkerJob {
+        WorkerJob::new(
             WorkerCompletionId::from_abi(completion_id),
             make_job_key(job_key),
             make_sleep_job(0),
@@ -965,7 +966,7 @@ mod tests {
                 .unwrap(),
             WorkerCompletionId::from_abi(1)
         );
-        let queued_job = HostWorkerJob::new(
+        let queued_job = WorkerJob::new(
             WorkerCompletionId::from_abi(3),
             make_job_key(4),
             ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
@@ -1168,17 +1169,17 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn queued_job_cancellation_targets_the_worker_thread() {
-        let queued_job = HostWorkerJob::new(
+        let queued_job = WorkerJob::new(
             WorkerCompletionId::from_abi(3),
             make_job_key(4),
             ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
         assert!(queued_job.job.cancellation_resource().is_some());
-        let worker = HostWorkerHandle {
-            shared: Arc::new(HostWorkerShared {
+        let worker = Worker {
+            shared: Arc::new(WorkerShared {
                 completion: WorkerCompletionDestination::Test(Box::new(|_| {})),
                 cancellation: WorkerCancellation::new(),
-                state: Mutex::new(HostWorkerState {
+                state: Mutex::new(WorkerState {
                     job: Some(queued_job),
                     running_cancel: RunningCancellation::Idle,
                     terminating: false,
