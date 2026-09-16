@@ -26,11 +26,12 @@ use crate::resource::ResourceRef;
 #[cfg(unix)]
 use std::os::unix::thread::JoinHandleExt;
 
+#[cfg(all(unix, test))]
 use super::super::PipeCompletionNotifier;
 #[cfg(unix)]
 use super::JobCancellation;
 use super::cancellation::WorkerCancellation;
-use super::{CancellationOutcome, Job};
+use super::{CancellationOutcome, Job, WorkerCompletionDestination};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 
@@ -106,21 +107,6 @@ struct HostWorkerState {
     #[cfg(unix)]
     running: bool,
     terminating: bool,
-}
-
-// A Worker chooses exactly one completion destination at spawn and retains it
-// for its lifetime. Cancellation checks the same destination used for delivery.
-pub(crate) enum WorkerCompletionDestination {
-    // Retain the Unix source so retry checks can validate its identity.
-    #[cfg(unix)]
-    Pool(Arc<ThreadPoolCompletionNotifier>),
-    #[cfg(windows)]
-    Pool(super::super::poll::CompletionPort),
-    // A supplied pipe carries only finished Job IDs.
-    Pipe(PipeCompletionNotifier),
-    // Lifecycle tests observe or pause delivery after result publication.
-    #[cfg(test)]
-    Test(Box<dyn Fn(WorkerCompletionId) + Send + Sync>),
 }
 
 struct HostWorkerShared {
@@ -259,33 +245,12 @@ impl HostWorkerHandle {
                     }
                     state.terminating
                 };
-                match &worker_shared.completion {
-                    #[cfg(unix)]
-                    WorkerCompletionDestination::Pool(source) => {
-                        let _ = source.notify(completion_id.as_i32());
-                    }
-                    #[cfg(windows)]
-                    WorkerCompletionDestination::Pool(port) => {
-                        let _ = super::super::poll::post_thread_pool_completion(
-                            port,
-                            completion_id.as_i32(),
-                        );
-                    }
-                    WorkerCompletionDestination::Pipe(pipe) => {
-                        // Delivery is outside the Job's cancellation scope;
-                        // only Worker teardown interrupts a full pipe.
-                        // Reuse the state read above for the first write; the
-                        // notifier checks again only if delivery needs to wait
-                        // or retry. Teardown can race either check with a write.
-                        if !terminating {
-                            let _ = pipe.notify(completion_id.as_i32(), &|| {
-                                worker_shared.state.lock().unwrap().terminating
-                            });
-                        }
-                    }
-                    #[cfg(test)]
-                    WorkerCompletionDestination::Test(notify) => notify(completion_id),
-                }
+                let _ =
+                    worker_shared
+                        .completion
+                        .notify_finished(completion_id, terminating, || {
+                            worker_shared.state.lock().unwrap().terminating
+                        });
                 if terminating {
                     break;
                 }

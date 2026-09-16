@@ -23,6 +23,7 @@ mod sleep;
 mod types;
 mod worker;
 
+pub(crate) use super::completion::WorkerCompletionDestination;
 pub(crate) use cancellation::with_cancellable_region;
 #[cfg(any(feature = "v8", feature = "wasmtime", test))]
 pub(crate) use jobs::make_sleep_job;
@@ -34,9 +35,8 @@ pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload, Resourc
 #[cfg(unix)]
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
 pub(crate) use worker::{
-    HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionDestination,
-    WorkerCompletionId, cancel_worker, cancel_worker_with_retry, free_worker, spawn_worker,
-    wake_worker, worker_enter_idle,
+    HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
+    cancel_worker_with_retry, free_worker, spawn_worker, wake_worker, worker_enter_idle,
 };
 
 #[cfg(test)]
