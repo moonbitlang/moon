@@ -52,20 +52,14 @@ pub(crate) struct HostWorkerJob {
     pub(crate) completion_id: WorkerCompletionId,
     pub(crate) job_key: HandleKey,
     pub(crate) job: Job,
-    #[cfg(windows)]
-    cancel: Option<ResourceRef>,
 }
 
 impl HostWorkerJob {
     pub(crate) fn new(completion_id: WorkerCompletionId, job_key: HandleKey, job: Job) -> Self {
-        #[cfg(windows)]
-        let cancel = job.cancellation_resource();
         Self {
             completion_id,
             job_key,
             job,
-            #[cfg(windows)]
-            cancel,
         }
     }
 }
@@ -215,7 +209,9 @@ impl HostWorkerHandle {
                     #[cfg(windows)]
                     {
                         state.running_cancel = match job.as_ref() {
-                            Some(job) => RunningCancellation::Active(job.cancel.clone()),
+                            Some(job) => {
+                                RunningCancellation::Active(job.job.cancellation_resource())
+                            }
                             None => RunningCancellation::Idle,
                         };
                     }
@@ -958,9 +954,7 @@ mod tests {
             make_worker_job(1, 2),
             move |job| {
                 started_sender.send(job.completion_id).unwrap();
-                if job.completion_id == WorkerCompletionId::from_abi(1) {
-                    release_receiver.recv().unwrap();
-                }
+                release_receiver.recv().unwrap();
             },
             move |job| completion_sender.send(job.job_key).unwrap(),
         );
@@ -976,7 +970,7 @@ mod tests {
             make_job_key(4),
             ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
-        assert!(queued_job.cancel.is_some());
+        let queued_cancel = queued_job.job.cancellation_resource().unwrap();
         assert!(wake_worker(&worker, queued_job).is_none());
         assert!(matches!(
             worker.cancellation_target(),
@@ -996,12 +990,22 @@ mod tests {
                 .unwrap(),
             WorkerCompletionId::from_abi(3)
         );
+        let active_target = worker.cancellation_target();
+        release_sender.send(()).unwrap();
+        assert!(matches!(
+            active_target,
+            WorkerCancellationTarget::Resource(cancel) if Arc::ptr_eq(&cancel, &queued_cancel)
+        ));
         assert_eq!(
             completion_receiver
                 .recv_timeout(std::time::Duration::from_secs(1))
                 .unwrap(),
             make_job_key(4)
         );
+        assert!(matches!(
+            worker.cancellation_target(),
+            WorkerCancellationTarget::Thread
+        ));
         assert!(free_worker(worker).is_none());
     }
 
@@ -1169,7 +1173,7 @@ mod tests {
             make_job_key(4),
             ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
-        assert!(queued_job.cancel.is_some());
+        assert!(queued_job.job.cancellation_resource().is_some());
         let worker = HostWorkerHandle {
             shared: Arc::new(HostWorkerShared {
                 completion: WorkerCompletionDestination::Test(Box::new(|_| {})),
