@@ -47,8 +47,8 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
-        self, HostHandle, HostWorkerJob, Job, JobPayload, ResourceTable,
-        WorkerCompletionDestination, WorkerCompletionId,
+        self, HostHandle, Job, JobPayload, ResourceTable, WorkerCompletionDestination,
+        WorkerCompletionId, WorkerJob,
     },
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -1276,12 +1276,12 @@ impl AsyncHost {
         &self,
         completion_id: WorkerCompletionId,
         key: HandleKey,
-    ) -> AsyncHostResult<HostWorkerJob> {
+    ) -> AsyncHostResult<WorkerJob> {
         let job = self.jobs.borrow_mut().take_ready_job(key)?;
-        Ok(HostWorkerJob::new(completion_id, key, job))
+        Ok(WorkerJob::new(completion_id, key, job))
     }
 
-    fn restore_unrun_worker_job(&self, worker_job: HostWorkerJob) {
+    fn restore_unrun_worker_job(&self, worker_job: WorkerJob) {
         let discarded = self
             .jobs
             .borrow_mut()
@@ -3772,12 +3772,12 @@ impl AsyncHost {
         #[cfg(windows)]
         let completion_port = self.thread_pool_completion_target()?;
 
-        let init_job = self.take_worker_job(completion_id, job_key)?;
+        let first_job = self.take_worker_job(completion_id, job_key)?;
         #[cfg(unix)]
         let completion = WorkerCompletionDestination::Pool(completion_notifier);
         #[cfg(windows)]
         let completion = WorkerCompletionDestination::Pool(completion_port);
-        Ok(self.spawn_worker_thread(init_job, completion))
+        Ok(self.spawn_worker_thread(first_job, completion))
     }
 
     pub(crate) fn spawn_worker_with_pipe(
@@ -3791,9 +3791,9 @@ impl AsyncHost {
         let notifier = crate::async_sys::internal::event_loop::PipeCompletionNotifier::new(
             self.acquire_resource(writer_handle)?,
         )?;
-        let init_job =
+        let first_job =
             self.take_worker_job(WorkerCompletionId::from_abi(completion_id), job_key)?;
-        Ok(self.spawn_worker_thread(init_job, WorkerCompletionDestination::Pipe(notifier)))
+        Ok(self.spawn_worker_thread(first_job, WorkerCompletionDestination::Pipe(notifier)))
     }
 
     pub(crate) fn wake_worker(
@@ -3807,24 +3807,24 @@ impl AsyncHost {
             let handles = self.handles.borrow();
             (handles.worker(worker_handle)?, handles.job(job_handle)?)
         };
-        let replaced_job = {
+        let unrun_job = {
             // Resolve the Worker before consuming the one-shot Job.
             let workers = self.workers.workers.borrow();
             let worker = workers.get(worker_key).ok_or(AsyncHostError::Badf)?;
             let job = self.take_worker_job(completion_id, job_key)?;
             thread_pool::wake_worker(worker, job)
         };
-        if let Some(replaced_job) = replaced_job {
-            self.restore_unrun_worker_job(replaced_job);
+        if let Some(unrun_job) = unrun_job {
+            self.restore_unrun_worker_job(unrun_job);
         }
         Ok(())
     }
 
     pub(crate) fn worker_enter_idle(&self, worker_handle: u64) -> AsyncHostResult<()> {
         let worker_key = self.handles.borrow().worker(worker_handle)?;
-        let replaced_job = self.workers.enter_idle(worker_key)?;
-        if let Some(replaced_job) = replaced_job {
-            self.restore_unrun_worker_job(replaced_job);
+        let unrun_job = self.workers.take_pending(worker_key)?;
+        if let Some(unrun_job) = unrun_job {
+            self.restore_unrun_worker_job(unrun_job);
         }
         Ok(())
     }
@@ -3848,9 +3848,9 @@ impl AsyncHost {
             worker
         };
         let _ = thread_pool::cancel_worker(&worker);
-        let replaced_job = thread_pool::free_worker(worker);
-        if let Some(replaced_job) = replaced_job {
-            self.restore_unrun_worker_job(replaced_job);
+        let unrun_job = thread_pool::free_worker(worker);
+        if let Some(unrun_job) = unrun_job {
+            self.restore_unrun_worker_job(unrun_job);
         }
         self.restore_completed_worker_jobs();
         Ok(())
@@ -4290,13 +4290,13 @@ impl AsyncHost {
 
     fn spawn_worker_thread(
         &self,
-        init_job: HostWorkerJob,
+        first_job: WorkerJob,
         completion: WorkerCompletionDestination,
     ) -> u64 {
         let filesystem = Arc::clone(&self.filesystem);
         let process_for_runner = self.process.clone();
         let handle = thread_pool::spawn_worker(
-            init_job,
+            first_job,
             move |worker_job| {
                 Self::run_policy_checked_job(&filesystem, &process_for_runner, &mut worker_job.job);
             },

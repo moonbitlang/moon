@@ -31,13 +31,13 @@ use super::{AsyncHostError, AsyncHostResult, HandleKey};
 #[cfg(test)]
 use crate::async_sys::internal::event_loop::thread_pool::WorkerCompletionDestination;
 use crate::async_sys::internal::event_loop::thread_pool::{
-    self, CancellationOutcome, HostWorkerHandle, HostWorkerJob, HostWorkerJobResult,
+    self, CancellationOutcome, CompletedJob, Worker, WorkerJob,
 };
 
 pub(super) struct InstanceWorkers {
-    pub(super) workers: RefCell<SecondaryMap<HandleKey, HostWorkerHandle>>,
-    pub(super) completed_sender: mpsc::Sender<HostWorkerJobResult>,
-    completed: mpsc::Receiver<HostWorkerJobResult>,
+    pub(super) workers: RefCell<SecondaryMap<HandleKey, Worker>>,
+    pub(super) completed_sender: mpsc::Sender<CompletedJob>,
+    completed: mpsc::Receiver<CompletedJob>,
 }
 
 impl std::fmt::Debug for InstanceWorkers {
@@ -62,17 +62,21 @@ impl InstanceWorkers {
     pub(super) fn spawn_with_runner(
         &self,
         worker: HandleKey,
-        init_job: HostWorkerJob,
-        run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
+        first_job: WorkerJob,
+        run_job: impl FnMut(&mut WorkerJob) + Send + 'static,
         completion: WorkerCompletionDestination,
     ) {
         // Tests pause custom runners at specific lifecycle transitions.
-        let handle =
-            thread_pool::spawn_worker(init_job, run_job, self.completed_sender.clone(), completion);
+        let handle = thread_pool::spawn_worker(
+            first_job,
+            run_job,
+            self.completed_sender.clone(),
+            completion,
+        );
         self.workers.borrow_mut().insert(worker, handle);
     }
 
-    pub(super) fn enter_idle(&self, worker: HandleKey) -> AsyncHostResult<Option<HostWorkerJob>> {
+    pub(super) fn take_pending(&self, worker: HandleKey) -> AsyncHostResult<Option<WorkerJob>> {
         let workers = self.workers.borrow();
         let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
         Ok(thread_pool::worker_enter_idle(worker))
@@ -100,7 +104,7 @@ impl InstanceWorkers {
         )
     }
 
-    pub(super) fn try_recv_completed(&self) -> Result<HostWorkerJobResult, mpsc::TryRecvError> {
+    pub(super) fn try_recv_completed(&self) -> Result<CompletedJob, mpsc::TryRecvError> {
         self.completed.try_recv()
     }
 
@@ -139,7 +143,7 @@ impl Drop for InstanceWorkers {
 
 pub(super) struct StoppedWorker {
     pub(super) key: HandleKey,
-    pub(super) unrun_job: Option<HostWorkerJob>,
+    pub(super) unrun_job: Option<WorkerJob>,
 }
 
 #[cfg(test)]
@@ -153,8 +157,8 @@ mod tests {
         KeyData::from_ffi(value).into()
     }
 
-    fn job(completion_id: i32, job_key: u64) -> HostWorkerJob {
-        HostWorkerJob::new(
+    fn job(completion_id: i32, job_key: u64) -> WorkerJob {
+        WorkerJob::new(
             WorkerCompletionId::from_abi(completion_id),
             key(job_key),
             make_sleep_job(0),
@@ -178,8 +182,7 @@ mod tests {
             Arc::new(notifier),
         )
         .unwrap();
-        let worker_job =
-            HostWorkerJob::new(WorkerCompletionId::from_abi(7), key(2), wait_job.into());
+        let worker_job = WorkerJob::new(WorkerCompletionId::from_abi(7), key(2), wait_job.into());
         let (completed, completion) = mpsc::channel();
         let (started, worker_started) = mpsc::sync_channel(0);
         let (proceed, worker_may_proceed) = mpsc::sync_channel(0);
