@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use crate::async_host::{AsyncHostResult, INVALID_HOST_HANDLE};
+use crate::async_host::AsyncHostResult;
 use crate::runtime::Runtime;
 
 pub(crate) const MOONBIT_CORE_MODULE: &str = "moonbitlang/core";
@@ -38,7 +38,7 @@ fn path_to_handle(runtime: &Runtime, path: AsyncHostResult<&Path>) -> u64 {
         Ok(buffer) => runtime.async_host().insert_c_buffer(buffer),
         Err(error) => {
             runtime.async_host().record_error(error);
-            INVALID_HOST_HANDLE
+            runtime.null_handle()
         }
     }
 }
@@ -93,7 +93,7 @@ mod tests {
 
         for import in [current_exe, current_exe_dir] {
             runtime.async_host().set_errno(0);
-            assert_eq!(import(&runtime), INVALID_HOST_HANDLE);
+            assert_eq!(import(&runtime), runtime.null_handle());
             assert_eq!(
                 runtime.async_host().get_errno(),
                 AsyncHostError::Inval.errno()

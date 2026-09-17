@@ -53,7 +53,9 @@ new_key_type! {
     pub(crate) struct HostKey;
 }
 
-/// The one null Handle value shared by every Host resource kind.
+/// Encoded null key, guaranteed by slotmap to be distinct from every live key.
+/// This sentinel has no table entry. Guest code recognizes null results through
+/// predicates; SQLite also exposes the sentinel value through an import.
 pub(crate) fn null_handle() -> u64 {
     HostKey::null().data().as_ffi()
 }

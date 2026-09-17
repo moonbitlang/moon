@@ -60,7 +60,9 @@ use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 use crate::run_signal::SignalReceiver;
 pub(crate) use crate::runtime::HostKey as HandleKey;
-use crate::runtime::{Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream};
+use crate::runtime::{
+    Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream, null_handle,
+};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -84,7 +86,6 @@ pub(crate) enum AsyncHostError {
 }
 
 pub(crate) type AsyncHostResult<T> = Result<T, AsyncHostError>;
-pub(crate) const INVALID_HOST_HANDLE: u64 = 0;
 enum HostCBuffer {
     Available(Box<[u8]>),
     // A readdir Job temporarily owns the buffer. Keeping the slot reserved
@@ -1795,7 +1796,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn free_c_buffer(&self, handle: u64) -> AsyncHostResult<()> {
-        if handle == INVALID_HOST_HANDLE {
+        if handle == null_handle() {
             return Ok(());
         }
         self.c_buffers
@@ -1835,9 +1836,6 @@ impl AsyncHost {
     }
 
     pub(crate) fn lease_c_buffer(&self, handle: u64) -> AsyncHostResult<CBufferLease> {
-        if handle == INVALID_HOST_HANDLE {
-            return Err(AsyncHostError::Badf);
-        }
         let key = key_from_handle(handle);
         let mut buffers = self.c_buffers.borrow_mut();
         let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
@@ -1867,7 +1865,7 @@ impl AsyncHost {
 
     #[cfg(windows)]
     pub(crate) fn free_windows_watcher_buffer(&self, handle: u64) -> AsyncHostResult<()> {
-        if handle == INVALID_HOST_HANDLE {
+        if handle == null_handle() {
             return Ok(());
         }
         let key = self
@@ -1900,9 +1898,6 @@ impl AsyncHost {
         &self,
         handle: u64,
     ) -> AsyncHostResult<WindowsWatcherBufferLease> {
-        if handle == INVALID_HOST_HANDLE {
-            return Err(AsyncHostError::Badf);
-        }
         let key = self.handles.borrow().windows_watcher_buffer(handle)?;
         let mut buffers = self.windows_watcher_buffers.borrow_mut();
         let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
@@ -2295,7 +2290,7 @@ impl AsyncHost {
             let key = addr_infos.insert(HostAddrInfo { addr, next });
             next = Some(handle_from_key(key));
         }
-        Ok(next.unwrap_or(INVALID_HOST_HANDLE))
+        Ok(next.unwrap_or_else(null_handle))
     }
 
     pub(crate) fn get_spawn_job_result_handle(&self, handle: u64) -> AsyncHostResult<HostHandle> {
@@ -2340,13 +2335,13 @@ impl AsyncHost {
     }
 
     pub(crate) fn addrinfo_next(&self, handle: u64) -> AsyncHostResult<u64> {
-        if handle == INVALID_HOST_HANDLE {
-            return Ok(INVALID_HOST_HANDLE);
+        if handle == null_handle() {
+            return Ok(null_handle());
         }
         let key = key_from_handle(handle);
         let addr_infos = self.addr_infos.borrow();
         let addrinfo = addr_infos.get(key).ok_or(AsyncHostError::Badf)?;
-        Ok(addrinfo.next.unwrap_or(INVALID_HOST_HANDLE))
+        Ok(addrinfo.next.unwrap_or_else(null_handle))
     }
 
     pub(crate) fn addrinfo_addr(&self, handle: u64) -> AsyncHostResult<Box<[u8]>> {
@@ -2357,7 +2352,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn free_addrinfo(&self, handle: u64) -> AsyncHostResult<()> {
-        if handle == INVALID_HOST_HANDLE {
+        if handle == null_handle() {
             return Ok(());
         }
         let mut current = Some(handle);
@@ -2558,7 +2553,7 @@ impl AsyncHost {
     }
 
     fn process_handle_pid(&self, handle: HostHandle) -> AsyncHostResult<Option<i32>> {
-        if handle == INVALID_HOST_HANDLE || handle == self.invalid_fd() {
+        if handle == self.invalid_fd() {
             return Ok(None);
         }
         self.process.process_handle_pid(handle)
@@ -2570,7 +2565,7 @@ impl AsyncHost {
         pid: i32,
     ) -> AsyncHostResult<HostHandle> {
         let tracked_pid = self.process_handle_pid(handle)?;
-        let resource = if handle == INVALID_HOST_HANDLE || handle == self.invalid_fd() {
+        let resource = if handle == self.invalid_fd() {
             None
         } else {
             Some(self.acquire_resource(handle)?)
@@ -3955,7 +3950,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn tls_free(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        if handle == INVALID_HOST_HANDLE {
+        if handle == null_handle() {
             return Ok(());
         }
         let key = self.handles.borrow_mut().remove_tls_connection(handle)?;
@@ -4039,10 +4034,10 @@ impl AsyncHost {
     pub(crate) fn tls_peer_certificate(&self, handle: HostHandle) -> AsyncHostResult<HostHandle> {
         match self.with_tls_connection_mut(handle, Err(()), |tls| tls.peer_certificate())? {
             Ok(Some(buffer)) => Ok(self.insert_c_buffer(buffer.into_boxed_slice())),
-            // The guest reserves the invalid handle for TLS errors and uses a
+            // The guest uses a null buffer for TLS errors and a
             // valid zero-length buffer to represent an absent certificate.
             Ok(None) => Ok(self.insert_c_buffer(Box::default())),
-            Err(()) => Ok(INVALID_HOST_HANDLE),
+            Err(()) => Ok(null_handle()),
         }
     }
 
@@ -4067,8 +4062,8 @@ impl AsyncHost {
     ) -> AsyncHostResult<HostHandle> {
         match self.with_tls_connection_mut(handle, Err(()), f)? {
             Ok(Some(buffer)) => Ok(self.insert_c_buffer(buffer.into_boxed_slice())),
-            Ok(None) => Ok(INVALID_HOST_HANDLE),
-            Err(()) => Ok(INVALID_HOST_HANDLE),
+            Ok(None) => Ok(null_handle()),
+            Err(()) => Ok(null_handle()),
         }
     }
 
@@ -4347,6 +4342,25 @@ mod tests {
 
     fn default_host() -> AsyncHost {
         test_host(Policy::allow_all(), Env::ambient())
+    }
+
+    #[test]
+    fn async_resource_wait_requires_reserved_absence_sentinel() {
+        let host = default_host();
+        let job = host
+            .make_wait_for_process_job(host.invalid_fd(), 1)
+            .unwrap();
+        host.free_job(job).unwrap();
+
+        let buffer = host.insert_c_buffer(Box::default());
+        for handle in [0, null_handle(), buffer, job] {
+            assert_eq!(
+                host.make_wait_for_process_job(handle, 1),
+                Err(AsyncHostError::Badf)
+            );
+        }
+        host.free_c_buffer(buffer).unwrap();
+        assert!(host.leak_summary().is_none());
     }
 
     fn host_with_policy(path: &std::path::Path) -> AsyncHost {
@@ -4687,11 +4701,7 @@ mod tests {
     fn invalid_process_environment_handles_are_rejected() {
         let host = default_host();
 
-        for handle in [
-            INVALID_HOST_HANDLE,
-            crate::runtime::null_handle(),
-            host.invalid_fd(),
-        ] {
+        for handle in [0, null_handle(), host.invalid_fd()] {
             assert_eq!(
                 host.take_process_env_buffer(handle),
                 Err(AsyncHostError::Badf)
@@ -5485,7 +5495,7 @@ mod tests {
             handles.push(current);
             current = host.addrinfo_next(current).unwrap();
         }
-        assert_eq!(current, INVALID_HOST_HANDLE);
+        assert_eq!(current, null_handle());
         host.free_addrinfo(head).unwrap();
         let replacement = host.insert_c_buffer(b"replacement".to_vec().into_boxed_slice());
         for handle in handles {
@@ -5527,6 +5537,41 @@ mod tests {
                 .unwrap_err(),
             AsyncHostError::Badf
         );
+    }
+
+    #[test]
+    fn nullable_objects_use_runtime_null_handle() {
+        let host = default_host();
+        let null = null_handle();
+        host.free_c_buffer(null).unwrap();
+        host.free_addrinfo(null).unwrap();
+        assert_eq!(host.addrinfo_next(null), Ok(null));
+        assert!(matches!(
+            host.lease_c_buffer(null),
+            Err(AsyncHostError::Badf)
+        ));
+
+        let tls = host.tls_new();
+        assert_eq!(host.tls_peer_certificate(tls), Ok(null));
+        assert_eq!(host.tls_unique_channel_binding(tls), Ok(null));
+        assert_eq!(host.tls_server_endpoint_channel_binding(tls), Ok(null));
+        host.tls_free(tls).unwrap();
+        host.tls_free(null).unwrap();
+
+        for handle in [0, host.invalid_fd()] {
+            assert_eq!(host.free_c_buffer(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.free_addrinfo(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.addrinfo_next(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.tls_free(handle), Err(AsyncHostError::Badf));
+            #[cfg(windows)]
+            assert_eq!(
+                host.free_windows_watcher_buffer(handle),
+                Err(AsyncHostError::Badf)
+            );
+        }
+        #[cfg(windows)]
+        host.free_windows_watcher_buffer(null).unwrap();
+        assert!(host.leak_summary().is_none());
     }
 
     #[test]

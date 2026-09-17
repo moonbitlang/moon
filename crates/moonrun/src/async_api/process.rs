@@ -24,7 +24,7 @@ use std::os::windows::io::AsRawHandle;
 
 #[cfg(windows)]
 use crate::async_host::read_u16;
-use crate::async_host::{AsyncHostError, AsyncHostResult, INVALID_HOST_HANDLE};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::process;
 use crate::guest_memory::GuestMemory;
 
@@ -329,7 +329,7 @@ pub(super) fn get_process_result(
     out: u32,
 ) -> i32 {
     let result = (|| {
-        let handle_id = if handle == INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
+        let handle_id = if handle == context.host.invalid_fd() {
             None
         } else {
             Some(handle)

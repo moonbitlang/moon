@@ -850,7 +850,7 @@ fn optional_resource(
     context: &mut ImportContext<'_, '_>,
     handle: u64,
 ) -> AsyncHostResult<Option<ResourceRef>> {
-    if handle == crate::async_host::INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
+    if handle == context.host.invalid_fd() {
         Ok(None)
     } else {
         context.host.acquire_resource(handle).map(Some)

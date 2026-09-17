@@ -179,7 +179,7 @@ pub(super) fn addr_is_ipv6_wildcard(
 }
 
 pub(super) fn addrinfo_is_null(_context: &mut ImportContext<'_, '_>, addrinfo: u64) -> i32 {
-    i32::from(addrinfo == crate::async_host::INVALID_HOST_HANDLE)
+    i32::from(addrinfo == crate::runtime::null_handle())
 }
 
 pub(super) fn addrinfo_get_next(
@@ -194,7 +194,7 @@ pub(super) fn addrinfo_addr_size(
     context: &mut ImportContext<'_, '_>,
     addrinfo: u64,
 ) -> AsyncHostResult<u32> {
-    if addrinfo == crate::async_host::INVALID_HOST_HANDLE {
+    if addrinfo == crate::runtime::null_handle() {
         return Ok(0);
     }
     let addr = context.host.addrinfo_addr(addrinfo)?;
@@ -209,7 +209,7 @@ pub(super) fn addrinfo_fill_addr(
     port: u32,
     out_len: u32,
 ) -> AsyncHostResult<()> {
-    if addrinfo == crate::async_host::INVALID_HOST_HANDLE {
+    if addrinfo == crate::runtime::null_handle() {
         return Ok(());
     }
     let addr = context.host.addrinfo_addr(addrinfo)?;
@@ -432,7 +432,7 @@ pub(super) fn if_indextoname(context: &mut ImportContext<'_, '_>, index: u32) ->
         Ok(name) => context.host.insert_c_buffer(name.into_boxed_slice()),
         Err(error) => {
             context.host.record_error(error);
-            crate::async_host::INVALID_HOST_HANDLE
+            crate::runtime::null_handle()
         }
     }
 }

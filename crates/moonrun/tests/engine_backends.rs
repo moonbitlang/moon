@@ -17,6 +17,109 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[test]
+fn async_resource_spawn_requires_reserved_absence_sentinel() {
+    #[cfg(unix)]
+    let (imports, inputs, flags) = (
+        r#"(import "moonbitlang/async" "process/make_argv_array/unix"
+                (func $argv (param i32) (result i64)))
+            (import "moonbitlang/async" "thread_pool/spawn_job/unix"
+                (func $spawn (param i32 i32 i64 i64 i64 i64 i64) (result i64)))"#,
+        "i32.const 0 call $argv i32.const 0 call $env",
+        "",
+    );
+    #[cfg(windows)]
+    let (imports, inputs, flags) = (
+        r#"(import "moonbitlang/async" "thread_pool/spawn_job/windows"
+                (func $spawn (param i32 i32 i64 i64 i64 i64 i32) (result i64)))"#,
+        "i32.const 0 call $env",
+        "i32.const 0",
+    );
+    let engine = moonrun::Engine::default();
+    // Construct and free the job without running it: only handle decoding is tested.
+    for zero_stream in [None, Some(0), Some(1), Some(2)] {
+        let stdio = (0..3)
+            .map(|index| {
+                if zero_stream == Some(index) {
+                    "i64.const 0"
+                } else {
+                    "call $invalid"
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let module = engine
+            .compile(
+                "spawn-stdio-handles.wasm",
+                wat::parse_str(format!(
+                    r#"(module
+                        {imports}
+                        (import "moonbitlang/async" "process/make_env"
+                            (func $env (param i32) (result i64)))
+                        (import "moonbitlang/async" "fd_util/invalid_fd"
+                            (func $invalid (result i64)))
+                        (import "moonbitlang/async" "event_bus/create"
+                            (func $poll (result i64)))
+                        (import "moonbitlang/async" "thread_pool/init_thread_pool"
+                            (func $init (param i64) (result i64)))
+                        (import "moonbitlang/async" "thread_pool/free_job"
+                            (func $free (param i64)))
+                        (memory (export "memory") 1)
+                        (func (export "_start")
+                            call $poll call $init drop
+                            i32.const 0 i32.const 0 {inputs} {stdio} {flags}
+                            call $spawn call $free))"#
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let result = engine.run(&module, moonrun::RunOptions::default());
+        if zero_stream.is_some() {
+            let error = result.unwrap_err();
+            assert!(format!("{error:#}").contains("Badf"), "{error:#}");
+        } else {
+            assert_eq!(result.unwrap(), moonrun::RunOutcome::Completed);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn async_resource_process_result_rejects_zero_handle() {
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "process-result-handles.wasm",
+            wat::parse_str(format!(
+                r#"(module
+                    (import "moonbitlang/async" "process/get_process_result"
+                        (func $result (param i64 i32 i32) (result i32)))
+                    (import "moonbitlang/async" "fd_util/invalid_fd"
+                        (func $invalid (result i64)))
+                    (import "moonbitlang/async" "os_error/get_errno"
+                        (func $errno (result i32)))
+                    (memory (export "memory") 1)
+                    (func (export "_start")
+                        (if (i32.ne (call $result (i64.const 0) (i32.const {pid}) (i32.const 0))
+                                    (i32.const -1)) (then unreachable))
+                        (if (i32.ne (call $errno) (i32.const {badf})) (then unreachable))
+                        (if (i32.ne (call $result (call $invalid) (i32.const {pid}) (i32.const 0))
+                                    (i32.const -1)) (then unreachable))
+                        (if (i32.ne (call $errno) (i32.const {child})) (then unreachable))))"#,
+                // The host process is not its own child; the sentinel selects waitpid.
+                pid = std::process::id(),
+                badf = libc::EBADF,
+                child = libc::ECHILD,
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
 fn current_exe_imports_report_missing_origin_to_guest() {
     let engine = moonrun::Engine::default();
     for import in ["env/current_exe", "env/current_exe_dir"] {
@@ -29,11 +132,16 @@ fn current_exe_imports_report_missing_origin_to_guest() {
                             (func $path (result i64)))
                         (import "moonbitlang/async" "os_error/get_errno"
                             (func $errno (result i32)))
+                        (import "moonbitlang/sqlite" "sqlite3_null_handle"
+                            (func $null (result i64)))
+                        (import "moonbitlang/async" "c_buffer/is_null"
+                            (func $is_null (param i64) (result i32)))
                         (memory (export "memory") 1)
-                        (func (export "_start")
+                        (func (export "_start") (local $buffer i64)
                             (if (call $errno) (then unreachable))
-                            (if (i64.ne (call $path) (i64.const 0))
-                                (then unreachable))
+                            (local.set $buffer (call $path))
+                            (if (i64.ne (local.get $buffer) (call $null)) (then unreachable))
+                            (if (i32.eqz (call $is_null (local.get $buffer))) (then unreachable))
                             (if (i32.eqz (call $errno)) (then unreachable))))"#
                 ))
                 .unwrap(),
@@ -45,6 +153,66 @@ fn current_exe_imports_report_missing_origin_to_guest() {
             "{import} must return a null buffer and set errno"
         );
     }
+}
+
+#[test]
+fn nullable_imports_use_runtime_null_handle() {
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "nullable-handles.wasm",
+            wat::parse_str(
+                r#"(module
+                    (import "moonbitlang/sqlite" "sqlite3_null_handle" (func $null (result i64)))
+                    (import "moonbitlang/async" "c_buffer/is_null" (func $buffer_null (param i64) (result i32)))
+                    (import "moonbitlang/async" "c_buffer/free" (func $free_buffer (param i64)))
+                    (import "moonbitlang/async" "socket/if_indextoname" (func $ifname (param i32) (result i64)))
+                    (import "moonbitlang/async" "socket/addrinfo_is_null" (func $addrinfo_null (param i64) (result i32)))
+                    (import "moonbitlang/async" "socket/addrinfo_get_next" (func $next (param i64) (result i64)))
+                    (import "moonbitlang/async" "socket/addrinfo_addr_size" (func $size (param i64) (result i32)))
+                    (import "moonbitlang/async" "socket/addrinfo_free" (func $free_addrinfo (param i64)))
+                    (import "moonbitlang/async" "tls/connection/free" (func $free_tls (param i64)))
+                    (memory (export "memory") 1)
+                    (func (export "_start")
+                        (if (i32.eqz (call $buffer_null (call $null))) (then unreachable))
+                        (if (i32.eqz (call $addrinfo_null (call $null))) (then unreachable))
+                        (if (call $buffer_null (i64.const 0)) (then unreachable))
+                        (if (call $addrinfo_null (i64.const 0)) (then unreachable))
+                        (if (i64.ne (call $ifname (i32.const 0)) (call $null)) (then unreachable))
+                        (if (i64.ne (call $next (call $null)) (call $null)) (then unreachable))
+                        (if (call $size (call $null)) (then unreachable))
+                        (call $free_buffer (call $null))
+                        (call $free_addrinfo (call $null))
+                        (call $free_tls (call $null))))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
+fn tls_free_rejects_zero_handle() {
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "invalid-tls-handle.wasm",
+            wat::parse_str(
+                r#"(module
+                    (import "moonbitlang/async" "tls/connection/free" (func $free (param i64)))
+                    (memory (export "memory") 1)
+                    (func (export "_start") (call $free (i64.const 0))))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let error = engine
+        .run(&module, moonrun::RunOptions::default())
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("Badf"), "{error:#}");
 }
 
 #[test]
