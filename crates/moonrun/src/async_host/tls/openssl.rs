@@ -30,8 +30,8 @@ use openssl::ssl::{
 use openssl::x509::{X509, X509Ref, store::X509StoreBuilder, verify::X509CheckFlags};
 
 use super::{
-    TLS_CLOSED_STATUS, TLS_ERROR_STATUS, TLS_RENEGOTIATION_STATUS, TLS_WOULD_BLOCK_STATUS,
-    TlsConfig, TlsFileType, TlsTrust,
+    TLS_CLOSED_STATUS, TLS_ERROR_STATUS, TLS_RENEGOTIATION_STATUS, TLS_SUCCESS_STATUS,
+    TLS_WOULD_BLOCK_STATUS, TlsConfig, TlsFileType, TlsTrust,
 };
 
 pub(crate) struct TlsConnection {
@@ -238,7 +238,7 @@ impl TlsConnection {
 
     pub(crate) fn shutdown(&mut self) -> i32 {
         self.shutdown_started = true;
-        0
+        TLS_SUCCESS_STATUS
     }
 
     pub(crate) fn connect(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
@@ -308,7 +308,7 @@ impl TlsConnection {
         if self.shutdown_complete {
             self.last_want_read = false;
             self.last_want_write = self.output_pending();
-            return 0;
+            return TLS_SUCCESS_STATUS;
         }
         let result = match self.stream_mut() {
             Ok(stream) => stream.shutdown(),
@@ -319,7 +319,7 @@ impl TlsConnection {
                 self.shutdown_complete = true;
                 self.last_want_read = false;
                 self.last_want_write = self.output_pending();
-                0
+                TLS_SUCCESS_STATUS
             }
             Err(error) => self.handle_ssl_error(error, "TLS shutdown failed"),
         }
@@ -363,7 +363,7 @@ impl TlsConnection {
         if self.is_init_finished() {
             self.last_want_read = false;
             self.last_want_write = self.output_pending();
-            return 0;
+            return TLS_SUCCESS_STATUS;
         }
         let mode = self.mode;
         let result = match self.stream_mut() {
@@ -377,7 +377,7 @@ impl TlsConnection {
             Ok(()) => {
                 self.last_want_read = false;
                 self.last_want_write = self.output_pending();
-                0
+                TLS_SUCCESS_STATUS
             }
             Err(error) => self.handle_ssl_error(error, "TLS handshake failed"),
         }

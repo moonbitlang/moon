@@ -54,7 +54,7 @@ use windows_sys::Win32::Security::Cryptography::{
 
 use super::{
     RingBuffer, TLS_CLOSED_STATUS, TLS_ERROR_STATUS, TLS_PLAINTEXT_INPUT_LIMIT,
-    TLS_RENEGOTIATION_STATUS, TLS_WOULD_BLOCK_STATUS, TlsConfig, TlsTrust,
+    TLS_RENEGOTIATION_STATUS, TLS_SUCCESS_STATUS, TLS_WOULD_BLOCK_STATUS, TlsConfig, TlsTrust,
 };
 
 pub(crate) struct TlsConnection {
@@ -333,7 +333,7 @@ impl TlsConnection {
 
     pub(crate) fn shutdown(&mut self) -> i32 {
         if self.local_shutdown_complete {
-            return 0;
+            return TLS_SUCCESS_STATUS;
         }
         if !self.local_shutdown_started {
             if let Err(error) = self.apply_schannel_shutdown() {
@@ -341,7 +341,7 @@ impl TlsConnection {
             }
             self.local_shutdown_started = true;
         }
-        0
+        TLS_SUCCESS_STATUS
     }
 
     pub(crate) fn connect(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
@@ -405,7 +405,7 @@ impl TlsConnection {
         self.schannel.bytes_to_write = 0;
         if self.local_shutdown_started && !self.local_shutdown_complete {
             return match self.drive_shutdown(input, output) {
-                Ok(true) => 0,
+                Ok(true) => TLS_SUCCESS_STATUS,
                 Ok(false) => TLS_WOULD_BLOCK_STATUS,
                 Err(error) => self.error(error),
             };
@@ -413,13 +413,13 @@ impl TlsConnection {
         if self.phase == SchannelPhase::Open {
             self.last_want_read = false;
             self.last_want_write = self.generated_output_pending();
-            return 0;
+            return TLS_SUCCESS_STATUS;
         }
         if self.phase == SchannelPhase::Closed {
             self.last_want_read = false;
             self.last_want_write = self.generated_output_pending();
             return if self.local_shutdown_complete {
-                0
+                TLS_SUCCESS_STATUS
             } else {
                 TLS_CLOSED_STATUS
             };
@@ -432,7 +432,7 @@ impl TlsConnection {
                     return self.error(error);
                 }
                 self.phase = SchannelPhase::Open;
-                0
+                TLS_SUCCESS_STATUS
             }
             Ok(SchannelStep::NeedMoreInput) => {
                 self.phase = SchannelPhase::Handshaking;

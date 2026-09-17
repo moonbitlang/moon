@@ -37,6 +37,7 @@ pub(crate) use self::schannel::TlsConnection;
 #[cfg(windows)]
 const TLS_PLAINTEXT_INPUT_LIMIT: usize = 256 * 1024;
 
+pub(crate) const TLS_SUCCESS_STATUS: i32 = 0;
 pub(crate) const TLS_ERROR_STATUS: i32 = -1;
 pub(super) const TLS_CLOSED_STATUS: i32 = -2;
 pub(super) const TLS_WOULD_BLOCK_STATUS: i32 = -3;
@@ -60,7 +61,7 @@ impl TlsState {
 
     pub(crate) fn from_status(status: i32, _wants_read: bool, wants_write: bool) -> Self {
         match status {
-            0 => Self::Completed,
+            TLS_SUCCESS_STATUS => Self::Completed,
             TLS_WOULD_BLOCK_STATUS => {
                 if wants_write {
                     Self::WantWrite
@@ -166,7 +167,7 @@ impl TlsPending {
     pub(crate) fn add_root_certificate(&mut self, root: &[u8]) -> i32 {
         self.last_error = None;
         self.root_certificates.push(root.to_vec());
-        0
+        TLS_SUCCESS_STATUS
     }
 
     pub(crate) fn client_config(&self, trust: TlsTrust) -> TlsConfig {

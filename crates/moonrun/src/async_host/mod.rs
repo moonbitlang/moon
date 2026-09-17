@@ -431,14 +431,6 @@ impl HandleTable {
         self.remove(handle, HandleKind::WindowsWatcherBuffer)
     }
 
-    fn tls_connection(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::TlsConnection)
-    }
-
-    fn remove_tls_connection(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::TlsConnection)
-    }
-
     #[cfg(windows)]
     fn io_result(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
         self.key(handle, HandleKind::IoResult)
@@ -1140,7 +1132,7 @@ pub(crate) struct AsyncHost {
     #[cfg(unix)]
     signal_handler: RefCell<Option<crate::run_signal::SignalTargetGuard>>,
     handles: RefCell<HandleTable>,
-    tls_connections: RefCell<SecondaryMap<HandleKey, tls::TlsHandle>>,
+    tls_connections: RefCell<Handles<tls::TlsHandle>>,
     tls_error: RefCell<Option<String>>,
 }
 
@@ -1184,8 +1176,8 @@ impl AsyncHost {
             signals,
             #[cfg(unix)]
             signal_handler: RefCell::new(None),
-            handles: RefCell::new(HandleTable::with_keys(keys, stdio)),
-            tls_connections: RefCell::new(SecondaryMap::new()),
+            handles: RefCell::new(HandleTable::with_keys(keys.clone(), stdio)),
+            tls_connections: RefCell::new(Handles::new(keys, HandleKind::TlsConnection)),
             tls_error: RefCell::new(None),
         }
     }
@@ -3842,7 +3834,11 @@ impl AsyncHost {
     }
 
     pub(crate) fn tls_new(&self) -> HostHandle {
-        self.insert_tls_handle(tls::TlsHandle::Empty(tls::TlsPending::new()))
+        let key = self
+            .tls_connections
+            .borrow_mut()
+            .insert(tls::TlsHandle::Empty(tls::TlsPending::new()));
+        handle_from_key(key)
     }
 
     pub(crate) fn tls_set_client(
@@ -3857,7 +3853,7 @@ impl AsyncHost {
                 match tls::TlsConnection::client(&host, sni, pending.client_config(trust)) {
                     Ok(connection) => {
                         *handle = tls::TlsHandle::Connection(Box::new(connection));
-                        Ok(0)
+                        Ok(tls::TLS_SUCCESS_STATUS)
                     }
                     Err(message) => Ok(pending.set_error(message)),
                 }
@@ -3886,10 +3882,7 @@ impl AsyncHost {
             ("TLS private key", private_key_file.as_path()),
             ("TLS certificate", certificate_file.as_path()),
         ] {
-            if let Err(error) = self
-                .filesystem
-                .authorize_open(path.as_os_str(), 0, 0, false)
-            {
+            if let Err(error) = self.filesystem.authorize_read(path.as_os_str()) {
                 return self.with_tls_pending_mut(handle, |pending| {
                     pending.set_error(format!("failed to access {label} file: {error:?}"))
                 });
@@ -3910,7 +3903,7 @@ impl AsyncHost {
                 }) {
                     Ok(connection) => {
                         *handle = tls::TlsHandle::Connection(Box::new(connection));
-                        Ok(0)
+                        Ok(tls::TLS_SUCCESS_STATUS)
                     }
                     Err(message) => Ok(pending.set_error(message)),
                 }
@@ -3934,7 +3927,7 @@ impl AsyncHost {
                 match tls::TlsConnection::server(tls::TlsConfig::ServerPfx { pfx_content }) {
                     Ok(connection) => {
                         *handle = tls::TlsHandle::Connection(Box::new(connection));
-                        Ok(0)
+                        Ok(tls::TLS_SUCCESS_STATUS)
                     }
                     Err(message) => Ok(pending.set_error(message)),
                 }
@@ -3943,22 +3936,17 @@ impl AsyncHost {
         })
     }
 
-    fn insert_tls_handle(&self, handle: tls::TlsHandle) -> HostHandle {
-        let key = self.handles.borrow_mut().insert(HandleKind::TlsConnection);
-        self.tls_connections.borrow_mut().insert(key, handle);
-        handle_from_key(key)
-    }
-
     pub(crate) fn tls_free(&self, handle: HostHandle) -> AsyncHostResult<()> {
         if handle == null_handle() {
             return Ok(());
         }
-        let key = self.handles.borrow_mut().remove_tls_connection(handle)?;
-        self.tls_connections
+        let connection = self
+            .tls_connections
             .borrow_mut()
-            .remove(key)
-            .map(|_| ())
-            .ok_or(AsyncHostError::Badf)
+            .remove(key_from_handle(handle))
+            .ok_or(AsyncHostError::Badf)?;
+        drop(connection);
+        Ok(())
     }
 
     pub(crate) fn tls_read_plain(
@@ -4020,11 +4008,13 @@ impl AsyncHost {
     }
 
     pub(crate) fn tls_wants_read(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, 0, |tls| i32::from(tls.wants_read()))
+        self.with_tls_connection_mut(handle, false, |tls| tls.wants_read())
+            .map(i32::from)
     }
 
     pub(crate) fn tls_wants_write(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, 0, |tls| i32::from(tls.wants_write()))
+        self.with_tls_connection_mut(handle, false, |tls| tls.wants_write())
+            .map(i32::from)
     }
 
     pub(crate) fn tls_shutdown(&self, handle: HostHandle) -> AsyncHostResult<i32> {
@@ -4098,9 +4088,10 @@ impl AsyncHost {
         handle: HostHandle,
         f: impl FnOnce(&mut tls::TlsHandle) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let key = self.handles.borrow().tls_connection(handle)?;
         let mut tls_connections = self.tls_connections.borrow_mut();
-        let handle = tls_connections.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        let handle = tls_connections
+            .get_mut(key_from_handle(handle))
+            .ok_or(AsyncHostError::Badf)?;
         f(handle)
     }
 
@@ -6323,6 +6314,71 @@ mod tests {
         host.free_job(flock_job).unwrap();
         host.close_fd(fd).unwrap();
         host.free_job(open_job).unwrap();
+    }
+
+    #[test]
+    fn tls_handles_reject_stale_and_other_family_handles() {
+        let host = default_host();
+        let connection = host.tls_new();
+        let buffer = host.insert_c_buffer(b"retained".to_vec().into_boxed_slice());
+        // Zero is deliberately invalid; nullable cleanup uses the Runtime's sentinel.
+        for handle in [0, host.invalid_fd(), buffer] {
+            assert_eq!(host.tls_free(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.tls_take_error(handle), Err(AsyncHostError::Badf));
+        }
+        host.tls_free(null_handle()).unwrap();
+        assert_eq!(
+            host.tls_take_error(null_handle()),
+            Err(AsyncHostError::Badf)
+        );
+        host.with_c_buffer(buffer, |bytes| {
+            assert_eq!(bytes, b"retained");
+            Ok(())
+        })
+        .unwrap();
+
+        host.tls_free(connection).unwrap();
+        let replacement = host.tls_new();
+        assert_ne!(connection, replacement);
+        assert_eq!(host.tls_free(connection), Err(AsyncHostError::Badf));
+        assert_eq!(host.tls_take_error(connection), Err(AsyncHostError::Badf));
+        assert_eq!(
+            host.tls_add_root_certificate(replacement, b"pending certificate"),
+            Ok(tls::TLS_SUCCESS_STATUS)
+        );
+
+        host.tls_free(replacement).unwrap();
+        host.free_c_buffer(buffer).unwrap();
+        assert!(host.leak_summary().is_none());
+    }
+
+    #[test]
+    fn dropping_host_retires_pending_and_configured_tls_handles() {
+        let host = default_host();
+        let keys = Rc::clone(&host.handles.borrow().keys);
+        let pending = host.tls_new();
+        let configured = host.tls_new();
+        assert_eq!(
+            host.tls_set_client(
+                configured,
+                "localhost".to_string(),
+                false,
+                tls::TlsTrust::NoVerification,
+            ),
+            Ok(tls::TLS_SUCCESS_STATUS)
+        );
+        for handle in [pending, configured] {
+            assert_eq!(
+                keys.borrow().kind(key_from_handle(handle)),
+                Some(HandleKind::TlsConnection)
+            );
+        }
+
+        drop(host);
+
+        for handle in [pending, configured] {
+            assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
+        }
     }
 
     #[test]
