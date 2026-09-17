@@ -23,11 +23,26 @@ as a no-op.
 The invalid Resource Handle returned by `invalid_fd()` names a preallocated
 `Resource::invalid()` entry. It has a live key of kind `Resource`; Resource
 lookup rejects its invalid payload, and other families reject its kind.
-The separate constant `INVALID_HOST_HANDLE` is zero, used by nullable imports
-such as C buffers and address-info lists. Zero decodes to slotmap's unoccupied
-sentinel slot and fails lookup; slotmap's own null key also fails lookup.
-These guest Handle values are distinct from raw OS descriptors, where zero can
-be a valid descriptor.
+Optional Resource arguments, such as process stdio and PID-only waits, use
+this reserved Handle to express absence. All other values undergo the ordinary
+Resource lookup or process-ownership check.
+
+Nullable host objects use the encoded `HostKey::null()` returned by
+`runtime::null_handle()`. Slotmap guarantees that this key is always invalid and
+distinct from every live key. It occupies no table entry. Null buffers, including
+core executable-path and TLS results, and address-info list terminators use this
+sentinel. Buffer and address-info wrappers recognize it through host null
+predicates; SQLite exposes its value through `sqlite3_null_handle`.
+
+Operations that accept null retain their operation-specific behavior, such as
+freeing a null buffer as a no-op. An operation that requires a live object
+validates it through its owning table. Zero is subject to ordinary validation.
+These Handle values are separate from raw OS descriptors, where zero can be valid.
+
+TLS connection creation returns a live Handle containing pending configuration.
+Client and server setup report initialization failures through their status and
+the object's error message. Freeing a TLS connection accepts the shared null
+Handle as a no-op; zero fails Handle validation with `Badf`.
 
 ## Owning tables
 

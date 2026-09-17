@@ -178,7 +178,7 @@ _Avoid_: Host, Engine, V8 Run Context, service locator
 
 **Host Key**:
 The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
-All Handle kinds share the slotmap null Host Key. An ABI that needs to create or compare a null Handle obtains its encoded value from the running Runtime rather than hard-coding the slotmap representation.
+Nullable host objects use the encoded slotmap null Host Key, which has no table entry and cannot equal a live key. Guest code recognizes it through host null predicates or SQLite's null-handle import. Optional Resource arguments use the reserved Handle returned by `invalid_fd()`. Owning-table lookup validates ordinary Handles. See [Host handles](docs/dev/host-handles.md).
 _Avoid_: resource payload, raw pointer, per-API key
 
 **V8 Memory Binding**:

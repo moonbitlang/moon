@@ -24,8 +24,8 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
-pub(super) fn is_null(_context: &mut ImportContext<'_, '_>, ptr: u64) -> i32 {
-    i32::from(ptr == crate::async_host::INVALID_HOST_HANDLE)
+pub(super) fn is_null(_context: &mut ImportContext<'_, '_>, handle: u64) -> i32 {
+    i32::from(handle == crate::runtime::null_handle())
 }
 
 #[ported(source = "src/internal/c_buffer/stub.c")]
@@ -85,8 +85,8 @@ pub(super) fn length(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHost
         .with_c_buffer(buf, |buf| u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault))
 }
 
-pub(super) fn free(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostResult<()> {
-    context.host.free_c_buffer(ptr)
+pub(super) fn free(context: &mut ImportContext<'_, '_>, handle: u64) -> AsyncHostResult<()> {
+    context.host.free_c_buffer(handle)
 }
 
 #[ported(
