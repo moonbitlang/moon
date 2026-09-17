@@ -459,6 +459,21 @@ import {
 }
 
 #[test]
+fn read_module_from_dsl_rejects_conditional_imports() {
+    let dir = temp_dir("conditional-import-module-read");
+    let path = dir.join("moon.mod");
+    std::fs::write(
+        &path,
+        r#"name = "example/mod"
+#cfg(target = "native")
+import { "example/dep@1.2.3" }
+"#,
+    )
+    .unwrap();
+    assert!(read_module_from_dsl(&path).is_err());
+}
+
+#[test]
 fn read_module_from_dsl_rejects_duplicate_rule_names() {
     let dir = temp_dir("duplicate-rule-module-read");
     let path = dir.join("moon.mod");

@@ -802,6 +802,15 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         let Some(&allow_duplicate) = toplevel_keys.get(key) else {
             bail!("Unexpected key '{}' found in moon.pkg.", key);
         };
+        // TODO: Remove this guard when package conversion and dependency
+        // resolution preserve and select the parser's conditional imports.
+        if matches!(key, "import" | "wbtest-import" | "test-import")
+            && value
+                .as_array()
+                .is_some_and(|imports| imports.iter().any(|import| import.get("targets").is_some()))
+        {
+            bail!("Conditional imports are not yet supported by the build system.");
+        }
         if allow_duplicate {
             match map
                 .entry(key.to_string())
@@ -1078,6 +1087,27 @@ fn convert_test_pkg_json(
         emit_warnings,
         &UserLog::new(log::LevelFilter::Error),
     )
+}
+
+#[test]
+fn convert_pkg_dsl_rejects_unsupported_conditional_imports() {
+    for (prefix, suffix) in [
+        ("", ""),
+        ("", "for \"test\""),
+        ("", "for \"wbtest\""),
+        ("\"test\"", ""),
+        ("\"wbtest\"", ""),
+    ] {
+        let dsl = crate::moon_pkg::parse(&format!(
+            r#"#cfg(false) import {prefix} {{ "example/dep" }} {suffix}"#,
+        ))
+        .unwrap();
+        let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Conditional imports are not yet supported by the build system.",
+        );
+    }
 }
 
 #[test]

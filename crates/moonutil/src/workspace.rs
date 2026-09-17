@@ -184,6 +184,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_workspace_dsl_rejects_conditional_imports() {
+        assert!(
+            parse_workspace_dsl(
+                r#"members = []
+#cfg(target = "native")
+import { "example/dep@1.2.3" }
+"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn parse_workspace_dsl_with_target() {
         let parsed = parse_workspace_dsl(
             r#"

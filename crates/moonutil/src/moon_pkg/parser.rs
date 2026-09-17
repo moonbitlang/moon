@@ -19,6 +19,7 @@
 #[cfg(test)]
 use crate::moon_pkg::tokenize;
 use crate::moon_pkg::{lexer, syntax::Dsl};
+use crate::target::TargetBackend;
 
 use super::lexer::{Token, TokenKind};
 use anyhow::anyhow;
@@ -38,11 +39,17 @@ pub enum ParseError {
     UnexpectedToken(Token),
     IntegerOutOfRange { literal: String, loc: lexer::Loc },
     LexingError(Range<usize>),
+    InvalidCfg { message: String, loc: lexer::Loc },
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ParseError::InvalidCfg { message, loc } => write!(
+                f,
+                "{message} at line {}, column {}",
+                loc.start.line, loc.start.column
+            ),
             ParseError::UnexpectedToken(token) => {
                 let loc = token.range();
                 write!(
@@ -269,7 +276,91 @@ impl Parser {
         Ok((key, value))
     }
 
-    fn parse_import_statement(&self) -> Result<(String, Value), ParseError> {
+    /// Evaluate a target-only cfg expression to its exact set of backends.
+    fn parse_cfg_expr(&self) -> Result<Vec<TargetBackend>, ParseError> {
+        let token = self.peek().clone();
+        match &token {
+            Token::TRUE(_) => {
+                self.skip();
+                Ok(TargetBackend::all().to_vec())
+            }
+            Token::FALSE(_) => {
+                self.skip();
+                Ok(Vec::new())
+            }
+            Token::LIDENT((_, name)) if name == "target" => {
+                self.skip();
+                if self.peek().kind() != TokenKind::EQUAL {
+                    return Err(ParseError::UnexpectedToken(self.peek().clone()));
+                }
+                self.skip();
+                let loc = self.peek().range().clone();
+                let name = self.parse_string()?;
+                let target =
+                    TargetBackend::str_to_backend(&name).map_err(|err| ParseError::InvalidCfg {
+                        message: err.to_string(),
+                        loc,
+                    })?;
+                Ok(vec![target])
+            }
+            Token::LIDENT((loc, op)) if matches!(op.as_str(), "all" | "any" | "not") => {
+                self.skip();
+                let args = self.surround_series(
+                    TokenKind::LPAREN,
+                    TokenKind::RPAREN,
+                    TokenKind::COMMA,
+                    Self::parse_cfg_expr,
+                )?;
+                if op == "not" && args.len() != 1 {
+                    return Err(ParseError::InvalidCfg {
+                        message: "`not` requires exactly one cfg expression".to_owned(),
+                        loc: loc.clone(),
+                    });
+                }
+                Ok(TargetBackend::all()
+                    .iter()
+                    .copied()
+                    .filter(|backend| match op.as_str() {
+                        "all" => args.iter().all(|targets| targets.contains(backend)),
+                        "any" => args.iter().any(|targets| targets.contains(backend)),
+                        "not" => !args[0].contains(backend),
+                        _ => unreachable!(),
+                    })
+                    .collect())
+            }
+            _ => Err(ParseError::UnexpectedToken(token)),
+        }
+    }
+
+    fn parse_conditional_import(&self) -> Result<(String, Value), ParseError> {
+        let mut targets = TargetBackend::all().to_vec();
+        while self.peek().kind() == TokenKind::CFG {
+            let loc = self.peek().range().clone();
+            self.skip();
+            let args = self.surround_series(
+                TokenKind::LPAREN,
+                TokenKind::RPAREN,
+                TokenKind::COMMA,
+                Self::parse_cfg_expr,
+            )?;
+            let [condition] = args.as_slice() else {
+                return Err(ParseError::InvalidCfg {
+                    message: "`#cfg` requires exactly one cfg expression".to_owned(),
+                    loc,
+                });
+            };
+            targets.retain(|backend| condition.contains(backend));
+        }
+        if self.peek().kind() != TokenKind::IMPORT {
+            return Err(ParseError::UnexpectedToken(self.peek().clone()));
+        }
+        self.parse_import_statement(Some(&targets))
+    }
+
+    fn parse_import_statement(
+        &self,
+        targets: Option<&[TargetBackend]>,
+    ) -> Result<(String, Value), ParseError> {
         self.skip(); // skip 'import'
         let legacy_kind = match self.peek() {
             // Legacy syntax: import "test" { ... } / import "wbtest" { ... }.
@@ -313,9 +404,12 @@ impl Parser {
                     }
                     _ => None,
                 };
-                Ok(match alias {
-                    None => json!(path),
-                    Some(s) => json!({"path": path, "alias": s}),
+                Ok(match (alias, targets) {
+                    (alias, Some(targets)) => {
+                        json!({"path": path, "alias": alias, "targets": targets})
+                    }
+                    (None, None) => json!(path),
+                    (Some(alias), None) => json!({"path": path, "alias": alias}),
                 })
             },
         )?;
@@ -340,7 +434,8 @@ impl Parser {
 
     fn parse_statement(&self) -> Result<(String, Value), ParseError> {
         match self.peek() {
-            Token::IMPORT(_) => self.parse_import_statement(),
+            Token::IMPORT(_) => self.parse_import_statement(None),
+            Token::CFG(_) => self.parse_conditional_import(),
             Token::LIDENT(_) => {
                 if let Token::EQUAL(_) = self.peek_nth(1) {
                     self.parse_assign_statement()
@@ -383,6 +478,126 @@ impl Parser {
 pub fn parse(input: &str) -> anyhow::Result<Dsl> {
     let tokens = lexer::tokenize(input)?;
     Parser::parse(tokens).map_err(|e| anyhow!("Parsing error: {e}"))
+}
+
+#[test]
+fn parse_conditional_import_blocks() {
+    for (prefix, suffix, key) in [
+        ("", "", "import"),
+        ("", "for \"test\"", "test-import"),
+        ("", "for \"wbtest\"", "wbtest-import"),
+        ("\"test\"", "", "test-import"),
+        ("\"wbtest\"", "", "wbtest-import"),
+    ] {
+        let dsl = parse(&format!(
+            r#"
+import {{ "example/common" }}
+#cfg(target = "native")
+import {prefix} {{
+  "example/default",
+  "example/renamed" @renamed,
+  "example/legacy" as @legacy,
+  "example/all" *,
+}} {suffix}
+import {{ "example/after" }}
+"#,
+        ))
+        .unwrap();
+        assert_eq!(
+            dsl.entries,
+            vec![
+                ("import".to_owned(), json!(["example/common"])),
+                (
+                    key.to_owned(),
+                    json!([
+                        {"path": "example/default", "alias": null, "targets": ["Native"]},
+                        {"path": "example/renamed", "alias": "renamed", "targets": ["Native"]},
+                        {"path": "example/legacy", "alias": "legacy", "targets": ["Native"]},
+                        {"path": "example/all", "alias": "*", "targets": ["Native"]},
+                    ]),
+                ),
+                ("import".to_owned(), json!(["example/after"])),
+            ],
+        );
+    }
+}
+
+#[test]
+fn parse_import_cfg_expressions() {
+    let all = &["Wasm", "WasmGC", "Js", "Native", "LLVM"][..];
+    for (condition, targets) in [
+        ("true", all),
+        ("false", &[]),
+        ("all()", all),
+        ("any()", &[]),
+        ("not(false)", all),
+        ("not(true)", &[]),
+        (r#"target = "wasm""#, &["Wasm"]),
+        (r#"target = "wasm-gc""#, &["WasmGC"]),
+        (r#"target = "js""#, &["Js"]),
+        (r#"target = "native""#, &["Native"]),
+        (r#"target = "llvm""#, &["LLVM"]),
+        (
+            r#"any(target = "native", target = "js",)"#,
+            &["Js", "Native"],
+        ),
+        (
+            r#"all(any(target = "native", target = "js"), not(target = "js"), true)"#,
+            &["Native"],
+        ),
+        (r#"all(target = "native", target = "js")"#, &[]),
+    ] {
+        let source = format!("#cfg({condition},) import {{ \"example/dep\" }};");
+        let dsl = parse(&source).unwrap();
+        assert_eq!(
+            dsl.entries,
+            vec![(
+                "import".to_owned(),
+                json!([{"path": "example/dep", "alias": null, "targets": targets}]),
+            )],
+            "{source}",
+        );
+    }
+}
+
+#[test]
+fn parse_stacked_import_cfg() {
+    let dsl = parse(
+        r#"
+#cfg(any(target = "native", target = "js"))
+// Both attributes apply to the following block.
+#cfg(not(target = "js"))
+import { "example/dep" }
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        dsl.entries,
+        vec![(
+            "import".to_owned(),
+            json!([{"path": "example/dep", "alias": null, "targets": ["Native"]}]),
+        )],
+    );
+}
+
+#[test]
+fn reject_invalid_import_cfg() {
+    for source in [
+        r#"#cfg(target = "unknown") import { "a/b" }"#,
+        r#"#cfg(target = native) import { "a/b" }"#,
+        r#"#cfg(target: "native") import { "a/b" }"#,
+        r#"#cfg(os = "linux") import { "a/b" }"#,
+        r#"#cfg(not()) import { "a/b" }"#,
+        r#"#cfg(not(true, false)) import { "a/b" }"#,
+        r#"#cfg() import { "a/b" }"#,
+        r#"#cfg(true, false) import { "a/b" }"#,
+        r#"#cfg(true) options("is-main": true)"#,
+        r#"#cfg(true)"#,
+        r#"import { #cfg(true) "a/b" }"#,
+    ] {
+        let error = parse(source).expect_err(source).to_string();
+        assert!(error.contains("line 1, column"), "{source}: {error}");
+    }
 }
 
 #[test]
