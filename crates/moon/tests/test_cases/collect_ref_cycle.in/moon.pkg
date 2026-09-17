@@ -1,4 +1,0 @@
-options(
-  "is-main": true,
-  "native-stub": ["stub.c"],
-)

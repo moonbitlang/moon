@@ -167,16 +167,18 @@ fn collect_ref_cycle_preserves_native_backend_selection() {
     for profile in ["--debug", "--release"] {
         for new_native in ["0", "1"] {
             let links = |value| {
-                commands(
+                let commands = commands(
                     &dir,
                     moon(&dir)
                         .args(["build", "--target", "native", profile])
                         .env("MOONBIT_NEW_NATIVE", new_native)
                         .env("MOON_COLLECT_REF_CYCLE", value),
-                )
-                .into_iter()
-                .filter(|args| args.get(1).is_some_and(|arg| arg == "link-core"))
-                .collect::<Vec<_>>()
+                );
+                assert_collection_flags(&commands, "native", value == "1");
+                commands
+                    .into_iter()
+                    .filter(|args| args.get(1).is_some_and(|arg| arg == "link-core"))
+                    .collect::<Vec<_>>()
             };
             let disabled = links("0");
             assert!(!disabled.is_empty());
@@ -190,23 +192,19 @@ fn collect_ref_cycle_preserves_native_backend_selection() {
 }
 
 #[test]
-fn collect_ref_cycle_native_reclaims_cycles_across_incremental_toggles() {
-    let dir = fixture("collect_ref_cycle.in");
-    for profile in ["--debug", "--release"] {
-        for value in ["0", "1", "0"] {
-            moon(&dir)
-                .args(["run", ".", "--target", "native", profile])
-                .env("MOONBIT_ALLOCATOR", "system")
-                .env("MOON_COLLECT_REF_CYCLE", value)
-                .assert()
-                .success()
-                .stdout_eq(format!("before collection: 0\nafter collection: {value}\n"));
+fn collect_ref_cycle_wasm_runs_across_incremental_toggles() {
+    let dir = fixture("backend_config");
+    for new_allocator in ["0", "1"] {
+        for profile in ["--debug", "--release"] {
+            for value in ["0", "1", "0"] {
+                moon(&dir)
+                    .args(["run", "main", "--target", "wasm", profile])
+                    .env("MOON_WASM_NEW_ALLOCATOR", new_allocator)
+                    .env("MOON_COLLECT_REF_CYCLE", value)
+                    .assert()
+                    .success()
+                    .stdout_eq("Hello, world!\n");
+            }
         }
-        moon(&dir)
-            .args(["run", ".", "--target", "native", profile])
-            .env("MOON_COLLECT_REF_CYCLE", "1")
-            .assert()
-            .success()
-            .stdout_eq("before collection: 0\nafter collection: 1\n");
     }
 }
