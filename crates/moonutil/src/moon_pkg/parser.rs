@@ -58,10 +58,15 @@ impl fmt::Display for ParseError {
             ),
             ParseError::UnexpectedToken(token) => {
                 let loc = token.range();
+                if matches!(token, Token::CFG(_)) {
+                    write!(f, "`#cfg` can only be used before an import block")?;
+                } else {
+                    write!(f, "unexpected token {token}")?;
+                }
                 write!(
                     f,
-                    "unexpected token {} at line {}, column {}",
-                    token, loc.start.line, loc.start.column
+                    " at line {}, column {}",
+                    loc.start.line, loc.start.column
                 )
             }
             ParseError::IntegerOutOfRange { literal, loc } => {
@@ -348,11 +353,19 @@ impl Parser {
                     })
                     .collect())
             }
-            _ => Err(ParseError::UnexpectedToken(token)),
+            Token::CFG(_) => Err(ParseError::UnexpectedToken(token)),
+            _ => Err(ParseError::InvalidCfg {
+                message: format!(
+                    "unsupported `#cfg` condition `{token}`; expected `target = \"...\"`, \
+                     `all(...)`, `any(...)`, `not(...)`, `true`, or `false`"
+                ),
+                loc: token.range().clone(),
+            }),
         }
     }
 
     fn parse_conditional_import(&self) -> Result<(String, Value), ParseError> {
+        let cfg_token = self.peek().clone();
         let mut targets = TargetBackend::all().to_vec();
         while self.peek().kind() == TokenKind::CFG {
             let loc = self.peek().range().clone();
@@ -372,7 +385,7 @@ impl Parser {
             targets.retain(|backend| condition.contains(backend));
         }
         if self.peek().kind() != TokenKind::IMPORT {
-            return Err(ParseError::UnexpectedToken(self.peek().clone()));
+            return Err(ParseError::UnexpectedToken(cfg_token));
         }
         self.parse_import_statement(Some(&targets))
     }
