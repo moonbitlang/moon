@@ -26,6 +26,7 @@ use moonutil::{
     },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::ProjectManifest,
+    resolution::ModuleName,
     user_log::UserLog,
 };
 
@@ -46,19 +47,14 @@ pub struct RemoveSubcommand {
 pub fn remove(
     module_dir: &Path,
     project_manifest: &ProjectManifest,
-    username: &str,
-    pkgname: &str,
+    name: &ModuleName,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(module_dir)?;
-    let dep_name = format!("{username}/{pkgname}");
+    let dep_name = name.to_string();
     let removed = m.deps.shift_remove(&dep_name);
     if removed.is_none() {
-        bail!(
-            "the dependency `{}/{}` could not be found",
-            username,
-            pkgname,
-        )
+        bail!("the dependency `{dep_name}` could not be found")
     }
     let m = Arc::new(m);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;

@@ -21,6 +21,7 @@ use std::{fs::File, io::Write, str::FromStr};
 use anyhow::{Context, bail};
 use mooncake::registry::{
     RegistryClient, RegistryModuleManifest, RegistryRelease, RegistryUserModules,
+    path::parse_module_path,
 };
 use moonutil::{
     MOON_HOME,
@@ -92,21 +93,10 @@ impl FromStr for ViewTarget {
             validate_username(input).map_err(anyhow::Error::msg)?;
             return Ok(Self::User(input.to_owned()));
         }
-        let (name, version) = match input.rsplit_once('@') {
-            Some((name, version)) => (
-                name,
-                Some(Version::parse(version).context("expected an exact semantic version")?),
-            ),
-            None => (input, None),
-        };
-        if !name.contains('/')
-            || !is_safe_registry_module_name(name)
-            || name.contains(['#', '?', '%'])
-        {
-            bail!("expected a module name in the form `username/module[@version]`");
-        }
+        let path = parse_module_path(input)?;
+        let version = path.exact_version()?;
         Ok(Self::Module {
-            name: name.into(),
+            name: path.module,
             version,
         })
     }
@@ -314,6 +304,8 @@ mod tests {
             vec!["moon", "view", "alice/tools@1.0.0@2.0.0"],
             vec!["moon", "view", "alice/tools?query"],
             vec!["moon", "view", "alice/\u{1b}[31mtools"],
+            vec!["moon", "view", "alice/white space"],
+            vec!["moon", "view", "alice/tools\u{202e}"],
         ] {
             assert!(MoonBuildCli::try_parse_from(&args).is_err(), "{args:?}");
         }
@@ -331,6 +323,26 @@ mod tests {
             vec!["moon", "view", "--my", "--json", "--quiet"],
         ] {
             assert!(MoonBuildCli::try_parse_from(&args).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn module_targets_report_shared_coordinate_errors() {
+        for (input, message) in [
+            ("alice//tools", "path contains an invalid component"),
+            (
+                "alice/tools@1.0.0@2.0.0",
+                "must contain a single version marker",
+            ),
+            (
+                "alice/tools@",
+                "version must not be empty or contain path separators",
+            ),
+        ] {
+            assert_eq!(
+                input.parse::<ViewTarget>().unwrap_err().to_string(),
+                message
+            );
         }
     }
 
