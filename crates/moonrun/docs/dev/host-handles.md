@@ -47,9 +47,9 @@ Handle as a no-op; zero fails Handle validation with `Badf`.
 ## Owning tables
 
 `Handles<T>` owns C buffers, address-info results, process argument arrays,
-environment blocks, and environment builders together with their Host Key
-registrations. Insertion accepts a complete value and allocates its key.
-Lookup checks both the central registration and membership in this table.
+environment blocks, environment builders, and TLS connections together with
+their Host Key registrations. Insertion accepts a complete value and allocates
+its key. Lookup checks both the central registration and membership in this table.
 Removal retires the key and returns the value so callers can release the table
 borrow before performing domain cleanup.
 
@@ -57,6 +57,13 @@ Dropping a table retires its remaining keys under a short allocator borrow.
 That borrow ends before value destructors run. Domain state such as a leased
 buffer remains an entry until its Handle is freed, even while a Job owns the
 bytes.
+
+A TLS entry keeps its Handle when its pending configuration becomes a configured
+connection. Configuration failure retains the pending entry and its error;
+successful configuration replaces its value without changing its key.
+Freeing the Handle retires its key before dropping the TLS value outside the
+table borrow. Host teardown also retires all remaining TLS keys and drops their
+values.
 
 Other families coordinate their payload tables and Host Key registrations
 directly. Central validation prevents access to a secondary entry whose key has
