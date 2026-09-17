@@ -173,6 +173,12 @@ This is why `publish`, `package`, `doc`, and `prove` only work for one selected
 module at a time today. There is no "publish the whole workspace" or "generate
 docs for the whole workspace" mode in the current design.
 
+In workspaces with multiple members, proof outputs use
+`_build/verif/<module>/<package>/`. For example, the root packages of `a/b` and
+`a/b/v2` write their reports to `_build/verif/a/b/b.proof.json` and
+`_build/verif/a/b/v2/b.proof.json`. Generated WhyML files, proof interfaces, and
+dependency search paths use the same package directory.
+
 `moon doc` also selects its Target Backend from that member module's
 `preferred_target`, falling back to the default backend when it is absent.
 Preferences from unrelated workspace members do not affect documentation

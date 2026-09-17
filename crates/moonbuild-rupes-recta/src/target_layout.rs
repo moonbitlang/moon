@@ -493,6 +493,10 @@ impl TargetLayout {
     pub fn verif_package_dir(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut dir = self.verif_root();
+        // Workspace packages can share a short name, including module roots.
+        if matches!(self.mode, TargetLayoutMode::Workspace) {
+            dir.extend(pkg_fqn.module().name().segments());
+        }
         dir.extend(pkg_fqn.package().segments());
         dir
     }
@@ -1252,10 +1256,13 @@ mod tests {
         }
     }
 
-    fn package_fixture(package_path: &str) -> (DiscoverResult, ResolvedEnv, PackageId) {
-        let module_source = module("username/hello");
+    fn package_fixture(
+        module_name: &str,
+        package_path: &str,
+    ) -> (DiscoverResult, ResolvedEnv, PackageId) {
+        let module_source = module(module_name);
         let (modules, module_id) =
-            ResolvedEnv::only_one_module(module_source.clone(), moon_mod("username/hello"));
+            ResolvedEnv::only_one_module(module_source.clone(), moon_mod(module_name));
         let package_path =
             PackagePath::new(package_path).expect("test package path should be valid");
         let supported_targets = supported_targets();
@@ -1345,8 +1352,37 @@ mod tests {
     }
 
     #[test]
+    fn workspace_proof_artifacts_are_qualified_by_module() {
+        let layout = layout(TargetLayoutMode::Workspace);
+        for (module, package_path, expected_dir, expected_report) in [
+            ("a/b", "", "_build/verif/a/b", "b.proof.json"),
+            ("a/b/v2", "", "_build/verif/a/b/v2", "b.proof.json"),
+            ("a/b", "lib", "_build/verif/a/b/lib", "lib.proof.json"),
+            ("a/b/v2", "lib", "_build/verif/a/b/v2/lib", "lib.proof.json"),
+        ] {
+            let (packages, _, package) = package_fixture(module, package_path);
+            let target = package.build_target(TargetKind::Source);
+            let expected_dir = Path::new(expected_dir);
+
+            assert_eq!(
+                layout.prove_report_path(&packages, &target),
+                expected_dir.join(expected_report),
+            );
+            assert_eq!(
+                layout.emit_proof_whyml_path(&packages, &target).parent(),
+                Some(expected_dir),
+            );
+            assert_eq!(
+                layout.emit_proof_mi_path(&packages, &target).parent(),
+                Some(expected_dir),
+            );
+            assert_eq!(layout.verif_package_dir(&packages, &target), expected_dir);
+        }
+    }
+
+    #[test]
     fn generated_test_driver_diagnostic_path_follows_the_target_layout() {
-        let (packages, modules, _) = package_fixture("ffi");
+        let (packages, modules, _) = package_fixture("username/hello", "ffi");
         let layout = layout(TargetLayoutMode::Mono {
             main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
         });
@@ -1368,7 +1404,7 @@ mod tests {
 
     #[test]
     fn artifact_resolver_resolves_check_package_interface() {
-        let (packages, modules, package) = package_fixture("ffi");
+        let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
                 main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
@@ -1398,7 +1434,7 @@ mod tests {
 
     #[test]
     fn artifact_resolver_resolves_build_core_package_interface() {
-        let (packages, modules, package) = package_fixture("ffi");
+        let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
                 main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
@@ -1428,7 +1464,7 @@ mod tests {
 
     #[test]
     fn artifact_resolver_resolves_impl_check_package_interface() {
-        let (packages, modules, package) = package_fixture("ffi");
+        let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
                 main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
@@ -1459,7 +1495,7 @@ mod tests {
 
     #[test]
     fn injected_stdlib_impl_check_reads_the_installed_contract() {
-        let (mut packages, _, package) = package_fixture("ffi");
+        let (mut packages, _, package) = package_fixture("username/hello", "ffi");
         packages.get_package_mut(package).is_stdlib = true;
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Workspace),
@@ -1477,7 +1513,7 @@ mod tests {
 
     #[test]
     fn artifact_resolver_resolves_proof_artifacts_with_matching_context() {
-        let (packages, modules, package) = package_fixture("ffi");
+        let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
@@ -1522,7 +1558,7 @@ mod tests {
 
     #[test]
     fn prove_virtual_contract_and_proof_interfaces_have_distinct_paths() {
-        let (packages, modules, package) = package_fixture("ffi");
+        let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
             TargetLayout::new(
                 PathBuf::from("_build"),
@@ -1569,7 +1605,7 @@ mod tests {
         assert_eq!(
             proof_interface,
             vec![PathBuf::from(
-                "_build/verif/ffi/pkg_8_username_5_hello_3_ffi.mi"
+                "_build/verif/username/hello/ffi/pkg_8_username_5_hello_3_ffi.mi"
             )]
         );
         assert_eq!(
@@ -1582,7 +1618,7 @@ mod tests {
 
     #[test]
     fn artifact_resolver_resolves_c_stub_library_artifacts() {
-        let (packages, modules, package) = package_fixture("ffi");
+        let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
                 main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
@@ -1624,7 +1660,7 @@ mod tests {
     #[test]
     fn artifact_resolver_handles_non_package_artifacts() {
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
-        let (packages, modules, _) = package_fixture("ffi");
+        let (packages, modules, _) = package_fixture("username/hello", "ffi");
         let module = modules.input_module_ids()[0];
         let options = ArtifactPathOptions {
             os: OperatingSystem::Linux,
