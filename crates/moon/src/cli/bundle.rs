@@ -74,12 +74,12 @@ pub(crate) fn run_bundle(
     }
 
     let targets = lower_surface_targets(&surface_targets);
-    let resolve_output = sync_and_resolve_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
+    let declarations = sync_and_discover_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_bundle_rr_from_resolved(&cli, &cmd, &dirs, &targets, resolve_output, output).with_context(
+    run_bundle_rr_from_declarations(&cli, &cmd, &dirs, &targets, declarations, output).with_context(
         || match targets.as_slice() {
             [target] => format!("failed to run bundle for target {target:?}"),
             _ => format!("failed to run bundle for targets {targets:?}"),
@@ -108,30 +108,30 @@ pub(crate) fn run_bundle_internal_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let resolve_output = sync_and_resolve_bundle_project(cli, cmd, dirs, output.user_log())?;
+    let declarations = sync_and_discover_bundle_project(cli, cmd, dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_bundle_rr_from_resolved(
+    run_bundle_rr_from_declarations(
         cli,
         cmd,
         dirs,
         selected_target_backend.as_slice(),
-        resolve_output,
+        declarations,
         output,
     )
 }
 
-/// Plans and executes a bundle from resolved project data.
+/// Resolves package relationships, plans, and executes a bundle from declarations.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run build.
-fn run_bundle_rr_from_resolved(
+fn run_bundle_rr_from_declarations(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: moonbuild_rupes_recta::ProjectDeclarations,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
@@ -141,14 +141,12 @@ fn run_bundle_rr_from_resolved(
         ..
     } = dirs;
     let backends = if selected_target_backends.is_empty() {
-        vec![
-            rr_build::local_modules_preferred_target(&resolve_output, user_log).unwrap_or_default(),
-        ]
+        vec![rr_build::local_modules_preferred_target(&declarations, user_log).unwrap_or_default()]
     } else {
         selected_target_backends.to_vec()
     };
     let resolve_output =
-        resolve_output.resolve(&backends, cmd.build_flags.enable_coverage, user_log)?;
+        declarations.resolve(&backends, cmd.build_flags.enable_coverage, user_log)?;
     let planned_runs = backends
         .into_iter()
         .map(|target| {
@@ -191,7 +189,7 @@ fn run_bundle_rr_from_resolved(
     }
 }
 
-fn sync_and_resolve_bundle_project(
+fn sync_and_discover_bundle_project(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
@@ -203,7 +201,7 @@ fn sync_and_resolve_bundle_project(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+    rr_build::sync_and_discover_project(&resolve_config, dirs, user_log)
 }
 
 pub(crate) fn plan_bundle_rr_from_resolved(

@@ -73,7 +73,7 @@ pub(crate) use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_wi
 
 /// Synchronize dependencies and read module and package declarations.
 /// This step does not acquire the target-directory lock.
-pub(crate) fn sync_and_resolve_project(
+pub(crate) fn sync_and_discover_project(
     resolve_config: &ResolveConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -189,28 +189,25 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, user_log:
 }
 
 pub(crate) fn local_packages(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
 ) -> impl Iterator<Item = PackageId> + '_ {
-    resolve_output
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            resolve_output
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
+    declarations.local_modules().iter().flat_map(|&module_id| {
+        declarations
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .into_iter()
+            .flat_map(|packages| packages.values().copied())
+    })
 }
 
 pub(crate) fn local_modules_preferred_target(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     user_log: &UserLog,
 ) -> Option<TargetBackend> {
-    let preferred = resolve_output
+    let preferred = declarations
         .local_modules()
         .iter()
-        .filter_map(|&module_id| resolve_output.module_info(module_id).preferred_target)
+        .filter_map(|&module_id| declarations.module_info(module_id).preferred_target)
         .collect::<BTreeSet<_>>();
 
     if preferred.len() > 1 {

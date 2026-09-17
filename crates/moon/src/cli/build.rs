@@ -126,13 +126,13 @@ pub(crate) fn run_build(
         return Ok(ret_value);
     }
 
-    let resolve_output = sync_and_resolve_build_project(cli, &cmd, &dirs, output.user_log())?;
+    let declarations = sync_and_discover_build_project(cli, &cmd, &dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     let result =
-        run_build_rr_from_resolved(cli, &cmd, &dirs, false, &targets, resolve_output, output)
+        run_build_rr_from_declarations(cli, &cmd, &dirs, false, &targets, declarations, output)
             .with_context(|| match targets.as_slice() {
                 [target] => format!("failed to run build for target {target:?}"),
                 _ => format!("failed to run build for targets {targets:?}"),
@@ -267,7 +267,7 @@ fn run_build_internal(
     }
 }
 
-fn sync_and_resolve_build_project(
+fn sync_and_discover_build_project(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
@@ -279,7 +279,7 @@ fn sync_and_resolve_build_project(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+    rr_build::sync_and_discover_project(&resolve_config, dirs, user_log)
 }
 
 /// Run the build routine in RR backend
@@ -295,18 +295,18 @@ fn run_build_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
-    let resolve_output = sync_and_resolve_build_project(cli, cmd, dirs, output.user_log())?;
+    let declarations = sync_and_discover_build_project(cli, cmd, dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_build_rr_from_resolved(
+    run_build_rr_from_declarations(
         cli,
         cmd,
         dirs,
         watch,
         selected_target_backend.as_slice(),
-        resolve_output,
+        declarations,
         output,
     )
 }
@@ -315,13 +315,13 @@ fn run_build_rr(
 ///
 /// The caller must hold the target-directory lock for a non-dry-run build.
 #[allow(clippy::too_many_arguments)]
-fn run_build_rr_from_resolved(
+fn run_build_rr_from_declarations(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: moonbuild_rupes_recta::ProjectDeclarations,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
@@ -333,7 +333,7 @@ fn run_build_rr_from_resolved(
     } = dirs;
     let selections = if selected_target_backends.is_empty() {
         Some(resolve_build_target_selections(
-            &resolve_output,
+            &declarations,
             cmd,
             None,
             user_log,
@@ -345,7 +345,7 @@ fn run_build_rr_from_resolved(
     // explicitly requested backend before that pass can proceed.
     let watch_backends = watch.then(|| lower_surface_targets(&cmd.build_flags.target));
     let (resolve_output, fallback_backend) = rr_build::resolve_project_for_targets(
-        resolve_output,
+        declarations,
         watch_backends
             .as_deref()
             .unwrap_or(selected_target_backends),
@@ -670,14 +670,14 @@ fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
 }
 
 fn resolve_build_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &BuildSubcommand,
     selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages =
-            resolve_selected_build_packages(resolve_output, cmd, Some(target_backend), user_log)?;
+            resolve_selected_build_packages(declarations, cmd, Some(target_backend), user_log)?;
         if packages.is_empty() {
             return Ok(Vec::new());
         }
@@ -687,15 +687,15 @@ fn resolve_build_target_selections(
         }]);
     }
 
-    let selected = resolve_selected_build_packages(resolve_output, cmd, None, user_log)?;
-    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_build_packages(declarations, cmd, None, user_log)?;
+    let mut selections = group_packages_by_preferred_backend(declarations, selected);
 
     for selection in &mut selections {
         selection.packages = selection
             .packages
             .iter()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
+            .filter(|&pkg| package_supports_backend(declarations, pkg, selection.target_backend))
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
@@ -704,17 +704,17 @@ fn resolve_build_target_selections(
 }
 
 fn resolve_selected_build_packages(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &BuildSubcommand,
     target_backend: Option<TargetBackend>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.path.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, user_log);
+            return select_supported_packages(declarations, &cmd.path, target_backend, user_log);
         }
         return Ok(select_packages(&cmd.path, user_log, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+            filter_pkg_by_dir(declarations, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
@@ -723,21 +723,21 @@ fn resolve_selected_build_packages(
 
     if let Some(package_filter) = cmd.package.as_deref() {
         let pkgs = match_packages_by_name_rr(
-            resolve_output,
-            resolve_output.local_modules(),
+            declarations,
+            declarations.local_modules(),
             package_filter,
             user_log,
         );
         if let Some(target_backend) = target_backend {
-            ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
+            ensure_packages_support_backend(declarations, pkgs.iter().copied(), target_backend)?;
         }
         return Ok(pkgs);
     }
 
-    Ok(rr_build::local_packages(resolve_output)
+    Ok(rr_build::local_packages(declarations)
         .filter(|&pkg_id| {
             target_backend
-                .is_none_or(|backend| package_supports_backend(resolve_output, pkg_id, backend))
+                .is_none_or(|backend| package_supports_backend(declarations, pkg_id, backend))
         })
         .collect())
 }

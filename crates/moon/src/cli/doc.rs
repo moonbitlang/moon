@@ -214,15 +214,15 @@ pub(crate) fn run_doc_rr(
 }
 
 fn selected_doc_module_id(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     selected_module_dir: &Path,
 ) -> anyhow::Result<ModuleId> {
-    resolve_output
+    declarations
         .local_modules()
         .iter()
         .copied()
         .find(|&module_id| {
-            resolve_output
+            declarations
                 .module_dirs
                 .get(module_id)
                 .is_some_and(|module_dir| module_dir == selected_module_dir)

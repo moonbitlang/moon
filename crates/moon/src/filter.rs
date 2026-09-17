@@ -136,7 +136,7 @@ where
 
 /// Perform fuzzy matching over package names and return the matching package IDs.
 pub(crate) fn match_packages_by_name_rr(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     main_modules: &[moonutil::resolution::ModuleId],
     needle: &str,
     user_log: &UserLog,
@@ -145,11 +145,11 @@ pub(crate) fn match_packages_by_name_rr(
         panic!("No multiple main modules are supported");
     };
 
-    let res = fuzzy_match_by_name(needle, &resolve_output.pkg_dirs);
+    let res = fuzzy_match_by_name(needle, &declarations.pkg_dirs);
 
     // Warn about non-local packages being matched
     for &pkg_id in &res {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = declarations.pkg_dirs.get_package(pkg_id);
         if pkg.module != main_module_id {
             user_log.warn(format!(
                 "Package '{}' matched by name '{}' is not in the main module, it may not be accessible.",
@@ -176,11 +176,11 @@ impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
 /// When a package cannot be found, returns a descriptive error that can be
 /// reported to the user.
 pub(crate) fn filter_pkg_by_dir(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
-    let mut all_local_packages = resolve_output.local_modules().iter().flat_map(|&it| {
-        resolve_output
+    let mut all_local_packages = declarations.local_modules().iter().flat_map(|&it| {
+        declarations
             .pkg_dirs
             .packages_for_module(it)
             .into_iter()
@@ -189,15 +189,15 @@ pub(crate) fn filter_pkg_by_dir(
 
     all_local_packages
         .find(|&pkg_id| {
-            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+            let pkg = declarations.pkg_dirs.get_package(pkg_id);
             pkg.root_path == dir
         })
         .ok_or_else(|| {
             report_package_not_found(
                 dir,
-                &resolve_output.module_rel,
-                &resolve_output.module_dirs,
-                resolve_output.local_modules(),
+                &declarations.module_rel,
+                &declarations.module_dirs,
+                declarations.local_modules(),
             )
         })
 }
@@ -291,10 +291,10 @@ pub(crate) fn report_package_not_found(
 }
 
 pub(crate) fn format_supported_backends(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     pkg_id: PackageId,
 ) -> String {
-    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+    let pkg = declarations.pkg_dirs.get_package(pkg_id);
     let mut targets = pkg
         .effective_supported_targets
         .iter()
@@ -305,11 +305,11 @@ pub(crate) fn format_supported_backends(
 }
 
 pub(crate) fn package_supports_backend(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> bool {
-    resolve_output
+    declarations
         .pkg_dirs
         .get_package(pkg_id)
         .effective_supported_targets
@@ -323,24 +323,24 @@ pub(crate) struct TargetPackageGroup {
 }
 
 pub(crate) fn preferred_target_backend_for_package(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     pkg_id: PackageId,
 ) -> TargetBackend {
-    let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
-    resolve_output
+    let module_id = declarations.pkg_dirs.get_package(pkg_id).module;
+    declarations
         .module_info(module_id)
         .preferred_target
         .unwrap_or_default()
 }
 
 pub(crate) fn group_packages_by_preferred_backend(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> Vec<TargetPackageGroup> {
     let mut groups = BTreeMap::<TargetBackend, Vec<PackageId>>::new();
     for pkg_id in packages {
         groups
-            .entry(preferred_target_backend_for_package(resolve_output, pkg_id))
+            .entry(preferred_target_backend_for_package(declarations, pkg_id))
             .or_default()
             .push(pkg_id);
     }
@@ -355,25 +355,25 @@ pub(crate) fn group_packages_by_preferred_backend(
 }
 
 pub(crate) fn ensure_package_supports_backend(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()> {
-    if package_supports_backend(resolve_output, pkg_id, target_backend) {
+    if package_supports_backend(declarations, pkg_id, target_backend) {
         return Ok(());
     }
 
-    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+    let pkg = declarations.pkg_dirs.get_package(pkg_id);
     anyhow::bail!(
         "Package '{}' does not support target backend '{}'. Supported backends: {}",
         pkg.fqn,
         target_backend,
-        format_supported_backends(resolve_output, pkg_id),
+        format_supported_backends(declarations, pkg_id),
     );
 }
 
 pub(crate) fn ensure_packages_support_backend<I>(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     packages: I,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()>
@@ -383,7 +383,7 @@ where
     let mut unsupported = Vec::new();
 
     for pkg_id in packages {
-        if !package_supports_backend(resolve_output, pkg_id, target_backend) {
+        if !package_supports_backend(declarations, pkg_id, target_backend) {
             unsupported.push(pkg_id);
         }
     }
@@ -395,11 +395,11 @@ where
     let details = unsupported
         .iter()
         .map(|&pkg_id| {
-            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+            let pkg = declarations.pkg_dirs.get_package(pkg_id);
             format!(
                 "{} ({})",
                 pkg.fqn,
-                format_supported_backends(resolve_output, pkg_id)
+                format_supported_backends(declarations, pkg_id)
             )
         })
         .collect::<Vec<_>>()
@@ -413,7 +413,7 @@ where
 }
 
 pub(crate) fn select_supported_packages<I>(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     paths: I,
     target_backend: TargetBackend,
     user_log: &UserLog,
@@ -425,10 +425,10 @@ where
     let mut selected = Vec::new();
     let mut unsupported = Vec::new();
 
-    for (path, pkg_id) in select_packages(paths, user_log, |dir| {
-        filter_pkg_by_dir(resolve_output, dir)
-    })? {
-        if package_supports_backend(resolve_output, pkg_id, target_backend) {
+    for (path, pkg_id) in
+        select_packages(paths, user_log, |dir| filter_pkg_by_dir(declarations, dir))?
+    {
+        if package_supports_backend(declarations, pkg_id, target_backend) {
             selected.push(pkg_id);
         } else {
             unsupported.push((path.to_path_buf(), pkg_id));
@@ -437,10 +437,10 @@ where
 
     if selected.is_empty() && !unsupported.is_empty() {
         if let [(_, pkg_id)] = unsupported.as_slice() {
-            ensure_package_supports_backend(resolve_output, *pkg_id, target_backend)?;
+            ensure_package_supports_backend(declarations, *pkg_id, target_backend)?;
         } else {
             ensure_packages_support_backend(
-                resolve_output,
+                declarations,
                 unsupported.iter().map(|(_, pkg_id)| *pkg_id),
                 target_backend,
             )?;
@@ -448,13 +448,13 @@ where
     }
 
     for (path, pkg_id) in &unsupported {
-        let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
+        let pkg = declarations.pkg_dirs.get_package(*pkg_id);
         user_log.info(format!(
             "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
             path.display(),
             pkg.fqn,
             target_backend,
-            format_supported_backends(resolve_output, *pkg_id),
+            format_supported_backends(declarations, *pkg_id),
         ));
     }
 
@@ -473,7 +473,7 @@ pub(crate) struct PackageMatchResult {
 /// matched by their fully qualified names, preferring exact matches and falling back to fuzzy
 /// suggestions. Results are deduplicated while preserving the order returned by the matcher.
 pub(crate) fn match_packages_with_fuzzy<I, S>(
-    resolve_output: &ProjectDeclarations,
+    declarations: &ProjectDeclarations,
     candidates: impl IntoIterator<Item = PackageId>,
     names: I,
 ) -> PackageMatchResult
@@ -483,7 +483,7 @@ where
 {
     let mut name_map = BTreeMap::new();
     for pkg_id in candidates {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = declarations.pkg_dirs.get_package(pkg_id);
         name_map.insert(pkg.fqn.to_string(), pkg_id);
     }
 
@@ -579,7 +579,7 @@ mod tests {
         dunce::canonicalize(path).unwrap()
     }
 
-    fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ProjectDeclarations {
+    fn discover_project(source_dir: &Path) -> moonbuild_rupes_recta::ProjectDeclarations {
         let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
         let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
@@ -616,7 +616,7 @@ mod tests {
 
         let workspace_root = canonical(workspace_root);
         let dangling_pkg = workspace_root.join("dangling/pkg");
-        let resolved = resolve_output(&workspace_root);
+        let resolved = discover_project(&workspace_root);
 
         assert_eq!(
             select_supported_packages(
@@ -654,7 +654,7 @@ mod tests {
 
         let workspace_root = canonical(workspace_root);
         let external_pkg = canonical(external_module.join("src/main"));
-        let resolved = resolve_output(&workspace_root);
+        let resolved = discover_project(&workspace_root);
         let selected = select_supported_packages(
             &resolved,
             [&external_pkg],

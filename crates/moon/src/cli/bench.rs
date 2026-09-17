@@ -85,15 +85,15 @@ pub(crate) fn run_bench(
     let display_backend_hint = targets.len() > 1;
     let bench_cmd: super::TestLikeSubcommand<'_> = (&cmd).into();
     super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
-    let resolve_output =
-        super::sync_and_resolve_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
-    super::run_test_or_bench_from_resolved(
+    let declarations =
+        super::sync_and_discover_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
+    super::run_test_or_bench_from_declarations(
         &cli,
         &bench_cmd,
         &dirs,
         display_backend_hint,
         &targets,
-        resolve_output,
+        declarations,
         output,
     )
     .with_context(|| match targets.as_slice() {

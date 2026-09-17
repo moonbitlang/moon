@@ -560,7 +560,7 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let declarations = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let declarations = rr_build::sync_and_discover_project(&resolve_cfg, &dirs, user_log)?;
     let (selection, resolve_output) =
         resolve_run_project(cmd, selected_target_backend, declarations, user_log)?;
     let lock = if cli.dry_run {

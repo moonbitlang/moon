@@ -100,14 +100,14 @@ enum SelectionMode {
 impl PackageSelection {
     fn new(
         cmd: &InfoSubcommand,
-        resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+        declarations: &moonbuild_rupes_recta::ProjectDeclarations,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = resolve_output
+        let package_ids: Vec<_> = declarations
             .local_modules()
             .iter()
             .flat_map(|&module_id| {
-                resolve_output
+                declarations
                     .pkg_dirs
                     .packages_for_module(module_id)
                     .into_iter()
@@ -117,7 +117,7 @@ impl PackageSelection {
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;
-            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+            let pkg = filter_pkg_by_dir(declarations, &dir)?;
             return Ok(Self {
                 mode: SelectionMode::SinglePath,
                 package_ids: vec![pkg],
@@ -127,7 +127,7 @@ impl PackageSelection {
 
         if !cmd.path.is_empty() {
             let path_packages = select_packages(&cmd.path, user_log, |dir| {
-                filter_pkg_by_dir(resolve_output, dir)
+                filter_pkg_by_dir(declarations, dir)
             })?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
@@ -139,7 +139,7 @@ impl PackageSelection {
 
         if let Some(filter) = cmd.package.as_deref() {
             let matches = match_packages_with_fuzzy(
-                resolve_output,
+                declarations,
                 package_ids.iter().copied(),
                 std::iter::once(filter),
             );

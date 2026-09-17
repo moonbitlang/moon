@@ -498,8 +498,8 @@ fn run_check_impl(
         return Ok(ret_value);
     }
 
-    let resolve_output =
-        sync_and_resolve_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
+    let declarations =
+        sync_and_discover_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
             .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
@@ -510,13 +510,13 @@ fn run_check_impl(
             )
         })?;
     }
-    let result = run_check_normal_rr_from_resolved(
+    let result = run_check_normal_rr_from_declarations(
         cli,
         cmd,
         &dirs,
         false,
         &targets,
-        resolve_output,
+        declarations,
         output,
         json,
     )
@@ -698,7 +698,7 @@ fn run_check_normal_internal_rr(
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
-    let resolve_output = sync_and_resolve_check_project(cli, cmd, dirs, user_log, json.is_some())
+    let declarations = sync_and_discover_check_project(cli, cmd, dirs, user_log, json.is_some())
         .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
@@ -709,13 +709,13 @@ fn run_check_normal_internal_rr(
             )
         })?;
     }
-    run_check_normal_rr_from_resolved(
+    run_check_normal_rr_from_declarations(
         cli,
         cmd,
         dirs,
         watch,
         selected_target_backend.as_slice(),
-        resolve_output,
+        declarations,
         output,
         json,
     )
@@ -725,13 +725,13 @@ fn run_check_normal_internal_rr(
 ///
 /// The caller must hold the target-directory lock for a non-dry-run check.
 #[allow(clippy::too_many_arguments)]
-fn run_check_normal_rr_from_resolved(
+fn run_check_normal_rr_from_declarations(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: moonbuild_rupes_recta::ProjectDeclarations,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
@@ -743,10 +743,10 @@ fn run_check_normal_rr_from_resolved(
         ..
     } = dirs;
     let selections = if selected_target_backends.is_empty() {
-        validate_selector_flags_before_split(&resolve_output, cmd, source_dir, None, user_log)
+        validate_selector_flags_before_split(&declarations, cmd, source_dir, None, user_log)
             .context("Failed to calculate build plan")?;
         Some(
-            resolve_check_target_selections(&resolve_output, cmd, source_dir, None, user_log)
+            resolve_check_target_selections(&declarations, cmd, source_dir, None, user_log)
                 .context("Failed to calculate build plan")?,
         )
     } else {
@@ -756,7 +756,7 @@ fn run_check_normal_rr_from_resolved(
     // explicitly requested backend before that pass can proceed.
     let watch_backends = watch.then(|| lower_surface_targets(&cmd.build_flags.target));
     let (resolve_output, fallback_backend) = rr_build::resolve_project_for_targets(
-        resolve_output,
+        declarations,
         watch_backends
             .as_deref()
             .unwrap_or(selected_target_backends),
@@ -902,7 +902,7 @@ fn run_planned_checks(
     }
 }
 
-fn sync_and_resolve_check_project(
+fn sync_and_discover_check_project(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
@@ -923,7 +923,7 @@ fn sync_and_resolve_check_project(
             ChildOutputMode::Inherit
         },
     });
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+    rr_build::sync_and_discover_project(&resolve_config, dirs, user_log)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1013,7 +1013,7 @@ fn plan_check_rr_from_selections(
 }
 
 fn validate_selector_flags_before_split(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
@@ -1024,7 +1024,7 @@ fn validate_selector_flags_before_split(
     }
 
     let selected =
-        resolve_selected_packages(resolve_output, cmd, source_dir, target_backend, user_log)?;
+        resolve_selected_packages(declarations, cmd, source_dir, target_backend, user_log)?;
     if cmd.patch_file.is_some() && selected.len() != 1 {
         anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
     }
@@ -1115,7 +1115,7 @@ fn plan_check_rr_from_selection(
 }
 
 pub(crate) fn resolve_check_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
@@ -1123,7 +1123,7 @@ pub(crate) fn resolve_check_target_selections(
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages = resolve_selected_packages(
-            resolve_output,
+            declarations,
             cmd,
             source_dir,
             Some(target_backend),
@@ -1135,13 +1135,13 @@ pub(crate) fn resolve_check_target_selections(
         }]);
     }
 
-    let selected = resolve_selected_packages(resolve_output, cmd, source_dir, None, user_log)?;
-    let selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_packages(declarations, cmd, source_dir, None, user_log)?;
+    let selections = group_packages_by_preferred_backend(declarations, selected);
 
     let mut filtered = Vec::new();
     for selection in selections {
         let packages = filter_packages_for_backend(
-            resolve_output,
+            declarations,
             selection.packages,
             selection.target_backend,
             user_log,
@@ -1158,7 +1158,7 @@ pub(crate) fn resolve_check_target_selections(
 }
 
 fn resolve_selected_packages(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
@@ -1166,35 +1166,35 @@ fn resolve_selected_packages(
 ) -> anyhow::Result<Vec<PackageId>> {
     if let Some(filter_path) = cmd.package_path.as_deref() {
         let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
-        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        let pkg = filter_pkg_by_dir(declarations, &dir)?;
         if let Some(target_backend) = target_backend {
-            ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
+            ensure_package_supports_backend(declarations, pkg, target_backend)?;
         }
         return Ok(vec![pkg]);
     }
 
     if !cmd.path.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, user_log);
+            return select_supported_packages(declarations, &cmd.path, target_backend, user_log);
         }
         return Ok(select_packages(&cmd.path, user_log, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+            filter_pkg_by_dir(declarations, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
         .collect());
     }
 
-    Ok(rr_build::local_packages(resolve_output)
+    Ok(rr_build::local_packages(declarations)
         .filter(|&pkg| {
             target_backend
-                .is_none_or(|backend| package_supports_backend(resolve_output, pkg, backend))
+                .is_none_or(|backend| package_supports_backend(declarations, pkg, backend))
         })
         .collect())
 }
 
 fn filter_packages_for_backend(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: Vec<PackageId>,
     target_backend: TargetBackend,
     user_log: &UserLog,
@@ -1203,7 +1203,7 @@ fn filter_packages_for_backend(
     let mut unsupported = Vec::new();
 
     for pkg in packages {
-        if package_supports_backend(resolve_output, pkg, target_backend) {
+        if package_supports_backend(declarations, pkg, target_backend) {
             supported.push(pkg);
         } else {
             unsupported.push(pkg);
@@ -1212,10 +1212,10 @@ fn filter_packages_for_backend(
 
     if supported.is_empty() && !unsupported.is_empty() {
         if let [pkg] = unsupported.as_slice() {
-            ensure_package_supports_backend(resolve_output, *pkg, target_backend)?;
+            ensure_package_supports_backend(declarations, *pkg, target_backend)?;
         } else {
             ensure_packages_support_backend(
-                resolve_output,
+                declarations,
                 unsupported.iter().copied(),
                 target_backend,
             )?;
@@ -1224,12 +1224,12 @@ fn filter_packages_for_backend(
 
     for pkg in unsupported {
         let pkg_id = pkg;
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = declarations.pkg_dirs.get_package(pkg_id);
         user_log.info(format!(
             "skipping package `{}` because it does not support the selected target backend `{}`. Supported backends: {}",
             pkg.fqn,
             target_backend,
-            format_supported_backends(resolve_output, pkg_id),
+            format_supported_backends(declarations, pkg_id),
         ));
     }
 

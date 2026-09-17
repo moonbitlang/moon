@@ -434,15 +434,15 @@ fn run_test_impl(
     let display_backend_hint = targets.len() > 1;
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     validate_test_or_bench_invocation(cli, &test_cmd)?;
-    let resolve_output =
-        sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
-    let ret_value = run_test_or_bench_from_resolved(
+    let declarations =
+        sync_and_discover_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let ret_value = run_test_or_bench_from_declarations(
         cli,
         &test_cmd,
         &dirs,
         display_backend_hint,
         &targets,
-        resolve_output,
+        declarations,
         output,
     )
     .with_context(|| match targets.as_slice() {
@@ -1018,7 +1018,7 @@ pub(crate) fn validate_test_or_bench_invocation(
     Ok(())
 }
 
-pub(crate) fn sync_and_resolve_test_or_bench_project(
+pub(crate) fn sync_and_discover_test_or_bench_project(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
@@ -1030,7 +1030,7 @@ pub(crate) fn sync_and_resolve_test_or_bench_project(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+    rr_build::sync_and_discover_project(&resolve_config, dirs, user_log)
 }
 
 #[instrument(skip_all)]
@@ -1043,14 +1043,14 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
-    let resolve_output = sync_and_resolve_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
-    run_test_or_bench_from_resolved(
+    let declarations = sync_and_discover_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    run_test_or_bench_from_declarations(
         cli,
         cmd,
         dirs,
         display_backend_hint,
         selected_target_backend.as_slice(),
-        resolve_output,
+        declarations,
         output,
     )
 }
@@ -1060,13 +1060,13 @@ fn run_test_rr(
 /// Holds the target-directory lock through planning and the initial build,
 /// then releases it before executing tests or benchmarks.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_test_or_bench_from_resolved(
+pub(crate) fn run_test_or_bench_from_declarations(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     display_backend_hint: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: moonbuild_rupes_recta::ProjectDeclarations,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let user_log = output.user_log();
@@ -1077,9 +1077,9 @@ pub(crate) fn run_test_or_bench_from_resolved(
         ..
     } = dirs;
     let selections = if selected_target_backends.is_empty() {
-        validate_original_package_selection_filters(&resolve_output, cmd)?;
+        validate_original_package_selection_filters(&declarations, cmd)?;
         Some(resolve_test_target_selections(
-            &resolve_output,
+            &declarations,
             cmd,
             user_log,
         )?)
@@ -1087,7 +1087,7 @@ pub(crate) fn run_test_or_bench_from_resolved(
         None
     };
     let (resolve_output, fallback_backend) = rr_build::resolve_project_for_targets(
-        resolve_output,
+        declarations,
         selected_target_backends,
         selections.as_deref(),
         cmd.build_flags.enable_coverage,
@@ -1744,19 +1744,19 @@ fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
 }
 
 fn resolve_test_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
-    let selected = resolve_selected_test_packages(resolve_output, cmd, user_log)?;
-    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_test_packages(declarations, cmd, user_log)?;
+    let mut selections = group_packages_by_preferred_backend(declarations, selected);
 
     for selection in &mut selections {
         selection.packages = selection
             .packages
             .iter()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
+            .filter(|&pkg| package_supports_backend(declarations, pkg, selection.target_backend))
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
@@ -1765,13 +1765,13 @@ fn resolve_test_target_selections(
 }
 
 fn resolve_selected_test_packages(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.explicit_path_filters.is_empty() {
         return Ok(select_packages(cmd.explicit_path_filters, user_log, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+            filter_pkg_by_dir(declarations, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
@@ -1779,30 +1779,27 @@ fn resolve_selected_test_packages(
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = resolve_output
+        let all_affected_packages: Vec<_> = declarations
             .local_modules()
             .iter()
             .flat_map(|&module_id| {
-                resolve_output
+                declarations
                     .pkg_dirs
                     .packages_for_module(module_id)
                     .into_iter()
                     .flat_map(|packages| packages.values().copied())
             })
             .collect();
-        return Ok(match_packages_with_fuzzy(
-            resolve_output,
-            all_affected_packages,
-            package_filter,
-        )
-        .matched);
+        return Ok(
+            match_packages_with_fuzzy(declarations, all_affected_packages, package_filter).matched,
+        );
     }
 
-    Ok(resolve_output
+    Ok(declarations
         .local_modules()
         .iter()
         .flat_map(|&module_id| {
-            resolve_output
+            declarations
                 .pkg_dirs
                 .packages_for_module(module_id)
                 .into_iter()
@@ -1812,7 +1809,7 @@ fn resolve_selected_test_packages(
 }
 
 fn validate_original_package_selection_filters(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
 ) -> anyhow::Result<()> {
     let Some(package_filter) = cmd.package.as_deref() else {
@@ -1828,17 +1825,14 @@ fn validate_original_package_selection_filters(
     }
 
     let matched_packages = match_packages_with_fuzzy(
-        resolve_output,
-        resolve_output
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                resolve_output
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            }),
+        declarations,
+        declarations.local_modules().iter().flat_map(|&module_id| {
+            declarations
+                .pkg_dirs
+                .packages_for_module(module_id)
+                .into_iter()
+                .flat_map(|packages| packages.values().copied())
+        }),
         package_filter,
     )
     .matched;
@@ -1850,7 +1844,7 @@ fn validate_original_package_selection_filters(
     let package_names = || {
         matched_packages
             .iter()
-            .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+            .map(|id| declarations.pkg_dirs.get_package(*id).fqn.to_string())
             .collect::<Vec<_>>()
     };
 
