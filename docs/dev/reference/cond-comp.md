@@ -44,6 +44,13 @@ with regular imports, `for "test"`, and `for "wbtest"` (including their legacy
 prefix forms). Unannotated blocks remain unconditional. Aliases, including
 `*`, retain their existing meaning.
 
+Within each import kind, a package may appear only once for any backend,
+regardless of its alias. Package conversion rejects declarations whose backend
+sets overlap before dependency graphs are constructed. Repeating a package with
+disjoint conditions, or in different import kinds, is valid. Legacy import
+options override the corresponding DSL blocks before this validation; both
+`test_import`/`test-import` and `wbtest_import`/`wbtest-import` retain that behavior.
+
 Package declarations retain each import's selected backend set. Module resolution
 and package discovery run once. Command adapters then select the requested
 backends, including module preferences when `--target` is omitted, before solving

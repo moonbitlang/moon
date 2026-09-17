@@ -26,6 +26,10 @@ conditions with `all(...)`, `any(...)`, and `not(...)`, or use `true` and
 Native and JavaScript. Conditions also apply to import blocks ending in
 `for "test"` or `for "wbtest"`.
 
+Within each import kind, a package can be active only once per backend, even
+under different aliases. Repeated imports with disjoint conditions are allowed,
+as are imports of the same package in different import kinds.
+
 Inactive imports do not add build dependencies. An active import from another
 module still requires a module dependency declaration. Import conditions do
 not change the package's `supported_targets` setting.

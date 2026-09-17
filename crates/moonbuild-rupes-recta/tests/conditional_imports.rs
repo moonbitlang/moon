@@ -127,6 +127,7 @@ import { "example/conditional/helper" } for "test"
         (
             BackendConfig::Native {
                 direct_object_candidate: None,
+                collect_ref_cycle: false,
                 allocator: moonutil::compiler_flags::NativeAllocator::System,
                 os: std::env::consts::OS.parse().unwrap(),
                 compiler_paths: moonutil::compiler_flags::CompilerPaths::from_moon_dirs(),
@@ -288,6 +289,7 @@ fn conditional_imports_select_aliases_and_propagate_backend_support() {
         (
             "app",
             r#"
+#cfg(not(target = "native"))
 import { "example/conditional/common" }
 #cfg(target = "native")
 import { "example/conditional/native" @platform }
