@@ -30,7 +30,9 @@ It is off by default. Unset the variable or set it to `0` to disable it;
 only the value `1` enables it.
 
 The setting applies to `build`, `run`, `test`, and `bench`, including standalone
-files, in both debug and release builds. Native builds use generated C while it
-is enabled, including when `MOONBIT_NEW_NATIVE=1` is set. Both native allocators
-are supported. Wasm builds require a compiler supporting `-enable-trial-deletion`.
+files, in both debug and release builds. Native builds support both generated C
+and the machine backend (direct object output), with either native allocator.
+Enabling collection preserves the usual backend selection, including
+`MOONBIT_NEW_NATIVE`. Machine builds require a compiler with trial-deletion
+support; Wasm builds require one supporting `-enable-trial-deletion`.
 The setting has no effect on WasmGC, JavaScript, or LLVM.

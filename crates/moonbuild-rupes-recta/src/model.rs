@@ -53,7 +53,7 @@ pub enum BackendConfig {
         /// Planning may still select generated C based on profile and packages.
         direct_object_candidate: Option<NativeTarget>,
         allocator: NativeAllocator,
-        /// Enable cycle collection through the generated-C runtime.
+        /// Enable cycle collection in the native runtime for either payload form.
         collect_ref_cycle: bool,
         /// Supplied by command orchestration; RR does not infer the host OS.
         os: OperatingSystem,

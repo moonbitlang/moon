@@ -47,13 +47,12 @@ pub enum BackendConfig {
 
 The command adapter captures the Native direct-object candidate from the host
 and environment. Native payload form is derived inside build planning from that
-explicit candidate, cycle-collection setting, profile, and requested packages,
-then stored in private Backend Plan metadata. The selected mode is not a
-`BackendConfig` input; both Native planning and lowering consume the one value
-stored in the plan.
+explicit candidate, the profile, and requested packages, then stored in private
+Backend Plan metadata. The selected mode is not a `BackendConfig` input; both
+Native planning and lowering consume the one value stored in the plan.
 `MOON_COLLECT_REF_CYCLE=1` is captured by the command adapter into the Wasm or
-Native configuration. Native planning selects generated C when it is enabled,
-because the direct object targets do not support cycle collection yet.
+Native configuration. It does not change Native payload selection: both
+generated C and direct object output support cycle collection.
 Backend-specific metadata queries and action hydration belong to `BackendPlan`.
 The outer `BuildPlan` exposes artifact relationships and subplan composition;
 RR lowering borrows its backend subplan to read the selected mode and hydrate

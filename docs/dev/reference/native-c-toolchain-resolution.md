@@ -101,9 +101,11 @@ compiling package C stubs.
 It is disabled when unset or set to any other value. For the Native backend,
 Moon defines `MOONBIT_TRIAL_DELETION=1` when compiling the shipped runtime,
 generated C, and package C stubs, using `-D` or `/D` for the selected toolchain.
-This setting works with both native allocators and selects generated C even
-for debug builds, since direct object targets do not implement the collector's
-reference-count bookkeeping. LLVM runtime builds do not enable it.
+This setting works with both native allocators and both generated C and direct
+object output. It does not change Native payload selection. Direct object
+output uses the compiler's cycle-capable allocation bookkeeping and the shared
+native runtime; it does not need an additional `moonc` flag. LLVM runtime builds
+do not enable it.
 
 During the toolchain transition, Moon falls back to the legacy `lib/runtime.c`
 when the split runtime directory is absent.
