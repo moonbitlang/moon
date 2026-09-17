@@ -135,18 +135,49 @@ fn major_version_modules_coexist_in_projects_and_scripts() {
     assert!(dir.join(".mooncakes/a/b/moon.mod").is_file());
     assert!(dir.join(".mooncakes/a/b+v2/moon.mod").is_file());
 
+    // Both default aliases and explicitly duplicated aliases are rejected
+    // during dependency solving, before any compiler command is emitted.
+    for imports in [
+        serde_json::json!(["a/b", "a/b/v2"]),
+        serde_json::json!([
+            { "path": "a/b", "alias": "b" },
+            { "path": "a/b/v2", "alias": "b" },
+        ]),
+    ] {
+        std::fs::write(
+            dir.join("moon.pkg.json"),
+            serde_json::json!({ "is-main": true, "import": imports }).to_string(),
+        )
+        .unwrap();
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["check", "--dry-run"])
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+Error: Failed to calculate build plan
+
+Caused by:
+    0: Failed to solve package relationship
+    1: Multiple errors occurred during package solving:
+       Error 1: Conflicting import alias: Both a/b@1.0.0 (Source) and a/b/v2@2.0.0 (Source) are imported into test/app@0.0.0 with the same alias 'b'.
+...
+"#]]);
+    }
+
     std::fs::write(
         dir.join("moon.pkg.json"),
         r#"{
   "is-main": true,
   "import": [
     { "path": "a/b", "alias": "legacy" },
-    { "path": "a/b/v2", "alias": "modern" }
+    "a/b/v2"
   ]
 }"#,
     )
     .unwrap();
-    let main = "fn main {\n  println(@legacy.value())\n  println(@modern.value())\n}\n";
+    let main = "fn main {\n  println(@legacy.value())\n  println(@b.value())\n}\n";
     std::fs::write(dir.join("main.mbt"), main).unwrap();
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
@@ -155,15 +186,41 @@ fn major_version_modules_coexist_in_projects_and_scripts() {
         .success()
         .stdout_eq("1\nv2\n");
 
+    // A legacy object import with no alias must use the same default.
+    std::fs::write(
+        dir.join("moon.pkg.json"),
+        r#"{"is-main": true, "import": [
+            {"path": "a/b", "alias": "legacy"},
+            {"path": "a/b/v2", "sub-package": false}
+        ]}"#,
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["check"])
+        .assert()
+        .success();
+
+    // The package identity remains versioned; only the -i alias becomes b.
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["build", "--dry-run", "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonc build-package ./.mooncakes/a/b+v2/lib.mbt [..] -pkg a/b/v2 -pkg-type library [..]
+moonc build-package ./.mooncakes/a/b/lib.mbt [..] -pkg a/b -pkg-type library [..]
+moonc build-package ./main.mbt [..] -pkg test/app [..] -i ./_build/wasm-gc/debug/build/.mooncakes/a/b/v2/b.mi:b -i ./_build/wasm-gc/debug/build/.mooncakes/a/b/b.mi:legacy [..]
+moonc link-core [..] -main test/app [..]
+
+"#]]);
+
     for (filename, imports) in [
         (
             "pinned.mbtx",
-            "import { \"a/b@1.0.0\" @legacy, \"a/b/v2@2.0.0\" @modern }\n",
+            "import { \"a/b@1.0.0\" @legacy, \"a/b/v2@2.0.0\" }\n",
         ),
-        (
-            "latest.mbtx",
-            "import { \"a/b\" @legacy, \"a/b/v2\" @modern }\n",
-        ),
+        ("latest.mbtx", "import { \"a/b\" @legacy, \"a/b/v2\" }\n"),
     ] {
         std::fs::write(dir.join(filename), format!("{imports}{main}")).unwrap();
         moon_cmd(&dir)

@@ -33,6 +33,13 @@ name, so multiple dependencies may use it, including in `.mbtx` scripts.
 Moon passes each import-all declaration to the compiler, which resolves the
 imported names.
 
+An import without an explicit alias uses the package's last path component.
+For a module's root package, a major-version suffix is omitted: `a/b/v2`
+defaults to `@b`, while `a/b/v2/c` defaults to `@c`. Importing both `a/b` and
+`a/b/v2` therefore requires an explicit alias for at least one, such as
+`import { "a/b" @b1, "a/b/v2" }`. Moon passes the resolved alias to `moonc`
+using `-i <interface.mi>:<alias>`; the full package identity retains `/v2`.
+
 A package can be **internal** to restrict importing,
 see the [Internal Packages](#internal-packages) section for details.
 
@@ -121,6 +128,13 @@ package `v2` in module `a/b@0.1.0` and the root package in module
 but discovering both in one build produces a duplicate-package-name error.
 Versioned registry coordinates select modules; versions are not part of
 package import paths.
+
+Package discovery warns about direct child packages named `v2`, `v3`, and so
+on in an unsuffixed `user/module`, because their import paths can be confused
+with major-version modules. These packages remain usable and keep their
+usual default aliases, such as `@v2`. The warning excludes the installed
+standard library and noncanonical suffixes such as `v02` and `vx`, and follows
+the user-log level (`--quiet` suppresses it).
 
 Although technically module and package name components are allowed to contain any character except `/`,
 we recommend and plan to restrict the character set to ASCII identifiers,

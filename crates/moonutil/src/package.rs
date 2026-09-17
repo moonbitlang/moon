@@ -911,8 +911,8 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
                                 sub_package: sub_package.unwrap_or(false),
                             }),
                             (_, Some(sub_package)) => imports.push(Import::Alias {
-                                path: path.clone(),
-                                alias: Some(path.split('/').next_back().unwrap().to_string()),
+                                path,
+                                alias: None,
                                 sub_package,
                             }),
                         },

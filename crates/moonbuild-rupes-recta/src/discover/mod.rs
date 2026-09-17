@@ -45,8 +45,8 @@ use indexmap::IndexSet;
 use log::{debug, info, trace};
 use moonutil::package::MoonPkg;
 use moonutil::resolution::{
-    DirSyncResult, ModuleId, ModuleSource, ModuleSourceKind, ResolvedEnv, ResolvedModule,
-    ResolvedRootModules,
+    DirSyncResult, ModuleId, ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv,
+    ResolvedModule, ResolvedRootModules,
 };
 use moonutil::target::TargetBackend;
 use moonutil::{
@@ -309,6 +309,24 @@ pub(crate) fn discover_packages_for_mod(
             pkg.fqn,
             pkg.source_files.len()
         );
+        // The same full import path could also denote a versioned module root.
+        // Reuse module-name classification so this warning follows its grammar.
+        if !is_stdlib_pkg
+            && !module_source.name().username.is_empty()
+            && !pkg.fqn.package().is_empty()
+            && matches!(
+                ModuleName::from(pkg.fqn.to_string().as_str()).major_version_suffix(),
+                Ok(Some(_))
+            )
+        {
+            user_log.warn(format!(
+                "Package `{}` in module `{}` has the same import path as a major-version module. \
+                 Consider renaming package `{}` to avoid ambiguity.",
+                pkg.fqn,
+                module_source.name(),
+                pkg.fqn.package(),
+            ));
+        }
         res.add_package(id, pkg.fqn.package().clone(), pkg)?;
     }
 
@@ -543,6 +561,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("failed to create temporary module directory");
         dir
+    }
+
+    #[test]
+    fn discovery_warns_for_packages_named_like_major_version_modules() -> anyhow::Result<()> {
+        for (name, version, warning_count) in [
+            ("a/b", "0.1.0", 2),
+            ("a/b/v2", "2.0.0", 0),
+            ("moonbitlang/core", "0.1.0", 0),
+        ] {
+            let dir = tempfile::tempdir()?;
+            std::fs::write(
+                dir.path().join("moon.mod"),
+                format!(
+                    "name = \"{name}\"\nversion = \"{version}\"\noptions(\"source\": \"src\")\n"
+                ),
+            )?;
+            for package in ["", "c", "v0", "v1", "v2", "v3", "v02", "vx", "v2/c", "c/v2"] {
+                let path = dir.path().join("src").join(package);
+                std::fs::create_dir_all(&path)?;
+                std::fs::write(path.join("moon.pkg"), "")?;
+            }
+            let module = moonutil::manifest::read_module_desc_file_in_dir(dir.path())?;
+            let source = if name == "moonbitlang/core" {
+                ModuleSource::from_stdlib(&module, dir.path())?
+            } else {
+                ModuleSource::from_local_module(&module, dir.path())?
+            };
+            let (env, id) = ResolvedEnv::only_one_module(source, module);
+            let mut dirs = DirSyncResult::default();
+            dirs.insert(id, dir.path().to_owned());
+
+            for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
+                let (user_log, capture) = UserLog::captured(level);
+                let discovered = discover_packages(&env, &dirs, &user_log)?;
+                assert!(
+                    discovered
+                        .get_package_id_by_name(&format!("{name}/v2"))
+                        .is_some()
+                );
+                let warnings = capture.take();
+                let expected_count = if level == log::LevelFilter::Warn {
+                    warning_count
+                } else {
+                    0
+                };
+                assert_eq!(warnings.len(), expected_count, "{warnings:?}");
+                if expected_count != 0 {
+                    assert_eq!(
+                        warnings[0].message,
+                        "Package `a/b/v2` in module `a/b` has the same import path as a major-version module. Consider renaming package `v2` to avoid ambiguity."
+                    );
+                    assert_eq!(
+                        warnings[1].message,
+                        "Package `a/b/v3` in module `a/b` has the same import path as a major-version module. Consider renaming package `v3` to avoid ambiguity."
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     #[test]

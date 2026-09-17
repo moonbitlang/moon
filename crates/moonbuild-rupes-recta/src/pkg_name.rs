@@ -59,18 +59,27 @@ impl PackageFQN {
     }
 
     /// Get the short name alias for this fully-qualified name.
+    /// A module's root package omits its major-version suffix from the alias.
     pub fn short_alias(&self) -> &str {
-        self.package
-            .short_name()
-            .unwrap_or_else(|| self.module.name().last_segment())
+        self.package.short_name().unwrap_or_else(|| {
+            let name = self.module.name();
+            if matches!(name.major_version_suffix(), Ok(Some(_))) {
+                name.unqual.split_once('/').expect("version suffix").0
+            } else {
+                name.last_segment()
+            }
+        })
     }
 
     /// Same as [`Self::short_alias`], but returns a ref-counted substring,
     /// preventing the frequent cloning of [`String`]s when converting to string.
     pub fn short_alias_owned(&self) -> arcstr::Substr {
-        self.package
-            .short_name_owned()
-            .unwrap_or_else(|| self.module.name().last_segment_owned())
+        let name = if self.package.is_empty() {
+            &self.module.name().unqual
+        } else {
+            &self.package.value
+        };
+        name.substr_from(self.short_alias())
     }
 
     pub fn segments(&self) -> impl Iterator<Item = &str> {
@@ -639,6 +648,35 @@ mod test {
         let package = assert_valid_pkg_path("core");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.short_alias(), "core");
+    }
+
+    #[test]
+    fn major_version_root_alias_omits_suffix() {
+        for (module, package, alias) in [
+            ("a/b/v2@2.0.0", "", "b"),
+            ("a/b/v3@3.0.0-beta.1", "", "b"),
+            ("a/b/v2@2.0.0", "c", "c"),
+            ("a/b@0.1.0", "v2", "v2"),
+            ("a/b@0.1.0", "v2/c", "c"),
+            ("a/b/v02@0.1.0", "", "v02"),
+            ("a/b/nested/v2@0.1.0", "", "v2"),
+        ] {
+            let fqn = mk_fqn(module, package);
+            assert_eq!(fqn.short_alias(), alias, "{module}/{package}");
+            assert_eq!(fqn.short_alias_owned(), alias, "{module}/{package}");
+        }
+
+        let module = ModuleSource::from_local_module(
+            &moonutil::manifest::MoonMod {
+                name: "a/b/v2".into(),
+                ..Default::default()
+            },
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        let fqn = PackageFQN::new(module, PackagePath::new("").unwrap());
+        assert_eq!(fqn.short_alias(), "b");
+        assert_eq!(fqn.short_alias_owned(), "b");
     }
 
     fn mk_fqn(module: &str, pkg_path: &str) -> PackageFQN {
