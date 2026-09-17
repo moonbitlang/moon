@@ -34,6 +34,11 @@ pub struct RegistryPath {
     pub package: String,
 }
 
+/// The current registry index has no version for the requested module.
+#[derive(Debug, thiserror::Error)]
+#[error("Module `{0}` not found in registry")]
+pub struct ModuleNotFound(ModuleName);
+
 impl RegistryPath {
     /// Resolve an explicit version to its checked module source.
     /// An omitted version stays unresolved; symbolic selectors such as `latest`
@@ -56,9 +61,9 @@ impl RegistryPath {
         match self.exact_module()? {
             Some(module) => Ok(module),
             None => {
-                let version = registry.get_latest_version(&self.module).ok_or_else(|| {
-                    anyhow::anyhow!("Module `{}` not found in registry", self.module)
-                })?;
+                let version = registry
+                    .get_latest_version(&self.module)
+                    .ok_or_else(|| ModuleNotFound(self.module.clone()))?;
                 Ok(ModuleSource::from_version(self.module.clone(), version)?)
             }
         }
@@ -168,7 +173,9 @@ pub fn parse_install_style_path(input: &str) -> anyhow::Result<RegistryPath> {
         username: components[0].into(),
         unqual: components[1..components.len().min(3)].join("/").into(),
     };
-    let (module, module_len) = if module.major_version_suffix()?.is_some() {
+    // Only a valid major-version suffix extends the module name. In package
+    // coordinates, v0 and v1 are unambiguously ordinary package components.
+    let (module, module_len) = if matches!(module.major_version_suffix(), Ok(Some(_))) {
         (module, 3)
     } else {
         (
@@ -321,6 +328,10 @@ mod tests {
             ("a/b@1.0.0", "a/b", "1.0.0", ""),
             ("a/b/cmd/tool", "a/b", "1.5.0", "cmd/tool"),
             ("a/b/cmd/tool@1.0.0", "a/b", "1.0.0", "cmd/tool"),
+            ("a/b/v0", "a/b", "1.5.0", "v0"),
+            ("a/b/v1/cmd", "a/b", "1.5.0", "v1/cmd"),
+            ("a/b/v0/cmd@1.0.0", "a/b", "1.0.0", "v0/cmd"),
+            ("a/b/v1@1.0.0", "a/b", "1.0.0", "v1"),
             ("a/b/v2/tool", "a/b/v2", "2.1.0", "tool"),
             ("a/b/v2/tool@2.0.0", "a/b/v2", "2.0.0", "tool"),
         ] {
@@ -344,8 +355,6 @@ mod tests {
             "a/\u{00a0}b",
             "a/\u{1b}[31mb",
             "a/b\u{202e}",
-            "a/b/v0",
-            "a/b/v1",
             "a/b@",
             "a/b@invalid",
             "a/b@latest",
@@ -359,13 +368,9 @@ mod tests {
             );
         }
         let selector = parse_module_path("a/b").unwrap();
-        assert_eq!(
-            selector
-                .resolve(&MockRegistry::new())
-                .unwrap_err()
-                .to_string(),
-            "Module `a/b` not found in registry"
-        );
+        let error = selector.resolve(&MockRegistry::new()).unwrap_err();
+        assert!(error.is::<super::ModuleNotFound>());
+        assert_eq!(error.to_string(), "Module `a/b` not found in registry");
         let selector = parse_module_path("a/b/v2").unwrap();
         let mut registry = MockRegistry::new();
         registry.add_module_full("a/b/v2", "1.5.0", []);
@@ -385,6 +390,8 @@ mod tests {
             ("a/b/...", "a/b", "", "1.5.0"),
             ("a/b...", "a/b", "", "1.5.0"),
             ("a/b/cmd/...@1.0.0", "a/b", "cmd", "1.0.0"),
+            ("a/b/v0/...", "a/b", "v0", "1.5.0"),
+            ("a/b/v1...", "a/b", "v1", "1.5.0"),
             ("a/b/v2...@2.0.0", "a/b/v2", "", "2.0.0"),
             ("a/b/v2/...@2.0.0", "a/b/v2", "", "2.0.0"),
             ("a/b/v2/cmd/...", "a/b/v2", "cmd", "2.1.0"),
@@ -397,8 +404,6 @@ mod tests {
             assert_eq!(module.version().to_string(), version);
         }
         for input in [
-            "a/b/v0/...",
-            "a/b/v1...",
             "a/b/v2/...@1.0.0",
             "a/b/v2/cmd/...@3.0.0",
             "a/b/...@invalid",
@@ -493,26 +498,49 @@ mod tests {
     fn module_paths_reject_v0_and_v1_suffixes() {
         for suffix in ["v0", "v1"] {
             let module = format!("a/b/{suffix}");
-            for path in [module.clone(), format!("{module}/pkg")] {
-                let error = parse_install_style_path(&path).unwrap_err();
+            for path in [module.clone(), format!("{module}@1.0.0")] {
+                let error = parse_module_path(&path).unwrap_err();
                 assert!(
                     error
                         .to_string()
                         .contains("major-version suffix must be /v2 or higher")
                 );
-                assert!(parse_front_matter_import_path(&path).is_err());
-                assert!(parse_package_at_version_path(&format!("{path}@1.0.0")).is_err());
-                assert!(
-                    resolve_unversioned_registry_path(&path, |_| panic!(
-                        "invalid name reached registry lookup"
-                    ))
-                    .is_err()
-                );
             }
-            assert!(parse_module_at_version_path(&format!("{module}@1.0.0/pkg")).is_err());
-            let parsed = parse_module_at_version_path(&format!("a/b@1.0.0/{suffix}/pkg")).unwrap();
+            for path in [format!("{module}@1.0.0"), format!("{module}@1.0.0/pkg")] {
+                assert!(parse_module_at_version_path(&path).is_err());
+                assert!(parse_front_matter_import_path(&path).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn v0_and_v1_are_packages_in_package_coordinates() {
+        for package in ["v0", "v1", "v0/cmd", "v1/cmd"] {
+            let path = format!("a/b/{package}");
+            let parsed = parse_install_style_path(&path).unwrap();
             assert_eq!(parsed.module.to_string(), "a/b");
-            assert_eq!(parsed.package, format!("{suffix}/pkg"));
+            assert_eq!(parsed.package, package);
+            assert_eq!(parse_front_matter_import_path(&path).unwrap(), parsed);
+
+            let pinned = parse_module_at_version_path(&format!("a/b@0.1.0/{package}")).unwrap();
+            assert_eq!(pinned.module.to_string(), "a/b");
+            assert_eq!(pinned.package, package);
+            assert_eq!(pinned.version.as_deref(), Some("0.1.0"));
+            assert_eq!(
+                parse_front_matter_import_path(&format!("a/b@0.1.0/{package}")).unwrap(),
+                pinned,
+            );
+            assert_eq!(
+                parse_package_at_version_path(&format!("{path}@0.1.0")).unwrap(),
+                pinned,
+            );
+
+            let resolved = resolve_unversioned_registry_path(&path, |module| {
+                assert_eq!(module.to_string(), "a/b");
+                Some("0.1.0".to_owned())
+            })
+            .unwrap();
+            assert_eq!(resolved, ("a/b".into(), "0.1.0".into(), path));
         }
     }
 

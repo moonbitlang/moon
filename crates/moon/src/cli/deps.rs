@@ -24,7 +24,7 @@ use mooncake::{
     },
     registry::{
         RegistryClient,
-        path::{parse_install_package_path, parse_module_path},
+        path::{ModuleNotFound, parse_install_package_path, parse_module_path},
     },
 };
 use moonutil::{
@@ -229,23 +229,32 @@ pub(crate) fn add_cli(
     // - If an index already exists, update failures are treated as warnings so users can proceed
     //   with the existing local index.
     let registry = RegistryClient::configured();
-    if !cmd.no_update && (!cmd.upgrade || path.version.is_none()) {
+    let index_updated = if !cmd.no_update && (!cmd.upgrade || path.version.is_none()) {
         let had_index = registry.has_cached_index();
         match registry.sync(user_log) {
-            Ok(()) => {}
+            Ok(()) => true,
             Err(e) => {
                 if had_index {
                     user_log.warn(format!(
                         "failed to update registry index, continuing with existing index: {e}"
                     ));
+                    false
                 } else {
                     return Err(e);
                 }
             }
         }
-    }
+    } else {
+        false
+    };
 
-    let module = path.resolve(&registry)?;
+    let module = path.resolve(&registry).map_err(|error| {
+        if !index_updated && error.is::<ModuleNotFound>() {
+            error.context("Please consider running `moon update` to update the index.")
+        } else {
+            error
+        }
+    })?;
     mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.bin, cmd.upgrade, user_log)
 }
 

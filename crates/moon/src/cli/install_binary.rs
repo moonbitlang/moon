@@ -479,21 +479,10 @@ fn prepare_native_build(
         let matched = filter.matches(&pkg.root_path, &pkg_path_str);
 
         if matched {
-            let binary_name = pkg_path_str
-                .rsplit('/')
-                .next()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(&module_name.unqual)
-                .to_string();
-            let full_pkg_name = if pkg_path_str.is_empty() {
-                module_name.to_string()
-            } else {
-                format!("{}/{}", module_name, pkg_path_str)
-            };
             selected_packages.push(SelectedPackage {
                 pkg_id,
-                full_pkg_name,
-                binary_name,
+                full_pkg_name: pkg.fqn.to_string(),
+                binary_name: pkg.fqn.short_alias().to_owned(),
             });
         }
     }

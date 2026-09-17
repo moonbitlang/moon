@@ -19,6 +19,30 @@
 use super::*;
 
 #[test]
+fn test_moon_install_major_version_root_uses_base_name() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"a/b/v2\"\nversion = \"2.0.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "options(\"is-main\": true)\n").unwrap();
+    std::fs::write(dir.join("main.mbt"), "fn main { println(\"v2\") }\n").unwrap();
+    let install_dir = dir.join("bin");
+
+    moon_cmd(&dir)
+        .args(["install", "--path", ".", "--bin"])
+        .arg(&install_dir)
+        .assert()
+        .success();
+    let binary = install_dir.join(format!("b{}", std::env::consts::EXE_SUFFIX));
+    snapbox::cmd::Command::new(binary)
+        .assert()
+        .success()
+        .stdout_eq("v2\n");
+}
+
+#[test]
 fn test_moon_install_global_deprecated_warning() {
     // Test that running `moon install` without arguments shows deprecation warning
     let dir = TestDir::new("moon_install_global.in");

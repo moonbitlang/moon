@@ -71,6 +71,9 @@ The suffix is part of the module identity: `rabbit/containers` and
 its own version requirements and imports.
 Versions 0.x and 1.x use the unsuffixed module name; `/v0` and `/v1` module
 suffixes are rejected, including in declarations with no version.
+In package coordinates, `v0` and `v1` remain ordinary package components:
+`a/b/v1/c` selects package `v1/c` in module `a/b`. An explicit module/version
+boundary uses `a/b@1.0.0/v1/c`; `a/b/v1@1.0.0/c` is rejected.
 
 Name/version agreement is checked when constructing a module source, before
 manifest mutation or registry acquisition. Local modules may omit their version;
