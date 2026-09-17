@@ -16,3 +16,23 @@ the same allocator as the runtime it links against.
 When the variable is unset, Moon preserves the platform and toolchain default.
 Selecting `mimalloc` fails when its support object is unavailable, including on
 Windows and with TCC.
+
+## Reference cycle collection
+
+Set `MOON_COLLECT_REF_CYCLE=1` to enable experimental reference cycle collection:
+
+```sh
+MOON_COLLECT_REF_CYCLE=1 moon run main --target native
+MOON_COLLECT_REF_CYCLE=1 moon test --target wasm
+```
+
+It is off by default. Unset the variable or set it to `0` to disable it;
+only the value `1` enables it.
+
+The setting applies to `build`, `run`, `test`, and `bench`, including standalone
+files, in both debug and release builds. Native builds support both generated C
+and the machine backend (direct object output), with either native allocator.
+Enabling collection preserves the usual backend selection, including
+`MOONBIT_NEW_NATIVE`. Machine builds require a compiler with trial-deletion
+support; Wasm builds require one supporting `-enable-trial-deletion`.
+The setting has no effect on WasmGC, JavaScript, or LLVM.

@@ -327,6 +327,7 @@ mod tests {
                     target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
+                        collect_ref_cycle: false,
                         allocator: moonutil::compiler_flags::NativeAllocator::System,
                         os: std::env::consts::OS
                             .parse()
@@ -538,11 +539,17 @@ mod tests {
             Some(NativeTarget::X86_64UnknownLinuxGnu),
             Some(NativeTarget::X86_64PcWindowsMsvc),
         ] {
-            for opt_level in [OptLevel::Debug, OptLevel::Release] {
+            for (opt_level, collect_ref_cycle) in [
+                (OptLevel::Debug, false),
+                (OptLevel::Debug, true),
+                (OptLevel::Release, false),
+                (OptLevel::Release, true),
+            ] {
                 let config = CompileConfig {
                     target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
+                        collect_ref_cycle,
                         allocator: moonutil::compiler_flags::NativeAllocator::Default,
                         os: OperatingSystem::None,
                         compiler_paths: moonutil::compiler_flags::CompilerPaths {
@@ -584,7 +591,7 @@ mod tests {
                 assert_eq!(
                     plan.backend_plan().direct_native_target(),
                     candidate.filter(|_| opt_level == OptLevel::Debug),
-                    "candidate={candidate:?}, opt_level={opt_level:?}"
+                    "candidate={candidate:?}, opt_level={opt_level:?}, collect_ref_cycle={collect_ref_cycle}"
                 );
             }
         }
