@@ -129,12 +129,14 @@ but discovering both in one build produces a duplicate-package-name error.
 Versioned registry coordinates select modules; versions are not part of
 package import paths.
 
-Package discovery warns about direct child packages named `v2`, `v3`, and so
-on in an unsuffixed `user/module`, because their import paths can be confused
-with major-version modules. These packages remain usable and keep their
-usual default aliases, such as `@v2`. The warning excludes the installed
-standard library and noncanonical suffixes such as `v02` and `vx`, and follows
-the user-log level (`--quiet` suppresses it).
+Package discovery warns authors about direct child packages named `v2`, `v3`,
+and so on in an unsuffixed `user/module`, because their import paths can be
+confused with major-version modules. The warning applies only to the selected
+project's root modules, including workspace members; registry and local-path
+dependencies do not warn their consumers. These packages remain usable and
+keep their usual default aliases, such as `@v2`. The warning excludes the
+installed standard library and noncanonical suffixes such as `v02` and `vx`,
+and follows the user-log level (`--quiet` suppresses it).
 
 Although technically module and package name components are allowed to contain any character except `/`,
 we recommend and plan to restrict the character set to ASCII identifiers,
