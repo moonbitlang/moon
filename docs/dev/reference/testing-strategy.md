@@ -220,6 +220,11 @@ Use this phase for:
 Tests here should prefer injected registries or other explicit test doubles
 over full CLI update/install flows when possible.
 
+Tests of run package/backend selection retain package declarations and call the
+same selection and resolution phase as the command. They must choose the backend
+before resolving imports, so invalid imports on an unselected backend do not
+prevent the test fixture from loading.
+
 ### Phase 3: Planning and lowering
 
 Inputs:
