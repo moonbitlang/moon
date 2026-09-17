@@ -18,21 +18,19 @@
 
 use anyhow::bail;
 use indexmap::IndexMap;
-use moonutil::constants::{MOON_MOD, MOONBITLANG_CORE};
+use moonutil::constants::MOON_MOD;
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::manifest::{
     convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
 };
 use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use moonutil::project::PackageDirs;
-use moonutil::resolution::ModuleName;
+use moonutil::resolution::ModuleSource;
 use moonutil::user_log::UserLog;
-use semver::Version;
 use std::path::Path;
 use std::sync::Arc;
 
 use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOutputOptions};
-use crate::registry::Registry;
 
 /// Add a dependency
 #[derive(Debug, clap::Parser)]
@@ -54,73 +52,19 @@ pub struct AddSubcommand {
     pub no_update: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn add_latest(
-    registry: &impl Registry,
-    module_dir: &Path,
-    dirs: &PackageDirs,
-    pkg_name: &ModuleName,
-    bin: bool,
-    index_updated: bool,
-    upgrade: bool,
-    user_log: &UserLog,
-) -> anyhow::Result<i32> {
-    let pkg_name_str = pkg_name.to_string();
-    if pkg_name_str == MOONBITLANG_CORE {
-        user_log.warn(format!("no need to add `{MOONBITLANG_CORE}` as dependency"));
-        std::process::exit(0);
-    }
-
-    let latest_version = registry
-        .get_latest_version(pkg_name)
-        .ok_or_else(|| {
-            if index_updated {
-                anyhow::anyhow!(
-                    "Could not find the latest published version of `{}` in the registry",
-                    pkg_name_str
-                )
-            } else {
-                anyhow::anyhow!(
-                    "Could not find the latest published version of `{}` in the registry. Please consider running `moon update` to update the index.",
-                    pkg_name_str
-                )
-            }
-        })?;
-    add(
-        module_dir,
-        dirs,
-        pkg_name,
-        bin,
-        &latest_version,
-        upgrade,
-        user_log,
-    )
-}
-
-#[test]
-fn test_module_name() {
-    let core_name = MOONBITLANG_CORE.parse::<ModuleName>().unwrap();
-    assert_eq!(MOONBITLANG_CORE, core_name.to_string());
-}
-
-#[allow(clippy::too_many_arguments)]
 pub fn add(
     module_dir: &Path,
     dirs: &PackageDirs,
-    pkg_name: &ModuleName,
+    module: &ModuleSource,
     bin: bool,
-    version: &Version,
     upgrade: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
+    let pkg_name = module.name();
+    let version = module.version();
     let mut m = read_module_desc_file_in_dir(module_dir)?;
 
     let pkg_name_str = pkg_name.to_string();
-    if pkg_name_str == MOONBITLANG_CORE {
-        user_log.warn(format!("no need to add `{MOONBITLANG_CORE}` as dependency"));
-        std::process::exit(0);
-    }
-
     if upgrade {
         let Some(dep) = m.deps.get_mut(&pkg_name_str) else {
             bail!(

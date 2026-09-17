@@ -79,7 +79,7 @@ pub fn auto_sync(
         module.bin_deps = None;
     }
     let module = Arc::new(module);
-    let source = ModuleSource::from_local_module(&module, &dirs.source_dir);
+    let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
     let (resolved_env, sync_result) = super::install::install_impl(
@@ -111,7 +111,7 @@ fn resolve_workspace_sync(
             module.bin_deps = None;
         }
         let module = Arc::new(module);
-        let source = ModuleSource::from_local_module(&module, member_dir);
+        let source = ModuleSource::from_local_module(&module, member_dir)?;
         roots.insert(ResolvedModule::new(source, module));
     }
 
@@ -160,7 +160,7 @@ pub fn auto_sync_for_single_mbt_md(
         warn_list: moonc_opt.build_opt.warn_list.clone(),
         ..Default::default()
     });
-    let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir);
+    let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
     let dirs = PackageDirs {
         source_dir: moonbuild_opt.source_dir.clone(),
@@ -204,7 +204,7 @@ pub fn auto_sync_for_single_file_rr(
         deps: synth_deps,
         ..Default::default()
     });
-    let ms = ModuleSource::single_file(&m, &dirs.source_dir);
+    let ms = ModuleSource::single_file(&m, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(

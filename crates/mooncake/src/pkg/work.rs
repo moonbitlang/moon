@@ -227,7 +227,7 @@ fn workspace_roots(
             user_log,
         );
         let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
-        let source = ModuleSource::from_local_module(&module, member_dir);
+        let source = ModuleSource::from_local_module(&module, member_dir)?;
         roots.insert(ResolvedModule::new(source, module));
     }
 

@@ -318,7 +318,7 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
     let core_dir = toolchain::core();
     let loaded_core =
         read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
-    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir);
+    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)?;
     let id = res.add_module(source, Arc::new(loaded_core));
     res.register_stdlib(id);
 

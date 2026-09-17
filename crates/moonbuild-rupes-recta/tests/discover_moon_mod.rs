@@ -35,7 +35,7 @@ fn fixture_dir(name: &str) -> PathBuf {
 fn discover_skips_nested_module_with_moon_mod() {
     let root = fixture_dir("module_dsl_skip_nested");
     let module = read_module_desc_file_in_dir(&root).expect("read module");
-    let source = ModuleSource::from_local_module(&module, &root);
+    let source = ModuleSource::from_local_module(&module, &root).unwrap();
     let (resolved, module_id) = ResolvedEnv::only_one_module(source, module);
 
     let mut dirs = DirSyncResult::new();

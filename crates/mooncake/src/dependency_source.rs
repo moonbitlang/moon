@@ -158,23 +158,18 @@ options(
     impl RegistrySource for TestRegistry {
         fn acquire_source_to(
             &self,
-            name: &ModuleName,
-            version: &Version,
+            module: &ModuleSource,
             expected_checksum: &str,
             to: &Path,
             _user_log: &UserLog,
         ) -> anyhow::Result<()> {
             std::fs::create_dir_all(to)?;
-            self.install_source(name, version, to)?;
+            self.install_source(module.name(), module.version(), to)?;
             std::fs::write(to.join("acquired-archive-checksum"), expected_checksum)?;
             Ok(())
         }
 
-        fn source_archive_checksum(
-            &self,
-            _name: &ModuleName,
-            _version: &Version,
-        ) -> anyhow::Result<String> {
+        fn source_archive_checksum(&self, _module: &ModuleSource) -> anyhow::Result<String> {
             let read = self.checksum_reads.fetch_add(1, Ordering::SeqCst);
             Ok(if read == 0 {
                 &self.checksum
@@ -193,7 +188,8 @@ options(
             "test/module".into(),
             version.clone(),
             ModuleSourceKind::Registry,
-        );
+        )
+        .unwrap();
         ResolvedEnv::only_one_module(
             source,
             MoonMod {

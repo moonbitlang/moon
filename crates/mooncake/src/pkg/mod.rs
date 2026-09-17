@@ -47,13 +47,13 @@ pub(crate) fn roots_for_selected_module(
             } else {
                 Arc::new(read_module_desc_file_in_dir(member_dir)?)
             };
-            let source = ModuleSource::from_local_module(&member, member_dir);
+            let source = ModuleSource::from_local_module(&member, member_dir)?;
             roots.insert(ResolvedModule::new(source, member));
         }
         return Ok(roots);
     }
 
-    let source = ModuleSource::from_local_module(&module, module_dir);
+    let source = ModuleSource::from_local_module(&module, module_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(source, module);
     Ok(roots)
 }

@@ -45,8 +45,8 @@ use indexmap::IndexSet;
 use log::{debug, info, trace};
 use moonutil::package::MoonPkg;
 use moonutil::resolution::{
-    DirSyncResult, ModuleId, ModuleSource, ModuleSourceKind, ResolvedEnv, ResolvedModule,
-    ResolvedRootModules,
+    DirSyncResult, ModuleId, ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv,
+    ResolvedModule, ResolvedRootModules,
 };
 use moonutil::target::TargetBackend;
 use moonutil::{
@@ -94,7 +94,14 @@ pub fn discover_packages(
         let dir = dirs.get(id).expect("Bad module ID to get directory");
         let location = format!("at module root '{}'", dir.display());
         warn_module_manifest(dir, &location, user_log);
-        discover_packages_for_mod(&mut res, dir, id, env.resolved_module(id), user_log)?;
+        discover_packages_for_mod(
+            &mut res,
+            dir,
+            id,
+            env.resolved_module(id),
+            env.input_module_ids().contains(&id),
+            user_log,
+        )?;
     }
 
     if let Some(id) = res.get_package_id_by_name(MOONBITLANG_ABORT) {
@@ -147,11 +154,23 @@ pub fn discover_local_project(
             }
         })?;
         let module = Arc::new(module);
-        let source = ModuleSource::from_local_module(&module, &module_dir);
+        let source = ModuleSource::from_local_module(&module, &module_dir).map_err(|inner| {
+            DiscoverError::CantReadLocalModuleFile {
+                path: module_dir.clone(),
+                inner: inner.into(),
+            }
+        })?;
         let id = root_modules.insert(ResolvedModule::new(source, module));
         root_module_ids.push(id);
 
-        discover_packages_for_mod(&mut pkg_dirs, &module_dir, id, &root_modules[id], user_log)?;
+        discover_packages_for_mod(
+            &mut pkg_dirs,
+            &module_dir,
+            id,
+            &root_modules[id],
+            true,
+            user_log,
+        )?;
     }
 
     if let Some(id) = pkg_dirs.get_package_id_by_name(MOONBITLANG_ABORT) {
@@ -177,6 +196,7 @@ pub(crate) fn discover_packages_for_mod(
     dir: &Path,
     id: ModuleId,
     module: &ResolvedModule,
+    is_root_module: bool,
     user_log: &UserLog,
 ) -> Result<(), DiscoverError> {
     // This information is the one we get from the registry. We will read again
@@ -304,6 +324,26 @@ pub(crate) fn discover_packages_for_mod(
             pkg.fqn,
             pkg.source_files.len()
         );
+        // Warn authors in the selected project, not consumers of dependencies.
+        // The same full import path could also denote a versioned module root.
+        // Reuse module-name classification so this warning follows its grammar.
+        if is_root_module
+            && !is_stdlib_pkg
+            && !module_source.name().username.is_empty()
+            && !pkg.fqn.package().is_empty()
+            && matches!(
+                ModuleName::from(pkg.fqn.to_string().as_str()).major_version_suffix(),
+                Ok(Some(_))
+            )
+        {
+            user_log.warn(format!(
+                "Package `{}` in module `{}` has the same import path as a major-version module. \
+                 Consider renaming package `{}` to avoid ambiguity.",
+                pkg.fqn,
+                module_source.name(),
+                pkg.fqn.package(),
+            ));
+        }
         res.add_package(id, pkg.fqn.package().clone(), pkg)?;
     }
 
@@ -538,6 +578,107 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("failed to create temporary module directory");
         dir
+    }
+
+    #[test]
+    fn discovery_warns_for_packages_named_like_major_version_modules() -> anyhow::Result<()> {
+        for (name, version, warning_count) in [
+            ("a/b", "0.1.0", 2),
+            ("a/b/v2", "2.0.0", 0),
+            ("moonbitlang/core", "0.1.0", 0),
+        ] {
+            let dir = tempfile::tempdir()?;
+            std::fs::write(
+                dir.path().join("moon.mod"),
+                format!(
+                    "name = \"{name}\"\nversion = \"{version}\"\noptions(\"source\": \"src\")\n"
+                ),
+            )?;
+            for package in ["", "c", "v0", "v1", "v2", "v3", "v02", "vx", "v2/c", "c/v2"] {
+                let path = dir.path().join("src").join(package);
+                std::fs::create_dir_all(&path)?;
+                std::fs::write(path.join("moon.pkg"), "")?;
+            }
+            let module = moonutil::manifest::read_module_desc_file_in_dir(dir.path())?;
+            let source = if name == "moonbitlang/core" {
+                ModuleSource::from_stdlib(&module, dir.path())?
+            } else {
+                ModuleSource::from_local_module(&module, dir.path())?
+            };
+            let (env, id) = ResolvedEnv::only_one_module(source, module);
+            let mut dirs = DirSyncResult::default();
+            dirs.insert(id, dir.path().to_owned());
+
+            for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
+                let (user_log, capture) = UserLog::captured(level);
+                let discovered = discover_packages(&env, &dirs, &user_log)?;
+                assert!(
+                    discovered
+                        .get_package_id_by_name(&format!("{name}/v2"))
+                        .is_some()
+                );
+                let warnings = capture.take();
+                let expected_count = if level == log::LevelFilter::Warn {
+                    warning_count
+                } else {
+                    0
+                };
+                assert_eq!(warnings.len(), expected_count, "{warnings:?}");
+                if expected_count != 0 {
+                    assert_eq!(
+                        warnings[0].message,
+                        "Package `a/b/v2` in module `a/b` has the same import path as a major-version module. Consider renaming package `v2` to avoid ambiguity."
+                    );
+                    assert_eq!(
+                        warnings[1].message,
+                        "Package `a/b/v3` in module `a/b` has the same import path as a major-version module. Consider renaming package `v3` to avoid ambiguity."
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_does_not_warn_consumers_about_dependency_package_names() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let app_dir = dir.path().join("app");
+        let dep_dir = dir.path().join("dep");
+        std::fs::create_dir_all(&app_dir)?;
+        std::fs::create_dir_all(dep_dir.join("v2"))?;
+        std::fs::write(app_dir.join("moon.mod"), "name = \"test/app\"\n")?;
+        std::fs::write(
+            dep_dir.join("moon.mod"),
+            "name = \"a/b\"\nversion = \"0.1.0\"\n",
+        )?;
+        std::fs::write(dep_dir.join("v2/moon.pkg"), "")?;
+        let app = moonutil::manifest::read_module_desc_file_in_dir(&app_dir)?;
+        let dep = moonutil::manifest::read_module_desc_file_in_dir(&dep_dir)?;
+
+        for source in [
+            ModuleSource::from_local_module(&dep, &dep_dir)?,
+            ModuleSource::from_version(
+                "a/b".into(),
+                dep.version
+                    .clone()
+                    .expect("test dependency declares a version"),
+            )?,
+        ] {
+            let (mut env, app_id) = ResolvedEnv::only_one_module(
+                ModuleSource::from_local_module(&app, &app_dir)?,
+                app.clone(),
+            );
+            let dep_id = env.add_module(source, std::sync::Arc::new(dep.clone()));
+            let mut dirs = DirSyncResult::default();
+            dirs.insert(app_id, app_dir.clone());
+            dirs.insert(dep_id, dep_dir.clone());
+            let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+            let discovered = discover_packages(&env, &dirs, &user_log)?;
+            assert!(discovered.get_package_id_by_name("a/b/v2").is_some());
+            assert!(capture.take().is_empty());
+        }
+        Ok(())
     }
 
     #[test]

@@ -50,6 +50,38 @@ pub struct ModuleName {
 }
 
 impl ModuleName {
+    /// The canonical major-version suffix in `user/module/vN`.
+    /// `/v0` and `/v1` are invalid; those versions use the unsuffixed name.
+    pub fn major_version_suffix(&self) -> Result<Option<u64>, ModuleVersionError> {
+        let major = self.unqual.split_once('/').and_then(|(_, suffix)| {
+            let major: u64 = suffix.strip_prefix('v')?.parse().ok()?;
+            // Integer parsing also accepts leading zeroes and a `+` sign.
+            (suffix == format!("v{major}")).then_some(major)
+        });
+        match major {
+            Some(0 | 1) => Err(ModuleVersionError::InvalidSuffix {
+                module: self.clone(),
+            }),
+            _ => Ok(major),
+        }
+    }
+
+    /// Check the path suffix, and its agreement with a version when supplied.
+    /// Local development modules may omit their version.
+    pub fn validate_version(&self, version: Option<&Version>) -> Result<(), ModuleVersionError> {
+        if let Some(major) = self.major_version_suffix()?
+            && let Some(version) = version
+            && major != version.major
+        {
+            return Err(ModuleVersionError::Mismatch {
+                module: self.clone(),
+                major,
+                version: version.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// Return the last segment of the name, that may be used as a short name
     /// of a package.
     pub fn last_segment(&self) -> &str {
@@ -68,6 +100,18 @@ impl ModuleName {
     pub fn segments(&self) -> impl Iterator<Item = &str> {
         std::iter::once(&*self.username).chain(self.unqual.split('/'))
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ModuleVersionError {
+    #[error("module `{module}` major-version suffix must be /v2 or higher")]
+    InvalidSuffix { module: ModuleName },
+    #[error("module `{module}` requires major version {major}, but got {version}")]
+    Mismatch {
+        module: ModuleName,
+        major: u64,
+        version: Version,
+    },
 }
 
 impl std::fmt::Debug for ModuleName {
@@ -161,6 +205,8 @@ impl std::fmt::Display for ModuleSourceKind {
 
 /// Represents the information that fully-qualifies a module.
 ///
+/// Constructors check the module name against its declared or selected version.
+/// Local modules may omit a version; their internal default is not a release.
 /// This type is cheaply clonable.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleSource {
@@ -192,67 +238,65 @@ impl ModuleSource {
         *self.name() == ("moonbitlang", "core")
     }
 
-    pub fn new_full(name: ModuleName, version: Version, source: ModuleSourceKind) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name,
-            version,
-            source,
-        })
+    pub fn new_full(
+        name: ModuleName,
+        version: Version,
+        source: ModuleSourceKind,
+    ) -> Result<Self, ModuleVersionError> {
+        Self::new_inner(name, Some(version), source)
     }
 
-    pub fn from_version(name: ModuleName, version: Version) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name,
-            version,
-            source: Default::default(),
-        })
+    pub fn from_version(name: ModuleName, version: Version) -> Result<Self, ModuleVersionError> {
+        Self::new_inner(name, Some(version), ModuleSourceKind::Registry)
     }
 
-    pub fn local_path(name: ModuleName, path: PathBuf, version: Version) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name,
-            version,
-            source: ModuleSourceKind::Local(path),
-        })
+    pub fn local_path(
+        name: ModuleName,
+        path: PathBuf,
+        version: Version,
+    ) -> Result<Self, ModuleVersionError> {
+        Self::new_inner(name, Some(version), ModuleSourceKind::Local(path))
     }
 
-    pub fn from_local_module(module: &MoonMod, path: &Path) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name: module.name.as_str().into(),
-            version: module
-                .version
-                .clone()
-                .unwrap_or_else(|| DEFAULT_VERSION.clone()),
-            source: ModuleSourceKind::Local(path.to_owned()),
-        })
+    pub fn from_local_module(module: &MoonMod, path: &Path) -> Result<Self, ModuleVersionError> {
+        Self::new_inner(
+            module.name.as_str().into(),
+            module.version.clone(),
+            ModuleSourceKind::Local(path.to_owned()),
+        )
     }
 
-    pub fn from_stdlib(module: &MoonMod, path: &Path) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name: module.name.as_str().into(),
-            version: module
-                .version
-                .clone()
-                .unwrap_or_else(|| DEFAULT_VERSION.clone()),
-            source: ModuleSourceKind::Stdlib(path.to_owned()),
-        })
+    pub fn from_stdlib(module: &MoonMod, path: &Path) -> Result<Self, ModuleVersionError> {
+        Self::new_inner(
+            module.name.as_str().into(),
+            module.version.clone(),
+            ModuleSourceKind::Stdlib(path.to_owned()),
+        )
     }
 
-    pub fn single_file(module: &MoonMod, path: &Path) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name: module.name.as_str().into(),
-            version: module
-                .version
-                .clone()
-                .unwrap_or_else(|| DEFAULT_VERSION.clone()),
-            source: ModuleSourceKind::SingleFile(path.to_owned()),
-        })
+    pub fn single_file(module: &MoonMod, path: &Path) -> Result<Self, ModuleVersionError> {
+        Self::new_inner(
+            module.name.as_str().into(),
+            module.version.clone(),
+            ModuleSourceKind::SingleFile(path.to_owned()),
+        )
     }
 
-    fn new_inner(inner: ModuleSourceInner) -> Self {
-        ModuleSource {
-            inner: Arc::new(inner),
-        }
+    fn new_inner(
+        name: ModuleName,
+        version: Option<Version>,
+        source: ModuleSourceKind,
+    ) -> Result<Self, ModuleVersionError> {
+        // Validate the declared/selected version before filling in the internal
+        // default for unversioned local modules. That default is not a release.
+        name.validate_version(version.as_ref())?;
+        Ok(ModuleSource {
+            inner: Arc::new(ModuleSourceInner {
+                name,
+                version: version.unwrap_or_else(|| DEFAULT_VERSION.clone()),
+                source,
+            }),
+        })
     }
 }
 
@@ -266,6 +310,7 @@ pub static CORE_MODULE: LazyLock<ModuleSource> = LazyLock::new(|| {
         Version::new(0, 0, 0),
         ModuleSourceKind::Registry,
     )
+    .expect("core module has a valid version")
 });
 
 impl std::fmt::Display for ModuleSource {
@@ -291,11 +336,7 @@ impl std::str::FromStr for ModuleSource {
         let parts = s.split_once('@').ok_or("missing version")?;
         let version = Version::parse(parts.1).map_err(|e| e.to_string())?;
         let name = parts.0.into();
-        Ok(ModuleSource::new_inner(ModuleSourceInner {
-            name,
-            version,
-            source: Default::default(),
-        }))
+        ModuleSource::from_version(name, version).map_err(|error| error.to_string())
     }
 }
 
@@ -846,7 +887,52 @@ pub fn validate_username(username: &str) -> anyhow::Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_username;
+    use super::{DEFAULT_VERSION, ModuleSource, MoonMod, validate_username};
+    use semver::Version;
+
+    #[test]
+    fn module_sources_reject_invalid_versions() {
+        for (name, version) in [
+            ("a/b/v0", "0.1.0"),
+            ("a/b/v1", "1.0.0"),
+            ("a/b/v2", "1.5.0"),
+        ] {
+            let coordinate = format!("{name}@{version}");
+            assert!(
+                coordinate.parse::<ModuleSource>().is_err(),
+                "accepted {coordinate}"
+            );
+            assert!(ModuleSource::from_version(name.into(), version.parse().unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn module_sources_accept_prereleases_of_the_matching_major() {
+        let source =
+            ModuleSource::from_version("a/b/v2".into(), "2.0.0-rc.1".parse().unwrap()).unwrap();
+        assert_eq!(source.to_string(), "a/b/v2@2.0.0-rc.1");
+    }
+
+    #[test]
+    fn local_module_sources_validate_before_defaulting_the_version() {
+        let mut module = MoonMod {
+            name: "a/b/v2".into(),
+            ..Default::default()
+        };
+        let path = std::path::Path::new("workspace");
+        let source = ModuleSource::from_local_module(&module, path).unwrap();
+        assert_eq!(source.version(), &DEFAULT_VERSION);
+
+        module.version = Some(Version::new(1, 5, 0));
+        assert!(ModuleSource::from_local_module(&module, path).is_err());
+        assert!(
+            ModuleSource::local_path("a/b/v2".into(), path.into(), Version::new(1, 5, 0)).is_err()
+        );
+
+        module.name = "a/b/v1".into();
+        module.version = None;
+        assert!(ModuleSource::from_local_module(&module, path).is_err());
+    }
 
     #[test]
     fn accepts_usernames_of_any_nonzero_length() {

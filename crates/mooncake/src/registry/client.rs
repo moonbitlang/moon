@@ -32,7 +32,7 @@ use moonutil::{
     dependency::SourceDependencyInfo,
     locks::{lock_directory, lock_file},
     registry::RegistryConfig,
-    resolution::ModuleName,
+    resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
@@ -355,25 +355,25 @@ impl RegistryClient {
     /// Return a verified, locally cached prebuilt wasm asset.
     pub fn acquire_wasm_asset(
         &self,
-        name: &ModuleName,
-        version: &Version,
+        module: &ModuleSource,
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
         let http = registry_http_client()?;
-        self.acquire_wasm_asset_with(name, version, package_path, user_log, |url| {
+        self.acquire_wasm_asset_with(module, package_path, user_log, |url| {
             download_registry_asset(&http, url, user_log)
         })
     }
 
     fn acquire_wasm_asset_with(
         &self,
-        name: &ModuleName,
-        version: &Version,
+        module: &ModuleSource,
         package_path: &str,
         user_log: &UserLog,
         mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
     ) -> anyhow::Result<std::path::PathBuf> {
+        let name = module.name();
+        let version = module.version();
         validate_registry_module_name(name)?;
         validate_asset_package_path(name, package_path)?;
         let url = self.endpoints.wasm_asset(name, version, package_path);
@@ -444,15 +444,16 @@ fn wasm_artifact_name(name: &ModuleName, package_path: &str) -> String {
 }
 
 fn validate_asset_package_path(name: &ModuleName, package_path: &str) -> anyhow::Result<()> {
-    let coordinate = if package_path.is_empty() {
-        name.to_string()
-    } else {
-        format!("{name}/{package_path}")
-    };
-    let parsed = super::path::parse_install_style_path(&coordinate)
+    // These boundaries are already known: a package named v2 may belong to
+    // an unsuffixed module when the coordinate supplies an explicit version.
+    let parsed = super::path::parse_install_style_path(&name.to_string())
         .context("invalid registry asset package path")?;
-    if parsed.module != *name || parsed.package != package_path {
+    if parsed.module != *name || !parsed.package.is_empty() {
         bail!("invalid registry asset package path");
+    }
+    if !package_path.is_empty() {
+        super::path::parse_path_components(package_path)
+            .context("invalid registry asset package path")?;
     }
     Ok(())
 }
@@ -600,21 +601,16 @@ impl super::Registry for RegistryClient {
 impl super::RegistrySource for RegistryClient {
     fn acquire_source_to(
         &self,
-        name: &ModuleName,
-        version: &Version,
+        module: &ModuleSource,
         expected_checksum: &str,
         to: &Path,
         user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        RegistryClient::acquire_source_to(self, name, version, expected_checksum, to, user_log)
+        RegistryClient::acquire_source_to(self, module, expected_checksum, to, user_log)
     }
 
-    fn source_archive_checksum(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<String> {
-        RegistryClient::source_archive_checksum(self, name, version)
+    fn source_archive_checksum(&self, module: &ModuleSource) -> anyhow::Result<String> {
+        RegistryClient::source_archive_checksum(self, module)
     }
 }
 
@@ -790,36 +786,32 @@ impl RegistryClient {
     }
 
     /// Return the registry index's SHA-256 checksum for a published source archive.
-    pub fn source_archive_checksum(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<String> {
-        self.read_checksum_from_index_file(name, version)
+    pub fn source_archive_checksum(&self, module: &ModuleSource) -> anyhow::Result<String> {
+        self.read_checksum_from_index_file(module.name(), module.version())
     }
 
     /// Materialize verified published source without executing package hooks.
     pub fn materialize_source_to(
         &self,
-        name: &ModuleName,
-        version: &Version,
+        module: &ModuleSource,
         to: &Path,
         user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        let checksum = self.source_archive_checksum(name, version)?;
-        self.acquire_source_to(name, version, &checksum, to, user_log)
+        let checksum = self.source_archive_checksum(module)?;
+        self.acquire_source_to(module, &checksum, to, user_log)
     }
 
     /// Reuse or download, verify, and extract a registry package without
     /// running `scripts.postadd`.
     pub fn acquire_source_to(
         &self,
-        name: &ModuleName,
-        version: &Version,
+        module: &ModuleSource,
         expected_checksum: &str,
         pkg_install_dir: &Path,
         user_log: &UserLog,
     ) -> anyhow::Result<()> {
+        let name = module.name();
+        let version = module.version();
         // ensure dir exists and is empty
         if !pkg_install_dir.exists() {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
@@ -1109,6 +1101,55 @@ mod tests {
     }
 
     #[test]
+    fn wasm_assets_preserve_major_version_module_boundaries() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let registry = asset_test_registry(&sandbox);
+        let wasm = b"\0asmtest";
+        let checksum = sha256_hex(wasm);
+
+        for (name, package, url, cache_suffix) in [
+            (
+                "a/b/v2",
+                "",
+                "https://download.mooncakes.io/prebuild/a/b/v2@2.0.0/v2.wasm",
+                "a/b/v2/2.0.0/v2.wasm",
+            ),
+            (
+                "a/b/v2",
+                "tool",
+                "https://download.mooncakes.io/prebuild/a/b/v2@2.0.0/tool/tool.wasm",
+                "a/b/v2/2.0.0/tool/tool.wasm",
+            ),
+            (
+                "a/b",
+                "v2/tool",
+                "https://download.mooncakes.io/prebuild/a/b@2.0.0/v2/tool/tool.wasm",
+                "a/b/2.0.0/v2/tool/tool.wasm",
+            ),
+        ] {
+            let mut urls = Vec::new();
+            let path = registry
+                .acquire_wasm_asset_with(
+                    &ModuleSource::from_version(name.into(), Version::new(2, 0, 0)).unwrap(),
+                    package,
+                    &quiet_user_log(),
+                    |url| {
+                        urls.push(url.to_owned());
+                        if url.ends_with(".sha256") {
+                            Ok(checksum.as_bytes().to_vec())
+                        } else {
+                            Ok(wasm.to_vec())
+                        }
+                    },
+                )
+                .unwrap();
+            assert_eq!(urls, [format!("{url}.sha256"), url.to_owned()]);
+            assert_eq!(path, registry.home.registry_assets_dir().join(cache_suffix));
+            assert_eq!(std::fs::read(path).unwrap(), wasm);
+        }
+    }
+
+    #[test]
     fn parse_wasm_asset_sha256sum_output() {
         let checksum = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
         assert_eq!(
@@ -1128,8 +1169,7 @@ mod tests {
         let mut urls = Vec::new();
         let path = registry
             .acquire_wasm_asset_with(
-                &parser_module(),
-                &Version::new(0, 3, 3),
+                &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3)).unwrap(),
                 "cmd/moonfmt",
                 &quiet_user_log(),
                 |url| {
@@ -1169,9 +1209,12 @@ mod tests {
         std::fs::write(&cache_path, b"\0asmtest").unwrap();
 
         let path = registry
-            .acquire_wasm_asset_with(&name, &version, "cmd/moonfmt", &quiet_user_log(), |_| {
-                bail!("cache hit should not download")
-            })
+            .acquire_wasm_asset_with(
+                &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
+                "cmd/moonfmt",
+                &quiet_user_log(),
+                |_| bail!("cache hit should not download"),
+            )
             .unwrap();
 
         assert_eq!(path, cache_path);
@@ -1206,8 +1249,8 @@ mod tests {
                 std::thread::spawn(move || {
                     start.wait();
                     registry.acquire_wasm_asset_with(
-                        &parser_module(),
-                        &Version::new(0, 3, 3),
+                        &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3))
+                            .unwrap(),
                         "cmd/moonfmt",
                         &quiet_user_log(),
                         |url| {
@@ -1243,13 +1286,18 @@ mod tests {
         let expected_checksum = sha256_hex(b"expected wasm");
 
         let error = registry
-            .acquire_wasm_asset_with(&name, &version, "cmd/moonfmt", &quiet_user_log(), |url| {
-                if url.ends_with(".wasm.sha256") {
-                    Ok(format!("{expected_checksum}\n").into_bytes())
-                } else {
-                    Ok(b"different wasm".to_vec())
-                }
-            })
+            .acquire_wasm_asset_with(
+                &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
+                "cmd/moonfmt",
+                &quiet_user_log(),
+                |url| {
+                    if url.ends_with(".wasm.sha256") {
+                        Ok(format!("{expected_checksum}\n").into_bytes())
+                    } else {
+                        Ok(b"different wasm".to_vec())
+                    }
+                },
+            )
             .unwrap_err();
 
         assert!(
@@ -1271,8 +1319,7 @@ mod tests {
         let registry = asset_test_registry(&sandbox);
         let error = registry
             .acquire_wasm_asset_with(
-                &parser_module(),
-                &Version::new(0, 3, 3),
+                &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3)).unwrap(),
                 "../escape",
                 &quiet_user_log(),
                 |_| bail!("invalid paths must fail before downloading"),
@@ -1301,8 +1348,7 @@ mod tests {
 
             registry
                 .acquire_source_to(
-                    &name,
-                    &version,
+                    &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                     &sandbox.path().join("source"),
                     &quiet_user_log(),
@@ -1437,7 +1483,12 @@ mod tests {
         let destination = sandbox.path().join("source");
 
         registry
-            .acquire_source_to(&name, &version, &checksum, &destination, &quiet_user_log())
+            .acquire_source_to(
+                &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
+                &checksum,
+                &destination,
+                &quiet_user_log(),
+            )
             .unwrap();
 
         assert_eq!(
@@ -1465,8 +1516,7 @@ mod tests {
         let client = std::thread::spawn(move || {
             result_sender
                 .send(registry.acquire_source_to(
-                    &name,
-                    &version,
+                    &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                     &checksum,
                     &destination,
                     &quiet_user_log(),
@@ -1554,8 +1604,7 @@ mod tests {
                     );
                     barrier.wait();
                     registry.acquire_source_to(
-                        &name,
-                        &version,
+                        &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                         &checksum,
                         &destination,
                         &quiet_user_log(),
@@ -1636,8 +1685,7 @@ mod tests {
 
         let error = registry
             .acquire_source_to(
-                &name,
-                &version,
+                &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 &destination,
                 &quiet_user_log(),
@@ -1796,7 +1844,7 @@ mod tests {
             ("dep/local", vec![]),
         ] {
             let module = Arc::new(create_mock_module(name, "1.0.0", deps));
-            let source = ModuleSource::from_local_module(&module, &dir.path().join(name));
+            let source = ModuleSource::from_local_module(&module, &dir.path().join(name)).unwrap();
             roots.insert(ResolvedModule::new(source, module));
         }
         let config = ResolveConfig {

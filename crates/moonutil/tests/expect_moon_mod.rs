@@ -49,6 +49,78 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 #[test]
+fn module_manifests_reject_v0_and_v1_suffixes() {
+    for suffix in ["v0", "v1"] {
+        for (file, contents) in [
+            ("moon.mod", format!("name = \"a/b/{suffix}\"\n")),
+            (
+                "moon.mod",
+                format!("name = \"test/app\"\nimport {{ \"a/b/{suffix}@1.0.0\" }}\n"),
+            ),
+            ("moon.mod.json", format!(r#"{{"name":"a/b/{suffix}"}}"#)),
+            (
+                "moon.mod.json",
+                format!(r#"{{"name":"test/app","deps":{{"a/b/{suffix}":{{"path":"../b"}}}}}}"#),
+            ),
+            (
+                "moon.mod.json",
+                format!(r#"{{"name":"test/app","bin-deps":{{"a/b/{suffix}":"1.0.0"}}}}"#),
+            ),
+        ] {
+            let dir = temp_dir("invalid-major-suffix");
+            std::fs::write(dir.join(file), contents).unwrap();
+            let error = read_module_desc_file_in_dir(&dir).unwrap_err();
+            assert!(format!("{error:#}").contains("major-version suffix must be /v2 or higher"));
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn module_manifests_validate_major_version_suffixes() {
+    for (file, contents) in [
+        ("moon.mod", "name = \"a/b/v2\"\nversion = \"1.5.0\"\n"),
+        (
+            "moon.mod",
+            "name = \"test/app\"\nimport { \"a/b/v2@1.5.0\" }\n",
+        ),
+        ("moon.mod.json", r#"{"name":"a/b/v2","version":"1.5.0"}"#),
+        (
+            "moon.mod.json",
+            r#"{"name":"test/app","deps":{"a/b/v2":"1.5.0"}}"#,
+        ),
+        (
+            "moon.mod.json",
+            r#"{"name":"test/app","deps":{"a/b/v2":{"path":"../b","version":"1.5.0"}}}"#,
+        ),
+        (
+            "moon.mod.json",
+            r#"{"name":"test/app","bin-deps":{"a/b/v2":"1.5.0"}}"#,
+        ),
+    ] {
+        let dir = temp_dir("major-version-mismatch");
+        std::fs::write(dir.join(file), contents).unwrap();
+        let error = read_module_desc_file_in_dir(&dir).unwrap_err();
+        assert!(
+            format!("{error:#}")
+                .contains("module `a/b/v2` requires major version 2, but got 1.5.0")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // Local development modules may omit their version until publication.
+    let dir = temp_dir("major-version-unpublished");
+    std::fs::write(dir.join("moon.mod"), "name = \"a/b/v2\"\n").unwrap();
+    assert!(
+        read_module_desc_file_in_dir(&dir)
+            .unwrap()
+            .version
+            .is_none()
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn read_module_from_dsl_basic() {
     let path = fixture_dir("module_dsl_only").join("moon.mod");
     let module = read_module_from_dsl(&path).expect("read moon.mod");

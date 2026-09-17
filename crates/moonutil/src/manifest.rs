@@ -124,6 +124,8 @@ pub enum MoonModJSONFormatErrorKind {
     Source(#[from] SourceError),
     #[error("`version` bad format")]
     Version(#[from] semver::Error),
+    #[error(transparent)]
+    ModuleVersion(#[from] crate::mooncakes::ModuleVersionError),
     #[error("`preferred-backend` is not a valid backend")]
     PreferredBackend(anyhow::Error),
     #[error("`supported_targets` bad format")]

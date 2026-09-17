@@ -128,7 +128,8 @@ These rules apply in all binary installer modes:
 - Output directory defaults to `~/.moon/bin` and can be overridden by `--bin`.
 - Binary name:
   - last segment of package path for non-root packages
-  - module unqualified name for root package
+  - module's default package alias for the root package, e.g. `b` for both
+    `a/b` and `a/b/v2`
 - Reserved Moon toolchain binary names are not overwritten.
 - Name collisions between selected packages are allowed; later installs overwrite earlier files.
 - `--dry-run` does not write binaries; it prints what would be built/installed.

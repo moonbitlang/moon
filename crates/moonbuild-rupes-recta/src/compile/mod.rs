@@ -276,7 +276,8 @@ mod tests {
                     .expect("test module name should parse"),
                 PathBuf::from("."),
                 DEFAULT_VERSION.clone(),
-            );
+            )
+            .expect("test module should have a valid version");
             let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
             let mut packages = DiscoverResult::default();
             packages.test_register_module(module, moon_mod());
@@ -495,7 +496,8 @@ mod tests {
                 .expect("test module should parse"),
             PathBuf::from("."),
             DEFAULT_VERSION.clone(),
-        );
+        )
+        .expect("test module should have a valid version");
         let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
         let mut packages = DiscoverResult::default();
         packages.test_register_module(module, moon_mod());
@@ -664,7 +666,8 @@ mod tests {
                 .expect("test module should parse"),
             PathBuf::from("."),
             DEFAULT_VERSION.clone(),
-        );
+        )
+        .expect("test module should have a valid version");
         let (mut modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
         let dependency_source = if separate_module {
             ModuleSource::local_path(
@@ -674,6 +677,7 @@ mod tests {
                 PathBuf::from("../dependency"),
                 DEFAULT_VERSION.clone(),
             )
+            .expect("dependency module should have a valid version")
         } else {
             module_source.clone()
         };
@@ -823,7 +827,8 @@ mod tests {
                 .expect("test module should parse"),
             PathBuf::from("."),
             DEFAULT_VERSION.clone(),
-        );
+        )
+        .expect("test module should have a valid version");
         let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
         let mut packages = DiscoverResult::default();
         packages.test_register_module(module, moon_mod());
