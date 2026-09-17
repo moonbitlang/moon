@@ -96,7 +96,8 @@ Although technically module and package name components are allowed to contain a
 we recommend and plan to restrict the character set to ASCII identifiers,
 to prevent causing issues on other parts of the toolchain and compiler.
 Registry module and package components additionally may not contain `#`, `?`,
-or `%`, because they have URL syntax meaning.
+or `%`, because they have URL syntax meaning. These components also reject
+whitespace, control characters, and Unicode directional formatting controls.
 
 ## Dependency resolving
 

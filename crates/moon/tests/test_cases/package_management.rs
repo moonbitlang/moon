@@ -19,6 +19,83 @@
 use super::*;
 
 #[test]
+fn dependency_commands_reject_invalid_coordinates_before_registry_access() {
+    let dir = TestDir::new_empty();
+    let manifest = "name = \"test/main\"\n";
+    std::fs::write(dir.join("moon.mod"), manifest).unwrap();
+    let moon_home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        moon_home.path().join("config.json"),
+        serde_json::json!({
+            "registry": "https://registry.invalid",
+            "index": moon_home.path().join("missing-index"),
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    for command in ["add", "remove"] {
+        for coordinate in [
+            "alice//tools",
+            "alice/tools/../other",
+            "alice/tools#fragment",
+        ] {
+            moon_cmd(&dir)
+                .env("MOON_HOME", moon_home.path())
+                .args([command, coordinate])
+                .assert()
+                .failure()
+                .stdout_eq("")
+                .stderr_eq("Error: path contains an invalid component\n");
+        }
+    }
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["remove", "alice/tools@1.0.0"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("Error: `moon remove` expects a module name without a version\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        manifest
+    );
+}
+
+#[test]
+fn dependency_commands_preserve_nested_module_names() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"test/main\"\nimport {\n  \"alice/nested/tools@1.0.0\",\n}\n",
+    )
+    .unwrap();
+    let moon_home = tempfile::tempdir().unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["add", "--upgrade", "alice/nested/tools@1.2.3-beta.1+build"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        "name = \"test/main\"\nimport {\n  \"alice/nested/tools@1.2.3-beta.1+build\",\n}\n",
+    );
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["remove", "alice/nested/tools"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+    let module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
+    assert!(module.deps.is_empty());
+}
+
+#[test]
 fn deprecate_delegates_without_a_project() {
     let dir = TestDir::new_empty();
     let subdir = dir.join("subdir");

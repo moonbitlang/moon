@@ -97,6 +97,20 @@ fn parse_path_components(path: &str) -> anyhow::Result<Vec<&str>> {
             || component.contains(':')
             || component.contains('\\')
             || component.contains(['#', '?', '%'])
+            || component.chars().any(|character| {
+                character.is_whitespace()
+                    || character.is_control()
+                    // Directional controls can make a coordinate appear to
+                    // name a different module or package when displayed.
+                    || matches!(
+                        character,
+                        '\u{061c}'
+                            | '\u{200e}'
+                            | '\u{200f}'
+                            | '\u{202a}'..='\u{202e}'
+                            | '\u{2066}'..='\u{206f}'
+                    )
+            })
     }) {
         anyhow::bail!("path contains an invalid component");
     }
@@ -289,6 +303,10 @@ mod tests {
             "a//b",
             "a/b/../c",
             "a/b#x",
+            "a/white space",
+            "a/\u{00a0}b",
+            "a/\u{1b}[31mb",
+            "a/b\u{202e}",
             "a/b@",
             "a/b@invalid",
             "a/b@latest",

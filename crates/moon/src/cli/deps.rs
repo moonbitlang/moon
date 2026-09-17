@@ -22,12 +22,14 @@ use mooncake::{
         add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand,
         sync::SyncOutputOptions,
     },
-    registry::{RegistryClient, path::parse_install_package_path},
+    registry::{
+        RegistryClient,
+        path::{parse_install_package_path, parse_module_path},
+    },
 };
 use moonutil::{
     cli_support::AutoSyncFlags,
     project::{PackageDirs, ProjectContext},
-    resolution::ModuleName,
     user_log::UserLog,
 };
 use std::path::{Path, PathBuf};
@@ -193,14 +195,11 @@ pub(crate) fn remove_cli(
     let PackageDirs {
         project_manifest, ..
     } = project.package_dirs()?;
-    let package_path = cmd.package_path;
-    let parts: Vec<&str> = package_path.splitn(2, '/').collect();
-    if parts.len() != 2 {
-        bail!("registry module name must be in the form of <author>/<module_name>");
+    let path = parse_module_path(&cmd.package_path)?;
+    if path.version.is_some() {
+        bail!("`moon remove` expects a module name without a version");
     }
-    let username = parts[0];
-    let pkgname = parts[1];
-    mooncake::pkg::remove::remove(&module_dir, &project_manifest, username, pkgname, user_log)
+    mooncake::pkg::remove::remove(&module_dir, &project_manifest, &path.module, user_log)
 }
 
 pub(crate) fn add_cli(
@@ -215,13 +214,19 @@ pub(crate) fn add_cli(
     let module_dir = require_selected_module(project.context(), "add")?;
     let dirs = project.package_dirs()?;
 
+    let path = parse_module_path(&cmd.package_path)?;
+    let version = path.exact_version()?;
+    if cmd.upgrade && cmd.bin {
+        bail!("--bin cannot be used with --upgrade");
+    }
+
     // Update registry index by default (issue #963).
     // - `--no-update` keeps the previous behavior.
     // - If an index already exists, update failures are treated as warnings so users can proceed
     //   with the existing local index.
     let registry = RegistryClient::configured();
     let mut index_updated = false;
-    if !cmd.no_update && (!cmd.upgrade || !cmd.package_path.contains('@')) {
+    if !cmd.no_update && (!cmd.upgrade || version.is_none()) {
         let had_index = registry.has_cached_index();
         match registry.sync(user_log) {
             Ok(()) => {
@@ -239,32 +244,11 @@ pub(crate) fn add_cli(
         }
     }
 
-    let package_path = cmd.package_path;
-
-    let parts: Vec<&str> = package_path.splitn(2, '@').collect();
-
-    let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if author_pkg.len() != 2 {
-        bail!("registry module name must be in the form of <author>/<module_name>[@<version>]");
-    }
-    let username = author_pkg[0];
-    let pkgname = author_pkg[1];
-    let pkg_name = ModuleName {
-        username: username.into(),
-        unqual: pkgname.into(),
-    };
-
-    if cmd.upgrade && cmd.bin {
-        bail!("--bin cannot be used with --upgrade");
-    }
-
-    if parts.len() == 2 {
-        let version: &str = parts[1];
-        let version = version.parse()?;
+    if let Some(version) = version {
         mooncake::pkg::add::add(
             &module_dir,
             &dirs,
-            &pkg_name,
+            &path.module,
             cmd.bin,
             &version,
             cmd.upgrade,
@@ -275,7 +259,7 @@ pub(crate) fn add_cli(
             &registry,
             &module_dir,
             &dirs,
-            &pkg_name,
+            &path.module,
             cmd.bin,
             index_updated,
             cmd.upgrade,
