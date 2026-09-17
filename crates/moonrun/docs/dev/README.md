@@ -2,6 +2,8 @@
 
 ## Developer workflows
 
+- [Host handles](host-handles.md): registration, validation, owning tables, and
+  operation-specific ownership rules.
 - [Current executable path semantics](current-exe-semantics.md): load-time path
   capture, mutation behavior, executable-directory lookup, and guest-visible
   errors for file-backed and in-memory modules.

@@ -1,15 +1,7 @@
 # Use One Handle Namespace
 
-Moonrun uses a single Handle namespace owned by the Runtime and shared by its domain states. Guest-visible Handles for Resources, Jobs, Workers, poll instances, Host Buffers, address-info results, SQLite Databases, SQLite Statements, and similar moonrun objects are allocated from one primary `SlotMap<HostKey, HostResourceKind>`, so a Resource Handle cannot accidentally also be a Job, poll, or SQLite handle.
-
-Identity comes from the shared Host Key allocator. Family-specific state lives in `SecondaryMap<HostKey, Payload>` tables, and lookup-only structures such as Windows overlapped-pointer maps are secondary indexes back to Handles. The Host Key table validates the expected `HostResourceKind` before any payload map is touched; generation bits on `HostKey` reject stale Handles after removal. Import registries declare ABI and register callbacks; they do not own keys or payloads.
-
-`Handles<T>` owns C buffers, address-info results, process argument arrays, environment blocks, and environment builders together with their Host Key registrations. Insertion accepts a complete value and allocates its key; lookup validates both the central registration and membership in the owning table; removal retires the key and returns the value for domain cleanup. Dropping the table retires its remaining keys before dropping values, with the allocator borrow released before value destructors run. Domain state such as a leased buffer remains an entry until its Handle is freed, even while a Job owns the bytes.
-
-Unix process launch validates its argument and environment inputs before consuming either Handle. Transferring an environment block validates the destination Handle before consuming the source; insufficient destination capacity still consumes that temporary source snapshot. These ownership rules belong to the Async Host, while each table owns registration and retirement of its entries.
-
-Resource policy is a Resource-layer concern, not a reason to split the Handle namespace. Files, TCP sockets, UDP sockets, and future resource families have different operation permissions; the current Resource payload carries a Resource Class, and future sandbox policy can extend that payload with capability metadata. Wrong-class operations are rejected after the Handle table has validated that the ABI value is a Resource Handle and before moonrun calls into the OS.
-
-Workers may acquire Resources before running and may create new OS Resources such as open-file results, but publishing guest-visible Handles belongs to the guest-thread event-loop side. An open worker returns a completed Job containing an unpublished Resource, and the Async Host publishes the Resource Handle through the Host Key table when the result is observed; worker threads must not mutate the table.
-
-The single namespace does not require one giant payload enum, one giant Host API, or a long-lived full table lock. Keep payload storage, operations, and leak accounting split by domain, but allocate and free Handles through the Host Key table under short borrows. The Host composes domain leak summaries only when the complete per-run Host is dropped; one import context must not inspect another domain's keys. Resolve Resource Handles into Acquired Resources before blocking work and run Jobs on those references.
+Independent handle allocators can issue the same guest-visible number for
+unrelated objects. Moonrun uses one shared generational Handle namespace owned
+by the Runtime, while each Host Domain owns its payloads. This prevents
+cross-family collisions and rejects stale Handles while preserving separate
+domain implementations.

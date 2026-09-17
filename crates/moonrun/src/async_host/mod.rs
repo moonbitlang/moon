@@ -242,6 +242,7 @@ fn handle_from_key(key: HandleKey) -> HostHandle {
     key.data().as_ffi()
 }
 
+/// Decode an untrusted Handle; the owning table validates the resulting key.
 fn key_from_handle(handle: HostHandle) -> HandleKey {
     KeyData::from_ffi(handle).into()
 }
@@ -4680,6 +4681,28 @@ mod tests {
             crate::async_sys::process::finish_process_env_builder(builder),
             block(&["PATH=new", "KEEP=value"])
         );
+    }
+
+    #[test]
+    fn invalid_process_environment_handles_are_rejected() {
+        let host = default_host();
+
+        for handle in [
+            INVALID_HOST_HANDLE,
+            crate::runtime::null_handle(),
+            host.invalid_fd(),
+        ] {
+            assert_eq!(
+                host.take_process_env_buffer(handle),
+                Err(AsyncHostError::Badf)
+            );
+            #[cfg(windows)]
+            assert_eq!(
+                host.take_process_env_builder(handle),
+                Err(AsyncHostError::Badf)
+            );
+        }
+        assert!(host.leak_summary().is_none());
     }
 
     #[test]
