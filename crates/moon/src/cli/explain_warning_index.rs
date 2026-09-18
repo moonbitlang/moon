@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-08-14.
+// Snapshot generated from `moonc check -warn-help` on 2026-09-18.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -465,6 +465,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "fragile_catch_all",
         description: "fragile `catch` handler that can be converted to `defer` or `errdefer`",
         id: 92,
+    },
+    WarningEntry {
+        mnemonic: "unknown_constr_pat_on_exhaustive_type",
+        description: "using `TypeName::..` pattern on a type not marked with `#non_exhaustive`",
+        id: 93,
     },
 ];
 

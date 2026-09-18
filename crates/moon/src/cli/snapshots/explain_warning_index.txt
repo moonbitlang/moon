@@ -83,3 +83,4 @@
 0090	unused_lexcase	`lexmatch`/`lexscan` branch that can never be selected because other branches takes precedence or its pattern matches nothing.
 0091	unused_errdefer	unused `errdefer` statement
 0092	fragile_catch_all	fragile `catch` handler that can be converted to `defer` or `errdefer`
+0093	unknown_constr_pat_on_exhaustive_type	using `TypeName::..` pattern on a type not marked with `#non_exhaustive`
