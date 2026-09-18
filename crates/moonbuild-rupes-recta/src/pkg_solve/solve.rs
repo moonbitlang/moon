@@ -256,6 +256,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
             t,
             DepEdge {
                 short_alias: new_alias.substr(..),
+                import_all: edge.import_all,
                 kind: edge.kind,
             },
         );
@@ -267,6 +268,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
         pid.build_target(TargetKind::Source),
         DepEdge {
             short_alias,
+            import_all: false,
             kind: TargetKind::BlackboxTest,
         },
     );
@@ -277,6 +279,7 @@ struct ResolvedImport<'a> {
     package_id: PackageId,
     target_is_subpackage: bool,
     short_alias: &'a str,
+    import_all: bool,
 }
 
 /// Resolve one import item for a given package.
@@ -303,11 +306,16 @@ fn resolve_import<'a>(
         });
     }
 
-    let short_alias = match import {
-        moonutil::package::Import::Simple(_) => imported.fqn.short_alias(),
-        moonutil::package::Import::Alias { alias, .. } => alias
-            .as_deref()
-            .unwrap_or_else(|| imported.fqn.short_alias()),
+    let (short_alias, import_all) = match import {
+        moonutil::package::Import::Simple(_) => (imported.fqn.short_alias(), false),
+        moonutil::package::Import::Alias {
+            alias, import_all, ..
+        } => (
+            alias
+                .as_deref()
+                .unwrap_or_else(|| imported.fqn.short_alias()),
+            *import_all,
+        ),
     };
     let is_import_target_subpackage = match import {
         moonutil::package::Import::Simple(_) => false,
@@ -315,14 +323,15 @@ fn resolve_import<'a>(
     };
 
     trace!(
-        "Import alias determined as '{}', is_subpackage={}",
-        short_alias, is_import_target_subpackage
+        "Import alias determined as '{}', import_all={}, is_subpackage={}",
+        short_alias, import_all, is_import_target_subpackage
     );
 
     Ok(ResolvedImport {
         package_id: import_pid,
         target_is_subpackage: is_import_target_subpackage,
         short_alias,
+        import_all,
     })
 }
 
@@ -393,8 +402,8 @@ fn add_dep_edges_for_import(
         let package = pid.build_target(*package_target);
 
         trace!(
-            "Adding edge: {:?} -> {:?} (short alias: '{}')",
-            package, dependency, import.short_alias
+            "Adding edge: {:?} -> {:?} (short alias: '{}', import_all={})",
+            package, dependency, import.short_alias, import.import_all
         );
 
         env.res.dep_graph.add_edge(
@@ -402,6 +411,7 @@ fn add_dep_edges_for_import(
             dependency,
             DepEdge {
                 short_alias: import.short_alias.into(),
+                import_all: import.import_all,
                 kind: import_source_kind,
             },
         );
@@ -499,6 +509,7 @@ fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
             cov_pid.build_target(TargetKind::Source),
             DepEdge {
                 short_alias: "coverage".into(),
+                import_all: false,
                 kind,
             },
         );
@@ -543,6 +554,7 @@ fn inject_prelude_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
             prelude_pid.build_target(TargetKind::Source),
             DepEdge {
                 short_alias: "prelude".into(),
+                import_all: false,
                 kind,
             },
         );

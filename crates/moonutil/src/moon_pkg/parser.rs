@@ -383,34 +383,28 @@ impl Parser {
             TokenKind::COMMA,
             |s| {
                 let path = s.parse_string()?;
-                let alias = match s.peek() {
+                match s.peek() {
                     Token::AS(_) => {
                         // deprecated syntax: "path/to/pkg" as @alias
                         s.skip();
                         let Token::PACKAGENAME((_, alias)) = s.peek() else {
                             return Err(ParseError::UnexpectedToken(s.peek().clone()));
                         };
+                        let alias = alias.clone();
                         s.skip();
-                        Some(alias.clone())
+                        Ok(s.parse_import_object(path.clone(), Some(alias), targets))
                     }
                     Token::PACKAGENAME((_, alias)) => {
                         let alias = alias.clone();
                         s.skip();
-                        Some(alias)
+                        Ok(s.parse_import_object(path.clone(), Some(alias), targets))
                     }
                     Token::STAR(_) => {
                         s.skip();
-                        Some("*".to_string())
+                        Ok(s.import_object(path.clone(), None, true, targets))
                     }
-                    _ => None,
-                };
-                Ok(match (alias, targets) {
-                    (alias, Some(targets)) => {
-                        json!({"path": path, "alias": alias, "targets": targets})
-                    }
-                    (None, None) => json!(path),
-                    (Some(alias), None) => json!({"path": path, "alias": alias}),
-                })
+                    _ => Ok(s.import_object(path.clone(), None, false, targets)),
+                }
             },
         )?;
         let import_kind = if let Some(kind) = legacy_kind {
@@ -430,6 +424,45 @@ impl Parser {
             "import"
         };
         Ok((String::from(import_kind), Value::Array(import_items)))
+    }
+
+    fn parse_import_object(
+        &self,
+        path: String,
+        alias: Option<String>,
+        targets: Option<&[TargetBackend]>,
+    ) -> Value {
+        let import_all = if matches!(self.peek(), Token::STAR(_)) {
+            self.skip();
+            true
+        } else {
+            false
+        };
+        self.import_object(path, alias, import_all, targets)
+    }
+
+    fn import_object(
+        &self,
+        path: String,
+        alias: Option<String>,
+        import_all: bool,
+        targets: Option<&[TargetBackend]>,
+    ) -> Value {
+        if alias.is_none() && !import_all && targets.is_none() {
+            return json!(path);
+        }
+        let mut object = Map::new();
+        object.insert("path".to_string(), json!(path));
+        if let Some(alias) = alias {
+            object.insert("alias".to_string(), json!(alias));
+        }
+        if import_all {
+            object.insert("import-all".to_string(), json!(true));
+        }
+        if let Some(targets) = targets {
+            object.insert("targets".to_string(), json!(targets));
+        }
+        Value::Object(object)
     }
 
     fn parse_statement(&self) -> Result<(String, Value), ParseError> {
@@ -510,10 +543,10 @@ import {{ "example/after" }}
                 (
                     key.to_owned(),
                     json!([
-                        {"path": "example/default", "alias": null, "targets": ["Native"]},
+                        {"path": "example/default", "targets": ["Native"]},
                         {"path": "example/renamed", "alias": "renamed", "targets": ["Native"]},
                         {"path": "example/legacy", "alias": "legacy", "targets": ["Native"]},
-                        {"path": "example/all", "alias": "*", "targets": ["Native"]},
+                        {"path": "example/all", "import-all": true, "targets": ["Native"]},
                     ]),
                 ),
                 ("import".to_owned(), json!(["example/after"])),
@@ -553,7 +586,7 @@ fn parse_import_cfg_expressions() {
             dsl.entries,
             vec![(
                 "import".to_owned(),
-                json!([{"path": "example/dep", "alias": null, "targets": targets}]),
+                json!([{"path": "example/dep", "targets": targets}]),
             )],
             "{source}",
         );
@@ -575,7 +608,7 @@ import { "example/dep" }
         dsl.entries,
         vec![(
             "import".to_owned(),
-            json!([{"path": "example/dep", "alias": null, "targets": ["Native"]}]),
+            json!([{"path": "example/dep", "targets": ["Native"]}]),
         )],
     );
 }
@@ -764,7 +797,32 @@ import {
         json!([
             {
                 "path": "path/to/pkg",
-                "alias": "*"
+                "import-all": true
+            }
+        ])
+    );
+}
+
+#[test]
+fn parse_import_all_with_named_alias() {
+    let source = r#"
+import {
+  "path/to/pkg" @pkg *,
+}
+    "#;
+
+    let tokens = tokenize(source).unwrap();
+    let ast = Parser::parse(tokens).unwrap();
+
+    assert_eq!(ast.entries.len(), 1);
+    assert_eq!(ast.entries[0].0, "import");
+    assert_eq!(
+        ast.entries[0].1,
+        json!([
+            {
+                "path": "path/to/pkg",
+                "alias": "pkg",
+                "import-all": true
             }
         ])
     );

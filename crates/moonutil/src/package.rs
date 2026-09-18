@@ -95,6 +95,11 @@ pub enum PkgJSONImportItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         alias: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(alias = "import-all")]
+        #[serde(rename(serialize = "import-all"))]
+        #[schemars(rename = "import-all")]
+        import_all: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         value: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(alias = "sub-package")]
@@ -747,6 +752,7 @@ pub enum Import {
         path: String,
         alias: Option<String>,
         sub_package: bool,
+        import_all: bool,
     },
 }
 
@@ -758,6 +764,7 @@ impl Import {
                 path,
                 alias: _,
                 sub_package: _,
+                import_all: _,
             } => path,
         }
     }
@@ -894,6 +901,7 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
                                     path: k,
                                     alias: v,
                                     sub_package: false,
+                                    import_all: false,
                                 })
                             }
                         }
@@ -907,22 +915,19 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
                         PkgJSONImportItem::Object {
                             path,
                             alias,
+                            import_all,
                             value: _,
                             sub_package,
-                        } => match (alias, sub_package) {
-                            (None, None) => imports.push(Import::Simple(path)),
-                            (Some(alias), None) if alias.is_empty() => {
+                        } => match (alias, sub_package, import_all.unwrap_or(false)) {
+                            (None, None, false) => imports.push(Import::Simple(path)),
+                            (Some(alias), None, false) if alias.is_empty() => {
                                 imports.push(Import::Simple(path))
                             }
-                            (Some(alias), _) => imports.push(Import::Alias {
+                            (alias, sub_package, import_all) => imports.push(Import::Alias {
                                 path,
-                                alias: Some(alias),
+                                alias,
                                 sub_package: sub_package.unwrap_or(false),
-                            }),
-                            (_, Some(sub_package)) => imports.push(Import::Alias {
-                                path,
-                                alias: None,
-                                sub_package,
+                                import_all,
                             }),
                         },
                     }

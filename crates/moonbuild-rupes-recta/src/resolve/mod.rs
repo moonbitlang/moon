@@ -179,10 +179,12 @@ fn parse_front_matter_imports(
                 path: _,
                 alias,
                 sub_package,
+                import_all,
             } => Import::Alias {
                 path: normalized_path,
                 alias,
                 sub_package,
+                import_all,
             },
         };
         normalized_imports.push(normalized_import);

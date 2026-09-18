@@ -712,6 +712,7 @@ mod tests {
             dependency_target,
             DepEdge {
                 short_alias: "dependency".into(),
+                import_all: false,
                 kind: TargetKind::Source,
             },
         );
