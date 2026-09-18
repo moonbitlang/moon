@@ -62,6 +62,7 @@ fn expect_import() {
                         "another1",
                     ),
                     sub_package: false,
+                    targets: None,
                 },
             ],
             wbtest_imports: [
@@ -74,6 +75,7 @@ fn expect_import() {
                         "another3",
                     ),
                     sub_package: false,
+                    targets: None,
                 },
             ],
             test_imports: [
@@ -86,6 +88,7 @@ fn expect_import() {
                         "another2",
                     ),
                     sub_package: false,
+                    targets: None,
                 },
             ],
             formatter: MoonPkgFormatter {

@@ -748,6 +748,9 @@ pub enum Import {
         alias: Option<String>,
         #[serde(default)]
         sub_package: bool,
+        /// Backends selected by import blocks; absent means unconditional.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        targets: Option<IndexSet<TargetBackend>>,
     },
 }
 
@@ -759,19 +762,19 @@ impl Import {
         }
     }
 
-    /// Normalize explicit aliases; default aliases are resolved with the package.
-    fn normalize(self) -> Self {
-        let Self::Alias {
-            path,
-            mut alias,
-            sub_package,
-        } = self
-        else {
-            return self;
-        };
-        if !sub_package && alias.as_ref().is_some_and(String::is_empty) {
-            alias = None;
+    pub fn supports_backend(&self, backend: TargetBackend) -> bool {
+        match self {
+            Self::Alias {
+                targets: Some(targets),
+                ..
+            } => targets.contains(&backend),
+            _ => true,
         }
+    }
+
+    /// Legacy JSON treats an empty alias as omitted for ordinary imports.
+    fn from_json(path: String, alias: Option<String>, sub_package: bool) -> Self {
+        let alias = alias.filter(|alias| sub_package || !alias.is_empty());
         if alias.is_none() && !sub_package {
             Self::Simple(path)
         } else {
@@ -779,13 +782,14 @@ impl Import {
                 path,
                 alias,
                 sub_package,
+                targets: None,
             }
         }
     }
 }
 
 /// Imports decoded from either manifest syntax, before legacy options override
-/// DSL blocks and the effective declarations are normalized.
+/// DSL blocks and normalization combines their conditions and repeated items.
 #[derive(Default)]
 struct PackageImports {
     regular: Vec<Import>,
@@ -796,9 +800,9 @@ struct PackageImports {
 impl PackageImports {
     fn take_from_json(json: &mut MoonPkgJSON) -> Self {
         Self {
-            regular: decode_pkg_json_imports(json.import.take()),
-            whitebox: decode_pkg_json_imports(json.wbtest_import.take()),
-            blackbox: decode_pkg_json_imports(json.test_import.take()),
+            regular: pkg_json_imports_to_imports(json.import.take()),
+            whitebox: pkg_json_imports_to_imports(json.wbtest_import.take()),
+            blackbox: pkg_json_imports_to_imports(json.test_import.take()),
         }
     }
 
@@ -812,8 +816,77 @@ impl PackageImports {
     }
 }
 
-fn normalize_imports(imports: Vec<Import>) -> Vec<Import> {
-    imports.into_iter().map(Import::normalize).collect()
+/// Combine blocks per backend, then share identical ordered import lists.
+/// Default aliases stay unresolved until the package's module boundary is known.
+fn normalize_imports(
+    imports: Vec<Import>,
+    kind: &str,
+    emit_warnings: bool,
+    user_log: &UserLog,
+) -> Vec<Import> {
+    let mut by_backend = TargetBackend::all()
+        .iter()
+        .map(|&backend| (backend, Vec::new()))
+        .collect::<Vec<_>>();
+    let mut active = HashSet::new();
+    let mut duplicates = IndexMap::<_, IndexSet<TargetBackend>>::new();
+    for import in &imports {
+        let (path, alias, sub_package) = match import {
+            Import::Simple(path) => (path.as_str(), None, false),
+            Import::Alias {
+                path,
+                alias,
+                sub_package,
+                ..
+            } => (path.as_str(), alias.as_deref(), *sub_package),
+        };
+        for (backend, items) in &mut by_backend {
+            if !import.supports_backend(*backend) {
+                continue;
+            }
+            if !active.insert((path, *backend)) {
+                duplicates.entry(path).or_default().insert(*backend);
+            }
+            // Keep source order and duplicate items: existing dependency
+            // resolution uses both first insertion order and final aliases.
+            items.push((path, alias, sub_package));
+        }
+    }
+    if emit_warnings {
+        for (path, targets) in duplicates {
+            let targets = TargetBackend::all()
+                .iter()
+                .filter(|target| targets.contains(*target))
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            user_log.warn(format!(
+                "Duplicate import of package `{path}` in `{kind}` for targets [{targets}]."
+            ));
+        }
+    }
+    let mut combined = IndexMap::<_, IndexSet<TargetBackend>>::new();
+    for (backend, items) in by_backend {
+        combined.entry(items).or_default().insert(backend);
+    }
+    combined
+        .into_iter()
+        .flat_map(|(items, targets)| {
+            let targets = (targets.len() != TargetBackend::all().len()).then_some(targets);
+            items.into_iter().map(move |(path, alias, sub_package)| {
+                if alias.is_none() && !sub_package && targets.is_none() {
+                    Import::Simple(path.to_owned())
+                } else {
+                    Import::Alias {
+                        path: path.to_owned(),
+                        alias: alias.map(str::to_owned),
+                        sub_package,
+                        targets: targets.clone(),
+                    }
+                }
+            })
+        })
+        .collect()
 }
 
 /// Convert a parsed `moon.pkg` into the package model used by ordinary callers.
@@ -838,9 +911,9 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     // Top-level DSL keys accepted in `moon.pkg`; the boolean says whether
     // repeated entries should be collected as a JSON array instead of rejected.
     let toplevel_keys = std::collections::HashMap::from([
-        ("import", false),
-        ("wbtest-import", false),
-        ("test-import", false),
+        ("import", true),
+        ("wbtest-import", true),
+        ("test-import", true),
         ("options", false),
         ("warnings", false),
         ("dev_build", true),
@@ -851,24 +924,14 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     ]);
     let mut map = serde_json_lenient::Map::new();
     let mut imports = PackageImports::default();
-    let mut seen_import_blocks = HashSet::new();
     for (key, value) in dsl.iter() {
         let Some(&allow_duplicate) = toplevel_keys.get(key) else {
             bail!("Unexpected key '{}' found in moon.pkg.", key);
         };
         if let Some((_, imports)) = imports.get_mut(key) {
-            // TODO: Remove this guard when package conversion and dependency
-            // resolution preserve and select the parser's conditional imports.
-            if value
-                .as_array()
-                .is_some_and(|imports| imports.iter().any(|import| import.get("targets").is_some()))
-            {
-                bail!("Conditional imports are not yet supported by the build system.");
-            }
-            if !seen_import_blocks.insert(key) {
-                bail!("Duplicate key '{}' found in moon.pkg.", key);
-            }
-            *imports = serde_json_lenient::from_value(value.clone())?;
+            imports.extend(serde_json_lenient::from_value::<Vec<Import>>(
+                value.clone(),
+            )?);
             continue;
         }
         if allow_duplicate {
@@ -892,7 +955,7 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
                 if !seen_import_keys.insert(key) {
                     bail!("Duplicate key '{key}' found in moon.pkg options.");
                 }
-                *imports = decode_pkg_json_imports(serde_json_lenient::from_value(v)?);
+                *imports = pkg_json_imports_to_imports(serde_json_lenient::from_value(v)?);
             } else {
                 map.insert(k, v);
             }
@@ -947,19 +1010,11 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
-    normalize_imports(decode_pkg_json_imports(source))
-}
-
-fn decode_pkg_json_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
     match source {
         None => Vec::new(),
         Some(PkgJSONImport::Map(map)) => map
             .into_iter()
-            .map(|(path, alias)| Import::Alias {
-                path,
-                alias,
-                sub_package: false,
-            })
+            .map(|(path, alias)| Import::from_json(path, alias, false))
             .collect(),
         Some(PkgJSONImport::List(list)) => list
             .into_iter()
@@ -970,11 +1025,7 @@ fn decode_pkg_json_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
                     alias,
                     sub_package,
                     ..
-                } => Import::Alias {
-                    path,
-                    alias,
-                    sub_package: sub_package.unwrap_or(false),
-                },
+                } => Import::from_json(path, alias, sub_package.unwrap_or(false)),
             })
             .collect(),
     }
@@ -997,11 +1048,17 @@ fn convert_package_with_imports(
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let sub_package = j.sub_package.map(|s| SubPackageInMoonPkg {
         files: s.files,
-        import: pkg_json_imports_to_imports(s.import),
+        import: normalize_imports(
+            pkg_json_imports_to_imports(s.import),
+            "sub-package.import",
+            emit_warnings,
+            user_log,
+        ),
     });
-    let imports_regular = normalize_imports(imports.regular);
-    let wbtest_imports = normalize_imports(imports.whitebox);
-    let test_imports = normalize_imports(imports.blackbox);
+    let imports_regular = normalize_imports(imports.regular, "import", emit_warnings, user_log);
+    let wbtest_imports =
+        normalize_imports(imports.whitebox, "wbtest-import", emit_warnings, user_log);
+    let test_imports = normalize_imports(imports.blackbox, "test-import", emit_warnings, user_log);
     let formatter_cfg = j.formatter.unwrap_or_default();
     let formatter = MoonPkgFormatter {
         ignore: formatter_cfg.ignore.unwrap_or_default(),
@@ -1199,7 +1256,7 @@ fn convert_pkg_imports_preserve_aliases_and_subpackages() {
 }
 
 #[test]
-fn convert_pkg_dsl_rejects_repeated_import_blocks() {
+fn convert_pkg_dsl_combines_repeated_import_blocks() {
     for (suffix, key) in [
         ("", "import"),
         ("for \"test\"", "test-import"),
@@ -1213,10 +1270,19 @@ import {{ "example/lib/second" }} {suffix}
 "#,
             ))
             .unwrap();
-            let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
+            let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
+            let imports = match key {
+                "import" => pkg.imports,
+                "test-import" => pkg.test_imports,
+                _ => pkg.wbtest_imports,
+            };
             assert_eq!(
-                error.to_string(),
-                format!("Duplicate key '{key}' found in moon.pkg.")
+                imports.iter().map(Import::get_path).collect::<Vec<_>>(),
+                if first.is_empty() {
+                    vec!["example/lib/second"]
+                } else {
+                    vec!["example/lib/first", "example/lib/second"]
+                },
             );
         }
     }
@@ -1305,7 +1371,7 @@ fn convert_pkg_imports_preserve_repeated_packages() {
 }
 
 #[test]
-fn convert_pkg_dsl_rejects_unsupported_conditional_imports() {
+fn convert_pkg_dsl_drops_inactive_imports() {
     for (prefix, suffix) in [
         ("", ""),
         ("", "for \"test\""),
@@ -1317,11 +1383,257 @@ fn convert_pkg_dsl_rejects_unsupported_conditional_imports() {
             r#"#cfg(false) import {prefix} {{ "example/dep" }} {suffix}"#,
         ))
         .unwrap();
-        let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Conditional imports are not yet supported by the build system.",
+        let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
+        assert!(pkg.imports.is_empty());
+        assert!(pkg.test_imports.is_empty());
+        assert!(pkg.wbtest_imports.is_empty());
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_combines_import_conditions() {
+    for (suffix, key) in [
+        ("", "imports"),
+        ("for \"test\"", "test_imports"),
+        ("for \"wbtest\"", "wbtest_imports"),
+    ] {
+        for (first, second, counts, warning) in [
+            (
+                "target = \"native\"",
+                "target = \"js\"",
+                [0, 0, 1, 1, 0],
+                false,
+            ),
+            (
+                "any(target = \"native\", target = \"js\")",
+                "target = \"native\"",
+                [0, 0, 1, 2, 0],
+                true,
+            ),
+            (
+                "target = \"native\"",
+                "not(target = \"native\")",
+                [1, 1, 1, 1, 1],
+                false,
+            ),
+            ("true", "target = \"native\"", [1, 1, 1, 2, 1], true),
+        ] {
+            let dsl = moon_pkg::parse(&format!(
+                r#"
+#cfg({first})
+import {{ "example/lib" @lib }} {suffix}
+#cfg({second})
+import {{ "example/lib" @lib }} {suffix}
+"#,
+            ))
+            .unwrap();
+            let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+            let pkg = convert_pkg_dsl_to_package(dsl, &user_log).unwrap();
+            let imports = match key {
+                "imports" => pkg.imports,
+                "test_imports" => pkg.test_imports,
+                _ => pkg.wbtest_imports,
+            };
+            for (&backend, expected) in TargetBackend::all().iter().zip(counts) {
+                assert_eq!(
+                    imports
+                        .iter()
+                        .filter(|import| import.supports_backend(backend))
+                        .count(),
+                    expected
+                );
+            }
+            assert!(imports.iter().all(|import| matches!(import, Import::Alias { alias: Some(alias), .. } if alias == "lib")));
+            if !warning {
+                assert_eq!(imports.len(), 1);
+            }
+            let warnings = capture.take();
+            assert_eq!(warnings.len(), usize::from(warning));
+            if warning {
+                assert_eq!(
+                    warnings[0].message,
+                    format!(
+                        "Duplicate import of package `example/lib` in `{}` for targets [native].",
+                        key.replace('_', "-").trim_end_matches('s'),
+                    )
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn convert_pkg_imports_warns_and_preserves_duplicate_items() {
+    for key in ["import", "test-import", "wbtest-import"] {
+        for alias in ["", "@named", "*"] {
+            for emit_warnings in [false, true] {
+                let dsl = moon_pkg::parse(&format!(
+                    "import {{ \"example/lib\" {alias}, \"example/lib\" {alias} }} {}",
+                    match key {
+                        "test-import" => "for \"test\"",
+                        "wbtest-import" => "for \"wbtest\"",
+                        _ => "",
+                    },
+                ))
+                .unwrap();
+                let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+                let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(
+                    dsl,
+                    emit_warnings,
+                    &user_log,
+                )
+                .unwrap();
+                let imports = match key {
+                    "import" => pkg.imports,
+                    "test-import" => pkg.test_imports,
+                    _ => pkg.wbtest_imports,
+                };
+                assert_eq!(imports.len(), 2);
+                let warnings = capture.take();
+                assert_eq!(warnings.len(), usize::from(emit_warnings));
+                if emit_warnings {
+                    assert_eq!(
+                        warnings[0].message,
+                        format!(
+                            "Duplicate import of package `example/lib` in `{key}` for targets [wasm, wasm-gc, js, native, llvm].",
+                        )
+                    );
+                }
+            }
+        }
+        let json = serde_json_lenient::from_value(serde_json_lenient::json!({
+            key: ["example/lib", {"path": "example/lib", "alias": ""}, {"path": "example/lib", "alias": "other"}],
+        })).unwrap();
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        let (pkg, _) =
+            convert_pkg_json_to_package_with_supported_targets_decl(json, true, &user_log).unwrap();
+        let imports = match key {
+            "import" => pkg.imports,
+            "test-import" => pkg.test_imports,
+            _ => pkg.wbtest_imports,
+        };
+        assert_eq!(imports.len(), 3);
+        assert!(matches!(&imports[0], Import::Simple(_)));
+        assert!(
+            matches!(&imports[2], Import::Alias { alias: Some(alias), .. } if alias == "other")
         );
+        assert_eq!(capture.take().len(), 1);
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_overrides_imports_before_normalization() {
+    let dsl = moon_pkg::parse(
+        r#"
+#cfg(target = "native")
+import { "example/unused", "example/unused" }
+options("import": ["example/replacement"])
+"#,
+    )
+    .unwrap();
+    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+    let pkg = convert_pkg_dsl_to_package(dsl, &user_log).unwrap();
+    assert!(matches!(&pkg.imports[..], [Import::Simple(path)] if path == "example/replacement"));
+    assert!(capture.take().is_empty());
+}
+
+#[test]
+fn convert_pkg_dsl_preserves_distinct_conditional_aliases() {
+    for (second, overlaps) in [
+        ("target = \"native\"", true),
+        ("not(target = \"native\")", false),
+    ] {
+        let dsl = moon_pkg::parse(&format!(
+            r#"
+#cfg(target = "native")
+import {{ "example/lib" @first }}
+#cfg({second})
+import {{ "example/lib" @second }}
+import {{ "example/lib" }} for "test"
+import {{ "example/lib" }} for "wbtest"
+"#
+        ))
+        .unwrap();
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        let pkg = convert_pkg_dsl_to_package(dsl, &user_log).unwrap();
+        assert_eq!(pkg.imports.len(), 2);
+        for &backend in TargetBackend::all() {
+            let aliases = pkg
+                .imports
+                .iter()
+                .filter(|import| import.supports_backend(backend))
+                .map(|import| match import {
+                    Import::Alias {
+                        alias: Some(alias), ..
+                    } => alias.as_str(),
+                    _ => panic!("explicit alias was lost"),
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                aliases,
+                match (backend == Native, overlaps) {
+                    (true, true) => vec!["first", "second"],
+                    (true, false) => vec!["first"],
+                    (false, true) => vec![],
+                    (false, false) => vec!["second"],
+                }
+            );
+            assert!(pkg.test_imports[0].supports_backend(backend));
+            assert!(pkg.wbtest_imports[0].supports_backend(backend));
+        }
+        assert_eq!(capture.take().len(), usize::from(overlaps));
+    }
+}
+
+#[test]
+fn convert_pkg_json_imports_ignore_unknown_conditions() {
+    let json = serde_json_lenient::from_str(
+        r#"{
+        "import": [{"path": "example/lib", "targets": ["Native"]}]
+    }"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_test_pkg_json(json, false).unwrap();
+    assert!(matches!(&pkg.imports[..], [Import::Simple(path)] if path == "example/lib"));
+}
+
+#[test]
+fn convert_pkg_imports_preserves_alias_precedence() {
+    for (source, conditional) in [
+        (
+            r#"import { "example/lib" @a, "example/lib" @b, "example/lib" @a }"#,
+            false,
+        ),
+        (
+            r#"
+#cfg(target = "native")
+import { "example/lib" @a }
+import { "example/lib" @b }
+#cfg(not(target = "native"))
+import { "example/lib" @a }
+"#,
+            true,
+        ),
+    ] {
+        let pkg = convert_pkg_dsl_to_package(
+            moon_pkg::parse(source).unwrap(),
+            &UserLog::new(log::LevelFilter::Error),
+        )
+        .unwrap();
+        for &backend in TargetBackend::all() {
+            // Dependency resolution retains the final edge for each package.
+            let last = pkg
+                .imports
+                .iter()
+                .rfind(|import| import.supports_backend(backend))
+                .unwrap();
+            let expected = if conditional && backend == Native {
+                "b"
+            } else {
+                "a"
+            };
+            assert!(matches!(last, Import::Alias { alias: Some(alias), .. } if alias == expected));
+        }
     }
 }
 

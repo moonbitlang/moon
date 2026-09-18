@@ -19,6 +19,111 @@
 use super::*;
 
 #[test]
+fn test_moon_pkg_normalizes_import_blocks() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"example/import_blocks\"\n").unwrap();
+    for package in ["a", "b", "lib", "main"] {
+        std::fs::create_dir(dir.join(package)).unwrap();
+    }
+    for (package, value) in [("a", 20), ("b", 22)] {
+        std::fs::write(dir.join(format!("{package}/moon.pkg")), "").unwrap();
+        std::fs::write(
+            dir.join(format!("{package}/lib.mbt")),
+            format!("pub fn value() -> Int {{ {value} }}\n"),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        "pkgtype(kind: \"executable\")\nimport { \"example/import_blocks/lib\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main/main.mbt"),
+        "fn main { println(@lib.value()) }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("lib/lib.mbt"),
+        "pub fn value() -> Int { @a.value() + @b.value() }\n",
+    )
+    .unwrap();
+
+    for (imports, duplicate) in [
+        (
+            r#"
+import { "example/import_blocks/a" }
+import { "example/import_blocks/b" }
+"#,
+            false,
+        ),
+        (
+            r#"
+import { "example/import_blocks/a" @a, "example/import_blocks/a" @b }
+import { "example/import_blocks/a" @a, "example/import_blocks/b" @b }
+"#,
+            true,
+        ),
+        (
+            r#"
+#cfg(target = "native")
+import { "example/import_blocks/a" }
+#cfg(not(target = "native"))
+import { "example/import_blocks/a" }
+import { "example/import_blocks/b" }
+"#,
+            false,
+        ),
+    ] {
+        std::fs::write(dir.join("lib/moon.pkg"), imports).unwrap();
+        // The installed compiler still rejects repeated blocks in moon.pkg.
+        // Verify Moon's normalized graph without invoking that parser.
+        let result = moon_cmd(&dir)
+            .args(["run", "main", "--target", "wasm-gc", "--dry-run"])
+            .assert()
+            .success();
+        if duplicate {
+            result.stderr_eq("Warning: Duplicate import of package `example/import_blocks/a` in `import` for targets [wasm, wasm-gc, js, native, llvm].\n");
+        } else {
+            result.stderr_eq("");
+        }
+    }
+    // Exercise the shared conversion path with a compiler-supported manifest.
+    std::fs::write(
+        dir.join("lib/moon.pkg"),
+        "import { \"example/import_blocks/a\", \"example/import_blocks/b\" }\n",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["run", "main", "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq("42\n");
+    // Preserve the resolver's first-edge ordering for explicit self-imports.
+    std::fs::write(
+        dir.join("lib/moon.pkg"),
+        r#"
+import { "example/import_blocks/a", "example/import_blocks/b" }
+import {
+  "example/import_blocks/a" @lib,
+  "example/import_blocks/lib" @lib,
+  "example/import_blocks/a" @lib,
+} for "test"
+"#,
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["check", "--target", "wasm-gc", "--dry-run"])
+        .assert()
+        .success();
+    moon_cmd(&dir)
+        .env("MOONBIT_NEW_NATIVE", "0")
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_moon_pkg() {
     let dir = TestDir::new("moon_pkg.in");
     check(
