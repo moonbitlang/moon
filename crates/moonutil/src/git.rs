@@ -82,10 +82,9 @@ pub fn is_in_git_repo(path: &Path) -> Result<bool, GitCommandError> {
         "rev-parse",
         "--is-inside-work-tree",
     ];
-    let mut output = git_command(&args, Stdios::npp())?;
-    let status = output.wait();
-    match status {
-        Ok(status) => Ok(status.success()),
+    let output = git_command(&args, Stdios::npp())?.wait_with_output();
+    match output {
+        Ok(output) => Ok(output.status.success()),
         Err(e) => Err(GitCommandError {
             cmd: format!("git {}", args.join(" ")),
             source: GitCommandErrorKind::IO(e),

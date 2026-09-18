@@ -266,24 +266,34 @@ enum PullLatestRegistryIndexErrorKind {
     #[error(transparent)]
     IO(#[from] std::io::Error),
 
-    #[error("non-zero exit code: {0}")]
-    NonZeroExitCode(std::process::ExitStatus),
+    #[error("non-zero exit code: {status}{output}")]
+    NonZeroExitCode {
+        status: std::process::ExitStatus,
+        output: CommandOutput,
+    },
 }
 
 fn pull_latest_registry_index(target_dir: &Path) -> Result<(), PullLatestRegistryIndexError> {
-    let mut child = moonutil::git::git_command(
+    let child = moonutil::git::git_command(
         &["-C", target_dir.to_str().unwrap(), "pull", "origin", "main"],
         Stdios::npp(),
     )
     .map_err(|e| PullLatestRegistryIndexError {
         source: PullLatestRegistryIndexErrorKind::GitCommandError(e),
     })?;
-    let status = child.wait().map_err(|e| PullLatestRegistryIndexError {
-        source: PullLatestRegistryIndexErrorKind::IO(e),
-    })?;
-    if !status.success() {
+    // Drain the piped output while waiting; a plain `wait` deadlocks once git
+    // fills the pipe buffer, e.g. with the diffstat of a large fast-forward.
+    let output = child
+        .wait_with_output()
+        .map_err(|e| PullLatestRegistryIndexError {
+            source: PullLatestRegistryIndexErrorKind::IO(e),
+        })?;
+    if !output.status.success() {
         return Err(PullLatestRegistryIndexError {
-            source: PullLatestRegistryIndexErrorKind::NonZeroExitCode(status),
+            source: PullLatestRegistryIndexErrorKind::NonZeroExitCode {
+                status: output.status,
+                output: CommandOutput::from_output(&output),
+            },
         });
     }
     Ok(())
@@ -1130,6 +1140,55 @@ mod tests {
         )
         .unwrap();
         assert!(!branches.stdout.contains("origin/side-branch"));
+    }
+
+    #[test]
+    fn registry_index_pull_does_not_deadlock_on_large_output() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let index = checkout.path().join("index");
+        clone_registry_index(&config, &index).unwrap();
+
+        // A large fast-forward makes `git pull` print a diffstat that exceeds
+        // the OS pipe buffer, so the output must be drained while waiting.
+        let source = registry.path().join("source");
+        for i in 0..2000 {
+            std::fs::write(
+                source.join(format!("package-with-a-long-enough-name-{i:04}")),
+                "{}",
+            )
+            .unwrap();
+        }
+        run_git(&["-C", source.to_str().unwrap(), "add", "."]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "commit",
+            "--quiet",
+            "-m",
+            "many packages",
+        ]);
+        let bare = registry.path().join("index.git");
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "push",
+            "--quiet",
+            bare.to_str().unwrap(),
+            "main",
+        ]);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let pull_index = index.clone();
+        std::thread::spawn(move || {
+            tx.send(pull_latest_registry_index(&pull_index).is_ok())
+                .unwrap();
+        });
+        let pulled = rx
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("pulling the registry index deadlocked");
+        assert!(pulled);
+        assert!(index.join("package-with-a-long-enough-name-1999").exists());
     }
 
     #[test]
