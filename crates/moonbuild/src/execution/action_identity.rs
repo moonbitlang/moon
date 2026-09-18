@@ -35,18 +35,18 @@ use anyhow::{Context, bail};
 use blake3::Hasher;
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey,
-    execution_plan::{ExecutionPlan, InputObservation, LoweredCommandExecution},
+    execution_plan::{ActionId, ExecutionPlan, InputObservation, LoweredCommandExecution},
     model::TargetKind,
 };
 
 /// Invocation state observed by every executed action.
 ///
 /// The working directory and environment are passed explicitly so the caller
-/// hashes the same inherited process state that it gives to n2.
+/// hashes the same inherited process state that it gives to child processes.
 #[derive(Clone, Debug)]
 pub struct ActionIdentityContext {
-    inherited_working_directory: PathBuf,
-    inherited_environment: Vec<(OsString, OsString)>,
+    pub(super) inherited_working_directory: PathBuf,
+    pub(super) inherited_environment: Vec<(OsString, OsString)>,
 }
 
 impl ActionIdentityContext {
@@ -102,12 +102,13 @@ impl ActionIdentity {
     }
 }
 
-/// Compute identities in Execution Plan action order.
+/// Compute identities for a dependency-closed selection in the supplied action order.
+#[tracing::instrument(skip_all)]
 pub fn compute_action_identities(
     plan: &ExecutionPlan,
     context: &ActionIdentityContext,
+    action_ids: &[ActionId],
 ) -> anyhow::Result<Vec<ActionIdentity>> {
-    let action_ids = plan.action_ids().collect::<Vec<_>>();
     let index_by_id = action_ids
         .iter()
         .enumerate()
@@ -115,7 +116,7 @@ pub fn compute_action_identities(
         .collect::<HashMap<_, _>>();
 
     let mut actions = Vec::with_capacity(action_ids.len());
-    for id in action_ids {
+    for &id in action_ids {
         let action = plan.action(id);
         let mut dependency_outputs = HashMap::new();
         let mut dependencies = Vec::new();
