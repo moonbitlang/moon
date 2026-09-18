@@ -7,7 +7,7 @@ MoonBuild provides conditional compilation features for this case.
 MoonBuild currently does not support conditional compilation on granularity less than one file.
 It also does not support that based on the architecture or operating system of native target platforms.
 
-## Import attribute parsing
+## Import attribute parsing and normalization
 
 The `moon.pkg` parser recognizes `#cfg(...)` on the immediately following import
 block, including test and whitebox-test imports. Conditions accept the five
@@ -20,11 +20,26 @@ The parser records the selected backend names in each conditional import's
 `targets` array in the JSON-shaped DSL model. Unannotated imports keep their
 existing representation, and repeated blocks remain separate DSL entries.
 
-This is parser support only. Package conversion rejects conditional imports
-until dependency resolution supports them, so build commands cannot silently
-treat a conditional import as unconditional. Module and workspace manifests do
-not support conditional imports. Legacy imports and duplicate-import behavior
-are unchanged.
+Package conversion combines repeated blocks separately for regular, test, and
+whitebox-test imports. For each backend, active blocks are concatenated in source
+order. Backends with identical resulting import lists share one target set, so
+equivalent conditions do not need identical spelling. Empty sets contribute no
+items; a set covering all backends becomes unconditional.
+For example, importing the same item under `#cfg(target = "native")` and
+`#cfg(not(target = "native"))` produces one unconditional import.
+
+Overlapping declarations of the same package produce a warning rather than an
+error. Items are retained in source order, including duplicates and distinct
+explicit aliases. Disjoint conditions do not warn. Legacy `options(...)`
+replacements are applied before normalization and warnings; legacy JSON imports
+remain unconditional.
+
+Backend-specific dependency resolution is a separate step not yet implemented
+here. Manifest loading rejects imports whose normalized backend sets remain
+conditional, so build commands cannot silently treat them as unconditional.
+Module and workspace manifests do not support conditional imports. Compiler and
+formatter acceptance of repeated blocks and `#cfg` also depends on the installed
+MoonBit toolchain; Moon's normalization does not rewrite the source manifest.
 
 ## Filename-based conditional compilation
 

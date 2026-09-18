@@ -373,7 +373,49 @@ fn read_package_from_dsl_with_supported_targets_decl(
     let str = std::io::read_to_string(file)?;
     let dsl = moon_pkg::parse(&str)?;
     let emit_warnings = should_warn_manifest(path);
-    convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, emit_warnings, user_log)
+    let (pkg, supported_targets) =
+        convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, emit_warnings, user_log)?;
+    // TODO: Remove this guard when dependency resolution selects the normalized
+    // imports for each requested backend. Until then, never load a conditional
+    // declaration into the backend-independent dependency graph.
+    if pkg
+        .imports
+        .iter()
+        .chain(&pkg.test_imports)
+        .chain(&pkg.wbtest_imports)
+        .any(|import| {
+            matches!(
+                import,
+                crate::package::Import::Alias {
+                    targets: Some(_),
+                    ..
+                }
+            )
+        })
+    {
+        bail!("Conditional imports are not yet supported by the build system.");
+    }
+    Ok((pkg, supported_targets))
+}
+
+#[test]
+fn package_loading_rejects_backend_dependent_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(MOON_PKG);
+    for suffix in ["", "for \"test\"", "for \"wbtest\""] {
+        std::fs::write(
+            &path,
+            format!("#cfg(target = \"native\") import {{ \"example/lib\" }} {suffix}"),
+        )
+        .unwrap();
+        let error =
+            read_package_desc_file_in_dir(dir.path(), &UserLog::new(log::LevelFilter::Error))
+                .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Conditional imports are not yet supported by the build system."
+        );
+    }
 }
 
 /// Avoid emitting manifest warnings for dependency cache files in .mooncakes.

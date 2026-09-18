@@ -27,6 +27,22 @@ A package may import other packages within its containing module,
 or within the modules its containing module depends on.
 Cyclic dependencies are currently prohibited both in module and package level.
 
+In `moon.pkg`, multiple import blocks of the same kind are combined. Legacy
+import fields in `options(...)` replace all corresponding blocks (regular,
+test, or whitebox-test), including when the replacement is empty. Both
+`test-import`/`test_import` and `wbtest-import`/`wbtest_import`
+spellings are accepted; specifying both spellings of the same option is an error.
+After these overrides, normalization concatenates the active blocks in source
+order separately for each backend. Backends with identical ordered import lists
+share the same normalized entries and target set. Blocks with no selected
+backend contribute no items. Duplicate items and distinct aliases are retained,
+preserving existing dependency ordering and alias precedence.
+
+Importing the same package more than once for overlapping backends emits one
+warning per package and import kind, listing the overlapping backends. Disjoint
+conditions and different import kinds do not produce duplicate warnings. These
+manifest warnings are suppressed for dependency manifests in `.mooncakes`.
+
 Named import aliases must be unique within each build target's dependencies.
 The special alias `*` marks an import-all declaration rather than a package
 name, so multiple dependencies may use it, including in `.mbtx` scripts.
@@ -39,6 +55,8 @@ defaults to `@b`, while `a/b/v2/c` defaults to `@c`. Importing both `a/b` and
 `a/b/v2` therefore requires an explicit alias for at least one, such as
 `import { "a/b" @b1, "a/b/v2" }`. Moon passes the resolved alias to `moonc`
 using `-i <interface.mi>:<alias>`; the full package identity retains `/v2`.
+For legacy JSON imports, an empty alias on a non-subpackage import is treated
+as an omitted alias, including when `sub-package` is explicitly `false`.
 
 A package can be **internal** to restrict importing,
 see the [Internal Packages](#internal-packages) section for details.
