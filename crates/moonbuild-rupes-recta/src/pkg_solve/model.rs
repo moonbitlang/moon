@@ -31,10 +31,12 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct DepEdge {
-    /// The short alias for this import item. Named aliases must be unique among
-    /// imports available to the current build target. `*` marks an import-all
-    /// declaration and may be shared by multiple imports.
+    /// The named alias for this import item. Named aliases must be unique among
+    /// imports available to the current build target.
     pub short_alias: arcstr::Substr,
+    /// Whether this dependency imports all names unqualified in addition to
+    /// exposing the package through `short_alias`.
+    pub import_all: bool,
     /// The kind of the import, whether it's a imported for source, test, or others.
     pub kind: TargetKind,
 }

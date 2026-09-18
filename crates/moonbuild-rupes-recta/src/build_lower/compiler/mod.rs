@@ -72,21 +72,33 @@ pub(super) struct MiDependency<'a> {
     /// An optional alias for the package, to be used when referencing symbols
     /// declared in this package. Also see: [`PackageFQN::short_alias`].
     pub alias: Option<Cow<'a, str>>,
+    /// Whether this dependency imports all names unqualified.
+    pub import_all: bool,
 }
 
 impl<'a> MiDependency<'a> {
     pub(super) fn to_alias_arg(&self) -> String {
         if let Some(alias) = &self.alias {
+            let alias = if self.import_all {
+                format!("*{alias}")
+            } else {
+                alias.to_string()
+            };
             format!("{}:{}", self.path.display(), alias)
         } else {
             format!("{}:{}", self.path.display(), self.path.display())
         }
     }
 
-    pub(super) fn new(path: impl Into<Cow<'a, Path>>, alias: impl Into<Cow<'a, str>>) -> Self {
+    pub(super) fn new(
+        path: impl Into<Cow<'a, Path>>,
+        alias: impl Into<Cow<'a, str>>,
+        import_all: bool,
+    ) -> Self {
         Self {
             path: path.into(),
             alias: Some(alias.into()),
+            import_all,
         }
     }
 
@@ -95,6 +107,7 @@ impl<'a> MiDependency<'a> {
         Self {
             path: path.into(),
             alias: None,
+            import_all: false,
         }
     }
 }

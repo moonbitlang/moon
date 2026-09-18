@@ -1,0 +1,7 @@
+import {
+  "test/import_all_with_named_alias/dep" @dep *
+}
+
+options(
+  "is-main": true
+)

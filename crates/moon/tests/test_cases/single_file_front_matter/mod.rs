@@ -490,8 +490,8 @@ fn test_single_file_mbtx_dry_run_preserves_import_all_alias() {
         .find(|line| line.contains("-pkg moon/test/single "))
         .expect("dry-run should contain the synthetic package build");
 
-    assert!(command.contains("math/math.mi:*"), "command: {command}");
-    assert!(command.contains("utf8/utf8.mi:*"), "command: {command}");
+    assert!(command.contains("math/math.mi:*math"), "command: {command}");
+    assert!(command.contains("utf8/utf8.mi:*utf8"), "command: {command}");
 }
 
 #[test]

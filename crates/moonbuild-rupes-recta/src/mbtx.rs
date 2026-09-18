@@ -66,8 +66,8 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
     let mut imports = Vec::with_capacity(import_values.len());
 
     for value in import_values {
-        let (import_path, alias) = if let Some(path) = value.as_str() {
-            (path.to_string(), None)
+        let (import_path, alias, import_all) = if let Some(path) = value.as_str() {
+            (path.to_string(), None, false)
         } else {
             let obj = value.as_object().ok_or_else(|| {
                 anyhow::anyhow!("invalid .mbtx import block entry: expected string or object")
@@ -93,7 +93,18 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
                         .map(str::to_string)
                 })
                 .transpose()?;
-            (path, alias)
+            let import_all = obj
+                .get("import-all")
+                .map(|value| {
+                    value.as_bool().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "invalid .mbtx import block entry: `import-all` must be a boolean"
+                        )
+                    })
+                })
+                .transpose()?
+                .unwrap_or(false);
+            (path, alias, import_all)
         };
         let (module, version, package) = split_mbtx_import_path(&import_path, &registry)?;
 
@@ -110,13 +121,15 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
             _ => {}
         }
 
-        let normalized_import = match alias {
-            Some(alias) => Import::Alias {
+        let normalized_import = if alias.is_some() || import_all {
+            Import::Alias {
                 path: package,
-                alias: Some(alias),
+                alias,
                 sub_package: false,
-            },
-            None => Import::Simple(package),
+                import_all,
+            }
+        } else {
+            Import::Simple(package)
         };
         imports.push(normalized_import);
     }
@@ -304,9 +317,32 @@ mod tests {
         assert!(matches!(
             &imports.imports[0],
             Import::Alias {
-                alias: Some(alias),
+                alias: None,
+                import_all: true,
                 ..
-            } if alias == "*"
+            }
+        ));
+    }
+
+    #[test]
+    fn parse_mbtx_imports_supports_import_all_with_named_alias() {
+        let input = r#"import {
+  "moonbitlang/x@0.4.38/stack" @xstack *,
+}
+
+        fn main {}
+"#;
+        let imports = parse_imports_from_source(input).expect("import should decode");
+        assert_eq!(imports.imports.len(), 1);
+        assert_eq!(imports.imports[0].get_path(), "moonbitlang/x/stack");
+        assert!(imports.deps.contains_key("moonbitlang/x"));
+        assert!(matches!(
+            &imports.imports[0],
+            Import::Alias {
+                alias: Some(alias),
+                import_all: true,
+                ..
+            } if alias == "xstack"
         ));
     }
 

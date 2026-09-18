@@ -17,6 +17,41 @@ fn test_error_duplicate_alias() {
 }
 
 #[test]
+fn test_import_all_with_named_alias_dry_run() {
+    let dir = TestDir::new("packages/import_all_with_named_alias");
+    let out = get_stdout(
+        &dir,
+        ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
+    );
+    assert!(
+        out.contains("./_build/wasm-gc/debug/build/dep/dep.mi:*dep"),
+        "{out}"
+    );
+}
+
+#[test]
+fn test_import_all_with_named_alias_conflicts_with_alias() {
+    let dir = TestDir::new("packages/import_all_with_named_alias_conflict");
+    let out = get_err_stderr(&dir, ["check", "--dry-run", "--nostd"]);
+    assert!(out.contains("same alias 'dep'"), "{out}");
+}
+
+#[test]
+fn test_import_all_with_named_alias_blackbox_self_alias_rewrite() {
+    let dir = TestDir::new("packages/import_all_with_named_alias");
+    let out = get_stdout(
+        &dir,
+        ["test", "lib", "--target", "wasm-gc", "--dry-run", "--nostd"],
+    );
+    assert!(
+        out.contains(
+            "./_build/wasm-gc/debug/test/dep/dep.mi:*test/import_all_with_named_alias/dep"
+        ),
+        "{out}"
+    );
+}
+
+#[test]
 fn test_core_order() {
     let dir = TestDir::new("packages/core_order");
     check(

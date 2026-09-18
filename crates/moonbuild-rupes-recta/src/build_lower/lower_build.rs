@@ -1322,7 +1322,7 @@ impl<'a> LoweringContext<'a> {
                         )
                     })
                 };
-                MiDependency::new(in_file, &w.short_alias)
+                MiDependency::new(in_file, w.short_alias.as_str(), w.import_all)
             })
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
