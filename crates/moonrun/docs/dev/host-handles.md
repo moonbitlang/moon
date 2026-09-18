@@ -46,10 +46,11 @@ Handle as a no-op; zero fails Handle validation with `Badf`.
 
 ## Owning tables
 
-`Handles<T>` owns C buffers, address-info results, process argument arrays,
-environment blocks, environment builders, and TLS connections together with
-their Host Key registrations. Insertion accepts a complete value and allocates
-its key. Lookup checks both the central registration and membership in this table.
+`Handles<T>` owns C buffers, Windows watcher buffers, address-info results,
+process argument arrays, environment blocks, environment builders, and TLS
+connections together with their Host Key registrations. Insertion accepts a
+complete value and allocates its key. Lookup checks both the central registration
+and membership in this table.
 Removal retires the key and returns the value so callers can release the table
 borrow before performing domain cleanup.
 
@@ -57,6 +58,14 @@ Dropping a table retires its remaining keys under a short allocator borrow.
 That borrow ends before value destructors run. Domain state such as a leased
 buffer remains an entry until its Handle is freed, even while a Job owns the
 bytes.
+
+Windows directory-change I/OResults own watcher buffer bytes while their table
+entries remain leased. Freeing a watcher Handle retires its registration and
+removes that reservation without releasing the bytes still owned by I/O. A
+returned lease restores the buffer only if the original Handle is still leased;
+it cannot recreate a freed entry or overwrite a replacement Handle. Host teardown
+retires both available and leased watcher entries, while I/OResults retain
+ownership of any outstanding I/O and its bytes until their own cleanup completes.
 
 A TLS entry keeps its Handle when its pending configuration becomes a configured
 connection. Configuration failure retains the pending entry and its error;
