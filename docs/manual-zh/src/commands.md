@@ -545,6 +545,19 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 **Usage:** `moon install [OPTIONS] [SOURCE] [PATH_IN_REPO]`
 
+Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+Paste a public GitHub directory permalink containing a full 40-character
+commit SHA to install from its source archive. For branches or tags, use the
+repository URL, PATH_IN_REPO, and --branch or --tag instead.
+
 ###### **Arguments:**
 
 * `<SOURCE>` — Install source.
@@ -555,7 +568,7 @@ Install a binary package globally or install project dependencies (deprecated wi
      3. registry package path (`user/module/pkg[@version]`)
 
    Use `/...` suffix to install all matching main packages.
-* `<PATH_IN_REPO>` — Filesystem path inside the cloned git repository.
+* `<PATH_IN_REPO>` — Filesystem path inside the repository source.
    Used only when SOURCE is a git URL.
 
    Use `/...` suffix to install all matching main packages under this path prefix.

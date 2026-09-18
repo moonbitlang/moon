@@ -52,8 +52,8 @@ pub(crate) fn require_selected_module(
         })
 }
 use super::install_binary::{
-    GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
-    strip_wildcard_suffix,
+    GitRef, install_binary, install_from_git, install_from_github_archive, install_from_local,
+    is_git_url, is_local_path, parse_github_permalink, strip_wildcard_suffix,
 };
 
 /// Returns the local filesystem path used for wildcard local install.
@@ -145,7 +145,34 @@ pub(crate) fn install_cli(
         );
     }
 
-    // Git URL install
+    // GitHub browser permalinks select archives; ordinary Git URLs retain the
+    // existing repository transport and revision flags.
+    if let Some(permalink) = parse_github_permalink(&source)? {
+        if has_git_ref {
+            anyhow::bail!(
+                "--rev, --branch, and --tag must not be used with a tree permalink; the URL already selects a commit"
+            );
+        }
+        if cmd.path_in_repo.is_some() && permalink.path_in_repo.is_some() {
+            anyhow::bail!(
+                "PATH_IN_REPO must not be used when SOURCE already contains a /tree/... path"
+            );
+        }
+        let path_in_repo = cmd
+            .path_in_repo
+            .as_deref()
+            .or(permalink.path_in_repo.as_deref());
+        let install_all = path_in_repo.is_some_and(|s| strip_wildcard_suffix(s).is_some());
+        return install_from_github_archive(
+            &cli,
+            &permalink.archive_url,
+            path_in_repo,
+            &install_dir,
+            install_all,
+            user_log,
+        );
+    }
+
     if is_git_url(&source) {
         let install_all = cmd
             .path_in_repo

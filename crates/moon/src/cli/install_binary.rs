@@ -163,6 +163,13 @@ impl PackageFilter {
 
 const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
 
+/// A GitHub directory permalink resolved to a commit archive and repository path.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct GithubPermalink {
+    pub archive_url: url::Url,
+    pub path_in_repo: Option<String>,
+}
+
 /// Returns the non-wildcard prefix for inputs ending with `/...` or `...`.
 pub(super) fn strip_wildcard_suffix(s: &str) -> Option<&str> {
     s.strip_suffix("...").map(|base| base.trim_end_matches('/'))
@@ -171,6 +178,54 @@ pub(super) fn strip_wildcard_suffix(s: &str) -> Option<&str> {
 /// Check if a string looks like a git URL.
 pub(super) fn is_git_url(s: &str) -> bool {
     GIT_URL_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
+/// Resolve a GitHub directory permalink to its public source archive.
+///
+/// Only full commit IDs delimit the revision and path without repository lookup.
+/// Branch/tag tree URLs must use the explicit repository URL and ref flags instead.
+pub(super) fn parse_github_permalink(source: &str) -> anyhow::Result<Option<GithubPermalink>> {
+    let Ok(mut url) = url::Url::parse(source) else {
+        return Ok(None);
+    };
+    if !matches!(url.scheme(), "http" | "https") || url.host_str() != Some("github.com") {
+        return Ok(None);
+    }
+
+    let segments = url.path_segments().unwrap().collect::<Vec<_>>();
+    let (owner, repo, tree) = match segments.as_slice() {
+        [owner, repo, "tree", tree @ ..] => (*owner, *repo, tree),
+        _ => return Ok(None),
+    };
+    anyhow::ensure!(
+        !owner.is_empty() && !repo.is_empty(),
+        "Invalid repository in tree URL"
+    );
+    anyhow::ensure!(
+        url.username().is_empty() && url.password().is_none() && url.port().is_none(),
+        "GitHub permalinks must not include credentials or a custom port"
+    );
+    let rev = tree.first().copied().unwrap_or_default();
+    anyhow::ensure!(
+        rev.len() == 40 && rev.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "Tree URLs must contain a full 40-character commit SHA; copy a permalink, or use the repository URL with PATH_IN_REPO and --branch, --tag, or --rev"
+    );
+
+    let path = tree[1..].join("/");
+    let path = percent_encoding::percent_decode_str(&path)
+        .decode_utf8()
+        .context("Tree URL path is not valid UTF-8")?;
+    anyhow::ensure!(!path.contains('\0'), "Tree URL path contains a NUL byte");
+    let path_in_repo = (!path.is_empty()).then(|| path.into_owned());
+    let archive_path = format!("/{owner}/{repo}/archive/{rev}.tar.gz");
+    url.set_path(&archive_path);
+    url.set_query(None);
+    url.set_fragment(None);
+
+    Ok(Some(GithubPermalink {
+        archive_url: url,
+        path_in_repo,
+    }))
 }
 
 /// Check if a string looks like a local filesystem path.
@@ -346,17 +401,93 @@ pub(super) fn install_from_git(
         }
     }
 
-    // Determine the target path within the cloned repo
+    install_from_repository(
+        cli,
+        clone_dir,
+        path_in_repo,
+        install_dir,
+        install_all,
+        user_log,
+    )
+}
+
+/// Install the public archive selected by a GitHub commit permalink.
+pub(super) fn install_from_github_archive(
+    cli: &UniversalFlags,
+    archive_url: &url::Url,
+    path_in_repo: Option<&str>,
+    install_dir: &Path,
+    install_all: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    user_log.info(format!("Downloading `{archive_url}`..."));
+    let client = reqwest::blocking::Client::builder()
+        .user_agent(format!("moon/{}", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .context("Failed to create GitHub archive HTTP client")?;
+    let response = client
+        .get(archive_url.clone())
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context(
+            "Failed to download GitHub source archive; only public repositories are supported",
+        )?;
+    let temporary = tempfile::tempdir().context("Failed to create temporary directory")?;
+    let repository_dir = unpack_github_archive(response, temporary.path())?;
+    install_from_repository(
+        cli,
+        &repository_dir,
+        path_in_repo,
+        install_dir,
+        install_all,
+        user_log,
+    )
+    .context("Failed to install from the GitHub source archive")
+}
+
+fn unpack_github_archive(
+    archive: impl std::io::Read,
+    destination: &Path,
+) -> anyhow::Result<PathBuf> {
+    // Let the archive library enforce extraction containment and preserve file
+    // modes and symlinks. GitHub's export-ignore/export-subst choices are retained.
+    tar::Archive::new(flate2::read::GzDecoder::new(archive))
+        .unpack(destination)
+        .context("Failed to extract GitHub source archive")?;
+    let entries = std::fs::read_dir(destination)?.collect::<Result<Vec<_>, _>>()?;
+    // GitHub wraps the snapshot in one directory, whose name can change after a
+    // repository rename. Do not reconstruct that name from the pasted URL.
+    let [root] = entries.as_slice() else {
+        bail!("GitHub source archive must contain exactly one repository directory");
+    };
+    anyhow::ensure!(
+        root.file_type()?.is_dir(),
+        "GitHub source archive root must be a directory"
+    );
+    Ok(root.path())
+}
+
+fn install_from_repository(
+    cli: &UniversalFlags,
+    repository_dir: &Path,
+    path_in_repo: Option<&str>,
+    install_dir: &Path,
+    install_all: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    // Select packages by filesystem path in either a checkout or an archive.
     let target_path = if let Some(repo_path) = path_in_repo {
         let repo_path = repo_path.trim_matches('/');
         let repo_path = repo_path.trim_end_matches("/...").trim_end_matches("...");
         if repo_path.is_empty() {
-            clone_dir.to_path_buf()
+            repository_dir.to_path_buf()
         } else {
-            clone_dir.join(repo_path)
+            repository_dir.join(repo_path)
         }
     } else {
-        clone_dir.to_path_buf()
+        repository_dir.to_path_buf()
     };
 
     // Check if target path exists
@@ -373,9 +504,9 @@ pub(super) fn install_from_git(
             path_in_repo.unwrap_or("")
         )
     })?;
-    let clone_dir =
-        dunce::canonicalize(clone_dir).context("Failed to resolve cloned repository")?;
-    if !target_path.starts_with(&clone_dir) {
+    let repository_dir =
+        dunce::canonicalize(repository_dir).context("Failed to resolve repository root")?;
+    if !target_path.starts_with(&repository_dir) {
         bail!(
             "Path `{}` escapes repository root",
             path_in_repo.unwrap_or("")
@@ -930,6 +1061,184 @@ mod tests {
         // Not local paths (git URLs)
         assert!(!is_local_path("https://github.com/user/repo"));
         assert!(!is_local_path("git@github.com:user/repo.git"));
+    }
+
+    #[test]
+    fn github_permalink_archive_and_paths() {
+        let rev = "0123456789abcdef0123456789abcdef01234567";
+        for scheme in ["http", "https"] {
+            for (suffix, path) in [
+                ("", None),
+                ("/", None),
+                ("/cmd/tool", Some("cmd/tool")),
+                ("/cmd/...", Some("cmd/...")),
+                (
+                    "/hello%20world/%E4%BD%A0%E5%A5%BD+%2520?plain=1#files",
+                    Some("hello world/你好+%20"),
+                ),
+            ] {
+                let parsed = parse_github_permalink(&format!(
+                    "{scheme}://github.com/owner/repo/tree/{rev}{suffix}"
+                ))
+                .unwrap()
+                .unwrap();
+                assert_eq!(
+                    parsed,
+                    GithubPermalink {
+                        archive_url: format!(
+                            "{scheme}://github.com/owner/repo/archive/{rev}.tar.gz"
+                        )
+                        .parse()
+                        .unwrap(),
+                        path_in_repo: path.map(str::to_owned),
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn github_permalink_requires_full_commit() {
+        for tree in [
+            "",
+            "main/cmd/tool",
+            "feature/new-ui/cmd/tool",
+            "v1.0.0",
+            "01234567/cmd/tool",
+            "0123456789abcdef0123456789abcdef0123456g/cmd/tool",
+        ] {
+            let error =
+                parse_github_permalink(&format!("https://github.com/owner/repo/tree/{tree}"))
+                    .unwrap_err();
+            assert!(error.to_string().contains("full 40-character commit SHA"));
+        }
+    }
+
+    #[test]
+    fn github_permalink_rejects_invalid_path_encoding() {
+        for path in ["%FF", "cmd/%00tool"] {
+            assert!(parse_github_permalink(&format!(
+                "https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/{path}"
+            )).is_err());
+        }
+    }
+
+    #[test]
+    fn github_permalink_rejects_credentials_and_custom_ports() {
+        for authority in [
+            "user@github.com",
+            "user:secret@github.com",
+            "github.com:1234",
+        ] {
+            assert!(parse_github_permalink(&format!(
+                "https://{authority}/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool"
+            )).is_err());
+        }
+    }
+
+    #[test]
+    fn github_archive_rejects_invalid_layout() {
+        for paths in [vec![], vec!["file"], vec!["one/file", "two/file"]] {
+            let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            let mut archive = tar::Builder::new(gzip);
+            for path in paths {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(0);
+                header.set_mode(0o644);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, path, std::io::empty())
+                    .unwrap();
+            }
+            let archive = archive.into_inner().unwrap().finish().unwrap();
+            let destination = tempfile::tempdir().unwrap();
+            assert!(unpack_github_archive(archive.as_slice(), destination.path()).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn github_archive_preserves_executables_and_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(gzip);
+        let mut file = tar::Header::new_gnu();
+        file.set_size(4);
+        file.set_mode(0o755);
+        file.set_cksum();
+        archive
+            .append_data(&mut file, "renamed-repository/script", &b"exit"[..])
+            .unwrap();
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        archive
+            .append_link(&mut link, "renamed-repository/alias", "script")
+            .unwrap();
+        let archive = archive.into_inner().unwrap().finish().unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let root = unpack_github_archive(archive.as_slice(), destination.path()).unwrap();
+
+        assert_eq!(root, destination.path().join("renamed-repository"));
+        assert_eq!(std::fs::read(root.join("alias")).unwrap(), b"exit");
+        assert_eq!(
+            std::fs::read_link(root.join("alias")).unwrap(),
+            Path::new("script")
+        );
+        assert_eq!(
+            std::fs::metadata(root.join("script"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn github_archive_rejects_writes_through_escaping_symlinks() {
+        let destination = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(gzip);
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        archive
+            .append_link(&mut link, "repo/escape", outside.path())
+            .unwrap();
+        let mut file = tar::Header::new_gnu();
+        file.set_size(0);
+        file.set_mode(0o644);
+        file.set_cksum();
+        archive
+            .append_data(&mut file, "repo/escape/file", std::io::empty())
+            .unwrap();
+        let archive = archive.into_inner().unwrap().finish().unwrap();
+
+        assert!(unpack_github_archive(archive.as_slice(), destination.path()).is_err());
+        assert!(!outside.path().join("file").exists());
+    }
+
+    #[test]
+    fn github_permalink_leaves_other_sources_unchanged() {
+        for source in [
+            "https://github.com/owner/repo",
+            "https://github.com/owner/repo.git",
+            "git@github.com:owner/repo.git",
+            "https://gitcode.com/owner/repo",
+            "https://gitcode.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool",
+            "https://gitcode.com/owner/repo/-/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool",
+            "https://example.com/owner/repo/tree/main/cmd/tool",
+            "./cmd/tool",
+            "user/module/pkg",
+        ] {
+            assert!(parse_github_permalink(source).unwrap().is_none());
+        }
     }
 
     #[test]
