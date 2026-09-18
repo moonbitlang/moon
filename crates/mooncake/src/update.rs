@@ -266,24 +266,34 @@ enum PullLatestRegistryIndexErrorKind {
     #[error(transparent)]
     IO(#[from] std::io::Error),
 
-    #[error("non-zero exit code: {0}")]
-    NonZeroExitCode(std::process::ExitStatus),
+    #[error("non-zero exit code: {status}{output}")]
+    NonZeroExitCode {
+        status: std::process::ExitStatus,
+        output: CommandOutput,
+    },
 }
 
 fn pull_latest_registry_index(target_dir: &Path) -> Result<(), PullLatestRegistryIndexError> {
-    let mut child = moonutil::git::git_command(
+    let child = moonutil::git::git_command(
         &["-C", target_dir.to_str().unwrap(), "pull", "origin", "main"],
         Stdios::npp(),
     )
     .map_err(|e| PullLatestRegistryIndexError {
         source: PullLatestRegistryIndexErrorKind::GitCommandError(e),
     })?;
-    let status = child.wait().map_err(|e| PullLatestRegistryIndexError {
-        source: PullLatestRegistryIndexErrorKind::IO(e),
-    })?;
-    if !status.success() {
+    // Drain the piped output while waiting; a plain `wait` deadlocks once git
+    // fills the pipe buffer, e.g. with the diffstat of a large fast-forward.
+    let output = child
+        .wait_with_output()
+        .map_err(|e| PullLatestRegistryIndexError {
+            source: PullLatestRegistryIndexErrorKind::IO(e),
+        })?;
+    if !output.status.success() {
         return Err(PullLatestRegistryIndexError {
-            source: PullLatestRegistryIndexErrorKind::NonZeroExitCode(status),
+            source: PullLatestRegistryIndexErrorKind::NonZeroExitCode {
+                status: output.status,
+                output: CommandOutput::from_output(&output),
+            },
         });
     }
     Ok(())
