@@ -27,11 +27,17 @@ A package may import other packages within its containing module,
 or within the modules its containing module depends on.
 Cyclic dependencies are currently prohibited both in module and package level.
 
-In `moon.pkg`, legacy import fields in `options(...)` replace the corresponding
-import block (regular, test, or whitebox-test), including when the replacement
-is empty. Both `test-import`/`test_import` and `wbtest-import`/`wbtest_import`
+In `moon.pkg`, multiple unconditional import blocks are combined in source order,
+separately for regular, test, and whitebox-test imports. Legacy import fields in
+`options(...)` replace all corresponding blocks, including when the replacement
+is empty. Both
+`test-import`/`test_import` and `wbtest-import`/`wbtest_import`
 spellings are accepted; specifying both spellings of the same option is an error.
-Package conversion preserves repeated package imports for dependency resolution.
+After these overrides, importing the same package more than once emits one
+warning per package and import kind. Duplicate items, aliases, and import-all
+flags are retained in source order, preserving existing dependency ordering and
+alias precedence. Different import kinds do not produce duplicate warnings.
+These manifest warnings are suppressed for dependency manifests in `.mooncakes`.
 
 Named import aliases must be unique within each build target's dependencies.
 The special alias `*` marks an import-all declaration rather than a package
