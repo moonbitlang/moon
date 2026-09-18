@@ -1133,6 +1133,55 @@ mod tests {
     }
 
     #[test]
+    fn registry_index_pull_does_not_deadlock_on_large_output() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let index = checkout.path().join("index");
+        clone_registry_index(&config, &index).unwrap();
+
+        // A large fast-forward makes `git pull` print a diffstat that exceeds
+        // the OS pipe buffer, so the output must be drained while waiting.
+        let source = registry.path().join("source");
+        for i in 0..2000 {
+            std::fs::write(
+                source.join(format!("package-with-a-long-enough-name-{i:04}")),
+                "{}",
+            )
+            .unwrap();
+        }
+        run_git(&["-C", source.to_str().unwrap(), "add", "."]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "commit",
+            "--quiet",
+            "-m",
+            "many packages",
+        ]);
+        let bare = registry.path().join("index.git");
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "push",
+            "--quiet",
+            bare.to_str().unwrap(),
+            "main",
+        ]);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let pull_index = index.clone();
+        std::thread::spawn(move || {
+            tx.send(pull_latest_registry_index(&pull_index).is_ok())
+                .unwrap();
+        });
+        let pulled = rx
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("pulling the registry index deadlocked");
+        assert!(pulled);
+        assert!(index.join("package-with-a-long-enough-name-1999").exists());
+    }
+
+    #[test]
     fn concurrent_registry_updates_are_coalesced() {
         let root = tempfile::tempdir().unwrap();
         let home = Arc::new(test_moon_home(&root));
