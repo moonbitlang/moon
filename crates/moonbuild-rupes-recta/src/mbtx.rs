@@ -72,6 +72,9 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
             let obj = value.as_object().ok_or_else(|| {
                 anyhow::anyhow!("invalid .mbtx import block entry: expected string or object")
             })?;
+            if obj.contains_key("targets") {
+                anyhow::bail!("Conditional imports are only supported in moon.pkg.");
+            }
             let path = obj
                 .get("path")
                 .and_then(|value| value.as_str())
@@ -201,6 +204,19 @@ mod tests {
         let parsed = parse_mbtx_imports(&path)?;
         let _ = std::fs::remove_file(&path);
         Ok(parsed)
+    }
+
+    #[test]
+    fn parse_mbtx_rejects_conditional_imports() {
+        let error = parse_imports_from_source(
+            r#"import { "example/first@1.0.0" } #cfg(target = "native") import { "example/second@1.0.0" @second }"#,
+        )
+        .err()
+        .expect("conditional script imports must be rejected");
+        assert_eq!(
+            error.to_string(),
+            "Conditional imports are only supported in moon.pkg."
+        );
     }
 
     #[test]

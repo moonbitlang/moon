@@ -38,6 +38,8 @@ pub type Loc = Range<Pos>;
 #[logos(skip(r"//[^\n\r]*"))] // Skip single-line comments
 #[logos(skip(r"[ \t\f]+"))]
 pub enum Token {
+    #[token("#cfg", with_span)]
+    CFG(Loc),
     #[token("[", with_span)]
     LBRACKET(Loc),
     #[token("]", with_span)]
@@ -165,6 +167,7 @@ fn with_package_name<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, String) {
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind {
+    CFG,
     LBRACKET,
     RBRACKET,
     COMMA,
@@ -191,7 +194,8 @@ pub enum TokenKind {
 impl Token {
     pub fn range(&self) -> &Loc {
         match self {
-            Token::LBRACKET(r)
+            Token::CFG(r)
+            | Token::LBRACKET(r)
             | Token::RBRACKET(r)
             | Token::COMMA(r)
             | Token::COLON(r)
@@ -216,6 +220,7 @@ impl Token {
     }
     pub fn kind(&self) -> TokenKind {
         match self {
+            Token::CFG(_) => TokenKind::CFG,
             Token::LBRACKET(_) => TokenKind::LBRACKET,
             Token::RBRACKET(_) => TokenKind::RBRACKET,
             Token::COMMA(_) => TokenKind::COMMA,
@@ -244,6 +249,7 @@ impl Token {
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Token::CFG(_) => write!(f, "#cfg"),
             Token::LBRACKET(_) => write!(f, "["),
             Token::RBRACKET(_) => write!(f, "]"),
             Token::COMMA(_) => write!(f, ","),

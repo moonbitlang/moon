@@ -7,6 +7,25 @@ MoonBuild provides conditional compilation features for this case.
 MoonBuild currently does not support conditional compilation on granularity less than one file.
 It also does not support that based on the architecture or operating system of native target platforms.
 
+## Import attribute parsing
+
+The `moon.pkg` parser recognizes `#cfg(...)` on the immediately following import
+block, including test and whitebox-test imports. Conditions accept the five
+target backends, boolean constants, and nested `all(...)`, `any(...)`, and
+`not(...)` expressions. `not` and `#cfg` each take exactly one expression;
+`all()` is true and `any()` is false. Stacked attributes are combined with AND.
+Unsupported expressions and unknown targets produce errors with source locations.
+
+The parser records the selected backend names in each conditional import's
+`targets` array in the JSON-shaped DSL model. Unannotated imports keep their
+existing representation, and repeated blocks remain separate DSL entries.
+
+This is parser support only. Package conversion rejects conditional imports
+until dependency resolution supports them, so build commands cannot silently
+treat a conditional import as unconditional. Module and workspace manifests do
+not support conditional imports. Legacy imports and duplicate-import behavior
+are unchanged.
+
 ## Filename-based conditional compilation
 
 The extension of each MoonBit source code file (`.mbt`)
