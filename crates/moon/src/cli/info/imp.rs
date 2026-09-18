@@ -29,9 +29,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
 use moonbuild::expect::write_diff;
-use moonbuild_rupes_recta::{
-    ResolveOutput, build_plan::ArtifactKey, model::PackageId, pkg_name::PackageFQN,
-};
+use moonbuild_rupes_recta::{build_plan::ArtifactKey, model::PackageId, pkg_name::PackageFQN};
 use moonutil::{constants::MBTI_GENERATED, target::TargetBackend};
 use sha2::Digest;
 use tracing::error;
@@ -100,16 +98,15 @@ impl<'a> PackageOutputGroup<'a> {
 }
 
 pub(super) fn plan_info_outputs(
-    resolve_output: &ResolveOutput,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> InfoOutputPlan {
     let mut planned = IndexMap::new();
 
     for package_id in packages {
         planned.entry(package_id).or_insert_with(|| {
-            let pkg = resolve_output.pkg_dirs.get_package(package_id);
-            let canonical_backend =
-                preferred_target_backend_for_package(resolve_output, package_id);
+            let pkg = declarations.pkg_dirs.get_package(package_id);
+            let canonical_backend = preferred_target_backend_for_package(declarations, package_id);
 
             PackageOutputPlan::new_from_fqn(
                 &pkg.fqn,

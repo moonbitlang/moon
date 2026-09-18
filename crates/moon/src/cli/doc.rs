@@ -125,8 +125,7 @@ pub(crate) fn run_doc_rr(
         ..
     } = &dirs;
 
-    // Resolve the complete selected project before choosing the member-scoped
-    // documentation backend.
+    // Discover declarations to choose the selected module's documentation backend.
     let build_flags = BuildFlags::default();
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
@@ -136,13 +135,16 @@ pub(crate) fn run_doc_rr(
     );
     let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
     let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+        moonbuild_rupes_recta::discover_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     let module_id = selected_doc_module_id(&resolve_output, &selected_module.root)?;
     let target_backend = resolve_output
         .module_info(module_id)
         .preferred_target
         .unwrap_or_default();
+
+    let resolve_output =
+        resolve_output.resolve(&[target_backend], resolve_cfg.enable_coverage, user_log)?;
 
     let mut compile_config = rr_build::prepare_resolved_build(
         &cli,
@@ -212,15 +214,15 @@ pub(crate) fn run_doc_rr(
 }
 
 fn selected_doc_module_id(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     selected_module_dir: &Path,
 ) -> anyhow::Result<ModuleId> {
-    resolve_output
+    declarations
         .local_modules()
         .iter()
         .copied()
         .find(|&module_id| {
-            resolve_output
+            declarations
                 .module_dirs
                 .get(module_id)
                 .is_some_and(|module_dir| module_dir == selected_module_dir)

@@ -39,7 +39,7 @@ use moonbuild::{
     execution::{BuildInput, resolve_parallelism},
 };
 use moonbuild_rupes_recta::{
-    CompileConfig, ResolveConfig, ResolveOutput,
+    CompileConfig, ProjectDeclarations, ResolveConfig, ResolveOutput,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
     fmt::{FmtConfig, FmtResolveOutput},
@@ -71,13 +71,13 @@ mod prebuild;
 pub(crate) use dry_run::write_build_graph;
 pub(crate) use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_with_normalizer};
 
-/// Synchronize dependencies and return resolved project data.
+/// Synchronize dependencies and read module and package declarations.
 /// This step does not acquire the target-directory lock.
-pub(crate) fn sync_and_resolve_project(
+pub(crate) fn sync_and_discover_project(
     resolve_config: &ResolveConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<ResolveOutput> {
+) -> anyhow::Result<ProjectDeclarations> {
     std::fs::create_dir_all(&dirs.target_dir).with_context(|| {
         format!(
             "Failed to create target directory: '{}'",
@@ -85,9 +85,39 @@ pub(crate) fn sync_and_resolve_project(
         )
     })?;
     let synced_env = moonbuild_rupes_recta::sync_dependencies(resolve_config, dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(resolve_config, synced_env, user_log)?;
-    Ok(resolve_output)
+    Ok(moonbuild_rupes_recta::discover_synced_project(
+        resolve_config,
+        synced_env,
+        user_log,
+    )?)
+}
+
+/// Resolve the explicit backends or the backends selected by package groups.
+/// Empty implicit groups use the project default; return that choice for the
+/// planner's empty-package path so it does not select a backend again.
+pub(crate) fn resolve_project_for_targets(
+    declarations: ProjectDeclarations,
+    explicit_backends: &[TargetBackend],
+    implicit_groups: Option<&[crate::filter::TargetPackageGroup]>,
+    enable_coverage: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<(ResolveOutput, Option<TargetBackend>)> {
+    let fallback_backend = implicit_groups
+        .filter(|groups| groups.is_empty())
+        .map(|_| local_modules_preferred_target(&declarations, user_log).unwrap_or_default());
+    let backends = if let Some(groups) = implicit_groups {
+        groups
+            .iter()
+            .map(|group| group.target_backend)
+            .chain(fallback_backend)
+            .collect::<Vec<_>>()
+    } else {
+        explicit_backends.to_vec()
+    };
+    Ok((
+        declarations.resolve(&backends, enable_coverage, user_log)?,
+        fallback_backend,
+    ))
 }
 
 /// The output of a calculate user intent operation.
@@ -159,28 +189,25 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, user_log:
 }
 
 pub(crate) fn local_packages(
-    resolve_output: &ResolveOutput,
+    declarations: &ProjectDeclarations,
 ) -> impl Iterator<Item = PackageId> + '_ {
-    resolve_output
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            resolve_output
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
+    declarations.local_modules().iter().flat_map(|&module_id| {
+        declarations
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .into_iter()
+            .flat_map(|packages| packages.values().copied())
+    })
 }
 
-fn local_modules_preferred_target(
-    resolve_output: &ResolveOutput,
+pub(crate) fn local_modules_preferred_target(
+    declarations: &ProjectDeclarations,
     user_log: &UserLog,
 ) -> Option<TargetBackend> {
-    let preferred = resolve_output
+    let preferred = declarations
         .local_modules()
         .iter()
-        .filter_map(|&module_id| resolve_output.module_info(module_id).preferred_target)
+        .filter_map(|&module_id| declarations.module_info(module_id).preferred_target)
         .collect::<BTreeSet<_>>();
 
     if preferred.len() > 1 {
@@ -284,15 +311,6 @@ pub(crate) fn prepare_resolved_build(
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
-    if cli.unstable_feature.rr_export_package_graph {
-        info!("Exporting package graph DOT file");
-        moonbuild_rupes_recta::util::print_dep_relationship_dot(
-            &resolve_output.pkg_rel,
-            &resolve_output.pkg_dirs,
-            &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
-        )?;
-    }
-
     // Preferred backend
     info!("Checking local modules and backend");
     let main_module = match resolve_output.local_modules() {
@@ -309,6 +327,15 @@ pub(crate) fn prepare_resolved_build(
     let target_backend = selected_target_backend
         .or(preferred_target)
         .unwrap_or_default();
+
+    if cli.unstable_feature.rr_export_package_graph {
+        info!("Exporting package graph DOT file");
+        moonbuild_rupes_recta::util::print_dep_relationship_dot(
+            &resolve_output.pkg_rel[&target_backend],
+            &resolve_output.pkg_dirs,
+            &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
+        )?;
+    }
 
     // TODO: remove this once LLVM backend is well supported
     if target_backend == TargetBackend::LLVM {

@@ -158,7 +158,11 @@ pub(crate) fn run_prove(
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let declarations = rr_build::sync_and_discover_project(&resolve_cfg, &dirs, user_log)?;
+    let target_backend =
+        rr_build::local_modules_preferred_target(&declarations, user_log).unwrap_or_default();
+    let resolve_output =
+        declarations.resolve(&[target_backend], resolve_cfg.enable_coverage, user_log)?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(target_dir, user_log)?;
@@ -171,7 +175,7 @@ pub(crate) fn run_prove(
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
-        None,
+        Some(target_backend),
         target_dir,
         RunMode::Prove,
         user_log,

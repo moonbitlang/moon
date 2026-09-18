@@ -19,6 +19,7 @@
 use log::{debug, trace};
 use moonutil::constants::MOONBITLANG_COVERAGE;
 use moonutil::resolution::{ModuleId, ResolvedEnv};
+use moonutil::{package::Import, target::TargetBackend};
 use tracing::info;
 
 use super::model::{DepEdge, DepRelationship, SolveError};
@@ -35,6 +36,7 @@ struct ResolveEnv<'a> {
     packages: &'a DiscoverResult,
     res: DepRelationship,
     inject_coverage: bool,
+    backend: TargetBackend,
     user_log: &'a UserLog,
 }
 
@@ -42,6 +44,7 @@ pub(super) fn solve_only(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
     enable_coverage: bool,
+    backend: TargetBackend,
     user_log: &UserLog,
 ) -> Result<DepRelationship, SolveError> {
     debug!(
@@ -54,6 +57,7 @@ pub(super) fn solve_only(
         packages,
         res: DepRelationship::default(),
         inject_coverage: enable_coverage,
+        backend,
         user_log,
     };
 
@@ -128,8 +132,8 @@ fn solve_one_package_virtual_impl(
 }
 
 /// Solve related dependency information for one package.
-fn solve_one_package(
-    env: &mut ResolveEnv,
+fn solve_one_package<'a>(
+    env: &mut ResolveEnv<'a>,
     mid: ModuleId,
     pid: PackageId,
 ) -> Result<(), SolveError> {
@@ -141,7 +145,10 @@ fn solve_one_package(
         pkg_data.fqn.package()
     );
 
-    let mut resolve = |import, kind| {
+    let mut resolve = |import: &'a Import, kind| {
+        if !import.supports_backend(env.backend) {
+            return Ok(());
+        }
         let resolved = resolve_import(env, mid, pid, import)?;
         add_dep_edges_for_import(env, pid, resolved, kind);
         Ok(())

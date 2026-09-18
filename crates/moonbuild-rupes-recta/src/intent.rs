@@ -296,15 +296,15 @@ fn target_realizes_backend(
     target: BuildTarget,
     target_backend: TargetBackend,
 ) -> bool {
-    realizable_supported_backends(resolved, target).contains(&target_backend)
+    realizable_supported_backends(resolved, target, target_backend).contains(&target_backend)
 }
 
 fn realizable_supported_backends(
     resolved: &ResolveOutput,
     target: BuildTarget,
+    target_backend: TargetBackend,
 ) -> &indexmap::IndexSet<TargetBackend> {
-    resolved
-        .pkg_rel
+    resolved.pkg_rel[&target_backend]
         .realizable_supported_targets
         .get(&target)
         // Targets without edges are absent from the graph; in that case their
@@ -323,7 +323,7 @@ fn warn_or_info_test_target_skip(
     target_backend: TargetBackend,
     user_log: &UserLog,
 ) {
-    let realizable = realizable_supported_backends(resolved, target);
+    let realizable = realizable_supported_backends(resolved, target, target_backend);
 
     let pkg = resolved.pkg_dirs.get_package(target.package);
     let test_kind = match target.kind {
@@ -334,7 +334,7 @@ fn warn_or_info_test_target_skip(
 
     if realizable.is_empty() {
         user_log.warn(format!(
-            "Skipping {test_kind} tests for package `{}`: the test target is unrealizable on every backend because its dependency graph has no supported backend intersection",
+            "Skipping {test_kind} tests for package `{}`: the active dependency graph has no supported backend intersection",
             pkg.fqn
         ));
         return;
@@ -346,7 +346,7 @@ fn warn_or_info_test_target_skip(
         .collect::<Vec<_>>();
     supported_backends.sort();
     user_log.info(format!(
-        "Skipping {test_kind} tests for package `{}` on backend `{}`: target is not realizable for this backend. Realizable backends: [{}]",
+        "Skipping {test_kind} tests for package `{}` on backend `{}`: target is not realizable for this backend. Supported backend intersection of active dependencies: [{}]",
         pkg.fqn,
         target_backend,
         supported_backends.join(", ")

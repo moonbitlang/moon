@@ -21,15 +21,13 @@
 
     ## Quickstart
 
-    You can find high-level abstractions in modules [`resolve`] and [`compile`],
-    which splits the compilation process in two parts:
+    You can find the high-level compilation stages in [`resolve`] and [`compile`]:
 
-    - [`resolve`] Builds an in-memory representation of all modules and packages
-      that needs to be used during the compile process, as well as the
-      dependency relationship between them. This part is always performed
-      without affected by the user input.
+    - [`resolve`] reads module and package declarations, then resolves the requested
+      target backends. [`ResolveOutput`] contains a complete [`pkg_solve::DepRelationship`]
+      for each requested backend. Any resolution failure is returned immediately.
 
-    - [`compile`] takes in the resolved environment and produces an
+    - [`compile`] takes the resolved environment and produces an
       [`execution_plan::ExecutionPlan`]. This part converts the intent of the
       user into concrete actions and declared outputs.
 
@@ -61,7 +59,8 @@
     3. Discover packages within modules ([`crate::discover`]). This is different
        from many package managers -- the package distribution unit ("module")
        is different from the compile unit ("package").
-    4. Resolve the *package* dependency graph ([`crate::pkg_solve`]).
+    4. Select the build configuration and resolve its active *package*
+       dependency graph ([`crate::pkg_solve`]).
     5. Get the list of top-level build actions from user input.
     6. From this list of requested artifacts, resolve the semantic build graph
        ([`crate::build_plan`]).
@@ -122,4 +121,7 @@ pub mod util;
 
 // Reexports
 pub use compile::{CompileConfig, CompileOutput, compile};
-pub use resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies};
+pub use resolve::{
+    ProjectDeclarations, ResolveConfig, ResolveOutput, discover_synced_project,
+    resolve_synced_project, sync_dependencies,
+};

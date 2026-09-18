@@ -338,10 +338,15 @@ mod tests {
 
         (
             ResolveOutput {
-                module_rel: modules,
-                module_dirs,
-                pkg_dirs: packages,
-                pkg_rel: DepRelationship::default(),
+                declarations: crate::resolve::ProjectDeclarations {
+                    module_rel: modules,
+                    module_dirs,
+                    pkg_dirs: packages,
+                },
+                pkg_rel: moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&b| (b, DepRelationship::default()))
+                    .collect(),
             },
             package_id.build_target(TargetKind::Source),
         )

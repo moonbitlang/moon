@@ -95,31 +95,24 @@ pub(crate) fn run_build_binary_dep(
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
             .without_bin_deps();
-    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let declarations = rr_build::sync_and_discover_project(&resolve_cfg, &dirs, user_log)?;
 
-    // Note: There's a cyclic dependency!
-    //
-    // We need to know the target backend in order to find linkable packages,
-    // but the preferred target backend for each package is stored in its
-    // `bin_target` field, which is only known after resolution.
-    //
-    // To break the cycle, our strategy is to check if each package is linkable
-    // in its own `bin_target`, and if not present, fall back to the main
-    // module's preferred target backend (or default backend if not specified).
-    let &[main_module_id] = resolve_output.local_modules() else {
+    // Select linkable packages using each package's declared bin target, falling
+    // back to the module preference, before resolving those backends.
+    let &[main_module_id] = declarations.local_modules() else {
         panic!("Expected exactly one main module when building all packages");
     };
-    let main_module_ref = resolve_output.module_info(main_module_id);
+    let main_module_ref = declarations.module_info(main_module_id);
     let default_backend = main_module_ref.preferred_target.unwrap_or_default();
 
     // Okay let's filter the packages
     let pkgs = if cmd.all_pkgs {
-        let packages = resolve_output
+        let packages = declarations
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
         get_linkable_pkgs_for_bin_dep(
-            &resolve_output,
+            &declarations,
             packages.values().cloned(),
             default_backend,
             user_log,
@@ -128,19 +121,25 @@ pub(crate) fn run_build_binary_dep(
         let mut result_pkgs = vec![];
         for pkg_name in cmd.pkg_names.iter() {
             let pkgs = match_packages_by_name_rr(
-                &resolve_output,
-                resolve_output.local_modules(),
+                &declarations,
+                declarations.local_modules(),
                 pkg_name,
                 user_log,
             );
             for pkg in pkgs {
-                let pkg_ref = resolve_output.pkg_dirs.get_package(pkg);
+                let pkg_ref = declarations.pkg_dirs.get_package(pkg);
                 let pkg_bin_target = pkg_ref.raw.bin_target.unwrap_or(default_backend);
                 add_bin_dep(&mut result_pkgs, pkg, pkg_ref, pkg_bin_target, user_log);
             }
         }
         result_pkgs
     };
+
+    let resolve_output = declarations.resolve(
+        &pkgs.iter().map(|&(_, backend)| backend).collect::<Vec<_>>(),
+        resolve_cfg.enable_coverage,
+        user_log,
+    )?;
 
     // For each package we need to get its target backend and then we can build it
     let _lock = lock_directory(target_dir, user_log)?;
@@ -202,14 +201,14 @@ pub(crate) fn run_build_binary_dep(
 }
 
 fn get_linkable_pkgs_for_bin_dep(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    declarations: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: impl Iterator<Item = PackageId>,
     default_backend: TargetBackend,
     user_log: &UserLog,
 ) -> Vec<(PackageId, TargetBackend)> {
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = declarations.pkg_dirs.get_package(pkg_id);
         let pkg_bin_target = pkg.raw.bin_target.unwrap_or(default_backend);
 
         add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target, user_log);

@@ -59,6 +59,7 @@ pub(crate) fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
             path: "moonbitlang/core/prelude".into(),
             alias: Some("prelude".into()),
             sub_package: false,
+            targets: None,
         });
     pkg_json
 }

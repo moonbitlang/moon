@@ -437,8 +437,12 @@ fn prepare_native_build(
             .with_sync_output(sync_output);
     let synced_env =
         moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &package_dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(
+        &resolve_cfg,
+        synced_env,
+        &[moonutil::target::TargetBackend::Native],
+        user_log,
+    )?;
     let target_dir = package_dirs.target_dir;
     let mooncake_bin_dir = package_dirs.mooncake_bin_dir;
 

@@ -131,8 +131,12 @@ fn resolve_selected_package_graph(
                 child_output,
             });
     let synced = sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output = resolve_synced_project(&resolve_cfg, synced, user_log)?;
-
+    let resolve_output = resolve_synced_project(
+        &resolve_cfg,
+        synced,
+        moonutil::target::TargetBackend::all(),
+        user_log,
+    )?;
     let module = read_module_desc_file_in_dir(&module_dir)?;
     let module_name: ModuleName = module.name.as_str().into();
     let selected = resolve_output
@@ -462,7 +466,6 @@ fn render_package_graph_json(
     selected_module: ModuleId,
 ) -> PackageGraphJSON {
     let pkg_dirs = &resolve_output.pkg_dirs;
-    let dep_graph = &resolve_output.pkg_rel.dep_graph;
 
     // Package nodes are deduplicated by PackageId. Build the set from discovered
     // packages so packages with no non-stdlib edges remain visible as isolated nodes.
@@ -501,7 +504,12 @@ fn render_package_graph_json(
     // Package edges are deduplicated by package pair and alias. Keep all target
     // kinds as provenance so projection does not lose dependency information.
     let mut edge_kinds = HashMap::<(PackageId, PackageId, String), BTreeSet<_>>::new();
-    for (from, to, edge) in dep_graph.all_edges() {
+    for (from, to, edge) in resolve_output
+        .pkg_rel
+        .values()
+        .map(|rel| &rel.dep_graph)
+        .flat_map(|graph| graph.all_edges())
+    {
         if from.package == to.package
             || !index.contains_key(&from.package)
             || !index.contains_key(&to.package)
@@ -606,10 +614,12 @@ fn sorted_package_tree_children(
     source: BuildTarget,
 ) -> Vec<TreeChild<BuildTarget>> {
     let pkg_dirs = &resolve_output.pkg_dirs;
-    let dep_graph = &resolve_output.pkg_rel.dep_graph;
 
-    let mut deps = dep_graph
-        .edges_directed(source, petgraph::Direction::Outgoing)
+    let mut deps = resolve_output
+        .pkg_rel
+        .values()
+        .map(|rel| &rel.dep_graph)
+        .flat_map(|graph| graph.edges_directed(source, petgraph::Direction::Outgoing))
         .filter(|(_, to, _)| !pkg_dirs.is_stdlib_package(to.package))
         .map(|(_, to, edge)| {
             (
@@ -627,6 +637,8 @@ fn sorted_package_tree_children(
                 .then_with(|| lhs_to.cmp(rhs_to))
         },
     );
+
+    deps.dedup();
 
     deps.into_iter()
         .map(|(node, alias, label)| TreeChild {

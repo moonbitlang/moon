@@ -24,7 +24,7 @@ use anyhow::bail;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve_synced_project,
+    ResolveConfig, ResolveOutput, discover_synced_project, intent::UserIntent, model::PackageId,
     sync_dependencies,
 };
 use moonutil::{
@@ -100,14 +100,14 @@ enum SelectionMode {
 impl PackageSelection {
     fn new(
         cmd: &InfoSubcommand,
-        resolve_output: &ResolveOutput,
+        declarations: &moonbuild_rupes_recta::ProjectDeclarations,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = resolve_output
+        let package_ids: Vec<_> = declarations
             .local_modules()
             .iter()
             .flat_map(|&module_id| {
-                resolve_output
+                declarations
                     .pkg_dirs
                     .packages_for_module(module_id)
                     .into_iter()
@@ -117,7 +117,7 @@ impl PackageSelection {
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;
-            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+            let pkg = filter_pkg_by_dir(declarations, &dir)?;
             return Ok(Self {
                 mode: SelectionMode::SinglePath,
                 package_ids: vec![pkg],
@@ -127,7 +127,7 @@ impl PackageSelection {
 
         if !cmd.path.is_empty() {
             let path_packages = select_packages(&cmd.path, user_log, |dir| {
-                filter_pkg_by_dir(resolve_output, dir)
+                filter_pkg_by_dir(declarations, dir)
             })?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
@@ -139,7 +139,7 @@ impl PackageSelection {
 
         if let Some(filter) = cmd.package.as_deref() {
             let matches = match_packages_with_fuzzy(
-                resolve_output,
+                declarations,
                 package_ids.iter().copied(),
                 std::iter::once(filter),
             );
@@ -300,7 +300,7 @@ pub(crate) fn run_info(
         cli.workspace_env.clone(),
     );
     let synced_env = sync_dependencies(&resolve_cfg, &dirs, output.user_log())?;
-    let resolve_output = resolve_synced_project(&resolve_cfg, synced_env, output.user_log())?;
+    let resolve_output = discover_synced_project(&resolve_cfg, synced_env, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
 
     let requested_targets = cmd
@@ -311,6 +311,15 @@ pub(crate) fn run_info(
     let output_plan =
         imp::plan_info_outputs(&resolve_output, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
+    let resolve_output = resolve_output.resolve(
+        &execution_targets
+            .iter()
+            .map(|&(backend, _)| backend)
+            .collect::<Vec<_>>(),
+        resolve_cfg.enable_coverage,
+        output.user_log(),
+    )?;
+
     std::fs::create_dir_all(target_dir)?;
     let _lock = lock_directory(target_dir, output.user_log())?;
 

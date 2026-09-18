@@ -24,8 +24,8 @@ use super::fixture::{
 };
 use moonutil::target::{TargetBackend, lower_surface_targets};
 
-// Phase 3: these tests already know the selected backend and only need to
-// verify that planning keeps the right packages and commands in the graph.
+// Most tests enter at planning with resolved dependencies. Run selection tests
+// also exercise production package/backend selection before resolving imports.
 
 fn assert_graph_text_contains_and_omits(graph: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
@@ -580,6 +580,35 @@ fn run_selection_without_module_preference_uses_default_backend() {
         .plan_run_graph_with_cli(&cli, &cmd)
         .expect("js preferred run graph should plan");
     assert_target_backend_runs(vec![run_js], &[TargetBackend::Js]);
+}
+
+#[test]
+fn run_selection_precedes_conditional_import_resolution() {
+    let fixture = PlanningFixture::new("run_conditional_imports.in")
+        .expect("package discovery should not resolve conditional imports");
+
+    for (package, explicit, expected) in [
+        ("app", None, TargetBackend::Wasm),
+        ("js_preferred", None, TargetBackend::Js),
+        ("js_preferred", Some("wasm"), TargetBackend::Wasm),
+    ] {
+        let mut args = vec!["run", package, "--dry-run", "--sort-input"];
+        if let Some(backend) = explicit {
+            args.extend(["--target", backend]);
+        }
+        let (cli, cmd) = parse_run_command(&args);
+        let plan = fixture
+            .plan_run_graph_with_cli(&cli, &cmd)
+            .expect("an inactive missing import should not prevent planning");
+        assert_target_backend_runs(vec![plan], &[expected]);
+    }
+
+    let (cli, cmd) = parse_run_command(&["run", "app", "--target", "native", "--dry-run"]);
+    let error = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .err()
+        .expect("an active missing import should fail resolution");
+    assert!(format!("{error:#}").contains("missing"), "{error:#}");
 }
 
 #[test]
