@@ -327,8 +327,12 @@ pub(crate) fn discover_packages_for_mod(
         // Warn authors in the selected project, not consumers of dependencies.
         // The same full import path could also denote a versioned module root.
         // Reuse module-name classification so this warning follows its grammar.
+        // TODO: Remove this exception once moonbitlang/core/v128 follows the
+        // major-version package naming convention.
+        let is_temporarily_allowed_core_v128 = is_core && pkg.fqn.package().as_str() == "v128";
         if is_root_module
             && !is_stdlib_pkg
+            && !is_temporarily_allowed_core_v128
             && !module_source.name().username.is_empty()
             && !pkg.fqn.package().is_empty()
             && matches!(
@@ -678,6 +682,36 @@ mod tests {
             assert!(discovered.get_package_id_by_name("a/b/v2").is_some());
             assert!(capture.take().is_empty());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_temporarily_allows_core_v128() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(
+            dir.path().join("moon.mod"),
+            "name = \"moonbitlang/core\"\nversion = \"0.1.0\"\n",
+        )?;
+        for package in ["v128", "v129"] {
+            let path = dir.path().join(package);
+            std::fs::create_dir_all(&path)?;
+            std::fs::write(path.join("moon.pkg"), "")?;
+        }
+        let module = moonutil::manifest::read_module_desc_file_in_dir(dir.path())?;
+        let source = ModuleSource::from_local_module(&module, dir.path())?;
+        let (env, id) = ResolvedEnv::only_one_module(source, module);
+        let mut dirs = DirSyncResult::default();
+        dirs.insert(id, dir.path().to_owned());
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+        discover_packages(&env, &dirs, &user_log)?;
+
+        let warnings = capture.take();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(
+            warnings[0].message,
+            "Package `moonbitlang/core/v129` in module `moonbitlang/core` has the same import path as a major-version module. Consider renaming package `v129` to avoid ambiguity."
+        );
         Ok(())
     }
 

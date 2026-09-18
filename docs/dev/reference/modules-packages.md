@@ -140,6 +140,9 @@ dependencies do not warn their consumers. These packages remain usable and
 keep their usual default aliases, such as `@v2`. The warning excludes the
 installed standard library and noncanonical suffixes such as `v02` and `vx`,
 and follows the user-log level (`--quiet` suppresses it).
+As a temporary compatibility exception, the warning is suppressed for
+`moonbitlang/core/v128` until that package follows the major-version naming
+convention.
 
 Although technically module and package name components are allowed to contain any character except `/`,
 we recommend and plan to restrict the character set to ASCII identifiers,
