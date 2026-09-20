@@ -87,7 +87,7 @@ pub enum PkgJSONImport {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum PkgJSONImportItem {
     String(String),
     Object {
@@ -101,11 +101,6 @@ pub enum PkgJSONImportItem {
         import_all: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         value: Option<Vec<String>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        #[serde(alias = "sub-package")]
-        #[serde(rename(serialize = "sub-package"))]
-        #[schemars(rename = "sub-package")]
-        sub_package: Option<bool>,
     },
 }
 
@@ -159,12 +154,6 @@ pub struct PkgType {
     pub kind: PackageKind,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct SubPackageInMoonPkgJSON {
-    pub files: Vec<String>,
-    pub import: Option<PkgJSONImport>,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum SupportedTargetsConfig {
@@ -180,6 +169,7 @@ pub enum SupportedTargetsDeclKind {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 #[schemars(
     title = "JSON schema for MoonBit moon.pkg.json files",
     description = "A package of MoonBit language"
@@ -203,13 +193,6 @@ pub struct MoonPkgJSON {
     /// supersedes the deprecated `is-main` and `link: true` flags.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pkgtype: Option<PkgType>,
-
-    /// Specify whether this package is a sub package or not
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "sub-package")]
-    #[serde(rename(serialize = "sub-package"))]
-    #[schemars(rename = "sub-package")]
-    pub sub_package: Option<SubPackageInMoonPkgJSON>,
 
     /// Imported packages of the package
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -917,16 +900,15 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
                             alias,
                             import_all,
                             value: _,
-                            sub_package,
-                        } => match (alias, sub_package, import_all.unwrap_or(false)) {
-                            (None, None, false) => imports.push(Import::Simple(path)),
-                            (Some(alias), None, false) if alias.is_empty() => {
+                        } => match (alias, import_all.unwrap_or(false)) {
+                            (None, false) => imports.push(Import::Simple(path)),
+                            (Some(alias), false) if alias.is_empty() => {
                                 imports.push(Import::Simple(path))
                             }
-                            (alias, sub_package, import_all) => imports.push(Import::Alias {
+                            (alias, import_all) => imports.push(Import::Alias {
                                 path,
                                 alias,
-                                sub_package: sub_package.unwrap_or(false),
+                                sub_package: false,
                                 import_all,
                             }),
                         },
@@ -946,10 +928,6 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     let get_imports =
         |source: Option<PkgJSONImport>| -> Vec<Import> { pkg_json_imports_to_imports(source) };
 
-    let sub_package = j.sub_package.map(|s| SubPackageInMoonPkg {
-        files: s.files,
-        import: get_imports(s.import),
-    });
     let imports = get_imports(j.import);
     let wbtest_imports = get_imports(j.wbtest_import);
     let test_imports = get_imports(j.test_import);
@@ -1042,7 +1020,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         name: None,
         is_main,
         force_link,
-        sub_package,
+        sub_package: None,
         imports,
         wbtest_imports,
         test_imports,
@@ -1092,6 +1070,50 @@ fn convert_test_pkg_json(
         emit_warnings,
         &UserLog::new(log::LevelFilter::Error),
     )
+}
+
+#[test]
+fn reject_subpackage_declarations() {
+    for key in ["sub-package", "sub_package"] {
+        let json = format!(r#"{{"{key}": {{"files": []}}}}"#);
+        let error = serde_json_lenient::from_str::<MoonPkgJSON>(&json).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("unknown field `{key}`"))
+        );
+
+        let dsl = moon_pkg::parse(&format!(r#"options("{key}": {{"files": []}})"#)).unwrap();
+        let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("unknown field `{key}`"))
+        );
+    }
+}
+
+#[test]
+fn reject_subpackage_imports() {
+    for import_key in ["import", "wbtest-import", "test-import"] {
+        for key in ["sub-package", "sub_package"] {
+            for value in ["true", "false"] {
+                let imports = format!(r#"[{{"path": "example/dep", "{key}": {value}}}]"#);
+                let json = format!(r#"{{"{import_key}": {imports}}}"#);
+                assert!(
+                    serde_json_lenient::from_str::<MoonPkgJSON>(&json).is_err(),
+                    "accepted removed subpackage import: {json}",
+                );
+
+                let dsl =
+                    moon_pkg::parse(&format!(r#"options("{import_key}": {imports})"#)).unwrap();
+                assert!(
+                    convert_test_pkg_dsl(dsl, false).is_err(),
+                    "accepted removed subpackage import in options: {json}",
+                );
+            }
+        }
+    }
 }
 
 #[test]

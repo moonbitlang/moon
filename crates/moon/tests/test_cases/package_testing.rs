@@ -632,7 +632,7 @@ fn test_ambiguous_pkg() {
 }
 
 #[test]
-#[ignore = "subpackage is not fully supported yet"]
+#[ignore = "subpackage declarations are no longer supported"]
 fn test_sub_package() {
     let dir = TestDir::new("test_sub_package.in");
 

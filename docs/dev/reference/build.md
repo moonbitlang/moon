@@ -64,7 +64,9 @@ each with its own list of source files (and thus acting like an actual "package"
 
 The detailed semantics of tests are in [the corresponding section](#building-tests).
 
-[^subpkg]: There's a 5th one, "subpackage", which is currently unused. We'll ignore it for now.
+[^subpkg]: The internal `SubPackage` target kind is reserved for future work on
+    dependency cycles. Package manifests reject `sub-package` declarations and
+    import flags; source-subset selection and linking are not implemented.
 
 [architecture]: ./arch.md
 

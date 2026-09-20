@@ -131,17 +131,6 @@
         }
       ]
     },
-    "sub-package": {
-      "description": "Specify whether this package is a sub package or not",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/SubPackageInMoonPkgJSON"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
     "supported-targets": {
       "description": "Supported backend set for this package.\n\nThis accepts either expression syntax (for example: `\"js\"` or `\"all-js+wasm-gc\"`) or legacy array syntax.",
       "anyOf": [
@@ -210,6 +199,7 @@
       ]
     }
   },
+  "additionalProperties": false,
   "definitions": {
     "BoolOrLink": {
       "anyOf": [
@@ -469,12 +459,6 @@
             "path": {
               "type": "string"
             },
-            "sub-package": {
-              "type": [
-                "boolean",
-                "null"
-              ]
-            },
             "value": {
               "type": [
                 "array",
@@ -484,7 +468,8 @@
                 "type": "string"
               }
             }
-          }
+          },
+          "additionalProperties": false
         }
       ]
     },
@@ -521,30 +506,6 @@
           }
         }
       ]
-    },
-    "SubPackageInMoonPkgJSON": {
-      "type": "object",
-      "required": [
-        "files"
-      ],
-      "properties": {
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "import": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PkgJSONImport"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
     },
     "SupportedTargetsConfig": {
       "anyOf": [
