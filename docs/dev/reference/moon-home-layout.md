@@ -56,7 +56,11 @@ $MOON_HOME/
   cache has no artifact layout yet. The dependency cache uses one root lock
   and stores immutable source trees below `v1/sources`; `/` in a module's
   unqualified name is encoded as `+` there.
-- `registry/index` is the local Git checkout of the registry index.
+- `registry/index` is the local Git checkout of the registry index. New clones
+  are shallow and exclude tags. Updates fetch `main` with depth 1 and reset the
+  tracked checkout to the fetched commit, reusing cached Git objects without
+  merging or rebasing. Existing full clones also get a shallow boundary at the
+  fetched commit; previously stored objects are not immediately removed.
 - Module metadata is read from
   `registry/index/user/<username>/<module>.index`.
 - `registry/symbols` is the symbols archive materialized by registry sync.
