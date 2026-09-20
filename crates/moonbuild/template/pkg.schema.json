@@ -199,7 +199,6 @@
       ]
     }
   },
-  "additionalProperties": false,
   "definitions": {
     "BoolOrLink": {
       "anyOf": [
@@ -468,8 +467,7 @@
                 "type": "string"
               }
             }
-          },
-          "additionalProperties": false
+          }
         }
       ]
     },

@@ -65,8 +65,9 @@ each with its own list of source files (and thus acting like an actual "package"
 The detailed semantics of tests are in [the corresponding section](#building-tests).
 
 [^subpkg]: The internal `SubPackage` target kind is reserved for future work on
-    dependency cycles. Package manifests reject `sub-package` declarations and
-    import flags; source-subset selection and linking are not implemented.
+    dependency cycles. Package manifests no longer expose `sub-package`
+    declarations or import flags; these are ignored like other unknown fields.
+    Source-subset selection and linking are not implemented.
 
 [architecture]: ./arch.md
 

@@ -87,7 +87,7 @@ pub enum PkgJSONImport {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
-#[serde(untagged, deny_unknown_fields)]
+#[serde(untagged)]
 pub enum PkgJSONImportItem {
     String(String),
     Object {
@@ -169,7 +169,6 @@ pub enum SupportedTargetsDeclKind {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 #[schemars(
     title = "JSON schema for MoonBit moon.pkg.json files",
     description = "A package of MoonBit language"
@@ -1073,44 +1072,47 @@ fn convert_test_pkg_json(
 }
 
 #[test]
-fn reject_subpackage_declarations() {
-    for key in ["sub-package", "sub_package"] {
-        let json = format!(r#"{{"{key}": {{"files": []}}}}"#);
-        let error = serde_json_lenient::from_str::<MoonPkgJSON>(&json).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains(&format!("unknown field `{key}`"))
-        );
-
-        let dsl = moon_pkg::parse(&format!(r#"options("{key}": {{"files": []}})"#)).unwrap();
-        let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains(&format!("unknown field `{key}`"))
-        );
+fn ignore_unknown_package_fields() {
+    for key in ["sub-package", "sub_package", "unknown-option"] {
+        let json = format!(r#"{{"is-main": true, "{key}": {{"files": []}}}}"#);
+        let dsl = moon_pkg::parse(&format!(
+            r#"options("is-main": true, "{key}": {{"files": []}})"#
+        ))
+        .unwrap();
+        for (pkg, _) in [
+            convert_test_pkg_json(serde_json_lenient::from_str(&json).unwrap(), false).unwrap(),
+            convert_test_pkg_dsl(dsl, false).unwrap(),
+        ] {
+            assert!(pkg.is_main);
+            assert!(pkg.sub_package.is_none());
+        }
     }
 }
 
 #[test]
-fn reject_subpackage_imports() {
+fn ignore_unknown_import_fields() {
     for import_key in ["import", "wbtest-import", "test-import"] {
-        for key in ["sub-package", "sub_package"] {
+        for key in ["sub-package", "sub_package", "unknown-option"] {
             for value in ["true", "false"] {
                 let imports = format!(r#"[{{"path": "example/dep", "{key}": {value}}}]"#);
                 let json = format!(r#"{{"{import_key}": {imports}}}"#);
-                assert!(
-                    serde_json_lenient::from_str::<MoonPkgJSON>(&json).is_err(),
-                    "accepted removed subpackage import: {json}",
-                );
-
                 let dsl =
                     moon_pkg::parse(&format!(r#"options("{import_key}": {imports})"#)).unwrap();
-                assert!(
-                    convert_test_pkg_dsl(dsl, false).is_err(),
-                    "accepted removed subpackage import in options: {json}",
-                );
+                for (pkg, _) in [
+                    convert_test_pkg_json(serde_json_lenient::from_str(&json).unwrap(), false)
+                        .unwrap(),
+                    convert_test_pkg_dsl(dsl, false).unwrap(),
+                ] {
+                    let imports = pkg
+                        .imports
+                        .into_iter()
+                        .chain(pkg.wbtest_imports)
+                        .chain(pkg.test_imports)
+                        .collect::<Vec<_>>();
+                    assert!(
+                        matches!(imports.as_slice(), [Import::Simple(path)] if path == "example/dep")
+                    );
+                }
             }
         }
     }
