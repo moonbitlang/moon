@@ -191,7 +191,7 @@ Caused by:
         dir.join("moon.pkg.json"),
         r#"{"is-main": true, "import": [
             {"path": "a/b", "alias": "legacy"},
-            {"path": "a/b/v2", "sub-package": false}
+            {"path": "a/b/v2"}
         ]}"#,
     )
     .unwrap();

@@ -244,7 +244,9 @@ pub enum TargetKind {
     /// import list.
     InlineTest,
     /// This is the subpackage designed originally for breaking cycles in
-    /// `moonbitlang/core`. It's expected to be used sparingly.
+    /// `moonbitlang/core`. It is internal-only; manifests cannot create it.
+    /// TODO: Restore manifest support only after source subsets and linking
+    /// are implemented.
     SubPackage,
 }
 

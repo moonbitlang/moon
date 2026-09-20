@@ -127,7 +127,6 @@ pub fn f() -> Unit {{
                 virtual_pkg: None,
                 implement: None,
                 overrides: None,
-                sub_package: None,
                 max_concurrent_tests: None,
                 regex_backend: None,
             };
@@ -230,7 +229,6 @@ pub fn write(config: &Config, base_dir: &Path) {
         virtual_pkg: None,
         implement: None,
         overrides: None,
-        sub_package: None,
         max_concurrent_tests: None,
         regex_backend: None,
     };
