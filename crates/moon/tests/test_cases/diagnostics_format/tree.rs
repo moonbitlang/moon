@@ -125,7 +125,7 @@ fn test_moon_tree_package_json_aggregates_target_kinds_per_alias() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"success","error":null,"root":[0,1],"nodes":[{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"dep"},{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"root"}],"edges":[{"from":1,"to":0,"alias":"blackbox","kinds":["blackbox-test"]},{"from":1,"to":0,"alias":"shared","kinds":["source","whitebox-test"]}],"logs":[{"level":"warning","message":"`moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`."}]}
+{"version":2,"status":"success","error":null,"root":[0,1],"nodes":[{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"dep"},{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"root"}],"edges":[{"from":1,"to":0,"alias":"blackbox","kinds":["blackbox-test"]},{"from":1,"to":0,"alias":"shared","kinds":["source","whitebox-test"]}],"logs":[{"level":"warning","message":"`moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`."},{"level":"warning","message":"Redundant import of package `test/edges/dep` in `wbtest-import` of package `test/edges/root`; it is already available through `import`."}]}
 
 "#]]);
 }
