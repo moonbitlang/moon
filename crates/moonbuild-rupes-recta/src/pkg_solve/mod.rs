@@ -20,6 +20,8 @@
 
 mod model;
 mod solve;
+#[cfg(test)]
+mod tests;
 mod verify;
 
 use crate::{

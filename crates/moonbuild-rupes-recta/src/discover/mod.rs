@@ -67,7 +67,7 @@ use walkdir::WalkDir;
 
 use crate::{
     pkg_name::{PackageFQN, PackagePath},
-    special_cases::{add_prelude_as_import_for_core, module_name_is_core},
+    special_cases::module_name_is_core,
     util::strip_trailing_slash,
 };
 
@@ -313,7 +313,6 @@ pub(crate) fn discover_packages_for_mod(
             id,
             module_source,
             &rel_path,
-            is_core,
             is_stdlib_pkg,
             &module_supported_targets,
             &pkg_manifest_path,
@@ -362,7 +361,6 @@ fn discover_one_package(
     mid: ModuleId,
     m: &ModuleSource,
     rel: &RelativePath,
-    is_core: bool, // We have a couple of special cases for core packages. is_core is true when building the core module.
     pkg_is_stdlib: bool, // Whether the package being discovered is inside the stdlib (core) module.
     module_supported_targets: &IndexSet<TargetBackend>,
     pkg_manifest_path: &Path,
@@ -384,11 +382,6 @@ fn discover_one_package(
             path: abs.to_path_buf(),
             inner: e,
         })?;
-    let pkg_json = if is_core {
-        add_prelude_as_import_for_core(pkg_json)
-    } else {
-        pkg_json
-    };
     let mut effective_supported_targets = pkg_json.supported_targets.clone();
     effective_supported_targets.retain(|t| module_supported_targets.contains(t));
 

@@ -36,8 +36,16 @@ spellings are accepted; specifying both spellings of the same option is an error
 After these overrides, importing the same package more than once emits one
 warning per package and import kind. Duplicate items, aliases, and import-all
 flags are retained in source order, preserving existing dependency ordering and
-alias precedence. Different import kinds do not produce duplicate warnings.
-These manifest warnings are suppressed for dependency manifests in `.mooncakes`.
+alias precedence.
+
+Regular imports are inherited by both whitebox and blackbox tests. After package
+resolution, repeating a regular import in `wbtest-import` or `test-import` warns
+if its final resolved alias and import-all setting are unchanged. A test import
+that changes either setting is an override and does not produce this warning.
+Whitebox and blackbox test imports are independent of each other. Import warnings
+do not remove imports or change dependency resolution, and are suppressed for
+dependency manifests in `.mooncakes` and by `--quiet`. Redundant test-import
+warnings also skip packages in the installed standard library.
 
 Named import aliases must be unique within each build target's dependencies.
 The special alias `*` marks an import-all declaration rather than a package

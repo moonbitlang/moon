@@ -25,8 +25,6 @@
 //! Most, if not all, of the special cases are related to `moonbitlang/core`,
 //! the standard library of MoonBit.
 
-use moonutil::package::MoonPkg;
-
 use crate::pkg_name::PackageFQN;
 
 // string segments
@@ -48,20 +46,6 @@ const SELF_COVERAGE_LIBS: &[(&str, &str, &str)] =
 
 pub(crate) fn module_name_is_core(name: &str) -> bool {
     name == CORE_MODULE
-}
-
-/// Core packages require importing `prelude` in test imports, or the test will
-/// not be able to run.
-pub(crate) fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
-    pkg_json
-        .test_imports
-        .push(moonutil::package::Import::Alias {
-            path: "moonbitlang/core/prelude".into(),
-            alias: Some("prelude".into()),
-            sub_package: false,
-            import_all: false,
-        });
-    pkg_json
 }
 
 fn name_matches(package_fqn: &PackageFQN, target: (&str, &str, &str)) -> bool {

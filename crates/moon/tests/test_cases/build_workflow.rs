@@ -19,6 +19,64 @@
 use super::*;
 
 #[test]
+fn test_warn_redundant_test_imports() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"example/redundant_imports\"\n",
+    )
+    .unwrap();
+    for package in ["dep", "lib"] {
+        std::fs::create_dir(dir.join(package)).unwrap();
+        std::fs::write(dir.join(format!("{package}/moon.pkg")), "").unwrap();
+        std::fs::write(
+            dir.join(format!("{package}/lib.mbt")),
+            "pub fn value() -> Int { 42 }\n",
+        )
+        .unwrap();
+    }
+    for file in ["lib_test.mbt", "lib_wbtest.mbt"] {
+        std::fs::write(
+            dir.join("lib").join(file),
+            "test { inspect(@dep.value(), content=\"42\") }\n",
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        dir.join("lib/moon.pkg"),
+        r#"
+import { "example/redundant_imports/dep" }
+import { "example/redundant_imports/dep" } for "wbtest"
+import { "example/redundant_imports/dep" } for "test"
+"#,
+    )
+    .unwrap();
+    for (command, backend) in [("check", "wasm-gc"), ("test", "native")] {
+        moon_cmd(&dir)
+            .env("MOONBIT_NEW_NATIVE", "0")
+            .args([command, "--target", backend, "--dry-run"])
+            .assert()
+            .success()
+            .stderr_eq(concat!(
+                "Warning: Redundant import of package `example/redundant_imports/dep` in `wbtest-import` of package `example/redundant_imports/lib`; it is already available through `import`.\n",
+                "Warning: Redundant import of package `example/redundant_imports/dep` in `test-import` of package `example/redundant_imports/lib`; it is already available through `import`.\n",
+            ));
+    }
+
+    // Both test kinds still have access to the dependency without repeating it.
+    std::fs::write(
+        dir.join("lib/moon.pkg"),
+        "import { \"example/redundant_imports/dep\" }\n",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["test", "lib", "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 2, passed: 2, failed: 0.\n");
+}
+
+#[test]
 fn test_moon_pkg_normalizes_import_blocks() {
     let dir = TestDir::new_empty();
     std::fs::write(dir.join("moon.mod"), "name = \"example/import_blocks\"\n").unwrap();

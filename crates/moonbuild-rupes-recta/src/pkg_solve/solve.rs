@@ -179,6 +179,21 @@ fn solve_one_package(
         }
     }
 
+    warn_redundant_test_imports(env, pid, pkg_data);
+
+    // Core's implicit test prelude overrides explicit imports, but is not a
+    // manifest declaration to diagnose as redundant.
+    if pkg_data.fqn.module().name() == &CORE_MODULE_TUPLE {
+        let prelude = moonutil::package::Import::Alias {
+            path: "moonbitlang/core/prelude".into(),
+            alias: Some("prelude".into()),
+            sub_package: false,
+            import_all: false,
+        };
+        let resolved = resolve_import(env, mid, pid, &prelude)?;
+        add_dep_edges_for_import(env, pid, resolved, TargetKind::BlackboxTest);
+    }
+
     // Black box tests also add the source package as an import
     insert_black_box_dep(env, pid, pkg_data);
 
@@ -194,6 +209,45 @@ fn solve_one_package(
 
     trace!("Completed solving package {:?}", pid);
     Ok(())
+}
+
+/// Compare the final explicit imports before synthetic dependencies can change aliases.
+fn warn_redundant_test_imports(env: &ResolveEnv<'_>, pid: PackageId, pkg: &DiscoveredPackage) {
+    if pkg.is_stdlib || !moonutil::manifest::should_warn_manifest(&pkg.config_path()) {
+        return;
+    }
+
+    for (kind, field) in [
+        (TargetKind::WhiteboxTest, "wbtest-import"),
+        (TargetKind::BlackboxTest, "test-import"),
+    ] {
+        for (_, dependency, regular) in env
+            .res
+            .dep_graph
+            .edges(pid.build_target(TargetKind::Source))
+        {
+            let Some(test) = env
+                .res
+                .dep_graph
+                .edge_weight(pid.build_target(kind), dependency)
+            else {
+                continue;
+            };
+            // Inherited edges retain Source as their kind. An explicit test import
+            // is redundant only if it preserves both the alias and import-all flag.
+            if test.kind == kind
+                && test.short_alias == regular.short_alias
+                && test.import_all == regular.import_all
+            {
+                env.user_log.warn(format!(
+                    "Redundant import of package `{}` in `{field}` of package `{}`; \
+                     it is already available through `import`.",
+                    env.packages.fqn(dependency.package),
+                    pkg.fqn,
+                ));
+            }
+        }
+    }
 }
 
 /// Add the dependency from black box test to source package.
@@ -285,7 +339,7 @@ struct ResolvedImport<'a> {
 /// Resolve one import item for a given package.
 #[allow(clippy::too_many_arguments)]
 fn resolve_import<'a>(
-    env: &mut ResolveEnv<'a>,
+    env: &ResolveEnv<'a>,
     mid: ModuleId,
     pid: PackageId,
     import: &'a moonutil::package::Import,
@@ -337,7 +391,7 @@ fn resolve_import<'a>(
 
 /// Resolve a package from its import source string, with minimal validation.
 fn resolve_import_raw<'a>(
-    env: &mut ResolveEnv<'a>,
+    env: &ResolveEnv<'a>,
     mid: ModuleId,
     pid: PackageId,
     import_source: &str,

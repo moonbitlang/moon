@@ -377,7 +377,7 @@ fn read_package_from_dsl_with_supported_targets_decl(
 }
 
 /// Avoid emitting manifest warnings for dependency cache files in .mooncakes.
-fn should_warn_manifest(path: &Path) -> bool {
+pub fn should_warn_manifest(path: &Path) -> bool {
     !path
         .components()
         .any(|component| component.as_os_str() == DEP_PATH)

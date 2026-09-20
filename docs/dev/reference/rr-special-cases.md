@@ -16,13 +16,14 @@ important ones and why they exist.
   downstream compilation steps see a builtin package that already contains the
   coverage helpers. This is essential for `builtin` to correctly get code
   coverage support. This is **only available when `--enable-coverage` is set**.
-- **Pin prelude imports for core packages.** Whenever discovery encounters a
-  package under the core module, `add_prelude_as_import_for_core` injects
-  `moonbitlang/core/prelude` into `test_imports`. Without this implicit import,
-  core tests would fail to compile because they rely on the prelude symbols.
 
 ## Solver-time dependency hacks
 
+- **Pin prelude imports for core packages.** After resolving and diagnosing
+  explicit imports, the solver adds `moonbitlang/core/prelude` to each core
+  package's blackbox-test dependencies. This retains its precedence over
+  explicit imports without treating the implicit import as a redundant manifest
+  declaration. Core tests rely on the prelude symbols to compile.
 - **Core packages auto-link coverage.** `pkg_solve::inject_core_coverage_usage`
   wires every non-exempt core package to `moonbitlang/core/coverage` (skipping
   the coverage and builtin packages themselves, plus libraries marked to skip
