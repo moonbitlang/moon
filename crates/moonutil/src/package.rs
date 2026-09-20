@@ -21,8 +21,8 @@ use std::{collections::HashSet, path::PathBuf};
 use anyhow::bail;
 use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use serde_json_lenient::Value;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json_lenient::{Map, Value};
 
 pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
@@ -77,6 +77,14 @@ pub struct MoonPkgFormatter {
     pub ignore: IndexSet<String>,
 }
 
+impl From<MoonPkgFormatterJSON> for MoonPkgFormatter {
+    fn from(config: MoonPkgFormatterJSON) -> Self {
+        Self {
+            ignore: config.ignore.unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum PkgJSONImport {
@@ -109,6 +117,15 @@ pub enum PkgJSONImportItem {
 pub enum BoolOrLink {
     Bool(bool),
     Link(Box<Link>),
+}
+
+impl BoolOrLink {
+    fn into_link(self) -> Option<Link> {
+        match self {
+            Self::Bool(_) => None,
+            Self::Link(link) => Some(*link),
+        }
+    }
 }
 
 /// The kind of a package, declared via `pkgtype(kind: "...")` in `moon.pkg`.
@@ -774,12 +791,10 @@ struct PackageImports {
 }
 
 impl PackageImports {
-    fn take_from_json(json: &mut MoonPkgJSON) -> Self {
-        Self {
-            regular: pkg_json_imports_to_imports(json.import.take()),
-            whitebox: pkg_json_imports_to_imports(json.wbtest_import.take()),
-            blackbox: pkg_json_imports_to_imports(json.test_import.take()),
-        }
+    fn warn_duplicates(&self, user_log: &UserLog) {
+        warn_duplicate_imports(&self.regular, "import", user_log);
+        warn_duplicate_imports(&self.whitebox, "wbtest-import", user_log);
+        warn_duplicate_imports(&self.blackbox, "test-import", user_log);
     }
 
     fn get_mut(&mut self, key: &str) -> Option<(&'static str, &mut Vec<Import>)> {
@@ -819,9 +834,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    // TODO: Remove the legacy JSON adapter for non-import options once moon.pkg
-    // conversion has a typed AST.
-
     // Top-level DSL keys accepted in `moon.pkg`; the boolean says whether
     // repeated entries should be collected as a JSON array instead of rejected.
     let toplevel_keys = std::collections::HashMap::from([
@@ -926,9 +938,101 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         }
         map.insert(String::from("pre-build"), v);
     }
-    let json = Value::Object(map);
-    let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
-    convert_package_with_imports(pkg_json, imports, emit_warnings, user_log)
+    // Decode individual fields after applying DSL/legacy-option precedence.
+    // Keep explicit declarations until their conflicts have been checked.
+    let name: Option<String> = take_dsl_option(&mut map, "name", None)?;
+    let is_main = take_dsl_option(&mut map, "is_main", Some("is-main"))?;
+    let pkgtype = take_dsl_option(&mut map, "pkgtype", None)?;
+    let link = take_dsl_option(&mut map, "link", None)?;
+    let formatter: Option<MoonPkgFormatterJSON> = take_dsl_option(&mut map, "formatter", None)?;
+    let warn_list = take_dsl_option(&mut map, "warn_list", Some("warn-list"))?;
+    let proof_enabled: Option<bool> =
+        take_dsl_option(&mut map, "proof_enabled", Some("proof-enabled"))?;
+    let targets = take_dsl_option(&mut map, "targets", None)?;
+    let pre_build = take_dsl_option(&mut map, "pre_build", Some("pre-build"))?;
+    let local_rules: Option<Vec<MoonModRule>> = take_dsl_option(&mut map, "rule", None)?;
+    let bin_name = take_dsl_option(&mut map, "bin_name", Some("bin-name"))?;
+    let bin_target: Option<String> = take_dsl_option(&mut map, "bin_target", Some("bin-target"))?;
+    let supported_targets =
+        take_dsl_option(&mut map, "supported_targets", Some("supported-targets"))?;
+    let native_stub = take_dsl_option(&mut map, "native_stub", Some("native-stub"))?;
+    let virtual_pkg = take_dsl_option(&mut map, "virtual_pkg", Some("virtual"))?;
+    let implement = take_dsl_option(&mut map, "implement", None)?;
+    let overrides = take_dsl_option(&mut map, "overrides", None)?;
+    let max_concurrent_tests = take_dsl_option(
+        &mut map,
+        "max_concurrent_tests",
+        Some("max-concurrent-tests"),
+    )?;
+    let regex_backend = take_dsl_option(&mut map, "regex_backend", Some("regex-backend"))?;
+    // This legacy option is still type-checked, although it no longer has an effect.
+    let _: Option<bool> = take_dsl_option(&mut map, "test_import_all", Some("test-import-all"))?;
+    // Unknown options are ignored, as they are in moon.pkg.json.
+
+    if emit_warnings {
+        imports.warn_duplicates(user_log);
+    }
+    let (is_main, force_link) = resolve_package_kind(
+        pkgtype.as_ref(),
+        name.as_deref(),
+        is_main,
+        link.as_ref(),
+        emit_warnings,
+        user_log,
+    )?;
+    let bin_target = bin_target
+        .as_deref()
+        .map(TargetBackend::str_to_backend)
+        .transpose()?;
+    let (supported_targets, supported_targets_decl_kind) =
+        resolve_supported_targets(supported_targets.as_ref())?;
+    validate_local_rules(local_rules.as_deref().unwrap_or_default())?;
+
+    Ok((
+        MoonPkg {
+            name: None,
+            is_main,
+            force_link,
+            sub_package: None,
+            imports: imports.regular,
+            wbtest_imports: imports.whitebox,
+            test_imports: imports.blackbox,
+            formatter: formatter.unwrap_or_default().into(),
+            link: link.and_then(BoolOrLink::into_link),
+            warn_list,
+            proof_enabled: proof_enabled.unwrap_or(false),
+            targets,
+            pre_build,
+            bin_name,
+            bin_target,
+            supported_targets,
+            native_stub,
+            virtual_pkg,
+            implement,
+            overrides,
+            max_concurrent_tests,
+            regex_backend,
+            local_rules,
+        },
+        supported_targets_decl_kind,
+    ))
+}
+
+/// Decode one optional DSL field, accepting its legacy spelling while rejecting
+/// duplicate spellings just as the JSON deserializer does.
+fn take_dsl_option<T: DeserializeOwned>(
+    options: &mut Map<String, Value>,
+    name: &str,
+    alias: Option<&str>,
+) -> anyhow::Result<Option<T>> {
+    let value = options.remove(name);
+    let alias_value = alias.and_then(|alias| options.remove(alias));
+    if value.is_some() && alias_value.is_some() {
+        bail!("duplicate field `{name}`");
+    }
+    Ok(serde_json_lenient::from_value(
+        value.or(alias_value).unwrap_or(Value::Null),
+    )?)
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
@@ -954,35 +1058,75 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
 }
 
 pub fn convert_pkg_json_to_package_with_supported_targets_decl(
-    mut j: MoonPkgJSON,
+    j: MoonPkgJSON,
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    let imports = PackageImports::take_from_json(&mut j);
-    convert_package_with_imports(j, imports, emit_warnings, user_log)
+    let imports = PackageImports {
+        regular: pkg_json_imports_to_imports(j.import),
+        whitebox: pkg_json_imports_to_imports(j.wbtest_import),
+        blackbox: pkg_json_imports_to_imports(j.test_import),
+    };
+    if emit_warnings {
+        imports.warn_duplicates(user_log);
+    }
+
+    let (is_main, force_link) = resolve_package_kind(
+        j.pkgtype.as_ref(),
+        j.name.as_deref(),
+        j.is_main,
+        j.link.as_ref(),
+        emit_warnings,
+        user_log,
+    )?;
+    let bin_target = j
+        .bin_target
+        .as_deref()
+        .map(TargetBackend::str_to_backend)
+        .transpose()?;
+    let (supported_backends, supported_targets_decl_kind) =
+        resolve_supported_targets(j.supported_targets.as_ref())?;
+    validate_local_rules(j.rule.as_deref().unwrap_or_default())?;
+
+    let result = MoonPkg {
+        name: None,
+        is_main,
+        force_link,
+        sub_package: None,
+        imports: imports.regular,
+        wbtest_imports: imports.whitebox,
+        test_imports: imports.blackbox,
+        formatter: j.formatter.unwrap_or_default().into(),
+        link: j.link.and_then(BoolOrLink::into_link),
+        warn_list: j.warn_list,
+        proof_enabled: j.proof_enabled.unwrap_or(false),
+        targets: j.targets,
+        pre_build: j.pre_build,
+        bin_name: j.bin_name,
+        bin_target,
+        supported_targets: supported_backends,
+        native_stub: j.native_stub,
+        virtual_pkg: j.virtual_pkg,
+        implement: j.implement,
+        overrides: j.overrides,
+        max_concurrent_tests: j.max_concurrent_tests,
+        regex_backend: j.regex_backend,
+        local_rules: j.rule,
+    };
+    Ok((result, supported_targets_decl_kind))
 }
 
-fn convert_package_with_imports(
-    j: MoonPkgJSON,
-    imports: PackageImports,
+fn resolve_package_kind(
+    pkgtype: Option<&PkgType>,
+    name: Option<&str>,
+    is_main: Option<bool>,
+    link: Option<&BoolOrLink>,
     emit_warnings: bool,
     user_log: &UserLog,
-) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    if emit_warnings {
-        warn_duplicate_imports(&imports.regular, "import", user_log);
-        warn_duplicate_imports(&imports.whitebox, "wbtest-import", user_log);
-        warn_duplicate_imports(&imports.blackbox, "test-import", user_log);
-    }
-    let formatter_cfg = j.formatter.unwrap_or_default();
-    let formatter = MoonPkgFormatter {
-        ignore: formatter_cfg.ignore.unwrap_or_default(),
-    };
-
+) -> anyhow::Result<(bool, bool)> {
     // Legacy `is-main`, including the deprecated `name == "main"` alias.
-    let mut legacy_is_main = j.is_main.unwrap_or(false);
-    if let Some(name) = &j.name
-        && name == "main"
-    {
+    let mut legacy_is_main = is_main.unwrap_or(false);
+    if name == Some("main") {
         legacy_is_main = true;
         if emit_warnings {
             let warning = "The `name` field in `moon.pkg` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information.";
@@ -991,7 +1135,7 @@ fn convert_package_with_imports(
     }
     // Legacy `force_link` from the boolean `link: true` (a structured
     // `link: { ... }` config is not a force-link signal).
-    let legacy_force_link = match &j.link {
+    let legacy_force_link = match link {
         None => false,
         Some(BoolOrLink::Bool(b)) => *b,
         Some(BoolOrLink::Link(_)) => false,
@@ -1001,10 +1145,10 @@ fn convert_package_with_imports(
     // `link: true` flags are honored only as a fallback during migration; an
     // explicitly-set legacy flag that contradicts `pkgtype` is a hard error,
     // while a redundant-but-consistent one only warns.
-    let (is_main, force_link) = match j.pkgtype.as_ref().map(|p| p.kind) {
+    let flags = match pkgtype.map(|p| p.kind) {
         Some(kind) => {
             let (want_main, want_force_link) = kind.to_flags();
-            if let Some(is_main_flag) = j.is_main {
+            if let Some(is_main_flag) = is_main {
                 if is_main_flag != want_main {
                     bail!(
                         "`pkgtype(kind: \"{}\")` conflicts with `is-main: {}` in moon.pkg.",
@@ -1019,7 +1163,7 @@ fn convert_package_with_imports(
                     user_log.warn(warning);
                 }
             }
-            if let Some(BoolOrLink::Bool(link_flag)) = &j.link {
+            if let Some(BoolOrLink::Bool(link_flag)) = link {
                 if *link_flag != want_force_link {
                     bail!(
                         "`pkgtype(kind: \"{}\")` conflicts with `link: {}` in moon.pkg.",
@@ -1039,55 +1183,17 @@ fn convert_package_with_imports(
         }
         None => (legacy_is_main, legacy_force_link),
     };
+    Ok(flags)
+}
 
-    let bin_target = j
-        .bin_target
-        .as_ref()
-        .map(|s| TargetBackend::str_to_backend(s))
-        .transpose()?;
-
-    let (supported_backends, supported_targets_decl_kind) =
-        resolve_supported_targets(j.supported_targets.as_ref())?;
-
-    if let Some(rules) = &j.rule {
-        let mut names = HashSet::new();
-        for rule in rules {
-            if !names.insert(rule.name.as_str()) {
-                bail!("Duplicate rule name `{}` found in moon.pkg.", rule.name);
-            }
+fn validate_local_rules(rules: &[MoonModRule]) -> anyhow::Result<()> {
+    let mut names = HashSet::new();
+    for rule in rules {
+        if !names.insert(rule.name.as_str()) {
+            bail!("Duplicate rule name `{}` found in moon.pkg.", rule.name);
         }
     }
-
-    let result = MoonPkg {
-        name: None,
-        is_main,
-        force_link,
-        sub_package: None,
-        imports: imports.regular,
-        wbtest_imports: imports.whitebox,
-        test_imports: imports.blackbox,
-        formatter,
-        link: match j.link {
-            None => None,
-            Some(BoolOrLink::Bool(_)) => None,
-            Some(BoolOrLink::Link(l)) => Some(*l),
-        },
-        warn_list: j.warn_list,
-        proof_enabled: j.proof_enabled.unwrap_or(false),
-        targets: j.targets,
-        pre_build: j.pre_build,
-        bin_name: j.bin_name,
-        bin_target,
-        supported_targets: supported_backends,
-        native_stub: j.native_stub,
-        virtual_pkg: j.virtual_pkg,
-        implement: j.implement,
-        overrides: j.overrides,
-        max_concurrent_tests: j.max_concurrent_tests,
-        regex_backend: j.regex_backend,
-        local_rules: j.rule,
-    };
-    Ok((result, supported_targets_decl_kind))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1112,6 +1218,191 @@ fn convert_test_pkg_json(
         emit_warnings,
         &UserLog::new(log::LevelFilter::Error),
     )
+}
+
+#[cfg(test)]
+fn assert_pkg_dsl_matches_json(source: &str, json: Value) {
+    for emit_warnings in [false, true] {
+        let (dsl_log, dsl_capture) = UserLog::captured(log::LevelFilter::Warn);
+        let (json_log, json_capture) = UserLog::captured(log::LevelFilter::Warn);
+        let (actual, actual_decl) = convert_pkg_dsl_to_package_with_supported_targets_decl(
+            moon_pkg::parse(source).unwrap(),
+            emit_warnings,
+            &dsl_log,
+        )
+        .unwrap();
+        let (expected, expected_decl) = convert_pkg_json_to_package_with_supported_targets_decl(
+            serde_json_lenient::from_value(json.clone()).unwrap(),
+            emit_warnings,
+            &json_log,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json_lenient::to_value(actual).unwrap(),
+            serde_json_lenient::to_value(expected).unwrap(),
+            "{source}",
+        );
+        assert_eq!(actual_decl, expected_decl, "{source}");
+        assert_eq!(
+            dsl_capture
+                .take()
+                .into_iter()
+                .map(|w| w.message)
+                .collect::<Vec<_>>(),
+            json_capture
+                .take()
+                .into_iter()
+                .map(|w| w.message)
+                .collect::<Vec<_>>(),
+            "{source}",
+        );
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_matches_json_fields_and_defaults() {
+    assert_pkg_dsl_matches_json("", serde_json_lenient::json!({}));
+    assert_pkg_dsl_matches_json(
+        r#"
+import { "example/first", "example/first" @again }
+import { "example/second" }
+import { "example/test" } for "test"
+import { "example/whitebox" } for "wbtest"
+pkgtype(kind: "foreign_library")
+formatter(ignore: ["generated.mbt"])
+warnings = "+1"
+supported_targets = "all-js"
+rule(name: "first", command: "first $input $output")
+rule(name: "second", command: "second $input $output")
+dev_build(rule: "first", input: "a", output: "b")
+dev_build(input: "b", output: "c", command: "generate")
+options(
+  "is-main": false,
+  link: { "wasm": { "heap-start-address": 2214592512 } },
+  "warn-list": "-2",
+  "proof-enabled": true,
+  targets: { "native.mbt": "native" },
+  "bin-name": "app",
+  "bin-target": "wasm-gc",
+  "native-stub": ["stub.c"],
+  virtual: { "has-default": true },
+  implement: "example/virtual",
+  overrides: ["example/impl"],
+  "max-concurrent-tests": 8,
+  "regex-backend": "table",
+  "unknown-option": true,
+)
+"#,
+        serde_json_lenient::json!({
+            "import": ["example/first", {"path": "example/first", "alias": "again"}, "example/second"],
+            "test-import": ["example/test"],
+            "wbtest-import": ["example/whitebox"],
+            "pkgtype": {"kind": "foreign_library"},
+            "formatter": {"ignore": ["generated.mbt"]},
+            "warn-list": "+1-2",
+            "supported-targets": "all-js",
+            "rule": [
+                {"name": "first", "command": "first $input $output"},
+                {"name": "second", "command": "second $input $output"},
+            ],
+            "pre-build": [
+                {"rule": "first", "input": "a", "output": "b"},
+                {"input": "b", "output": "c", "command": "generate"},
+            ],
+            "is-main": false,
+            "link": {"wasm": {"heap-start-address": 2214592512_u32}},
+            "proof-enabled": true,
+            "targets": {"native.mbt": "native"},
+            "bin-name": "app",
+            "bin-target": "wasm-gc",
+            "native-stub": ["stub.c"],
+            "virtual": {"has-default": true},
+            "implement": "example/virtual",
+            "overrides": ["example/impl"],
+            "max-concurrent-tests": 8,
+            "regex-backend": "table",
+        }),
+    );
+}
+
+#[test]
+fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
+    for (key, value) in [
+        ("is_main", "true"),
+        ("test_import_all", "false"),
+        ("warn_list", r#""+1""#),
+        ("proof_enabled", "true"),
+        (
+            "pre_build",
+            r#"[{"input": "a", "output": "b", "command": "generate"}]"#,
+        ),
+        ("bin_name", r#""app""#),
+        ("bin_target", r#""wasm""#),
+        ("native_stub", r#"["stub.c"]"#),
+        ("virtual_pkg", r#"{"has-default": true}"#),
+        ("max_concurrent_tests", "4294967295"),
+        ("regex_backend", r#""runtime""#),
+    ] {
+        let alias = if key == "virtual_pkg" {
+            "virtual".to_string()
+        } else {
+            key.replace('_', "-")
+        };
+        for spelling in [key, &alias] {
+            let source = format!(r#"options("{spelling}": {value})"#);
+            let json = serde_json_lenient::from_str(&format!(r#"{{"{key}": {value}}}"#)).unwrap();
+            assert_pkg_dsl_matches_json(&source, json);
+
+            let source = format!(r#"options("{spelling}": {{}})"#);
+            let json =
+                serde_json_lenient::from_str::<MoonPkgJSON>(&format!(r#"{{"{key}": {{}}}}"#));
+            assert!(json.is_err(), "{key}");
+            assert!(
+                convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), false).is_err(),
+                "{source}"
+            );
+        }
+        let source = format!(r#"options("{key}": {value}, "{alias}": {value})"#);
+        let error = convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), false).unwrap_err();
+        assert_eq!(error.to_string(), format!("duplicate field `{key}`"));
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_preserves_options_precedence() {
+    assert_pkg_dsl_matches_json(
+        r#"
+pkgtype(kind: "library")
+formatter(ignore: ["original.mbt"])
+rule(name: "original", command: "original")
+options(
+  pkgtype: { "kind": "executable" },
+  formatter: { "ignore": ["replacement.mbt"] },
+  rule: [],
+)
+"#,
+        serde_json_lenient::json!({
+            "pkgtype": {"kind": "executable"},
+            "formatter": {"ignore": ["replacement.mbt"]},
+            "rule": [],
+        }),
+    );
+    for (source, json) in [
+        (
+            r#"options(name: "main")"#,
+            serde_json_lenient::json!({"name": "main"}),
+        ),
+        (
+            r#"options(link: true)"#,
+            serde_json_lenient::json!({"link": true}),
+        ),
+        (
+            r#"supported_targets = ["wasm", "js"]"#,
+            serde_json_lenient::json!({"supported-targets": ["wasm", "js"]}),
+        ),
+    ] {
+        assert_pkg_dsl_matches_json(source, json);
+    }
 }
 
 #[test]
