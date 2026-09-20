@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use log::{debug, trace};
-use moonutil::constants::MOONBITLANG_COVERAGE;
+use moonutil::constants::{MOONBITLANG_CORE_PRELUDE, MOONBITLANG_COVERAGE};
 use moonutil::resolution::{ModuleId, ResolvedEnv};
 use tracing::info;
 
@@ -185,7 +185,7 @@ fn solve_one_package(
     // manifest declaration to diagnose as redundant.
     if pkg_data.fqn.module().name() == &CORE_MODULE_TUPLE {
         let prelude = moonutil::package::Import::Alias {
-            path: "moonbitlang/core/prelude".into(),
+            path: MOONBITLANG_CORE_PRELUDE.into(),
             alias: Some("prelude".into()),
             sub_package: false,
             import_all: false,
@@ -590,7 +590,7 @@ fn inject_prelude_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
     // Resolve prelude package id
     let Some(prelude_pid) = env
         .packages
-        .get_package_id_by_name("moonbitlang/core/prelude")
+        .get_package_id_by_name(MOONBITLANG_CORE_PRELUDE)
     else {
         return; // no-std scenario
     };
