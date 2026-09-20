@@ -1143,6 +1143,168 @@ mod tests {
     }
 
     #[test]
+    fn registry_index_update_keeps_full_and_shallow_clones_shallow() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let source = registry.path().join("source");
+        let source = source.to_str().unwrap();
+        let bare = registry.path().join("index.git");
+        let bare = bare.to_str().unwrap();
+        let indexes = [
+            checkout.path().join("full"),
+            checkout.path().join("shallow"),
+        ];
+        run_git(&[
+            "clone",
+            "--quiet",
+            &config.index,
+            indexes[0].to_str().unwrap(),
+        ]);
+        clone_registry_index(&config, &indexes[1]).unwrap();
+        for index in &indexes {
+            run_git(&[
+                "-C",
+                index.to_str().unwrap(),
+                "config",
+                "pull.rebase",
+                "true",
+            ]);
+            // Registry updates must select main even if the configured fetch
+            // mapping names a different branch.
+            run_git(&[
+                "-C",
+                index.to_str().unwrap(),
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/side-branch:refs/remotes/origin/side-branch",
+            ]);
+        }
+
+        run_git(&["-C", source, "mv", "index-version", "renamed-index-version"]);
+        run_git(&["-C", source, "commit", "--quiet", "-m", "rename entry"]);
+        run_git(&["-C", source, "tag", "new-tag"]);
+        run_git(&["-C", source, "push", "--quiet", bare, "main", "new-tag"]);
+        let expected = run_git_query(Path::new(source), &["rev-parse", "HEAD"]).unwrap();
+
+        for index in indexes {
+            let outcome = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+            assert_eq!(outcome, RegistryIndexUpdate::Updated);
+            assert_eq!(
+                run_git_query(&index, &["rev-parse", "HEAD"])
+                    .unwrap()
+                    .stdout,
+                expected.stdout
+            );
+            assert_eq!(
+                run_git_query(&index, &["rev-parse", "origin/main"])
+                    .unwrap()
+                    .stdout,
+                expected.stdout
+            );
+            assert_eq!(
+                run_git_query(&index, &["rev-list", "--count", "HEAD"])
+                    .unwrap()
+                    .stdout,
+                "1"
+            );
+            assert!(
+                run_git_query(&index, &["tag", "--list"])
+                    .unwrap()
+                    .stdout
+                    .is_empty()
+            );
+            assert!(!index.join("index-version").exists());
+            assert_eq!(
+                std::fs::read_to_string(index.join("renamed-index-version")).unwrap(),
+                "two"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_index_update_follows_rewritten_main_without_recloning() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let index = checkout.path().join("index");
+        clone_registry_index(&config, &index).unwrap();
+        let source = registry.path().join("source");
+        let source = source.to_str().unwrap();
+        run_git(&["-C", source, "reset", "--hard", "HEAD~1"]);
+        std::fs::write(Path::new(source).join("index-version"), "rewritten").unwrap();
+        run_git(&["-C", source, "commit", "--quiet", "-am", "rewrite main"]);
+        run_git(&[
+            "-C",
+            source,
+            "push",
+            "--quiet",
+            "--force",
+            registry.path().join("index.git").to_str().unwrap(),
+            "main",
+        ]);
+        // Resetting the managed cache must not depend on a user's pull policy.
+        run_git(&["-C", index.to_str().unwrap(), "config", "pull.ff", "only"]);
+
+        let outcome = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+        assert_eq!(outcome, RegistryIndexUpdate::Updated);
+        assert_eq!(
+            std::fs::read_to_string(index.join("index-version")).unwrap(),
+            "rewritten"
+        );
+        assert_eq!(
+            run_git_query(&index, &["rev-list", "--count", "HEAD"])
+                .unwrap()
+                .stdout,
+            "1"
+        );
+    }
+
+    #[test]
+    fn registry_index_update_preserves_checkout_when_fetch_fails() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let index = checkout.path().join("index");
+        clone_registry_index(&config, &index).unwrap();
+        let original = run_git_query(&index, &["rev-parse", "HEAD"])
+            .unwrap()
+            .stdout;
+        // Seed a different FETCH_HEAD to catch a reset after a failed fetch.
+        run_git(&[
+            "-C",
+            index.to_str().unwrap(),
+            "fetch",
+            "--unshallow",
+            "origin",
+            "main",
+        ]);
+        run_git(&["-C", index.to_str().unwrap(), "reset", "--hard", "HEAD~1"]);
+        let previous = run_git_query(&index, &["rev-parse", "HEAD"])
+            .unwrap()
+            .stdout;
+        assert_ne!(previous, original);
+        std::fs::write(index.join("index-version"), "preserve local contents").unwrap();
+        run_git(&[
+            "-C",
+            index.to_str().unwrap(),
+            "remote",
+            "set-url",
+            "origin",
+            registry.path().join("missing.git").to_str().unwrap(),
+        ]);
+
+        assert!(pull_latest_registry_index(&index).is_err());
+        assert_eq!(
+            run_git_query(&index, &["rev-parse", "HEAD"])
+                .unwrap()
+                .stdout,
+            previous
+        );
+        assert_eq!(
+            std::fs::read_to_string(index.join("index-version")).unwrap(),
+            "preserve local contents"
+        );
+    }
+
+    #[test]
     fn registry_index_pull_does_not_deadlock_on_large_output() {
         let (registry, config) = registry_with_history();
         let checkout = tempfile::tempdir().unwrap();
