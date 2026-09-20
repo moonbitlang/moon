@@ -32,8 +32,9 @@ Cyclic dependencies are currently prohibited both in module and package level.
 fields; it does not construct an intermediate `MoonPkgJSON`. Legacy
 `moon.pkg.json` files use their own `MoonPkgJSON` converter. Both converters share
 package-kind resolution, import warnings, formatter defaults, and rule validation.
-The DSL converter applies `options(...)` overrides before decoding fields and
-preserves legacy option aliases and type checks. Unknown options are ignored.
+DSL normalization combines declarations and applies `options(...)` overrides.
+The converter then reads the normalized fields without mutating the map,
+preserving legacy option aliases and type checks. Unknown options are ignored.
 
 In `moon.pkg`, multiple unconditional import blocks are combined in source order,
 separately for regular, test, and whitebox-test imports. Legacy import fields in

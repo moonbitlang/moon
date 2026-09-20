@@ -829,11 +829,12 @@ pub fn convert_pkg_dsl_to_package(
     Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true, user_log)?.0)
 }
 
-pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
+/// Collect declarations and apply legacy option precedence before decoding fields.
+fn normalize_pkg_dsl(
     dsl: moon_pkg::Dsl,
     emit_warnings: bool,
     user_log: &UserLog,
-) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
+) -> anyhow::Result<(Map<String, Value>, PackageImports)> {
     // Top-level DSL keys accepted in `moon.pkg`; the boolean says whether
     // repeated entries should be collected as a JSON array instead of rejected.
     let toplevel_keys = std::collections::HashMap::from([
@@ -938,35 +939,39 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         }
         map.insert(String::from("pre-build"), v);
     }
-    // Decode individual fields after applying DSL/legacy-option precedence.
+    Ok((map, imports))
+}
+
+pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
+    dsl: moon_pkg::Dsl,
+    emit_warnings: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
+    let (map, imports) = normalize_pkg_dsl(dsl, emit_warnings, user_log)?;
     // Keep explicit declarations until their conflicts have been checked.
-    let name: Option<String> = take_dsl_option(&mut map, "name", None)?;
-    let is_main = take_dsl_option(&mut map, "is_main", Some("is-main"))?;
-    let pkgtype = take_dsl_option(&mut map, "pkgtype", None)?;
-    let link = take_dsl_option(&mut map, "link", None)?;
-    let formatter: Option<MoonPkgFormatterJSON> = take_dsl_option(&mut map, "formatter", None)?;
-    let warn_list = take_dsl_option(&mut map, "warn_list", Some("warn-list"))?;
+    let name: Option<String> = read_dsl_option(&map, "name", None)?;
+    let is_main = read_dsl_option(&map, "is_main", Some("is-main"))?;
+    let pkgtype = read_dsl_option(&map, "pkgtype", None)?;
+    let link = read_dsl_option(&map, "link", None)?;
+    let formatter: Option<MoonPkgFormatterJSON> = read_dsl_option(&map, "formatter", None)?;
+    let warn_list = read_dsl_option(&map, "warn_list", Some("warn-list"))?;
     let proof_enabled: Option<bool> =
-        take_dsl_option(&mut map, "proof_enabled", Some("proof-enabled"))?;
-    let targets = take_dsl_option(&mut map, "targets", None)?;
-    let pre_build = take_dsl_option(&mut map, "pre_build", Some("pre-build"))?;
-    let local_rules: Option<Vec<MoonModRule>> = take_dsl_option(&mut map, "rule", None)?;
-    let bin_name = take_dsl_option(&mut map, "bin_name", Some("bin-name"))?;
-    let bin_target: Option<String> = take_dsl_option(&mut map, "bin_target", Some("bin-target"))?;
-    let supported_targets =
-        take_dsl_option(&mut map, "supported_targets", Some("supported-targets"))?;
-    let native_stub = take_dsl_option(&mut map, "native_stub", Some("native-stub"))?;
-    let virtual_pkg = take_dsl_option(&mut map, "virtual_pkg", Some("virtual"))?;
-    let implement = take_dsl_option(&mut map, "implement", None)?;
-    let overrides = take_dsl_option(&mut map, "overrides", None)?;
-    let max_concurrent_tests = take_dsl_option(
-        &mut map,
-        "max_concurrent_tests",
-        Some("max-concurrent-tests"),
-    )?;
-    let regex_backend = take_dsl_option(&mut map, "regex_backend", Some("regex-backend"))?;
+        read_dsl_option(&map, "proof_enabled", Some("proof-enabled"))?;
+    let targets = read_dsl_option(&map, "targets", None)?;
+    let pre_build = read_dsl_option(&map, "pre_build", Some("pre-build"))?;
+    let local_rules: Option<Vec<MoonModRule>> = read_dsl_option(&map, "rule", None)?;
+    let bin_name = read_dsl_option(&map, "bin_name", Some("bin-name"))?;
+    let bin_target: Option<String> = read_dsl_option(&map, "bin_target", Some("bin-target"))?;
+    let supported_targets = read_dsl_option(&map, "supported_targets", Some("supported-targets"))?;
+    let native_stub = read_dsl_option(&map, "native_stub", Some("native-stub"))?;
+    let virtual_pkg = read_dsl_option(&map, "virtual_pkg", Some("virtual"))?;
+    let implement = read_dsl_option(&map, "implement", None)?;
+    let overrides = read_dsl_option(&map, "overrides", None)?;
+    let max_concurrent_tests =
+        read_dsl_option(&map, "max_concurrent_tests", Some("max-concurrent-tests"))?;
+    let regex_backend = read_dsl_option(&map, "regex_backend", Some("regex-backend"))?;
     // This legacy option is still type-checked, although it no longer has an effect.
-    let _: Option<bool> = take_dsl_option(&mut map, "test_import_all", Some("test-import-all"))?;
+    let _: Option<bool> = read_dsl_option(&map, "test_import_all", Some("test-import-all"))?;
     // Unknown options are ignored, as they are in moon.pkg.json.
 
     if emit_warnings {
@@ -1020,19 +1025,20 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
 
 /// Decode one optional DSL field, accepting its legacy spelling while rejecting
 /// duplicate spellings just as the JSON deserializer does.
-fn take_dsl_option<T: DeserializeOwned>(
-    options: &mut Map<String, Value>,
+fn read_dsl_option<T: DeserializeOwned>(
+    options: &Map<String, Value>,
     name: &str,
     alias: Option<&str>,
 ) -> anyhow::Result<Option<T>> {
-    let value = options.remove(name);
-    let alias_value = alias.and_then(|alias| options.remove(alias));
+    let value = options.get(name);
+    let alias_value = alias.and_then(|alias| options.get(alias));
     if value.is_some() && alias_value.is_some() {
         bail!("duplicate field `{name}`");
     }
-    Ok(serde_json_lenient::from_value(
-        value.or(alias_value).unwrap_or(Value::Null),
-    )?)
+    match value.or(alias_value) {
+        Some(value) => Ok(Option::<T>::deserialize(value)?),
+        None => Ok(None),
+    }
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
