@@ -409,7 +409,7 @@ fn log_sync_outcome(outcome: UpdateOutcome, user_log: &UserLog) {
         RegistryIndexUpdate::Updated => user_log.status("Registry index updated successfully"),
         RegistryIndexUpdate::Recloned(reason) => {
             let reason = match reason {
-                RegistryIndexRecloneReason::PullFailed => "Failed to update registry index",
+                RegistryIndexRecloneReason::UpdateFailed => "Failed to update registry index",
                 RegistryIndexRecloneReason::RemoteMismatch => {
                     "Registry index remote does not match the configured URL"
                 }

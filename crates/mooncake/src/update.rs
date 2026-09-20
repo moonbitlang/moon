@@ -71,7 +71,7 @@ impl std::fmt::Display for CommandOutput {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegistryIndexRecloneReason {
-    PullFailed,
+    UpdateFailed,
     RemoteMismatch,
     NotGitRepository,
     MissingOrigin,
@@ -251,51 +251,23 @@ fn safe_reclone_registry_index(
     Ok(())
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("failed to pull latest registry index")]
-struct PullLatestRegistryIndexError {
-    #[source]
-    source: PullLatestRegistryIndexErrorKind,
-}
-
-#[derive(Debug, thiserror::Error)]
-enum PullLatestRegistryIndexErrorKind {
-    #[error(transparent)]
-    GitCommandError(GitCommandError),
-
-    #[error(transparent)]
-    IO(#[from] std::io::Error),
-
-    #[error("non-zero exit code: {status}{output}")]
-    NonZeroExitCode {
-        status: std::process::ExitStatus,
-        output: CommandOutput,
-    },
-}
-
-fn pull_latest_registry_index(target_dir: &Path) -> Result<(), PullLatestRegistryIndexError> {
-    let child = moonutil::git::git_command(
-        &["-C", target_dir.to_str().unwrap(), "pull", "origin", "main"],
-        Stdios::npp(),
-    )
-    .map_err(|e| PullLatestRegistryIndexError {
-        source: PullLatestRegistryIndexErrorKind::GitCommandError(e),
-    })?;
-    // Drain the piped output while waiting; a plain `wait` deadlocks once git
-    // fills the pipe buffer, e.g. with the diffstat of a large fast-forward.
-    let output = child
-        .wait_with_output()
-        .map_err(|e| PullLatestRegistryIndexError {
-            source: PullLatestRegistryIndexErrorKind::IO(e),
-        })?;
-    if !output.status.success() {
-        return Err(PullLatestRegistryIndexError {
-            source: PullLatestRegistryIndexErrorKind::NonZeroExitCode {
-                status: output.status,
-                output: CommandOutput::from_output(&output),
-            },
-        });
-    }
+fn fetch_and_reset_registry_index(target_dir: &Path) -> Result<(), RegistryGitError> {
+    // Only the current index snapshot is needed. Select main explicitly and
+    // allow rewritten history without depending on the user's pull policy.
+    run_registry_git(
+        target_dir,
+        &[
+            "fetch",
+            "--depth=1",
+            "--no-tags",
+            "--no-recurse-submodules",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+        ],
+    )?;
+    // This is a managed cache: replace its tracked state, but only after a
+    // successful fetch so a failure cannot reset it to a stale FETCH_HEAD.
+    run_registry_git(target_dir, &["reset", "--hard", "--quiet", "FETCH_HEAD"])?;
     Ok(())
 }
 
@@ -312,24 +284,21 @@ enum UpdateErrorKind {
     CloneRegistryIndexError(#[from] CloneRegistryIndexError),
 
     #[error(transparent)]
-    PullLatestRegistryIndexError(#[from] PullLatestRegistryIndexError),
-
-    #[error(transparent)]
-    InspectRegistryIndexError(#[from] InspectRegistryIndexError),
+    RegistryGitError(#[from] RegistryGitError),
 
     #[error(transparent)]
     IO(#[from] std::io::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("failed to inspect registry index")]
-struct InspectRegistryIndexError {
+#[error("failed to access registry index")]
+struct RegistryGitError {
     #[source]
-    source: InspectRegistryIndexErrorKind,
+    source: RegistryGitErrorKind,
 }
 
 #[derive(Debug, thiserror::Error)]
-enum InspectRegistryIndexErrorKind {
+enum RegistryGitErrorKind {
     #[error(transparent)]
     GitCommandError(#[from] GitCommandError),
 
@@ -351,23 +320,21 @@ enum RegistryIndexState {
     Ready { remote_url: String },
 }
 
-fn run_git_query(
-    target_dir: &Path,
-    args: &[&str],
-) -> Result<CommandOutput, InspectRegistryIndexError> {
+fn run_registry_git(target_dir: &Path, args: &[&str]) -> Result<CommandOutput, RegistryGitError> {
     let mut command = vec!["-C", target_dir.to_str().unwrap()];
     command.extend_from_slice(args);
     let output = moonutil::git::git_command(&command, Stdios::npp())
-        .map_err(|e| InspectRegistryIndexError {
-            source: InspectRegistryIndexErrorKind::GitCommandError(e),
+        .map_err(|e| RegistryGitError {
+            source: RegistryGitErrorKind::GitCommandError(e),
         })?
+        // Drain both pipes while waiting, even when a command is normally quiet.
         .wait_with_output()
-        .map_err(|e| InspectRegistryIndexError {
-            source: InspectRegistryIndexErrorKind::IO(e),
+        .map_err(|e| RegistryGitError {
+            source: RegistryGitErrorKind::IO(e),
         })?;
     if !output.status.success() {
-        return Err(InspectRegistryIndexError {
-            source: InspectRegistryIndexErrorKind::NonZeroExitCode {
+        return Err(RegistryGitError {
+            source: RegistryGitErrorKind::NonZeroExitCode {
                 command: command.join(" "),
                 status: output.status,
                 output: CommandOutput::from_output(&output),
@@ -377,45 +344,43 @@ fn run_git_query(
     Ok(CommandOutput::from_output(&output))
 }
 
-fn inspect_registry_index(
-    target_dir: &Path,
-) -> Result<RegistryIndexState, InspectRegistryIndexError> {
+fn inspect_registry_index(target_dir: &Path) -> Result<RegistryIndexState, RegistryGitError> {
     if !target_dir
         .join(".git")
         .try_exists()
-        .map_err(|e| InspectRegistryIndexError {
-            source: InspectRegistryIndexErrorKind::IO(e),
+        .map_err(|e| RegistryGitError {
+            source: RegistryGitErrorKind::IO(e),
         })?
     {
         return Ok(RegistryIndexState::NotGitRepository);
     }
 
-    let inside_work_tree = run_git_query(target_dir, &["rev-parse", "--is-inside-work-tree"])?;
+    let inside_work_tree = run_registry_git(target_dir, &["rev-parse", "--is-inside-work-tree"])?;
     if inside_work_tree.stdout != "true" {
         return Ok(RegistryIndexState::NotGitRepository);
     }
 
-    let remotes = run_git_query(target_dir, &["remote"])?;
+    let remotes = run_registry_git(target_dir, &["remote"])?;
     if !remotes.stdout.lines().any(|remote| remote == "origin") {
         return Ok(RegistryIndexState::MissingOrigin);
     }
 
     // Git fetch uses the first configured URL. Read all effective raw values
     // to preserve that ordering without applying `url.*.insteadOf` rewrites.
-    let remote_urls = match run_git_query(target_dir, &["config", "--get-all", "remote.origin.url"])
-    {
-        Ok(output) => output,
-        Err(error)
-            if matches!(
-                &error.source,
-                InspectRegistryIndexErrorKind::NonZeroExitCode { status, .. }
-                    if status.code() == Some(1)
-            ) =>
-        {
-            return Ok(RegistryIndexState::MissingOrigin);
-        }
-        Err(error) => return Err(error),
-    };
+    let remote_urls =
+        match run_registry_git(target_dir, &["config", "--get-all", "remote.origin.url"]) {
+            Ok(output) => output,
+            Err(error)
+                if matches!(
+                    &error.source,
+                    RegistryGitErrorKind::NonZeroExitCode { status, .. }
+                        if status.code() == Some(1)
+                ) =>
+            {
+                return Ok(RegistryIndexState::MissingOrigin);
+            }
+            Err(error) => return Err(error),
+        };
     let Some(remote_url) = remote_urls.stdout.lines().next() else {
         return Ok(RegistryIndexState::MissingOrigin);
     };
@@ -755,14 +720,14 @@ fn update_registry_index(
         source: UpdateErrorKind::IO(e),
     })? {
         let state = inspect_registry_index(target_dir).map_err(|e| UpdateError {
-            source: UpdateErrorKind::InspectRegistryIndexError(e),
+            source: UpdateErrorKind::RegistryGitError(e),
         })?;
         let reclone_reason = match state {
             RegistryIndexState::Ready { remote_url } if remote_url == registry_config.index => {
-                if pull_latest_registry_index(target_dir).is_ok() {
+                if fetch_and_reset_registry_index(target_dir).is_ok() {
                     return Ok(RegistryIndexUpdate::Updated);
                 }
-                RegistryIndexRecloneReason::PullFailed
+                RegistryIndexRecloneReason::UpdateFailed
             }
             RegistryIndexState::Ready { .. } => RegistryIndexRecloneReason::RemoteMismatch,
             RegistryIndexState::NotGitRepository => RegistryIndexRecloneReason::NotGitRepository,
@@ -1127,14 +1092,14 @@ mod tests {
 
         clone_registry_index(&config, &index).unwrap();
 
-        let shallow = run_git_query(&index, &["rev-parse", "--is-shallow-repository"]).unwrap();
+        let shallow = run_registry_git(&index, &["rev-parse", "--is-shallow-repository"]).unwrap();
         assert_eq!(shallow.stdout, "true");
-        let commits = run_git_query(&index, &["rev-list", "--count", "HEAD"]).unwrap();
+        let commits = run_registry_git(&index, &["rev-list", "--count", "HEAD"]).unwrap();
         assert_eq!(commits.stdout, "1");
         let tag_option =
-            run_git_query(&index, &["config", "--get", "remote.origin.tagOpt"]).unwrap();
+            run_registry_git(&index, &["config", "--get", "remote.origin.tagOpt"]).unwrap();
         assert_eq!(tag_option.stdout, "--no-tags");
-        let branches = run_git_query(
+        let branches = run_registry_git(
             &index,
             &["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
         )
@@ -1143,14 +1108,176 @@ mod tests {
     }
 
     #[test]
-    fn registry_index_pull_does_not_deadlock_on_large_output() {
+    fn registry_index_update_keeps_full_and_shallow_clones_shallow() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let source = registry.path().join("source");
+        let source = source.to_str().unwrap();
+        let bare = registry.path().join("index.git");
+        let bare = bare.to_str().unwrap();
+        let indexes = [
+            checkout.path().join("full"),
+            checkout.path().join("shallow"),
+        ];
+        run_git(&[
+            "clone",
+            "--quiet",
+            &config.index,
+            indexes[0].to_str().unwrap(),
+        ]);
+        clone_registry_index(&config, &indexes[1]).unwrap();
+        for index in &indexes {
+            run_git(&[
+                "-C",
+                index.to_str().unwrap(),
+                "config",
+                "pull.rebase",
+                "true",
+            ]);
+            // Registry updates must select main even if the configured fetch
+            // mapping names a different branch.
+            run_git(&[
+                "-C",
+                index.to_str().unwrap(),
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/side-branch:refs/remotes/origin/side-branch",
+            ]);
+        }
+
+        run_git(&["-C", source, "mv", "index-version", "renamed-index-version"]);
+        run_git(&["-C", source, "commit", "--quiet", "-m", "rename entry"]);
+        run_git(&["-C", source, "tag", "new-tag"]);
+        run_git(&["-C", source, "push", "--quiet", bare, "main", "new-tag"]);
+        let expected = run_registry_git(Path::new(source), &["rev-parse", "HEAD"]).unwrap();
+
+        for index in indexes {
+            let outcome = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+            assert_eq!(outcome, RegistryIndexUpdate::Updated);
+            assert_eq!(
+                run_registry_git(&index, &["rev-parse", "HEAD"])
+                    .unwrap()
+                    .stdout,
+                expected.stdout
+            );
+            assert_eq!(
+                run_registry_git(&index, &["rev-parse", "origin/main"])
+                    .unwrap()
+                    .stdout,
+                expected.stdout
+            );
+            assert_eq!(
+                run_registry_git(&index, &["rev-list", "--count", "HEAD"])
+                    .unwrap()
+                    .stdout,
+                "1"
+            );
+            assert!(
+                run_registry_git(&index, &["tag", "--list"])
+                    .unwrap()
+                    .stdout
+                    .is_empty()
+            );
+            assert!(!index.join("index-version").exists());
+            assert_eq!(
+                std::fs::read_to_string(index.join("renamed-index-version")).unwrap(),
+                "two"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_index_update_follows_rewritten_main_without_recloning() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let index = checkout.path().join("index");
+        clone_registry_index(&config, &index).unwrap();
+        let source = registry.path().join("source");
+        let source = source.to_str().unwrap();
+        run_git(&["-C", source, "reset", "--hard", "HEAD~1"]);
+        std::fs::write(Path::new(source).join("index-version"), "rewritten").unwrap();
+        run_git(&["-C", source, "commit", "--quiet", "-am", "rewrite main"]);
+        run_git(&[
+            "-C",
+            source,
+            "push",
+            "--quiet",
+            "--force",
+            registry.path().join("index.git").to_str().unwrap(),
+            "main",
+        ]);
+        // Resetting the managed cache must not depend on a user's pull policy.
+        run_git(&["-C", index.to_str().unwrap(), "config", "pull.ff", "only"]);
+
+        let outcome = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+        assert_eq!(outcome, RegistryIndexUpdate::Updated);
+        assert_eq!(
+            std::fs::read_to_string(index.join("index-version")).unwrap(),
+            "rewritten"
+        );
+        assert_eq!(
+            run_registry_git(&index, &["rev-list", "--count", "HEAD"])
+                .unwrap()
+                .stdout,
+            "1"
+        );
+    }
+
+    #[test]
+    fn registry_index_update_preserves_checkout_when_fetch_fails() {
+        let (registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let index = checkout.path().join("index");
+        clone_registry_index(&config, &index).unwrap();
+        let original = run_registry_git(&index, &["rev-parse", "HEAD"])
+            .unwrap()
+            .stdout;
+        // Seed a different FETCH_HEAD to catch a reset after a failed fetch.
+        run_git(&[
+            "-C",
+            index.to_str().unwrap(),
+            "fetch",
+            "--unshallow",
+            "origin",
+            "main",
+        ]);
+        run_git(&["-C", index.to_str().unwrap(), "reset", "--hard", "HEAD~1"]);
+        let previous = run_registry_git(&index, &["rev-parse", "HEAD"])
+            .unwrap()
+            .stdout;
+        assert_ne!(previous, original);
+        std::fs::write(index.join("index-version"), "preserve local contents").unwrap();
+        run_git(&[
+            "-C",
+            index.to_str().unwrap(),
+            "remote",
+            "set-url",
+            "origin",
+            registry.path().join("missing.git").to_str().unwrap(),
+        ]);
+
+        assert!(fetch_and_reset_registry_index(&index).is_err());
+        assert_eq!(
+            run_registry_git(&index, &["rev-parse", "HEAD"])
+                .unwrap()
+                .stdout,
+            previous
+        );
+        assert_eq!(
+            std::fs::read_to_string(index.join("index-version")).unwrap(),
+            "preserve local contents"
+        );
+    }
+
+    #[test]
+    fn registry_git_commands_drain_large_output() {
         let (registry, config) = registry_with_history();
         let checkout = tempfile::tempdir().unwrap();
         let index = checkout.path().join("index");
         clone_registry_index(&config, &index).unwrap();
 
-        // A large fast-forward makes `git pull` print a diffstat that exceeds
-        // the OS pipe buffer, so the output must be drained while waiting.
+        // A large diffstat exceeds the OS pipe buffer, so the output must be
+        // drained while waiting even though index updates are normally quiet.
         let source = registry.path().join("source");
         for i in 0..2000 {
             std::fs::write(
@@ -1179,15 +1306,18 @@ mod tests {
         ]);
 
         let (tx, rx) = std::sync::mpsc::channel();
-        let pull_index = index.clone();
+        let update_index = index.clone();
         std::thread::spawn(move || {
-            tx.send(pull_latest_registry_index(&pull_index).is_ok())
-                .unwrap();
+            let output = fetch_and_reset_registry_index(&update_index).and_then(|()| {
+                run_registry_git(&update_index, &["show", "--stat", "--oneline", "HEAD"])
+            });
+            tx.send(output).unwrap();
         });
-        let pulled = rx
+        let output = rx
             .recv_timeout(std::time::Duration::from_secs(60))
-            .expect("pulling the registry index deadlocked");
-        assert!(pulled);
+            .expect("running a registry Git command deadlocked")
+            .unwrap();
+        assert!(output.stdout.len() > 65_536);
         assert!(index.join("package-with-a-long-enough-name-1999").exists());
     }
 
@@ -1510,10 +1640,7 @@ mod tests {
 
         let error = update_registry_index(&index, &config, &quiet_user_log()).unwrap_err();
 
-        assert!(matches!(
-            error.source,
-            UpdateErrorKind::InspectRegistryIndexError(_)
-        ));
+        assert!(matches!(error.source, UpdateErrorKind::RegistryGitError(_)));
         assert_eq!(
             std::fs::read_to_string(index.join("cached-index")).unwrap(),
             "preserve me"
