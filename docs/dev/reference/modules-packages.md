@@ -27,6 +27,18 @@ A package may import other packages within its containing module,
 or within the modules its containing module depends on.
 Cyclic dependencies are currently prohibited both in module and package level.
 
+In `moon.pkg`, multiple unconditional import blocks are combined in source order,
+separately for regular, test, and whitebox-test imports. Legacy import fields in
+`options(...)` replace all corresponding blocks, including when the replacement
+is empty. Both
+`test-import`/`test_import` and `wbtest-import`/`wbtest_import`
+spellings are accepted; specifying both spellings of the same option is an error.
+After these overrides, importing the same package more than once emits one
+warning per package and import kind. Duplicate items, aliases, and import-all
+flags are retained in source order, preserving existing dependency ordering and
+alias precedence. Different import kinds do not produce duplicate warnings.
+These manifest warnings are suppressed for dependency manifests in `.mooncakes`.
+
 Named import aliases must be unique within each build target's dependencies.
 The special alias `*` marks an import-all declaration rather than a package
 name, so multiple dependencies may use it, including in `.mbtx` scripts.
@@ -39,6 +51,8 @@ defaults to `@b`, while `a/b/v2/c` defaults to `@c`. Importing both `a/b` and
 `a/b/v2` therefore requires an explicit alias for at least one, such as
 `import { "a/b" @b1, "a/b/v2" }`. Moon passes the resolved alias to `moonc`
 using `-i <interface.mi>:<alias>`; the full package identity retains `/v2`.
+For legacy JSON imports without `import-all` enabled, an empty alias is treated
+as an omitted alias.
 
 A package can be **internal** to restrict importing,
 see the [Internal Packages](#internal-packages) section for details.
