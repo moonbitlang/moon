@@ -422,16 +422,6 @@ impl HandleTable {
     }
 
     #[cfg(windows)]
-    fn windows_watcher_buffer(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::WindowsWatcherBuffer)
-    }
-
-    #[cfg(windows)]
-    fn remove_windows_watcher_buffer(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::WindowsWatcherBuffer)
-    }
-
-    #[cfg(windows)]
     fn io_result(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
         self.key(handle, HandleKind::IoResult)
     }
@@ -1114,7 +1104,7 @@ pub(crate) struct AsyncHost {
     addr_infos: RefCell<Handles<HostAddrInfo>>,
     c_buffers: RefCell<Handles<HostCBuffer>>,
     #[cfg(windows)]
-    windows_watcher_buffers: RefCell<SecondaryMap<HandleKey, HostWindowsWatcherBuffer>>,
+    windows_watcher_buffers: RefCell<Handles<HostWindowsWatcherBuffer>>,
     #[cfg(unix)]
     process_argvs: RefCell<Handles<HostProcessArgv>>,
     process_envs: RefCell<Handles<HostProcessEnv>>,
@@ -1156,7 +1146,10 @@ impl AsyncHost {
             addr_infos: RefCell::new(Handles::new(keys.clone(), HandleKind::AddrInfo)),
             c_buffers: RefCell::new(Handles::new(keys.clone(), HandleKind::CBuffer)),
             #[cfg(windows)]
-            windows_watcher_buffers: RefCell::new(SecondaryMap::new()),
+            windows_watcher_buffers: RefCell::new(Handles::new(
+                keys.clone(),
+                HandleKind::WindowsWatcherBuffer,
+            )),
             #[cfg(unix)]
             process_argvs: RefCell::new(Handles::new(keys.clone(), HandleKind::ProcessArgv)),
             process_envs: RefCell::new(Handles::new(keys.clone(), HandleKind::ProcessEnv)),
@@ -1842,16 +1835,12 @@ impl AsyncHost {
 
     #[cfg(windows)]
     pub(crate) fn insert_windows_watcher_buffer(&self) -> u64 {
-        let key = self
-            .handles
-            .borrow_mut()
-            .insert(HandleKind::WindowsWatcherBuffer);
-        self.windows_watcher_buffers.borrow_mut().insert(
-            key,
-            HostWindowsWatcherBuffer::Available(
-                crate::async_sys::fs::watch_windows::EventBuffer::new(),
-            ),
-        );
+        let key =
+            self.windows_watcher_buffers
+                .borrow_mut()
+                .insert(HostWindowsWatcherBuffer::Available(
+                    crate::async_sys::fs::watch_windows::EventBuffer::new(),
+                ));
         handle_from_key(key)
     }
 
@@ -1860,13 +1849,9 @@ impl AsyncHost {
         if handle == null_handle() {
             return Ok(());
         }
-        let key = self
-            .handles
-            .borrow_mut()
-            .remove_windows_watcher_buffer(handle)?;
         self.windows_watcher_buffers
             .borrow_mut()
-            .remove(key)
+            .remove(key_from_handle(handle))
             .map(|_| ())
             .ok_or(AsyncHostError::Badf)
     }
@@ -1877,7 +1862,7 @@ impl AsyncHost {
         handle: u64,
         f: impl FnOnce(&crate::async_sys::fs::watch_windows::EventBuffer) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let key = self.handles.borrow().windows_watcher_buffer(handle)?;
+        let key = key_from_handle(handle);
         let buffers = self.windows_watcher_buffers.borrow();
         match buffers.get(key).ok_or(AsyncHostError::Badf)? {
             HostWindowsWatcherBuffer::Available(buffer) => f(buffer),
@@ -1890,7 +1875,7 @@ impl AsyncHost {
         &self,
         handle: u64,
     ) -> AsyncHostResult<WindowsWatcherBufferLease> {
-        let key = self.handles.borrow().windows_watcher_buffer(handle)?;
+        let key = key_from_handle(handle);
         let mut buffers = self.windows_watcher_buffers.borrow_mut();
         let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
         match std::mem::replace(entry, HostWindowsWatcherBuffer::Leased) {
@@ -7193,6 +7178,10 @@ mod tests {
         let result = host.make_read_dir_changes_io_result(buffer).unwrap();
 
         assert_eq!(
+            host.make_read_dir_changes_io_result(buffer),
+            Err(AsyncHostError::Badf)
+        );
+        assert_eq!(
             host.with_windows_watcher_buffer(buffer, |_| Ok(())),
             Err(AsyncHostError::Badf)
         );
@@ -7207,10 +7196,70 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn freed_watcher_buffer_is_not_restored_by_its_io_result() {
+        let host = default_host();
+        let buffer = host.insert_windows_watcher_buffer();
+        let result = host.make_read_dir_changes_io_result(buffer).unwrap();
+        host.free_windows_watcher_buffer(buffer).unwrap();
+
+        let replacement = host.insert_windows_watcher_buffer();
+        assert_ne!(buffer, replacement);
+        let replacement_result = host.make_read_dir_changes_io_result(replacement).unwrap();
+
+        // The old result must not return its bytes into the new buffer's lease.
+        host.free_io_result(result).unwrap();
+        for handle in [buffer, replacement] {
+            assert_eq!(
+                host.with_windows_watcher_buffer(handle, |_| Ok(())),
+                Err(AsyncHostError::Badf)
+            );
+        }
+        assert_eq!(
+            host.free_windows_watcher_buffer(buffer),
+            Err(AsyncHostError::Badf)
+        );
+
+        host.free_io_result(replacement_result).unwrap();
+        assert_eq!(
+            host.with_windows_watcher_buffer(replacement, |buffer| Ok(buffer.capacity())),
+            Ok(usize::try_from(crate::async_sys::fs::watch_windows::event_buffer_size()).unwrap())
+        );
+        host.free_windows_watcher_buffer(replacement).unwrap();
+        assert!(host.leak_summary().is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dropping_host_retires_available_and_leased_watcher_buffers() {
+        let host = default_host();
+        let keys = Rc::clone(&host.handles.borrow().keys);
+        let available = host.insert_windows_watcher_buffer();
+        let leased = host.insert_windows_watcher_buffer();
+        host.make_read_dir_changes_io_result(leased).unwrap();
+        for handle in [available, leased] {
+            assert_eq!(
+                keys.borrow().kind(key_from_handle(handle)),
+                Some(HandleKind::WindowsWatcherBuffer)
+            );
+        }
+
+        drop(host);
+
+        for handle in [available, leased] {
+            assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn read_dir_changes_rejects_a_generic_c_buffer() {
         let host = default_host();
         let buffer = host.insert_c_buffer(vec![1, 2, 3].into_boxed_slice());
 
+        assert_eq!(
+            host.free_windows_watcher_buffer(buffer),
+            Err(AsyncHostError::Badf)
+        );
         assert_eq!(
             host.make_read_dir_changes_io_result(buffer),
             Err(AsyncHostError::Badf)

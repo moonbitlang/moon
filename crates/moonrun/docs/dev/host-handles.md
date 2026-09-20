@@ -1,18 +1,16 @@
 # Host handles
 
 [ADR 0009](../adr/0009-use-one-handle-namespace.md) records the decision to share
-one Handle namespace. This document describes its implementation and the
-ownership rules used by host operations.
+one Handle namespace. This document describes the shared Handle contracts and
+ownership rules that span host objects.
 
 ## Registration and validation
 
-The Runtime owns `HostKeys`, a shared `SlotMap<HostKey, HostResourceKind>`.
-Guest-visible Handles for Resources, Jobs, Workers, poll instances, Host Buffers,
-address-info results, SQLite objects, and other host objects are allocated from
-this table. Payloads live in family-specific `SecondaryMap<HostKey, Payload>`
-tables. Lookup-only structures, such as the Windows OVERLAPPED pointer map, are
-secondary indexes back to Handles. Import registries declare ABI and register
-callbacks; they do not own keys or payloads.
+The Runtime owns `HostKeys`, a shared `SlotMap<HostKey, HostResourceKind>` that
+allocates all guest-visible Handles. Each Host Domain owns its payload tables,
+keyed by `HostKey`. Lookup-only structures, such as the Windows OVERLAPPED pointer
+map, are secondary indexes back to Handles. Import registries declare ABI and
+register callbacks; they do not own keys or payloads.
 
 Decoding a guest integer produces a candidate `HostKey`. Lookup validates its
 generation and expected `HostResourceKind` in `HostKeys`, then checks membership
@@ -40,37 +38,30 @@ validates it through its owning table. Zero is subject to ordinary validation.
 These Handle values are separate from raw OS descriptors, where zero can be valid.
 
 TLS connection creation returns a live Handle containing pending configuration.
-Client and server setup report initialization failures through their status and
-the object's error message. Freeing a TLS connection accepts the shared null
-Handle as a no-op; zero fails Handle validation with `Badf`.
+Client and server setup keep the same Handle. Initialization failures retain the
+pending configuration and report the failure through their status and the object's
+error message. Freeing a TLS connection accepts the shared null Handle as a no-op;
+zero fails Handle validation with `Badf`.
 
 ## Owning tables
 
-`Handles<T>` owns C buffers, address-info results, process argument arrays,
-environment blocks, environment builders, and TLS connections together with
-their Host Key registrations. Insertion accepts a complete value and allocates
-its key. Lookup checks both the central registration and membership in this table.
-Removal retires the key and returns the value so callers can release the table
-borrow before performing domain cleanup.
+`Handles<T>` owns a family's values together with their Host Key registrations.
+Insertion accepts a complete value and allocates its key. Lookup checks both the
+central registration and membership in this table. Removal retires the key and
+returns the value so callers can release the table borrow before performing
+domain cleanup.
 
 Dropping a table retires its remaining keys under a short allocator borrow.
-That borrow ends before value destructors run. Domain state such as a leased
-buffer remains an entry until its Handle is freed, even while a Job owns the
-bytes.
-
-A TLS entry keeps its Handle when its pending configuration becomes a configured
-connection. Configuration failure retains the pending entry and its error;
-successful configuration replaces its value without changing its key.
-Freeing the Handle retires its key before dropping the TLS value outside the
-table borrow. Host teardown also retires all remaining TLS keys and drops their
-values.
-
-Other families coordinate their payload tables and Host Key registrations
-directly. Central validation prevents access to a secondary entry whose key has
-already been retired. Generation checks prevent a stale Handle from accessing
-a replacement entry.
+That borrow ends before value destructors run.
 
 ## Operation ownership
+
+A Job or I/OResult may own buffer bytes while the table retains a leased entry.
+Freeing the Handle retires its registration and removes that reservation; the
+operation retains ownership of the bytes until its cleanup completes. A returned
+lease restores the bytes only if the original entry still exists and is leased.
+Generation checks prevent a late return from restoring a freed entry or
+overwriting a replacement Handle.
 
 Unix process launch validates its argument and environment inputs before
 consuming either Handle. Transferring an environment block validates the
