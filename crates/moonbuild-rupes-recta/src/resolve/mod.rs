@@ -19,7 +19,7 @@
 //! High-level abstraction that handles module and package resolving.
 //!
 //! Normal project resolution has separate dependency sync, package discovery,
-//! and package solving steps. Discovery produces [`ProjectDeclarations`];
+//! and package solving steps. Discovery produces [`DiscoveredProject`];
 //! solving adds the package dependency graph to produce [`ResolveOutput`].
 //! Dependency-directory mutation remains explicit in the sync step.
 
@@ -58,9 +58,9 @@ use crate::{
     pkg_solve::{self, DepRelationship},
 };
 
-/// Module and package declarations available before solving package dependencies.
+/// A project's modules and packages before solving package dependencies.
 #[derive(Debug, Clone)]
-pub struct ProjectDeclarations {
+pub struct DiscoveredProject {
     /// Module dependency relationship
     pub module_rel: ResolvedEnv,
     /// Module directories
@@ -71,24 +71,24 @@ pub struct ProjectDeclarations {
     pub(crate) enable_coverage: bool,
 }
 
-/// Project declarations with their resolved package dependency graph.
+/// A discovered project with its resolved package dependency graph.
 #[derive(Debug, Clone)]
 pub struct ResolveOutput {
-    pub declarations: ProjectDeclarations,
+    pub discovered: DiscoveredProject,
     /// Package dependency relationship
     pub pkg_rel: DepRelationship,
 }
 
-/// A resolved project provides read-only access to its declarations.
+/// A resolved project provides read-only access to its modules and packages.
 impl Deref for ResolveOutput {
-    type Target = ProjectDeclarations;
+    type Target = DiscoveredProject;
 
     fn deref(&self) -> &Self::Target {
-        &self.declarations
+        &self.discovered
     }
 }
 
-impl ProjectDeclarations {
+impl DiscoveredProject {
     /// Solve package dependencies, returning a resolved project only if the graph is valid.
     #[instrument(skip_all)]
     pub fn resolve(self, user_log: &UserLog) -> Result<ResolveOutput, ResolveError> {
@@ -101,12 +101,12 @@ impl ProjectDeclarations {
         .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
 
         Ok(ResolveOutput {
-            declarations: self,
+            discovered: self,
             pkg_rel,
         })
     }
 
-    /// Returns the input/root modules of the current resolve.
+    /// Returns the input/root modules of the project.
     ///
     /// This is a role in the current resolution graph, not a check of
     /// `ModuleSourceKind::Local`.
@@ -397,13 +397,13 @@ pub fn resolve_synced_project(
     Ok(resolved)
 }
 
-/// Read package declarations from already synced dependencies without solving imports.
+/// Discover packages from already synced dependencies without solving imports.
 #[instrument(skip_all)]
 pub fn discover_synced_project(
     cfg: &ResolveConfig,
     synced_dependencies: (ResolvedEnv, DirSyncResult),
     user_log: &UserLog,
-) -> Result<ProjectDeclarations, ResolveError> {
+) -> Result<DiscoveredProject, ResolveError> {
     let (resolved_env, dir_sync_result) = synced_dependencies;
 
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
@@ -421,7 +421,7 @@ pub fn discover_synced_project(
         discover_result.package_count()
     );
 
-    Ok(ProjectDeclarations {
+    Ok(DiscoveredProject {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
@@ -441,12 +441,12 @@ pub fn resolve_single_file_project(
     run_mode: bool,
     user_log: &UserLog,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
-    let (declarations, backend) =
+    let (discovered, backend) =
         discover_single_file_project(cfg, dirs, source_file, run_mode, user_log)?;
-    Ok((declarations.resolve(user_log)?, backend))
+    Ok((discovered.resolve(user_log)?, backend))
 }
 
-/// Synthesize single-file project declarations and read the preferred backend
+/// Discover a single-file project and read its preferred backend
 /// without solving package dependencies.
 /// `source_file` must be the absolute invoked path from
 /// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
@@ -457,7 +457,7 @@ pub fn discover_single_file_project(
     source_file: &Path,
     run_mode: bool,
     user_log: &UserLog,
-) -> Result<(ProjectDeclarations, Option<TargetBackend>), ResolveError> {
+) -> Result<(DiscoveredProject, Option<TargetBackend>), ResolveError> {
     let source_kind = if source_file.extension().is_some_and(|ext| ext == "mbtx") {
         SingleFileSourceKind::Mbtx
     } else if source_file.extension().is_some_and(|ext| ext == "md") {
@@ -524,11 +524,11 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         front_matter_config.package_imports,
     )?;
 
-    let res = ProjectDeclarations {
+    let discovered = DiscoveredProject {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         enable_coverage: cfg.enable_coverage,
     };
-    Ok((res, backend))
+    Ok((discovered, backend))
 }

@@ -75,7 +75,7 @@ enum ResolvedTestSelection {
 impl ResolvedTestSelection {
     fn to_runtime_filter(
         &self,
-        resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+        discovered: &moonbuild_rupes_recta::DiscoveredProject,
         cmd: &TestLikeSubcommand<'_>,
     ) -> Result<TestFilter, anyhow::Error> {
         let mut filter = TestFilter {
@@ -96,7 +96,7 @@ impl ResolvedTestSelection {
                     if cmd.file.is_some() || cmd.index.is_some() || cmd.doc_index.is_some() {
                         bail!(
                             "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
-                            package_names(resolve_output, packages)
+                            package_names(discovered, packages)
                         );
                     }
                     for &pkg_id in packages {
@@ -121,7 +121,7 @@ impl ResolvedTestSelection {
 
     fn to_build_intent(
         &self,
-        resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+        discovered: &moonbuild_rupes_recta::DiscoveredProject,
         cmd: &TestLikeSubcommand<'_>,
         target_backend: TargetBackend,
         filter: &TestFilter,
@@ -137,7 +137,7 @@ impl ResolvedTestSelection {
                 let directive = match self {
                     ResolvedTestSelection::Packages { packages } => {
                         ensure_packages_support_backend(
-                            resolve_output,
+                            discovered,
                             packages.iter().copied(),
                             target_backend,
                         )?;
@@ -159,7 +159,7 @@ impl ResolvedTestSelection {
                             if cmd.patch_file.is_some() && packages.len() > 1 {
                                 bail!(
                                     "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
-                                    package_names(resolve_output, packages)
+                                    package_names(discovered, packages)
                                 );
                             }
                             InputDirective::default()
@@ -1354,10 +1354,10 @@ fn artifacts_from_target(x: BuildTarget) -> [ArtifactKey; 3] {
 
 /// Apply the hierarchy of filters of packages, file and index
 #[allow(clippy::too_many_arguments)]
-#[instrument(level = "debug", skip(affected_packages, resolve_output, out_filter))]
+#[instrument(level = "debug", skip(affected_packages, discovered, out_filter))]
 fn apply_list_of_filters(
     affected_packages: &[PackageId],
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     package_filter: &[String],
     file_filter: Option<&str>,
     index_filter: Option<TestIndexRange>,
@@ -1369,13 +1369,13 @@ fn apply_list_of_filters(
     user_log: &UserLog,
 ) -> Result<InputDirective, anyhow::Error> {
     let package_matches = match_packages_with_fuzzy(
-        resolve_output,
+        discovered,
         affected_packages.iter().copied(),
         package_filter,
     );
     let filtered_package_ids = package_matches.matched;
     ensure_packages_support_backend(
-        resolve_output,
+        discovered,
         filtered_package_ids.iter().copied(),
         target_backend,
     )?;
@@ -1416,7 +1416,7 @@ fn apply_list_of_filters(
         let package_names = || {
             filtered_package_ids
                 .iter()
-                .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+                .map(|id| discovered.pkg_dirs.get_package(*id).fqn.to_string())
                 .collect::<Vec<_>>()
         };
         // Multiple filtered package, check if file/index filtering is applied
@@ -1456,19 +1456,19 @@ fn apply_list_of_filters(
 /// both the test filter and user intent wants the same `BuildTarget` list, but
 /// the earliest time we can get them is during intent calculation. Since the
 /// fuzzy matching process is quite complex, we would avoid doing it twice.
-#[instrument(level = "debug", skip(resolve_output, cmd, out_filter))]
+#[instrument(level = "debug", skip(discovered, cmd, out_filter))]
 fn calc_user_intent(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     target_backend: moonutil::target::TargetBackend,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let all_affected_packages: Vec<_> = resolve_output
+    let all_affected_packages: Vec<_> = discovered
         .local_modules()
         .iter()
         .flat_map(|&module_id| {
-            resolve_output
+            discovered
                 .pkg_dirs
                 .packages_for_module(module_id)
                 .into_iter()
@@ -1476,7 +1476,7 @@ fn calc_user_intent(
         })
         .collect();
     calc_user_intent_from_packages(
-        resolve_output,
+        discovered,
         cmd,
         out_filter,
         &all_affected_packages,
@@ -1489,7 +1489,7 @@ fn calc_user_intent(
 
 #[allow(clippy::too_many_arguments)]
 fn calc_user_intent_from_packages(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     all_affected_packages: &[PackageId],
@@ -1500,13 +1500,13 @@ fn calc_user_intent_from_packages(
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     debug!(
         package_count = all_affected_packages.len(),
-        module_count = resolve_output.local_modules().len(),
+        module_count = discovered.local_modules().len(),
         "calculating user intent for workspace"
     );
     let backend_affected_packages = all_affected_packages
         .iter()
         .copied()
-        .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+        .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
         .collect::<Vec<_>>();
 
     let directive = if !explicit_path_filters.is_empty() {
@@ -1520,10 +1520,10 @@ fn calc_user_intent_from_packages(
 
         if let [path] = explicit_path_filters {
             let (dir, filename) = canonicalize_with_filename(path)?;
-            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+            let pkg = filter_pkg_by_dir(discovered, &dir)?;
 
-            if !package_supports_backend(resolve_output, pkg, target_backend) {
-                ensure_packages_support_backend(resolve_output, [pkg], target_backend)?;
+            if !package_supports_backend(discovered, pkg, target_backend) {
+                ensure_packages_support_backend(discovered, [pkg], target_backend)?;
             }
 
             out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
@@ -1536,7 +1536,7 @@ fn calc_user_intent_from_packages(
                 let (dir, filename) = canonicalize_with_filename(path)?;
                 debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
 
-                let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
+                let Ok(pkg) = filter_pkg_by_dir(discovered, &dir) else {
                     user_log.info(format!(
                         "skipping path `{}` because it is not a package in the current work context.",
                         path.display()
@@ -1544,7 +1544,7 @@ fn calc_user_intent_from_packages(
                     continue;
                 };
 
-                if !package_supports_backend(resolve_output, pkg, target_backend) {
+                if !package_supports_backend(discovered, pkg, target_backend) {
                     unsupported_paths.push((path, pkg));
                     continue;
                 }
@@ -1560,21 +1560,17 @@ fn calc_user_intent_from_packages(
                         unsupported_packages.push(*pkg_id);
                     }
                 }
-                ensure_packages_support_backend(
-                    resolve_output,
-                    unsupported_packages,
-                    target_backend,
-                )?;
+                ensure_packages_support_backend(discovered, unsupported_packages, target_backend)?;
             }
 
             for (path, pkg_id) in unsupported_paths {
-                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                let pkg = discovered.pkg_dirs.get_package(pkg_id);
                 user_log.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
                     target_backend,
-                    format_supported_backends(resolve_output, pkg_id),
+                    format_supported_backends(discovered, pkg_id),
                 ));
             }
 
@@ -1585,7 +1581,7 @@ fn calc_user_intent_from_packages(
         let value_tracing = cmd.build_flags.enable_value_tracing;
         apply_list_of_filters(
             all_affected_packages,
-            resolve_output,
+            discovered,
             package_filter,
             cmd.file.as_deref(),
             *cmd.index,
@@ -1630,7 +1626,7 @@ fn calc_user_intent_from_packages(
 
 fn resolve_scoped_test_selection(
     cmd: &TestLikeSubcommand<'_>,
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     scoped_packages: Vec<PackageId>,
 ) -> anyhow::Result<ResolvedTestSelection> {
     if !cmd.explicit_path_filters.is_empty() {
@@ -1639,7 +1635,7 @@ fn resolve_scoped_test_selection(
             let Ok((dir, filename)) = canonicalize_with_filename(path) else {
                 continue;
             };
-            let Ok(package) = filter_pkg_by_dir(resolve_output, &dir) else {
+            let Ok(package) = filter_pkg_by_dir(discovered, &dir) else {
                 continue;
             };
             if scoped_packages.contains(&package) {
@@ -1671,12 +1667,12 @@ fn selected_test_index(cmd: &TestLikeSubcommand<'_>) -> anyhow::Result<Option<Te
 }
 
 fn package_names(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     packages: &[PackageId],
 ) -> Vec<String> {
     packages
         .iter()
-        .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+        .map(|id| discovered.pkg_dirs.get_package(*id).fqn.to_string())
         .collect()
 }
 
@@ -1702,19 +1698,19 @@ fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
 }
 
 fn resolve_test_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
-    let selected = resolve_selected_test_packages(resolve_output, cmd, user_log)?;
-    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_test_packages(discovered, cmd, user_log)?;
+    let mut selections = group_packages_by_preferred_backend(discovered, selected);
 
     for selection in &mut selections {
         selection.packages = selection
             .packages
             .iter()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
+            .filter(|&pkg| package_supports_backend(discovered, pkg, selection.target_backend))
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
@@ -1723,13 +1719,13 @@ fn resolve_test_target_selections(
 }
 
 fn resolve_selected_test_packages(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.explicit_path_filters.is_empty() {
         return Ok(select_packages(cmd.explicit_path_filters, user_log, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+            filter_pkg_by_dir(discovered, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
@@ -1737,30 +1733,27 @@ fn resolve_selected_test_packages(
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = resolve_output
+        let all_affected_packages: Vec<_> = discovered
             .local_modules()
             .iter()
             .flat_map(|&module_id| {
-                resolve_output
+                discovered
                     .pkg_dirs
                     .packages_for_module(module_id)
                     .into_iter()
                     .flat_map(|packages| packages.values().copied())
             })
             .collect();
-        return Ok(match_packages_with_fuzzy(
-            resolve_output,
-            all_affected_packages,
-            package_filter,
-        )
-        .matched);
+        return Ok(
+            match_packages_with_fuzzy(discovered, all_affected_packages, package_filter).matched,
+        );
     }
 
-    Ok(resolve_output
+    Ok(discovered
         .local_modules()
         .iter()
         .flat_map(|&module_id| {
-            resolve_output
+            discovered
                 .pkg_dirs
                 .packages_for_module(module_id)
                 .into_iter()
@@ -1770,7 +1763,7 @@ fn resolve_selected_test_packages(
 }
 
 fn validate_original_package_selection_filters(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
 ) -> anyhow::Result<()> {
     let Some(package_filter) = cmd.package.as_deref() else {
@@ -1786,17 +1779,14 @@ fn validate_original_package_selection_filters(
     }
 
     let matched_packages = match_packages_with_fuzzy(
-        resolve_output,
-        resolve_output
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                resolve_output
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            }),
+        discovered,
+        discovered.local_modules().iter().flat_map(|&module_id| {
+            discovered
+                .pkg_dirs
+                .packages_for_module(module_id)
+                .into_iter()
+                .flat_map(|packages| packages.values().copied())
+        }),
         package_filter,
     )
     .matched;
@@ -1808,7 +1798,7 @@ fn validate_original_package_selection_filters(
     let package_names = || {
         matched_packages
             .iter()
-            .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+            .map(|id| discovered.pkg_dirs.get_package(*id).fqn.to_string())
             .collect::<Vec<_>>()
     };
 

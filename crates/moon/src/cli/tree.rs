@@ -25,8 +25,7 @@ use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
     resolve::{
-        ProjectDeclarations, ResolveConfig, ResolveOutput, resolve_synced_project,
-        sync_dependencies,
+        DiscoveredProject, ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies,
     },
 };
 use mooncake::pkg::{sync::SyncOutputOptions, tree::ResolvedTree};
@@ -595,11 +594,8 @@ fn render_package_tree(
     out
 }
 
-fn selected_source_packages(
-    resolve_output: &ProjectDeclarations,
-    module: ModuleId,
-) -> Vec<PackageId> {
-    resolve_output
+fn selected_source_packages(discovered: &DiscoveredProject, module: ModuleId) -> Vec<PackageId> {
+    discovered
         .pkg_dirs
         .packages_for_module(module)
         .into_iter()

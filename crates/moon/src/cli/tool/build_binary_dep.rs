@@ -202,14 +202,14 @@ pub(crate) fn run_build_binary_dep(
 }
 
 fn get_linkable_pkgs_for_bin_dep(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     packages: impl Iterator<Item = PackageId>,
     default_backend: TargetBackend,
     user_log: &UserLog,
 ) -> Vec<(PackageId, TargetBackend)> {
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = discovered.pkg_dirs.get_package(pkg_id);
         let pkg_bin_target = pkg.raw.bin_target.unwrap_or(default_backend);
 
         add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target, user_log);

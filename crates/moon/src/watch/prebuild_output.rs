@@ -20,7 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
-use moonbuild_rupes_recta::ProjectDeclarations;
+use moonbuild_rupes_recta::DiscoveredProject;
 use moonutil::package::MoonPkgGenerate;
 
 pub(crate) struct PrebuildWatchPaths {
@@ -29,16 +29,16 @@ pub(crate) struct PrebuildWatchPaths {
 }
 
 /// Generate the list of paths to watch or ignore for pre-builds during watch mode.
-pub(crate) fn rr_get_prebuild_watch_paths(env: &ProjectDeclarations) -> PrebuildWatchPaths {
+pub(crate) fn rr_get_prebuild_watch_paths(discovered: &DiscoveredProject) -> PrebuildWatchPaths {
     let mut ignored_paths = vec![];
     let mut watched_paths = vec![];
 
-    for &m in env.local_modules() {
-        let Some(packages) = env.pkg_dirs.packages_for_module(m) else {
+    for &m in discovered.local_modules() {
+        let Some(packages) = discovered.pkg_dirs.packages_for_module(m) else {
             continue;
         };
         for &pkg_id in packages.values() {
-            let pkg = env.pkg_dirs.get_package(pkg_id);
+            let pkg = discovered.pkg_dirs.get_package(pkg_id);
             if let Some(prebuild) = pkg.raw.pre_build.as_ref() {
                 push_prebuild_paths(
                     &mut ignored_paths,

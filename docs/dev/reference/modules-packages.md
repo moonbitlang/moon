@@ -213,10 +213,10 @@ structured commands capture them with their other logs.
 
 ## Package discovery
 
-Rupes Recta represents discovered modules and packages as `ProjectDeclarations`,
-which contains the resolved module graph, module directories, and package
-declarations. Package-selection helpers use this data without needing a solved
-package graph. `ProjectDeclarations::resolve` validates imports and adds the
+Rupes Recta represents discovered modules and packages as `DiscoveredProject`,
+which contains the resolved module graph, module directories, and the package-level
+`DiscoverResult`. Package-selection helpers use this data without needing a
+solved package graph. `DiscoveredProject::resolve` validates imports and adds the
 single package dependency graph to produce `ResolveOutput`, using the coverage
 setting captured during discovery. The project and single-file resolution
 entry points still perform both steps before commands select packages and plan

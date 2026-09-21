@@ -314,7 +314,7 @@ mod tests {
             let mut module_dirs = DirSyncResult::default();
             module_dirs.insert(module, PathBuf::from("."));
             let resolved = ResolveOutput {
-                declarations: crate::resolve::ProjectDeclarations {
+                discovered: crate::resolve::DiscoveredProject {
                     module_rel: modules,
                     module_dirs,
                     pkg_dirs: packages,
@@ -531,7 +531,7 @@ mod tests {
             with_flags,
         );
         let resolved = ResolveOutput {
-            declarations: crate::resolve::ProjectDeclarations {
+            discovered: crate::resolve::DiscoveredProject {
                 module_rel: modules,
                 module_dirs: DirSyncResult::default(),
                 pkg_dirs: packages,
@@ -736,7 +736,7 @@ mod tests {
         module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
-            declarations: crate::resolve::ProjectDeclarations {
+            discovered: crate::resolve::DiscoveredProject {
                 module_rel: modules,
                 module_dirs,
                 pkg_dirs: packages,
@@ -851,7 +851,7 @@ mod tests {
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
-            declarations: crate::resolve::ProjectDeclarations {
+            discovered: crate::resolve::DiscoveredProject {
                 module_rel: modules,
                 module_dirs,
                 pkg_dirs: packages,

@@ -338,7 +338,7 @@ mod tests {
 
         (
             ResolveOutput {
-                declarations: crate::resolve::ProjectDeclarations {
+                discovered: crate::resolve::DiscoveredProject {
                     module_rel: modules,
                     module_dirs,
                     pkg_dirs: packages,

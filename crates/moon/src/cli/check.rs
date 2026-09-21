@@ -622,12 +622,12 @@ fn run_check_for_single_file_rr(
 }
 
 fn get_user_intents_single_file(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     _backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let m_packages = resolve_output
+    let m_packages = discovered
         .pkg_dirs
-        .packages_for_module(resolve_output.local_modules()[0])
+        .packages_for_module(discovered.local_modules()[0])
         .context("single-file project must resolve a local module")?;
     let pkg = *m_packages
         .iter()
@@ -957,7 +957,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
 }
 
 fn validate_selector_flags_before_split(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
@@ -968,7 +968,7 @@ fn validate_selector_flags_before_split(
     }
 
     let selected =
-        resolve_selected_packages(resolve_output, cmd, source_dir, target_backend, user_log)?;
+        resolve_selected_packages(discovered, cmd, source_dir, target_backend, user_log)?;
     if cmd.patch_file.is_some() && selected.len() != 1 {
         anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
     }
@@ -1059,33 +1059,28 @@ fn plan_check_rr_from_selection(
 }
 
 pub(crate) fn resolve_check_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
-        let packages = resolve_selected_packages(
-            resolve_output,
-            cmd,
-            source_dir,
-            Some(target_backend),
-            user_log,
-        )?;
+        let packages =
+            resolve_selected_packages(discovered, cmd, source_dir, Some(target_backend), user_log)?;
         return Ok(vec![TargetPackageGroup {
             target_backend,
             packages,
         }]);
     }
 
-    let selected = resolve_selected_packages(resolve_output, cmd, source_dir, None, user_log)?;
-    let selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_packages(discovered, cmd, source_dir, None, user_log)?;
+    let selections = group_packages_by_preferred_backend(discovered, selected);
 
     let mut filtered = Vec::new();
     for selection in selections {
         let packages = filter_packages_for_backend(
-            resolve_output,
+            discovered,
             selection.packages,
             selection.target_backend,
             user_log,
@@ -1102,7 +1097,7 @@ pub(crate) fn resolve_check_target_selections(
 }
 
 fn resolve_selected_packages(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
@@ -1110,35 +1105,34 @@ fn resolve_selected_packages(
 ) -> anyhow::Result<Vec<PackageId>> {
     if let Some(filter_path) = cmd.package_path.as_deref() {
         let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
-        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        let pkg = filter_pkg_by_dir(discovered, &dir)?;
         if let Some(target_backend) = target_backend {
-            ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
+            ensure_package_supports_backend(discovered, pkg, target_backend)?;
         }
         return Ok(vec![pkg]);
     }
 
     if !cmd.path.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, user_log);
+            return select_supported_packages(discovered, &cmd.path, target_backend, user_log);
         }
         return Ok(select_packages(&cmd.path, user_log, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+            filter_pkg_by_dir(discovered, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
         .collect());
     }
 
-    Ok(rr_build::local_packages(resolve_output)
+    Ok(rr_build::local_packages(discovered)
         .filter(|&pkg| {
-            target_backend
-                .is_none_or(|backend| package_supports_backend(resolve_output, pkg, backend))
+            target_backend.is_none_or(|backend| package_supports_backend(discovered, pkg, backend))
         })
         .collect())
 }
 
 fn filter_packages_for_backend(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     packages: Vec<PackageId>,
     target_backend: TargetBackend,
     user_log: &UserLog,
@@ -1147,7 +1141,7 @@ fn filter_packages_for_backend(
     let mut unsupported = Vec::new();
 
     for pkg in packages {
-        if package_supports_backend(resolve_output, pkg, target_backend) {
+        if package_supports_backend(discovered, pkg, target_backend) {
             supported.push(pkg);
         } else {
             unsupported.push(pkg);
@@ -1156,10 +1150,10 @@ fn filter_packages_for_backend(
 
     if supported.is_empty() && !unsupported.is_empty() {
         if let [pkg] = unsupported.as_slice() {
-            ensure_package_supports_backend(resolve_output, *pkg, target_backend)?;
+            ensure_package_supports_backend(discovered, *pkg, target_backend)?;
         } else {
             ensure_packages_support_backend(
-                resolve_output,
+                discovered,
                 unsupported.iter().copied(),
                 target_backend,
             )?;
@@ -1168,12 +1162,12 @@ fn filter_packages_for_backend(
 
     for pkg in unsupported {
         let pkg_id = pkg;
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = discovered.pkg_dirs.get_package(pkg_id);
         user_log.info(format!(
             "skipping package `{}` because it does not support the selected target backend `{}`. Supported backends: {}",
             pkg.fqn,
             target_backend,
-            format_supported_backends(resolve_output, pkg_id),
+            format_supported_backends(discovered, pkg_id),
         ));
     }
 
@@ -1181,15 +1175,15 @@ fn filter_packages_for_backend(
 }
 
 fn calc_user_intent_from_package_path(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     source_dir: &Path,
     filter_path: &Path,
     target_backend: TargetBackend,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
-    let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-    ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
+    let pkg = filter_pkg_by_dir(discovered, &dir)?;
+    ensure_package_supports_backend(discovered, pkg, target_backend)?;
     let directive =
         rr_build::build_patch_directive_for_package(pkg, false, None, patch_file, false)?;
     Ok((vec![UserIntent::Check(pkg)], directive).into())
@@ -1197,14 +1191,14 @@ fn calc_user_intent_from_package_path(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
-    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     paths: &[PathBuf],
     target_backend: TargetBackend,
     patch_file: Option<&Path>,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !paths.is_empty() {
-        let selected = select_supported_packages(resolve_output, paths, target_backend, user_log)?;
+        let selected = select_supported_packages(discovered, paths, target_backend, user_log)?;
         let directive = build_directive_for_selected_packages(&selected, patch_file)?;
         Ok((
             selected.into_iter().map(UserIntent::Check).collect(),
@@ -1212,8 +1206,8 @@ fn calc_user_intent(
         )
             .into())
     } else {
-        let intents: Vec<_> = rr_build::local_packages(resolve_output)
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
+        let intents: Vec<_> = rr_build::local_packages(discovered)
+            .filter(|&pkg| package_supports_backend(discovered, pkg, target_backend))
             .map(UserIntent::Check)
             .collect();
         Ok(intents.into())
