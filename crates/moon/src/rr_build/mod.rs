@@ -39,7 +39,7 @@ use moonbuild::{
     execution::{BuildInput, resolve_parallelism},
 };
 use moonbuild_rupes_recta::{
-    CompileConfig, ResolveConfig, ResolveOutput,
+    CompileConfig, DiscoveredProject, ResolveConfig, ResolveOutput,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
     fmt::{FmtConfig, FmtResolveOutput},
@@ -138,15 +138,15 @@ impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
     }
 }
 
-fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, user_log: &UserLog) {
+fn warn_local_legacy_supported_targets(discovered: &DiscoveredProject, user_log: &UserLog) {
     let mut warned = BTreeSet::new();
-    for &module_id in resolve_output.local_modules() {
-        if let Some(pkgs) = resolve_output.pkg_dirs.packages_for_module(module_id) {
+    for &module_id in discovered.local_modules() {
+        if let Some(pkgs) = discovered.pkg_dirs.packages_for_module(module_id) {
             for &pkg_id in pkgs.values() {
                 if !warned.insert(pkg_id) {
                     continue;
                 }
-                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                let pkg = discovered.pkg_dirs.get_package(pkg_id);
                 if pkg.supported_targets_decl == SupportedTargetsDeclKind::LegacyArray {
                     user_log.warn(format!(
                         "Package `{}` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead",
@@ -159,28 +159,25 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, user_log:
 }
 
 pub(crate) fn local_packages(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
 ) -> impl Iterator<Item = PackageId> + '_ {
-    resolve_output
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            resolve_output
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
+    discovered.local_modules().iter().flat_map(|&module_id| {
+        discovered
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .into_iter()
+            .flat_map(|packages| packages.values().copied())
+    })
 }
 
 fn local_modules_preferred_target(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     user_log: &UserLog,
 ) -> Option<TargetBackend> {
-    let preferred = resolve_output
+    let preferred = discovered
         .local_modules()
         .iter()
-        .filter_map(|&module_id| resolve_output.module_info(module_id).preferred_target)
+        .filter_map(|&module_id| discovered.module_info(module_id).preferred_target)
         .collect::<BTreeSet<_>>();
 
     if preferred.len() > 1 {

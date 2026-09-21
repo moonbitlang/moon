@@ -216,7 +216,7 @@ pub(crate) fn run_prove(
 fn calc_user_intent(
     path_filter: Option<&Path>,
     selected_module_dir: Option<&Path>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
     prove_why3_config: Option<&Path>,
     proof_prelude: &Path,
@@ -230,9 +230,9 @@ fn calc_user_intent(
 
     if let Some(path) = path_filter {
         let (dir, _) = canonicalize_with_filename(path)?;
-        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-        let pkg_info = resolve_output.pkg_dirs.get_package(pkg);
+        let pkg = filter_pkg_by_dir(discovered, &dir)?;
+        ensure_package_supports_backend(discovered, pkg, target_backend)?;
+        let pkg_info = discovered.pkg_dirs.get_package(pkg);
         let intents = pkg_info
             .raw
             .proof_enabled
@@ -248,22 +248,17 @@ fn calc_user_intent(
         }
         Ok(CalcUserIntentOutput::new(intents, directive))
     } else {
-        let main_module_id = selected_main_module_id(resolve_output, selected_module_dir)?;
-        let packages = resolve_output
+        let main_module_id = selected_main_module_id(discovered, selected_module_dir)?;
+        let packages = discovered
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
         let intents = packages
             .values()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
-            .filter(|&pkg| resolve_output.pkg_dirs.get_package(pkg).raw.proof_enabled)
-            .filter(|&pkg| {
-                resolve_output
-                    .pkg_dirs
-                    .get_package(pkg)
-                    .has_implementation()
-            })
+            .filter(|&pkg| package_supports_backend(discovered, pkg, target_backend))
+            .filter(|&pkg| discovered.pkg_dirs.get_package(pkg).raw.proof_enabled)
+            .filter(|&pkg| discovered.pkg_dirs.get_package(pkg).has_implementation())
             .map(UserIntent::Prove)
             .collect::<Vec<_>>();
         Ok((intents, directive).into())
@@ -297,16 +292,16 @@ fn resolve_proof_prelude() -> anyhow::Result<PathBuf> {
 }
 
 fn selected_main_module_id(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     selected_module_dir: Option<&Path>,
 ) -> anyhow::Result<ModuleId> {
     if let Some(selected_module_dir) = selected_module_dir {
-        return resolve_output
+        return discovered
             .local_modules()
             .iter()
             .copied()
             .find(|&module_id| {
-                resolve_output
+                discovered
                     .module_dirs
                     .get(module_id)
                     .is_some_and(|module_dir| module_dir == selected_module_dir)
@@ -319,7 +314,7 @@ fn selected_main_module_id(
             });
     }
 
-    match resolve_output.local_modules() {
+    match discovered.local_modules() {
         &[main_module_id] => Ok(main_module_id),
         _ => bail!("No multiple main modules are supported"),
     }

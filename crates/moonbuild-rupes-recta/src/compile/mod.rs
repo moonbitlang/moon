@@ -314,9 +314,12 @@ mod tests {
             let mut module_dirs = DirSyncResult::default();
             module_dirs.insert(module, PathBuf::from("."));
             let resolved = ResolveOutput {
-                module_rel: modules,
-                module_dirs,
-                pkg_dirs: packages,
+                discovered: crate::resolve::DiscoveredProject {
+                    module_rel: modules,
+                    module_dirs,
+                    pkg_dirs: packages,
+                    enable_coverage: false,
+                },
                 pkg_rel: relationship,
             };
             for symbols in [
@@ -528,9 +531,12 @@ mod tests {
             with_flags,
         );
         let resolved = ResolveOutput {
-            module_rel: modules,
-            module_dirs: DirSyncResult::default(),
-            pkg_dirs: packages,
+            discovered: crate::resolve::DiscoveredProject {
+                module_rel: modules,
+                module_dirs: DirSyncResult::default(),
+                pkg_dirs: packages,
+                enable_coverage: false,
+            },
             pkg_rel: DepRelationship::default(),
         };
         // Empty plans exercise capability forwarding without resolving host tools.
@@ -730,9 +736,12 @@ mod tests {
         module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
-            module_rel: modules,
-            module_dirs,
-            pkg_dirs: packages,
+            discovered: crate::resolve::DiscoveredProject {
+                module_rel: modules,
+                module_dirs,
+                pkg_dirs: packages,
+                enable_coverage: false,
+            },
             pkg_rel: relationship,
         };
         let artifact_paths = ArtifactPathResolver::new(
@@ -842,9 +851,12 @@ mod tests {
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(module, PathBuf::from("."));
         let resolved = ResolveOutput {
-            module_rel: modules,
-            module_dirs,
-            pkg_dirs: packages,
+            discovered: crate::resolve::DiscoveredProject {
+                module_rel: modules,
+                module_dirs,
+                pkg_dirs: packages,
+                enable_coverage: false,
+            },
             pkg_rel: DepRelationship::default(),
         };
         let artifact_paths = ArtifactPathResolver::new(

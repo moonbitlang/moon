@@ -24,7 +24,7 @@ use anyhow::{Context, bail};
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    ResolveOutput,
+    DiscoveredProject, ResolveOutput,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
     model::{BackendConfig, PackageId},
@@ -60,19 +60,14 @@ impl ResolvedRunSelection {
     fn into_user_intent(
         self,
         input_path: &str,
-        resolve_output: &ResolveOutput,
+        discovered: &DiscoveredProject,
         value_tracing: bool,
         target_backend: TargetBackend,
     ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-        if !resolve_output
-            .pkg_dirs
-            .get_package(self.package)
-            .raw
-            .is_main
-        {
+        if !discovered.pkg_dirs.get_package(self.package).raw.is_main {
             bail!("`{}` is not a main package", input_path);
         }
-        ensure_package_supports_backend(resolve_output, self.package, target_backend)?;
+        ensure_package_supports_backend(discovered, self.package, target_backend)?;
 
         let directive = if value_tracing {
             InputDirective {
@@ -696,10 +691,10 @@ fn get_run_executable(build_meta: &BuildMeta) -> &Path {
 #[instrument(level = Level::DEBUG, skip_all)]
 fn resolve_run_selection(
     input_path: &str,
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
 ) -> Result<ResolvedRunSelection, anyhow::Error> {
     let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
-    let package = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
+    let package = crate::filter::filter_pkg_by_dir(discovered, &dir)?;
     Ok(ResolvedRunSelection { package })
 }
 

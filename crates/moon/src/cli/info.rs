@@ -24,8 +24,8 @@ use anyhow::bail;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve_synced_project,
-    sync_dependencies,
+    DiscoveredProject, ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId,
+    resolve_synced_project, sync_dependencies,
 };
 use moonutil::{
     build_options::RunMode,
@@ -100,14 +100,14 @@ enum SelectionMode {
 impl PackageSelection {
     fn new(
         cmd: &InfoSubcommand,
-        resolve_output: &ResolveOutput,
+        discovered: &DiscoveredProject,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = resolve_output
+        let package_ids: Vec<_> = discovered
             .local_modules()
             .iter()
             .flat_map(|&module_id| {
-                resolve_output
+                discovered
                     .pkg_dirs
                     .packages_for_module(module_id)
                     .into_iter()
@@ -117,7 +117,7 @@ impl PackageSelection {
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;
-            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+            let pkg = filter_pkg_by_dir(discovered, &dir)?;
             return Ok(Self {
                 mode: SelectionMode::SinglePath,
                 package_ids: vec![pkg],
@@ -127,7 +127,7 @@ impl PackageSelection {
 
         if !cmd.path.is_empty() {
             let path_packages = select_packages(&cmd.path, user_log, |dir| {
-                filter_pkg_by_dir(resolve_output, dir)
+                filter_pkg_by_dir(discovered, dir)
             })?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
@@ -139,7 +139,7 @@ impl PackageSelection {
 
         if let Some(filter) = cmd.package.as_deref() {
             let matches = match_packages_with_fuzzy(
-                resolve_output,
+                discovered,
                 package_ids.iter().copied(),
                 std::iter::once(filter),
             );
@@ -179,7 +179,7 @@ struct InfoIntentContext<'a> {
 
 fn calc_user_intent_for_info(
     ctx: &InfoIntentContext,
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let is_canonical_run = matches!(ctx.target_kind, imp::TargetKind::Canonical);
@@ -188,14 +188,14 @@ fn calc_user_intent_for_info(
         SelectionMode::SinglePath => {
             let package = ctx.selection.package_ids[0];
             let canonical = ctx.output_plan.canonical_backend_for(&package) == Some(target_backend);
-            let supported = package_supports_backend(resolve_output, package, target_backend);
+            let supported = package_supports_backend(discovered, package, target_backend);
 
             if (canonical || !is_canonical_run) && supported {
                 vec![UserIntent::Info(package)]
             } else {
                 ctx.user_log.warn(format!(
                     "Skipping package `{}` for `moon info`: it does not support target backend `{}`",
-                    resolve_output.pkg_dirs.get_package(package).fqn,
+                    discovered.pkg_dirs.get_package(package).fqn,
                     target_backend
                 ));
                 Vec::new()
@@ -208,7 +208,7 @@ fn calc_user_intent_for_info(
             for (path, pkg_id) in &ctx.selection.path_packages {
                 let canonical =
                     ctx.output_plan.canonical_backend_for(pkg_id) == Some(target_backend);
-                let supported = package_supports_backend(resolve_output, *pkg_id, target_backend);
+                let supported = package_supports_backend(discovered, *pkg_id, target_backend);
                 let should_include = (canonical || !is_canonical_run) && supported;
 
                 if should_include {
@@ -219,13 +219,13 @@ fn calc_user_intent_for_info(
             }
 
             for (path, pkg_id) in &unsupported {
-                let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
+                let pkg = discovered.pkg_dirs.get_package(*pkg_id);
                 ctx.user_log.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
                     target_backend,
-                    format_supported_backends(resolve_output, *pkg_id),
+                    format_supported_backends(discovered, *pkg_id),
                 ));
             }
 
@@ -247,8 +247,7 @@ fn calc_user_intent_for_info(
                 .filter(|&pkg_id| {
                     let canonical =
                         ctx.output_plan.canonical_backend_for(&pkg_id) == Some(target_backend);
-                    let supported =
-                        package_supports_backend(resolve_output, pkg_id, target_backend);
+                    let supported = package_supports_backend(discovered, pkg_id, target_backend);
                     (canonical || !is_canonical_run) && supported
                 })
                 .collect();

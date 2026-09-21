@@ -338,9 +338,12 @@ mod tests {
 
         (
             ResolveOutput {
-                module_rel: modules,
-                module_dirs,
-                pkg_dirs: packages,
+                discovered: crate::resolve::DiscoveredProject {
+                    module_rel: modules,
+                    module_dirs,
+                    pkg_dirs: packages,
+                    enable_coverage: false,
+                },
                 pkg_rel: DepRelationship::default(),
             },
             package_id.build_target(TargetKind::Source),

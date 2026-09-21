@@ -618,14 +618,14 @@ fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
 }
 
 fn resolve_build_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &BuildSubcommand,
     selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages =
-            resolve_selected_build_packages(resolve_output, cmd, Some(target_backend), user_log)?;
+            resolve_selected_build_packages(discovered, cmd, Some(target_backend), user_log)?;
         if packages.is_empty() {
             return Ok(Vec::new());
         }
@@ -635,15 +635,15 @@ fn resolve_build_target_selections(
         }]);
     }
 
-    let selected = resolve_selected_build_packages(resolve_output, cmd, None, user_log)?;
-    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_build_packages(discovered, cmd, None, user_log)?;
+    let mut selections = group_packages_by_preferred_backend(discovered, selected);
 
     for selection in &mut selections {
         selection.packages = selection
             .packages
             .iter()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
+            .filter(|&pkg| package_supports_backend(discovered, pkg, selection.target_backend))
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
@@ -652,17 +652,17 @@ fn resolve_build_target_selections(
 }
 
 fn resolve_selected_build_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &BuildSubcommand,
     target_backend: Option<TargetBackend>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.path.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, user_log);
+            return select_supported_packages(discovered, &cmd.path, target_backend, user_log);
         }
         return Ok(select_packages(&cmd.path, user_log, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+            filter_pkg_by_dir(discovered, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
@@ -671,21 +671,21 @@ fn resolve_selected_build_packages(
 
     if let Some(package_filter) = cmd.package.as_deref() {
         let pkgs = match_packages_by_name_rr(
-            resolve_output,
-            resolve_output.local_modules(),
+            discovered,
+            discovered.local_modules(),
             package_filter,
             user_log,
         );
         if let Some(target_backend) = target_backend {
-            ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
+            ensure_packages_support_backend(discovered, pkgs.iter().copied(), target_backend)?;
         }
         return Ok(pkgs);
     }
 
-    Ok(rr_build::local_packages(resolve_output)
+    Ok(rr_build::local_packages(discovered)
         .filter(|&pkg_id| {
             target_backend
-                .is_none_or(|backend| package_supports_backend(resolve_output, pkg_id, backend))
+                .is_none_or(|backend| package_supports_backend(discovered, pkg_id, backend))
         })
         .collect())
 }
@@ -697,13 +697,13 @@ fn resolve_selected_build_packages(
 fn calc_user_intent(
     path_filters: &[PathBuf],
     package_filter: Option<&str>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !path_filters.is_empty() {
         let selected =
-            select_supported_packages(resolve_output, path_filters, target_backend, user_log)?;
+            select_supported_packages(discovered, path_filters, target_backend, user_log)?;
         Ok(selected
             .into_iter()
             .map(UserIntent::Build)
@@ -711,12 +711,12 @@ fn calc_user_intent(
             .into())
     } else if let Some(package_filter) = package_filter {
         let pkgs = match_packages_by_name_rr(
-            resolve_output,
-            resolve_output.local_modules(),
+            discovered,
+            discovered.local_modules(),
             package_filter,
             user_log,
         );
-        ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
+        ensure_packages_support_backend(discovered, pkgs.iter().copied(), target_backend)?;
         Ok(pkgs
             .into_iter()
             .map(UserIntent::Build)
@@ -724,9 +724,9 @@ fn calc_user_intent(
             .into())
     } else {
         calc_user_intent_from_scoped_packages(
-            resolve_output,
-            &rr_build::local_packages(resolve_output)
-                .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+            discovered,
+            &rr_build::local_packages(discovered)
+                .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
                 .collect::<Vec<_>>(),
             target_backend,
         )
@@ -734,12 +734,12 @@ fn calc_user_intent(
 }
 
 fn calc_user_intent_from_scoped_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     supported_packages: &[PackageId],
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let linkable_pkgs = get_linkable_pkgs(
-        resolve_output,
+        discovered,
         target_backend,
         supported_packages.iter().copied(),
     );
@@ -748,7 +748,7 @@ fn calc_user_intent_from_scoped_packages(
             .iter()
             .copied()
             .filter(|&pkg_id| {
-                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                let pkg = discovered.pkg_dirs.get_package(pkg_id);
                 !pkg.is_stdlib
             })
             .map(UserIntent::Build)
@@ -760,13 +760,13 @@ fn calc_user_intent_from_scoped_packages(
 }
 
 fn get_linkable_pkgs(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
     packages: impl Iterator<Item = PackageId>,
 ) -> Vec<PackageId> {
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = discovered.pkg_dirs.get_package(pkg_id);
         if pkg.raw.force_link
             || pkg
                 .raw

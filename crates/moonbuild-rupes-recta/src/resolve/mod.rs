@@ -18,12 +18,12 @@
 
 //! High-level abstraction that handles module and package resolving.
 //!
-//! Normal project resolution is split into an explicit dependency sync step and
-//! a package discovery/solve step. This keeps dependency-directory mutation
-//! visible to command adapters before RR consumes the synced dependencies as
-//! input.
+//! Normal project resolution has separate dependency sync, package discovery,
+//! and package solving steps. Discovery produces [`DiscoveredProject`];
+//! solving adds the package dependency graph to produce [`ResolveOutput`].
+//! Dependency-directory mutation remains explicit in the sync step.
 
-use std::path::Path;
+use std::{ops::Deref, path::Path};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -58,21 +58,55 @@ use crate::{
     pkg_solve::{self, DepRelationship},
 };
 
-/// Represents the overall result of a resolve process.
+/// A project's modules and packages before solving package dependencies.
 #[derive(Debug, Clone)]
-pub struct ResolveOutput {
+pub struct DiscoveredProject {
     /// Module dependency relationship
     pub module_rel: ResolvedEnv,
     /// Module directories
     pub module_dirs: DirSyncResult,
     /// Package directories
     pub pkg_dirs: DiscoverResult,
+    /// Keep graph injection consistent with coverage sources added during discovery.
+    pub(crate) enable_coverage: bool,
+}
+
+/// A discovered project with its resolved package dependency graph.
+#[derive(Debug, Clone)]
+pub struct ResolveOutput {
+    pub discovered: DiscoveredProject,
     /// Package dependency relationship
     pub pkg_rel: DepRelationship,
 }
 
-impl ResolveOutput {
-    /// Returns the input/root modules of the current resolve.
+/// A resolved project provides read-only access to its modules and packages.
+impl Deref for ResolveOutput {
+    type Target = DiscoveredProject;
+
+    fn deref(&self) -> &Self::Target {
+        &self.discovered
+    }
+}
+
+impl DiscoveredProject {
+    /// Solve package dependencies, returning a resolved project only if the graph is valid.
+    #[instrument(skip_all)]
+    pub fn resolve(self, user_log: &UserLog) -> Result<ResolveOutput, ResolveError> {
+        let pkg_rel = pkg_solve::solve(
+            &self.module_rel,
+            &self.pkg_dirs,
+            self.enable_coverage,
+            user_log,
+        )
+        .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
+
+        Ok(ResolveOutput {
+            discovered: self,
+            pkg_rel,
+        })
+    }
+
+    /// Returns the input/root modules of the project.
     ///
     /// This is a role in the current resolution graph, not a check of
     /// `ModuleSourceKind::Local`.
@@ -352,6 +386,24 @@ pub fn resolve_synced_project(
     synced_dependencies: (ResolvedEnv, DirSyncResult),
     user_log: &UserLog,
 ) -> Result<ResolveOutput, ResolveError> {
+    let resolved =
+        discover_synced_project(cfg, synced_dependencies, user_log)?.resolve(user_log)?;
+
+    info!("Package dependency resolution completed successfully");
+    debug!(
+        "Package dependency graph has {} nodes",
+        resolved.pkg_rel.dep_graph.node_count()
+    );
+    Ok(resolved)
+}
+
+/// Discover packages from already synced dependencies without solving imports.
+#[instrument(skip_all)]
+pub fn discover_synced_project(
+    cfg: &ResolveConfig,
+    synced_dependencies: (ResolvedEnv, DirSyncResult),
+    user_log: &UserLog,
+) -> Result<DiscoveredProject, ResolveError> {
     let (resolved_env, dir_sync_result) = synced_dependencies;
 
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
@@ -369,25 +421,11 @@ pub fn resolve_synced_project(
         discover_result.package_count()
     );
 
-    let dep_relationship = pkg_solve::solve(
-        &resolved_env,
-        &discover_result,
-        cfg.enable_coverage,
-        user_log,
-    )
-    .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
-
-    info!("Package dependency resolution completed successfully");
-    debug!(
-        "Package dependency graph has {} nodes",
-        dep_relationship.dep_graph.node_count()
-    );
-
-    Ok(ResolveOutput {
+    Ok(DiscoveredProject {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
-        pkg_rel: dep_relationship,
+        enable_coverage: cfg.enable_coverage,
     })
 }
 
@@ -403,6 +441,23 @@ pub fn resolve_single_file_project(
     run_mode: bool,
     user_log: &UserLog,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
+    let (discovered, backend) =
+        discover_single_file_project(cfg, dirs, source_file, run_mode, user_log)?;
+    Ok((discovered.resolve(user_log)?, backend))
+}
+
+/// Discover a single-file project and read its preferred backend
+/// without solving package dependencies.
+/// `source_file` must be the absolute invoked path from
+/// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
+#[instrument(skip_all, fields(run_mode = run_mode))]
+pub fn discover_single_file_project(
+    cfg: &ResolveConfig,
+    dirs: &PackageDirs,
+    source_file: &Path,
+    run_mode: bool,
+    user_log: &UserLog,
+) -> Result<(DiscoveredProject, Option<TargetBackend>), ResolveError> {
     let source_kind = if source_file.extension().is_some_and(|ext| ext == "mbtx") {
         SingleFileSourceKind::Mbtx
     } else if source_file.extension().is_some_and(|ext| ext == "md") {
@@ -469,20 +524,11 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         front_matter_config.package_imports,
     )?;
 
-    // Solve package dependency relationship
-    let dep_relationship = pkg_solve::solve(
-        &resolved_env,
-        &discover_result,
-        cfg.enable_coverage,
-        user_log,
-    )
-    .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
-
-    let res = ResolveOutput {
+    let discovered = DiscoveredProject {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
-        pkg_rel: dep_relationship,
+        enable_coverage: cfg.enable_coverage,
     };
-    Ok((res, backend))
+    Ok((discovered, backend))
 }

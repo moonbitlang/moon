@@ -247,9 +247,9 @@ pub(crate) fn plan_bundle_rr_from_resolved(
 }
 
 fn bundle_user_intent(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
 ) -> CalcUserIntentOutput {
-    resolve_output
+    discovered
         .local_modules()
         .iter()
         .map(|&module| UserIntent::Bundle(module))

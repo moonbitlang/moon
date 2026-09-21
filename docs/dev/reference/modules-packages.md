@@ -213,6 +213,15 @@ structured commands capture them with their other logs.
 
 ## Package discovery
 
+Rupes Recta represents discovered modules and packages as `DiscoveredProject`,
+which contains the resolved module graph, module directories, and the package-level
+`DiscoverResult`. Package-selection helpers use this data without needing a
+solved package graph. `DiscoveredProject::resolve` validates imports and adds the
+single package dependency graph to produce `ResolveOutput`, using the coverage
+setting captured during discovery. The project and single-file resolution
+entry points still perform both steps before commands select packages and plan
+builds, preserving dependency-error ordering.
+
 The `source` field in `moon.mod.json` specifies where package scanning starts,
 relative to the folder containing `moon.mod.json`.
 Package paths are the relative path (normalized to forward slash) relative to this root path.
