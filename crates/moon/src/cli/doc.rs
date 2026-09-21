@@ -212,7 +212,7 @@ pub(crate) fn run_doc_rr(
 }
 
 fn selected_doc_module_id(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     selected_module_dir: &Path,
 ) -> anyhow::Result<ModuleId> {
     resolve_output

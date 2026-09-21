@@ -39,7 +39,7 @@ use moonbuild::{
     execution::{BuildInput, resolve_parallelism},
 };
 use moonbuild_rupes_recta::{
-    CompileConfig, ResolveConfig, ResolveOutput,
+    CompileConfig, ProjectDeclarations, ResolveConfig, ResolveOutput,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
     fmt::{FmtConfig, FmtResolveOutput},
@@ -138,7 +138,7 @@ impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
     }
 }
 
-fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, user_log: &UserLog) {
+fn warn_local_legacy_supported_targets(resolve_output: &ProjectDeclarations, user_log: &UserLog) {
     let mut warned = BTreeSet::new();
     for &module_id in resolve_output.local_modules() {
         if let Some(pkgs) = resolve_output.pkg_dirs.packages_for_module(module_id) {
@@ -159,7 +159,7 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, user_log:
 }
 
 pub(crate) fn local_packages(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
 ) -> impl Iterator<Item = PackageId> + '_ {
     resolve_output
         .local_modules()
@@ -174,7 +174,7 @@ pub(crate) fn local_packages(
 }
 
 fn local_modules_preferred_target(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     user_log: &UserLog,
 ) -> Option<TargetBackend> {
     let preferred = resolve_output

@@ -20,7 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
-use moonbuild_rupes_recta::ResolveOutput;
+use moonbuild_rupes_recta::ProjectDeclarations;
 use moonutil::package::MoonPkgGenerate;
 
 pub(crate) struct PrebuildWatchPaths {
@@ -29,7 +29,7 @@ pub(crate) struct PrebuildWatchPaths {
 }
 
 /// Generate the list of paths to watch or ignore for pre-builds during watch mode.
-pub(crate) fn rr_get_prebuild_watch_paths(env: &ResolveOutput) -> PrebuildWatchPaths {
+pub(crate) fn rr_get_prebuild_watch_paths(env: &ProjectDeclarations) -> PrebuildWatchPaths {
     let mut ignored_paths = vec![];
     let mut watched_paths = vec![];
 

@@ -622,7 +622,7 @@ fn run_check_for_single_file_rr(
 }
 
 fn get_user_intents_single_file(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     _backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let m_packages = resolve_output
@@ -957,7 +957,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
 }
 
 fn validate_selector_flags_before_split(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
@@ -1059,7 +1059,7 @@ fn plan_check_rr_from_selection(
 }
 
 pub(crate) fn resolve_check_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
@@ -1102,7 +1102,7 @@ pub(crate) fn resolve_check_target_selections(
 }
 
 fn resolve_selected_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
@@ -1138,7 +1138,7 @@ fn resolve_selected_packages(
 }
 
 fn filter_packages_for_backend(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: Vec<PackageId>,
     target_backend: TargetBackend,
     user_log: &UserLog,
@@ -1181,7 +1181,7 @@ fn filter_packages_for_backend(
 }
 
 fn calc_user_intent_from_package_path(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     source_dir: &Path,
     filter_path: &Path,
     target_backend: TargetBackend,
@@ -1197,7 +1197,7 @@ fn calc_user_intent_from_package_path(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     paths: &[PathBuf],
     target_backend: TargetBackend,
     patch_file: Option<&Path>,

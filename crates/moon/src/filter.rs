@@ -26,7 +26,7 @@ use std::{
 };
 
 use anyhow::Context;
-use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
+use moonbuild_rupes_recta::{ProjectDeclarations, fmt::FmtResolveOutput, model::PackageId};
 use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
@@ -136,7 +136,7 @@ where
 
 /// Perform fuzzy matching over package names and return the matching package IDs.
 pub(crate) fn match_packages_by_name_rr(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     main_modules: &[moonutil::resolution::ModuleId],
     needle: &str,
     user_log: &UserLog,
@@ -176,7 +176,7 @@ impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
 /// When a package cannot be found, returns a descriptive error that can be
 /// reported to the user.
 pub(crate) fn filter_pkg_by_dir(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
     let mut all_local_packages = resolve_output.local_modules().iter().flat_map(|&it| {
@@ -291,7 +291,7 @@ pub(crate) fn report_package_not_found(
 }
 
 pub(crate) fn format_supported_backends(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
 ) -> String {
     let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
@@ -305,7 +305,7 @@ pub(crate) fn format_supported_backends(
 }
 
 pub(crate) fn package_supports_backend(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> bool {
@@ -323,7 +323,7 @@ pub(crate) struct TargetPackageGroup {
 }
 
 pub(crate) fn preferred_target_backend_for_package(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
 ) -> TargetBackend {
     let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
@@ -334,7 +334,7 @@ pub(crate) fn preferred_target_backend_for_package(
 }
 
 pub(crate) fn group_packages_by_preferred_backend(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> Vec<TargetPackageGroup> {
     let mut groups = BTreeMap::<TargetBackend, Vec<PackageId>>::new();
@@ -355,7 +355,7 @@ pub(crate) fn group_packages_by_preferred_backend(
 }
 
 pub(crate) fn ensure_package_supports_backend(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()> {
@@ -373,7 +373,7 @@ pub(crate) fn ensure_package_supports_backend(
 }
 
 pub(crate) fn ensure_packages_support_backend<I>(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     packages: I,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()>
@@ -413,7 +413,7 @@ where
 }
 
 pub(crate) fn select_supported_packages<I>(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     paths: I,
     target_backend: TargetBackend,
     user_log: &UserLog,
@@ -473,7 +473,7 @@ pub(crate) struct PackageMatchResult {
 /// matched by their fully qualified names, preferring exact matches and falling back to fuzzy
 /// suggestions. Results are deduplicated while preserving the order returned by the matcher.
 pub(crate) fn match_packages_with_fuzzy<I, S>(
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     candidates: impl IntoIterator<Item = PackageId>,
     names: I,
 ) -> PackageMatchResult
@@ -559,7 +559,9 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
 mod tests {
     use super::select_supported_packages;
     use log::LevelFilter;
-    use moonbuild_rupes_recta::ResolveConfig;
+    use moonbuild_rupes_recta::{
+        ProjectDeclarations, ResolveConfig, pkg_solve::SolveError, resolve::ResolveError,
+    };
     use moonutil::{
         constants::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK},
         project::{SourceTargetDirs, WorkspaceEnv},
@@ -579,7 +581,7 @@ mod tests {
         dunce::canonicalize(path).unwrap()
     }
 
-    fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
+    fn discover_project(source_dir: &Path) -> ProjectDeclarations {
         let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
         let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
@@ -593,7 +595,48 @@ mod tests {
         .package_dirs()
         .unwrap();
         let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs, &user_log).unwrap();
-        moonbuild_rupes_recta::resolve_synced_project(&cfg, synced_env, &user_log).unwrap()
+        moonbuild_rupes_recta::discover_synced_project(&cfg, synced_env, &user_log).unwrap()
+    }
+
+    #[test]
+    fn package_selection_does_not_require_solvable_imports() {
+        let temp = tempfile::tempdir().unwrap();
+        write_file(
+            &temp.path().join(MOON_MOD_JSON),
+            r#"{ "name": "test/app" }"#,
+        );
+        write_file(
+            &temp.path().join("main").join(MOON_PKG_JSON),
+            r#"{ "is-main": true, "import": ["test/app/missing"] }"#,
+        );
+
+        let root = canonical(temp.path());
+        let declarations = discover_project(&root);
+        let user_log = UserLog::new(LevelFilter::Error);
+        let selected = select_supported_packages(
+            &declarations,
+            [root.join("main")],
+            TargetBackend::default(),
+            &user_log,
+        )
+        .unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(
+            declarations
+                .pkg_dirs
+                .get_package(selected[0])
+                .fqn
+                .to_string(),
+            "test/app/main"
+        );
+
+        let ResolveError::SolveError(error) = declarations.resolve(&user_log).unwrap_err() else {
+            panic!("missing imports must be reported during package solving");
+        };
+        assert!(matches!(
+            *error,
+            SolveError::ImportNotFound { import, .. } if import == "test/app/missing"
+        ));
     }
 
     #[test]
@@ -616,7 +659,7 @@ mod tests {
 
         let workspace_root = canonical(workspace_root);
         let dangling_pkg = workspace_root.join("dangling/pkg");
-        let resolved = resolve_output(&workspace_root);
+        let resolved = discover_project(&workspace_root);
 
         assert_eq!(
             select_supported_packages(
@@ -654,7 +697,7 @@ mod tests {
 
         let workspace_root = canonical(workspace_root);
         let external_pkg = canonical(external_module.join("src/main"));
-        let resolved = resolve_output(&workspace_root);
+        let resolved = discover_project(&workspace_root);
         let selected = select_supported_packages(
             &resolved,
             [&external_pkg],

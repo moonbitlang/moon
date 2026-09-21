@@ -26,8 +26,9 @@
 
     - [`resolve`] Builds an in-memory representation of all modules and packages
       that needs to be used during the compile process, as well as the
-      dependency relationship between them. This part is always performed
-      without affected by the user input.
+      dependency relationship between them. Discovery produces
+      [`ProjectDeclarations`] for inspecting modules and packages; solving
+      their imports produces [`ResolveOutput`] for compilation.
 
     - [`compile`] takes in the resolved environment and produces an
       [`execution_plan::ExecutionPlan`]. This part converts the intent of the
@@ -122,4 +123,7 @@ pub mod util;
 
 // Reexports
 pub use compile::{CompileConfig, CompileOutput, compile};
-pub use resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies};
+pub use resolve::{
+    ProjectDeclarations, ResolveConfig, ResolveOutput, discover_synced_project,
+    resolve_synced_project, sync_dependencies,
+};

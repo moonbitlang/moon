@@ -24,7 +24,10 @@ use anyhow::Context;
 use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
-    resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies},
+    resolve::{
+        ProjectDeclarations, ResolveConfig, ResolveOutput, resolve_synced_project,
+        sync_dependencies,
+    },
 };
 use mooncake::pkg::{sync::SyncOutputOptions, tree::ResolvedTree};
 use moonutil::{
@@ -592,7 +595,10 @@ fn render_package_tree(
     out
 }
 
-fn selected_source_packages(resolve_output: &ResolveOutput, module: ModuleId) -> Vec<PackageId> {
+fn selected_source_packages(
+    resolve_output: &ProjectDeclarations,
+    module: ModuleId,
+) -> Vec<PackageId> {
     resolve_output
         .pkg_dirs
         .packages_for_module(module)

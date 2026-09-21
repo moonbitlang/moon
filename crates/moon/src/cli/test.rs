@@ -75,7 +75,7 @@ enum ResolvedTestSelection {
 impl ResolvedTestSelection {
     fn to_runtime_filter(
         &self,
-        resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+        resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
         cmd: &TestLikeSubcommand<'_>,
     ) -> Result<TestFilter, anyhow::Error> {
         let mut filter = TestFilter {
@@ -121,7 +121,7 @@ impl ResolvedTestSelection {
 
     fn to_build_intent(
         &self,
-        resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+        resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
         cmd: &TestLikeSubcommand<'_>,
         target_backend: TargetBackend,
         filter: &TestFilter,
@@ -1357,7 +1357,7 @@ fn artifacts_from_target(x: BuildTarget) -> [ArtifactKey; 3] {
 #[instrument(level = "debug", skip(affected_packages, resolve_output, out_filter))]
 fn apply_list_of_filters(
     affected_packages: &[PackageId],
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     package_filter: &[String],
     file_filter: Option<&str>,
     index_filter: Option<TestIndexRange>,
@@ -1458,7 +1458,7 @@ fn apply_list_of_filters(
 /// fuzzy matching process is quite complex, we would avoid doing it twice.
 #[instrument(level = "debug", skip(resolve_output, cmd, out_filter))]
 fn calc_user_intent(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     target_backend: moonutil::target::TargetBackend,
@@ -1489,7 +1489,7 @@ fn calc_user_intent(
 
 #[allow(clippy::too_many_arguments)]
 fn calc_user_intent_from_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     all_affected_packages: &[PackageId],
@@ -1630,7 +1630,7 @@ fn calc_user_intent_from_packages(
 
 fn resolve_scoped_test_selection(
     cmd: &TestLikeSubcommand<'_>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     scoped_packages: Vec<PackageId>,
 ) -> anyhow::Result<ResolvedTestSelection> {
     if !cmd.explicit_path_filters.is_empty() {
@@ -1671,7 +1671,7 @@ fn selected_test_index(cmd: &TestLikeSubcommand<'_>) -> anyhow::Result<Option<Te
 }
 
 fn package_names(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: &[PackageId],
 ) -> Vec<String> {
     packages
@@ -1702,7 +1702,7 @@ fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
 }
 
 fn resolve_test_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
@@ -1723,7 +1723,7 @@ fn resolve_test_target_selections(
 }
 
 fn resolve_selected_test_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
@@ -1770,7 +1770,7 @@ fn resolve_selected_test_packages(
 }
 
 fn validate_original_package_selection_filters(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &TestLikeSubcommand<'_>,
 ) -> anyhow::Result<()> {
     let Some(package_filter) = cmd.package.as_deref() else {

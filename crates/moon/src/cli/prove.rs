@@ -216,7 +216,7 @@ pub(crate) fn run_prove(
 fn calc_user_intent(
     path_filter: Option<&Path>,
     selected_module_dir: Option<&Path>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     target_backend: TargetBackend,
     prove_why3_config: Option<&Path>,
     proof_prelude: &Path,
@@ -297,7 +297,7 @@ fn resolve_proof_prelude() -> anyhow::Result<PathBuf> {
 }
 
 fn selected_main_module_id(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     selected_module_dir: Option<&Path>,
 ) -> anyhow::Result<ModuleId> {
     if let Some(selected_module_dir) = selected_module_dir {

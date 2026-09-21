@@ -24,8 +24,8 @@ use anyhow::bail;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve_synced_project,
-    sync_dependencies,
+    ProjectDeclarations, ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId,
+    resolve_synced_project, sync_dependencies,
 };
 use moonutil::{
     build_options::RunMode,
@@ -100,7 +100,7 @@ enum SelectionMode {
 impl PackageSelection {
     fn new(
         cmd: &InfoSubcommand,
-        resolve_output: &ResolveOutput,
+        resolve_output: &ProjectDeclarations,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
         let package_ids: Vec<_> = resolve_output
@@ -179,7 +179,7 @@ struct InfoIntentContext<'a> {
 
 fn calc_user_intent_for_info(
     ctx: &InfoIntentContext,
-    resolve_output: &ResolveOutput,
+    resolve_output: &ProjectDeclarations,
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let is_canonical_run = matches!(ctx.target_kind, imp::TargetKind::Canonical);

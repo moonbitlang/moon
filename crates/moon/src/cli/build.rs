@@ -618,7 +618,7 @@ fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
 }
 
 fn resolve_build_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &BuildSubcommand,
     selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
@@ -652,7 +652,7 @@ fn resolve_build_target_selections(
 }
 
 fn resolve_selected_build_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     cmd: &BuildSubcommand,
     target_backend: Option<TargetBackend>,
     user_log: &UserLog,
@@ -697,7 +697,7 @@ fn resolve_selected_build_packages(
 fn calc_user_intent(
     path_filters: &[PathBuf],
     package_filter: Option<&str>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     target_backend: TargetBackend,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
@@ -734,7 +734,7 @@ fn calc_user_intent(
 }
 
 fn calc_user_intent_from_scoped_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     supported_packages: &[PackageId],
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
@@ -760,7 +760,7 @@ fn calc_user_intent_from_scoped_packages(
 }
 
 fn get_linkable_pkgs(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     target_backend: TargetBackend,
     packages: impl Iterator<Item = PackageId>,
 ) -> Vec<PackageId> {

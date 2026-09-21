@@ -202,7 +202,7 @@ pub(crate) fn run_build_binary_dep(
 }
 
 fn get_linkable_pkgs_for_bin_dep(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: &moonbuild_rupes_recta::ProjectDeclarations,
     packages: impl Iterator<Item = PackageId>,
     default_backend: TargetBackend,
     user_log: &UserLog,
