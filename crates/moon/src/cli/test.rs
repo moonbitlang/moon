@@ -434,15 +434,14 @@ fn run_test_impl(
     let display_backend_hint = targets.len() > 1;
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     validate_test_or_bench_invocation(cli, &test_cmd)?;
-    let resolve_output =
-        sync_and_resolve_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let resolved_project = prepare_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
     let ret_value = run_test_or_bench_from_resolved(
         cli,
         &test_cmd,
         &dirs,
         display_backend_hint,
         &targets,
-        resolve_output,
+        resolved_project,
         output,
     )
     .with_context(|| match targets.as_slice() {
@@ -557,14 +556,14 @@ fn run_test_in_single_file_rr(
     };
 
     // Resolve synthesized single-file project
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
-        &resolve_cfg,
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::prepare_single_file_project(
+        &preparation_config,
         dirs,
         single_file_path,
         false,
@@ -736,7 +735,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
     // Keep the planning flow explicit:
@@ -760,10 +759,10 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
             RunMode::Test
         },
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     let intent = calc_user_intent(
-        &resolve_output,
+        &resolved_project,
         cmd,
         &mut filter,
         compile_config.backend.target_backend(),
@@ -774,7 +773,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -788,7 +787,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
     if let Some(target_backend) = selected_target_backend {
@@ -798,14 +797,14 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             target_dir,
             mooncake_bin_dir,
             Some(target_backend),
-            resolve_output,
+            resolved_project,
             user_log,
         )
         .map(|plan| vec![plan]);
     }
 
-    validate_original_package_selection_filters(&resolve_output, cmd)?;
-    let selections = resolve_test_target_selections(&resolve_output, cmd, user_log)?;
+    validate_original_package_selection_filters(&resolved_project, cmd)?;
+    let selections = resolve_test_target_selections(&resolved_project, cmd, user_log)?;
 
     if has_explicit_test_selector(cmd) {
         if selections.is_empty() {
@@ -815,7 +814,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                 target_dir,
                 mooncake_bin_dir,
                 None,
-                resolve_output,
+                resolved_project,
                 user_log,
             )
             .map(|plan| vec![plan]);
@@ -825,14 +824,14 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             .into_iter()
             .map(|selection| {
                 let resolved_selection =
-                    resolve_scoped_test_selection(cmd, &resolve_output, selection.packages)?;
+                    resolve_scoped_test_selection(cmd, &resolved_project, selection.packages)?;
                 plan_test_or_bench_rr_from_resolved_scoped(
                     cli,
                     cmd,
                     target_dir,
                     mooncake_bin_dir,
                     selection.target_backend,
-                    resolve_output.clone(),
+                    resolved_project.clone(),
                     resolved_selection,
                     user_log,
                 )
@@ -847,7 +846,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             target_dir,
             mooncake_bin_dir,
             None,
-            resolve_output,
+            resolved_project,
             user_log,
         )
         .map(|plan| vec![plan]);
@@ -857,14 +856,14 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
         .into_iter()
         .map(|selection| {
             let resolved_selection =
-                resolve_scoped_test_selection(cmd, &resolve_output, selection.packages)?;
+                resolve_scoped_test_selection(cmd, &resolved_project, selection.packages)?;
             plan_test_or_bench_rr_from_resolved_scoped(
                 cli,
                 cmd,
                 target_dir,
                 mooncake_bin_dir,
                 selection.target_backend,
-                resolve_output.clone(),
+                resolved_project.clone(),
                 resolved_selection,
                 user_log,
             )
@@ -879,7 +878,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     resolved_selection: ResolvedTestSelection,
     user_log: &UserLog,
 ) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
@@ -899,12 +898,12 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
             RunMode::Test
         },
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
-    let filter = resolved_selection.to_runtime_filter(&resolve_output, cmd)?;
+    let filter = resolved_selection.to_runtime_filter(&resolved_project, cmd)?;
     let intent = resolved_selection.to_build_intent(
-        &resolve_output,
+        &resolved_project,
         cmd,
         compile_config.backend.target_backend(),
         &filter,
@@ -914,7 +913,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -995,19 +994,20 @@ pub(crate) fn validate_test_or_bench_invocation(
     Ok(())
 }
 
-pub(crate) fn sync_and_resolve_test_or_bench_project(
+pub(crate) fn prepare_test_or_bench_project(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
-    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-        cmd.auto_sync_flags.frozen,
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
-    );
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+) -> anyhow::Result<moonbuild_rupes_recta::ResolvedProject> {
+    let preparation_config =
+        moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
+            cmd.auto_sync_flags.frozen,
+            !cmd.build_flags.std(),
+            cmd.build_flags.enable_coverage,
+            cli.workspace_env.clone(),
+        );
+    rr_build::prepare_project(&preparation_config, dirs, user_log)
 }
 
 #[instrument(skip_all)]
@@ -1020,14 +1020,14 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
-    let resolve_output = sync_and_resolve_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    let resolved_project = prepare_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
     run_test_or_bench_from_resolved(
         cli,
         cmd,
         dirs,
         display_backend_hint,
         selected_target_backend.as_slice(),
-        resolve_output,
+        resolved_project,
         output,
     )
 }
@@ -1043,7 +1043,7 @@ pub(crate) fn run_test_or_bench_from_resolved(
     dirs: &PackageDirs,
     display_backend_hint: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let user_log = output.user_log();
@@ -1066,7 +1066,7 @@ pub(crate) fn run_test_or_bench_from_resolved(
             target_dir,
             mooncake_bin_dir,
             None,
-            resolve_output,
+            resolved_project,
             user_log,
         )?
     } else {
@@ -1080,7 +1080,7 @@ pub(crate) fn run_test_or_bench_from_resolved(
                     target_dir,
                     mooncake_bin_dir,
                     Some(target),
-                    resolve_output.clone(),
+                    resolved_project.clone(),
                     user_log,
                 )
             })
@@ -1260,7 +1260,7 @@ fn run_tests_with_updates(
             // Only the latest run can request another promotion. Keep results
             // for tests outside the rerun filter in the final report.
             let (rerun_count, rerun_filter) =
-                perform_promotion(&build_meta.resolve_output.pkg_dirs, &latest_result)
+                perform_promotion(&build_meta.resolved_project.pkg_dirs, &latest_result)
                     .expect("Failed to promote tests");
             debug!(
                 rerun_count,

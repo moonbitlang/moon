@@ -80,7 +80,7 @@ pub struct PackageRelations {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SolveError {
+pub enum PackageResolutionError {
     #[error("Cannot find import '{import}' in {package_fqn}")]
     ImportNotFound {
         import: String,
@@ -173,7 +173,7 @@ pub enum SolveError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub struct MultipleError(pub Vec<SolveError>);
+pub struct MultipleError(pub Vec<PackageResolutionError>);
 
 impl std::fmt::Display for MultipleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

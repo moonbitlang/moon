@@ -16,11 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! High-level abstraction that handles module and package resolving.
+//! Project preparation: module dependency sync, package discovery, and package resolution.
 //!
-//! Normal project resolution has separate dependency sync, package discovery,
-//! and package solving steps. Discovery produces [`DiscoveredProject`];
-//! solving adds the package dependency graph to produce [`ResolveOutput`].
+//! Module sync selects module sources and versions and makes them available on disk.
+//! Discovery produces [`DiscoveredProject`]; package resolution adds validated
+//! package relationships to produce [`ResolvedProject`].
 //! Dependency-directory mutation remains explicit in the sync step.
 
 use std::{ops::Deref, path::Path};
@@ -71,16 +71,18 @@ pub struct DiscoveredProject {
     pub(crate) enable_coverage: bool,
 }
 
-/// A discovered project with its resolved package dependency graph.
+/// A project with both module dependencies and package relationships resolved.
+///
+/// Keeps package relationships paired with the declarations used to resolve them.
 #[derive(Debug, Clone)]
-pub struct ResolveOutput {
+pub struct ResolvedProject {
     pub discovered: DiscoveredProject,
     /// Package imports, virtual-package associations, and backend support.
     pub package_relations: PackageRelations,
 }
 
 /// A resolved project provides read-only access to its modules and packages.
-impl Deref for ResolveOutput {
+impl Deref for ResolvedProject {
     type Target = DiscoveredProject;
 
     fn deref(&self) -> &Self::Target {
@@ -89,18 +91,22 @@ impl Deref for ResolveOutput {
 }
 
 impl DiscoveredProject {
-    /// Solve package dependencies, returning a resolved project only if the graph is valid.
+    /// Resolve package imports and virtual-package references using the already
+    /// selected modules, returning a project only if its package relationships are valid.
     #[instrument(skip_all)]
-    pub fn resolve(self, user_log: &UserLog) -> Result<ResolveOutput, ResolveError> {
-        let package_relations = pkg_solve::solve(
+    pub fn resolve_packages(
+        self,
+        user_log: &UserLog,
+    ) -> Result<ResolvedProject, ProjectPreparationError> {
+        let package_relations = pkg_solve::resolve_packages(
             &self.module_graph,
             &self.pkg_dirs,
             self.enable_coverage,
             user_log,
         )
-        .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
+        .map_err(|source| ProjectPreparationError::PackageResolutionError(Box::new(source)))?;
 
-        Ok(ResolveOutput {
+        Ok(ResolvedProject {
             discovered: self,
             package_relations,
         })
@@ -119,14 +125,15 @@ impl DiscoveredProject {
     }
 }
 
+/// Settings shared by module sync, package discovery, and package resolution.
 #[derive(Debug)]
-pub struct ResolveConfig {
+pub struct ProjectPreparationConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
     dependency_source_cache: CacheRoot,
     no_std: bool,
-    /// Whether direct bin-deps of the input modules participate in resolution
-    /// and are installed during dependency sync.
+    /// Whether direct bin-deps of the input modules participate in module resolution
+    /// and are installed during module sync.
     include_bin_deps: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
@@ -280,9 +287,9 @@ mod tests {
     }
 }
 
-impl ResolveConfig {
-    /// Creates a new `ResolveConfig` with whether to freeze package resolving,
-    /// and other flags populated with sensible defaults.
+impl ProjectPreparationConfig {
+    /// Create project preparation settings with the requested module sync policy
+    /// and defaults for the remaining options.
     pub fn new_with_load_defaults(
         frozen: bool,
         no_std: bool,
@@ -300,7 +307,7 @@ impl ResolveConfig {
         }
     }
 
-    /// Creates a new `ResolveConfig` with the given sync and build flags.
+    /// Create project preparation settings with the given sync and build flags.
     pub fn new(
         sync_flags: AutoSyncFlags,
         no_std: bool,
@@ -334,8 +341,9 @@ impl ResolveConfig {
     }
 }
 
+/// Failures from module sync, package discovery, or package resolution.
 #[derive(Debug, thiserror::Error)]
-pub enum ResolveError {
+pub enum ProjectPreparationError {
     #[error("Failed to resolve the module dependency graph")]
     SyncModulesError(#[source] anyhow::Error),
 
@@ -343,20 +351,20 @@ pub enum ResolveError {
     DiscoverError(#[from] DiscoverError),
 
     #[error("Failed to solve package relationship")]
-    SolveError(#[source] Box<pkg_solve::SolveError>),
+    PackageResolutionError(#[source] Box<pkg_solve::PackageResolutionError>),
 
     #[error("Failed to parse single file front matter configuration")]
     SingleFileParseError(#[source] anyhow::Error),
 }
 
-/// Performs the resolving process from a raw working directory, until all of
-/// modules and package directories are ready for package discovery.
+/// Resolve module sources and versions and synchronize their directories for
+/// package discovery. This does not resolve package imports.
 #[instrument(skip_all)]
-pub fn sync_dependencies(
-    cfg: &ResolveConfig,
+pub fn sync_module_dependencies(
+    cfg: &ProjectPreparationConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> Result<(ModuleDependencyGraph, DirSyncResult), ResolveError> {
+) -> Result<(ModuleDependencyGraph, DirSyncResult), ProjectPreparationError> {
     info!(
         "Starting dependency sync for source directory: {}",
         dirs.source_dir.display()
@@ -372,22 +380,22 @@ pub fn sync_dependencies(
         cfg.workspace_env.clone(),
         cfg.include_bin_deps,
     )
-    .map_err(ResolveError::SyncModulesError)?;
+    .map_err(ProjectPreparationError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", module_graph.module_count());
 
     Ok((module_graph, dir_sync_result))
 }
 
-/// Resolves packages and package relationships from already synced dependencies.
+/// Discover packages and resolve their relationships using already synced modules.
 #[instrument(skip_all)]
-pub fn resolve_synced_project(
-    cfg: &ResolveConfig,
+pub fn prepare_synced_project(
+    cfg: &ProjectPreparationConfig,
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     user_log: &UserLog,
-) -> Result<ResolveOutput, ResolveError> {
+) -> Result<ResolvedProject, ProjectPreparationError> {
     let resolved =
-        discover_synced_project(cfg, synced_dependencies, user_log)?.resolve(user_log)?;
+        discover_synced_project(cfg, synced_dependencies, user_log)?.resolve_packages(user_log)?;
 
     info!("Package dependency resolution completed successfully");
     debug!(
@@ -400,10 +408,10 @@ pub fn resolve_synced_project(
 /// Discover packages from already synced dependencies without solving imports.
 #[instrument(skip_all)]
 pub fn discover_synced_project(
-    cfg: &ResolveConfig,
+    cfg: &ProjectPreparationConfig,
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     user_log: &UserLog,
-) -> Result<DiscoveredProject, ResolveError> {
+) -> Result<DiscoveredProject, ProjectPreparationError> {
     let (module_graph, dir_sync_result) = synced_dependencies;
 
     let mut discover_result = discover_packages(&module_graph, &dir_sync_result, user_log)?;
@@ -429,21 +437,21 @@ pub fn discover_synced_project(
     })
 }
 
-/// Performs the resolving process for a single file project. Will try to
-/// synthesize a minimal MoonBit project around the given file.
+/// Prepare a single-file project by syncing its module dependencies, discovering
+/// and synthesizing its packages, and resolving their relationships.
 /// `source_file` must be the absolute invoked path from
 /// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
 #[instrument(skip_all, fields(run_mode = run_mode))]
-pub fn resolve_single_file_project(
-    cfg: &ResolveConfig,
+pub fn prepare_single_file_project(
+    cfg: &ProjectPreparationConfig,
     dirs: &PackageDirs,
     source_file: &Path,
     run_mode: bool,
     user_log: &UserLog,
-) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
+) -> Result<(ResolvedProject, Option<TargetBackend>), ProjectPreparationError> {
     let (discovered, backend) =
         discover_single_file_project(cfg, dirs, source_file, run_mode, user_log)?;
-    Ok((discovered.resolve(user_log)?, backend))
+    Ok((discovered.resolve_packages(user_log)?, backend))
 }
 
 /// Discover a single-file project and read its preferred backend
@@ -452,12 +460,12 @@ pub fn resolve_single_file_project(
 /// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
 #[instrument(skip_all, fields(run_mode = run_mode))]
 pub fn discover_single_file_project(
-    cfg: &ResolveConfig,
+    cfg: &ProjectPreparationConfig,
     dirs: &PackageDirs,
     source_file: &Path,
     run_mode: bool,
     user_log: &UserLog,
-) -> Result<(DiscoveredProject, Option<TargetBackend>), ResolveError> {
+) -> Result<(DiscoveredProject, Option<TargetBackend>), ProjectPreparationError> {
     let source_kind = if source_file.extension().is_some_and(|ext| ext == "mbtx") {
         SingleFileSourceKind::Mbtx
     } else if source_file.extension().is_some_and(|ext| ext == "md") {
@@ -466,8 +474,8 @@ pub fn discover_single_file_project(
         SingleFileSourceKind::Mbt
     };
     let (header, front_matter_config) = if source_kind == SingleFileSourceKind::Mbtx {
-        let imports =
-            parse_mbtx_imports(source_file).map_err(ResolveError::SingleFileParseError)?;
+        let imports = parse_mbtx_imports(source_file)
+            .map_err(ProjectPreparationError::SingleFileParseError)?;
         let mut config = FrontMatterConfig {
             deps_to_sync: None,
             package_imports: None,
@@ -479,10 +487,10 @@ pub fn discover_single_file_project(
         }
         (None, config)
     } else {
-        let header =
-            parse_front_matter_config(source_file).map_err(ResolveError::SingleFileParseError)?;
+        let header = parse_front_matter_config(source_file)
+            .map_err(ProjectPreparationError::SingleFileParseError)?;
         let config = extract_front_matter_config(header.as_ref())
-            .map_err(ResolveError::SingleFileParseError)?;
+            .map_err(ProjectPreparationError::SingleFileParseError)?;
         (header, config)
     };
 
@@ -494,7 +502,7 @@ pub fn discover_single_file_project(
         // Error handling
         .transpose()
         .context("Unable to parse target backend from front matter")
-        .map_err(ResolveError::SingleFileParseError)?;
+        .map_err(ProjectPreparationError::SingleFileParseError)?;
 
     if front_matter_config.warn_import_all {
         user_log.warn(
@@ -511,7 +519,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         &cfg.dependency_source_cache,
         user_log,
     )
-    .map_err(ResolveError::SyncModulesError)?;
+    .map_err(ProjectPreparationError::SyncModulesError)?;
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&module_graph, &dir_sync_result, user_log)?;
     // Synthesize the single-file package that imports everything from discovered modules

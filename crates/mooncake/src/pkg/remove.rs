@@ -33,7 +33,7 @@ use moonutil::{
 use crate::{
     pkg::roots_for_selected_module,
     registry,
-    resolver::{ResolveConfig, resolve_modules},
+    resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
 /// Remove a dependency
@@ -60,11 +60,11 @@ pub fn remove(
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
 
     let registry = registry::default_registry();
-    let resolve_cfg = ResolveConfig {
+    let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: false, // no need to inject
     };
-    resolve_modules(&resolve_cfg, roots, user_log)?;
+    resolve_modules(&module_resolution_config, roots, user_log)?;
 
     if module_dir.join(MOON_MOD).exists() {
         patch_module_dsl_to_file(

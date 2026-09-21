@@ -39,7 +39,7 @@ use moonbuild::{
     execution::{BuildInput, resolve_parallelism},
 };
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, ResolveConfig, ResolveOutput,
+    CompileConfig, DiscoveredProject, ProjectPreparationConfig, ResolvedProject,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
     fmt::{FmtConfig, FmtResolveOutput},
@@ -71,23 +71,27 @@ mod prebuild;
 pub(crate) use dry_run::write_build_graph;
 pub(crate) use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_with_normalizer};
 
-/// Synchronize dependencies and return resolved project data.
+/// Sync module dependencies, discover packages, and resolve package relationships.
 /// This step does not acquire the target-directory lock.
-pub(crate) fn sync_and_resolve_project(
-    resolve_config: &ResolveConfig,
+pub(crate) fn prepare_project(
+    preparation_config: &ProjectPreparationConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<ResolveOutput> {
+) -> anyhow::Result<ResolvedProject> {
     std::fs::create_dir_all(&dirs.target_dir).with_context(|| {
         format!(
             "Failed to create target directory: '{}'",
             dirs.target_dir.display()
         )
     })?;
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(resolve_config, dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(resolve_config, synced_env, user_log)?;
-    Ok(resolve_output)
+    let synced_modules =
+        moonbuild_rupes_recta::sync_module_dependencies(preparation_config, dirs, user_log)?;
+    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
+        preparation_config,
+        synced_modules,
+        user_log,
+    )?;
+    Ok(resolved_project)
 }
 
 /// The output of a calculate user intent operation.
@@ -105,14 +109,14 @@ impl CalcUserIntentOutput {
 
     fn requested_artifacts(
         &self,
-        resolve_output: &ResolveOutput,
+        resolved_project: &ResolvedProject,
         user_log: &UserLog,
         target_backend: TargetBackend,
     ) -> Vec<ArtifactKey> {
         let mut artifacts = Vec::new();
         for intent in &self.intents {
             intent.append_artifacts(
-                resolve_output,
+                resolved_project,
                 &mut artifacts,
                 user_log,
                 &self.directive,
@@ -271,35 +275,35 @@ pub(crate) fn prepare_resolved_build(
     target_dir: &Path,
     action: RunMode,
     user_log: &UserLog,
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
 ) -> anyhow::Result<CompileConfig> {
     // A couple of debug things:
     if cli.unstable_feature.rr_export_module_graph {
         info!("Exporting module graph DOT file");
         moonbuild_rupes_recta::util::print_module_graph_dot(
-            &resolve_output.module_graph,
+            &resolved_project.module_graph,
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
     if cli.unstable_feature.rr_export_package_graph {
         info!("Exporting package graph DOT file");
         moonbuild_rupes_recta::util::print_package_relations_dot(
-            &resolve_output.package_relations,
-            &resolve_output.pkg_dirs,
+            &resolved_project.package_relations,
+            &resolved_project.pkg_dirs,
             &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
         )?;
     }
 
     // Preferred backend
     info!("Checking local modules and backend");
-    let main_module = match resolve_output.local_modules() {
-        &[module_id] => Some(resolve_output.module_info(module_id)),
+    let main_module = match resolved_project.local_modules() {
+        &[module_id] => Some(resolved_project.module_info(module_id)),
         _ => None,
     };
     let preferred_target = if selected_target_backend.is_some() {
         None
     } else {
-        local_modules_preferred_target(resolve_output, user_log)
+        local_modules_preferred_target(resolved_project, user_log)
     };
     info!("Preferred backend: {:?}", preferred_target);
 
@@ -313,7 +317,7 @@ pub(crate) fn prepare_resolved_build(
             "LLVM backend is experimental and only supported on nightly moonbit toolchain for now",
         );
     }
-    warn_local_legacy_supported_targets(resolve_output, user_log);
+    warn_local_legacy_supported_targets(resolved_project, user_log);
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
@@ -380,8 +384,12 @@ pub(crate) fn prepare_resolved_build(
     };
     info!("Final backend configuration: {:?}", backend);
     let stdlib_path = (build_flags.std() && !is_core).then(moonutil::toolchain::core);
-    let target_layout =
-        TargetLayout::from_resolve_output(target_dir.to_owned(), resolve_output, opt_level, action);
+    let target_layout = TargetLayout::from_resolved_project(
+        target_dir.to_owned(),
+        resolved_project,
+        opt_level,
+        action,
+    );
     let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path.clone());
     Ok(CompileConfig {
         target_dir: target_dir.to_owned(),
@@ -422,7 +430,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     user_log: &UserLog,
     intent: CalcUserIntentOutput,
     mooncake_bin_dir: &Path,
-    resolve_output: ResolveOutput,
+    resolved_project: ResolvedProject,
     jobs: Option<usize>,
     frozen: bool,
     dry_run: bool,
@@ -434,11 +442,11 @@ pub(crate) fn plan_resolved_build_from_intent(
     // script. Dry runs that only lower commands must not acquire a write lock.
     let run_prebuild = cx.action != RunMode::Check
         && cx.backend.target_backend().is_native()
-        && resolve_output
+        && resolved_project
             .module_graph
             .all_modules_and_id()
             .any(|(m, _)| {
-                resolve_output
+                resolved_project
                     .module_info(m)
                     .__moonbit_unstable_prebuild
                     .is_some()
@@ -451,7 +459,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let prebuild_config = if run_prebuild {
         info!("Running prebuild configuration");
         Some(prebuild::run_prebuild_config(
-            &resolve_output,
+            &resolved_project,
             &cx,
             resolve_parallelism(jobs),
             frozen,
@@ -463,12 +471,12 @@ pub(crate) fn plan_resolved_build_from_intent(
 
     info!("Expanding user intents to requested artifacts");
     let requested_artifacts =
-        intent.requested_artifacts(&resolve_output, user_log, cx.backend.target_backend());
+        intent.requested_artifacts(&resolved_project, user_log, cx.backend.target_backend());
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
         mooncake_bin_dir,
-        &resolve_output,
+        &resolved_project,
         &requested_artifacts,
         &intent.directive,
         prebuild_config.as_ref(),
@@ -481,8 +489,8 @@ pub(crate) fn plan_resolved_build_from_intent(
         info!("Exporting build plan DOT file");
         moonbuild_rupes_recta::util::print_build_plan_dot(
             &plan,
-            &resolve_output.module_graph,
-            &resolve_output.pkg_dirs,
+            &resolved_project.module_graph,
+            &resolved_project.pkg_dirs,
             &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
         )?;
     }
@@ -493,7 +501,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
         .collect();
     let build_meta = BuildMeta {
-        resolve_output,
+        resolved_project,
         artifacts,
         backend: cx.backend.clone(),
         opt_level: cx.opt_level,
@@ -544,7 +552,7 @@ pub fn generate_metadata(
 
     let check_commands = collect_check_commands_by_output(build_input);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
-        &build_meta.resolve_output,
+        &build_meta.resolved_project,
         source_dir,
         &build_meta.artifact_paths,
         build_meta.opt_level,
@@ -658,7 +666,7 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
         .target_layout()
         .all_pkgs_of_build_target(build_meta.target_backend());
     let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
-        &build_meta.resolve_output,
+        &build_meta.resolved_project,
         &build_meta.artifact_paths,
         build_meta.target_backend(),
     );

@@ -177,9 +177,11 @@ whitespace, control characters, and Unicode directional formatting controls.
 ## Module dependency resolution
 
 Module resolution selects concrete module sources and versions and records their
-dependency edges in `ModuleDependencyGraph`. Its working registry access,
-manifest caches, and diagnostics belong to `ModuleResolutionContext`. Package
-imports are resolved separately after package discovery.
+dependency edges in `ModuleDependencyGraph`. `ModuleResolutionConfig` supplies
+registry and standard-library policy to the `ModuleResolver`; its working
+registry access, manifest caches, and diagnostics belong to
+`ModuleResolutionContext`. Failures are reported as `ModuleResolutionError`.
+Package imports are resolved separately after package discovery.
 
 Modules are versioned using [SemVer][] (Semantic Versioning),
 with the (common) extension of breaking change happens on the first non-zero version component.
@@ -221,15 +223,25 @@ structured commands capture them with their other logs.
 Rupes Recta represents discovered modules and packages as `DiscoveredProject`,
 which contains the `ModuleDependencyGraph`, module directories, and the package-level
 `DiscoverResult`. Package-selection helpers use this data without needing a
-solved package graph. `DiscoveredProject::resolve` validates imports and adds
-`PackageRelations` to produce `ResolveOutput`, using the coverage
-setting captured during discovery. The project and single-file resolution
-entry points still perform both steps before commands select packages and plan
-builds, preserving dependency-error ordering.
+solved package graph. `DiscoveredProject::resolve_packages` validates imports and adds
+`PackageRelations` to produce `ResolvedProject`, using the coverage
+setting captured during discovery. `ResolvedProject` pairs those validated
+package relationships with the declarations and selected module dependencies
+used to resolve them.
 
 `PackageRelations` contains the import graph between package build targets,
 virtual-package associations, and derived backend support. `PackageGraphBuilder`
 is the temporary working state used to construct those relationships.
+`pkg_solve::resolve_packages` reports `PackageResolutionError` for invalid package
+relationships.
+
+The outer workflow uses `ProjectPreparationConfig` and `ProjectPreparationError`
+because it covers module sync, package discovery, and package resolution.
+`sync_module_dependencies` resolves and synchronizes modules;
+`prepare_synced_project` discovers packages and resolves their relationships.
+`prepare_single_file_project` performs the corresponding steps for a script.
+These entry points still finish preparation before commands select packages and
+plan builds, preserving dependency-error ordering.
 
 The `source` field in `moon.mod.json` specifies where package scanning starts,
 relative to the folder containing `moon.mod.json`.

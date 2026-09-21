@@ -18,7 +18,7 @@
 
 use crate::{
     dependency_source, registry,
-    resolver::{ResolveConfig, resolve_modules},
+    resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
 use super::sync::SyncOutputOptions;
@@ -132,12 +132,12 @@ pub(crate) fn install_impl(
     }
 
     let registry = registry::default_registry();
-    let resolve_config = ResolveConfig {
+    let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: !includes_core && !no_std,
     };
 
-    let res = resolve_modules(&resolve_config, roots, user_log)?;
+    let res = resolve_modules(&module_resolution_config, roots, user_log)?;
     let dependency_user_log = if output_options.quiet {
         user_log.with_level(log::LevelFilter::Error)
     } else {

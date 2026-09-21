@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild_rupes_recta::{
-    ResolveConfig,
+    ProjectPreparationConfig,
     build_plan::{ArtifactKey, InputDirective, PackagePrebuildPolicy},
     discover::DiscoveredPackage,
     intent::UserIntent,
@@ -92,10 +92,14 @@ pub(crate) fn run_build_binary_dep(
     // running the build plan.
     // A bin-dep is already being built as a tool in its own isolated project.
     // Its own bin-deps are not transitive inputs to that tool build.
-    let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
-            .without_bin_deps();
-    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+        false,
+        false,
+        false,
+        cli.workspace_env.clone(),
+    )
+    .without_bin_deps();
+    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
 
     // Note: There's a cyclic dependency!
     //
@@ -106,20 +110,20 @@ pub(crate) fn run_build_binary_dep(
     // To break the cycle, our strategy is to check if each package is linkable
     // in its own `bin_target`, and if not present, fall back to the main
     // module's preferred target backend (or default backend if not specified).
-    let &[main_module_id] = resolve_output.local_modules() else {
+    let &[main_module_id] = resolved_project.local_modules() else {
         panic!("Expected exactly one main module when building all packages");
     };
-    let main_module_ref = resolve_output.module_info(main_module_id);
+    let main_module_ref = resolved_project.module_info(main_module_id);
     let default_backend = main_module_ref.preferred_target.unwrap_or_default();
 
     // Okay let's filter the packages
     let pkgs = if cmd.all_pkgs {
-        let packages = resolve_output
+        let packages = resolved_project
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
         get_linkable_pkgs_for_bin_dep(
-            &resolve_output,
+            &resolved_project,
             packages.values().cloned(),
             default_backend,
             user_log,
@@ -128,13 +132,13 @@ pub(crate) fn run_build_binary_dep(
         let mut result_pkgs = vec![];
         for pkg_name in cmd.pkg_names.iter() {
             let pkgs = match_packages_by_name_rr(
-                &resolve_output,
-                resolve_output.local_modules(),
+                &resolved_project,
+                resolved_project.local_modules(),
                 pkg_name,
                 user_log,
             );
             for pkg in pkgs {
-                let pkg_ref = resolve_output.pkg_dirs.get_package(pkg);
+                let pkg_ref = resolved_project.pkg_dirs.get_package(pkg);
                 let pkg_bin_target = pkg_ref.raw.bin_target.unwrap_or(default_backend);
                 add_bin_dep(&mut result_pkgs, pkg, pkg_ref, pkg_bin_target, user_log);
             }
@@ -146,7 +150,7 @@ pub(crate) fn run_build_binary_dep(
     let _lock = lock_directory(target_dir, user_log)?;
     for (pkg, target) in pkgs {
         // Get package info
-        let package = &*resolve_output.pkg_dirs.get_package(pkg).raw;
+        let package = &*resolved_project.pkg_dirs.get_package(pkg).raw;
         let bin_name = package.bin_name.as_deref();
 
         let build_flags = BuildFlags {
@@ -161,7 +165,7 @@ pub(crate) fn run_build_binary_dep(
             target_dir,
             RunMode::Build,
             user_log,
-            &resolve_output,
+            &resolved_project,
         )?;
         let intent = (
             vec![UserIntent::Build(pkg)],
@@ -178,7 +182,7 @@ pub(crate) fn run_build_binary_dep(
             mooncake_bin_dir,
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
-            resolve_output.clone(),
+            resolved_project.clone(),
             build_flags.jobs,
             false,
             false,

@@ -29,7 +29,7 @@ use walkdir::WalkDir;
 
 use super::{CExecutableRealization, LoweringError};
 use crate::{
-    CompileConfig, ResolveOutput,
+    CompileConfig, ResolvedProject,
     build_plan::{
         ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildAction,
         PackagePrebuildKey, package_file_key,
@@ -182,16 +182,16 @@ impl ActionArtifacts {
 
 impl<'a> LoweringContext<'a> {
     pub(super) fn new(
-        resolve_output: &'a ResolveOutput,
+        resolved_project: &'a ResolvedProject,
         plan: &'a BuildPlan,
         opt: &'a CompileConfig,
     ) -> Self {
         Self {
             artifact_paths: &opt.artifact_paths,
-            rel: &resolve_output.package_relations,
-            modules: &resolve_output.module_graph,
-            packages: &resolve_output.pkg_dirs,
-            module_dirs: &resolve_output.module_dirs,
+            rel: &resolved_project.package_relations,
+            modules: &resolved_project.module_graph,
+            packages: &resolved_project.pkg_dirs,
+            module_dirs: &resolved_project.module_dirs,
             plan,
             opt,
             toolchain_include_files: None,

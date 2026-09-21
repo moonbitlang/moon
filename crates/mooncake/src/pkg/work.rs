@@ -43,7 +43,7 @@ use moonutil::{
 
 use crate::{
     registry,
-    resolver::{ResolveConfig, resolve_modules},
+    resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
 pub fn init_workspace(
@@ -207,11 +207,11 @@ fn resolve_workspace(
     }
 
     let registry = registry::default_registry();
-    let resolve_config = ResolveConfig {
+    let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: !includes_core,
     };
-    resolve_modules(&resolve_config, roots, user_log).map_err(Into::into)
+    resolve_modules(&module_resolution_config, roots, user_log).map_err(Into::into)
 }
 
 fn workspace_roots(

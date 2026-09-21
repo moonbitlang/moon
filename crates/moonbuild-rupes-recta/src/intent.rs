@@ -29,7 +29,7 @@ use crate::{
     cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
     model::{BuildTarget, PackageId, TargetKind},
-    resolve::ResolveOutput,
+    resolve::ResolvedProject,
 };
 
 /// A concise set of user actions that expand into requested artifact groups.
@@ -63,7 +63,7 @@ impl UserIntent {
     /// This does not deduplicate; callers can handle that if necessary.
     pub fn append_artifacts(
         self,
-        resolved: &ResolveOutput,
+        resolved: &ResolvedProject,
         out: &mut Vec<ArtifactKey>,
         user_log: &UserLog,
         directive: &InputDirective,
@@ -255,7 +255,7 @@ fn is_linkable(pkg: &DiscoveredPackage) -> bool {
 
 /// Determine if any *_wbtest.mbt files are declared by the package.
 fn has_whitebox_decl(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     pkg_id: PackageId,
     directive: &InputDirective,
 ) -> bool {
@@ -277,7 +277,7 @@ fn has_whitebox_decl(
 }
 
 fn should_skip_test_target(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     source_supports_backend: bool,
     target: BuildTarget,
     target_backend: TargetBackend,
@@ -292,7 +292,7 @@ fn should_skip_test_target(
 }
 
 fn target_realizes_backend(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     target: BuildTarget,
     target_backend: TargetBackend,
 ) -> bool {
@@ -300,7 +300,7 @@ fn target_realizes_backend(
 }
 
 fn realizable_supported_backends(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     target: BuildTarget,
 ) -> &indexmap::IndexSet<TargetBackend> {
     resolved
@@ -318,7 +318,7 @@ fn realizable_supported_backends(
 }
 
 fn warn_or_info_test_target_skip(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     target: BuildTarget,
     target_backend: TargetBackend,
     user_log: &UserLog,

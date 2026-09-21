@@ -148,13 +148,13 @@ fn run_cram_test(
         package: None,
     };
 
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         build_cmd.auto_sync_flags.clone(),
         !build_cmd.build_flags.std(),
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
@@ -168,7 +168,7 @@ fn run_cram_test(
         target_dir,
         mooncake_bin_dir,
         Some(TargetBackend::Native),
-        resolve_output,
+        resolved_project,
         user_log,
     )?;
 

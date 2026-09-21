@@ -25,7 +25,8 @@ use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
     resolve::{
-        DiscoveredProject, ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies,
+        DiscoveredProject, ProjectPreparationConfig, ResolvedProject, prepare_synced_project,
+        sync_module_dependencies,
     },
 };
 use mooncake::pkg::{sync::SyncOutputOptions, tree::ResolvedTree};
@@ -84,9 +85,9 @@ pub(crate) fn tree_cli(
 ) -> anyhow::Result<i32> {
     let dedupe = !cmd.no_dedupe;
     let rendered = if cmd.package {
-        let (resolve_output, selected) =
+        let (resolved_project, selected) =
             resolve_selected_package_graph(&cli, output.user_log(), ChildOutputMode::Inherit)?;
-        render_package_tree(&resolve_output, selected, dedupe)
+        render_package_tree(&resolved_project, selected, dedupe)
     } else {
         let resolved = resolve_selected_tree(&cli, output.user_log())?;
         let workspace_members =
@@ -124,27 +125,31 @@ fn resolve_selected_package_graph(
     cli: &UniversalFlags,
     user_log: &UserLog,
     child_output: ChildOutputMode,
-) -> anyhow::Result<(ResolveOutput, ModuleId)> {
+) -> anyhow::Result<(ResolvedProject, ModuleId)> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
-    let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
-            .with_sync_output(SyncOutputOptions {
-                quiet: false,
-                child_output,
-            });
-    let synced = sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output = resolve_synced_project(&resolve_cfg, synced, user_log)?;
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+        false,
+        false,
+        false,
+        cli.workspace_env.clone(),
+    )
+    .with_sync_output(SyncOutputOptions {
+        quiet: false,
+        child_output,
+    });
+    let synced = sync_module_dependencies(&preparation_config, &dirs, user_log)?;
+    let resolved_project = prepare_synced_project(&preparation_config, synced, user_log)?;
 
     let module = read_module_desc_file_in_dir(&module_dir)?;
     let module_name: ModuleName = module.name.as_str().into();
-    let selected = resolve_output
+    let selected = resolved_project
         .local_modules()
         .iter()
         .copied()
-        .find(|id| resolve_output.module_graph.module_source(*id).name() == &module_name)
-        .or_else(|| resolve_output.local_modules().first().copied())
+        .find(|id| resolved_project.module_graph.module_source(*id).name() == &module_name)
+        .or_else(|| resolved_project.local_modules().first().copied())
         .context("resolved dependency graph has no root modules")?;
-    Ok((resolve_output, selected))
+    Ok((resolved_project, selected))
 }
 
 fn run_tree_json(
@@ -175,7 +180,7 @@ struct TreeJsonOutcome {
 
 enum TreeJsonOutcomeKind {
     Module(Result<Box<ResolvedTree>, String>),
-    Package(Result<(Box<ResolveOutput>, ModuleId), String>),
+    Package(Result<(Box<ResolvedProject>, ModuleId), String>),
 }
 
 impl TreeJsonOutcome {
@@ -190,7 +195,7 @@ impl TreeJsonOutcome {
         }
     }
 
-    fn package(result: Result<(Box<ResolveOutput>, ModuleId), String>) -> Self {
+    fn package(result: Result<(Box<ResolvedProject>, ModuleId), String>) -> Self {
         Self {
             exit_code: if result.is_ok() {
                 0
@@ -264,8 +269,8 @@ fn write_tree_json(
                 };
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            TreeJsonOutcomeKind::Package(Ok((resolve_output, selected))) => {
-                let report = render_package_json_report(&resolve_output, selected, status, logs);
+            TreeJsonOutcomeKind::Package(Ok((resolved_project, selected))) => {
+                let report = render_package_json_report(&resolved_project, selected, status, logs);
                 serde_json::to_writer(&mut *writer, &report)?;
             }
             TreeJsonOutcomeKind::Package(Err(error)) => {
@@ -437,12 +442,12 @@ fn render_graph_json(
 }
 
 fn render_package_json_report(
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     selected_module: ModuleId,
     status: &'static str,
     logs: Vec<UserLogEntry>,
 ) -> PackageJsonReport {
-    let graph = render_package_graph_json(resolve_output, selected_module);
+    let graph = render_package_graph_json(resolved_project, selected_module);
     PackageJsonReport {
         version: PACKAGE_TREE_JSON_VERSION,
         status,
@@ -460,11 +465,11 @@ fn render_package_json_report(
 /// output focuses on the project and its external dependencies, mirroring the
 /// module-level view (`moon tree --json`).
 fn render_package_graph_json(
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     selected_module: ModuleId,
 ) -> PackageGraphJSON {
-    let pkg_dirs = &resolve_output.pkg_dirs;
-    let dep_graph = &resolve_output.package_relations.dep_graph;
+    let pkg_dirs = &resolved_project.pkg_dirs;
+    let dep_graph = &resolved_project.package_relations.dep_graph;
 
     // Package nodes are deduplicated by PackageId. Build the set from discovered
     // packages so packages with no non-stdlib edges remain visible as isolated nodes.
@@ -528,7 +533,7 @@ fn render_package_graph_json(
         (lhs.from, lhs.alias.as_str(), lhs.to).cmp(&(rhs.from, rhs.alias.as_str(), rhs.to))
     });
 
-    let root = selected_source_packages(resolve_output, selected_module)
+    let root = selected_source_packages(resolved_project, selected_module)
         .iter()
         .filter_map(|package| index.get(package))
         .copied()
@@ -557,13 +562,13 @@ fn target_kind_str(kind: TargetKind) -> &'static str {
 /// Source targets form the roots; expansion follows all non-stdlib dependency
 /// edges, mirroring the module-level text tree's treatment of stdlib modules.
 fn render_package_tree(
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     selected_module: ModuleId,
     dedupe: bool,
 ) -> String {
-    let pkg_dirs = &resolve_output.pkg_dirs;
-    let source_packages = selected_source_packages(resolve_output, selected_module);
-    let sorted_children = |source| sorted_package_tree_children(resolve_output, source);
+    let pkg_dirs = &resolved_project.pkg_dirs;
+    let source_packages = selected_source_packages(resolved_project, selected_module);
+    let sorted_children = |source| sorted_package_tree_children(resolved_project, source);
 
     let mut out = String::new();
     for (root_idx, package_id) in source_packages.iter().enumerate() {
@@ -604,11 +609,11 @@ fn selected_source_packages(discovered: &DiscoveredProject, module: ModuleId) ->
 }
 
 fn sorted_package_tree_children(
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     source: BuildTarget,
 ) -> Vec<TreeChild<BuildTarget>> {
-    let pkg_dirs = &resolve_output.pkg_dirs;
-    let dep_graph = &resolve_output.package_relations.dep_graph;
+    let pkg_dirs = &resolved_project.pkg_dirs;
+    let dep_graph = &resolved_project.package_relations.dep_graph;
 
     let mut deps = dep_graph
         .edges_directed(source, petgraph::Direction::Outgoing)

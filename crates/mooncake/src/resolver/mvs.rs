@@ -35,7 +35,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use super::{Resolver, ResolverError, context::ModuleResolutionContext};
+use super::{ModuleResolutionError, ModuleResolver, context::ModuleResolutionContext};
 
 type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 
@@ -44,7 +44,7 @@ type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 /// See https://research.swtch.com/vgo-mvs for more information.
 pub(crate) struct MvsSolver;
 
-impl Resolver for MvsSolver {
+impl ModuleResolver for MvsSolver {
     fn resolve(
         &mut self,
         context: &mut ModuleResolutionContext,
@@ -76,9 +76,9 @@ fn select_min_version_satisfying<'a>(
     req: &SourceDependencyInfo,
     versions: impl Iterator<Item = &'a Version> + 'a,
     user_log: &UserLog,
-) -> Result<Version, ResolverError> {
+) -> Result<Version, ModuleResolutionError> {
     let required = req.version().ok_or_else(|| {
-        ResolverError::Other(anyhow!(
+        ModuleResolutionError::Other(anyhow!(
             "Registry dependency `{}` for module `{}` must specify a version",
             dependency,
             dependant
@@ -93,7 +93,7 @@ fn select_min_version_satisfying<'a>(
     }
 
     user_log.warn("you may need to run `moon update` to update the registry");
-    Err(ResolverError::NoSatisfiedVersion {
+    Err(ModuleResolutionError::NoSatisfiedVersion {
         dependency: dependency.clone(),
         dependant: dependant.clone(),
         required: required.clone(),
@@ -106,10 +106,10 @@ fn resolve_registry_module(
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
     user_log: &UserLog,
-) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
+) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
     let all_versions = context.all_versions_of(dependency).ok_or_else(|| {
         user_log.warn("you may need to run `moon update` to update the registry");
-        ResolverError::ModuleMissing {
+        ModuleResolutionError::ModuleMissing {
             dependency: dependency.clone(),
             dependant: dependant.clone(),
         }
@@ -120,13 +120,14 @@ fn resolve_registry_module(
     match min_version_satisfying {
         Ok(version) => {
             let source = ModuleSource::from_version(dependency.clone(), version)
-                .map_err(|err| ResolverError::Other(err.into()))?;
-            let module = context
-                .get(&source)
-                .ok_or_else(|| ResolverError::ModuleMissing {
-                    dependency: dependency.clone(),
-                    dependant: dependant.clone(),
-                })?;
+                .map_err(|err| ModuleResolutionError::Other(err.into()))?;
+            let module =
+                context
+                    .get(&source)
+                    .ok_or_else(|| ModuleResolutionError::ModuleMissing {
+                        dependency: dependency.clone(),
+                        dependant: dependant.clone(),
+                    })?;
             Ok((source, module))
         }
         Err(err) => Err(err),
@@ -398,13 +399,13 @@ fn mvs_resolve(
                     None => true,
                 }) else {
                     if let Some(required) = req.version() {
-                        context.report_error(ResolverError::NoSatisfiedVersion {
+                        context.report_error(ModuleResolutionError::NoSatisfiedVersion {
                             dependency: dep_name.clone(),
                             dependant: pkg.name().clone(),
                             required: required.clone(),
                         });
                     } else {
-                        context.report_error(ResolverError::Other(anyhow!(
+                        context.report_error(ModuleResolutionError::Other(anyhow!(
                             "No settled version found for dependency `{}` while building edges for `{}`",
                             dep_name,
                             pkg
@@ -458,12 +459,12 @@ fn resolve_module_dependency(
     workspace_roots: &WorkspaceRoots,
     module_name: &ModuleName,
     user_log: &UserLog,
-) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
+) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
     // Registry metadata bypasses manifest parsing, so check transitive
     // requirements here as well as declarations read from manifests.
     module_name
         .validate_version(req.version())
-        .map_err(|err| ResolverError::Other(err.into()))?;
+        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
     if let Some((source, module)) = workspace_roots.get(module_name) {
         if let Some(warning) = workspace_version_override_warning(req, dependant, source) {
             user_log.warn(warning);
@@ -489,7 +490,7 @@ fn resolve_module_dependency(
         );
         let dep_path = root.join(path);
         let dep_path = dunce::canonicalize(&dep_path).map_err(|err| {
-            ResolverError::Other(anyhow!(
+            ModuleResolutionError::Other(anyhow!(
                 "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
                 module_name,
                 dependant.name(),
@@ -498,7 +499,7 @@ fn resolve_module_dependency(
             ))
         })?;
         if !is_moon_mod_exist(&dep_path) {
-            return Err(ResolverError::Other(anyhow!(
+            return Err(ModuleResolutionError::Other(anyhow!(
                 "Failed to find `{}` or `{}` for local dependency `{}` of module `{}` at path `{}`",
                 MOON_MOD,
                 MOON_MOD_JSON,
@@ -510,7 +511,7 @@ fn resolve_module_dependency(
         let module = context
             .resolve_local_module(&dep_path)
             .map_err(|err| match err {
-                ResolverError::Other(err) => ResolverError::Other(anyhow!(
+                ModuleResolutionError::Other(err) => ModuleResolutionError::Other(anyhow!(
                     "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
                     module_name,
                     dependant.name(),
@@ -524,13 +525,13 @@ fn resolve_module_dependency(
             module.version.clone().expect("Expected version in module"),
             ModuleSourceKind::Local(dep_path),
         )
-        .map_err(|err| ResolverError::Other(err.into()))?;
+        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
         // Assert version matches
         if let Some(actual) = &module.version
             && let Some(required) = req.version()
             && !mvs_requirement_matches(required, actual)
         {
-            return Err(ResolverError::LocalDepVersionMismatch {
+            return Err(ModuleResolutionError::LocalDepVersionMismatch {
                 dependant: dependant.name().clone(),
                 dependency: module_name.clone(),
                 actual: actual.clone(),
@@ -561,7 +562,7 @@ mod test {
     use super::*;
     use crate::registry::Registry;
     use crate::registry::mock::{MockRegistry, create_mock_module};
-    use crate::resolver::ResolverErrors;
+    use crate::resolver::ModuleResolutionErrors;
     use crate::resolver::context::ModuleResolutionContext;
 
     fn create_mock_registry() -> Box<dyn Registry> {
@@ -838,7 +839,7 @@ mod test {
             &mut module_graph
         ));
         assert!(
-            ResolverErrors(context.into_errors())
+            ModuleResolutionErrors(context.into_errors())
                 .to_string()
                 .contains("module `a/b/v2` requires major version 2, but got 1.5.0")
         );
@@ -1101,7 +1102,7 @@ mod test {
         assert!(
             status,
             "Resolve failed unexpectedly, errors: {}",
-            ResolverErrors(context.into_errors())
+            ModuleResolutionErrors(context.into_errors())
         );
 
         assert_depends_on(&module_graph, "dep/a@0.1.0", "dep/one@1.1.0-rc.1");
@@ -1256,7 +1257,7 @@ mod test {
         if status {
             module_graph.all_modules().cloned().collect::<Vec<_>>()
         } else {
-            println!("Errors: {}", ResolverErrors(context.into_errors()));
+            println!("Errors: {}", ModuleResolutionErrors(context.into_errors()));
             vec![]
         }
     }

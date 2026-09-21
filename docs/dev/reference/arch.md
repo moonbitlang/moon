@@ -205,7 +205,7 @@ Source directory, `.mooncakes` directory, target directory, and optional project
 manifest path are user/config facts from project discovery. The synced
 dependency result is derived data: it contains the resolved module
 relationships and module source directories produced by dependency sync.
-`ResolveOutput` should contain resolved
+`ResolvedProject` should contain resolved
 build-model data derived from those inputs, not repeat the captured discovery
 paths.
 

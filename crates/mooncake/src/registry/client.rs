@@ -1761,7 +1761,7 @@ mod tests {
     #[test]
     fn deprecated_dependencies_warn_after_mvs_selection() {
         use crate::registry::mock::create_mock_module;
-        use crate::resolver::{ResolveConfig, resolve_modules};
+        use crate::resolver::{ModuleResolutionConfig, resolve_modules};
         use moonutil::resolution::{ModuleSource, ResolvedModule, ResolvedRootModules};
         use serde_json::json;
         let dir = tempfile::tempdir().unwrap();
@@ -1847,7 +1847,7 @@ mod tests {
             let source = ModuleSource::from_local_module(&module, &dir.path().join(name)).unwrap();
             roots.insert(ResolvedModule::new(source, module));
         }
-        let config = ResolveConfig {
+        let config = ModuleResolutionConfig {
             registry: &registry,
             inject_std: false,
         };

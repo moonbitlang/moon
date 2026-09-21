@@ -30,7 +30,7 @@ use crate::{
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::{
         DepEdge,
-        model::{ImportLoop, PackageRelations, SolveError},
+        model::{ImportLoop, PackageRelations, PackageResolutionError},
     },
 };
 use moonutil::user_log::UserLog;
@@ -46,7 +46,7 @@ pub(super) fn verify(
     dep: &PackageRelations,
     packages: &DiscoverResult,
     user_log: &UserLog,
-) -> Result<(), SolveError> {
+) -> Result<(), PackageResolutionError> {
     debug!("Verifying package dependency graph integrity");
 
     let mut errs = vec![];
@@ -67,7 +67,7 @@ pub(super) fn verify(
     if errs.is_empty() {
         Ok(())
     } else {
-        Err(SolveError::Multiple(MultipleError(errs)))
+        Err(PackageResolutionError::Multiple(MultipleError(errs)))
     }
 }
 
@@ -108,7 +108,10 @@ pub(super) fn compute_realizable_supported_targets(
 
 /// Verify there's no loops within the dependency graph. If there's any import
 /// loop, return an error.
-fn verify_no_loop(packages: &DiscoverResult, dep: &PackageRelations) -> Result<(), SolveError> {
+fn verify_no_loop(
+    packages: &DiscoverResult,
+    dep: &PackageRelations,
+) -> Result<(), PackageResolutionError> {
     // An indexed current-visiting path, for finding loops
     let mut path = IndexSet::new();
     // Work stack.
@@ -142,7 +145,7 @@ fn verify_no_loop(packages: &DiscoverResult, dep: &PackageRelations) -> Result<(
                     .chain([node])
                     .map(|x| packages.fqn(x.package))
                     .collect();
-                return Err(SolveError::ImportLoop {
+                return Err(PackageResolutionError::ImportLoop {
                     loop_path: ImportLoop(loop_path),
                 });
             }
@@ -190,7 +193,7 @@ impl WorkStackItem {
 fn verify_no_duplicated_alias(
     dep: &PackageRelations,
     packages: &DiscoverResult,
-    errs: &mut Vec<SolveError>,
+    errs: &mut Vec<PackageResolutionError>,
 ) {
     for node in dep.dep_graph.node_identifiers() {
         // The alias map for the current node
@@ -209,7 +212,7 @@ fn verify_no_duplicated_alias(
                 Entry::Occupied(e) => {
                     let (first_to, first_edge) = e.get();
 
-                    errs.push(SolveError::ConflictingImportAlias {
+                    errs.push(PackageResolutionError::ConflictingImportAlias {
                         alias: edge.short_alias.to_string(),
                         package_node: node,
                         package_fqn: packages.fqn(node.package).into(),
@@ -234,7 +237,7 @@ fn verify_no_duplicated_alias(
 fn verify_no_forbidden_internal_imports(
     dep: &PackageRelations,
     packages: &DiscoverResult,
-    errs: &mut Vec<SolveError>,
+    errs: &mut Vec<PackageResolutionError>,
 ) {
     // De-duplicate by (importer package, dependency package) so we don't spam
     // errors for different target kinds of the same package pair.
@@ -258,7 +261,7 @@ fn verify_no_forbidden_internal_imports(
             let dependency_path = dependency_pkg.fqn.package();
 
             if !importer_path.can_import(dependency_path, same_module) {
-                errs.push(SolveError::InternalImportForbidden {
+                errs.push(PackageResolutionError::InternalImportForbidden {
                     importer_node: from,
                     importer: packages.fqn(from.package).into(),
                     dependency_node: to,

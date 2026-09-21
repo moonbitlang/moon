@@ -24,8 +24,8 @@ use anyhow::bail;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    DiscoveredProject, ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId,
-    resolve_synced_project, sync_dependencies,
+    DiscoveredProject, ProjectPreparationConfig, ResolvedProject, intent::UserIntent,
+    model::PackageId, prepare_synced_project, sync_module_dependencies,
 };
 use moonutil::{
     build_options::RunMode,
@@ -292,15 +292,16 @@ pub(crate) fn run_info(
     } = &dirs;
 
     let build_flags = BuildFlags::default();
-    let resolve_cfg = ResolveConfig::new_with_load_defaults(
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = sync_dependencies(&resolve_cfg, &dirs, output.user_log())?;
-    let resolve_output = resolve_synced_project(&resolve_cfg, synced_env, output.user_log())?;
-    let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
+    let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
+    let resolved_project =
+        prepare_synced_project(&preparation_config, synced_modules, output.user_log())?;
+    let selection = PackageSelection::new(&cmd, &resolved_project, output.user_log())?;
 
     let requested_targets = cmd
         .target
@@ -308,7 +309,7 @@ pub(crate) fn run_info(
         .map(lower_surface_targets)
         .unwrap_or_default();
     let output_plan =
-        imp::plan_info_outputs(&resolve_output, selection.package_ids.iter().copied());
+        imp::plan_info_outputs(&resolved_project, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
     std::fs::create_dir_all(target_dir)?;
     let _lock = lock_directory(target_dir, output.user_log())?;
@@ -323,7 +324,7 @@ pub(crate) fn run_info(
                 target_kind,
                 target_dir,
                 mooncake_bin_dir,
-                resolve_output.clone(),
+                resolved_project.clone(),
                 &selection,
                 &output_plan,
                 output.user_log(),
@@ -369,7 +370,7 @@ fn plan_info_rr(
     target_kind: imp::TargetKind,
     target_dir: &std::path::Path,
     mooncake_bin_dir: &std::path::Path,
-    resolve_output: ResolveOutput,
+    resolved_project: ResolvedProject,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
     user_log: &UserLog,
@@ -387,12 +388,12 @@ fn plan_info_rr(
         target_dir,
         RunMode::Check,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     compile_config.info_no_alias = cmd.no_alias;
     let intent = calc_user_intent_for_info(
         &ctx,
-        &resolve_output,
+        &resolved_project,
         compile_config.backend.target_backend(),
     )?;
     rr_build::plan_resolved_build_from_intent(
@@ -400,7 +401,7 @@ fn plan_info_rr(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         None,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,

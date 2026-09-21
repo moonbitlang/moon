@@ -28,7 +28,7 @@ use moonutil::user_log::UserLog;
 
 use crate::pkg::roots_for_selected_module;
 use crate::registry;
-use crate::resolver::{ResolveConfig, resolve_modules};
+use crate::resolver::{ModuleResolutionConfig, resolve_modules};
 
 /// The resolved dependency graph of the selected module, together with the
 /// module the tree is rooted at.
@@ -47,11 +47,11 @@ pub fn tree(
     let module = Arc::new(read_module_desc_file_in_dir(module_dir)?);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest)?;
     let registry = registry::default_registry();
-    let resolve_cfg = ResolveConfig {
+    let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: false,
     };
-    let resolved = resolve_modules(&resolve_cfg, roots, user_log)?;
+    let resolved = resolve_modules(&module_resolution_config, roots, user_log)?;
 
     let module_name: ModuleName = module.name.as_str().into();
     let selected_root = resolved

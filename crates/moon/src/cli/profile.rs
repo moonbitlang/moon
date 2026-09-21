@@ -582,10 +582,10 @@ fn profile_test_invocations(
             let output_dir =
                 test_profile_output_dir_for_executable(&session_dir, index, &invocation.executable);
             let package = build_meta
-                .resolve_output
+                .resolved_project
                 .pkg_dirs
                 .get_package(invocation.target.package);
-            let module_root = build_meta.resolve_output.module_dirs[package.module].clone();
+            let module_root = build_meta.resolved_project.module_dirs[package.module].clone();
             let executable = if invocation.executable.is_absolute() {
                 invocation.executable.clone()
             } else {

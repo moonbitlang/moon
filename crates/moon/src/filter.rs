@@ -526,7 +526,7 @@ where
 /// From a canonicalized directory path, find the corresponding package ID in `FmtResolveOutput`.
 ///
 /// This is a simpler version of `filter_pkg_by_dir` for the formatter case, which doesn't
-/// have the full `ResolveOutput` available.
+/// have the full `ResolvedProject` available.
 pub(crate) fn filter_pkg_by_dir_for_fmt(
     resolved: &FmtResolveOutput,
     dir: &Path,
@@ -560,7 +560,8 @@ mod tests {
     use super::select_supported_packages;
     use log::LevelFilter;
     use moonbuild_rupes_recta::{
-        DiscoveredProject, ResolveConfig, pkg_solve::SolveError, resolve::ResolveError,
+        DiscoveredProject, ProjectPreparationConfig, pkg_solve::PackageResolutionError,
+        resolve::ProjectPreparationError,
     };
     use moonutil::{
         constants::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK},
@@ -582,7 +583,12 @@ mod tests {
     }
 
     fn discover_project(source_dir: &Path) -> DiscoveredProject {
-        let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let cfg = ProjectPreparationConfig::new_with_load_defaults(
+            false,
+            false,
+            false,
+            WorkspaceEnv::Auto,
+        );
         let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
@@ -594,8 +600,9 @@ mod tests {
         .unwrap()
         .package_dirs()
         .unwrap();
-        let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs, &user_log).unwrap();
-        moonbuild_rupes_recta::discover_synced_project(&cfg, synced_env, &user_log).unwrap()
+        let synced_modules =
+            moonbuild_rupes_recta::sync_module_dependencies(&cfg, &dirs, &user_log).unwrap();
+        moonbuild_rupes_recta::discover_synced_project(&cfg, synced_modules, &user_log).unwrap()
     }
 
     #[test]
@@ -626,12 +633,14 @@ mod tests {
             "test/app/main"
         );
 
-        let ResolveError::SolveError(error) = discovered.resolve(&user_log).unwrap_err() else {
+        let ProjectPreparationError::PackageResolutionError(error) =
+            discovered.resolve_packages(&user_log).unwrap_err()
+        else {
             panic!("missing imports must be reported during package solving");
         };
         assert!(matches!(
             *error,
-            SolveError::ImportNotFound { import, .. } if import == "test/app/missing"
+            PackageResolutionError::ImportNotFound { import, .. } if import == "test/app/missing"
         ));
     }
 

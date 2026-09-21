@@ -19,7 +19,7 @@
 use anyhow::{Context, bail};
 use colored::Colorize;
 use moonbuild_rupes_recta::{
-    ResolveConfig,
+    ProjectPreparationConfig,
     build_plan::ArtifactKey,
     intent::UserIntent,
     model::{BuildTarget, PackageId, TargetKind},
@@ -544,7 +544,7 @@ struct SelectedPackage {
 struct PreparedNativeBuild {
     target_dir: PathBuf,
     mooncake_bin_dir: PathBuf,
-    resolve_output: moonbuild_rupes_recta::resolve::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::resolve::ResolvedProject,
     selected_packages: Vec<SelectedPackage>,
 }
 
@@ -563,23 +563,33 @@ fn prepare_native_build(
             module_dir.display()
         )
     })?;
-    let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
-            .with_sync_output(sync_output);
-    let synced_env =
-        moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &package_dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+        false,
+        false,
+        false,
+        cli.workspace_env.clone(),
+    )
+    .with_sync_output(sync_output);
+    let synced_modules = moonbuild_rupes_recta::sync_module_dependencies(
+        &preparation_config,
+        &package_dirs,
+        user_log,
+    )?;
+    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
+        &preparation_config,
+        synced_modules,
+        user_log,
+    )?;
     let target_dir = package_dirs.target_dir;
     let mooncake_bin_dir = package_dirs.mooncake_bin_dir;
 
-    let main_module_id = resolve_output
+    let main_module_id = resolved_project
         .local_modules()
         .iter()
         .copied()
         .find(|&module_id| {
             matches!(
-                resolve_output.module_graph.module_source(module_id).source(),
+                resolved_project.module_graph.module_source(module_id).source(),
                 ModuleSourceKind::Local(path) if path == &module_dir
             )
         })
@@ -590,7 +600,10 @@ fn prepare_native_build(
                 module_dir.display()
             )
         })?;
-    let Some(all_pkgs) = resolve_output.pkg_dirs.packages_for_module(main_module_id) else {
+    let Some(all_pkgs) = resolved_project
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+    else {
         bail!(
             "No packages found in module at path `{}`",
             module_dir.display()
@@ -600,7 +613,7 @@ fn prepare_native_build(
     let mut selected_packages: Vec<SelectedPackage> = Vec::new();
 
     for (pkg_path, &pkg_id) in all_pkgs {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = resolved_project.pkg_dirs.get_package(pkg_id);
         if !pkg.raw.is_main {
             continue;
         }
@@ -625,7 +638,7 @@ fn prepare_native_build(
     Ok(PreparedNativeBuild {
         target_dir,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         selected_packages,
     })
 }
@@ -655,7 +668,7 @@ fn build_selected_package(
         &prepared.target_dir,
         RunMode::Build,
         user_log,
-        &prepared.resolve_output,
+        &prepared.resolved_project,
     )?;
     let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
@@ -663,7 +676,7 @@ fn build_selected_package(
         user_log,
         intent,
         &prepared.mooncake_bin_dir,
-        prepared.resolve_output.clone(),
+        prepared.resolved_project.clone(),
         build_flags.jobs,
         false,
         false,

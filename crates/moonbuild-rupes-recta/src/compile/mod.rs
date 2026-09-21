@@ -27,7 +27,7 @@ use crate::{
     execution_plan::ExecutionPlan,
     model::{BackendConfig, DebugInfoRequest},
     prebuild::PrebuildOutput,
-    resolve::ResolveOutput,
+    resolve::ResolvedProject,
     target_layout::ArtifactPathResolver,
 };
 
@@ -88,7 +88,7 @@ pub enum CompileGraphError {
 pub fn compile(
     cx: &CompileConfig,
     mooncake_bin_dir: &Path,
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
@@ -100,7 +100,7 @@ pub fn compile(
     );
 
     let plan = build_plan::build_plan(
-        resolve_output,
+        resolved_project,
         mooncake_bin_dir,
         cx,
         requested_artifacts.iter().cloned(),
@@ -112,15 +112,15 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} actions", plan.action_count());
 
-    lower_plan(cx, resolve_output, plan)
+    lower_plan(cx, resolved_project, plan)
 }
 
 fn lower_plan(
     cx: &CompileConfig,
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     plan: build_plan::BuildPlan,
 ) -> Result<CompileOutput, CompileGraphError> {
-    let execution_plan = build_lower::lower_build_plan(resolve_output, &plan, cx)?;
+    let execution_plan = build_lower::lower_build_plan(resolved_project, &plan, cx)?;
 
     info!("Execution plan lowering completed successfully");
 
@@ -152,7 +152,7 @@ mod tests {
     };
 
     use crate::{
-        ResolveOutput,
+        ResolvedProject,
         build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
@@ -316,7 +316,7 @@ mod tests {
                 .insert(target, TargetBackend::all().iter().copied().collect());
             let mut module_dirs = DirSyncResult::default();
             module_dirs.insert(module, PathBuf::from("."));
-            let resolved = ResolveOutput {
+            let resolved = ResolvedProject {
                 discovered: crate::resolve::DiscoveredProject {
                     module_graph: modules,
                     module_dirs,
@@ -534,7 +534,7 @@ mod tests {
             PackagePath::new("with_flags").expect("flagged package path should parse"),
             with_flags,
         );
-        let resolved = ResolveOutput {
+        let resolved = ResolvedProject {
             discovered: crate::resolve::DiscoveredProject {
                 module_graph: modules,
                 module_dirs: DirSyncResult::default(),
@@ -740,7 +740,7 @@ mod tests {
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));
-        let resolved = ResolveOutput {
+        let resolved = ResolvedProject {
             discovered: crate::resolve::DiscoveredProject {
                 module_graph: modules,
                 module_dirs,
@@ -856,7 +856,7 @@ mod tests {
         let target = package.build_target(TargetKind::Source);
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(module, PathBuf::from("."));
-        let resolved = ResolveOutput {
+        let resolved = ResolvedProject {
             discovered: crate::resolve::DiscoveredProject {
                 module_graph: modules,
                 module_dirs,

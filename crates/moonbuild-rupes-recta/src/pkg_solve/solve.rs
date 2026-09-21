@@ -21,7 +21,7 @@ use moonutil::constants::MOONBITLANG_COVERAGE;
 use moonutil::resolution::{ModuleDependencyGraph, ModuleId};
 use tracing::info;
 
-use super::model::{DepEdge, PackageRelations, SolveError};
+use super::model::{DepEdge, PackageRelations, PackageResolutionError};
 use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     model::{PackageId, TargetKind},
@@ -43,7 +43,7 @@ pub(super) fn solve_only(
     packages: &DiscoverResult,
     enable_coverage: bool,
     user_log: &UserLog,
-) -> Result<PackageRelations, SolveError> {
+) -> Result<PackageRelations, PackageResolutionError> {
     debug!(
         "Building dependency resolution structures for {} packages",
         packages.package_count()
@@ -102,7 +102,7 @@ fn solve_one_package_virtual_impl(
     builder: &mut PackageGraphBuilder<'_>,
     mid: ModuleId,
     pid: PackageId,
-) -> Result<(), SolveError> {
+) -> Result<(), PackageResolutionError> {
     let pkg_data = builder.packages.get_package(pid);
     trace!(
         "Solving virtual package implementations for package {:?} in module {:?}: {}",
@@ -116,7 +116,7 @@ fn solve_one_package_virtual_impl(
         let (impl_pid, impl_data) = resolve_import_raw(builder, mid, pid, v_impl)?;
 
         if !impl_data.is_virtual() {
-            return Err(SolveError::ImplementTargetNotVirtual {
+            return Err(PackageResolutionError::ImplementTargetNotVirtual {
                 package: pkg_data.fqn.clone().into(),
                 implements: impl_data.fqn.clone().into(),
             });
@@ -132,7 +132,7 @@ fn solve_one_package(
     builder: &mut PackageGraphBuilder,
     mid: ModuleId,
     pid: PackageId,
-) -> Result<(), SolveError> {
+) -> Result<(), PackageResolutionError> {
     let pkg_data = builder.packages.get_package(pid);
     trace!(
         "Solving package {:?} in module {:?}: {}",
@@ -293,7 +293,7 @@ fn resolve_import<'a>(
     mid: ModuleId,
     pid: PackageId,
     import: &'a moonutil::package::Import,
-) -> Result<ResolvedImport<'a>, SolveError> {
+) -> Result<ResolvedImport<'a>, PackageResolutionError> {
     let import_source = import.get_path();
 
     let (import_pid, imported) = resolve_import_raw(builder, mid, pid, import_source)?;
@@ -304,7 +304,7 @@ fn resolve_import<'a>(
             "Import '{}' is a virtual package, cannot be imported directly",
             import_source
         );
-        return Err(SolveError::CannotImportVirtualImplementation {
+        return Err(PackageResolutionError::CannotImportVirtualImplementation {
             package: builder.packages.fqn(pid).clone().into(),
             dependency: imported.fqn.clone().into(),
         });
@@ -345,7 +345,7 @@ fn resolve_import_raw<'a>(
     mid: ModuleId,
     pid: PackageId,
     import_source: &str,
-) -> Result<(PackageId, &'a DiscoveredPackage), SolveError> {
+) -> Result<(PackageId, &'a DiscoveredPackage), PackageResolutionError> {
     trace!("Resolving import '{}' for package {:?}", import_source, pid);
 
     let Some(import_pid) = builder.packages.get_package_id_by_name(import_source) else {
@@ -353,7 +353,7 @@ fn resolve_import_raw<'a>(
             "Import '{}' not found in reverse mapping for package {:?}",
             import_source, pid
         );
-        return Err(SolveError::ImportNotFound {
+        return Err(PackageResolutionError::ImportNotFound {
             import: import_source.to_owned(),
             package_fqn: builder.packages.fqn(pid).into(),
         });
@@ -378,7 +378,7 @@ fn resolve_import_raw<'a>(
             "Import '{}' module {:?} not imported by current module {:?}",
             import_source, import_mid, mid
         );
-        return Err(SolveError::ImportNotImportedByModule {
+        return Err(PackageResolutionError::ImportNotImportedByModule {
             import: imported.fqn.clone().into(),
             module: builder.modules.module_source(mid).clone(),
             pkg: builder.packages.get_package(pid).fqn.package().clone(),
@@ -455,7 +455,7 @@ fn resolve_virtual_usages(
     builder: &mut PackageGraphBuilder,
     pid: PackageId,
     pkg: &DiscoveredPackage,
-) -> Result<Option<VirtualUser>, SolveError> {
+) -> Result<Option<VirtualUser>, PackageResolutionError> {
     // For each override, check its implementation
     let mut v_user: Option<VirtualUser> = None;
     for over in pkg.raw.overrides.iter().flatten() {
@@ -463,7 +463,7 @@ fn resolve_virtual_usages(
 
         // Check if it's implementing a virtual package
         let Some(&over_target) = builder.relations.virt_impl.get(over_pid) else {
-            return Err(SolveError::OverrideNotImplementor {
+            return Err(PackageResolutionError::OverrideNotImplementor {
                 package: pkg.fqn.clone().into(),
                 virtual_override: over_pkg.fqn.clone().into(),
             });
@@ -472,7 +472,7 @@ fn resolve_virtual_usages(
         // Insert this override into user graph
         let user = v_user.get_or_insert_with(Default::default);
         if let Some(existing) = user.overrides.insert(over_target, over_pid) {
-            return Err(SolveError::VirtualOverrideConflict {
+            return Err(PackageResolutionError::VirtualOverrideConflict {
                 package: pkg.fqn.clone().into(),
                 virtual_pkg: builder.packages.fqn(over_target).into(),
                 first_override: builder.packages.fqn(existing).into(),

@@ -525,7 +525,7 @@ fn rewrite_captured_diagnostic(
         return content.to_owned();
     };
     let layout = meta.artifact_paths.target_layout();
-    let packages = &meta.resolve_output.pkg_dirs;
+    let packages = &meta.resolved_project.pkg_dirs;
     let backend = meta.target_backend();
 
     if cfg.output_style.needs_moonc_json() {

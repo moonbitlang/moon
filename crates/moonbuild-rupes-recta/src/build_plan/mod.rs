@@ -65,7 +65,7 @@ use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use crate::{
-    CompileConfig, ResolveOutput,
+    CompileConfig, ResolvedProject,
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
         PackageId,
@@ -751,7 +751,7 @@ pub enum BuildPlanConstructError {
 /// Select one Native payload form for all requested artifacts in a plan.
 /// Host capability is supplied by the caller; package policy belongs to RR.
 pub(super) fn resolve_native_backend_mode(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],
     opt_level: OptLevel,
     native_target: Option<crate::model::NativeTarget>,
@@ -788,7 +788,7 @@ pub(super) fn resolve_native_backend_mode(
 /// Construct a Build Plan that produces the requested artifacts.
 #[instrument(skip_all)]
 pub fn build_plan(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     mooncake_bin_dir: &Path,
     config: &CompileConfig,
     input: impl Iterator<Item = ArtifactKey>,

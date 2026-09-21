@@ -33,7 +33,7 @@ use moonutil::{
 };
 
 use crate::{
-    ResolveOutput,
+    ResolvedProject,
     cond_comp::file_metadatas,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
@@ -49,7 +49,7 @@ pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 /// Generate the full legacy `packages.json` document shared by IDE plugins and
 /// other tools.
 pub fn gen_metadata_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     source_dir: &Path,
     artifact_paths: &ArtifactPathResolver,
     opt_level: OptLevel,
@@ -100,7 +100,7 @@ pub fn gen_metadata_json(
 }
 
 fn gen_package_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
@@ -239,7 +239,7 @@ fn gen_package_json(
 /// write their source artifact to `*.impl.mi`, so metadata must point to that
 /// file instead of the regular `*.mi` path.
 pub(crate) fn metadata_source_mi_path(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
@@ -253,7 +253,7 @@ pub(crate) fn metadata_source_mi_path(
 }
 
 fn metadata_mi_path(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
@@ -266,7 +266,7 @@ fn metadata_mi_path(
 }
 
 fn metadata_check_command(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
@@ -277,7 +277,7 @@ fn metadata_check_command(
 }
 
 fn metadata_check_mi_path(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
@@ -291,7 +291,7 @@ fn metadata_check_mi_path(
 }
 
 fn edge_to_alias_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
 ) -> impl FnMut((BuildTarget, BuildTarget, &DepEdge)) -> AliasJSON + '_ {
     |(_this, dep, edge)| AliasJSON {
         path: ctx.pkg_dirs.get_package(dep.package).fqn.to_string(),

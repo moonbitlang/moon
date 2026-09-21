@@ -37,7 +37,7 @@ use moonutil::{
 };
 
 use crate::{
-    ResolveOutput,
+    ResolvedProject,
     build_plan::{ArtifactKey, BuildAction},
     discover::{DiscoverResult, DiscoveredLocalProject},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
@@ -127,10 +127,13 @@ pub enum TargetLayoutMode {
 }
 
 impl TargetLayoutMode {
-    pub fn from_resolve_output(resolve_output: &ResolveOutput) -> Self {
-        match resolve_output.local_modules() {
+    pub fn from_resolved_project(resolved_project: &ResolvedProject) -> Self {
+        match resolved_project.local_modules() {
             &[module_id] => Self::Mono {
-                main_module: resolve_output.module_graph.module_source(module_id).clone(),
+                main_module: resolved_project
+                    .module_graph
+                    .module_source(module_id)
+                    .clone(),
             },
             _ => Self::Workspace,
         }
@@ -174,15 +177,15 @@ impl TargetLayout {
         }
     }
 
-    pub fn from_resolve_output(
+    pub fn from_resolved_project(
         target_base_dir: PathBuf,
-        resolve_output: &ResolveOutput,
+        resolved_project: &ResolvedProject,
         opt_level: OptLevel,
         run_mode: RunMode,
     ) -> Self {
         Self::new(
             target_base_dir,
-            TargetLayoutMode::from_resolve_output(resolve_output),
+            TargetLayoutMode::from_resolved_project(resolved_project),
             opt_level,
             run_mode,
         )

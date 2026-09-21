@@ -39,9 +39,9 @@ pub(crate) use mvs::MvsSolver;
 
 use self::context::ModuleResolutionContext;
 
-/// Any error that may occur during dependency resolution.
+/// A failure to select module sources, versions, or dependency relationships.
 #[derive(Debug, Error)]
-pub(crate) enum ResolverError {
+pub(crate) enum ModuleResolutionError {
     #[error(
         "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: module was not found in the registry"
     )]
@@ -84,11 +84,11 @@ pub(crate) struct VersionConflict {
 }
 
 #[derive(Debug, Error)]
-#[error("{}", format_resolver_errors(.0))]
-pub(crate) struct ResolverErrors(pub(crate) Vec<ResolverError>);
+#[error("{}", format_module_resolution_errors(.0))]
+pub(crate) struct ModuleResolutionErrors(pub(crate) Vec<ModuleResolutionError>);
 
 /// The module dependency resolver.
-pub(crate) trait Resolver {
+pub(crate) trait ModuleResolver {
     /// Select module sources and versions, extending `module_graph` from its
     /// existing root modules with their dependencies.
     ///
@@ -109,7 +109,7 @@ pub(crate) trait Resolver {
 /// (implying incompatible versions of the same module are resolved) are found.
 fn assert_no_duplicate_module_names(
     module_graph: &ModuleDependencyGraph,
-) -> Result<(), ResolverErrors> {
+) -> Result<(), ModuleResolutionErrors> {
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
     for (id, it) in module_graph.all_modules_and_id() {
         module_name_versions
@@ -120,7 +120,7 @@ fn assert_no_duplicate_module_names(
     let mut errs = vec![];
     for (name, versions) in module_name_versions {
         if versions.len() > 1 {
-            let err = ResolverError::ConflictingVersions {
+            let err = ModuleResolutionError::ConflictingVersions {
                 module: name.clone(),
                 conflicts: collect_version_conflicts(&versions, module_graph),
             };
@@ -130,7 +130,7 @@ fn assert_no_duplicate_module_names(
     if errs.is_empty() {
         Ok(())
     } else {
-        Err(ResolverErrors(errs))
+        Err(ModuleResolutionErrors(errs))
     }
 }
 
@@ -235,7 +235,7 @@ fn format_version_conflict(module: &ModuleName, conflicts: &[VersionConflict]) -
     lines.join("\n")
 }
 
-fn format_resolver_errors(errors: &[ResolverError]) -> String {
+fn format_module_resolution_errors(errors: &[ModuleResolutionError]) -> String {
     errors
         .iter()
         .map(ToString::to_string)
@@ -243,28 +243,30 @@ fn format_resolver_errors(errors: &[ResolverError]) -> String {
         .join("\n")
 }
 
-pub(crate) struct ResolveConfig<'a> {
+/// Registry and standard-library policy for selecting module dependencies.
+pub(crate) struct ModuleResolutionConfig<'a> {
     pub(crate) registry: &'a dyn Registry,
     pub(crate) inject_std: bool,
 }
 
 pub(crate) fn resolve_modules_with_solver(
-    config: &ResolveConfig,
-    resolver: &mut dyn Resolver,
+    config: &ModuleResolutionConfig,
+    resolver: &mut dyn ModuleResolver,
     root: ResolvedRootModules,
     user_log: &UserLog,
-) -> Result<ModuleDependencyGraph, ResolverErrors> {
+) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
     let mut context = ModuleResolutionContext::new(config.registry);
     let mut module_graph = ModuleDependencyGraph::from_root_modules(root);
 
     if config.inject_std {
-        inject_std(&mut module_graph)
-            .map_err(|e| ResolverErrors(vec![ResolverError::CannotInjectCore(e)]))?;
+        inject_std(&mut module_graph).map_err(|e| {
+            ModuleResolutionErrors(vec![ModuleResolutionError::CannotInjectCore(e)])
+        })?;
     }
 
     let status = resolver.resolve(&mut context, &mut module_graph, user_log);
     if context.any_errors() {
-        Err(ResolverErrors(context.into_errors()))
+        Err(ModuleResolutionErrors(context.into_errors()))
     } else {
         if !status {
             panic!("The resolver should not return `false` when no errors are found");
@@ -339,10 +341,10 @@ fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
 }
 
 pub(crate) fn resolve_modules(
-    config: &ResolveConfig,
+    config: &ModuleResolutionConfig,
     root: ResolvedRootModules,
     user_log: &UserLog,
-) -> Result<ModuleDependencyGraph, ResolverErrors> {
+) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
     let mut resolver = MvsSolver;
     resolve_modules_with_solver(config, &mut resolver, root, user_log)
 }

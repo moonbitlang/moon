@@ -74,12 +74,12 @@ pub(crate) fn run_bundle(
     }
 
     let targets = lower_surface_targets(&surface_targets);
-    let resolve_output = sync_and_resolve_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
+    let resolved_project = prepare_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_bundle_rr_from_resolved(&cli, &cmd, &dirs, &targets, resolve_output, output).with_context(
+    run_bundle_rr_from_resolved(&cli, &cmd, &dirs, &targets, resolved_project, output).with_context(
         || match targets.as_slice() {
             [target] => format!("failed to run bundle for target {target:?}"),
             _ => format!("failed to run bundle for targets {targets:?}"),
@@ -108,7 +108,7 @@ pub(crate) fn run_bundle_internal_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let resolve_output = sync_and_resolve_bundle_project(cli, cmd, dirs, output.user_log())?;
+    let resolved_project = prepare_bundle_project(cli, cmd, dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
@@ -118,7 +118,7 @@ pub(crate) fn run_bundle_internal_rr(
         cmd,
         dirs,
         selected_target_backend.as_slice(),
-        resolve_output,
+        resolved_project,
         output,
     )
 }
@@ -131,7 +131,7 @@ fn run_bundle_rr_from_resolved(
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
@@ -147,7 +147,7 @@ fn run_bundle_rr_from_resolved(
             target_dir,
             &dirs.mooncake_bin_dir,
             None,
-            resolve_output,
+            resolved_project,
             user_log,
         )?]
     } else {
@@ -161,7 +161,7 @@ fn run_bundle_rr_from_resolved(
                     target_dir,
                     &dirs.mooncake_bin_dir,
                     Some(target),
-                    resolve_output.clone(),
+                    resolved_project.clone(),
                     user_log,
                 )
             })
@@ -195,19 +195,20 @@ fn run_bundle_rr_from_resolved(
     }
 }
 
-fn sync_and_resolve_bundle_project(
+fn prepare_bundle_project(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
-    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-        cmd.auto_sync_flags.frozen,
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
-    );
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+) -> anyhow::Result<moonbuild_rupes_recta::ResolvedProject> {
+    let preparation_config =
+        moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
+            cmd.auto_sync_flags.frozen,
+            !cmd.build_flags.std(),
+            cmd.build_flags.enable_coverage,
+            cli.workspace_env.clone(),
+        );
+    rr_build::prepare_project(&preparation_config, dirs, user_log)
 }
 
 pub(crate) fn plan_bundle_rr_from_resolved(
@@ -216,7 +217,7 @@ pub(crate) fn plan_bundle_rr_from_resolved(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let mut compile_config = rr_build::prepare_resolved_build(
@@ -226,20 +227,20 @@ pub(crate) fn plan_bundle_rr_from_resolved(
         target_dir,
         RunMode::Bundle,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     compile_config.warning_condition = if cmd.build_flags.deny_warn {
         WarningCondition::Deny
     } else {
         WarningCondition::Allow
     };
-    let intent = bundle_user_intent(&resolve_output);
+    let intent = bundle_user_intent(&resolved_project);
     rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
