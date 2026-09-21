@@ -24,7 +24,7 @@ use log::{debug, info};
 use tracing::instrument;
 
 use crate::{
-    CompileConfig, ResolveOutput,
+    CompileConfig, ResolvedProject,
     build_plan::BuildPlan,
     execution_plan::{ExecutionPlan, ExecutionPlanBuilder},
 };
@@ -75,7 +75,7 @@ pub enum LoweringError {
 /// Lower a normalized action plan into an executor-neutral Execution Plan.
 #[instrument(skip_all)]
 pub fn lower_build_plan(
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     plan: &BuildPlan,
     opt: &CompileConfig,
 ) -> Result<ExecutionPlan, LoweringError> {
@@ -87,7 +87,7 @@ pub fn lower_build_plan(
         plan.backend_plan().moonc_debug_info()
     );
 
-    let mut ctx = LoweringContext::new(resolve_output, plan, opt);
+    let mut ctx = LoweringContext::new(resolved_project, plan, opt);
     let mut execution = ExecutionPlanBuilder::default();
 
     for action_key in plan.all_actions() {
@@ -96,7 +96,7 @@ pub fn lower_build_plan(
     }
 
     let mut execution = execution.finish(plan.requested_artifacts().cloned());
-    execution.mark_dependency_artifacts(resolve_output);
+    execution.mark_dependency_artifacts(resolved_project);
     Ok(execution)
 }
 
@@ -116,7 +116,9 @@ mod tests {
         cond_expr::OptLevel,
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
+        resolution::{
+            DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleName, ModuleSource,
+        },
         target::TargetBackend,
         toolchain::BINARIES,
     };
@@ -132,8 +134,8 @@ mod tests {
             NativeTarget, OperatingSystem, TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
-        pkg_solve::DepRelationship,
-        resolve::ResolveOutput,
+        pkg_solve::PackageRelations,
+        resolve::ResolvedProject,
         target_layout::{ArtifactPathResolver, ExecutableArtifact, TargetLayout, TargetLayoutMode},
     };
 
@@ -141,7 +143,7 @@ mod tests {
 
     #[test]
     fn non_native_artifact_options_need_no_host_configuration() {
-        let (resolve_output, _) = single_package_resolve_output();
+        let (resolved_project, _) = single_package_resolve_output();
         let plan = BuildPlan::default();
         for backend in [
             BackendConfig::Wasm {
@@ -179,7 +181,7 @@ mod tests {
                 stdlib_path: None,
             };
 
-            let context = LoweringContext::new(&resolve_output, &plan, &options);
+            let context = LoweringContext::new(&resolved_project, &plan, &options);
             assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
         }
     }
@@ -288,7 +290,7 @@ mod tests {
         }
     }
 
-    fn single_package_resolve_output() -> (ResolveOutput, BuildTarget) {
+    fn single_package_resolve_output() -> (ResolvedProject, BuildTarget) {
         single_package_resolve_output_with_module(moon_mod("username/hello"))
     }
 
@@ -304,10 +306,10 @@ mod tests {
 
     fn single_package_resolve_output_with_module(
         module_info: MoonMod,
-    ) -> (ResolveOutput, BuildTarget) {
+    ) -> (ResolvedProject, BuildTarget) {
         let module_source = module("username/hello");
         let (modules, module_id) =
-            ResolvedEnv::only_one_module(module_source.clone(), module_info.clone());
+            ModuleDependencyGraph::only_one_module(module_source.clone(), module_info.clone());
         let package_path = PackagePath::new("main").expect("test package path should parse");
         let supported_targets = supported_targets();
         let package = DiscoveredPackage {
@@ -337,14 +339,14 @@ mod tests {
         module_dirs.insert(module_id, PathBuf::from("/tmp/username/hello"));
 
         (
-            ResolveOutput {
+            ResolvedProject {
                 discovered: crate::resolve::DiscoveredProject {
-                    module_rel: modules,
+                    module_graph: modules,
                     module_dirs,
                     pkg_dirs: packages,
                     enable_coverage: false,
                 },
-                pkg_rel: DepRelationship::default(),
+                package_relations: PackageRelations::default(),
             },
             package_id.build_target(TargetKind::Source),
         )
@@ -374,7 +376,7 @@ mod tests {
 
     #[test]
     fn lowered_generator_actions_track_host_and_payload_executables() {
-        let (resolve_output, target) = single_package_resolve_output();
+        let (resolved_project, target) = single_package_resolve_output();
         let mut plan = BuildPlan::default();
         plan.test_insert_moonlex_prebuild(
             target.package,
@@ -414,7 +416,7 @@ mod tests {
         };
 
         let lowered =
-            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed");
+            lower_build_plan(&resolved_project, &plan, &options).expect("lowering should succeed");
 
         for (payload, source) in [
             (BINARIES.moonlex.as_path(), Path::new("main/lexer.mbl")),
@@ -438,7 +440,7 @@ mod tests {
         let mut module_info = moon_mod("username/hello");
         module_info.compile_flags = Some(vec!["-include".to_string(), "config.mbt".to_string()]);
         module_info.link_flags = Some(vec!["-custom-link-input=layout.txt".to_string()]);
-        let (resolve_output, target) = single_package_resolve_output_with_module(module_info);
+        let (resolved_project, target) = single_package_resolve_output_with_module(module_info);
         let check_node = BuildPlanNode::Check(target);
         let link_core_node = BuildPlanNode::LinkCore(target);
         let mut plan = BuildPlan::default();
@@ -493,7 +495,7 @@ mod tests {
             stdlib_path: None,
         };
 
-        let mut context = LoweringContext::new(&resolve_output, &plan, &options);
+        let mut context = LoweringContext::new(&resolved_project, &plan, &options);
         let mut execution = ExecutionPlanBuilder::default();
         let nodes = [check_node, link_core_node];
         let actions = nodes
@@ -527,7 +529,7 @@ mod tests {
         for header in &toolchain_headers {
             std::fs::write(header, "/* test header */").expect("write test header");
         }
-        let (resolve_output, target) = single_package_resolve_output();
+        let (resolved_project, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
         let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
         let c_stub_node = BuildPlanNode::BuildCStub(target.package, 0);
@@ -678,7 +680,7 @@ mod tests {
         };
 
         let execution =
-            lower_build_plan(&resolve_output, &plan, &options).expect("lowering should succeed");
+            lower_build_plan(&resolved_project, &plan, &options).expect("lowering should succeed");
         let opaque_actions = execution
             .action_ids()
             .filter(|id| {
@@ -702,7 +704,7 @@ mod tests {
 
         let lowered = execution;
         let exe_path = artifact_paths.target_layout().executable_of_build_target(
-            &resolve_output.pkg_dirs,
+            &resolved_project.pkg_dirs,
             &target,
             ExecutableArtifact::NativeExecutable,
         );
@@ -866,7 +868,7 @@ mod tests {
             include_path: "/toolchain/include".into(),
             lib_path: toolchain_dir.path().display().to_string(),
         };
-        let (resolve_output, target) = single_package_resolve_output();
+        let (resolved_project, target) = single_package_resolve_output();
         let executable_node = BuildPlanNode::MakeExecutable(target);
         let dsym_node = BuildPlanNode::GenerateDsym(target);
         let dsymutil = PathBuf::from("/toolchain/bin/dsymutil");
@@ -955,16 +957,16 @@ mod tests {
                 stdlib_path: None,
             };
 
-            let lowered = lower_build_plan(&resolve_output, &plan, &options)
+            let lowered = lower_build_plan(&resolved_project, &plan, &options)
                 .expect("lowering should succeed");
-            let context = LoweringContext::new(&resolve_output, &plan, &options);
+            let context = LoweringContext::new(&resolved_project, &plan, &options);
             let executable = artifact_paths.target_layout().executable_of_build_target(
-                &resolve_output.pkg_dirs,
+                &resolved_project.pkg_dirs,
                 &target,
                 context.artifact_path_options().executable,
             );
             let dsym_bundle = artifact_paths.target_layout().dsym_bundle_of_build_target(
-                &resolve_output.pkg_dirs,
+                &resolved_project.pkg_dirs,
                 &target,
                 context.artifact_path_options().executable,
             );

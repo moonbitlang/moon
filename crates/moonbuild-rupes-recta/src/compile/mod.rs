@@ -27,7 +27,7 @@ use crate::{
     execution_plan::ExecutionPlan,
     model::{BackendConfig, DebugInfoRequest},
     prebuild::PrebuildOutput,
-    resolve::ResolveOutput,
+    resolve::ResolvedProject,
     target_layout::ArtifactPathResolver,
 };
 
@@ -88,7 +88,7 @@ pub enum CompileGraphError {
 pub fn compile(
     cx: &CompileConfig,
     mooncake_bin_dir: &Path,
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
@@ -100,7 +100,7 @@ pub fn compile(
     );
 
     let plan = build_plan::build_plan(
-        resolve_output,
+        resolved_project,
         mooncake_bin_dir,
         cx,
         requested_artifacts.iter().cloned(),
@@ -112,15 +112,15 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} actions", plan.action_count());
 
-    lower_plan(cx, resolve_output, plan)
+    lower_plan(cx, resolved_project, plan)
 }
 
 fn lower_plan(
     cx: &CompileConfig,
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     plan: build_plan::BuildPlan,
 ) -> Result<CompileOutput, CompileGraphError> {
-    let execution_plan = build_lower::lower_build_plan(resolve_output, &plan, cx)?;
+    let execution_plan = build_lower::lower_build_plan(resolved_project, &plan, cx)?;
 
     info!("Execution plan lowering completed successfully");
 
@@ -144,13 +144,15 @@ mod tests {
         cond_expr::OptLevel,
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
+        resolution::{
+            DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleName, ModuleSource,
+        },
         target::TargetBackend,
         user_log::UserLog,
     };
 
     use crate::{
-        ResolveOutput,
+        ResolvedProject,
         build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
@@ -158,7 +160,7 @@ mod tests {
             BackendConfig, BuildPlanNode, DebugInfoRequest, DebugSymbols, NativeTarget, TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
-        pkg_solve::{DepEdge, DepRelationship},
+        pkg_solve::{DepEdge, PackageRelations},
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
 
@@ -278,7 +280,8 @@ mod tests {
                 DEFAULT_VERSION.clone(),
             )
             .expect("test module should have a valid version");
-            let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+            let (modules, module) =
+                ModuleDependencyGraph::only_one_module(module_source.clone(), moon_mod());
             let mut packages = DiscoverResult::default();
             packages.test_register_module(module, moon_mod());
             let mut main = package(module, &module_source, "main", false, true);
@@ -306,21 +309,21 @@ mod tests {
                 main,
             );
             let target = main.build_target(TargetKind::Source);
-            let mut relationship = DepRelationship::default();
+            let mut relationship = PackageRelations::default();
             relationship.dep_graph.add_node(target);
             relationship
                 .realizable_supported_targets
                 .insert(target, TargetBackend::all().iter().copied().collect());
             let mut module_dirs = DirSyncResult::default();
             module_dirs.insert(module, PathBuf::from("."));
-            let resolved = ResolveOutput {
+            let resolved = ResolvedProject {
                 discovered: crate::resolve::DiscoveredProject {
-                    module_rel: modules,
+                    module_graph: modules,
                     module_dirs,
                     pkg_dirs: packages,
                     enable_coverage: false,
                 },
-                pkg_rel: relationship,
+                package_relations: relationship,
             };
             for symbols in [
                 DebugSymbols::None,
@@ -501,7 +504,8 @@ mod tests {
             DEFAULT_VERSION.clone(),
         )
         .expect("test module should have a valid version");
-        let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let (modules, module) =
+            ModuleDependencyGraph::only_one_module(module_source.clone(), moon_mod());
         let mut packages = DiscoverResult::default();
         packages.test_register_module(module, moon_mod());
         let plain = packages.test_add_package(
@@ -530,14 +534,14 @@ mod tests {
             PackagePath::new("with_flags").expect("flagged package path should parse"),
             with_flags,
         );
-        let resolved = ResolveOutput {
+        let resolved = ResolvedProject {
             discovered: crate::resolve::DiscoveredProject {
-                module_rel: modules,
+                module_graph: modules,
                 module_dirs: DirSyncResult::default(),
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            pkg_rel: DepRelationship::default(),
+            package_relations: PackageRelations::default(),
         };
         // Empty plans exercise capability forwarding without resolving host tools.
         // Include foreign targets and None so a planner-side host read cannot pass.
@@ -674,7 +678,8 @@ mod tests {
             DEFAULT_VERSION.clone(),
         )
         .expect("test module should have a valid version");
-        let (mut modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let (mut modules, module) =
+            ModuleDependencyGraph::only_one_module(module_source.clone(), moon_mod());
         let dependency_source = if separate_module {
             ModuleSource::local_path(
                 "test/dependency"
@@ -712,7 +717,7 @@ mod tests {
         );
         let script_target = script.build_target(TargetKind::Source);
         let dependency_target = dependency.build_target(TargetKind::Source);
-        let mut relationship = DepRelationship::default();
+        let mut relationship = PackageRelations::default();
         relationship.dep_graph.add_edge(
             script_target,
             dependency_target,
@@ -735,14 +740,14 @@ mod tests {
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));
-        let resolved = ResolveOutput {
+        let resolved = ResolvedProject {
             discovered: crate::resolve::DiscoveredProject {
-                module_rel: modules,
+                module_graph: modules,
                 module_dirs,
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            pkg_rel: relationship,
+            package_relations: relationship,
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
@@ -839,7 +844,8 @@ mod tests {
             DEFAULT_VERSION.clone(),
         )
         .expect("test module should have a valid version");
-        let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let (modules, module) =
+            ModuleDependencyGraph::only_one_module(module_source.clone(), moon_mod());
         let mut packages = DiscoverResult::default();
         packages.test_register_module(module, moon_mod());
         let package = packages.test_add_package(
@@ -850,14 +856,14 @@ mod tests {
         let target = package.build_target(TargetKind::Source);
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(module, PathBuf::from("."));
-        let resolved = ResolveOutput {
+        let resolved = ResolvedProject {
             discovered: crate::resolve::DiscoveredProject {
-                module_rel: modules,
+                module_graph: modules,
                 module_dirs,
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            pkg_rel: DepRelationship::default(),
+            package_relations: PackageRelations::default(),
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(

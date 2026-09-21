@@ -126,13 +126,13 @@ pub(crate) fn run_build(
         return Ok(ret_value);
     }
 
-    let resolve_output = sync_and_resolve_build_project(cli, &cmd, &dirs, output.user_log())?;
+    let resolved_project = prepare_build_project(cli, &cmd, &dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     let result =
-        run_build_rr_from_resolved(cli, &cmd, &dirs, false, &targets, resolve_output, output)
+        run_build_rr_from_resolved(cli, &cmd, &dirs, false, &targets, resolved_project, output)
             .with_context(|| match targets.as_slice() {
                 [target] => format!("failed to run build for target {target:?}"),
                 _ => format!("failed to run build for targets {targets:?}"),
@@ -159,7 +159,7 @@ fn run_build_for_single_file_rr(
     } = dirs;
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
-    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
@@ -169,8 +169,8 @@ fn run_build_for_single_file_rr(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
-        &resolve_config,
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::prepare_single_file_project(
+        &preparation_config,
         dirs,
         single_file_path,
         true,
@@ -260,19 +260,19 @@ fn run_build_internal(
     }
 }
 
-fn sync_and_resolve_build_project(
+fn prepare_build_project(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
-    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new(
+) -> anyhow::Result<moonbuild_rupes_recta::ResolvedProject> {
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+    rr_build::prepare_project(&preparation_config, dirs, user_log)
 }
 
 /// Run the build routine in RR backend
@@ -288,7 +288,7 @@ fn run_build_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
-    let resolve_output = sync_and_resolve_build_project(cli, cmd, dirs, output.user_log())?;
+    let resolved_project = prepare_build_project(cli, cmd, dirs, output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
@@ -299,7 +299,7 @@ fn run_build_rr(
         dirs,
         watch,
         selected_target_backend.as_slice(),
-        resolve_output,
+        resolved_project,
         output,
     )
 }
@@ -314,7 +314,7 @@ fn run_build_rr_from_resolved(
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
@@ -325,7 +325,7 @@ fn run_build_rr_from_resolved(
         ..
     } = dirs;
     let prebuild_list = if watch {
-        rr_get_prebuild_watch_paths(&resolve_output)
+        rr_get_prebuild_watch_paths(&resolved_project)
     } else {
         PrebuildWatchPaths {
             ignored_paths: Vec::new(),
@@ -340,7 +340,7 @@ fn run_build_rr_from_resolved(
             target_dir,
             mooncake_bin_dir,
             None,
-            resolve_output,
+            resolved_project,
             user_log,
         )?
     } else {
@@ -355,7 +355,7 @@ fn run_build_rr_from_resolved(
                     target_dir,
                     mooncake_bin_dir,
                     Some(target),
-                    resolve_output.clone(),
+                    resolved_project.clone(),
                     user_log,
                 )
             })
@@ -407,7 +407,7 @@ pub(crate) fn plan_build_rr_from_resolved(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
@@ -417,12 +417,12 @@ pub(crate) fn plan_build_rr_from_resolved(
         target_dir,
         RunMode::Build,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     let intent = calc_user_intent(
         &cmd.path,
         cmd.package.as_deref(),
-        &resolve_output,
+        &resolved_project,
         compile_config.backend.target_backend(),
         user_log,
     )?;
@@ -431,7 +431,7 @@ pub(crate) fn plan_build_rr_from_resolved(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -445,7 +445,7 @@ fn plan_build_rr_from_resolved_with_scope(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     scoped_packages: Vec<PackageId>,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
@@ -456,11 +456,11 @@ fn plan_build_rr_from_resolved_with_scope(
         target_dir,
         RunMode::Build,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     let intent = calc_user_intent_from_scoped_packages(
-        &resolve_output,
+        &resolved_project,
         &scoped_packages,
         compile_config.backend.target_backend(),
     )?;
@@ -469,7 +469,7 @@ fn plan_build_rr_from_resolved_with_scope(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -483,7 +483,7 @@ fn plan_build_rr_from_selection(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     selection: ResolvedBuildSelection,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
@@ -494,7 +494,7 @@ fn plan_build_rr_from_selection(
         target_dir,
         RunMode::Build,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
@@ -502,7 +502,7 @@ fn plan_build_rr_from_selection(
         user_log,
         selection.into_user_intent(),
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -517,13 +517,13 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     if let Some(target_backend) = selected_target_backend {
         if has_explicit_build_selector(cmd) {
             let packages = resolve_selected_build_packages(
-                &resolve_output,
+                &resolved_project,
                 cmd,
                 Some(target_backend),
                 user_log,
@@ -538,7 +538,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                 target_dir,
                 mooncake_bin_dir,
                 target_backend,
-                resolve_output,
+                resolved_project,
                 ResolvedBuildSelection { packages },
                 user_log,
             )
@@ -551,13 +551,13 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             target_dir,
             mooncake_bin_dir,
             Some(target_backend),
-            resolve_output,
+            resolved_project,
             user_log,
         )
         .map(|plan| vec![plan]);
     }
 
-    let selections = resolve_build_target_selections(&resolve_output, cmd, None, user_log)?;
+    let selections = resolve_build_target_selections(&resolved_project, cmd, None, user_log)?;
 
     if has_explicit_build_selector(cmd) {
         return selections
@@ -573,7 +573,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                     target_dir,
                     mooncake_bin_dir,
                     selection.target_backend,
-                    resolve_output.clone(),
+                    resolved_project.clone(),
                     ResolvedBuildSelection {
                         packages: selection.packages,
                     },
@@ -590,7 +590,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             target_dir,
             mooncake_bin_dir,
             None,
-            resolve_output,
+            resolved_project,
             user_log,
         )
         .map(|plan| vec![plan]);
@@ -605,7 +605,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                 target_dir,
                 mooncake_bin_dir,
                 selection.target_backend,
-                resolve_output.clone(),
+                resolved_project.clone(),
                 selection.packages,
                 user_log,
             )

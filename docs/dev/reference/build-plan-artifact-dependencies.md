@@ -21,7 +21,7 @@ Once the project is resolved, the CLI adapter selects the Target Backend and
 constructs `CompileConfig` directly from the original flags and captured
 environment inputs. Commands use its backend to expand user intent to requested
 `ArtifactKey` values. There is no preliminary compilation configuration;
-dependency synchronization and resolution use their own `ResolveConfig`.
+dependency synchronization and resolution use their own `ProjectPreparationConfig`.
 
 Each compilation has one `BackendConfig` value:
 

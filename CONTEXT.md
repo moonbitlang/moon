@@ -40,6 +40,26 @@ _Avoid_: Always-full package model, eager package facts
 A MoonBuild command whose information demand stops before full dependency resolution and build target projection.
 _Avoid_: Partial resolve, incomplete build command
 
+**Module Resolution**:
+Selecting concrete module sources and versions and determining their dependency relationships.
+_Avoid_: Package resolution, unqualified dependency resolution when the domain is unclear
+
+**Package Resolution**:
+Binding package imports and virtual-package references to packages and validating the resulting relationships.
+_Avoid_: Module resolution, unqualified dependency resolution when the domain is unclear
+
+**Resolved Project**:
+A project with selected module dependencies and validated package relationships, ready for build planning.
+_Avoid_: Resolve output, resolved environment
+
+**Module Dependency Graph**:
+The selected module identities, concrete sources and versions, root modules, and dependency relationships between modules.
+_Avoid_: Resolved environment, using package graph for module dependencies
+
+**Package Relations**:
+The resolved imports between package build targets, virtual-package associations, and derived backend support.
+_Avoid_: Resolved environment, confusing package relations with module dependency resolution
+
 ## Command Communication
 
 **Command Result**:

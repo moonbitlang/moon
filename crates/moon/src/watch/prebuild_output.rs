@@ -89,7 +89,7 @@ mod tests {
     use super::*;
 
     use moonbuild_rupes_recta::resolve::{
-        ResolveConfig, resolve_synced_project, sync_dependencies,
+        ProjectPreparationConfig, prepare_synced_project, sync_module_dependencies,
     };
     use moonutil::project::{SourceTargetDirs, WorkspaceEnv};
 
@@ -104,8 +104,12 @@ mod tests {
         )
         .unwrap();
 
-        let resolve_cfg =
-            ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+            false,
+            false,
+            false,
+            WorkspaceEnv::Auto,
+        );
         let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
@@ -117,8 +121,10 @@ mod tests {
         .unwrap()
         .package_dirs()
         .unwrap();
-        let synced_env = sync_dependencies(&resolve_cfg, &dirs, &user_log).unwrap();
-        let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
+        let synced_modules =
+            sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
+        let resolved =
+            prepare_synced_project(&preparation_config, synced_modules, &user_log).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         assert!(watch_paths.ignored_paths.is_empty());
@@ -149,8 +155,12 @@ mod tests {
         )
         .unwrap();
 
-        let resolve_cfg =
-            ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+            false,
+            false,
+            false,
+            WorkspaceEnv::Auto,
+        );
         let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
@@ -162,8 +172,10 @@ mod tests {
         .unwrap()
         .package_dirs()
         .unwrap();
-        let synced_env = sync_dependencies(&resolve_cfg, &dirs, &user_log).unwrap();
-        let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
+        let synced_modules =
+            sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
+        let resolved =
+            prepare_synced_project(&preparation_config, synced_modules, &user_log).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         let root = dunce::canonicalize(temp_dir.path()).unwrap();

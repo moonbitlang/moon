@@ -29,7 +29,7 @@ use moonutil::{
     child_process::{ChildOutputMode, ManagedChildRunner},
     constants::MOONBITLANG_CORE,
     locks::lock_directory,
-    resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     toolchain,
     user_log::UserLog,
 };
@@ -106,7 +106,7 @@ impl DependencySource for ProjectDependencySource {
     fn ensure(
         &self,
         registry: &dyn RegistrySource,
-        resolved: &ResolvedEnv,
+        resolved: &ModuleDependencyGraph,
         frozen: bool,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {
@@ -221,7 +221,7 @@ fn diff_dep_dir_state<'a>(
 fn sync(
     dep_dir: &ProjectDependencySource,
     registry: &dyn RegistrySource,
-    pkg_list: &ResolvedEnv,
+    pkg_list: &ModuleDependencyGraph,
     frozen: bool,
     postadd_runner: &ManagedChildRunner,
     user_log: &UserLog,
@@ -327,7 +327,7 @@ fn map_source_to_dir(
 /// directories that don't exist yet because they are not synced yet.
 fn resolve_paths(
     dep_dir: &ProjectDependencySource,
-    pkg_list: &ResolvedEnv,
+    pkg_list: &ModuleDependencyGraph,
 ) -> anyhow::Result<DirSyncResult> {
     let mut res = DirSyncResult::default();
     for (id, module) in pkg_list.all_modules_and_id() {

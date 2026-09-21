@@ -35,15 +35,15 @@ use moonutil::{
         MoonWork, WorkspaceEditTarget, WorkspaceLayout, workspace_manifest_path, write_workspace,
     },
     resolution::{
-        DependencyEdge, DependencyKind, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
-        ResolvedEnv, ResolvedModule, ResolvedRootModules,
+        DependencyEdge, DependencyKind, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource,
+        ModuleSourceKind, ResolvedModule, ResolvedRootModules,
     },
     user_log::UserLog,
 };
 
 use crate::{
     registry,
-    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
+    resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
 pub fn init_workspace(
@@ -138,8 +138,8 @@ pub fn sync_workspace(
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let roots = workspace_roots(workspace.members(), user_log)?;
-    let resolved_env = resolve_workspace(roots, user_log)?;
-    let updated = sync_workspace_manifests(&resolved_env)?;
+    let module_graph = resolve_workspace(roots, user_log)?;
+    let updated = sync_workspace_manifests(&module_graph)?;
 
     if !quiet {
         if updated.is_empty() {
@@ -193,7 +193,7 @@ fn workspace_use_path(workspace_root: &Path, member_dir: &Path) -> PathBuf {
 fn resolve_workspace(
     roots: ResolvedRootModules,
     user_log: &UserLog,
-) -> anyhow::Result<ResolvedEnv> {
+) -> anyhow::Result<ModuleDependencyGraph> {
     let mut includes_core = false;
     for (_, module) in roots.iter() {
         if module.module_info().name == MOONBITLANG_CORE {
@@ -207,11 +207,11 @@ fn resolve_workspace(
     }
 
     let registry = registry::default_registry();
-    let resolve_config = ResolveConfig {
+    let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: !includes_core,
     };
-    resolve_with_default_env_and_resolver(&resolve_config, roots, user_log).map_err(Into::into)
+    resolve_modules(&module_resolution_config, roots, user_log).map_err(Into::into)
 }
 
 fn workspace_roots(
@@ -234,18 +234,18 @@ fn workspace_roots(
     Ok(roots)
 }
 
-fn sync_workspace_manifests(resolved_env: &ResolvedEnv) -> anyhow::Result<Vec<PathBuf>> {
+fn sync_workspace_manifests(module_graph: &ModuleDependencyGraph) -> anyhow::Result<Vec<PathBuf>> {
     let mut updated = Vec::new();
 
-    for &id in resolved_env.input_module_ids() {
-        let module_dir = local_module_dir(resolved_env.module_source(id)).context(format!(
+    for &id in module_graph.input_module_ids() {
+        let module_dir = local_module_dir(module_graph.module_source(id)).context(format!(
             "workspace root `{}` is not backed by a local path",
-            resolved_env.module_source(id)
+            module_graph.module_source(id)
         ))?;
 
-        let mut module = Arc::unwrap_or_clone(Arc::clone(resolved_env.module_info(id)));
+        let mut module = Arc::unwrap_or_clone(Arc::clone(module_graph.module_info(id)));
         let (regular_deps_changed, bin_deps_changed) =
-            sync_manifest_versions(resolved_env, id, &mut module)?;
+            sync_manifest_versions(module_graph, id, &mut module)?;
         if !regular_deps_changed && !bin_deps_changed {
             continue;
         }
@@ -292,7 +292,7 @@ fn local_module_dir(source: &ModuleSource) -> Option<&Path> {
 }
 
 fn sync_manifest_versions(
-    resolved_env: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     id: ModuleId,
     module: &mut MoonMod,
 ) -> anyhow::Result<(bool, bool)> {
@@ -300,13 +300,13 @@ fn sync_manifest_versions(
 
     for (dep_name, dep) in &mut module.deps {
         regular_deps_changed |=
-            sync_source_dependency(resolved_env, id, dep_name, DependencyKind::Regular, dep)?;
+            sync_source_dependency(module_graph, id, dep_name, DependencyKind::Regular, dep)?;
     }
 
     let mut bin_deps_changed = false;
     for (dep_name, dep) in module.bin_deps.iter_mut().flat_map(|deps| deps.iter_mut()) {
         bin_deps_changed |= sync_source_dependency(
-            resolved_env,
+            module_graph,
             id,
             dep_name,
             DependencyKind::Binary,
@@ -318,7 +318,7 @@ fn sync_manifest_versions(
 }
 
 fn sync_source_dependency(
-    resolved_env: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     id: ModuleId,
     dep_name: &str,
     kind: DependencyKind,
@@ -329,12 +329,12 @@ fn sync_source_dependency(
         name: dep_name.clone(),
         kind,
     };
-    let dep_id = resolved_env.dep_with_key(id, &dep_key).context(format!(
+    let dep_id = module_graph.dep_with_key(id, &dep_key).context(format!(
         "resolved workspace graph is missing direct dependency `{}` for `{}`",
         dep_name,
-        resolved_env.module_source(id)
+        module_graph.module_source(id)
     ))?;
-    let version = Some(resolved_env.module_source(dep_id).version().clone());
+    let version = Some(module_graph.module_source(dep_id).version().clone());
 
     if dep.version() == version.as_ref() {
         return Ok(false);

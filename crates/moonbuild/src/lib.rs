@@ -32,7 +32,7 @@ pub mod upgrade;
 
 use indexmap::IndexMap;
 use moonbuild_rupes_recta::{
-    ResolveOutput, build_plan::ArtifactKey, model::BackendConfig,
+    ResolvedProject, build_plan::ArtifactKey, model::BackendConfig,
     target_layout::ArtifactPathResolver,
 };
 use moonutil::{cond_expr::OptLevel as BuildProfile, target::TargetBackend};
@@ -41,8 +41,8 @@ use std::path::PathBuf;
 /// Build metadata containing information needed for build context and results.
 /// The build graph is kept separate to allow execute_build to take ownership of it.
 pub struct BuildMeta {
-    /// The result of the resolve step, containing package metadata
-    pub resolve_output: ResolveOutput,
+    /// The project declarations with resolved module and package dependencies.
+    pub resolved_project: ResolvedProject,
 
     /// The list of artifacts that will be produced
     pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,

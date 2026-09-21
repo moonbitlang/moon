@@ -367,7 +367,7 @@ impl ReplaceableTestResults {
         );
         for (target, result) in &self.map {
             let module_name = meta
-                .resolve_output
+                .resolved_project
                 .pkg_dirs
                 .get_package(target.package)
                 .fqn
@@ -381,7 +381,7 @@ impl ReplaceableTestResults {
                         &module_name,
                         verbose,
                         json,
-                        &meta.resolve_output.pkg_dirs,
+                        &meta.resolved_project.pkg_dirs,
                     );
                 }
             }
@@ -592,7 +592,7 @@ pub(crate) fn build_test_args_for_target(
 
     let mut test_args = TestArgs {
         package: build_meta
-            .resolve_output
+            .resolved_project
             .pkg_dirs
             .fqn(target.package)
             .to_string(),
@@ -675,7 +675,7 @@ pub(crate) fn collect_test_outline(
 
         let tests_by_file = collect_tests_by_file(&meta, bench);
         let pkgname = build_meta
-            .resolve_output
+            .resolved_project
             .pkg_dirs
             .get_package(target.package)
             .fqn
@@ -864,11 +864,11 @@ fn run_one_test_executable(
 ) -> Result<TargetTestResult, anyhow::Error> {
     let package = ctx
         .build_meta
-        .resolve_output
+        .resolved_project
         .pkg_dirs
         .get_package(test.target.package);
     let fqn = &package.fqn;
-    let module_root = &ctx.build_meta.resolve_output.module_dirs[package.module];
+    let module_root = &ctx.build_meta.resolved_project.module_dirs[package.module];
     let executable = if test.executable.is_absolute() {
         test.executable.clone()
     } else {
@@ -919,7 +919,7 @@ fn run_one_test_executable(
                 test,
                 exit_status,
                 test_output.as_deref(),
-                &ctx.build_meta.resolve_output.pkg_dirs,
+                &ctx.build_meta.resolved_project.pkg_dirs,
             )
         );
     }
@@ -930,7 +930,7 @@ fn run_one_test_executable(
         test.meta.clone(),
         test_output,
         &test.args.package,
-        &ctx.build_meta.resolve_output.pkg_dirs,
+        &ctx.build_meta.resolved_project.pkg_dirs,
     )
     .with_context(|| {
         format!(

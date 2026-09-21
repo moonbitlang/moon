@@ -23,7 +23,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{ResolveOutput, build_plan::ArtifactKey, pkg_name::OptionalPackageFQNWithSource};
+use crate::{ResolvedProject, build_plan::ArtifactKey, pkg_name::OptionalPackageFQNWithSource};
 
 /// Process-local identity of one concrete execution action.
 ///
@@ -282,7 +282,7 @@ pub struct ExecutionPlan {
 impl ExecutionPlan {
     /// Retain project membership on artifact realizations before execution policy
     /// is chosen. Local-path dependencies have the same role as registry dependencies.
-    pub(crate) fn mark_dependency_artifacts(&mut self, resolved: &ResolveOutput) {
+    pub(crate) fn mark_dependency_artifacts(&mut self, resolved: &ResolvedProject) {
         let project_modules = resolved
             .local_modules()
             .iter()

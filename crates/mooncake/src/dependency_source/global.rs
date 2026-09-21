@@ -24,7 +24,7 @@ use anyhow::Context;
 use moonutil::{
     locks::lock_directory,
     manifest::read_module_desc_file_in_dir,
-    resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     toolchain,
     user_log::UserLog,
 };
@@ -126,7 +126,7 @@ impl DependencySource for ImmutableDependencySource<'_> {
     fn ensure(
         &self,
         registry: &dyn RegistrySource,
-        resolved: &ResolvedEnv,
+        resolved: &ModuleDependencyGraph,
         frozen: bool,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {

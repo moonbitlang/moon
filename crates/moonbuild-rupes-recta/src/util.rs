@@ -19,12 +19,12 @@
 //! A number of random utilities useful for debugging the project
 
 use crate::discover::DiscoverResult;
-use crate::pkg_solve::DepRelationship;
+use crate::pkg_solve::PackageRelations;
 use crate::{
     build_plan::{BuildPlan, BuildPlanActionKey, PackagePrebuildKey, package_file_key},
     model::BuildPlanNode,
 };
-use moonutil::resolution::ResolvedEnv;
+use moonutil::resolution::ModuleDependencyGraph;
 use petgraph::Direction;
 use std::io::{self, Write};
 use std::path::Path;
@@ -44,14 +44,18 @@ pub(crate) fn strip_trailing_slash(path: &Path) -> &Path {
     path.strip_prefix("").unwrap_or(path)
 }
 
-/// Print a resolved environment as a DOT graph
-pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::Result<()> {
+/// Print a module dependency graph as a DOT graph.
+pub fn print_module_graph_dot(
+    module_graph: &ModuleDependencyGraph,
+    writer: &mut dyn Write,
+) -> io::Result<()> {
+    // Keep the exported DOT identifier stable across internal type renames.
     writeln!(writer, "digraph ResolvedEnv {{")?;
     writeln!(writer, "    rankdir=TB;")?;
     writeln!(writer, "    node [shape=box style=\"filled,rounded\"];")?;
 
     // Nodes: use ModuleId debug as ID and full source name as label
-    for (id, src) in env.all_modules_and_id() {
+    for (id, src) in module_graph.all_modules_and_id() {
         let node_id = format!("{:?}", id);
         let src_str = src.to_string();
 
@@ -100,8 +104,8 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
     }
 
     // Edges: dependencies with module IDs and dependency key labels
-    for (from, _) in env.all_modules_and_id() {
-        for (to, key) in env.deps_keyed(from) {
+    for (from, _) in module_graph.all_modules_and_id() {
+        for (to, key) in module_graph.deps_keyed(from) {
             let from_id = format!("{:?}", from);
             let to_id = format!("{:?}", to);
             writeln!(
@@ -115,12 +119,13 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
     Ok(())
 }
 
-/// Print a dependency relationship of build targets as a DOT graph, resolving package IDs to full names
-pub fn print_dep_relationship_dot(
-    dep: &DepRelationship,
+/// Print package relations as a DOT graph, resolving package IDs to full names.
+pub fn print_package_relations_dot(
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     writer: &mut dyn Write,
 ) -> io::Result<()> {
+    // Keep the exported DOT identifier stable across internal type renames.
     writeln!(writer, "digraph DepRelationship {{")?;
     writeln!(writer, "    rankdir=TB;")?;
     writeln!(writer, "    node [shape=box style=\"filled,rounded\"];")?;
@@ -206,7 +211,7 @@ impl BuildPlanNode {
         }
     }
 
-    fn gen_label(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    fn gen_label(&self, module_graph: &ModuleDependencyGraph, packages: &DiscoverResult) -> String {
         match self {
             BuildPlanNode::Check(target) => {
                 let fqn = packages.fqn(target.package);
@@ -253,7 +258,7 @@ impl BuildPlanNode {
                 format!("{}\\nGenerateNodeTestPackageConfig", fqn)
             }
             BuildPlanNode::Bundle(module_id) => {
-                let src = env.module_source(*module_id);
+                let src = module_graph.module_source(*module_id);
                 format!("{}\\nBundle", src)
             }
             BuildPlanNode::GenerateMbti(build_target) => {
@@ -265,7 +270,7 @@ impl BuildPlanNode {
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs(module_id) => {
-                let src = env.module_source(*module_id);
+                let src = module_graph.module_source(*module_id);
                 format!("{}\\nBuildDocs", src)
             }
             BuildPlanNode::BuildVirtual(package) => {
@@ -319,14 +324,14 @@ impl BuildPlanActionKey {
         }
     }
 
-    fn gen_label(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    fn gen_label(&self, module_graph: &ModuleDependencyGraph, packages: &DiscoverResult) -> String {
         let file_name = |path: &Path| {
             path.file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| path.display().to_string())
         };
         match self {
-            Self::Backend(node) => node.gen_label(env, packages),
+            Self::Backend(node) => node.gen_label(module_graph, packages),
             Self::PackagePrebuild(PackagePrebuildKey::Custom {
                 package,
                 declaration_index,
@@ -365,7 +370,7 @@ impl BuildPlanActionKey {
 /// Print a build plan as a DOT graph, showing build nodes and their dependencies
 pub fn print_build_plan_dot(
     build_plan: &BuildPlan,
-    env: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     packages: &DiscoverResult,
     writer: &mut dyn Write,
 ) -> io::Result<()> {
@@ -376,7 +381,7 @@ pub fn print_build_plan_dot(
     // Nodes: label both backend and package-prebuild actions.
     for action in build_plan.all_actions() {
         let node_id = action.gen_node_id(packages);
-        let label = action.gen_label(env, packages);
+        let label = action.gen_label(module_graph, packages);
         let color = action.gen_color();
 
         writeln!(

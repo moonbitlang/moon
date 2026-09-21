@@ -21,7 +21,7 @@ use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use std::path::PathBuf;
 
-use moonbuild_rupes_recta::{ResolveOutput, build_plan::ArtifactKey, model::PackageId};
+use moonbuild_rupes_recta::{ResolvedProject, build_plan::ArtifactKey, model::PackageId};
 use moonutil::{
     cli_support::UniversalFlags,
     cond_expr::OptLevel,
@@ -39,7 +39,7 @@ pub(super) struct PlanningFixture {
     source_dir: PathBuf,
     target_dir: PathBuf,
     mooncake_bin_dir: PathBuf,
-    resolve_output: ResolveOutput,
+    resolved_project: ResolvedProject,
 }
 
 pub(super) struct PlannedGraph {
@@ -83,15 +83,20 @@ impl PlanningFixture {
         .query_from(&fixture_dir, WorkspaceEnv::Auto)?
         .select(&user_log)?
         .package_dirs()?;
-        let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-            true,
-            false,
-            false,
-            WorkspaceEnv::Auto,
-        );
-        let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, &user_log)?;
-        let resolve_output =
-            moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, &user_log)?;
+        let preparation_config =
+            moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
+                true,
+                false,
+                false,
+                WorkspaceEnv::Auto,
+            );
+        let synced_modules =
+            moonbuild_rupes_recta::sync_module_dependencies(&preparation_config, &dirs, &user_log)?;
+        let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
+            &preparation_config,
+            synced_modules,
+            &user_log,
+        )?;
         let source_dir = dirs.source_dir;
         let target_dir = dirs.target_dir;
         let mooncake_bin_dir = dirs.mooncake_bin_dir;
@@ -99,7 +104,7 @@ impl PlanningFixture {
             source_dir,
             target_dir,
             mooncake_bin_dir,
-            resolve_output,
+            resolved_project,
         })
     }
 
@@ -115,7 +120,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
@@ -142,7 +147,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             selected_target_backend,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
@@ -165,7 +170,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
@@ -183,7 +188,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
@@ -213,7 +218,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )?;
         Ok(PlannedGraph::new(build_meta, build_graph))
@@ -240,7 +245,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             selected_target_backend,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
@@ -263,7 +268,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             selected_target_backend,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
         .map(|(meta, graph)| vec![PlannedGraph::new(meta, graph)])
@@ -281,7 +286,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
@@ -308,7 +313,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             selected_target_backend,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
@@ -347,7 +352,7 @@ impl PlanningFixture {
             &self.target_dir,
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
-            self.resolve_output.clone(),
+            self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )?;
         Ok(PlannedGraph::new(build_meta, build_graph))
@@ -458,7 +463,7 @@ fn package_names(
         .keys()
         .filter_map(package_of)
         .map(|pkg_id| {
-            meta.resolve_output
+            meta.resolved_project
                 .pkg_dirs
                 .get_package(pkg_id)
                 .fqn

@@ -52,9 +52,9 @@ pub struct VirtualUser {
     pub overrides: SparseSecondaryMap<PackageId, PackageId>,
 }
 
-/// The dependency relationship between build targets
+/// Imports between package build targets, virtual-package associations, and backend support.
 #[derive(Clone, Debug, Default)]
-pub struct DepRelationship {
+pub struct PackageRelations {
     /// A graph with build targets as nodes and dependency relationship as edges.
     ///
     /// The edges should point from dependent (downstream) to dependency (upstream).
@@ -80,7 +80,7 @@ pub struct DepRelationship {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SolveError {
+pub enum PackageResolutionError {
     #[error("Cannot find import '{import}' in {package_fqn}")]
     ImportNotFound {
         import: String,
@@ -173,7 +173,7 @@ pub enum SolveError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub struct MultipleError(pub Vec<SolveError>);
+pub struct MultipleError(pub Vec<PackageResolutionError>);
 
 impl std::fmt::Display for MultipleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

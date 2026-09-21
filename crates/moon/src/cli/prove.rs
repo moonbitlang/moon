@@ -152,13 +152,13 @@ pub(crate) fn run_prove(
     let path_filter = cmd.path.as_deref();
     let prove_why3_config = why3_config_path.clone();
 
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(target_dir, user_log)?;
@@ -175,12 +175,12 @@ pub(crate) fn run_prove(
         target_dir,
         RunMode::Prove,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     let intent = calc_user_intent(
         path_filter,
         module_dir.as_deref(),
-        &resolve_output,
+        &resolved_project,
         compile_config.backend.target_backend(),
         prove_why3_config.as_deref(),
         &proof_prelude,
@@ -191,7 +191,7 @@ pub(crate) fn run_prove(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -612,7 +612,7 @@ fn planned_proof_reports(build_meta: &BuildMeta) -> Vec<PlannedProofReport> {
         .into_iter()
         .map(|(target, (path, whyml_path))| PlannedProofReport {
             package: build_meta
-                .resolve_output
+                .resolved_project
                 .pkg_dirs
                 .get_package(target.package)
                 .fqn

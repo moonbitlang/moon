@@ -50,7 +50,7 @@ use crate::{
     },
     model::PackageId,
     pkg_name::{PackageFQN, PackagePath},
-    resolve::ResolveError,
+    resolve::ProjectPreparationError,
     target_layout::TargetLayout,
 };
 
@@ -64,12 +64,13 @@ pub fn resolve_for_fmt(
     source_dir: &Path,
     project_manifest: &ProjectManifest,
     user_log: &UserLog,
-) -> Result<FmtResolveOutput, ResolveError> {
+) -> Result<FmtResolveOutput, ProjectPreparationError> {
     info!(
         "Resolving formatter environment for {}",
         source_dir.display()
     );
-    discover_local_project(source_dir, project_manifest, user_log).map_err(ResolveError::from)
+    discover_local_project(source_dir, project_manifest, user_log)
+        .map_err(ProjectPreparationError::from)
 }
 
 pub struct FmtConfig {

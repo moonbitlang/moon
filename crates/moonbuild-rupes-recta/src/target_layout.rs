@@ -32,12 +32,12 @@ use std::{
 use moonutil::{
     build_options::RunMode,
     cond_expr::OptLevel,
-    resolution::{ModuleName, ModuleSource, ResolvedEnv},
+    resolution::{ModuleDependencyGraph, ModuleName, ModuleSource},
     target::TargetBackend,
 };
 
 use crate::{
-    ResolveOutput,
+    ResolvedProject,
     build_plan::{ArtifactKey, BuildAction},
     discover::{DiscoverResult, DiscoveredLocalProject},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
@@ -127,10 +127,13 @@ pub enum TargetLayoutMode {
 }
 
 impl TargetLayoutMode {
-    pub fn from_resolve_output(resolve_output: &ResolveOutput) -> Self {
-        match resolve_output.local_modules() {
+    pub fn from_resolved_project(resolved_project: &ResolvedProject) -> Self {
+        match resolved_project.local_modules() {
             &[module_id] => Self::Mono {
-                main_module: resolve_output.module_rel.module_source(module_id).clone(),
+                main_module: resolved_project
+                    .module_graph
+                    .module_source(module_id)
+                    .clone(),
             },
             _ => Self::Workspace,
         }
@@ -174,15 +177,15 @@ impl TargetLayout {
         }
     }
 
-    pub fn from_resolve_output(
+    pub fn from_resolved_project(
         target_base_dir: PathBuf,
-        resolve_output: &ResolveOutput,
+        resolved_project: &ResolvedProject,
         opt_level: OptLevel,
         run_mode: RunMode,
     ) -> Self {
         Self::new(
             target_base_dir,
-            TargetLayoutMode::from_resolve_output(resolve_output),
+            TargetLayoutMode::from_resolved_project(resolved_project),
             opt_level,
             run_mode,
         )
@@ -753,7 +756,7 @@ impl ArtifactPathResolver {
         artifact: &ArtifactKey,
         action_context: BuildAction<'_>,
         packages: &DiscoverResult,
-        modules: &ResolvedEnv,
+        modules: &ModuleDependencyGraph,
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
         match artifact {
@@ -1259,10 +1262,10 @@ mod tests {
     fn package_fixture(
         module_name: &str,
         package_path: &str,
-    ) -> (DiscoverResult, ResolvedEnv, PackageId) {
+    ) -> (DiscoverResult, ModuleDependencyGraph, PackageId) {
         let module_source = module(module_name);
         let (modules, module_id) =
-            ResolvedEnv::only_one_module(module_source.clone(), moon_mod(module_name));
+            ModuleDependencyGraph::only_one_module(module_source.clone(), moon_mod(module_name));
         let package_path =
             PackagePath::new(package_path).expect("test package path should be valid");
         let supported_targets = supported_targets();

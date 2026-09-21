@@ -33,7 +33,7 @@ use moonutil::{
 };
 
 use crate::{
-    ResolveOutput,
+    ResolvedProject,
     cond_comp::file_metadatas,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
@@ -49,7 +49,7 @@ pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 /// Generate the full legacy `packages.json` document shared by IDE plugins and
 /// other tools.
 pub fn gen_metadata_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     source_dir: &Path,
     artifact_paths: &ArtifactPathResolver,
     opt_level: OptLevel,
@@ -58,7 +58,7 @@ pub fn gen_metadata_json(
 ) -> ModuleDBJSON {
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
-            let main_module = ctx.module_rel.module_source(main_module_id);
+            let main_module = ctx.module_graph.module_source(main_module_id);
             let main_module_json = ctx.module_info(main_module_id);
             (
                 main_module.name().to_string(),
@@ -100,7 +100,7 @@ pub fn gen_metadata_json(
 }
 
 fn gen_package_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
@@ -164,7 +164,7 @@ fn gen_package_json(
 
     // Dependencies collection
     let mut deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+        .package_relations
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::Source))
         .filter(|(_, _, edge)| edge.kind == TargetKind::Source)
@@ -173,7 +173,7 @@ fn gen_package_json(
     deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
     let mut wbtest_deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+        .package_relations
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::WhiteboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::WhiteboxTest)
@@ -182,7 +182,7 @@ fn gen_package_json(
     wbtest_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
     let mut test_deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+        .package_relations
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::BlackboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::BlackboxTest)
@@ -239,7 +239,7 @@ fn gen_package_json(
 /// write their source artifact to `*.impl.mi`, so metadata must point to that
 /// file instead of the regular `*.mi` path.
 pub(crate) fn metadata_source_mi_path(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
@@ -253,20 +253,20 @@ pub(crate) fn metadata_source_mi_path(
 }
 
 fn metadata_mi_path(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
 ) -> PathBuf {
-    let is_implementing_virtual =
-        target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package);
+    let is_implementing_virtual = target.kind == TargetKind::Source
+        && ctx.package_relations.virt_impl.contains_key(target.package);
     artifact_paths
         .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, backend, is_implementing_virtual)
         .into_path()
 }
 
 fn metadata_check_command(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
@@ -277,7 +277,7 @@ fn metadata_check_command(
 }
 
 fn metadata_check_mi_path(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
@@ -291,7 +291,7 @@ fn metadata_check_mi_path(
 }
 
 fn edge_to_alias_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
 ) -> impl FnMut((BuildTarget, BuildTarget, &DepEdge)) -> AliasJSON + '_ {
     |(_this, dep, edge)| AliasJSON {
         path: ctx.pkg_dirs.get_package(dep.package).fqn.to_string(),

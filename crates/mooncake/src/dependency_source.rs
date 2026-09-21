@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use moonutil::{
     cache::CacheRoot,
     child_process::ChildOutputMode,
-    resolution::{DirSyncResult, ModuleSourceKind, ResolvedEnv},
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSourceKind},
     user_log::UserLog,
 };
 
@@ -40,7 +40,7 @@ pub(crate) trait DependencySource {
     fn ensure(
         &self,
         registry: &dyn RegistrySource,
-        resolved: &ResolvedEnv,
+        resolved: &ModuleDependencyGraph,
         frozen: bool,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult>;
@@ -55,7 +55,7 @@ pub(crate) trait DependencySource {
 pub(crate) fn select<'a>(
     project_dir: impl Into<PathBuf>,
     cache: &'a CacheRoot,
-    resolved: &ResolvedEnv,
+    resolved: &ModuleDependencyGraph,
     postadd_output: ChildOutputMode,
 ) -> anyhow::Result<Box<dyn DependencySource + 'a>> {
     let has_registry_sources = resolved
@@ -85,7 +85,7 @@ mod tests {
         cache::{CacheKind, CacheRoot},
         child_process::ChildOutputMode,
         manifest::MoonMod,
-        resolution::{ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv},
+        resolution::{ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind},
         user_log::UserLog,
     };
     use semver::Version;
@@ -182,7 +182,7 @@ options(
         }
     }
 
-    fn test_env() -> (ResolvedEnv, moonutil::resolution::ModuleId) {
+    fn test_env() -> (ModuleDependencyGraph, moonutil::resolution::ModuleId) {
         let version = Version::new(1, 2, 3);
         let source = ModuleSource::new_full(
             "test/module".into(),
@@ -190,7 +190,7 @@ options(
             ModuleSourceKind::Registry,
         )
         .unwrap();
-        ResolvedEnv::only_one_module(
+        ModuleDependencyGraph::only_one_module(
             source,
             MoonMod {
                 name: "test/module".to_string(),

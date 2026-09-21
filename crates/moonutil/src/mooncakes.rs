@@ -421,9 +421,9 @@ pub mod result {
         }
     }
 
-    /// The result of a dependency resolution.
+    /// Module identities, concrete sources and versions, and dependency edges.
     #[derive(Debug, Clone)]
-    pub struct ResolvedEnv {
+    pub struct ModuleDependencyGraph {
         /// The list of module IDs that are provided as the input to the resolver.
         input_module_ids: Vec<ModuleId>,
         /// The module that is the standard library. `None` means the project is
@@ -445,7 +445,7 @@ pub mod result {
         dep_graph: DiGraphMap<ModuleId, DependencyEdge>,
     }
 
-    impl ResolvedEnv {
+    impl ModuleDependencyGraph {
         pub fn input_module_ids(&self) -> &[ModuleId] {
             &self.input_module_ids
         }
@@ -508,7 +508,10 @@ pub mod result {
             self.mapping.iter().map(|(_id, src)| &src.source)
         }
 
-        pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> (ResolvedEnv, ModuleId) {
+        pub fn only_one_module(
+            ms: ModuleSource,
+            module: MoonMod,
+        ) -> (ModuleDependencyGraph, ModuleId) {
             let (roots, id) = ResolvedModule::only_one_module(ms, Arc::new(module));
             (Self::from_root_modules(roots), id)
         }
@@ -595,7 +598,7 @@ pub mod result {
         }
     }
 
-    impl Default for ResolvedEnv {
+    impl Default for ModuleDependencyGraph {
         fn default() -> Self {
             Self::new()
         }

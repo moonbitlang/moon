@@ -28,9 +28,9 @@
       that needs to be used during the compile process, as well as the
       dependency relationship between them. Discovery produces
       [`DiscoveredProject`] for inspecting modules and packages; solving
-      their imports produces [`ResolveOutput`] for compilation.
+      their imports produces [`ResolvedProject`] for compilation.
 
-    - [`compile`] takes in the resolved environment and produces an
+    - [`compile`] takes in the project and its package relations and produces an
       [`execution_plan::ExecutionPlan`]. This part converts the intent of the
       user into concrete actions and declared outputs.
 
@@ -124,6 +124,6 @@ pub mod util;
 // Reexports
 pub use compile::{CompileConfig, CompileOutput, compile};
 pub use resolve::{
-    DiscoveredProject, ResolveConfig, ResolveOutput, discover_synced_project,
-    resolve_synced_project, sync_dependencies,
+    DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
+    prepare_synced_project, sync_module_dependencies,
 };

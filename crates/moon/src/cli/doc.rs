@@ -128,18 +128,22 @@ pub(crate) fn run_doc_rr(
     // Resolve the complete selected project before choosing the member-scoped
     // documentation backend.
     let build_flags = BuildFlags::default();
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
-    let resolve_output =
-        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let synced_modules =
+        moonbuild_rupes_recta::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
+    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
+        &preparation_config,
+        synced_modules,
+        user_log,
+    )?;
 
-    let module_id = selected_doc_module_id(&resolve_output, &selected_module.root)?;
-    let target_backend = resolve_output
+    let module_id = selected_doc_module_id(&resolved_project, &selected_module.root)?;
+    let target_backend = resolved_project
         .module_info(module_id)
         .preferred_target
         .unwrap_or_default();
@@ -151,7 +155,7 @@ pub(crate) fn run_doc_rr(
         target_dir,
         RunMode::Check,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     compile_config.docs_serve = cmd.serve;
     let intent = vec![UserIntent::Doc(module_id)].into();
@@ -160,7 +164,7 @@ pub(crate) fn run_doc_rr(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -200,8 +204,8 @@ pub(crate) fn run_doc_rr(
             );
         }
         let full_name = build_meta
-            .resolve_output
-            .module_rel
+            .resolved_project
+            .module_graph
             .module_source(module_id)
             .name()
             .to_string();

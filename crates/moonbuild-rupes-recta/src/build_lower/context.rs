@@ -21,7 +21,7 @@
 use std::path::{Path, PathBuf};
 
 use moonutil::{
-    resolution::{DirSyncResult, ResolvedEnv},
+    resolution::{DirSyncResult, ModuleDependencyGraph},
     target::TargetBackend,
 };
 use tracing::{Level, instrument};
@@ -29,7 +29,7 @@ use walkdir::WalkDir;
 
 use super::{CExecutableRealization, LoweringError};
 use crate::{
-    CompileConfig, ResolveOutput,
+    CompileConfig, ResolvedProject,
     build_plan::{
         ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildAction,
         PackagePrebuildKey, package_file_key,
@@ -37,7 +37,7 @@ use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, InputObservation},
     model::{BackendConfig, BuildPlanNode, BuildTarget},
-    pkg_solve::DepRelationship,
+    pkg_solve::PackageRelations,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
     },
@@ -50,9 +50,9 @@ pub(crate) struct LoweringContext<'a> {
 
     // External state
     pub(crate) packages: &'a DiscoverResult,
-    pub(crate) modules: &'a ResolvedEnv,
+    pub(crate) modules: &'a ModuleDependencyGraph,
     pub(crate) module_dirs: &'a DirSyncResult,
-    pub(crate) rel: &'a DepRelationship,
+    pub(crate) rel: &'a PackageRelations,
     pub(crate) plan: &'a BuildPlan,
     pub(crate) opt: &'a CompileConfig,
 
@@ -182,16 +182,16 @@ impl ActionArtifacts {
 
 impl<'a> LoweringContext<'a> {
     pub(super) fn new(
-        resolve_output: &'a ResolveOutput,
+        resolved_project: &'a ResolvedProject,
         plan: &'a BuildPlan,
         opt: &'a CompileConfig,
     ) -> Self {
         Self {
             artifact_paths: &opt.artifact_paths,
-            rel: &resolve_output.pkg_rel,
-            modules: &resolve_output.module_rel,
-            packages: &resolve_output.pkg_dirs,
-            module_dirs: &resolve_output.module_dirs,
+            rel: &resolved_project.package_relations,
+            modules: &resolved_project.module_graph,
+            packages: &resolved_project.pkg_dirs,
+            module_dirs: &resolved_project.module_dirs,
             plan,
             opt,
             toolchain_include_files: None,

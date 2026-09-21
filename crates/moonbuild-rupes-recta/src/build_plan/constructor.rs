@@ -24,7 +24,7 @@ use std::{
 };
 
 use crate::{
-    CompileConfig, ResolveOutput,
+    CompileConfig, ResolvedProject,
     build_plan::InputDirective,
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
@@ -41,7 +41,7 @@ use super::{
 /// the construction of a build plan.
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
-    pub(super) input: &'a ResolveOutput,
+    pub(super) input: &'a ResolvedProject,
     pub(super) mooncake_bin_dir: &'a Path,
     pub(super) config: &'a CompileConfig,
     pub(super) input_directive: &'a InputDirective,
@@ -75,7 +75,7 @@ pub(super) struct PackageFileSet {
 
 impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn new(
-        resolved: &'a ResolveOutput,
+        resolved: &'a ResolvedProject,
         mooncake_bin_dir: &'a Path,
         config: &'a CompileConfig,
         input_directive: &'a InputDirective,

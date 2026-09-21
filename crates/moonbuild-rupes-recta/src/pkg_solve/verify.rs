@@ -30,7 +30,7 @@ use crate::{
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::{
         DepEdge,
-        model::{DepRelationship, ImportLoop, SolveError},
+        model::{ImportLoop, PackageRelations, PackageResolutionError},
     },
 };
 use moonutil::user_log::UserLog;
@@ -43,10 +43,10 @@ use super::model::MultipleError;
 /// - No loops (except test imports, which don't currently have a workaround)
 /// - Named aliases are unique within one package
 pub(super) fn verify(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     user_log: &UserLog,
-) -> Result<(), SolveError> {
+) -> Result<(), PackageResolutionError> {
     debug!("Verifying package dependency graph integrity");
 
     let mut errs = vec![];
@@ -67,7 +67,7 @@ pub(super) fn verify(
     if errs.is_empty() {
         Ok(())
     } else {
-        Err(SolveError::Multiple(MultipleError(errs)))
+        Err(PackageResolutionError::Multiple(MultipleError(errs)))
     }
 }
 
@@ -75,7 +75,7 @@ pub(super) fn verify(
 ///
 /// `verify` must run first so the graph is guaranteed to have no import loops.
 pub(super) fn compute_realizable_supported_targets(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
 ) -> HashMap<BuildTarget, IndexSet<TargetBackend>> {
     let graph = &dep.dep_graph;
@@ -108,7 +108,10 @@ pub(super) fn compute_realizable_supported_targets(
 
 /// Verify there's no loops within the dependency graph. If there's any import
 /// loop, return an error.
-fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<(), SolveError> {
+fn verify_no_loop(
+    packages: &DiscoverResult,
+    dep: &PackageRelations,
+) -> Result<(), PackageResolutionError> {
     // An indexed current-visiting path, for finding loops
     let mut path = IndexSet::new();
     // Work stack.
@@ -142,7 +145,7 @@ fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<()
                     .chain([node])
                     .map(|x| packages.fqn(x.package))
                     .collect();
-                return Err(SolveError::ImportLoop {
+                return Err(PackageResolutionError::ImportLoop {
                     loop_path: ImportLoop(loop_path),
                 });
             }
@@ -188,9 +191,9 @@ impl WorkStackItem {
 
 /// Verify that there's no duplicated named alias for each build node within the graph.
 fn verify_no_duplicated_alias(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
-    errs: &mut Vec<SolveError>,
+    errs: &mut Vec<PackageResolutionError>,
 ) {
     for node in dep.dep_graph.node_identifiers() {
         // The alias map for the current node
@@ -209,7 +212,7 @@ fn verify_no_duplicated_alias(
                 Entry::Occupied(e) => {
                     let (first_to, first_edge) = e.get();
 
-                    errs.push(SolveError::ConflictingImportAlias {
+                    errs.push(PackageResolutionError::ConflictingImportAlias {
                         alias: edge.short_alias.to_string(),
                         package_node: node,
                         package_fqn: packages.fqn(node.package).into(),
@@ -232,9 +235,9 @@ fn verify_no_duplicated_alias(
 
 /// Verify no forbidden internal imports between package pairs.
 fn verify_no_forbidden_internal_imports(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
-    errs: &mut Vec<SolveError>,
+    errs: &mut Vec<PackageResolutionError>,
 ) {
     // De-duplicate by (importer package, dependency package) so we don't spam
     // errors for different target kinds of the same package pair.
@@ -258,7 +261,7 @@ fn verify_no_forbidden_internal_imports(
             let dependency_path = dependency_pkg.fqn.package();
 
             if !importer_path.can_import(dependency_path, same_module) {
-                errs.push(SolveError::InternalImportForbidden {
+                errs.push(PackageResolutionError::InternalImportForbidden {
                     importer_node: from,
                     importer: packages.fqn(from.package).into(),
                     dependency_node: to,
@@ -270,7 +273,7 @@ fn verify_no_forbidden_internal_imports(
 }
 
 fn warn_main_package_dependencies(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     user_log: &UserLog,
 ) {

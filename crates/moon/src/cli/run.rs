@@ -24,7 +24,7 @@ use anyhow::{Context, bail};
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    DiscoveredProject, ResolveOutput,
+    DiscoveredProject, ResolvedProject,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
     model::{BackendConfig, PackageId},
@@ -548,14 +548,14 @@ fn build_package_executable(
         ..
     } = &dirs;
 
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let resolve_output = rr_build::sync_and_resolve_project(&resolve_cfg, &dirs, user_log)?;
+    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
@@ -567,7 +567,7 @@ fn build_package_executable(
         target_dir,
         mooncake_bin_dir,
         selected_target_backend,
-        resolve_output,
+        resolved_project,
         user_log,
     )?;
     build_executable_from_plan(
@@ -594,20 +594,20 @@ pub(crate) fn plan_run_rr_from_resolved(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: ResolveOutput,
+    resolved_project: ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let input_path = cmd
         .package_or_mbt_file
         .clone()
         .expect("package run planning requires a positional input");
-    let selection = resolve_run_selection(&input_path, &resolve_output)?;
-    let package = resolve_output.pkg_dirs.get_package(selection.package);
+    let selection = resolve_run_selection(&input_path, &resolved_project)?;
+    let package = resolved_project.pkg_dirs.get_package(selection.package);
     let selected_target_backend = Some(
         selected_target_backend
             .or_else(|| {
-                resolve_output
-                    .module_rel
+                resolved_project
+                    .module_graph
                     .module_info(package.module)
                     .preferred_target
             })
@@ -623,11 +623,11 @@ pub(crate) fn plan_run_rr_from_resolved(
         target_dir,
         RunMode::Run,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     let intent = selection.into_user_intent(
         &input_path,
-        &resolve_output,
+        &resolved_project,
         value_tracing,
         compile_config.backend.target_backend(),
     )?;
@@ -636,7 +636,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -756,7 +756,7 @@ fn build_single_file_executable(
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
 
     // Resolve single-file project (synthesized package around the file)
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
@@ -767,8 +767,8 @@ fn build_single_file_executable(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
-        &resolve_cfg,
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::prepare_single_file_project(
+        &preparation_config,
         &dirs,
         &input_path,
         true,

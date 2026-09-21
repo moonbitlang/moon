@@ -498,8 +498,8 @@ fn run_check_impl(
         return Ok(ret_value);
     }
 
-    let resolve_output =
-        sync_and_resolve_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
+    let resolved_project =
+        prepare_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
             .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
@@ -516,7 +516,7 @@ fn run_check_impl(
         &dirs,
         false,
         &targets,
-        resolve_output,
+        resolved_project,
         output,
         json,
     )
@@ -552,7 +552,7 @@ fn run_check_for_single_file_rr(
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     // Manually synthesize and resolve single file project
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
@@ -566,8 +566,8 @@ fn run_check_for_single_file_rr(
             ChildOutputMode::Inherit
         },
     });
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
-        &resolve_cfg,
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::prepare_single_file_project(
+        &preparation_config,
         dirs,
         single_file_path,
         false,
@@ -691,7 +691,7 @@ fn run_check_normal_internal_rr(
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
-    let resolve_output = sync_and_resolve_check_project(cli, cmd, dirs, user_log, json.is_some())
+    let resolved_project = prepare_check_project(cli, cmd, dirs, user_log, json.is_some())
         .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
@@ -708,7 +708,7 @@ fn run_check_normal_internal_rr(
         dirs,
         watch,
         selected_target_backend.as_slice(),
-        resolve_output,
+        resolved_project,
         output,
         json,
     )
@@ -724,7 +724,7 @@ fn run_check_normal_rr_from_resolved(
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
@@ -736,7 +736,7 @@ fn run_check_normal_rr_from_resolved(
         ..
     } = dirs;
     let prebuild_list = if watch {
-        rr_get_prebuild_watch_paths(&resolve_output)
+        rr_get_prebuild_watch_paths(&resolved_project)
     } else {
         PrebuildWatchPaths {
             ignored_paths: Vec::new(),
@@ -751,7 +751,7 @@ fn run_check_normal_rr_from_resolved(
             target_dir,
             mooncake_bin_dir,
             None,
-            resolve_output,
+            resolved_project,
             user_log,
         )
         .context("Failed to calculate build plan")?
@@ -767,7 +767,7 @@ fn run_check_normal_rr_from_resolved(
                     target_dir,
                     mooncake_bin_dir,
                     Some(target),
-                    resolve_output.clone(),
+                    resolved_project.clone(),
                     user_log,
                 )
             })
@@ -870,14 +870,14 @@ fn run_planned_checks(
     }
 }
 
-fn sync_and_resolve_check_project(
+fn prepare_check_project(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
     json: bool,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolveOutput> {
-    let resolve_config = moonbuild_rupes_recta::ResolveConfig::new(
+) -> anyhow::Result<moonbuild_rupes_recta::ResolvedProject> {
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
@@ -891,7 +891,7 @@ fn sync_and_resolve_check_project(
             ChildOutputMode::Inherit
         },
     });
-    rr_build::sync_and_resolve_project(&resolve_config, dirs, user_log)
+    rr_build::prepare_project(&preparation_config, dirs, user_log)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -902,11 +902,11 @@ pub(crate) fn plan_check_rr_from_resolved_all(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     validate_selector_flags_before_split(
-        &resolve_output,
+        &resolved_project,
         cmd,
         source_dir,
         selected_target_backend,
@@ -914,7 +914,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
     )?;
 
     let selections = resolve_check_target_selections(
-        &resolve_output,
+        &resolved_project,
         cmd,
         source_dir,
         selected_target_backend,
@@ -929,7 +929,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
             target_dir,
             mooncake_bin_dir,
             selected_target_backend,
-            resolve_output,
+            resolved_project,
             user_log,
         )
         .map(|plan| vec![plan]);
@@ -948,7 +948,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
                 target_dir,
                 mooncake_bin_dir,
                 selection.target_backend,
-                resolve_output.clone(),
+                resolved_project.clone(),
                 ResolvedCheckSelection::from_command(selection.packages, cmd),
                 user_log,
             )
@@ -984,7 +984,7 @@ pub(crate) fn plan_check_rr_from_resolved(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
@@ -994,11 +994,11 @@ pub(crate) fn plan_check_rr_from_resolved(
         target_dir,
         RunMode::Check,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     let intent = if let Some(filter_path) = cmd.package_path.as_deref() {
         calc_user_intent_from_package_path(
-            &resolve_output,
+            &resolved_project,
             source_dir,
             filter_path,
             compile_config.backend.target_backend(),
@@ -1006,7 +1006,7 @@ pub(crate) fn plan_check_rr_from_resolved(
         )?
     } else {
         calc_user_intent(
-            &resolve_output,
+            &resolved_project,
             &cmd.path,
             compile_config.backend.target_backend(),
             cmd.patch_file.as_deref(),
@@ -1018,7 +1018,7 @@ pub(crate) fn plan_check_rr_from_resolved(
         user_log,
         intent,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
@@ -1032,7 +1032,7 @@ fn plan_check_rr_from_selection(
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     selection: ResolvedCheckSelection,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
@@ -1043,7 +1043,7 @@ fn plan_check_rr_from_selection(
         target_dir,
         RunMode::Check,
         user_log,
-        &resolve_output,
+        &resolved_project,
     )?;
     debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
@@ -1051,7 +1051,7 @@ fn plan_check_rr_from_selection(
         user_log,
         selection.into_user_intent()?,
         mooncake_bin_dir,
-        resolve_output,
+        resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
         cli.dry_run,

@@ -29,7 +29,9 @@ use moonutil::{
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
-    resolution::{DirSyncResult, ModuleSource, ResolvedEnv, ResolvedModule, ResolvedRootModules},
+    resolution::{
+        DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule, ResolvedRootModules,
+    },
     user_log::UserLog,
 };
 use semver::Version;
@@ -59,7 +61,7 @@ pub fn auto_sync(
     no_std: bool,
     workspace_env: WorkspaceEnv,
     include_bin_deps: bool,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
@@ -82,7 +84,7 @@ pub fn auto_sync(
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
-    let (resolved_env, sync_result) = super::install::install_impl(
+    let (module_graph, sync_result) = super::install::install_impl(
         dirs,
         roots,
         output_options,
@@ -92,7 +94,7 @@ pub fn auto_sync(
         &CacheRoot::Disabled,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((resolved_env, sync_result, None))
+    Ok((module_graph, sync_result, None))
 }
 
 fn resolve_workspace_sync(
@@ -103,7 +105,7 @@ fn resolve_workspace_sync(
     no_std: bool,
     workspace: &WorkspaceLayout,
     include_bin_deps: bool,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in workspace.members() {
         let mut module = read_module_desc_file_in_dir(member_dir)?;
@@ -115,7 +117,7 @@ fn resolve_workspace_sync(
         roots.insert(ResolvedModule::new(source, module));
     }
 
-    let (resolved_env, sync_result) = super::install::install_impl(
+    let (module_graph, sync_result) = super::install::install_impl(
         dirs,
         roots,
         output_options,
@@ -126,7 +128,7 @@ fn resolve_workspace_sync(
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((
-        resolved_env,
+        module_graph,
         sync_result,
         Some(workspace.manifest().clone()),
     ))
@@ -139,7 +141,7 @@ pub fn auto_sync_for_single_mbt_md(
     mooncakes_dir: &Path,
     front_matter_config: Option<MbtMdHeader>,
     user_log: &UserLog,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Arc<MoonMod>)> {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Arc<MoonMod>)> {
     let mut deps = IndexMap::new();
 
     // don't sync for gen-test-driver
@@ -170,7 +172,7 @@ pub fn auto_sync_for_single_mbt_md(
         project_manifest: ProjectManifest::None,
     };
 
-    let (resolved_env, dir_sync_result) = super::install::install_impl(
+    let (module_graph, dir_sync_result) = super::install::install_impl(
         &dirs,
         roots,
         SyncOutputOptions::default(),
@@ -180,7 +182,7 @@ pub fn auto_sync_for_single_mbt_md(
         &CacheRoot::Disabled,
     )?;
     log::debug!("Dir sync result: {:?}", dir_sync_result);
-    Ok((resolved_env, dir_sync_result, m))
+    Ok((module_graph, dir_sync_result, m))
 }
 
 pub fn auto_sync_for_single_file_rr(
@@ -190,7 +192,7 @@ pub fn auto_sync_for_single_file_rr(
     output_options: SyncOutputOptions,
     source_cache: &CacheRoot,
     user_log: &UserLog,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
     if let Some(deps_map) = front_matter_deps {
         for (k, v) in deps_map.iter() {
@@ -207,7 +209,7 @@ pub fn auto_sync_for_single_file_rr(
     let ms = ModuleSource::single_file(&m, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
-    let (resolved_env, dir_sync_result) = super::install::install_impl(
+    let (module_graph, dir_sync_result) = super::install::install_impl(
         dirs,
         roots,
         output_options,
@@ -218,5 +220,5 @@ pub fn auto_sync_for_single_file_rr(
     )?;
 
     log::debug!("Dir sync result: {:?}", dir_sync_result);
-    Ok((resolved_env, dir_sync_result))
+    Ok((module_graph, dir_sync_result))
 }

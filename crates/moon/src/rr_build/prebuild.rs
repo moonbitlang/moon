@@ -28,7 +28,7 @@ use std::{
 use anyhow::{Context, anyhow};
 use log::warn;
 use moonbuild_rupes_recta::{
-    ResolveOutput,
+    ResolvedProject,
     compile::CompileConfig,
     prebuild::{ModulePrebuildOutput, PrebuildOutput},
 };
@@ -48,7 +48,7 @@ use crate::{
 
 #[instrument(skip_all)]
 pub(super) fn run_prebuild_config(
-    resolve_output: &ResolveOutput,
+    resolved_project: &ResolvedProject,
     cx: &CompileConfig,
     jobs: usize,
     frozen: bool,
@@ -60,9 +60,12 @@ pub(super) fn run_prebuild_config(
         .run_mode_dir(cx.backend.target_backend())
         .join("prebuild");
     let mut output = PrebuildOutput::default();
-    for (m, ms) in resolve_output.module_rel.all_modules_and_id() {
-        let m_info = resolve_output.module_info(m);
-        let m_dir = resolve_output.module_dirs.get(m).expect("module not found");
+    for (m, ms) in resolved_project.module_graph.all_modules_and_id() {
+        let m_info = resolved_project.module_info(m);
+        let m_dir = resolved_project
+            .module_dirs
+            .get(m)
+            .expect("module not found");
         let Some(prebuild) = &m_info.__moonbit_unstable_prebuild else {
             continue;
         };
@@ -98,7 +101,7 @@ pub(super) fn run_prebuild_config(
 
         // Insert package-level configs
         let module_name = &m_info.name;
-        let packages = resolve_output
+        let packages = resolved_project
             .pkg_dirs
             .packages_for_module(m)
             .expect("module has no packages");

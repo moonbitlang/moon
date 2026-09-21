@@ -27,21 +27,21 @@ use crate::{
     pkg_solve::verify::{compute_realizable_supported_targets, verify},
 };
 use log::info;
-use moonutil::{resolution::ResolvedEnv, user_log::UserLog};
+use moonutil::{resolution::ModuleDependencyGraph, user_log::UserLog};
 use tracing::{Level, instrument};
 
-pub use model::{DepEdge, DepRelationship, SolveError};
+pub use model::{DepEdge, PackageRelations, PackageResolutionError};
 use solve::solve_only;
 
-/// Solves the dependency relationship between packages, and validate the graph
-/// is valid for compilation.
+/// Resolve package imports and virtual-package references, validate their
+/// relationships, and compute supported backends from the resulting graph.
 #[instrument(level = Level::DEBUG, skip_all)]
-pub fn solve(
-    modules: &ResolvedEnv,
+pub fn resolve_packages(
+    modules: &ModuleDependencyGraph,
     packages: &DiscoverResult,
     enable_coverage: bool,
     user_log: &UserLog,
-) -> Result<DepRelationship, SolveError> {
+) -> Result<PackageRelations, PackageResolutionError> {
     info!("Starting dependency resolution");
 
     let mut res = solve_only(modules, packages, enable_coverage, user_log)?;
