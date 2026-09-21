@@ -200,8 +200,7 @@ impl Parser {
         let Token::INT((loc, literal)) = self.peek() else {
             return Err(ParseError::UnexpectedToken(self.peek().clone()));
         };
-        // TODO: Replace this JSON-number bridge with a DSL integer node once
-        // package conversion no longer deserializes DSL values through `MoonPkgJSON`.
+        // Preserve the integer range for field-level type checking during conversion.
         let number = literal
             .parse::<i64>()
             .map(Number::from)
@@ -504,10 +503,8 @@ impl Parser {
     }
 }
 
-/// Parse MoonPkg DSL input into its current JSON-shaped compatibility model.
-///
-/// Package conversion reuses the typed `MoonPkgJSON` deserializer until the DSL
-/// has its own typed AST, so expressions are lowered to JSON values here.
+/// Parse MoonPkg DSL input into ordered entries with JSON-shaped values.
+/// Manifest conversion validates these entries and decodes their fields.
 pub fn parse(input: &str) -> anyhow::Result<Dsl> {
     let tokens = lexer::tokenize(input)?;
     Parser::parse(tokens).map_err(|e| anyhow!("Parsing error: {e}"))

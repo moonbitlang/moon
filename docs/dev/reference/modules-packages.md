@@ -27,6 +27,15 @@ A package may import other packages within its containing module,
 or within the modules its containing module depends on.
 Cyclic dependencies are currently prohibited both in module and package level.
 
+`moon.pkg` is parsed into ordered DSL entries and converted directly to the
+`MoonPkg` package model. The DSL keeps JSON-shaped values for decoding individual
+fields; it does not construct an intermediate `MoonPkgJSON`. Legacy
+`moon.pkg.json` files use their own `MoonPkgJSON` converter. Both converters share
+package-kind resolution, import warnings, formatter defaults, and rule validation.
+DSL normalization combines declarations and applies `options(...)` overrides.
+The converter then reads the normalized fields without mutating the map,
+preserving legacy option aliases and type checks. Unknown options are ignored.
+
 In `moon.pkg`, multiple unconditional import blocks are combined in source order,
 separately for regular, test, and whitebox-test imports. Legacy import fields in
 `options(...)` replace all corresponding blocks, including when the replacement
