@@ -52,9 +52,9 @@ pub struct VirtualUser {
     pub overrides: SparseSecondaryMap<PackageId, PackageId>,
 }
 
-/// The dependency relationship between build targets
+/// Imports between package build targets, virtual-package associations, and backend support.
 #[derive(Clone, Debug, Default)]
-pub struct DepRelationship {
+pub struct PackageRelations {
     /// A graph with build targets as nodes and dependency relationship as edges.
     ///
     /// The edges should point from dependent (downstream) to dependency (upstream).

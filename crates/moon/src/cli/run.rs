@@ -607,7 +607,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         selected_target_backend
             .or_else(|| {
                 resolve_output
-                    .module_rel
+                    .module_graph
                     .module_info(package.module)
                     .preferred_target
             })

@@ -32,7 +32,7 @@ use std::{path::Path, sync::Arc};
 
 use indexmap::IndexSet;
 use moonutil::package::{Import, MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind};
-use moonutil::resolution::ResolvedEnv;
+use moonutil::resolution::ModuleDependencyGraph;
 use moonutil::target::TargetBackend;
 
 use crate::discover::{DiscoverError, DiscoverResult, DiscoveredPackage, SingleFileSourceKind};
@@ -51,7 +51,7 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 pub fn build_synth_single_file_package(
     file: &Path,
     source_kind: SingleFileSourceKind,
-    env: &ResolvedEnv,
+    env: &ModuleDependencyGraph,
     discovered: &mut DiscoverResult,
     run_mode: bool,
     front_matter_imports: Option<Vec<Import>>,

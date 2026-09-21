@@ -45,7 +45,7 @@ use indexmap::IndexSet;
 use log::{debug, info, trace};
 use moonutil::package::MoonPkg;
 use moonutil::resolution::{
-    DirSyncResult, ModuleId, ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv,
+    DirSyncResult, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
     ResolvedModule, ResolvedRootModules,
 };
 use moonutil::target::TargetBackend;
@@ -74,16 +74,19 @@ use crate::{
 /// Discover packages contained by all dependencies from their paths
 #[instrument(skip_all)]
 pub fn discover_packages(
-    env: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     dirs: &DirSyncResult,
     user_log: &UserLog,
 ) -> Result<DiscoverResult, DiscoverError> {
     info!("Starting package discovery across all modules");
     let mut res = DiscoverResult::default();
 
-    debug!("Discovering packages in {} modules", env.module_count());
+    debug!(
+        "Discovering packages in {} modules",
+        module_graph.module_count()
+    );
 
-    for (id, m) in env.all_modules_and_id() {
+    for (id, m) in module_graph.all_modules_and_id() {
         // SPECIAL_CASE: Skip stdlib in discovering. They are handled below.
         // UPDATED: stdlib is not skipped anymore, as we require
         // packages in stdlib to be explicitly imported by users.
@@ -98,8 +101,8 @@ pub fn discover_packages(
             &mut res,
             dir,
             id,
-            env.resolved_module(id),
-            env.input_module_ids().contains(&id),
+            module_graph.resolved_module(id),
+            module_graph.input_module_ids().contains(&id),
             user_log,
         )?;
     }
@@ -111,7 +114,7 @@ pub fn discover_packages(
     info!(
         "Package discovery completed: found {} packages across {} modules",
         res.package_count(),
-        env.module_count()
+        module_graph.module_count()
     );
 
     Ok(res)
@@ -566,7 +569,7 @@ mod tests {
 
     use moonutil::{
         manifest::{MoonMod, read_package_desc_file_from_path_with_supported_targets_decl},
-        resolution::{DirSyncResult, ModuleSource, ResolvedEnv},
+        resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource},
         user_log::UserLog,
     };
     use relative_path::RelativePath;
@@ -609,13 +612,13 @@ mod tests {
             } else {
                 ModuleSource::from_local_module(&module, dir.path())?
             };
-            let (env, id) = ResolvedEnv::only_one_module(source, module);
+            let (module_graph, id) = ModuleDependencyGraph::only_one_module(source, module);
             let mut dirs = DirSyncResult::default();
             dirs.insert(id, dir.path().to_owned());
 
             for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
                 let (user_log, capture) = UserLog::captured(level);
-                let discovered = discover_packages(&env, &dirs, &user_log)?;
+                let discovered = discover_packages(&module_graph, &dirs, &user_log)?;
                 assert!(
                     discovered
                         .get_package_id_by_name(&format!("{name}/v2"))
@@ -668,17 +671,17 @@ mod tests {
                     .expect("test dependency declares a version"),
             )?,
         ] {
-            let (mut env, app_id) = ResolvedEnv::only_one_module(
+            let (mut module_graph, app_id) = ModuleDependencyGraph::only_one_module(
                 ModuleSource::from_local_module(&app, &app_dir)?,
                 app.clone(),
             );
-            let dep_id = env.add_module(source, std::sync::Arc::new(dep.clone()));
+            let dep_id = module_graph.add_module(source, std::sync::Arc::new(dep.clone()));
             let mut dirs = DirSyncResult::default();
             dirs.insert(app_id, app_dir.clone());
             dirs.insert(dep_id, dep_dir.clone());
             let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-            let discovered = discover_packages(&env, &dirs, &user_log)?;
+            let discovered = discover_packages(&module_graph, &dirs, &user_log)?;
             assert!(discovered.get_package_id_by_name("a/b/v2").is_some());
             assert!(capture.take().is_empty());
         }
@@ -699,12 +702,12 @@ mod tests {
         }
         let module = moonutil::manifest::read_module_desc_file_in_dir(dir.path())?;
         let source = ModuleSource::from_local_module(&module, dir.path())?;
-        let (env, id) = ResolvedEnv::only_one_module(source, module);
+        let (module_graph, id) = ModuleDependencyGraph::only_one_module(source, module);
         let mut dirs = DirSyncResult::default();
         dirs.insert(id, dir.path().to_owned());
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-        discover_packages(&env, &dirs, &user_log)?;
+        discover_packages(&module_graph, &dirs, &user_log)?;
 
         let warnings = capture.take();
         assert_eq!(warnings.len(), 1, "{warnings:?}");
@@ -743,12 +746,12 @@ mod tests {
             version: Some(source.version().clone()),
             ..Default::default()
         };
-        let (resolved_env, id) = ResolvedEnv::only_one_module(source, stub);
+        let (module_graph, id) = ModuleDependencyGraph::only_one_module(source, stub);
         let mut dirs = DirSyncResult::default();
         dirs.insert(id, dir.clone());
 
         let discovered =
-            discover_packages(&resolved_env, &dirs, &UserLog::new(log::LevelFilter::Error))
+            discover_packages(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
                 .expect("failed to discover test packages");
 
         let module = discovered.module_info(id);
@@ -800,12 +803,12 @@ mod tests {
             version: Some(source.version().clone()),
             ..Default::default()
         };
-        let (resolved_env, id) = ResolvedEnv::only_one_module(source, stub);
+        let (module_graph, id) = ModuleDependencyGraph::only_one_module(source, stub);
         let mut dirs = DirSyncResult::default();
         dirs.insert(id, dir.clone());
 
         let discovered =
-            discover_packages(&resolved_env, &dirs, &UserLog::new(log::LevelFilter::Error))
+            discover_packages(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
                 .expect("failed to discover test packages");
 
         assert!(discovered.get_package_id_by_name("example/pkg").is_some());

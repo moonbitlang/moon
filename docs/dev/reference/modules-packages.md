@@ -174,7 +174,12 @@ Registry module and package components additionally may not contain `#`, `?`,
 or `%`, because they have URL syntax meaning. These components also reject
 whitespace, control characters, and Unicode directional formatting controls.
 
-## Dependency resolving
+## Module dependency resolution
+
+Module resolution selects concrete module sources and versions and records their
+dependency edges in `ModuleDependencyGraph`. Its working registry access,
+manifest caches, and diagnostics belong to `ModuleResolutionContext`. Package
+imports are resolved separately after package discovery.
 
 Modules are versioned using [SemVer][] (Semantic Versioning),
 with the (common) extension of breaking change happens on the first non-zero version component.
@@ -214,13 +219,17 @@ structured commands capture them with their other logs.
 ## Package discovery
 
 Rupes Recta represents discovered modules and packages as `DiscoveredProject`,
-which contains the resolved module graph, module directories, and the package-level
+which contains the `ModuleDependencyGraph`, module directories, and the package-level
 `DiscoverResult`. Package-selection helpers use this data without needing a
-solved package graph. `DiscoveredProject::resolve` validates imports and adds the
-single package dependency graph to produce `ResolveOutput`, using the coverage
+solved package graph. `DiscoveredProject::resolve` validates imports and adds
+`PackageRelations` to produce `ResolveOutput`, using the coverage
 setting captured during discovery. The project and single-file resolution
 entry points still perform both steps before commands select packages and plan
 builds, preserving dependency-error ordering.
+
+`PackageRelations` contains the import graph between package build targets,
+virtual-package associations, and derived backend support. `PackageGraphBuilder`
+is the temporary working state used to construct those relationships.
 
 The `source` field in `moon.mod.json` specifies where package scanning starts,
 relative to the folder containing `moon.mod.json`.

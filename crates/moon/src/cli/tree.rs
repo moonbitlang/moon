@@ -35,7 +35,7 @@ use moonutil::{
     command_output::CommandOutput,
     manifest::read_module_desc_file_in_dir,
     project::PackageDirs,
-    resolution::{DependencyKind, ModuleId, ModuleName, ModuleSourceKind, ResolvedEnv},
+    resolution::{DependencyKind, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSourceKind},
     user_log::{UserLog, UserLogCapture, UserLogEntry},
 };
 use serde::Serialize;
@@ -141,7 +141,7 @@ fn resolve_selected_package_graph(
         .local_modules()
         .iter()
         .copied()
-        .find(|id| resolve_output.module_rel.module_source(*id).name() == &module_name)
+        .find(|id| resolve_output.module_graph.module_source(*id).name() == &module_name)
         .or_else(|| resolve_output.local_modules().first().copied())
         .context("resolved dependency graph has no root modules")?;
     Ok((resolve_output, selected))
@@ -374,7 +374,7 @@ struct PackageEdgeJSON {
 }
 
 fn render_graph_json(
-    resolved: &ResolvedEnv,
+    resolved: &ModuleDependencyGraph,
     root: ModuleId,
     workspace_members: &HashSet<ModuleId>,
 ) -> TreeGraphJSON {
@@ -464,7 +464,7 @@ fn render_package_graph_json(
     selected_module: ModuleId,
 ) -> PackageGraphJSON {
     let pkg_dirs = &resolve_output.pkg_dirs;
-    let dep_graph = &resolve_output.pkg_rel.dep_graph;
+    let dep_graph = &resolve_output.package_relations.dep_graph;
 
     // Package nodes are deduplicated by PackageId. Build the set from discovered
     // packages so packages with no non-stdlib edges remain visible as isolated nodes.
@@ -608,7 +608,7 @@ fn sorted_package_tree_children(
     source: BuildTarget,
 ) -> Vec<TreeChild<BuildTarget>> {
     let pkg_dirs = &resolve_output.pkg_dirs;
-    let dep_graph = &resolve_output.pkg_rel.dep_graph;
+    let dep_graph = &resolve_output.package_relations.dep_graph;
 
     let mut deps = dep_graph
         .edges_directed(source, petgraph::Direction::Outgoing)
@@ -671,7 +671,7 @@ fn source_json(source: &ModuleSourceKind) -> SourceJSON {
 }
 
 fn render_tree(
-    resolved: &ResolvedEnv,
+    resolved: &ModuleDependencyGraph,
     root: ModuleId,
     workspace_members: Option<&HashSet<ModuleId>>,
     dedupe: bool,
@@ -703,7 +703,7 @@ fn render_tree(
 }
 
 fn sorted_module_tree_children(
-    resolved: &ResolvedEnv,
+    resolved: &ModuleDependencyGraph,
     source: ModuleId,
     workspace_members: Option<&HashSet<ModuleId>>,
 ) -> Vec<TreeChild<ModuleId>> {
@@ -794,7 +794,7 @@ where
 }
 
 fn format_module_label(
-    resolved: &ResolvedEnv,
+    resolved: &ModuleDependencyGraph,
     id: ModuleId,
     workspace_members: Option<&HashSet<ModuleId>>,
 ) -> String {
@@ -850,12 +850,12 @@ mod tests {
         );
     }
 
-    fn shared_subgraph() -> (ResolvedEnv, ModuleId) {
+    fn shared_subgraph() -> (ModuleDependencyGraph, ModuleId) {
         let (roots, root) = ResolvedModule::only_one_module(
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
         let dep_a = env.add_module(
             local_source("alice/a", "0.1.0", "/workspace/a"),
             local_module("alice/a", "0.1.0"),
@@ -888,7 +888,7 @@ mod tests {
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
 
         let dep_a = env.add_module(
             local_source("alice/a", "0.1.0", "/workspace/a"),
@@ -923,7 +923,7 @@ mod tests {
             local_source("username/hello", "0.1.0", "/workspace/hello"),
             local_module("username/hello", "0.1.0"),
         );
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
         let dep_id = env.add_module(
             local_source("just/hello004", "0.1.0", "/workspace/hello/deps/hello004"),
             local_module("just/hello004", "0.1.0"),
@@ -979,7 +979,7 @@ mod tests {
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
         let dep = env.add_module(
             local_source("alice/dep", "0.1.0", "/workspace/dep"),
             local_module("alice/dep", "0.1.0"),
@@ -1033,7 +1033,7 @@ mod tests {
             local_source("alice/liba", "0.1.1", "/workspace/liba"),
             local_module("alice/liba", "0.1.1"),
         ));
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 
         let workspace_members = [app, liba].into_iter().collect();
@@ -1051,7 +1051,7 @@ mod tests {
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
 
         let dep_a = env.add_module(
             local_source("alice/a", "0.1.0", "/workspace/a"),
@@ -1142,7 +1142,7 @@ mod tests {
             local_source("username/hello", "0.1.0", "/workspace/hello"),
             local_module("username/hello", "0.1.0"),
         );
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
         let dep_id = env.add_module(
             local_source("just/hello004", "0.1.0", "/workspace/hello/deps/hello004"),
             local_module("just/hello004", "0.1.0"),
@@ -1196,7 +1196,7 @@ mod tests {
             local_source("alice/liba", "0.1.1", "/workspace/liba"),
             local_module("alice/liba", "0.1.1"),
         ));
-        let mut env = ResolvedEnv::from_root_modules(roots);
+        let mut env = ModuleDependencyGraph::from_root_modules(roots);
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 
         let workspace_members = [app, liba].into_iter().collect();

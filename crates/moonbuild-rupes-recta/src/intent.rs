@@ -304,7 +304,7 @@ fn realizable_supported_backends(
     target: BuildTarget,
 ) -> &indexmap::IndexSet<TargetBackend> {
     resolved
-        .pkg_rel
+        .package_relations
         .realizable_supported_targets
         .get(&target)
         // Targets without edges are absent from the graph; in that case their

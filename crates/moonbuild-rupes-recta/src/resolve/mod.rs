@@ -43,7 +43,7 @@ use moonutil::{
     manifest::MoonMod,
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
     project::{PackageDirs, WorkspaceEnv},
-    resolution::{DirSyncResult, ModuleId, ResolvedEnv},
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleId},
     target::TargetBackend,
     user_log::UserLog,
 };
@@ -55,17 +55,17 @@ use crate::discover::special_case::inject_core_coverage_into_builtin;
 use crate::special_cases::CORE_MODULE_TUPLE;
 use crate::{
     discover::{DiscoverError, DiscoverResult, SingleFileSourceKind, discover_packages},
-    pkg_solve::{self, DepRelationship},
+    pkg_solve::{self, PackageRelations},
 };
 
 /// A project's modules and packages before solving package dependencies.
 #[derive(Debug, Clone)]
 pub struct DiscoveredProject {
-    /// Module dependency relationship
-    pub module_rel: ResolvedEnv,
+    /// Selected modules and their dependency edges.
+    pub module_graph: ModuleDependencyGraph,
     /// Module directories
     pub module_dirs: DirSyncResult,
-    /// Package directories
+    /// Package declarations and file sets.
     pub pkg_dirs: DiscoverResult,
     /// Keep graph injection consistent with coverage sources added during discovery.
     pub(crate) enable_coverage: bool,
@@ -75,8 +75,8 @@ pub struct DiscoveredProject {
 #[derive(Debug, Clone)]
 pub struct ResolveOutput {
     pub discovered: DiscoveredProject,
-    /// Package dependency relationship
-    pub pkg_rel: DepRelationship,
+    /// Package imports, virtual-package associations, and backend support.
+    pub package_relations: PackageRelations,
 }
 
 /// A resolved project provides read-only access to its modules and packages.
@@ -92,8 +92,8 @@ impl DiscoveredProject {
     /// Solve package dependencies, returning a resolved project only if the graph is valid.
     #[instrument(skip_all)]
     pub fn resolve(self, user_log: &UserLog) -> Result<ResolveOutput, ResolveError> {
-        let pkg_rel = pkg_solve::solve(
-            &self.module_rel,
+        let package_relations = pkg_solve::solve(
+            &self.module_graph,
             &self.pkg_dirs,
             self.enable_coverage,
             user_log,
@@ -102,7 +102,7 @@ impl DiscoveredProject {
 
         Ok(ResolveOutput {
             discovered: self,
-            pkg_rel,
+            package_relations,
         })
     }
 
@@ -111,7 +111,7 @@ impl DiscoveredProject {
     /// This is a role in the current resolution graph, not a check of
     /// `ModuleSourceKind::Local`.
     pub fn local_modules(&self) -> &[ModuleId] {
-        self.module_rel.input_module_ids()
+        self.module_graph.input_module_ids()
     }
 
     pub fn module_info(&self, id: ModuleId) -> &MoonMod {
@@ -356,14 +356,14 @@ pub fn sync_dependencies(
     cfg: &ResolveConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> Result<(ResolvedEnv, DirSyncResult), ResolveError> {
+) -> Result<(ModuleDependencyGraph, DirSyncResult), ResolveError> {
     info!(
         "Starting dependency sync for source directory: {}",
         dirs.source_dir.display()
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (resolved_env, dir_sync_result, _) = auto_sync(
+    let (module_graph, dir_sync_result, _) = auto_sync(
         dirs,
         &cfg.sync_flags,
         cfg.sync_output,
@@ -374,16 +374,16 @@ pub fn sync_dependencies(
     )
     .map_err(ResolveError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
-    debug!("Resolved {} modules", resolved_env.module_count());
+    debug!("Resolved {} modules", module_graph.module_count());
 
-    Ok((resolved_env, dir_sync_result))
+    Ok((module_graph, dir_sync_result))
 }
 
 /// Resolves packages and package relationships from already synced dependencies.
 #[instrument(skip_all)]
 pub fn resolve_synced_project(
     cfg: &ResolveConfig,
-    synced_dependencies: (ResolvedEnv, DirSyncResult),
+    synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     user_log: &UserLog,
 ) -> Result<ResolveOutput, ResolveError> {
     let resolved =
@@ -392,7 +392,7 @@ pub fn resolve_synced_project(
     info!("Package dependency resolution completed successfully");
     debug!(
         "Package dependency graph has {} nodes",
-        resolved.pkg_rel.dep_graph.node_count()
+        resolved.package_relations.dep_graph.node_count()
     );
     Ok(resolved)
 }
@@ -401,19 +401,19 @@ pub fn resolve_synced_project(
 #[instrument(skip_all)]
 pub fn discover_synced_project(
     cfg: &ResolveConfig,
-    synced_dependencies: (ResolvedEnv, DirSyncResult),
+    synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     user_log: &UserLog,
 ) -> Result<DiscoveredProject, ResolveError> {
-    let (resolved_env, dir_sync_result) = synced_dependencies;
+    let (module_graph, dir_sync_result) = synced_dependencies;
 
-    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
+    let mut discover_result = discover_packages(&module_graph, &dir_sync_result, user_log)?;
     let main_is_core = {
-        let ids = resolved_env.input_module_ids();
-        ids.len() == 1 && *resolved_env.module_source(ids[0]).name() == CORE_MODULE_TUPLE
+        let ids = module_graph.input_module_ids();
+        ids.len() == 1 && *module_graph.module_source(ids[0]).name() == CORE_MODULE_TUPLE
     };
     if cfg.enable_coverage && main_is_core {
         // Gate coverage bundling (coverage -> builtin) behind both flag and main-module check
-        inject_core_coverage_into_builtin(&resolved_env, &mut discover_result);
+        inject_core_coverage_into_builtin(&module_graph, &mut discover_result);
     }
 
     info!(
@@ -422,7 +422,7 @@ pub fn discover_synced_project(
     );
 
     Ok(DiscoveredProject {
-        module_rel: resolved_env,
+        module_graph,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         enable_coverage: cfg.enable_coverage,
@@ -503,7 +503,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         );
     }
 
-    let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
+    let (module_graph, dir_sync_result) = auto_sync_for_single_file_rr(
         dirs,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
@@ -513,19 +513,19 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     )
     .map_err(ResolveError::SyncModulesError)?;
     // Discover all packages in resolved modules
-    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
+    let mut discover_result = discover_packages(&module_graph, &dir_sync_result, user_log)?;
     // Synthesize the single-file package that imports everything from discovered modules
     crate::discover::synth::build_synth_single_file_package(
         source_file,
         source_kind,
-        &resolved_env,
+        &module_graph,
         &mut discover_result,
         run_mode,
         front_matter_config.package_imports,
     )?;
 
     let discovered = DiscoveredProject {
-        module_rel: resolved_env,
+        module_graph,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         enable_coverage: cfg.enable_coverage,

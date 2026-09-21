@@ -18,7 +18,7 @@
 
 use moonutil::{
     compiler_flags::{CompilerPaths, NativeAllocator},
-    resolution::{ModuleId, ResolvedEnv},
+    resolution::{ModuleDependencyGraph, ModuleId},
     target::TargetBackend,
 };
 
@@ -394,7 +394,7 @@ impl BuildPlanNode {
     /// one qualifier.
     pub(crate) fn human_desc(
         &self,
-        env: &ResolvedEnv,
+        env: &ModuleDependencyGraph,
         packages: &DiscoverResult,
         backend: &str,
     ) -> String {
@@ -498,7 +498,7 @@ impl BuildPlanNode {
 
     /// Return a concise, human-readable identifier resolving PackageId/ModuleId to names.
     /// Single-line and stable; suitable for filenames/labels (e.g. n2 fileloc).
-    pub fn string_id(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    pub fn string_id(&self, env: &ModuleDependencyGraph, packages: &DiscoverResult) -> String {
         match self {
             BuildPlanNode::Check(t) => {
                 let fqn = packages.fqn(t.package);

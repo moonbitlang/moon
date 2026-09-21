@@ -18,7 +18,7 @@
 
 use crate::{
     dependency_source, registry,
-    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
+    resolver::{ResolveConfig, resolve_modules},
 };
 
 use super::sync::SyncOutputOptions;
@@ -29,7 +29,7 @@ use moonutil::{
     constants::MOONBITLANG_CORE,
     project::PackageDirs,
     resolution::{
-        DependencyKind, DirSyncResult, ModuleSourceKind, ResolvedEnv, ResolvedRootModules,
+        DependencyKind, DirSyncResult, ModuleDependencyGraph, ModuleSourceKind, ResolvedRootModules,
     },
     user_log::UserLog,
 };
@@ -109,7 +109,7 @@ pub(crate) fn install_impl(
     dont_sync: bool,
     no_std: bool,
     source_cache: &CacheRoot,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     for (_, module) in roots.iter() {
         let module = module.module_info();
         if module
@@ -137,7 +137,7 @@ pub(crate) fn install_impl(
         inject_std: !includes_core && !no_std,
     };
 
-    let res = resolve_with_default_env_and_resolver(&resolve_config, roots, user_log)?;
+    let res = resolve_modules(&resolve_config, roots, user_log)?;
     let dependency_user_log = if output_options.quiet {
         user_log.with_level(log::LevelFilter::Error)
     } else {
@@ -167,7 +167,7 @@ pub(crate) fn install_impl(
 
 fn install_bin_deps(
     child: &ManagedChildRunner,
-    res: &ResolvedEnv,
+    res: &ModuleDependencyGraph,
     dependency_paths: &DirSyncResult,
     target_dir: &Path,
     mooncake_bin_dir: &Path,

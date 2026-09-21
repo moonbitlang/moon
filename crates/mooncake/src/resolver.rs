@@ -22,7 +22,8 @@ use std::sync::Arc;
 use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::resolution::{
-    ModuleId, ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv, ResolvedRootModules,
+    ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
+    ResolvedRootModules,
 };
 use moonutil::toolchain;
 use moonutil::user_log::UserLog;
@@ -31,12 +32,12 @@ use thiserror::Error;
 
 use crate::registry::Registry;
 
-pub(crate) mod env;
+pub(crate) mod context;
 pub(crate) mod mvs;
 
 pub(crate) use mvs::MvsSolver;
 
-use self::env::ResolverEnv;
+use self::context::ModuleResolutionContext;
 
 /// Any error that may occur during dependency resolution.
 #[derive(Debug, Error)]
@@ -86,26 +87,31 @@ pub(crate) struct VersionConflict {
 #[error("{}", format_resolver_errors(.0))]
 pub(crate) struct ResolverErrors(pub(crate) Vec<ResolverError>);
 
-/// The dependency resolver.
+/// The module dependency resolver.
 pub(crate) trait Resolver {
-    /// Resolves the dependencies of a package using the given environment. The
-    /// function should write its results on `res`, which may be initialized
-    /// with other existing data earlier.
+    /// Select module sources and versions, extending `module_graph` from its
+    /// existing root modules with their dependencies.
     ///
     /// If the dependencies cannot be resolved, this function should return
-    /// `false`. The errors should be emitted in `env`.
-    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
-    -> bool;
+    /// `false`. The errors should be emitted in `context`.
+    fn resolve(
+        &mut self,
+        context: &mut ModuleResolutionContext,
+        module_graph: &mut ModuleDependencyGraph,
+        user_log: &UserLog,
+    ) -> bool;
 }
 
-/// Goes through the resolved environment and checks for any duplicate module names.
+/// Check the module dependency graph for duplicate module names.
 ///
 /// Since the build system is not yet able to handle multiple versions of the same module,
 /// this function will return an error if any duplicate module names with different versions
 /// (implying incompatible versions of the same module are resolved) are found.
-fn assert_no_duplicate_module_names(result: &ResolvedEnv) -> Result<(), ResolverErrors> {
+fn assert_no_duplicate_module_names(
+    module_graph: &ModuleDependencyGraph,
+) -> Result<(), ResolverErrors> {
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
-    for (id, it) in result.all_modules_and_id() {
+    for (id, it) in module_graph.all_modules_and_id() {
         module_name_versions
             .entry(it.name().clone())
             .or_default()
@@ -116,7 +122,7 @@ fn assert_no_duplicate_module_names(result: &ResolvedEnv) -> Result<(), Resolver
         if versions.len() > 1 {
             let err = ResolverError::ConflictingVersions {
                 module: name.clone(),
-                conflicts: collect_version_conflicts(&versions, result),
+                conflicts: collect_version_conflicts(&versions, module_graph),
             };
             errs.push(err);
         }
@@ -130,7 +136,7 @@ fn assert_no_duplicate_module_names(result: &ResolvedEnv) -> Result<(), Resolver
 
 fn collect_version_conflicts(
     versions: &[(ModuleId, ModuleSource)],
-    result: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
 ) -> Vec<VersionConflict> {
     let mut versions = versions.to_vec();
     versions.sort_by(|a, b| {
@@ -143,16 +149,19 @@ fn collect_version_conflicts(
         .into_iter()
         .map(|(id, source)| VersionConflict {
             selected: source,
-            chain: describe_dependency_chain(result, id),
+            chain: describe_dependency_chain(module_graph, id),
         })
         .collect()
 }
 
-fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<Vec<ModuleSource>> {
+fn describe_dependency_chain(
+    module_graph: &ModuleDependencyGraph,
+    target: ModuleId,
+) -> Option<Vec<ModuleSource>> {
     let mut queue = VecDeque::new();
     let mut prev = HashMap::<ModuleId, ModuleId>::new();
 
-    for &root in result.input_module_ids() {
+    for &root in module_graph.input_module_ids() {
         queue.push_back(root);
         prev.insert(root, root);
     }
@@ -162,7 +171,7 @@ fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<V
             break;
         }
 
-        for dep in result.deps(current) {
+        for dep in module_graph.deps(current) {
             if prev.contains_key(&dep) {
                 continue;
             }
@@ -188,7 +197,7 @@ fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<V
 
     Some(
         path.into_iter()
-            .map(|id| result.module_source(id).clone())
+            .map(|id| module_graph.module_source(id).clone())
             .collect(),
     )
 }
@@ -239,41 +248,45 @@ pub(crate) struct ResolveConfig<'a> {
     pub(crate) inject_std: bool,
 }
 
-pub(crate) fn resolve_with_default_env(
+pub(crate) fn resolve_modules_with_solver(
     config: &ResolveConfig,
     resolver: &mut dyn Resolver,
     root: ResolvedRootModules,
     user_log: &UserLog,
-) -> Result<ResolvedEnv, ResolverErrors> {
-    let mut env = env::ResolverEnv::new(config.registry);
-    let mut res = ResolvedEnv::from_root_modules(root);
+) -> Result<ModuleDependencyGraph, ResolverErrors> {
+    let mut context = ModuleResolutionContext::new(config.registry);
+    let mut module_graph = ModuleDependencyGraph::from_root_modules(root);
 
     if config.inject_std {
-        inject_std(&mut res)
+        inject_std(&mut module_graph)
             .map_err(|e| ResolverErrors(vec![ResolverError::CannotInjectCore(e)]))?;
     }
 
-    let status = resolver.resolve(&mut env, &mut res, user_log);
-    if env.any_errors() {
-        Err(ResolverErrors(env.into_errors()))
+    let status = resolver.resolve(&mut context, &mut module_graph, user_log);
+    if context.any_errors() {
+        Err(ResolverErrors(context.into_errors()))
     } else {
         if !status {
             panic!("The resolver should not return `false` when no errors are found");
         }
-        assert_no_duplicate_module_names(&res)?;
-        warn_deprecated_dependencies(&res, config.registry, user_log);
-        Ok(res)
+        assert_no_duplicate_module_names(&module_graph)?;
+        warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+        Ok(module_graph)
     }
 }
 
-fn warn_deprecated_dependencies(result: &ResolvedEnv, registry: &dyn Registry, user_log: &UserLog) {
+fn warn_deprecated_dependencies(
+    module_graph: &ModuleDependencyGraph,
+    registry: &dyn Registry,
+    user_log: &UserLog,
+) {
     if !user_log.is_enabled(log::Level::Warn) {
         return;
     }
 
     // Only inspect the final graph: MVS can visit versions and dependencies that
     // it later discards. Each selected module appears once, even in a diamond.
-    let mut modules = result.all_modules_and_id().collect::<Vec<_>>();
+    let mut modules = module_graph.all_modules_and_id().collect::<Vec<_>>();
     modules.sort_unstable_by(|(_, a), (_, b)| a.name().cmp(b.name()));
     for (id, source) in modules {
         if !matches!(source.source(), ModuleSourceKind::Registry) {
@@ -298,7 +311,7 @@ fn warn_deprecated_dependencies(result: &ResolvedEnv, registry: &dyn Registry, u
         } else {
             format!("Dependency `{source}` is deprecated: {reason}")
         };
-        if let Some(chain) = describe_dependency_chain(result, id)
+        if let Some(chain) = describe_dependency_chain(module_graph, id)
             && chain.len() > 2
         {
             let path = chain
@@ -314,22 +327,22 @@ fn warn_deprecated_dependencies(result: &ResolvedEnv, registry: &dyn Registry, u
 
 /// Inject the definition of `moonbitlang/core` in the installation directory
 /// to the resolve graph, and mark it as the standard library.
-fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
+fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
     let core_dir = toolchain::core();
     let loaded_core =
         read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
     let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)?;
-    let id = res.add_module(source, Arc::new(loaded_core));
-    res.register_stdlib(id);
+    let id = module_graph.add_module(source, Arc::new(loaded_core));
+    module_graph.register_stdlib(id);
 
     Ok(())
 }
 
-pub(crate) fn resolve_with_default_env_and_resolver(
+pub(crate) fn resolve_modules(
     config: &ResolveConfig,
     root: ResolvedRootModules,
     user_log: &UserLog,
-) -> Result<ResolvedEnv, ResolverErrors> {
+) -> Result<ModuleDependencyGraph, ResolverErrors> {
     let mut resolver = MvsSolver;
-    resolve_with_default_env(config, &mut resolver, root, user_log)
+    resolve_modules_with_solver(config, &mut resolver, root, user_log)
 }

@@ -23,18 +23,18 @@ use std::sync::Arc;
 use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::project::ProjectManifest;
-use moonutil::resolution::{ModuleId, ModuleName, ResolvedEnv};
+use moonutil::resolution::{ModuleDependencyGraph, ModuleId, ModuleName};
 use moonutil::user_log::UserLog;
 
 use crate::pkg::roots_for_selected_module;
 use crate::registry;
-use crate::resolver::{ResolveConfig, resolve_with_default_env_and_resolver};
+use crate::resolver::{ResolveConfig, resolve_modules};
 
 /// The resolved dependency graph of the selected module, together with the
 /// module the tree is rooted at.
 #[derive(Debug)]
 pub struct ResolvedTree {
-    pub env: ResolvedEnv,
+    pub env: ModuleDependencyGraph,
     pub root: ModuleId,
     pub workspace_members: HashSet<ModuleId>,
 }
@@ -51,7 +51,7 @@ pub fn tree(
         registry: &registry,
         inject_std: false,
     };
-    let resolved = resolve_with_default_env_and_resolver(&resolve_cfg, roots, user_log)?;
+    let resolved = resolve_modules(&resolve_cfg, roots, user_log)?;
 
     let module_name: ModuleName = module.name.as_str().into();
     let selected_root = resolved

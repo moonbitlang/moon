@@ -58,7 +58,7 @@ pub fn gen_metadata_json(
 ) -> ModuleDBJSON {
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
-            let main_module = ctx.module_rel.module_source(main_module_id);
+            let main_module = ctx.module_graph.module_source(main_module_id);
             let main_module_json = ctx.module_info(main_module_id);
             (
                 main_module.name().to_string(),
@@ -164,7 +164,7 @@ fn gen_package_json(
 
     // Dependencies collection
     let mut deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+        .package_relations
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::Source))
         .filter(|(_, _, edge)| edge.kind == TargetKind::Source)
@@ -173,7 +173,7 @@ fn gen_package_json(
     deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
     let mut wbtest_deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+        .package_relations
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::WhiteboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::WhiteboxTest)
@@ -182,7 +182,7 @@ fn gen_package_json(
     wbtest_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
     let mut test_deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+        .package_relations
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::BlackboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::BlackboxTest)
@@ -258,8 +258,8 @@ fn metadata_mi_path(
     target: BuildTarget,
     backend: TargetBackend,
 ) -> PathBuf {
-    let is_implementing_virtual =
-        target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package);
+    let is_implementing_virtual = target.kind == TargetKind::Source
+        && ctx.package_relations.virt_impl.contains_key(target.package);
     artifact_paths
         .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, backend, is_implementing_virtual)
         .into_path()

@@ -579,7 +579,7 @@ fn prepare_native_build(
         .copied()
         .find(|&module_id| {
             matches!(
-                resolve_output.module_rel.module_source(module_id).source(),
+                resolve_output.module_graph.module_source(module_id).source(),
                 ModuleSourceKind::Local(path) if path == &module_dir
             )
         })

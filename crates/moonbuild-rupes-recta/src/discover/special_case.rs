@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::special_cases::CORE_MODULE_TUPLE;
-use moonutil::resolution::ResolvedEnv;
+use moonutil::resolution::ModuleDependencyGraph;
 use tracing::{info, instrument, warn};
 
 use crate::{discover::DiscoverResult, pkg_name::PackagePath};
@@ -29,7 +29,7 @@ use crate::{discover::DiscoverResult, pkg_name::PackagePath};
 /// downstream compilation/linking sees coverage alongside builtin without
 /// additional per-target import wiring.
 #[instrument(skip_all)]
-pub fn inject_core_coverage_into_builtin(env: &ResolvedEnv, res: &mut DiscoverResult) {
+pub fn inject_core_coverage_into_builtin(env: &ModuleDependencyGraph, res: &mut DiscoverResult) {
     // Only proceed if we have a stdlib module locally
     let Some(&stdlib) = env
         .input_module_ids()

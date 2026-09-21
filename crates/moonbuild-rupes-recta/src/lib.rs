@@ -30,7 +30,7 @@
       [`DiscoveredProject`] for inspecting modules and packages; solving
       their imports produces [`ResolveOutput`] for compilation.
 
-    - [`compile`] takes in the resolved environment and produces an
+    - [`compile`] takes in the project and its package relations and produces an
       [`execution_plan::ExecutionPlan`]. This part converts the intent of the
       user into concrete actions and declared outputs.
 

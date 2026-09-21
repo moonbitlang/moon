@@ -30,7 +30,7 @@ use crate::{
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::{
         DepEdge,
-        model::{DepRelationship, ImportLoop, SolveError},
+        model::{ImportLoop, PackageRelations, SolveError},
     },
 };
 use moonutil::user_log::UserLog;
@@ -43,7 +43,7 @@ use super::model::MultipleError;
 /// - No loops (except test imports, which don't currently have a workaround)
 /// - Named aliases are unique within one package
 pub(super) fn verify(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     user_log: &UserLog,
 ) -> Result<(), SolveError> {
@@ -75,7 +75,7 @@ pub(super) fn verify(
 ///
 /// `verify` must run first so the graph is guaranteed to have no import loops.
 pub(super) fn compute_realizable_supported_targets(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
 ) -> HashMap<BuildTarget, IndexSet<TargetBackend>> {
     let graph = &dep.dep_graph;
@@ -108,7 +108,7 @@ pub(super) fn compute_realizable_supported_targets(
 
 /// Verify there's no loops within the dependency graph. If there's any import
 /// loop, return an error.
-fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<(), SolveError> {
+fn verify_no_loop(packages: &DiscoverResult, dep: &PackageRelations) -> Result<(), SolveError> {
     // An indexed current-visiting path, for finding loops
     let mut path = IndexSet::new();
     // Work stack.
@@ -188,7 +188,7 @@ impl WorkStackItem {
 
 /// Verify that there's no duplicated named alias for each build node within the graph.
 fn verify_no_duplicated_alias(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     errs: &mut Vec<SolveError>,
 ) {
@@ -232,7 +232,7 @@ fn verify_no_duplicated_alias(
 
 /// Verify no forbidden internal imports between package pairs.
 fn verify_no_forbidden_internal_imports(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     errs: &mut Vec<SolveError>,
 ) {
@@ -270,7 +270,7 @@ fn verify_no_forbidden_internal_imports(
 }
 
 fn warn_main_package_dependencies(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     user_log: &UserLog,
 ) {

@@ -33,7 +33,7 @@ use moonutil::{
 use crate::{
     pkg::roots_for_selected_module,
     registry,
-    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
+    resolver::{ResolveConfig, resolve_modules},
 };
 
 /// Remove a dependency
@@ -64,7 +64,7 @@ pub fn remove(
         registry: &registry,
         inject_std: false, // no need to inject
     };
-    resolve_with_default_env_and_resolver(&resolve_cfg, roots, user_log)?;
+    resolve_modules(&resolve_cfg, roots, user_log)?;
 
     if module_dir.join(MOON_MOD).exists() {
         patch_module_dsl_to_file(

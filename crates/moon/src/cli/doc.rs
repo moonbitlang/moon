@@ -201,7 +201,7 @@ pub(crate) fn run_doc_rr(
         }
         let full_name = build_meta
             .resolve_output
-            .module_rel
+            .module_graph
             .module_source(module_id)
             .name()
             .to_string();

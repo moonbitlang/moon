@@ -27,7 +27,7 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{DiscoveredProject, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::resolution::{DirSyncResult, ResolvedEnv};
+use moonutil::resolution::{DirSyncResult, ModuleDependencyGraph};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
     target::TargetBackend,
@@ -195,7 +195,7 @@ pub(crate) fn filter_pkg_by_dir(
         .ok_or_else(|| {
             report_package_not_found(
                 dir,
-                &discovered.module_rel,
+                &discovered.module_graph,
                 &discovered.module_dirs,
                 discovered.local_modules(),
             )
@@ -206,7 +206,7 @@ pub(crate) fn filter_pkg_by_dir(
 /// no package could be found.
 pub(crate) fn report_package_not_found(
     input_path: &Path,
-    module_graph: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     module_dirs: &DirSyncResult,
     main_modules: &[moonutil::resolution::ModuleId],
 ) -> anyhow::Error {

@@ -116,7 +116,9 @@ mod tests {
         cond_expr::OptLevel,
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
+        resolution::{
+            DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleName, ModuleSource,
+        },
         target::TargetBackend,
         toolchain::BINARIES,
     };
@@ -132,7 +134,7 @@ mod tests {
             NativeTarget, OperatingSystem, TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
-        pkg_solve::DepRelationship,
+        pkg_solve::PackageRelations,
         resolve::ResolveOutput,
         target_layout::{ArtifactPathResolver, ExecutableArtifact, TargetLayout, TargetLayoutMode},
     };
@@ -307,7 +309,7 @@ mod tests {
     ) -> (ResolveOutput, BuildTarget) {
         let module_source = module("username/hello");
         let (modules, module_id) =
-            ResolvedEnv::only_one_module(module_source.clone(), module_info.clone());
+            ModuleDependencyGraph::only_one_module(module_source.clone(), module_info.clone());
         let package_path = PackagePath::new("main").expect("test package path should parse");
         let supported_targets = supported_targets();
         let package = DiscoveredPackage {
@@ -339,12 +341,12 @@ mod tests {
         (
             ResolveOutput {
                 discovered: crate::resolve::DiscoveredProject {
-                    module_rel: modules,
+                    module_graph: modules,
                     module_dirs,
                     pkg_dirs: packages,
                     enable_coverage: false,
                 },
-                pkg_rel: DepRelationship::default(),
+                package_relations: PackageRelations::default(),
             },
             package_id.build_target(TargetKind::Source),
         )

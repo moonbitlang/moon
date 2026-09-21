@@ -276,15 +276,15 @@ pub(crate) fn prepare_resolved_build(
     // A couple of debug things:
     if cli.unstable_feature.rr_export_module_graph {
         info!("Exporting module graph DOT file");
-        moonbuild_rupes_recta::util::print_resolved_env_dot(
-            &resolve_output.module_rel,
+        moonbuild_rupes_recta::util::print_module_graph_dot(
+            &resolve_output.module_graph,
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
     if cli.unstable_feature.rr_export_package_graph {
         info!("Exporting package graph DOT file");
-        moonbuild_rupes_recta::util::print_dep_relationship_dot(
-            &resolve_output.pkg_rel,
+        moonbuild_rupes_recta::util::print_package_relations_dot(
+            &resolve_output.package_relations,
             &resolve_output.pkg_dirs,
             &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
         )?;
@@ -435,7 +435,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let run_prebuild = cx.action != RunMode::Check
         && cx.backend.target_backend().is_native()
         && resolve_output
-            .module_rel
+            .module_graph
             .all_modules_and_id()
             .any(|(m, _)| {
                 resolve_output
@@ -481,7 +481,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         info!("Exporting build plan DOT file");
         moonbuild_rupes_recta::util::print_build_plan_dot(
             &plan,
-            &resolve_output.module_rel,
+            &resolve_output.module_graph,
             &resolve_output.pkg_dirs,
             &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
         )?;

@@ -32,16 +32,17 @@ use crate::registry::{Registry, RegistryVersionInfo};
 
 use super::ResolverError;
 
-pub(crate) struct ResolverEnv<'a> {
+/// Registry access, manifest caches, and diagnostics for module resolution.
+pub(crate) struct ModuleResolutionContext<'a> {
     registry: &'a dyn Registry,
     errors: Vec<super::ResolverError>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
     stdlib: Option<Arc<MoonMod>>,
 }
 
-impl<'a> ResolverEnv<'a> {
+impl<'a> ModuleResolutionContext<'a> {
     pub(crate) fn new(registry: &'a dyn Registry) -> Self {
-        ResolverEnv {
+        ModuleResolutionContext {
             registry,
             errors: Vec::new(),
             local_module_cache: HashMap::new(),
