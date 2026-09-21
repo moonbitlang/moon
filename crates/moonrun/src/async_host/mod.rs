@@ -390,18 +390,6 @@ impl HandleTable {
         self.keys.borrow_mut().insert(kind)
     }
 
-    fn job(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::Job)
-    }
-
-    fn remove_job_key(&mut self, key: HandleKey) {
-        let removed = self.keys.borrow_mut().remove(key);
-        debug_assert!(
-            matches!(removed, Some(HandleKind::Job)),
-            "validated Job Handle must remain reserved until removal"
-        );
-    }
-
     fn poll(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
         self.key(handle, HandleKind::Poll)
     }
@@ -479,20 +467,18 @@ enum HostJobState {
 }
 
 struct JobTable {
-    jobs: SecondaryMap<HandleKey, HostJobState>,
-}
-
-impl Default for JobTable {
-    fn default() -> Self {
-        Self {
-            jobs: SecondaryMap::new(),
-        }
-    }
+    jobs: Handles<HostJobState>,
 }
 
 impl JobTable {
-    fn insert_job(&mut self, key: HandleKey, job: Job) {
-        self.jobs.insert(key, HostJobState::Ready(job));
+    fn new(keys: Rc<RefCell<HostKeys>>) -> Self {
+        Self {
+            jobs: Handles::new(keys, HandleKind::Job),
+        }
+    }
+
+    fn insert_job(&mut self, job: Job) -> HandleKey {
+        self.jobs.insert(HostJobState::Ready(job))
     }
 
     fn visible_job(&self, key: HandleKey) -> AsyncHostResult<&Job> {
@@ -1162,7 +1148,7 @@ impl AsyncHost {
             child_signal_mask,
             #[cfg(windows)]
             io_results: RefCell::new(IoResultTable::default()),
-            jobs: RefCell::new(JobTable::default()),
+            jobs: RefCell::new(JobTable::new(keys.clone())),
             workers: InstanceWorkers::new(),
             polls: RefCell::new(PollTable::default()),
             thread_pool_registration: RefCell::new(None),
@@ -2168,8 +2154,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn insert_job(&self, job: impl Into<Job>) -> AsyncHostResult<u64> {
-        let key = self.handles.borrow_mut().insert(HandleKind::Job);
-        self.jobs.borrow_mut().insert_job(key, job.into());
+        let key = self.jobs.borrow_mut().insert_job(job.into());
         Ok(handle_from_key(key))
     }
 
@@ -2179,7 +2164,7 @@ impl AsyncHost {
     /// read without polling or fetching the default completion source.
     pub(crate) fn with_job<T>(&self, handle: u64, f: impl FnOnce(&Job) -> T) -> AsyncHostResult<T> {
         self.restore_completed_worker_jobs();
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         Ok(f(jobs.visible_job(key)?))
     }
@@ -2190,17 +2175,16 @@ impl AsyncHost {
         f: impl FnOnce(&mut Job) -> T,
     ) -> AsyncHostResult<T> {
         self.restore_completed_worker_jobs();
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let mut jobs = self.jobs.borrow_mut();
         Ok(f(jobs.visible_job_mut(key)?))
     }
 
     pub(crate) fn free_job(&self, handle: u64) -> AsyncHostResult<()> {
-        let mut handles = self.handles.borrow_mut();
-        let key = handles.job(handle)?;
-        let job = self.jobs.borrow_mut().take_for_free(key)?;
-        handles.remove_job_key(key);
-        drop(handles);
+        let job = self
+            .jobs
+            .borrow_mut()
+            .take_for_free(key_from_handle(handle))?;
         let Some(mut job) = job else {
             return Ok(());
         };
@@ -2219,33 +2203,33 @@ impl AsyncHost {
     }
 
     pub(crate) fn open_job_get_fd(&self, handle: u64) -> AsyncHostResult<HostHandle> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         self.publish_open_job_result(key)
     }
 
     pub(crate) fn open_job_get_kind(&self, handle: u64) -> AsyncHostResult<i32> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         job.filesystem()?.open_result()?.file_kind()
     }
 
     pub(crate) fn open_job_get_dev_id(&self, handle: u64) -> AsyncHostResult<u64> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         job.filesystem()?.open_result()?.device_id()
     }
 
     pub(crate) fn open_job_get_file_id(&self, handle: u64) -> AsyncHostResult<u64> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         job.filesystem()?.open_result()?.file_id()
     }
 
     pub(crate) fn get_file_size_result(&self, handle: u64) -> AsyncHostResult<i64> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         job.filesystem()?.file_size_result()
@@ -2253,7 +2237,7 @@ impl AsyncHost {
 
     pub(crate) fn get_getaddrinfo_result(&self, handle: u64) -> AsyncHostResult<u64> {
         let addrs = {
-            let key = self.handles.borrow().job(handle)?;
+            let key = key_from_handle(handle);
             let jobs = self.jobs.borrow();
             let job = jobs.visible_job(key)?;
             let JobPayload::Network(job) = job.payload() else {
@@ -2271,7 +2255,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn get_spawn_job_result_handle(&self, handle: u64) -> AsyncHostResult<HostHandle> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let mut jobs = self.jobs.borrow_mut();
         let job = jobs.visible_job_mut(key)?;
         let Some(result) = job.process_mut()?.take_spawn_result()? else {
@@ -2297,7 +2281,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn spawn_job_set_cwd(&self, handle: u64, cwd: OsString) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let mut jobs = self.jobs.borrow_mut();
         let job = jobs.ready_job_mut(key)?;
         job.process_mut()?.set_cwd(cwd)
@@ -2305,7 +2289,7 @@ impl AsyncHost {
 
     #[cfg(windows)]
     pub(crate) fn spawn_job_set_no_console_window(&self, handle: u64) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let mut jobs = self.jobs.borrow_mut();
         let job = jobs.ready_job_mut(key)?;
         job.process_mut()?.set_no_console_window()
@@ -3507,7 +3491,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn run_job(&self, handle: u64) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let mut job = self.jobs.borrow_mut().take_ready_job(key)?;
         Self::run_policy_checked_job(&self.filesystem, &self.process, &mut job);
         self.restore_job(key, job)
@@ -3569,7 +3553,7 @@ impl AsyncHost {
 
     pub(crate) fn spawn_worker(&self, completion_id: i32, job_handle: u64) -> AsyncHostResult<u64> {
         let completion_id = WorkerCompletionId::from_abi(completion_id);
-        let job_key = self.handles.borrow().job(job_handle)?;
+        let job_key = key_from_handle(job_handle);
         #[cfg(unix)]
         let completion_notifier = self.thread_pool_notifier()?;
         #[cfg(windows)]
@@ -3589,7 +3573,7 @@ impl AsyncHost {
         job_handle: u64,
         writer_handle: u64,
     ) -> AsyncHostResult<u64> {
-        let job_key = self.handles.borrow().job(job_handle)?;
+        let job_key = key_from_handle(job_handle);
         // Validate and acquire the writer before consuming the one-shot Job.
         let notifier = crate::async_sys::internal::event_loop::PipeCompletionNotifier::new(
             self.acquire_resource(writer_handle)?,
@@ -3606,10 +3590,8 @@ impl AsyncHost {
         job_handle: u64,
     ) -> AsyncHostResult<()> {
         let completion_id = WorkerCompletionId::from_abi(completion_id);
-        let (worker_key, job_key) = {
-            let handles = self.handles.borrow();
-            (handles.worker(worker_handle)?, handles.job(job_handle)?)
-        };
+        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        let job_key = key_from_handle(job_handle);
         let unrun_job = {
             // Resolve the Worker before consuming the one-shot Job.
             let workers = self.workers.workers.borrow();
@@ -3705,7 +3687,7 @@ impl AsyncHost {
         offset: u32,
         len: u32,
     ) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         let filesystem_job = job.filesystem()?;
@@ -3718,7 +3700,7 @@ impl AsyncHost {
         handle: u64,
         dst: u32,
     ) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         let filesystem_job = job.filesystem()?;
@@ -3732,7 +3714,7 @@ impl AsyncHost {
         dst: u32,
         dst_len: u32,
     ) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let jobs = self.jobs.borrow();
         let job = jobs.visible_job(key)?;
         let job_error = job.err();
@@ -3744,7 +3726,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn get_realpath_result(&self, handle: u64) -> AsyncHostResult<u64> {
-        let key = self.handles.borrow().job(handle)?;
+        let key = key_from_handle(handle);
         let mut jobs = self.jobs.borrow_mut();
         let job = jobs.visible_job_mut(key)?;
         // Keep the mutable job borrow through publication so its ownership of
@@ -4273,10 +4255,6 @@ mod tests {
         host.handles.borrow().poll(handle).unwrap()
     }
 
-    fn job_key(host: &AsyncHost, handle: HostHandle) -> HandleKey {
-        host.handles.borrow().job(handle).unwrap()
-    }
-
     fn resource_count(host: &AsyncHost) -> usize {
         host.handles.borrow().resource_count_excluding_reserved()
     }
@@ -4412,7 +4390,7 @@ mod tests {
 
         {
             let jobs = host.jobs.borrow();
-            let job = jobs.visible_job(job_key(&host, handle)).unwrap();
+            let job = jobs.visible_job(key_from_handle(handle)).unwrap();
             let process_job = job.process().unwrap();
             assert_eq!(
                 process_job.cwd().unwrap(),
@@ -4422,7 +4400,7 @@ mod tests {
             assert!(process_job.no_console_window().unwrap());
         }
 
-        let key = job_key(&host, handle);
+        let key = key_from_handle(handle);
         let job = host.jobs.borrow_mut().take_ready_job(key).unwrap();
         assert_eq!(
             host.spawn_job_set_cwd(handle, OsString::from("too-late")),
@@ -5385,7 +5363,7 @@ mod tests {
         let job_handle = host.insert_job(job).unwrap();
         {
             let mut jobs = host.jobs.borrow_mut();
-            let job = jobs.visible_job_mut(job_key(&host, job_handle)).unwrap();
+            let job = jobs.visible_job_mut(key_from_handle(job_handle)).unwrap();
             let job = job.filesystem_mut().unwrap();
             job.set_read_result(b"abc".to_vec()).unwrap();
             host.thread_pool_notifier().unwrap().notify(42).unwrap();
@@ -5614,7 +5592,7 @@ mod tests {
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
         let job = host.insert_job(job).unwrap();
         let worker_job = host
-            .take_worker_job(WorkerCompletionId::from_abi(1), job_key(&host, job))
+            .take_worker_job(WorkerCompletionId::from_abi(1), key_from_handle(job))
             .unwrap();
 
         host.free_job(job).unwrap();
@@ -5665,7 +5643,7 @@ mod tests {
             .unwrap();
         {
             let mut jobs = host.jobs.borrow_mut();
-            let job = jobs.visible_job_mut(job_key(&host, job_handle)).unwrap();
+            let job = jobs.visible_job_mut(key_from_handle(job_handle)).unwrap();
             let job = job.filesystem_mut().unwrap();
             job.set_realpath_result(b"/tmp/example\0".to_vec().into_boxed_slice())
                 .unwrap();
@@ -5723,17 +5701,68 @@ mod tests {
     }
 
     #[test]
-    fn stale_job_handle_is_rejected_after_free() {
+    fn dropping_host_retires_ready_reserved_and_completed_job_handles() {
+        let host = default_host();
+        let keys = Rc::clone(&host.handles.borrow().keys);
+        let ready = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let reserved = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let completed = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let worker_job = host
+            .take_worker_job(WorkerCompletionId::from_abi(1), key_from_handle(reserved))
+            .unwrap();
+        host.run_job(completed).unwrap();
+
+        for handle in [ready, reserved, completed] {
+            assert_eq!(
+                keys.borrow().kind(key_from_handle(handle)),
+                Some(HandleKind::Job)
+            );
+        }
+        drop(host);
+        for handle in [ready, reserved, completed] {
+            assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
+        }
+        // Retiring the reservation does not require taking back the owned Job.
+        drop(worker_job);
+    }
+
+    #[test]
+    fn job_handles_reject_stale_and_other_family_handles() {
         let host = default_host();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let buffer = host.insert_c_buffer(b"retained".to_vec().into_boxed_slice());
+
+        // Jobs require a live Handle, including for cleanup.
+        for handle in [0, null_handle(), host.invalid_fd(), buffer] {
+            assert_eq!(
+                host.with_job(handle, |job| job.ret()),
+                Err(AsyncHostError::Badf)
+            );
+            assert_eq!(host.run_job(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.free_job(handle), Err(AsyncHostError::Badf));
+        }
+        host.with_c_buffer(buffer, |bytes| {
+            assert_eq!(bytes, b"retained");
+            Ok(())
+        })
+        .unwrap();
 
         host.free_job(job).unwrap();
+        let replacement = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        assert_ne!(job, replacement);
 
         assert_eq!(
             host.with_job(job, |job| job.ret()),
             Err(AsyncHostError::Badf)
         );
+        assert_eq!(host.run_job(job), Err(AsyncHostError::Badf));
         assert_eq!(host.free_job(job), Err(AsyncHostError::Badf));
+
+        host.run_job(replacement).unwrap();
+        assert_eq!(host.with_job(replacement, |job| job.ret()), Ok(0));
+        host.free_job(replacement).unwrap();
+        host.free_c_buffer(buffer).unwrap();
+        assert!(host.leak_summary().is_none());
     }
 
     #[test]
@@ -6421,7 +6450,7 @@ mod tests {
                 0o600,
             ))
             .unwrap();
-        let key = job_key(&host, job_handle);
+        let key = key_from_handle(job_handle);
         let mut job = host.jobs.borrow_mut().take_ready_job(key).unwrap();
 
         thread_pool::run_host_job(&mut job);
@@ -6507,7 +6536,7 @@ mod tests {
         )
         .unwrap();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
-        let key = job_key(&host, job);
+        let key = key_from_handle(job);
         let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
         let worker = handle_from_key(worker_key);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -6768,7 +6797,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         host.init_thread_pool(poll).unwrap();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
-        let key = job_key(&host, job);
+        let key = key_from_handle(job);
         let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
         let worker = handle_from_key(worker_key);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -6797,8 +6826,8 @@ mod tests {
         ack_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(host.cancel_worker_with_retry(worker), Ok(1));
         assert!(matches!(
-            host.jobs.borrow().jobs[key],
-            HostJobState::Reserved
+            host.jobs.borrow().jobs.get(key),
+            Some(HostJobState::Reserved)
         ));
 
         finish_tx.send(()).unwrap();
@@ -6806,13 +6835,13 @@ mod tests {
         // No poll or fetch call has restored the result: the combined ABI
         // must make it available before reporting that the worker finished.
         assert!(matches!(
-            host.jobs.borrow().jobs[key],
-            HostJobState::Reserved
+            host.jobs.borrow().jobs.get(key),
+            Some(HostJobState::Reserved)
         ));
         assert_eq!(host.cancel_worker_with_retry(worker), Ok(2));
         assert!(matches!(
-            host.jobs.borrow().jobs[key],
-            HostJobState::ResultReady(_)
+            host.jobs.borrow().jobs.get(key),
+            Some(HostJobState::ResultReady(_))
         ));
         assert_eq!(host.with_job(job, |job| job.ret()), Ok(73));
         assert_eq!(host.cancel_worker(worker), Ok(1));
@@ -6826,7 +6855,7 @@ mod tests {
     fn free_running_worker_job_detaches_its_result() {
         let host = default_host();
         let first_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
-        let first_key = job_key(&host, first_job);
+        let first_key = key_from_handle(first_job);
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
@@ -6875,7 +6904,7 @@ mod tests {
     fn free_queued_worker_job_detaches_without_cancelling_it() {
         let host = default_host();
         let first_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
-        let first_key = job_key(&host, first_job);
+        let first_key = key_from_handle(first_job);
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
