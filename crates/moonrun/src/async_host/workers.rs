@@ -23,20 +23,18 @@
 //! `async_sys` retains only the native-shaped single-Worker primitives.
 
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::mpsc;
 
-use slotmap::SecondaryMap;
-
 use super::{AsyncHostError, AsyncHostResult, HandleKey};
-#[cfg(test)]
-use crate::async_sys::internal::event_loop::thread_pool::WorkerCompletionDestination;
 use crate::async_sys::internal::event_loop::thread_pool::{
-    self, CancellationOutcome, CompletedJob, Worker, WorkerJob,
+    self, CancellationOutcome, CompletedJob, Worker, WorkerCompletionDestination, WorkerJob,
 };
+use crate::runtime::{Handles, HostKeys, HostResourceKind};
 
 pub(super) struct InstanceWorkers {
-    pub(super) workers: RefCell<SecondaryMap<HandleKey, Worker>>,
-    pub(super) completed_sender: mpsc::Sender<CompletedJob>,
+    pub(super) workers: RefCell<Handles<Worker>>,
+    completed_sender: mpsc::Sender<CompletedJob>,
     completed: mpsc::Receiver<CompletedJob>,
 }
 
@@ -49,31 +47,28 @@ impl std::fmt::Debug for InstanceWorkers {
 }
 
 impl InstanceWorkers {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(keys: Rc<RefCell<HostKeys>>) -> Self {
         let (completed_sender, completed) = mpsc::channel();
         Self {
-            workers: RefCell::new(SecondaryMap::new()),
+            workers: RefCell::new(Handles::new(keys, HostResourceKind::Worker)),
             completed_sender,
             completed,
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn spawn_with_runner(
+    pub(super) fn spawn(
         &self,
-        worker: HandleKey,
         first_job: WorkerJob,
         run_job: impl FnMut(&mut WorkerJob) + Send + 'static,
         completion: WorkerCompletionDestination,
-    ) {
-        // Tests pause custom runners at specific lifecycle transitions.
+    ) -> HandleKey {
         let handle = thread_pool::spawn_worker(
             first_job,
             run_job,
             self.completed_sender.clone(),
             completion,
         );
-        self.workers.borrow_mut().insert(worker, handle);
+        self.workers.borrow_mut().insert(handle)
     }
 
     pub(super) fn take_pending(&self, worker: HandleKey) -> AsyncHostResult<Option<WorkerJob>> {
@@ -112,8 +107,8 @@ impl InstanceWorkers {
         self.workers.borrow().len()
     }
 
-    pub(super) fn destroy(&self) -> Vec<StoppedWorker> {
-        let workers = self.workers.borrow_mut().drain().collect::<Vec<_>>();
+    pub(super) fn destroy(&self) -> Vec<WorkerJob> {
+        let workers = self.workers.borrow_mut().take_all();
 
         // Cancellation must fan out before any join: one slow Worker must not
         // prevent the remaining Workers from receiving their stop request.
@@ -122,15 +117,12 @@ impl InstanceWorkers {
         // Define cancellation retry ownership for Run teardown outside
         // native free_worker; neither join nor repeated signals can forcibly
         // stop noncooperative computation.
-        for (_, worker) in &workers {
+        for worker in &workers {
             let _ = thread_pool::cancel_worker(worker);
         }
         workers
             .into_iter()
-            .map(|(key, worker)| StoppedWorker {
-                key,
-                unrun_job: thread_pool::free_worker(worker),
-            })
+            .filter_map(thread_pool::free_worker)
             .collect()
     }
 }
@@ -141,28 +133,39 @@ impl Drop for InstanceWorkers {
     }
 }
 
-pub(super) struct StoppedWorker {
-    pub(super) key: HandleKey,
-    pub(super) unrun_job: Option<WorkerJob>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::async_sys::internal::event_loop::thread_pool::{WorkerCompletionId, make_sleep_job};
-    use slotmap::KeyData;
     use std::time::Duration;
 
-    fn key(value: u64) -> HandleKey {
-        KeyData::from_ffi(value).into()
-    }
-
-    fn job(completion_id: i32, job_key: u64) -> WorkerJob {
+    fn job(completion_id: i32, job_key: HandleKey) -> WorkerJob {
         WorkerJob::new(
             WorkerCompletionId::from_abi(completion_id),
-            key(job_key),
+            job_key,
             make_sleep_job(0),
         )
+    }
+
+    #[test]
+    fn destroying_or_dropping_workers_retires_their_handles() {
+        for destroy_explicitly in [true, false] {
+            let keys = Rc::new(RefCell::new(HostKeys::default()));
+            let workers = InstanceWorkers::new(keys.clone());
+            let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+            let worker = workers.spawn(
+                job(11, job_key),
+                |_| {},
+                WorkerCompletionDestination::Test(Box::new(|_| {})),
+            );
+
+            if destroy_explicitly {
+                drop(workers.destroy());
+                assert_eq!(keys.borrow().kind(worker), None);
+            }
+            drop(workers);
+            assert_eq!(keys.borrow().kind(worker), None);
+        }
     }
 
     #[cfg(unix)]
@@ -171,8 +174,9 @@ mod tests {
         use std::os::fd::RawFd;
         use std::sync::Arc;
 
-        let workers = InstanceWorkers::new();
-        let worker = key(1);
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let workers = InstanceWorkers::new(keys.clone());
+        let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
         let (_sender, receiver) = crate::signal_channel();
         let (notifier, notifier_fd): (_, RawFd) =
             crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier::new().unwrap();
@@ -182,13 +186,12 @@ mod tests {
             Arc::new(notifier),
         )
         .unwrap();
-        let worker_job = WorkerJob::new(WorkerCompletionId::from_abi(7), key(2), wait_job.into());
+        let worker_job = WorkerJob::new(WorkerCompletionId::from_abi(7), job_key, wait_job.into());
         let (completed, completion) = mpsc::channel();
         let (started, worker_started) = mpsc::sync_channel(0);
         let (proceed, worker_may_proceed) = mpsc::sync_channel(0);
 
-        workers.spawn_with_runner(
-            worker,
+        let worker = workers.spawn(
             worker_job,
             move |job| {
                 started.send(()).unwrap();
@@ -222,24 +225,72 @@ mod tests {
     }
 
     #[test]
+    fn destroy_cancels_all_workers_before_joining_any() {
+        use std::time::Instant;
+
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let workers = InstanceWorkers::new(keys.clone());
+        let (first_cancelled, wait_for_first) = mpsc::channel();
+        let (second_cancelled, wait_for_second) = mpsc::channel();
+        let (started, wait_for_start) = mpsc::channel();
+        let (finished, results) = mpsc::channel();
+        let timeout = Duration::from_secs(5);
+
+        for (cancelled, other_cancelled) in [
+            (first_cancelled, wait_for_second),
+            (second_cancelled, wait_for_first),
+        ] {
+            let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+            let started = started.clone();
+            let finished = finished.clone();
+            workers.spawn(
+                job(11, job_key),
+                move |_| {
+                    started.send(()).unwrap();
+                    let deadline = Instant::now() + timeout;
+                    while thread_pool::with_cancellable_region(|| Ok(())).is_ok() {
+                        assert!(Instant::now() < deadline, "Worker was not cancelled");
+                        std::thread::yield_now();
+                    }
+                    cancelled.send(()).unwrap();
+                    // Neither runner can finish until the other is cancelled.
+                    // A timeout makes a sequential cancel-and-join regression
+                    // fail without leaving the test process stuck in join.
+                    let both_cancelled = other_cancelled.recv_timeout(timeout).is_ok();
+                    finished.send(both_cancelled).unwrap();
+                },
+                WorkerCompletionDestination::Test(Box::new(|_| {})),
+            );
+        }
+        for _ in 0..2 {
+            wait_for_start.recv_timeout(timeout).unwrap();
+        }
+
+        assert!(workers.destroy().is_empty());
+        for _ in 0..2 {
+            assert!(results.recv_timeout(timeout).unwrap());
+        }
+    }
+
+    #[test]
     fn worker_handles_are_scoped_to_one_instance() {
-        let first = InstanceWorkers::new();
-        let second = InstanceWorkers::new();
-        let worker = key(1);
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let first = InstanceWorkers::new(keys.clone());
+        let second = InstanceWorkers::new(keys.clone());
+        let first_job = keys.borrow_mut().insert(HostResourceKind::Job);
+        let second_job = keys.borrow_mut().insert(HostResourceKind::Job);
         let (first_sender, first_receiver) = mpsc::channel();
         let (second_sender, second_receiver) = mpsc::channel();
 
-        first.spawn_with_runner(
-            worker,
-            job(11, 101),
+        let first_worker = first.spawn(
+            job(11, first_job),
             |_| {},
             WorkerCompletionDestination::Test(Box::new(move |completion| {
                 first_sender.send(completion).unwrap()
             })),
         );
-        second.spawn_with_runner(
-            worker,
-            job(22, 202),
+        let second_worker = second.spawn(
+            job(22, second_job),
             |_| {},
             WorkerCompletionDestination::Test(Box::new(move |completion| {
                 second_sender.send(completion).unwrap()
@@ -256,9 +307,11 @@ mod tests {
                 .unwrap(),
             WorkerCompletionId::from_abi(22)
         );
-        assert_eq!(first.try_recv_completed().unwrap().job_key, key(101));
-        assert_eq!(second.try_recv_completed().unwrap().job_key, key(202));
-        for instance in [&first, &second] {
+        assert_eq!(first.try_recv_completed().unwrap().job_key, first_job);
+        assert_eq!(second.try_recv_completed().unwrap().job_key, second_job);
+        assert_eq!(first.cancel(second_worker), Err(AsyncHostError::Badf));
+        assert_eq!(second.cancel(first_worker), Err(AsyncHostError::Badf));
+        for (instance, worker) in [(&first, first_worker), (&second, second_worker)] {
             let worker = instance.workers.borrow_mut().remove(worker).unwrap();
             assert!(thread_pool::free_worker(worker).is_none());
         }

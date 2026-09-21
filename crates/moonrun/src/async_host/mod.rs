@@ -398,17 +398,6 @@ impl HandleTable {
         self.remove(handle, HandleKind::Poll)
     }
 
-    fn worker(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::Worker)
-    }
-
-    fn remove_worker_key(&mut self, worker_key: HandleKey) {
-        let mut keys = self.keys.borrow_mut();
-        if keys.kind(worker_key) == Some(HandleKind::Worker) {
-            keys.remove(worker_key);
-        }
-    }
-
     #[cfg(windows)]
     fn io_result(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
         self.key(handle, HandleKind::IoResult)
@@ -1149,7 +1138,7 @@ impl AsyncHost {
             #[cfg(windows)]
             io_results: RefCell::new(IoResultTable::default()),
             jobs: RefCell::new(JobTable::new(keys.clone())),
-            workers: InstanceWorkers::new(),
+            workers: InstanceWorkers::new(keys.clone()),
             polls: RefCell::new(PollTable::default()),
             thread_pool_registration: RefCell::new(None),
             signals,
@@ -1712,11 +1701,8 @@ impl AsyncHost {
     pub(crate) fn destroy_thread_pool(&self) {
         #[cfg(unix)]
         self.terminate_signal_handler();
-        for worker in self.workers.destroy() {
-            self.handles.borrow_mut().remove_worker_key(worker.key);
-            if let Some(unrun_job) = worker.unrun_job {
-                self.restore_unrun_worker_job(unrun_job);
-            }
+        for unrun_job in self.workers.destroy() {
+            self.restore_unrun_worker_job(unrun_job);
         }
         self.restore_completed_worker_jobs();
         let registration = self.thread_pool_registration.borrow_mut().take();
@@ -3590,7 +3576,7 @@ impl AsyncHost {
         job_handle: u64,
     ) -> AsyncHostResult<()> {
         let completion_id = WorkerCompletionId::from_abi(completion_id);
-        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        let worker_key = key_from_handle(worker_handle);
         let job_key = key_from_handle(job_handle);
         let unrun_job = {
             // Resolve the Worker before consuming the one-shot Job.
@@ -3606,7 +3592,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn worker_enter_idle(&self, worker_handle: u64) -> AsyncHostResult<()> {
-        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        let worker_key = key_from_handle(worker_handle);
         let unrun_job = self.workers.take_pending(worker_key)?;
         if let Some(unrun_job) = unrun_job {
             self.restore_unrun_worker_job(unrun_job);
@@ -3615,23 +3601,13 @@ impl AsyncHost {
     }
 
     pub(crate) fn free_worker(&self, worker_handle: u64) -> AsyncHostResult<()> {
-        // Remove both registrations together, then release the table borrows
-        // before cancellation or joining the Worker.
-        let worker = {
-            let handles = self.handles.borrow();
-            let mut keys = handles.keys.borrow_mut();
-            let worker_key = keys
-                .key(worker_handle, HandleKind::Worker)
-                .ok_or(AsyncHostError::Badf)?;
-            let worker = self
-                .workers
-                .workers
-                .borrow_mut()
-                .remove(worker_key)
-                .ok_or(AsyncHostError::Badf)?;
-            keys.remove(worker_key);
-            worker
-        };
+        let worker = self
+            .workers
+            .workers
+            .borrow_mut()
+            .remove(key_from_handle(worker_handle))
+            .ok_or(AsyncHostError::Badf)?;
+        // Cancellation and joining run after the owning table borrow ends.
         let _ = thread_pool::cancel_worker(&worker);
         let unrun_job = thread_pool::free_worker(worker);
         if let Some(unrun_job) = unrun_job {
@@ -3642,12 +3618,12 @@ impl AsyncHost {
     }
 
     pub(crate) fn cancel_worker(&self, worker_handle: u64) -> AsyncHostResult<i32> {
-        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        let worker_key = key_from_handle(worker_handle);
         Ok(self.workers.cancel(worker_key)?.as_i32())
     }
 
     pub(crate) fn cancel_worker_with_retry(&self, worker_handle: u64) -> AsyncHostResult<i32> {
-        let worker_key = self.handles.borrow().worker(worker_handle)?;
+        let worker_key = key_from_handle(worker_handle);
         let status = self.workers.cancel_with_retry(
             worker_key,
             #[cfg(unix)]
@@ -4069,16 +4045,13 @@ impl AsyncHost {
     ) -> u64 {
         let filesystem = Arc::clone(&self.filesystem);
         let process_for_runner = self.process.clone();
-        let handle = thread_pool::spawn_worker(
+        let worker = self.workers.spawn(
             first_job,
             move |worker_job| {
                 Self::run_policy_checked_job(&filesystem, &process_for_runner, &mut worker_job.job);
             },
-            self.workers.completed_sender.clone(),
             completion,
         );
-        let worker = self.handles.borrow_mut().insert(HandleKind::Worker);
-        self.workers.workers.borrow_mut().insert(worker, handle);
         handle_from_key(worker)
     }
 }
@@ -6537,12 +6510,9 @@ mod tests {
         .unwrap();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let key = key_from_handle(job);
-        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        let worker = handle_from_key(worker_key);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        host.workers.spawn_with_runner(
-            worker_key,
+        let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(42), key)
                 .unwrap(),
             move |worker_job| {
@@ -6553,6 +6523,7 @@ mod tests {
             },
             WorkerCompletionDestination::Pipe(notifier),
         );
+        let worker = handle_from_key(worker_key);
 
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let retry_status = host.cancel_worker_with_retry(worker);
@@ -6798,15 +6769,12 @@ mod tests {
         host.init_thread_pool(poll).unwrap();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let key = key_from_handle(job);
-        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        let worker = handle_from_key(worker_key);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
         let (finish_tx, finish_rx) = std::sync::mpsc::channel();
         let (completed_tx, completed_rx) = std::sync::mpsc::channel();
-        host.workers.spawn_with_runner(
-            worker_key,
+        let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(42), key)
                 .unwrap(),
             move |worker_job| {
@@ -6819,6 +6787,7 @@ mod tests {
             },
             WorkerCompletionDestination::Test(Box::new(move |_| completed_tx.send(()).unwrap())),
         );
+        let worker = handle_from_key(worker_key);
 
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(host.cancel_worker_with_retry(worker), Ok(1));
@@ -6859,9 +6828,7 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
-        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        host.workers.spawn_with_runner(
-            worker_key,
+        let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),
             move |worker_job| {
@@ -6908,9 +6875,7 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
-        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
-        host.workers.spawn_with_runner(
-            worker_key,
+        let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),
             move |worker_job| {
@@ -6993,14 +6958,15 @@ mod tests {
     fn missing_worker_registration_preserves_ready_job() {
         let host = default_host();
         // Exercise registry lookup failure after the Handle itself validates.
-        let worker_key = host.handles.borrow_mut().insert(HandleKind::Worker);
+        let keys = Rc::clone(&host.handles.borrow().keys);
+        let worker_key = keys.borrow_mut().insert(HandleKind::Worker);
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
 
         assert_eq!(
             host.wake_worker(handle_from_key(worker_key), 42, job),
             Err(AsyncHostError::Badf)
         );
-        host.handles.borrow_mut().remove_worker_key(worker_key);
+        keys.borrow_mut().remove(worker_key);
         host.run_job(job).unwrap();
         assert_eq!(host.with_job(job, |job| job.err()), Ok(0));
         host.free_job(job).unwrap();
