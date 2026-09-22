@@ -564,13 +564,14 @@ fn run_test_in_single_file_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::prepare_single_file_project(
+    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
         false,
         user_log,
     )?;
+    let resolved = discovered.resolve_packages(user_log)?;
     let target_backends = if targets.is_empty() {
         vec![backend]
     } else {
@@ -807,7 +808,29 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
 
     validate_original_package_selection_filters(&resolved_project, cmd)?;
     let selections = resolve_test_target_selections(&resolved_project, cmd, user_log)?;
+    plan_test_or_bench_rr_from_selections(
+        cli,
+        cmd,
+        target_dir,
+        mooncake_bin_dir,
+        selected_target_backend,
+        resolved_project,
+        selections,
+        user_log,
+    )
+}
 
+#[allow(clippy::too_many_arguments)]
+fn plan_test_or_bench_rr_from_selections(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    selections: Vec<TargetPackageGroup>,
+    user_log: &UserLog,
+) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
     if has_explicit_test_selector(cmd) {
         if selections.is_empty() {
             return plan_test_or_bench_rr_from_resolved(
@@ -815,7 +838,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                 cmd,
                 target_dir,
                 mooncake_bin_dir,
-                None,
+                selected_target_backend,
                 resolved_project,
                 user_log,
             )
@@ -847,7 +870,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             cmd,
             target_dir,
             mooncake_bin_dir,
-            None,
+            selected_target_backend,
             resolved_project,
             user_log,
         )

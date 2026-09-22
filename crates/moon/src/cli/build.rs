@@ -126,7 +126,8 @@ pub(crate) fn run_build(
         return Ok(ret_value);
     }
 
-    let resolved_project = prepare_build_project(cli, &cmd, &dirs, output.user_log())?;
+    let discovered = sync_and_discover_build_project(cli, &cmd, &dirs, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
@@ -169,13 +170,14 @@ fn run_build_for_single_file_rr(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::prepare_single_file_project(
+    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
         true,
         user_log,
     )?;
+    let resolved = discovered.resolve_packages(user_log)?;
     let target_backends = if selected_target_backends.is_empty() {
         vec![cmd.build_flags.resolve_single_target_backend()?.or(backend)]
     } else {
@@ -260,20 +262,19 @@ fn run_build_internal(
     }
 }
 
-fn prepare_build_project(
+fn sync_and_discover_build_project(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolvedProject> {
+) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
     let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)?;
-    Ok(discovered.resolve_packages(user_log)?)
+    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 /// Run the build routine in RR backend
@@ -289,7 +290,8 @@ fn run_build_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
-    let resolved_project = prepare_build_project(cli, cmd, dirs, output.user_log())?;
+    let discovered = sync_and_discover_build_project(cli, cmd, dirs, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
@@ -559,7 +561,29 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     }
 
     let selections = resolve_build_target_selections(&resolved_project, cmd, None, user_log)?;
+    plan_build_rr_from_selections(
+        cli,
+        cmd,
+        target_dir,
+        mooncake_bin_dir,
+        selected_target_backend,
+        resolved_project,
+        selections,
+        user_log,
+    )
+}
 
+#[allow(clippy::too_many_arguments)]
+fn plan_build_rr_from_selections(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    selections: Vec<TargetPackageGroup>,
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     if has_explicit_build_selector(cmd) {
         return selections
             .into_iter()
@@ -590,7 +614,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             cmd,
             target_dir,
             mooncake_bin_dir,
-            None,
+            selected_target_backend,
             resolved_project,
             user_log,
         )

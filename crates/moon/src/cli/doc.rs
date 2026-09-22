@@ -136,11 +136,12 @@ pub(crate) fn run_doc_rr(
     );
     let synced_modules =
         moonbuild_rupes_recta::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
-    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
+    let discovered = moonbuild_rupes_recta::discover_synced_project(
         &preparation_config,
         synced_modules,
         user_log,
     )?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
 
     let module_id = selected_doc_module_id(&resolved_project, &selected_module.root)?;
     let target_backend = resolved_project
