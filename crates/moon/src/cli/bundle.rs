@@ -208,7 +208,7 @@ pub(crate) fn plan_bundle_rr_from_discovered(
     } else {
         selected_target_backends.to_vec()
     };
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     target_backends
         .into_iter()
         .map(|target_backend| {

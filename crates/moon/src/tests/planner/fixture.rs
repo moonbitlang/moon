@@ -120,7 +120,10 @@ impl PlanningFixture {
             crate::rr_build::local_modules_preferred_target(&self.discovered, user_log)
                 .unwrap_or_default()
         });
-        let resolved_project = self.discovered.clone().resolve_packages(user_log)?;
+        let resolved_project = self
+            .discovered
+            .clone()
+            .resolve_packages(&[target_backend], user_log)?;
         Ok((target_backend, resolved_project))
     }
 
