@@ -74,7 +74,8 @@ pub(crate) fn run_bundle(
     }
 
     let targets = lower_surface_targets(&surface_targets);
-    let resolved_project = prepare_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
+    let discovered = sync_and_discover_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
@@ -108,7 +109,8 @@ pub(crate) fn run_bundle_internal_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let resolved_project = prepare_bundle_project(cli, cmd, dirs, output.user_log())?;
+    let discovered = sync_and_discover_bundle_project(cli, cmd, dirs, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
@@ -195,12 +197,12 @@ fn run_bundle_rr_from_resolved(
     }
 }
 
-fn prepare_bundle_project(
+fn sync_and_discover_bundle_project(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolvedProject> {
+) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
     let preparation_config =
         moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
             cmd.auto_sync_flags.frozen,
@@ -208,7 +210,7 @@ fn prepare_bundle_project(
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
         );
-    rr_build::prepare_project(&preparation_config, dirs, user_log)
+    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 pub(crate) fn plan_bundle_rr_from_resolved(

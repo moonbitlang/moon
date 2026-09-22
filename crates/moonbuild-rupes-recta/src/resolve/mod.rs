@@ -106,6 +106,11 @@ impl DiscoveredProject {
         )
         .map_err(|source| ProjectPreparationError::PackageResolutionError(Box::new(source)))?;
 
+        info!("Package dependency resolution completed successfully");
+        debug!(
+            "Package dependency graph has {} nodes",
+            package_relations.dep_graph.node_count()
+        );
         Ok(ResolvedProject {
             discovered: self,
             package_relations,
@@ -394,15 +399,7 @@ pub fn prepare_synced_project(
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     user_log: &UserLog,
 ) -> Result<ResolvedProject, ProjectPreparationError> {
-    let resolved =
-        discover_synced_project(cfg, synced_dependencies, user_log)?.resolve_packages(user_log)?;
-
-    info!("Package dependency resolution completed successfully");
-    debug!(
-        "Package dependency graph has {} nodes",
-        resolved.package_relations.dep_graph.node_count()
-    );
-    Ok(resolved)
+    discover_synced_project(cfg, synced_dependencies, user_log)?.resolve_packages(user_log)
 }
 
 /// Discover packages from already synced dependencies without solving imports.
@@ -435,23 +432,6 @@ pub fn discover_synced_project(
         pkg_dirs: discover_result,
         enable_coverage: cfg.enable_coverage,
     })
-}
-
-/// Prepare a single-file project by syncing its module dependencies, discovering
-/// and synthesizing its packages, and resolving their relationships.
-/// `source_file` must be the absolute invoked path from
-/// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
-#[instrument(skip_all, fields(run_mode = run_mode))]
-pub fn prepare_single_file_project(
-    cfg: &ProjectPreparationConfig,
-    dirs: &PackageDirs,
-    source_file: &Path,
-    run_mode: bool,
-    user_log: &UserLog,
-) -> Result<(ResolvedProject, Option<TargetBackend>), ProjectPreparationError> {
-    let (discovered, backend) =
-        discover_single_file_project(cfg, dirs, source_file, run_mode, user_log)?;
-    Ok((discovered.resolve_packages(user_log)?, backend))
 }
 
 /// Discover a single-file project and read its preferred backend

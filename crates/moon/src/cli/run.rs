@@ -52,8 +52,9 @@ use crate::rr_build::CalcUserIntentOutput;
 
 use super::{BuildFlags, UniversalFlags};
 
-struct ResolvedRunSelection {
+pub(crate) struct ResolvedRunSelection {
     package: PackageId,
+    target_backend: TargetBackend,
 }
 
 impl ResolvedRunSelection {
@@ -62,12 +63,11 @@ impl ResolvedRunSelection {
         input_path: &str,
         discovered: &DiscoveredProject,
         value_tracing: bool,
-        target_backend: TargetBackend,
     ) -> Result<CalcUserIntentOutput, anyhow::Error> {
         if !discovered.pkg_dirs.get_package(self.package).raw.is_main {
             bail!("`{}` is not a main package", input_path);
         }
-        ensure_package_supports_backend(discovered, self.package, target_backend)?;
+        ensure_package_supports_backend(discovered, self.package, self.target_backend)?;
 
         let directive = if value_tracing {
             InputDirective {
@@ -555,7 +555,8 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
@@ -599,38 +600,45 @@ pub(crate) fn plan_run_rr_from_resolved(
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let input_path = cmd
         .package_or_mbt_file
-        .clone()
+        .as_deref()
         .expect("package run planning requires a positional input");
-    let selection = resolve_run_selection(&input_path, &resolved_project)?;
-    let package = resolved_project.pkg_dirs.get_package(selection.package);
-    let selected_target_backend = Some(
-        selected_target_backend
-            .or_else(|| {
-                resolved_project
-                    .module_graph
-                    .module_info(package.module)
-                    .preferred_target
-            })
-            .unwrap_or_default(),
-    );
+    let selection = resolve_run_selection(input_path, &resolved_project, selected_target_backend)?;
+    plan_run_rr_from_selection(
+        cli,
+        cmd,
+        target_dir,
+        mooncake_bin_dir,
+        resolved_project,
+        selection,
+        user_log,
+    )
+}
 
+pub(crate) fn plan_run_rr_from_selection(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    resolved_project: ResolvedProject,
+    selection: ResolvedRunSelection,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        selected_target_backend,
+        Some(selection.target_backend),
         target_dir,
         RunMode::Run,
         user_log,
         &resolved_project,
     )?;
-    let intent = selection.into_user_intent(
-        &input_path,
-        &resolved_project,
-        value_tracing,
-        compile_config.backend.target_backend(),
-    )?;
+    let input_path = cmd
+        .package_or_mbt_file
+        .as_deref()
+        .expect("package run planning requires a positional input");
+    let intent = selection.into_user_intent(input_path, &resolved_project, value_tracing)?;
     rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
@@ -692,10 +700,18 @@ fn get_run_executable(build_meta: &BuildMeta) -> &Path {
 fn resolve_run_selection(
     input_path: &str,
     discovered: &DiscoveredProject,
+    selected_target_backend: Option<TargetBackend>,
 ) -> Result<ResolvedRunSelection, anyhow::Error> {
     let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
     let package = crate::filter::filter_pkg_by_dir(discovered, &dir)?;
-    Ok(ResolvedRunSelection { package })
+    let module = discovered.pkg_dirs.get_package(package).module;
+    let target_backend = selected_target_backend
+        .or_else(|| discovered.module_graph.module_info(module).preferred_target)
+        .unwrap_or_default();
+    Ok(ResolvedRunSelection {
+        package,
+        target_backend,
+    })
 }
 
 /// Build a standalone `.mbt`/`.mbtx` input through the synthesized single-file
@@ -767,13 +783,14 @@ fn build_single_file_executable(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::prepare_single_file_project(
+    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         &dirs,
         &input_path,
         true,
         user_log,
     )?;
+    let resolved = discovered.resolve_packages(user_log)?;
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);

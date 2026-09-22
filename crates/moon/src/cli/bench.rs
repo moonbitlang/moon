@@ -85,8 +85,9 @@ pub(crate) fn run_bench(
     let display_backend_hint = targets.len() > 1;
     let bench_cmd: super::TestLikeSubcommand<'_> = (&cmd).into();
     super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
-    let resolved_project =
-        super::prepare_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
+    let discovered =
+        super::sync_and_discover_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(output.user_log())?;
     super::run_test_or_bench_from_resolved(
         &cli,
         &bench_cmd,

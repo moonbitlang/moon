@@ -25,7 +25,7 @@
 //! Most, if not all, of the special cases are related to `moonbitlang/core`,
 //! the standard library of MoonBit.
 
-use moonutil::package::MoonPkg;
+use moonutil::{constants::MOONBITLANG_CORE_PRELUDE, package::MoonPkg};
 
 use crate::pkg_name::PackageFQN;
 
@@ -56,7 +56,7 @@ pub(crate) fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
     pkg_json
         .test_imports
         .push(moonutil::package::Import::Alias {
-            path: "moonbitlang/core/prelude".into(),
+            path: MOONBITLANG_CORE_PRELUDE.into(),
             alias: Some("prelude".into()),
             sub_package: false,
             import_all: false,
