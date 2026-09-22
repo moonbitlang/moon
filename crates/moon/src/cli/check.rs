@@ -891,7 +891,8 @@ fn prepare_check_project(
             ChildOutputMode::Inherit
         },
     });
-    rr_build::prepare_project(&preparation_config, dirs, user_log)
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)?;
+    Ok(discovered.resolve_packages(user_log)?)
 }
 
 #[allow(clippy::too_many_arguments)]

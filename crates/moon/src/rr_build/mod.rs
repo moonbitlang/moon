@@ -71,13 +71,13 @@ mod prebuild;
 pub(crate) use dry_run::write_build_graph;
 pub(crate) use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_with_normalizer};
 
-/// Sync module dependencies, discover packages, and resolve package relationships.
+/// Synchronize module dependencies and discover packages.
 /// This step does not acquire the target-directory lock.
-pub(crate) fn prepare_project(
+pub(crate) fn sync_and_discover_project(
     preparation_config: &ProjectPreparationConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<ResolvedProject> {
+) -> anyhow::Result<DiscoveredProject> {
     std::fs::create_dir_all(&dirs.target_dir).with_context(|| {
         format!(
             "Failed to create target directory: '{}'",
@@ -86,12 +86,11 @@ pub(crate) fn prepare_project(
     })?;
     let synced_modules =
         moonbuild_rupes_recta::sync_module_dependencies(preparation_config, dirs, user_log)?;
-    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
+    Ok(moonbuild_rupes_recta::discover_synced_project(
         preparation_config,
         synced_modules,
         user_log,
-    )?;
-    Ok(resolved_project)
+    )?)
 }
 
 /// The output of a calculate user intent operation.

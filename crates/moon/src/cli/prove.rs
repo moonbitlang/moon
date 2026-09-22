@@ -158,7 +158,8 @@ pub(crate) fn run_prove(
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(target_dir, user_log)?;

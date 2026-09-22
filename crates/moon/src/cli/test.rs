@@ -1007,7 +1007,8 @@ pub(crate) fn prepare_test_or_bench_project(
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
         );
-    rr_build::prepare_project(&preparation_config, dirs, user_log)
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)?;
+    Ok(discovered.resolve_packages(user_log)?)
 }
 
 #[instrument(skip_all)]

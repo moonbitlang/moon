@@ -99,7 +99,8 @@ pub(crate) fn run_build_binary_dep(
         cli.workspace_env.clone(),
     )
     .without_bin_deps();
-    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
 
     // Note: There's a cyclic dependency!
     //

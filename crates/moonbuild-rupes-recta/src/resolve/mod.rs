@@ -106,6 +106,11 @@ impl DiscoveredProject {
         )
         .map_err(|source| ProjectPreparationError::PackageResolutionError(Box::new(source)))?;
 
+        info!("Package dependency resolution completed successfully");
+        debug!(
+            "Package dependency graph has {} nodes",
+            package_relations.dep_graph.node_count()
+        );
         Ok(ResolvedProject {
             discovered: self,
             package_relations,
@@ -394,15 +399,7 @@ pub fn prepare_synced_project(
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     user_log: &UserLog,
 ) -> Result<ResolvedProject, ProjectPreparationError> {
-    let resolved =
-        discover_synced_project(cfg, synced_dependencies, user_log)?.resolve_packages(user_log)?;
-
-    info!("Package dependency resolution completed successfully");
-    debug!(
-        "Package dependency graph has {} nodes",
-        resolved.package_relations.dep_graph.node_count()
-    );
-    Ok(resolved)
+    discover_synced_project(cfg, synced_dependencies, user_log)?.resolve_packages(user_log)
 }
 
 /// Discover packages from already synced dependencies without solving imports.

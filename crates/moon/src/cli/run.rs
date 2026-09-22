@@ -555,7 +555,8 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let resolved_project = rr_build::prepare_project(&preparation_config, &dirs, user_log)?;
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
