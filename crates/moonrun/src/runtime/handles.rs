@@ -77,6 +77,19 @@ impl<T> Handles<T> {
         Some(value)
     }
 
+    /// Retire every registration before returning owned values for cleanup.
+    /// The returned collection retains no table or allocator borrow.
+    pub(crate) fn take_all(&mut self) -> Vec<T> {
+        let mut keys = self.keys.borrow_mut();
+        self.entries
+            .drain()
+            .map(|(key, value)| {
+                keys.remove(key);
+                value
+            })
+            .collect()
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
@@ -185,6 +198,43 @@ mod tests {
         assert_eq!(count.get(), 0);
         drop(value);
         assert_eq!(count.get(), 1);
+    }
+
+    #[test]
+    fn taking_all_retires_keys_before_cleanup_and_leaves_the_table_reusable() {
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let retired = Rc::new(RefCell::new(Vec::new()));
+        let count = Rc::new(Cell::new(0));
+        let entries = RefCell::new(Handles::new(keys.clone(), HostResourceKind::Worker));
+        for _ in 0..2 {
+            let key = entries.borrow_mut().insert(ObserveDrop {
+                keys: keys.clone(),
+                retired: retired.clone(),
+                count: count.clone(),
+            });
+            retired.borrow_mut().push(key);
+        }
+
+        let values = entries.borrow_mut().take_all();
+        assert!(entries.borrow().is_empty());
+        assert_eq!(count.get(), 0);
+        for key in retired.borrow().iter() {
+            assert_eq!(keys.borrow().kind(*key), None);
+        }
+        let replacement = entries.borrow_mut().insert(ObserveDrop {
+            keys: keys.clone(),
+            retired: retired.clone(),
+            count: count.clone(),
+        });
+        drop(values);
+        assert_eq!(count.get(), 2);
+        assert_eq!(
+            keys.borrow().kind(replacement),
+            Some(HostResourceKind::Worker)
+        );
+        drop(entries);
+        assert_eq!(count.get(), 3);
+        assert_eq!(keys.borrow().kind(replacement), None);
     }
 
     #[test]
