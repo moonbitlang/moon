@@ -125,8 +125,7 @@ pub(crate) fn run_doc_rr(
         ..
     } = &dirs;
 
-    // Resolve the complete selected project before choosing the member-scoped
-    // documentation backend.
+    // Discover packages to choose the selected module's documentation backend.
     let build_flags = BuildFlags::default();
     let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
@@ -141,13 +140,14 @@ pub(crate) fn run_doc_rr(
         synced_modules,
         user_log,
     )?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
 
-    let module_id = selected_doc_module_id(&resolved_project, &selected_module.root)?;
-    let target_backend = resolved_project
+    let module_id = selected_doc_module_id(&discovered, &selected_module.root)?;
+    let target_backend = discovered
         .module_info(module_id)
         .preferred_target
         .unwrap_or_default();
+
+    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
 
     let mut compile_config = rr_build::prepare_resolved_build(
         &cli,

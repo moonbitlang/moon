@@ -87,14 +87,13 @@ pub(crate) fn run_bench(
     super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
     let discovered =
         super::sync_and_discover_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
-    super::run_test_or_bench_from_resolved(
+    super::run_test_or_bench_from_discovered(
         &cli,
         &bench_cmd,
         &dirs,
         display_backend_hint,
         &targets,
-        resolved_project,
+        discovered,
         output,
     )
     .with_context(|| match targets.as_slice() {

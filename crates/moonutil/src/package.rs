@@ -754,6 +754,9 @@ pub enum Import {
         sub_package: bool,
         #[serde(default, alias = "import-all")]
         import_all: bool,
+        /// Backends selected by an import block's `#cfg`; absent means unconditional.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        targets: Option<IndexSet<TargetBackend>>,
     },
 }
 
@@ -762,6 +765,16 @@ impl Import {
         match self {
             Self::Simple(v) => v,
             Self::Alias { path, .. } => path,
+        }
+    }
+
+    pub fn supports_backend(&self, backend: TargetBackend) -> bool {
+        match self {
+            Self::Alias {
+                targets: Some(targets),
+                ..
+            } => targets.contains(&backend),
+            _ => true,
         }
     }
 
@@ -776,6 +789,7 @@ impl Import {
                 alias,
                 sub_package: false,
                 import_all,
+                targets: None,
             }
         }
     }
@@ -812,8 +826,13 @@ fn warn_duplicate_imports(imports: &[Import], kind: &str, user_log: &UserLog) {
     let mut warned = HashSet::new();
     for import in imports {
         let path = import.get_path();
-        if !seen.insert(path) && warned.insert(path) {
-            user_log.warn(format!("Duplicate import of package `{path}` in `{kind}`."));
+        for &backend in TargetBackend::all() {
+            if import.supports_backend(backend)
+                && !seen.insert((path, backend))
+                && warned.insert(path)
+            {
+                user_log.warn(format!("Duplicate import of package `{path}` in `{kind}`."));
+            }
         }
     }
 }
@@ -856,14 +875,6 @@ fn normalize_pkg_dsl(
             bail!("Unexpected key '{}' found in moon.pkg.", key);
         };
         if let Some((_, imports)) = imports.get_mut(key) {
-            // TODO: Remove this guard when package conversion and dependency
-            // resolution preserve and select the parser's conditional imports.
-            if value
-                .as_array()
-                .is_some_and(|imports| imports.iter().any(|import| import.get("targets").is_some()))
-            {
-                bail!("Conditional imports are not yet supported by the build system.");
-            }
             imports.extend(serde_json_lenient::from_value::<Vec<Import>>(
                 value.clone(),
             )?);
@@ -1642,27 +1653,6 @@ fn convert_pkg_imports_preserve_repeated_packages() {
                 ["example/lib", "example/lib"],
             );
         }
-    }
-}
-
-#[test]
-fn convert_pkg_dsl_rejects_unsupported_conditional_imports() {
-    for (prefix, suffix) in [
-        ("", ""),
-        ("", "for \"test\""),
-        ("", "for \"wbtest\""),
-        ("\"test\"", ""),
-        ("\"wbtest\"", ""),
-    ] {
-        let dsl = crate::moon_pkg::parse(&format!(
-            r#"#cfg(false) import {prefix} {{ "example/dep" }} {suffix}"#,
-        ))
-        .unwrap();
-        let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Conditional imports are not yet supported by the build system.",
-        );
     }
 }
 

@@ -23,7 +23,11 @@
 //! package relationships to produce [`ResolvedProject`].
 //! Dependency-directory mutation remains explicit in the sync step.
 
-use std::{ops::Deref, path::Path};
+use std::{
+    collections::{BTreeMap, HashSet},
+    ops::Deref,
+    path::Path,
+};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -77,8 +81,8 @@ pub struct DiscoveredProject {
 #[derive(Debug, Clone)]
 pub struct ResolvedProject {
     pub discovered: DiscoveredProject,
-    /// Package imports, virtual-package associations, and backend support.
-    pub package_relations: PackageRelations,
+    /// Each backend owns its imports, virtual-package associations, and support.
+    pub package_relations: BTreeMap<TargetBackend, PackageRelations>,
 }
 
 /// A resolved project provides read-only access to its modules and packages.
@@ -91,26 +95,42 @@ impl Deref for ResolvedProject {
 }
 
 impl DiscoveredProject {
-    /// Resolve package imports and virtual-package references using the already
-    /// selected modules, returning a project only if its package relationships are valid.
+    /// Resolve exactly the requested backends, returning any error immediately.
+    /// No `ResolvedProject` is constructed until every requested graph is valid.
     #[instrument(skip_all)]
     pub fn resolve_packages(
         self,
+        backends: &[TargetBackend],
         user_log: &UserLog,
     ) -> Result<ResolvedProject, ProjectPreparationError> {
-        let package_relations = pkg_solve::resolve_packages(
-            &self.module_graph,
-            &self.pkg_dirs,
-            self.enable_coverage,
-            user_log,
-        )
-        .map_err(|source| ProjectPreparationError::PackageResolutionError(Box::new(source)))?;
-
-        info!("Package dependency resolution completed successfully");
-        debug!(
-            "Package dependency graph has {} nodes",
-            package_relations.dep_graph.node_count()
-        );
+        let mut package_relations = BTreeMap::new();
+        let mut warnings = HashSet::new();
+        let (graph_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        for &backend in backends {
+            if package_relations.contains_key(&backend) {
+                continue;
+            }
+            let result = pkg_solve::resolve_packages(
+                &self.module_graph,
+                &self.pkg_dirs,
+                self.enable_coverage,
+                backend,
+                &graph_log,
+            );
+            for entry in capture.take() {
+                if warnings.insert(entry.message.clone()) {
+                    user_log.warn(entry.message);
+                }
+            }
+            let relations =
+                result.map_err(|e| ProjectPreparationError::PackageResolutionError(Box::new(e)))?;
+            info!("Package dependency resolution completed successfully");
+            debug!(
+                "Package dependency graph has {} nodes",
+                relations.dep_graph.node_count()
+            );
+            package_relations.insert(backend, relations);
+        }
         Ok(ResolvedProject {
             discovered: self,
             package_relations,
@@ -226,11 +246,13 @@ fn parse_front_matter_imports(
                 alias,
                 sub_package,
                 import_all,
+                targets,
             } => Import::Alias {
                 path: normalized_path,
                 alias,
                 sub_package,
                 import_all,
+                targets,
             },
         };
         normalized_imports.push(normalized_import);
@@ -392,14 +414,16 @@ pub fn sync_module_dependencies(
     Ok((module_graph, dir_sync_result))
 }
 
-/// Discover packages and resolve their relationships using already synced modules.
+/// Resolve package relationships for the requested backends from synced dependencies.
 #[instrument(skip_all)]
 pub fn prepare_synced_project(
     cfg: &ProjectPreparationConfig,
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
+    backends: &[TargetBackend],
     user_log: &UserLog,
 ) -> Result<ResolvedProject, ProjectPreparationError> {
-    discover_synced_project(cfg, synced_dependencies, user_log)?.resolve_packages(user_log)
+    discover_synced_project(cfg, synced_dependencies, user_log)?
+        .resolve_packages(backends, user_log)
 }
 
 /// Discover packages from already synced dependencies without solving imports.
@@ -434,8 +458,8 @@ pub fn discover_synced_project(
     })
 }
 
-/// Discover a single-file project and read its preferred backend
-/// without solving package dependencies.
+/// Discover a single-file project and read its preferred backend.
+/// The caller chooses explicit/header/default backends before package resolution.
 /// `source_file` must be the absolute invoked path from
 /// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
 #[instrument(skip_all, fields(run_mode = run_mode))]

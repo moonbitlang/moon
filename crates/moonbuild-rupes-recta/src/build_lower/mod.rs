@@ -346,7 +346,10 @@ mod tests {
                     pkg_dirs: packages,
                     enable_coverage: false,
                 },
-                package_relations: PackageRelations::default(),
+                package_relations: moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&b| (b, PackageRelations::default()))
+                    .collect(),
             },
             package_id.build_target(TargetKind::Source),
         )

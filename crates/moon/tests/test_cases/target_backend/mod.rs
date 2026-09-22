@@ -664,7 +664,7 @@ fn test_check_warns_when_test_target_is_never_realizable() {
     assert!(stderr.contains("Skipping whitebox tests for package"));
     assert!(stderr.contains("Skipping blackbox tests for package"));
     assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("unrealizable on every backend"));
+    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
 }
 
 #[test]
@@ -675,7 +675,7 @@ fn test_test_warns_when_test_target_is_never_realizable() {
     assert!(stderr.contains("Skipping whitebox tests for package"));
     assert!(stderr.contains("Skipping blackbox tests for package"));
     assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("unrealizable on every backend"));
+    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
 }
 
 #[test]

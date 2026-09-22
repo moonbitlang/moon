@@ -21,14 +21,12 @@
 
     ## Quickstart
 
-    You can find high-level abstractions in modules [`resolve`] and [`compile`],
-    which splits the compilation process in two parts:
+    You can find the high-level compilation stages in [`resolve`] and [`compile`]:
 
-    - [`resolve`] Builds an in-memory representation of all modules and packages
-      that needs to be used during the compile process, as well as the
-      dependency relationship between them. Discovery produces
-      [`DiscoveredProject`] for inspecting modules and packages; solving
-      their imports produces [`ResolvedProject`] for compilation.
+    - [`resolve`] discovers modules and packages as [`DiscoveredProject`], then
+      resolves the requested target backends. [`ResolvedProject`] contains complete
+      [`pkg_solve::PackageRelations`] for each requested backend. Any resolution
+      failure is returned immediately.
 
     - [`compile`] takes in the project and its package relations and produces an
       [`execution_plan::ExecutionPlan`]. This part converts the intent of the
@@ -62,7 +60,8 @@
     3. Discover packages within modules ([`crate::discover`]). This is different
        from many package managers -- the package distribution unit ("module")
        is different from the compile unit ("package").
-    4. Resolve the *package* dependency graph ([`crate::pkg_solve`]).
+    4. Select the build configuration and resolve its active *package*
+       dependency graph ([`crate::pkg_solve`]).
     5. Get the list of top-level build actions from user input.
     6. From this list of requested artifacts, resolve the semantic build graph
        ([`crate::build_plan`]).
