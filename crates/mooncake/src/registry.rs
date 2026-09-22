@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 mod client;
+pub(crate) mod download;
 mod executable;
 #[cfg(test)]
 pub(crate) mod mock;

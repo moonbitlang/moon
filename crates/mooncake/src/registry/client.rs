@@ -35,12 +35,12 @@ use moonutil::{
     resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
-use reqwest::{StatusCode, header::USER_AGENT};
+use reqwest::StatusCode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    registry::RegistryVersionInfo,
+    registry::{RegistryVersionInfo, download},
     update::{RegistryIndexRecloneReason, RegistryIndexUpdate, UpdateOutcome},
     zip_util::extract_zip_to_dir,
 };
@@ -359,7 +359,7 @@ impl RegistryClient {
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
-        let http = registry_http_client()?;
+        let http = download::client_with_retry()?;
         self.acquire_wasm_asset_with(module, package_path, user_log, |url| {
             download_registry_asset(&http, url, user_log)
         })
@@ -772,13 +772,8 @@ impl RegistryClient {
         }
         user_log.status(format!("Downloading {name}@{version}"));
         let url = self.endpoints.package_archive(name, version);
-        let client = reqwest::blocking::Client::new();
-        let mut response = client
+        let mut response = download::client_with_retry()?
             .get(url)
-            .header(
-                USER_AGENT,
-                format!("mooncake/{}", env!("CARGO_PKG_VERSION")),
-            )
             .send()?
             .error_for_status()?;
 
