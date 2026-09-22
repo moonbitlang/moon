@@ -1657,6 +1657,108 @@ fn convert_pkg_imports_preserve_repeated_packages() {
 }
 
 #[test]
+fn convert_pkg_json_imports_are_unconditional() {
+    let json = serde_json_lenient::from_str(
+        r#"{
+          "import": [{
+            "path": "example/lib/platform",
+            "alias": "platform",
+            "targets": ["native"]
+          }]
+        }"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_test_pkg_json(json, false).unwrap();
+    // Unknown JSON fields retain their existing behavior: they are ignored.
+    for &backend in TargetBackend::all() {
+        assert!(pkg.imports[0].supports_backend(backend));
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_options_imports_preserve_precedence() {
+    let dsl = crate::moon_pkg::parse(
+        r#"
+#cfg(target = "native")
+import { "example/lib/native" }
+#cfg(target = "native")
+import { "example/lib/test" } for "test"
+#cfg(target = "native")
+import { "example/lib/wbtest" } for "wbtest"
+options(
+  "import": ["example/lib/common"],
+  "test-import": [],
+  "wbtest-import": [],
+)
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
+    assert_eq!(pkg.imports.len(), 1);
+    assert_eq!(pkg.imports[0].get_path(), "example/lib/common");
+    assert!(pkg.test_imports.is_empty());
+    assert!(pkg.wbtest_imports.is_empty());
+}
+
+#[test]
+fn convert_pkg_dsl_options_preserve_import_aliases() {
+    let dsl = crate::moon_pkg::parse(
+        r#"options(
+  test_import: ["example/lib/test"],
+  wbtest_import: ["example/lib/wbtest"],
+)"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
+    assert_eq!(pkg.test_imports.len(), 1);
+    assert_eq!(pkg.test_imports[0].get_path(), "example/lib/test");
+    assert_eq!(pkg.wbtest_imports.len(), 1);
+    assert_eq!(pkg.wbtest_imports[0].get_path(), "example/lib/wbtest");
+}
+
+#[test]
+fn convert_pkg_dsl_conditional_imports() {
+    let dsl = crate::moon_pkg::parse(
+        r#"
+import { "example/lib/common" }
+#cfg(target = "native")
+import { "example/lib/native" @platform }
+#cfg(not(target = "native"))
+import { "example/lib/portable" @platform }
+#cfg(any(target = "native", target = "js"))
+import { "example/lib/test" } for "test"
+#cfg(all(target = "native", true))
+import { "example/lib/wbtest" } for "wbtest"
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
+    assert_eq!(
+        pkg.imports.iter().map(Import::get_path).collect::<Vec<_>>(),
+        [
+            "example/lib/common",
+            "example/lib/native",
+            "example/lib/portable"
+        ]
+    );
+    assert_eq!(pkg.test_imports[0].get_path(), "example/lib/test");
+    assert_eq!(pkg.wbtest_imports[0].get_path(), "example/lib/wbtest");
+    for &backend in TargetBackend::all() {
+        assert!(pkg.imports[0].supports_backend(backend));
+        assert_eq!(pkg.imports[1].supports_backend(backend), backend == Native);
+        assert_eq!(pkg.imports[2].supports_backend(backend), backend != Native);
+        assert_eq!(
+            pkg.test_imports[0].supports_backend(backend),
+            matches!(backend, Native | Js)
+        );
+        assert_eq!(
+            pkg.wbtest_imports[0].supports_backend(backend),
+            backend == Native
+        );
+    }
+}
+
+#[test]
 fn convert_pkg_imports_warns_and_preserves_duplicate_items() {
     for key in ["import", "test-import", "wbtest-import"] {
         for alias in ["", "@named", "*", "@named *"] {
@@ -1747,6 +1849,104 @@ import { "example/lib" @a }"#,
         })
         .collect::<Vec<_>>();
     assert_eq!(aliases, ["a", "b", "a"]);
+}
+
+#[test]
+fn convert_pkg_dsl_duplicate_warnings_respect_import_conditions() {
+    for (suffix, key) in [
+        ("", "import"),
+        ("for \"test\"", "test-import"),
+        ("for \"wbtest\"", "wbtest-import"),
+    ] {
+        for (first, second, overlaps) in [
+            (r#"target = "native""#, r#"not(target = "native")"#, false),
+            ("false", "true", false),
+            ("any()", "all()", false),
+            ("true", r#"target = "native""#, true),
+            (
+                r#"any(target = "native", target = "js")"#,
+                r#"target = "native""#,
+                true,
+            ),
+            (r#"target = "native""#, r#"target = "native""#, true),
+        ] {
+            for alias in ["", "@named", "*", "@named *"] {
+                for emit_warnings in [false, true] {
+                    let dsl = moon_pkg::parse(&format!(
+                        r#"
+#cfg({first})
+import {{ "example/lib" {alias} }} {suffix}
+#cfg({second})
+import {{ "example/lib" {alias} }} {suffix}
+"#,
+                    ))
+                    .unwrap();
+                    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+                    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(
+                        dsl,
+                        emit_warnings,
+                        &user_log,
+                    )
+                    .unwrap();
+                    let imports = match key {
+                        "import" => pkg.imports,
+                        "test-import" => pkg.test_imports,
+                        _ => pkg.wbtest_imports,
+                    };
+                    assert_eq!(imports.len(), 2);
+                    let warnings = capture.take();
+                    assert_eq!(
+                        warnings.len(),
+                        usize::from(overlaps && emit_warnings),
+                        "{first}, {second}, {alias}, {key}"
+                    );
+                    if overlaps && emit_warnings {
+                        assert_eq!(
+                            warnings[0].message,
+                            format!("Duplicate import of package `example/lib` in `{key}`.")
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_cfg_boolean_and_stacked_conditions() {
+    let dsl = crate::moon_pkg::parse(
+        r#"
+#cfg(all())
+import { "example/lib/all" }
+#cfg(any())
+import { "example/lib/none" }
+#cfg(false)
+import { "example/lib/false" }
+#cfg(any(target = "native", target = "js"))
+#cfg(not(target = "js"))
+import "test" { "example/lib/native" * }
+import { "example/lib/unconditional" }
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
+    for &backend in TargetBackend::all() {
+        assert!(pkg.imports[0].supports_backend(backend));
+        assert!(!pkg.imports[1].supports_backend(backend));
+        assert!(!pkg.imports[2].supports_backend(backend));
+        assert!(pkg.imports[3].supports_backend(backend));
+        assert_eq!(
+            pkg.test_imports[0].supports_backend(backend),
+            backend == Native
+        );
+    }
+    assert!(matches!(
+        &pkg.test_imports[0],
+        Import::Alias {
+            import_all: true,
+            ..
+        }
+    ));
 }
 
 #[test]
