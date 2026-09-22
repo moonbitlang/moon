@@ -223,8 +223,9 @@ structured commands capture them with their other logs.
 Rupes Recta represents discovered modules and packages as `DiscoveredProject`,
 which contains the `ModuleDependencyGraph`, module directories, and the package-level
 `DiscoverResult`. Package-selection helpers use this data without needing a
-solved package graph. `DiscoveredProject::resolve_packages` validates imports and adds
-`PackageRelations` to produce `ResolvedProject`, using the coverage
+solved package graph. `DiscoveredProject::resolve_packages` validates imports for
+the requested backends and adds one `PackageRelations` per backend to produce
+`ResolvedProject`, using the coverage
 setting captured during discovery. `ResolvedProject` pairs those validated
 package relationships with the declarations and selected module dependencies
 used to resolve them.
@@ -238,14 +239,13 @@ relationships.
 The outer workflow uses `ProjectPreparationConfig` and `ProjectPreparationError`
 because it covers module sync, package discovery, and package resolution.
 `sync_module_dependencies` resolves and synchronizes modules;
-`prepare_synced_project` discovers packages and resolves their relationships.
-`discover_single_file_project` synchronizes and discovers a script's synthesized
-project; script commands immediately call `resolve_packages` before selecting
-a backend. The CLI's `sync_and_discover_project` and its command-specific
-preparation helpers also stop after discovery and return `DiscoveredProject`.
-Command paths explicitly invoke `resolve_packages` at the original preparation point, before package
-selection, planning, or target-directory locking. This keeps the existing
-dependency-error ordering and single package graph.
+`prepare_synced_project` discovers packages and resolves their relationships for
+an explicit backend set. Commands that derive backends from package selection
+use `discover_synced_project` first, select packages and backends, and then call
+`resolve_packages`. Scripts use `discover_single_file_project` so explicit,
+header, and default backend choices are applied before package resolution.
+Every backend selected for the current invocation or watch pass must resolve
+successfully before its build planning begins.
 
 The `source` field in `moon.mod.json` specifies where package scanning starts,
 relative to the folder containing `moon.mod.json`.
