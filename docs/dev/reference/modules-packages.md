@@ -240,10 +240,11 @@ because it covers module sync, package discovery, and package resolution.
 `sync_module_dependencies` resolves and synchronizes modules;
 `prepare_synced_project` discovers packages and resolves their relationships.
 `prepare_single_file_project` performs the corresponding steps for a script.
-The CLI's `sync_and_discover_project` stops after discovery and returns a
-`DiscoveredProject`. Its callers immediately invoke `resolve_packages`, before
-package selection, planning, or target-directory locking. This keeps the
-existing dependency-error ordering and single package graph.
+The CLI's `sync_and_discover_project` and its test/bench preparation wrapper
+stop after discovery and return `DiscoveredProject`. Command paths explicitly
+invoke `resolve_packages` at the original preparation point, before package
+selection, planning, or target-directory locking. This keeps the existing
+dependency-error ordering and single package graph.
 
 The `source` field in `moon.mod.json` specifies where package scanning starts,
 relative to the folder containing `moon.mod.json`.

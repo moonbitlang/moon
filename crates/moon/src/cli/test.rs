@@ -434,7 +434,9 @@ fn run_test_impl(
     let display_backend_hint = targets.len() > 1;
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     validate_test_or_bench_invocation(cli, &test_cmd)?;
-    let resolved_project = prepare_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let discovered =
+        sync_and_discover_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let ret_value = run_test_or_bench_from_resolved(
         cli,
         &test_cmd,
@@ -994,12 +996,12 @@ pub(crate) fn validate_test_or_bench_invocation(
     Ok(())
 }
 
-pub(crate) fn prepare_test_or_bench_project(
+pub(crate) fn sync_and_discover_test_or_bench_project(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     user_log: &UserLog,
-) -> anyhow::Result<moonbuild_rupes_recta::ResolvedProject> {
+) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
     let preparation_config =
         moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
             cmd.auto_sync_flags.frozen,
@@ -1007,8 +1009,7 @@ pub(crate) fn prepare_test_or_bench_project(
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
         );
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)?;
-    Ok(discovered.resolve_packages(user_log)?)
+    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 #[instrument(skip_all)]
@@ -1021,7 +1022,8 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
-    let resolved_project = prepare_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    let discovered = sync_and_discover_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(output.user_log())?;
     run_test_or_bench_from_resolved(
         cli,
         cmd,
