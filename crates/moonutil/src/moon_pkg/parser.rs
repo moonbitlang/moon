@@ -645,6 +645,51 @@ import { "example/dep" }
 }
 
 #[test]
+fn report_misplaced_import_cfg() {
+    for (source, line, column) in [
+        (r#"#cfg(true) options("is-main": true)"#, 1, 1),
+        ("#cfg(true)\nsupported_targets = \"native\"", 1, 1),
+        ("#cfg(true)", 1, 1),
+        ("#cfg(true)\n#cfg(false)\noptions()", 1, 1),
+        ("import {\n  #cfg(true) \"a/b\"\n}", 2, 3),
+        ("options(\n  \"is-main\": #cfg(true)\n)", 2, 14),
+        ("#cfg(#cfg(true)) import {}", 1, 6),
+    ] {
+        assert_eq!(
+            parse(source).unwrap_err().to_string(),
+            format!(
+                "Parsing error: `#cfg` can only be used before an import block at line {line}, column {column}"
+            ),
+            "{source}",
+        );
+    }
+}
+
+#[test]
+fn report_unsupported_import_cfg_condition() {
+    for (source, condition, line, column) in [
+        (r#"#cfg(os = "linux") import {}"#, "os", 1, 6),
+        (r#"#cfg(arch = "aarch64") import {}"#, "arch", 1, 6),
+        ("#cfg(debug) import {}", "debug", 1, 6),
+        ("#cfg(custom(true)) import {}", "custom", 1, 6),
+        (
+            "#cfg(all(target = \"native\",\n  os = \"linux\")) import {}",
+            "os",
+            2,
+            3,
+        ),
+    ] {
+        assert_eq!(
+            parse(source).unwrap_err().to_string(),
+            format!(
+                "Parsing error: unsupported `#cfg` condition `{condition}`; expected `target = \"...\"`, `all(...)`, `any(...)`, `not(...)`, `true`, or `false` at line {line}, column {column}"
+            ),
+            "{source}",
+        );
+    }
+}
+
+#[test]
 fn reject_invalid_import_cfg() {
     for source in [
         r#"#cfg(target = "unknown") import { "a/b" }"#,
