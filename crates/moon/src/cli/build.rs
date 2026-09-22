@@ -181,7 +181,7 @@ fn run_build_for_single_file_rr(
         backend,
         user_log,
     );
-    let resolved = discovered.resolve_packages(user_log)?;
+    let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let _lock;
     if !cli.dry_run {
@@ -487,7 +487,11 @@ pub(crate) fn plan_build_rr_from_discovered(
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     let selections = select_build_plans(&discovered, cmd, selected_target_backends, user_log)?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let target_backends = selections
+        .iter()
+        .map(|selection| selection.target_backend)
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     selections
         .into_iter()
         .map(|selection| {

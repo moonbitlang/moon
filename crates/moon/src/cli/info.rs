@@ -296,7 +296,11 @@ pub(crate) fn run_info(
         .unwrap_or_default();
     let output_plan = imp::plan_info_outputs(&discovered, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
+    let target_backends = execution_targets
+        .iter()
+        .map(|&(backend, _)| backend)
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&target_backends, output.user_log())?;
     std::fs::create_dir_all(target_dir)?;
     let _lock = lock_directory(target_dir, output.user_log())?;
 

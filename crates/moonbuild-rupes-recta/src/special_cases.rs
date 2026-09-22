@@ -60,6 +60,7 @@ pub(crate) fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
             alias: Some("prelude".into()),
             sub_package: false,
             import_all: false,
+            targets: None,
         });
     pkg_json
 }

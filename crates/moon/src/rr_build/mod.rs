@@ -273,7 +273,7 @@ pub(crate) fn prepare_resolved_build(
     if cli.unstable_feature.rr_export_package_graph {
         info!("Exporting package graph DOT file");
         moonbuild_rupes_recta::util::print_package_relations_dot(
-            &resolved_project.package_relations,
+            &resolved_project.package_relations[&target_backend],
             &resolved_project.pkg_dirs,
             &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
         )?;
