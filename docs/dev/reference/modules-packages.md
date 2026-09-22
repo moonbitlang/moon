@@ -252,8 +252,9 @@ structured commands capture them with their other logs.
 Rupes Recta represents discovered modules and packages as `DiscoveredProject`,
 which contains the `ModuleDependencyGraph`, module directories, and the package-level
 `DiscoverResult`. Package-selection helpers use this data without needing a
-solved package graph. `DiscoveredProject::resolve_packages` validates imports and adds
-`PackageRelations` to produce `ResolvedProject`, using the coverage
+solved package graph. `DiscoveredProject::resolve_packages` validates imports for
+the requested backends and adds one `PackageRelations` per backend to produce
+`ResolvedProject`, using the coverage
 setting captured during discovery. `ResolvedProject` pairs those validated
 package relationships with the declarations and selected module dependencies
 used to resolve them.
@@ -267,16 +268,17 @@ relationships.
 The outer workflow uses `ProjectPreparationConfig` and `ProjectPreparationError`
 because it covers module sync, package discovery, and package resolution.
 `sync_module_dependencies` resolves and synchronizes modules;
-`prepare_synced_project` discovers packages and resolves their relationships.
-`discover_single_file_project` synchronizes and discovers a script's synthesized
-project. The CLI's `sync_and_discover_project` and its command-specific
-preparation helpers also stop after discovery and return `DiscoveredProject`.
-Commands using these discovery helpers run discover, select, resolve, and plan
-in that order: they select packages and Target Backends from the
-`DiscoveredProject`, call
-`resolve_packages` once, and plan each selected backend from the shared
-`ResolvedProject`. Selection uses only declared package data, so a selector
-error is reported before a package resolution error.
+`prepare_synced_project` discovers packages and resolves their relationships for
+an explicit backend set. `discover_single_file_project` synchronizes and discovers
+a script's synthesized project. The CLI's `sync_and_discover_project` and its
+command-specific preparation helpers also stop after discovery and return
+`DiscoveredProject`. Commands using these discovery helpers run discover, select,
+resolve, and plan in that order: they select packages and Target Backends from the
+`DiscoveredProject`, call `resolve_packages` once with those backends, and plan
+each selected backend from the shared `ResolvedProject`. Selection uses only
+declared package data, so a selector error is reported before a package resolution
+error. Every backend selected for the current invocation or watch pass must
+resolve successfully before its build planning begins.
 `rr_build::prepare_resolved_build` receives the already selected backend and
 does not choose one itself.
 
