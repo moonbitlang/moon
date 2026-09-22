@@ -29,12 +29,12 @@ use moonutil::{
 };
 use reqwest::{
     StatusCode,
-    header::{ETAG, HeaderValue, IF_NONE_MATCH, USER_AGENT},
+    header::{ETAG, HeaderValue, IF_NONE_MATCH},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::zip_util::extract_zip_to_dir;
+use crate::{registry::download, zip_util::extract_zip_to_dir};
 
 const SYMBOLS_URL: &str = "https://download.mooncakes.io/symbols.zip";
 
@@ -415,7 +415,7 @@ fn download_symbols_zip(
     symbols_url: &str,
     previous_etag: Option<&SymbolsEtag>,
 ) -> anyhow::Result<SymbolsDownload> {
-    let client = reqwest::blocking::Client::new();
+    let client = download::client_with_retry()?;
     let conditional_etag = previous_etag.and_then(|etag| {
         (etag.url == symbols_url)
             .then(|| {
@@ -429,10 +429,7 @@ fn download_symbols_zip(
         tracing::debug!("Ignoring invalid or mismatched symbols.zip ETag");
     }
 
-    let mut request = client.get(symbols_url).header(
-        USER_AGENT,
-        format!("mooncake/{}", env!("CARGO_PKG_VERSION")),
-    );
+    let mut request = client.get(symbols_url);
     if let Some((_, value)) = &conditional_etag {
         request = request.header(IF_NONE_MATCH, value.clone());
     }
