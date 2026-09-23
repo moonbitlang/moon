@@ -1,8 +1,8 @@
 pub fn get_args() -> Array[String] {
-  get_cli_args_internal()
+  Array::from_fixed_array(get_cli_args_internal())
 }
 
-extern "js" fn get_cli_args_internal() -> Array[String] =
+extern "js" fn get_cli_args_internal() -> FixedArray[String] =
   #| function() {
   #|  return process.argv;
   #| }
