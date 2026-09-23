@@ -153,6 +153,9 @@ impl CheckJsonAccumulator {
         };
         self.build_failed |= !successful;
 
+        for error in result.action_errors {
+            user_log.error(error);
+        }
         for message in result.non_diagnostic_output {
             if successful {
                 user_log.info(message);
@@ -872,7 +875,10 @@ fn run_planned_checks(
     } else {
         let result =
             moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
-        result.print_info(cli.quiet, "checking")?;
+        result.print_summary(cli.quiet);
+        if !result.successful() {
+            output.user_log().error("failed when checking project");
+        }
         Ok(result.successful())
     }
 }

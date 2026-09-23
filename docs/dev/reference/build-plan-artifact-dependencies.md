@@ -414,10 +414,19 @@ A single-backend invocation projects one Execution Plan directly; a
 multi-backend invocation first composes its independently lowered Execution
 Plans as described above. Execution translates the composed plan's
 action-backend map to a private map keyed by n2 Build ID. n2 reports completed
-action output with that Build ID; the execution module returns captured output
-with its backend already attached. This lets JSON-formatted `moon check` execute
+action status and output with that Build ID, including silent failures; the
+execution module returns captured output with its backend already attached.
+This lets JSON-formatted `moon check` execute
 the same composed graph while the command layer still annotates each compiler
 diagnostic with its backend.
+
+When a failed action has no structured compiler error, the executor supplies a
+Moon-authored error naming the action and its command. Human commands report it
+through `UserLog`; `moon check --json` includes it in `messages` and
+`summary.moon_errors`, alongside any captured child output. Compiler errors
+remain in `diagnostics` without an additional action error, even when hidden by
+the diagnostic limit. Interrupted actions also carry action context. Failed
+check executions return exit code 1 in both human and JSON modes.
 
 The n2 failure budget applies to the composed invocation-wide graph rather
 than restarting for each backend. JSON output reports every diagnostic that
