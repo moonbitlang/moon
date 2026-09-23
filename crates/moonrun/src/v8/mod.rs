@@ -18,6 +18,8 @@
 
 pub(crate) mod builder;
 pub(crate) mod context;
+mod exception;
+pub(crate) mod ffi_bytes;
 mod host_imports;
 mod memory_sanitizer;
 mod wasi;
@@ -33,8 +35,6 @@ use crate::wasm_diagnostic::{self, DiagnosticLine};
 use anyhow::Context;
 use builder::ScopeExt;
 use std::sync::{Arc, OnceLock};
-
-const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
 
 pub(crate) struct CompiledModule(v8::CompiledWasmModule);
 
@@ -87,10 +87,7 @@ fn format_exception(
         .or_else(|| exception.to_string(scope))
         .context("Moonrun could not read the V8 exception stack")?
         .to_rust_string_lossy(scope);
-    let lines = stack
-        .split('\n')
-        .filter(|line| !line.contains(BUILTIN_SCRIPT_ORIGIN_PREFIX))
-        .map(parse_stack_line);
+    let lines = stack.split('\n').map(parse_stack_line);
     Ok(wasm_diagnostic::render(
         lines,
         classifier.source_map,

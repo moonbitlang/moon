@@ -28,6 +28,61 @@ use crate::runtime::Runtime;
 
 use super::builder::ObjectExt;
 
+/// Failure of a synchronous value import. `V8` preserves an exception or
+/// termination already raised by an engine operation; it must not enter V8 again.
+pub(crate) enum ValueImportError {
+    V8,
+    Type(&'static str),
+    Range(&'static str),
+}
+
+/// Complete one synchronous V8 callback. The operation returns ordinary Rust
+/// results; only this adapter translates an operation error into a JS exception.
+pub(crate) fn value_import<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    mut ret: v8::ReturnValue,
+    operation: impl FnOnce(
+        &mut v8::HandleScope<'s>,
+    ) -> Result<v8::Local<'s, v8::Value>, ValueImportError>,
+) {
+    match operation(scope) {
+        Ok(value) => ret.set(value),
+        Err(ValueImportError::V8) => {}
+        Err(ValueImportError::Type(message)) => {
+            let message =
+                v8::String::new(scope, message).unwrap_or_else(|| v8::String::empty(scope));
+            let exception = v8::Exception::type_error(scope, message);
+            scope.throw_exception(exception);
+        }
+        Err(ValueImportError::Range(message)) => {
+            let message =
+                v8::String::new(scope, message).unwrap_or_else(|| v8::String::empty(scope));
+            let exception = v8::Exception::range_error(scope, message);
+            scope.throw_exception(exception);
+        }
+    }
+}
+
+pub(crate) fn wasm_constructor<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    name: &str,
+) -> anyhow::Result<v8::Local<'s, v8::Function>> {
+    use super::builder::ScopeExt;
+    use anyhow::Context;
+
+    let global = scope.get_current_context().global(scope);
+    let key = scope.string("WebAssembly");
+    let webassembly = global
+        .get(scope, key.into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .context("V8 did not provide WebAssembly")?;
+    let key = scope.string(name);
+    webassembly
+        .get(scope, key.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+        .with_context(|| format!("V8 did not provide WebAssembly.{name}"))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum V8ImportError {
     Fault,

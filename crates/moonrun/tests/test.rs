@@ -270,8 +270,13 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
     let redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
     let assert = snapbox::Assert::new().redact_with(redactions);
 
-    let abort_closure_output = if cfg!(feature = "wasmtime") {
-        snapbox::str![[r#"
+    // The native exception callback adds no JavaScript frame, so both engines
+    // now retain the outer Wasm test-driver frame.
+    moon_test_case(&dir, &["--filter", "stacktrace test abort closure"])
+        .with_assert(assert.clone())
+        .assert()
+        .failure()
+        .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
     at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
@@ -285,28 +290,7 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
     at @username/hello/main.moonbit_test_driver_internal_execute_wrapper/[..] [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
 Total tests: 1, passed: 0, failed: 1.
 
-"#]]
-    } else {
-        snapbox::str![[r#"
-[username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall
-    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-Total tests: 1, passed: 0, failed: 1.
-
-"#]]
-    };
-    moon_test_case(&dir, &["--filter", "stacktrace test abort closure"])
-        .with_assert(assert.clone())
-        .assert()
-        .failure()
-        .stdout_eq(abort_closure_output);
+"#]]);
 
     moon_test_case(&dir, &["main/main.mbt", "--index", "1"])
         .with_assert(assert.clone())
