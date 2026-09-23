@@ -505,7 +505,7 @@ mod tests {
             (import "__moonbit_fs_unstable" "begin_read_string" (func $sr (param externref) (result externref)))
             (import "__moonbit_fs_unstable" "string_read_char" (func $sc (param externref) (result i32)))
             (import "__moonbit_fs_unstable" "begin_create_byte_array" (func $bb (result externref)))
-            (import "__moonbit_fs_unstable" "byte_array_append_byte" (func $ba (param externref i32)))
+            (import "__moonbit_fs_unstable" "byte_array_append_byte" (func $append_byte (param externref i32)))
             (import "__moonbit_fs_unstable" "finish_create_byte_array" (func $bf (param externref) (result externref)))
             (import "__moonbit_fs_unstable" "begin_read_byte_array" (func $br (param externref) (result externref)))
             (import "__moonbit_fs_unstable" "byte_array_read_byte" (func $bc (param externref) (result i32)))
@@ -516,7 +516,7 @@ mod tests {
                 call $bb local.set $bytes
                 loop $append
                     global.get $string_builder local.get $i i32.const 0xd800 i32.add call $sa
-                    local.get $bytes local.get $i call $ba
+                    local.get $bytes local.get $i call $append_byte
                     local.get $i i32.const 127 i32.and i32.eqz if call $gc end
                     local.get $i i32.const 1 i32.add local.tee $i i32.const 2049 i32.lt_u br_if $append
                 end
