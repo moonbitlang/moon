@@ -11,6 +11,98 @@ fn parse_complete_json(assert: snapbox::cmd::OutputAssert) -> serde_json::Value 
 }
 
 #[test]
+fn test_moon_check_prebuild_failure() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"tmp/prebuild\"\n").unwrap();
+    std::fs::write(dir.join("in.txt"), "").unwrap();
+    std::fs::write(dir.join("main.mbt"), "pub fn hi() -> Int { 1 }\n").unwrap();
+
+    let commands = if cfg!(windows) {
+        [
+            "cmd /c exit 1",
+            "cmd /c \"echo generator failed 1>&2 & exit /b 7\"",
+        ]
+    } else {
+        ["false", "echo generator failed >&2; exit 7"]
+    };
+    for (command, has_output) in commands.into_iter().zip([false, true]) {
+        std::fs::write(
+            dir.join("moon.pkg"),
+            format!(
+                "options(\"pre-build\": [{{ \"command\": {}, \"input\": [\"in.txt\"], \"output\": \"generated.mbt\" }}])\n",
+                serde_json::to_string(command).unwrap()
+            ),
+        )
+        .unwrap();
+
+        for flags in [
+            vec![],
+            vec!["--quiet"],
+            vec!["--verbose", "--target", "all"],
+        ] {
+            let report = parse_complete_json(
+                moon_cmd(&dir)
+                    .args(["check", "--json"])
+                    .args(flags)
+                    .assert()
+                    .code(1),
+            );
+            assert_eq!(report["status"], "failure");
+            assert_eq!(report["diagnostics"], serde_json::json!([]));
+            assert_eq!(report["summary"]["diagnostic_errors"], 0);
+            assert_eq!(
+                report["summary"]["moon_errors"],
+                if has_output { 2 } else { 1 }
+            );
+            let message = &report["messages"][0];
+            assert_eq!(message["$message_type"], "moon");
+            assert_eq!(message["level"], "error");
+            let reported_command = message["message"]
+                .as_str()
+                .unwrap()
+                .strip_prefix("Failed to run script tmp/prebuild generated.mbt (prebuild): ")
+                .expect("the failure should identify the package and prebuild action");
+            let argv = moonutil::shlex::split_native_args(reported_command).unwrap();
+            assert_eq!(&argv[1..], ["tool", "exec", "--shell", command]);
+            if has_output {
+                assert!(
+                    report["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|message| {
+                            message["level"] == "error"
+                                && message["message"].as_str().unwrap().trim() == "generator failed"
+                        })
+                );
+            }
+        }
+
+        moon_cmd(&dir)
+            .args(["check", "--quiet"])
+            .assert()
+            .code(1)
+            .stdout_eq("")
+            .stderr_eq(if has_output {
+                snapbox::str![[r#"
+Error: Failed to run script tmp/prebuild generated.mbt (prebuild): [..]
+generator failed[..]
+Failed with 0 warnings, 1 errors.
+Error: failed when checking project
+
+"#]]
+            } else {
+                snapbox::str![[r#"
+Error: Failed to run script tmp/prebuild generated.mbt (prebuild): [..]
+Failed with 0 warnings, 1 errors.
+Error: failed when checking project
+
+"#]]
+            });
+    }
+}
+
+#[test]
 fn test_moon_check_complete_json_success() {
     let dir = TestDir::new("warns/deny_warn");
     let report = parse_complete_json(
@@ -66,7 +158,7 @@ fn test_moon_check_complete_json_compiler_failure() {
         moon_cmd(&dir)
             .args(["check", "--json", "--diagnostic-limit", "1", "-j1"])
             .assert()
-            .failure(),
+            .code(1),
     );
 
     assert_eq!(report["status"], "failure");
@@ -78,6 +170,11 @@ fn test_moon_check_complete_json_compiler_failure() {
     assert_eq!(report["summary"]["moon_warnings"], 2);
     assert_eq!(report["summary"]["diagnostic_errors"], 1);
     assert_eq!(report["summary"]["diagnostic_warnings"], 3);
+
+    moon_cmd(&dir)
+        .args(["check", "--diagnostic-limit", "1", "-j1"])
+        .assert()
+        .code(1);
 }
 
 #[test]
