@@ -163,7 +163,18 @@ fn test_moon_run_with_cli_args() {
     let s = get_stdout(
         &dir,
         [
-            "run", "main", "--target", "js", "--", "中文", "😄👍", "hello", "1242", "--flag",
+            "run",
+            "main",
+            "--target",
+            "js",
+            "--warn-list",
+            "@deprecated",
+            "--",
+            "中文",
+            "😄👍",
+            "hello",
+            "1242",
+            "--flag",
         ],
     );
     assert!(s.contains(expected_args));
