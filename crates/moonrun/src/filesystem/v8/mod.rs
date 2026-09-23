@@ -19,6 +19,7 @@
 //! V8 adapter for MoonBit's unstable filesystem import object.
 
 mod runtime;
+mod values;
 mod whole_file;
 
 use std::any::Any;
@@ -35,7 +36,8 @@ pub(crate) fn init_env<'s>(
     environment: Arc<Env>,
     filesystem: Arc<HostFs>,
     dtors: &mut Vec<Box<dyn Any>>,
-) {
+) -> anyhow::Result<()> {
     runtime::register(obj, scope, wasm_file_name, args, environment, dtors);
     whole_file::register(obj, scope, filesystem, dtors);
+    values::register(obj, scope)
 }

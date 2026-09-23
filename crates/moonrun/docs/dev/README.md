@@ -14,6 +14,37 @@
   deliver one upstream port at a time, and mark the originating async pull
   request completed after the Moon change lands.
 
+## V8 value imports
+
+The imports are grouped by their guest ABI:
+
+- `filesystem/v8/values.rs` registers the string/array helpers alongside the
+  other `__moonbit_fs_unstable` imports.
+- `v8/ffi_bytes.rs` implements `ffi-bytes` and owns its memory registration.
+- `v8/exception.rs` implements the exception tag and throw import.
+
+These are synchronous Rust entry points. The shared callback adapter translates
+Rust errors into V8 exceptions and preserves an existing V8 exception or
+termination. Import setup does not compile JavaScript source. The WebAssembly
+tag, exception, and memory constructors still use V8's native builtin API because
+the pinned Rust bindings do not expose equivalent dedicated constructors.
+
+Strings preserve UTF-16 code units, including unpaired surrogates. Builders own
+private V8 ArrayBuffers with geometric growth; readers retain their live source.
+The buffer/source and position are direct GC-traced fields of opaque, branded
+objects. Rust uses temporary typed views and owns no persistent builder/reader
+payload. Finishing a builder creates an independent value. The exception adapter
+retains its constructor and tag through strong V8 handles for the duration of a Run.
+Byte slicing preserves relative/clamped indices, copying permits overlapping
+views, and `ffi-bytes.memory` is reacquired after growth. Byte views may only be
+borrowed after argument conversion, with no further V8 calls during access.
+
+The Wasm boundary tests in `tests/v8_native_imports.rs` cover these contracts,
+catchable failures, and exception-tag identity. The value-helper GC test exercises
+growth and collection with builders/readers retained only by Wasm locals/globals.
+Removing the old JS throw helper
+also leaves one more slot for guest frames in V8's default stack-trace limit.
+
 ## Worker cancellation
 
 The cancellation protocol follows upstream async #595. Workers acknowledge a

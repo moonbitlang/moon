@@ -18,11 +18,10 @@
 
 //! Host imports installed by Moonrun's current V8 backend.
 
-use super::builder::{ArgsExt, ObjectExt, ScopeExt};
+use super::builder::{ArgsExt, ObjectExt};
 use super::context;
 use crate::runtime::{Stdio, Utf16Writer};
 use crate::{async_api, core_api, filesystem, run_termination, sqlite, util};
-use anyhow::Context;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -30,11 +29,6 @@ use std::any::Any;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
-
-const JS_GLUE: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/template/js_glue.js"
-));
 
 struct PrintEnv {
     writer: Utf16Writer,
@@ -283,7 +277,7 @@ fn is_windows(
 
 /// Build the complete import object and retain the V8 adapter state required
 /// after instantiation. Callers do not need to know which imports are Rust
-/// callbacks and which require native JavaScript values.
+/// callbacks or V8-native values.
 pub(super) fn install<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
@@ -376,7 +370,7 @@ pub(super) fn install<'s>(
             environment,
             filesystem,
             &mut retained_callback_state,
-        );
+        )?;
     }
     {
         let io = module_imports.child(scope, "__moonbit_io_unstable");
@@ -421,51 +415,10 @@ pub(super) fn install<'s>(
         &mut retained_callback_state,
     );
 
-    // These imports must be JavaScript values rather than Rust callbacks:
-    // strings and arrays cross the Wasm boundary as native JS values, while
-    // exception and ffi-bytes depend directly on WebAssembly's JS interface.
-    let code = scope.string(JS_GLUE);
-    let origin_name = format!("{}wasm_mode_entry", super::BUILTIN_SCRIPT_ORIGIN_PREFIX);
-    let origin_name = scope.string(&origin_name);
-    let script_origin = v8::ScriptOrigin::new(
-        scope,
-        origin_name.into(),
-        0,
-        0,
-        false,
-        0,
-        None,
-        false,
-        false,
-        false,
-        None,
-    );
-    let mut source = v8::script_compiler::Source::new(code, Some(&script_origin));
-    let module_imports_parameter = scope.string("module_imports");
-    let entry = v8::script_compiler::compile_function(
-        scope,
-        &mut source,
-        &[module_imports_parameter],
-        &[],
-        v8::script_compiler::CompileOptions::NoCompileOptions,
-        v8::script_compiler::NoCacheReason::BecauseCachingDisabled,
-    )
-    .context("failed to compile Moonrun's V8 imports")?;
-    {
-        let scope = &mut v8::TryCatch::new(scope);
-        let receiver = v8::undefined(scope).into();
-        if entry
-            .call(scope, receiver, &[module_imports.into()])
-            .is_none()
-        {
-            let error = scope
-                .stack_trace()
-                .or_else(|| scope.exception())
-                .context("Moonrun's V8 import setup failed without an exception")?
-                .to_rust_string_lossy(scope);
-            anyhow::bail!("failed to initialize Moonrun's V8 imports: {error}");
-        }
-    }
+    let bytes = module_imports.child(scope, "ffi-bytes");
+    super::ffi_bytes::install(scope, bytes)?;
+    let exception = module_imports.child(scope, "exception");
+    super::exception::install(scope, exception, &mut retained_callback_state)?;
 
     Ok(InstalledImports {
         module_imports,
