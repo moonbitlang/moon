@@ -234,13 +234,22 @@ impl BuildStats {
     }
 
     pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
+        self.print_summary(quiet);
+        if !self.successful() {
+            anyhow::bail!("failed when {mode} project");
+        }
+        Ok(())
+    }
+
+    /// Print the build summary without converting a failed build into an error.
+    /// Callers that own their exit status can use `successful` directly.
+    pub fn print_summary(&self, quiet: bool) {
         match self.n_tasks_executed {
             None => {
                 eprintln!(
                     "Failed with {} warnings, {} errors.",
                     self.n_warnings, self.n_errors
                 );
-                anyhow::bail!("failed when {mode} project");
             }
             Some(n_tasks) => {
                 if !quiet {
@@ -265,7 +274,6 @@ impl BuildStats {
                 }
             }
         }
-        Ok(())
     }
 }
 
@@ -277,6 +285,8 @@ struct CapturedBuildExecution {
 struct CapturedActionOutput {
     target_backend: Option<TargetBackend>,
     content: ResultCatcher,
+    /// Failure context when compiler diagnostics do not explain the failure.
+    error: Option<String>,
 }
 
 impl CapturedBuildExecution {
@@ -343,6 +353,8 @@ pub struct JsonBuildOutput {
     pub hidden_errors: usize,
     pub hidden_warnings: usize,
     pub diagnostics: Vec<JsonBuildDiagnostic>,
+    /// Moon-authored task failures, separate from compiler diagnostics.
+    pub action_errors: Vec<String>,
     pub non_diagnostic_output: Vec<String>,
 }
 
@@ -411,6 +423,11 @@ pub fn execute_build_json(
         hidden_errors,
         hidden_warnings,
         diagnostics,
+        action_errors: execution
+            .action_outputs
+            .into_iter()
+            .filter_map(|output| output.error)
+            .collect(),
         non_diagnostic_output,
     })
 }
@@ -428,14 +445,12 @@ pub fn execute_test_build(
     user_log: &UserLog,
 ) -> anyhow::Result<BuildStats> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
-    let sources = execution.diagnostic_sources(build_metas.iter().copied());
-    let processed = process_captured_diagnostics(&sources, cfg);
-    processed.warn_if_limited(user_log);
-    Ok(BuildStats {
-        n_tasks_executed: execution.n_tasks_executed,
-        n_errors: processed.n_errors,
-        n_warnings: processed.n_warnings,
-    })
+    Ok(finish_captured_build(
+        cfg,
+        &execution,
+        build_metas.iter().copied(),
+        user_log,
+    ))
 }
 
 /// Rebuild only the requested outputs and their prerequisites, for example
@@ -466,18 +481,27 @@ fn execute_build_capturing(
     )
 }
 
-fn finish_captured_build(
+fn finish_captured_build<'a>(
     cfg: &BuildConfig,
-    execution: &CapturedBuildExecution,
-    build_meta: Option<&BuildMeta>,
+    execution: &'a CapturedBuildExecution,
+    build_metas: impl IntoIterator<Item = &'a BuildMeta>,
     user_log: &UserLog,
 ) -> BuildStats {
-    let sources = execution.diagnostic_sources(build_meta);
+    let mut action_errors = 0;
+    for error in execution
+        .action_outputs
+        .iter()
+        .filter_map(|output| output.error.as_ref())
+    {
+        user_log.error(error);
+        action_errors += 1;
+    }
+    let sources = execution.diagnostic_sources(build_metas);
     let processed = process_captured_diagnostics(&sources, cfg);
     processed.warn_if_limited(user_log);
     BuildStats {
         n_tasks_executed: execution.n_tasks_executed,
-        n_errors: processed.n_errors,
+        n_errors: processed.n_errors + action_errors,
         n_warnings: processed.n_warnings,
     }
 }
