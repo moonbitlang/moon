@@ -52,10 +52,15 @@ impl fmt::Display for ParseError {
             ),
             ParseError::UnexpectedToken(token) => {
                 let loc = token.range();
+                if matches!(token, Token::CFG(_)) {
+                    write!(f, "`#cfg` can only be used before an import block")?;
+                } else {
+                    write!(f, "unexpected token {token}")?;
+                }
                 write!(
                     f,
-                    "unexpected token {} at line {}, column {}",
-                    token, loc.start.line, loc.start.column
+                    " at line {}, column {}",
+                    loc.start.line, loc.start.column
                 )
             }
             ParseError::IntegerOutOfRange { literal, loc } => {
@@ -327,11 +332,19 @@ impl Parser {
                     })
                     .collect())
             }
-            _ => Err(ParseError::UnexpectedToken(token)),
+            Token::CFG(_) => Err(ParseError::UnexpectedToken(token)),
+            _ => Err(ParseError::InvalidCfg {
+                message: format!(
+                    "unsupported `#cfg` condition `{token}`; expected `target = \"...\"`, \
+                     `all(...)`, `any(...)`, `not(...)`, `true`, or `false`"
+                ),
+                loc: token.range().clone(),
+            }),
         }
     }
 
     fn parse_conditional_import(&self) -> Result<(String, Value), ParseError> {
+        let cfg_token = self.peek().clone();
         let mut targets = TargetBackend::all().to_vec();
         while self.peek().kind() == TokenKind::CFG {
             let loc = self.peek().range().clone();
@@ -351,7 +364,7 @@ impl Parser {
             targets.retain(|backend| condition.contains(backend));
         }
         if self.peek().kind() != TokenKind::IMPORT {
-            return Err(ParseError::UnexpectedToken(self.peek().clone()));
+            return Err(ParseError::UnexpectedToken(cfg_token));
         }
         self.parse_import_statement(Some(&targets))
     }
@@ -608,6 +621,51 @@ import { "example/dep" }
             json!([{"path": "example/dep", "targets": ["Native"]}]),
         )],
     );
+}
+
+#[test]
+fn report_misplaced_import_cfg() {
+    for (source, line, column) in [
+        (r#"#cfg(true) options("is-main": true)"#, 1, 1),
+        ("#cfg(true)\nsupported_targets = \"native\"", 1, 1),
+        ("#cfg(true)", 1, 1),
+        ("#cfg(true)\n#cfg(false)\noptions()", 1, 1),
+        ("import {\n  #cfg(true) \"a/b\"\n}", 2, 3),
+        ("options(\n  \"is-main\": #cfg(true)\n)", 2, 14),
+        ("#cfg(#cfg(true)) import {}", 1, 6),
+    ] {
+        assert_eq!(
+            parse(source).unwrap_err().to_string(),
+            format!(
+                "Parsing error: `#cfg` can only be used before an import block at line {line}, column {column}"
+            ),
+            "{source}",
+        );
+    }
+}
+
+#[test]
+fn report_unsupported_import_cfg_condition() {
+    for (source, condition, line, column) in [
+        (r#"#cfg(os = "linux") import {}"#, "os", 1, 6),
+        (r#"#cfg(arch = "aarch64") import {}"#, "arch", 1, 6),
+        ("#cfg(debug) import {}", "debug", 1, 6),
+        ("#cfg(custom(true)) import {}", "custom", 1, 6),
+        (
+            "#cfg(all(target = \"native\",\n  os = \"linux\")) import {}",
+            "os",
+            2,
+            3,
+        ),
+    ] {
+        assert_eq!(
+            parse(source).unwrap_err().to_string(),
+            format!(
+                "Parsing error: unsupported `#cfg` condition `{condition}`; expected `target = \"...\"`, `all(...)`, `any(...)`, `not(...)`, `true`, or `false` at line {line}, column {column}"
+            ),
+            "{source}",
+        );
+    }
 }
 
 #[test]

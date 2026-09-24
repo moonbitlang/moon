@@ -93,6 +93,33 @@ pub(crate) fn sync_and_discover_project(
     )?)
 }
 
+/// Resolve the explicit backends or the backends selected by package groups.
+/// Empty implicit groups use the project default; return that choice for the
+/// planner's empty-package path so it does not select a backend again.
+pub(crate) fn resolve_project_for_targets(
+    discovered: DiscoveredProject,
+    explicit_backends: &[TargetBackend],
+    implicit_groups: Option<&[crate::filter::TargetPackageGroup]>,
+    user_log: &UserLog,
+) -> anyhow::Result<(ResolvedProject, Option<TargetBackend>)> {
+    let fallback_backend = implicit_groups
+        .filter(|groups| groups.is_empty())
+        .map(|_| local_modules_preferred_target(&discovered, user_log).unwrap_or_default());
+    let backends = if let Some(groups) = implicit_groups {
+        groups
+            .iter()
+            .map(|group| group.target_backend)
+            .chain(fallback_backend)
+            .collect::<Vec<_>>()
+    } else {
+        explicit_backends.to_vec()
+    };
+    Ok((
+        discovered.resolve_packages(&backends, user_log)?,
+        fallback_backend,
+    ))
+}
+
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
     /// The list of user intents; will be expanded to requested artifacts later.
@@ -173,7 +200,7 @@ pub(crate) fn local_packages(
     })
 }
 
-fn local_modules_preferred_target(
+pub(crate) fn local_modules_preferred_target(
     discovered: &DiscoveredProject,
     user_log: &UserLog,
 ) -> Option<TargetBackend> {
@@ -284,15 +311,6 @@ pub(crate) fn prepare_resolved_build(
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
-    if cli.unstable_feature.rr_export_package_graph {
-        info!("Exporting package graph DOT file");
-        moonbuild_rupes_recta::util::print_package_relations_dot(
-            &resolved_project.package_relations,
-            &resolved_project.pkg_dirs,
-            &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
-        )?;
-    }
-
     // Preferred backend
     info!("Checking local modules and backend");
     let main_module = match resolved_project.local_modules() {
@@ -309,6 +327,15 @@ pub(crate) fn prepare_resolved_build(
     let target_backend = selected_target_backend
         .or(preferred_target)
         .unwrap_or_default();
+
+    if cli.unstable_feature.rr_export_package_graph {
+        info!("Exporting package graph DOT file");
+        moonbuild_rupes_recta::util::print_package_relations_dot(
+            &resolved_project.package_relations[&target_backend],
+            &resolved_project.pkg_dirs,
+            &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
+        )?;
+    }
 
     // TODO: remove this once LLVM backend is well supported
     if target_backend == TargetBackend::LLVM {
