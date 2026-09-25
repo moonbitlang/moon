@@ -2,13 +2,12 @@
 
 ## Status
 
-This document records the intended direction for global dependency and build
-caches. Cache-root configuration and cleaning are implemented. Standalone
-`moon run` inputs reuse immutable registry dependency sources through the
-dependency cache. The pure canonical identity calculation for execution actions
-is also implemented in `moonbuild::execution::action_identity`, but builds do
-not yet read from or write to the global artifact cache and identity calculation
-is not connected to execution.
+Cache-root configuration, cleaning, and standalone dependency-source reuse are
+implemented. `MOON_HASH_ENGINE=1` enables an experimental hash executor for
+`wasm` and `wasm-gc`. It executes Rupes Recta Execution Plans directly and uses
+the global build cache for complete successful action results and failed
+compiler diagnostics. n2 remains the default. Native backends are rejected explicitly
+by the experimental executor.
 
 ## Problem
 
@@ -72,11 +71,71 @@ dependencies, its `.mooncakes` directory lives under the per-script build root
 (for example, `_build/script.mbtx/.mooncakes`) and follows `--target-dir`.
 Ordinary projects and workspaces retain their project-local dependency
 directories.
-`MOON_BUILD_CACHE` still configures and cleans its future root only.
+With `MOON_HASH_ENGINE=1`, `MOON_BUILD_CACHE` selects the action-result store.
+Setting it to `off` runs the hash executor without result reuse; there is no
+second project-local cache or `.moon_db`. Engine selection is captured once
+inside `moonbuild::execution`, rather than read by individual CLI commands.
 
-Canonical action identity is also implemented as a pure consumer of the Rupes
-Recta `ExecutionPlan`. It is not connected to build execution or either cache
-root yet.
+### Action-result layout
+
+The first two hexadecimal digits shard the action digest so a large cache does
+not put every entry in one directory:
+
+```text
+$MOON_BUILD_CACHE/
+  .moon-cache                    # existing ownership marker
+  v1/
+    ab/
+      <remaining 62 hex digits>/
+        .moon-lock               # stable per-action directory lock
+        result/
+          record.json            # action digest, exit status, output paths and digests
+          diagnostics            # original combined stdout/stderr bytes
+          0                      # first declared output
+          1                      # second declared output, if any
+        staging-<unique>/        # unpublished result while a writer is active
+```
+
+The record binds the exit status, complete output set, and diagnostics to the
+action digest. A failed compiler result stores its nonzero exit status and
+diagnostics without output artifacts. Each output and the diagnostic stream
+has a BLAKE3 content digest. The store
+uses ordinal blob names, never paths from a record, to address cached files.
+Output paths must match the current plan before restoration. The cache contains
+independent file copies, so modifying project outputs cannot modify cached
+results. Unchanged project output bytes are left in place to preserve mtimes.
+
+A writer acquires the action directory lock, then checks for a complete valid
+result. This check happens after waiting: if another process has published a
+result, the waiter restores its exit status and diagnostics without executing
+the command, along with output artifacts when it succeeded. Otherwise it holds
+the lock through execution and publication.
+Distinct action keys have distinct locks and may execute concurrently.
+
+All result files are written in a staging directory before it is renamed to
+`result`. Readers validate every output and the diagnostics before restoring
+anything. Missing or corrupt data is a miss. Ordinary compiler failures are
+replayed and block dependent actions just as fresh failures do. Failed launches
+and interrupted commands publish no result; shell statuses 126 and above are
+also excluded because they can represent launch errors or signal termination.
+An abandoned staging directory is never a hit. The lock file itself is never
+removed or renamed while publishing, preserving the identity used by waiting
+processes.
+
+The existing target-directory lock still protects mutable outputs across
+planning, execution, and consumption. The cache directory lock protects only
+one immutable action result; it does not replace that target lock. Concurrent
+manual cleaning of the build cache is unsupported, as with dependency sources.
+
+The executor schedules only the requested output closure, honors `--jobs`, and
+blocks consumers of failed producers. Actions with unmodeled inputs execute
+normally and are not cached; their ineligibility propagates to consumers.
+Canonical identities include the effective environment and working directory.
+The executor captures inherited values once and passes the same snapshot to
+hashing and child processes. Physical paths remain part of identity, so this
+first store does not promise reuse across relocated projects or private work
+directories. Native input auditing and relocatable actions remain follow-up
+work.
 
 ### Cleaning
 
@@ -316,11 +375,12 @@ Each stage should be useful and reviewable without requiring the next:
    private fallback when caching is off. Other command families remain local.
 3. **Private standalone work:** stop sharing mutable `_build` trees between
    standalone invocations; place `__moonbin__` there.
-4. **Action model (implemented, not execution-wired):** define and test
+4. **Action model (implemented and used by the experimental executor):** define and test
    canonical action inputs at the Rupes Recta compiler boundary, including
    resolved interfaces and target facts.
-5. **Artifact cache:** publish and restore complete `.mi`/`.core` result sets
-   with concurrency and corruption tests.
+5. **Artifact cache (experimental for Wasm backends):** publish and restore
+   complete successful action results and failed compiler diagnostics, with
+   directory locking and corruption tests. Native and relocatable results remain future work.
 6. **Build constraints and cross compilation:** extend the target descriptor
    and action identity without changing storage-path semantics.
 7. **Operations:** add recency tracking, pruning, diagnostics, and format
