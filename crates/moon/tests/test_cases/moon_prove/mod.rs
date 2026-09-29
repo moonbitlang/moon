@@ -93,6 +93,29 @@ fn test_moon_prove_dry_run() {
 }
 
 #[test]
+fn test_moon_prove_prefers_standalone_moonc_prove() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_prefers_standalone_moonc_prove") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/mixed.in");
+    let moonc_prove = dir.join("moonc-prove");
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["prove", "zzok", "--dry-run"],
+        [("MOONC_PROVE_OVERRIDE", moonc_prove.as_os_str())],
+    );
+
+    assert!(
+        stdout.starts_with("'$MOONC_PROVE_OVERRIDE' ./zzok/"),
+        "prove should invoke the standalone `moonc-prove`, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("moonc prove"),
+        "prove should not fall back to `moonc prove`, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_moon_prove_core_always_loads_prelude_proof() {
     if skip_unless_verification_tests_enabled("test_moon_prove_core_always_loads_prelude_proof") {
         return;

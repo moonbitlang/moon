@@ -19,11 +19,34 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{
-    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, DepProof,
-};
+use moonutil::toolchain::BINARIES;
 
-/// Abstraction for `moonc prove`.
+use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, DepProof};
+
+/// The program that runs the prover.
+///
+/// The prover is migrating from the `moonc prove` subcommand to a standalone
+/// `moonc-prove` executable that accepts the same arguments.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ProveDriver<'a> {
+    /// The standalone `moonc-prove` executable.
+    Standalone(&'a Path),
+    /// The legacy `moonc prove` subcommand.
+    MooncSubcommand(&'a Path),
+}
+
+impl ProveDriver<'static> {
+    /// Prefer `moonc-prove` when the toolchain provides it, otherwise fall back
+    /// to `moonc prove`.
+    pub fn from_toolchain() -> Self {
+        match BINARIES.moonc_prove.as_deref() {
+            Some(moonc_prove) => Self::Standalone(moonc_prove),
+            None => Self::MooncSubcommand(&BINARIES.moonc),
+        }
+    }
+}
+
+/// Abstraction for `moonc-prove`, or `moonc prove` on older toolchains.
 #[derive(Debug)]
 pub(crate) struct MooncProve<'a> {
     pub required: BuildCommonInput<'a>,
@@ -38,10 +61,21 @@ pub(crate) struct MooncProve<'a> {
     pub extra_flags: &'a [String],
 }
 
-impl<'a> CmdlineAbstraction for MooncProve<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        args.push("prove".into());
+impl<'a> MooncProve<'a> {
+    /// Build the full command, including the program selected by `driver`.
+    pub fn build_command(&self, driver: ProveDriver<'_>) -> Vec<String> {
+        let mut args = Vec::new();
+        match driver {
+            ProveDriver::Standalone(exe) => args.push(exe.to_string_lossy().into_owned()),
+            ProveDriver::MooncSubcommand(moonc) => {
+                args.extend([moonc.to_string_lossy().into_owned(), "prove".to_string()])
+            }
+        }
+        self.to_args(&mut args);
+        args
+    }
 
+    fn to_args(&self, args: &mut Vec<String>) {
         self.defaults.add_patch_file_moonc(args);
         self.defaults.add_error_format(args);
         self.required.add_mbt_sources(args);
