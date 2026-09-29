@@ -42,6 +42,7 @@ pub const RESERVED_BIN_NAMES: &[&str] = &[
     "moon",
     "moonx",
     "moonc",
+    "moonc-prove",
     "mooncake",
     "moondoc",
     "moonfmt",
