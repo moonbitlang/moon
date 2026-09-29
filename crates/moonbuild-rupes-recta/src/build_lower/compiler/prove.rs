@@ -46,6 +46,18 @@ impl ProveDriver<'static> {
     }
 }
 
+impl ProveDriver<'_> {
+    /// The leading arguments that invoke the prover.
+    fn program_args(self) -> Vec<String> {
+        match self {
+            Self::Standalone(moonc_prove) => vec![moonc_prove.to_string_lossy().into_owned()],
+            Self::MooncSubcommand(moonc) => {
+                vec![moonc.to_string_lossy().into_owned(), "prove".to_string()]
+            }
+        }
+    }
+}
+
 /// Abstraction for `moonc-prove`, or `moonc prove` on older toolchains.
 #[derive(Debug)]
 pub(crate) struct MooncProve<'a> {
@@ -64,13 +76,7 @@ pub(crate) struct MooncProve<'a> {
 impl<'a> MooncProve<'a> {
     /// Build the full command, including the program selected by `driver`.
     pub fn build_command(&self, driver: ProveDriver<'_>) -> Vec<String> {
-        let mut args = Vec::new();
-        match driver {
-            ProveDriver::Standalone(exe) => args.push(exe.to_string_lossy().into_owned()),
-            ProveDriver::MooncSubcommand(moonc) => {
-                args.extend([moonc.to_string_lossy().into_owned(), "prove".to_string()])
-            }
-        }
+        let mut args = driver.program_args();
         self.to_args(&mut args);
         args
     }
@@ -123,5 +129,24 @@ impl<'a> MooncProve<'a> {
         for flag in self.extra_flags {
             args.push(flag.to_string());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::ProveDriver;
+
+    #[test]
+    fn standalone_driver_invokes_moonc_prove_directly() {
+        let args = ProveDriver::Standalone(Path::new("bin/moonc-prove")).program_args();
+        assert_eq!(args, ["bin/moonc-prove"]);
+    }
+
+    #[test]
+    fn legacy_driver_invokes_moonc_prove_subcommand() {
+        let args = ProveDriver::MooncSubcommand(Path::new("bin/moonc")).program_args();
+        assert_eq!(args, ["bin/moonc", "prove"]);
     }
 }

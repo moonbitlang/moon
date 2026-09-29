@@ -165,6 +165,19 @@ pub fn get_stdout_with_envs(
     replace_dir(&s, dir)
 }
 
+/// Run a `moon prove --dry-run` with the standalone prover pinned through
+/// `MOONC_PROVE_OVERRIDE`, so the output does not depend on whether the
+/// installed toolchain ships `moonc-prove`. The prover is displayed as
+/// `$MOONC_PROVE_OVERRIDE`.
+#[track_caller]
+pub fn get_prove_dry_run_stdout(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> String {
+    let moonc_prove = dir.as_ref().join("moonc-prove");
+    get_stdout_with_envs(dir, args, [("MOONC_PROVE_OVERRIDE", moonc_prove)])
+}
+
 #[track_caller]
 pub fn get_stderr(
     dir: &impl AsRef<std::path::Path>,
