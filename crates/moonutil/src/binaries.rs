@@ -39,6 +39,7 @@ fn resolve_executable_override(path: &OsStr) -> PathBuf {
 const EXECUTABLE_OVERRIDES: &[&str] = &[
     "MOON_OVERRIDE",
     "MOONC_OVERRIDE",
+    "MOONC_PROVE_OVERRIDE",
     "MOONCAKE_OVERRIDE",
     "MOON_IDE_OVERRIDE",
     "MOONDOC_OVERRIDE",
@@ -70,19 +71,44 @@ pub(crate) fn configured_binary_overrides() -> Vec<(&'static str, PathBuf)> {
         .collect()
 }
 
+fn resolution_dir() -> PathBuf {
+    std::env::current_dir().expect("failed to get current directory for executable resolution")
+}
+
 fn moon_executable(binary_name: &str, env_var: &str) -> PathBuf {
-    let current_dir =
-        std::env::current_dir().expect("failed to get current directory for executable resolution");
-    moon_executable_in(binary_name, env_var, &current_dir)
+    moon_executable_in(binary_name, env_var, &resolution_dir())
 }
 
 fn moon_executable_in(binary_name: &str, env_var: &str, current_dir: &std::path::Path) -> PathBuf {
+    try_moon_executable_in(binary_name, env_var, current_dir).unwrap_or_else(|| {
+        panic!(
+            "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
+             Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
+            ensure_exe_extension(crate::moon_dir::bin().join(binary_name)).display()
+        )
+    })
+}
+
+/// Resolve a MoonBit tool that may be absent from the installed toolchain.
+fn optional_moon_executable(binary_name: &str, env_var: &str) -> Option<PathBuf> {
+    try_moon_executable_in(binary_name, env_var, &resolution_dir())
+}
+
+/// Resolve a MoonBit tool from its override, the toolchain, or PATH, in that
+/// order. Returns `None` only when no candidate exists.
+fn try_moon_executable_in(
+    binary_name: &str,
+    env_var: &str,
+    current_dir: &std::path::Path,
+) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(env_var) {
-        return crate::toolchain::resolve_executable_in(&path, current_dir).unwrap_or_else(|_| {
-            // Keep unresolved overrides intact so each command preserves its
-            // existing user-facing error path.
-            PathBuf::from(path)
-        });
+        return Some(
+            crate::toolchain::resolve_executable_in(&path, current_dir).unwrap_or_else(|_| {
+                // Keep unresolved overrides intact so each command preserves its
+                // existing user-facing error path.
+                PathBuf::from(path)
+            }),
+        );
     }
 
     if binary_name == "moon"
@@ -92,31 +118,25 @@ fn moon_executable_in(binary_name: &str, env_var: &str, current_dir: &std::path:
             .and_then(|name| name.to_str())
             .is_some_and(|name| name == "moon" || name == "moon.exe")
     {
-        return dunce::canonicalize(&current_exe).unwrap_or(current_exe);
+        return Some(dunce::canonicalize(&current_exe).unwrap_or(current_exe));
     }
 
     // Try to find in the resolved toolchain root.
     let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
     if in_toolchain.exists() {
-        return crate::toolchain::resolve_executable_in(&in_toolchain, current_dir).unwrap_or_else(
-            |error| {
-                panic!(
-                    "failed to resolve MoonBit tool `{}`: {error:#}",
-                    in_toolchain.display()
-                )
-            },
+        return Some(
+            crate::toolchain::resolve_executable_in(&in_toolchain, current_dir).unwrap_or_else(
+                |error| {
+                    panic!(
+                        "failed to resolve MoonBit tool `{}`: {error:#}",
+                        in_toolchain.display()
+                    )
+                },
+            ),
         );
     }
 
-    if let Ok(in_path) = crate::toolchain::resolve_executable_in(binary_name, current_dir) {
-        return in_path;
-    }
-
-    panic!(
-        "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
-         Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
-        in_toolchain.display()
-    )
+    crate::toolchain::resolve_executable_in(binary_name, current_dir).ok()
 }
 
 pub fn moon_cram_in(current_dir: &std::path::Path) -> PathBuf {
@@ -172,6 +192,8 @@ fn get_fallback_binary(name: &str) -> PathBuf {
 pub struct CachedBinaries {
     pub moonbuild: LazyLock<PathBuf>,
     pub moonc: LazyLock<PathBuf>,
+    /// Standalone prover split out of `moonc prove`; absent on older toolchains.
+    pub moonc_prove: LazyLock<Option<PathBuf>>,
     pub mooncake: LazyLock<PathBuf>,
     pub moon_ide: LazyLock<PathBuf>,
     pub moondoc: LazyLock<PathBuf>,
@@ -204,6 +226,7 @@ impl CachedBinaries {
 pub static BINARIES: CachedBinaries = CachedBinaries {
     moonbuild: LazyLock::new(|| moon_executable("moon", "MOON_OVERRIDE")),
     moonc: LazyLock::new(|| moon_executable("moonc", "MOONC_OVERRIDE")),
+    moonc_prove: LazyLock::new(|| optional_moon_executable("moonc-prove", "MOONC_PROVE_OVERRIDE")),
     mooncake: LazyLock::new(|| moon_executable("mooncake", "MOONCAKE_OVERRIDE")),
     moon_ide: LazyLock::new(|| moon_executable("moon-ide", "MOON_IDE_OVERRIDE")),
     moondoc: LazyLock::new(|| moon_executable("moondoc", "MOONDOC_OVERRIDE")),
