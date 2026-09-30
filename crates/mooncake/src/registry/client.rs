@@ -154,6 +154,8 @@ pub struct RegistrySearchResult {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub downloads: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matched_package_count: Option<usize>,
@@ -1020,6 +1022,7 @@ mod tests {
             "name": "alice/tools",
             "version": "2.0.0",
             "description": "Tools",
+            "repository": "https://github.com/alice/tools",
             "downloads": 12345678901_u64,
             "matched_package_count": 7,
             "matched_packages": [{
@@ -1051,6 +1054,7 @@ mod tests {
                 name: "mizchi/jq".to_owned(),
                 version: Version::new(0, 2, 2),
                 description: Some("A jq clone".to_owned()),
+                repository: None,
                 downloads: None,
                 matched_package_count: None,
                 matched_packages: Vec::new(),

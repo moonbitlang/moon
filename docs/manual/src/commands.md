@@ -623,7 +623,7 @@ Note: This is an unstable command and may change or be removed in future version
 
 Search modules and package summaries in the registry
 
-Results follow the registry's ranking, as on mooncakes.io (most downloaded first). Each module includes its version, description, download count, and matching package excerpts when available. Summaries from older versions are labeled, and a count indicates when only some matching packages are shown.
+Results follow the registry's ranking, as on mooncakes.io (most downloaded first). Each module includes its version, description, download count, repository link, and matching package excerpts when available. Summaries from older versions are labeled, and a count indicates when only some matching packages are shown.
 
 With --json, the result also preserves the registry's summary fragments and match markers. Registries without package summaries remain supported.
 
