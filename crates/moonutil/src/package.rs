@@ -835,9 +835,23 @@ fn normalize_pkg_dsl(
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(Map<String, Value>, PackageImports)> {
+    // These declarations share their value types with legacy options, but reject
+    // mixed declarations instead of allowing an option to silently replace them.
+    // TODO: Remove the aliases and mixed-declaration guard when these settings
+    // are no longer accepted inside options(...).
+    let simple_declarations = [
+        ("proof_enabled", Some("proof-enabled")),
+        ("bin_name", Some("bin-name")),
+        ("bin_target", Some("bin-target")),
+        ("max_concurrent_tests", Some("max-concurrent-tests")),
+        ("regex_backend", Some("regex-backend")),
+        ("implement", None),
+        ("overrides", None),
+        ("virtual", Some("virtual_pkg")),
+    ];
     // Top-level DSL keys accepted in `moon.pkg`; the boolean says whether
     // repeated entries should be collected as a JSON array instead of rejected.
-    let toplevel_keys = std::collections::HashMap::from([
+    let mut toplevel_keys = std::collections::HashMap::from([
         ("import", true),
         ("wbtest-import", true),
         ("test-import", true),
@@ -849,6 +863,7 @@ fn normalize_pkg_dsl(
         ("supported_targets", false),
         ("pkgtype", false),
     ]);
+    toplevel_keys.extend(simple_declarations.iter().map(|&(key, _)| (key, false)));
     let mut map = serde_json_lenient::Map::new();
     let mut imports = PackageImports::default();
     for (key, value) in dsl.iter() {
@@ -883,9 +898,21 @@ fn normalize_pkg_dsl(
             bail!("Duplicate key '{}' found in moon.pkg.", key);
         }
     }
+    // Capture which settings came from direct declarations before merging any
+    // legacy options, so aliases within options keep their existing validation.
+    let direct_options: Vec<_> = simple_declarations
+        .iter()
+        .filter(|(key, _)| map.contains_key(*key))
+        .collect();
     if let Value::Object(options) = map.remove("options").unwrap_or_default() {
         let mut seen_import_keys = HashSet::new();
         for (k, v) in options {
+            if let Some((key, _)) = direct_options
+                .iter()
+                .find(|(key, alias)| k == *key || alias.is_some_and(|alias| k == alias))
+            {
+                bail!("Duplicate key '{key}' found in moon.pkg and options.");
+            }
             if let Some((key, imports)) = imports.get_mut(&k) {
                 if !seen_import_keys.insert(key) {
                     bail!("Duplicate key '{key}' found in moon.pkg options.");
@@ -1329,6 +1356,160 @@ options(
             "regex-backend": "table",
         }),
     );
+}
+
+#[test]
+fn convert_pkg_dsl_supports_simple_declarations() {
+    for (source, json) in [
+        (
+            "proof_enabled = true",
+            serde_json_lenient::json!({"proof-enabled": true}),
+        ),
+        (
+            "proof_enabled = false",
+            serde_json_lenient::json!({"proof-enabled": false}),
+        ),
+        (
+            r#"bin_name = "app""#,
+            serde_json_lenient::json!({"bin-name": "app"}),
+        ),
+        (
+            r#"bin_target = "native""#,
+            serde_json_lenient::json!({"bin-target": "native"}),
+        ),
+        (
+            "max_concurrent_tests = 4294967295",
+            serde_json_lenient::json!({"max-concurrent-tests": u32::MAX}),
+        ),
+        (
+            "max_concurrent_tests = 0",
+            serde_json_lenient::json!({"max-concurrent-tests": 0}),
+        ),
+        (
+            r#"regex_backend = "table""#,
+            serde_json_lenient::json!({"regex-backend": "table"}),
+        ),
+        (
+            r#"implement = "example/virtual""#,
+            serde_json_lenient::json!({"implement": "example/virtual"}),
+        ),
+        (
+            r#"overrides = ["example/first", "example/second"]"#,
+            serde_json_lenient::json!({"overrides": ["example/first", "example/second"]}),
+        ),
+        (
+            "overrides = []",
+            serde_json_lenient::json!({"overrides": []}),
+        ),
+        (
+            "virtual(has_default: true)",
+            serde_json_lenient::json!({"virtual": {"has-default": true}}),
+        ),
+        (
+            "virtual(has_default: false)",
+            serde_json_lenient::json!({"virtual": {"has-default": false}}),
+        ),
+    ] {
+        assert_pkg_dsl_matches_json(source, json);
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_validates_simple_declarations() {
+    for source in [
+        r#"proof_enabled = "true""#,
+        "bin_name = 1",
+        "bin_target = true",
+        r#"bin_target = "invalid""#,
+        "max_concurrent_tests = -1",
+        "max_concurrent_tests = 4294967296",
+        r#"max_concurrent_tests = "4""#,
+        "regex_backend = true",
+        r#"regex_backend = "invalid""#,
+        "implement = []",
+        r#"overrides = "example/impl""#,
+        "overrides = [true]",
+        "virtual()",
+        r#"virtual(has_default: "true")"#,
+    ] {
+        let error = convert_test_pkg_dsl(moon_pkg::parse(source).unwrap(), false).unwrap_err();
+        assert!(
+            !error.to_string().contains("Unexpected key"),
+            "{source}: {error}"
+        );
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_rejects_duplicate_simple_declarations() {
+    for (declaration, key, alias, value) in [
+        (
+            "proof_enabled = true",
+            "proof_enabled",
+            "proof-enabled",
+            "false",
+        ),
+        (r#"bin_name = "app""#, "bin_name", "bin-name", r#""other""#),
+        (
+            r#"bin_target = "native""#,
+            "bin_target",
+            "bin-target",
+            r#""js""#,
+        ),
+        (
+            "max_concurrent_tests = 4",
+            "max_concurrent_tests",
+            "max-concurrent-tests",
+            "8",
+        ),
+        (
+            r#"regex_backend = "table""#,
+            "regex_backend",
+            "regex-backend",
+            r#""runtime""#,
+        ),
+        (
+            r#"implement = "example/virtual""#,
+            "implement",
+            "implement",
+            r#""example/other""#,
+        ),
+        (
+            r#"overrides = ["example/impl"]"#,
+            "overrides",
+            "overrides",
+            "[]",
+        ),
+        (
+            "virtual(has_default: true)",
+            "virtual",
+            "virtual_pkg",
+            r#"{"has-default": false}"#,
+        ),
+    ] {
+        let source = format!("{declaration}\n{declaration}");
+        let error = convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), false).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("Duplicate key '{key}' found in moon.pkg.")
+        );
+
+        for spelling in [key, alias] {
+            let option = format!(r#"options("{spelling}": {value})"#);
+            for source in [
+                format!("{declaration}\n{option}"),
+                format!("{option}\n{declaration}"),
+            ] {
+                let error =
+                    convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), false).unwrap_err();
+                assert_eq!(
+                    error.to_string(),
+                    format!("Duplicate key '{key}' found in moon.pkg and options."),
+                    "{source}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
