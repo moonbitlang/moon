@@ -556,19 +556,20 @@ fn build_package_executable(
     )
     .with_sync_output(options.output.sync_output());
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let (selection, resolved_project) =
+        resolve_run_project(cmd, selected_target_backend, discovered, user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
         Some(lock_directory(target_dir, user_log)?)
     };
-    let (build_meta, build_graph) = plan_run_rr_from_resolved(
+    let (build_meta, build_graph) = plan_run_rr_from_selection(
         cli,
         cmd,
         target_dir,
         mooncake_bin_dir,
-        selected_target_backend,
         resolved_project,
+        selection,
         user_log,
     )?;
     build_executable_from_plan(
@@ -588,30 +589,20 @@ fn build_package_executable(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_run_rr_from_resolved(
-    cli: &UniversalFlags,
+/// Select the run package and backend before resolving its dependencies.
+pub(crate) fn resolve_run_project(
     cmd: &RunSubcommand,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolved_project: ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     user_log: &UserLog,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
+) -> anyhow::Result<(ResolvedRunSelection, ResolvedProject)> {
     let input_path = cmd
         .package_or_mbt_file
         .as_deref()
         .expect("package run planning requires a positional input");
-    let selection = resolve_run_selection(input_path, &resolved_project, selected_target_backend)?;
-    plan_run_rr_from_selection(
-        cli,
-        cmd,
-        target_dir,
-        mooncake_bin_dir,
-        resolved_project,
-        selection,
-        user_log,
-    )
+    let selection = resolve_run_selection(input_path, &discovered, selected_target_backend)?;
+    let resolved_project = discovered.resolve_packages(&[selection.target_backend], user_log)?;
+    Ok((selection, resolved_project))
 }
 
 pub(crate) fn plan_run_rr_from_selection(
@@ -706,7 +697,7 @@ fn resolve_run_selection(
     let package = crate::filter::filter_pkg_by_dir(discovered, &dir)?;
     let module = discovered.pkg_dirs.get_package(package).module;
     let target_backend = selected_target_backend
-        .or_else(|| discovered.module_graph.module_info(module).preferred_target)
+        .or(discovered.module_info(module).preferred_target)
         .unwrap_or_default();
     Ok(ResolvedRunSelection {
         package,
@@ -790,10 +781,11 @@ fn build_single_file_executable(
         true,
         user_log,
     )?;
-    let resolved = discovered.resolve_packages(user_log)?;
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
+
+    let resolved = discovered.resolve_packages(&[selected_target_backend], user_log)?;
 
     let lock = if cli.dry_run {
         None

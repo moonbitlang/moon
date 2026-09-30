@@ -154,8 +154,9 @@ fn run_cram_test(
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let resolved_project =
+        rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?
+            .resolve_packages(&[TargetBackend::Native], user_log)?;
     let lock = if cli.dry_run {
         None
     } else {

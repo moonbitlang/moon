@@ -45,6 +45,7 @@ mod check_fmt;
 mod circle_pkg_ab_001_test;
 mod clean;
 mod cond_comp;
+mod conditional_imports;
 mod debug_flag_test;
 mod dedup_diag;
 mod dep_order;

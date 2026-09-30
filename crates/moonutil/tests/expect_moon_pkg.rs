@@ -64,6 +64,7 @@ fn expect_import() {
                     ),
                     sub_package: false,
                     import_all: false,
+                    targets: None,
                 },
                 Alias {
                     path: "path/to/all1",
@@ -72,6 +73,7 @@ fn expect_import() {
                     ),
                     sub_package: false,
                     import_all: true,
+                    targets: None,
                 },
             ],
             wbtest_imports: [
@@ -85,6 +87,7 @@ fn expect_import() {
                     ),
                     sub_package: false,
                     import_all: false,
+                    targets: None,
                 },
             ],
             test_imports: [
@@ -98,6 +101,7 @@ fn expect_import() {
                     ),
                     sub_package: false,
                     import_all: false,
+                    targets: None,
                 },
             ],
             formatter: MoonPkgFormatter {

@@ -19,6 +19,7 @@
 use log::{debug, trace};
 use moonutil::constants::MOONBITLANG_COVERAGE;
 use moonutil::resolution::{ModuleDependencyGraph, ModuleId};
+use moonutil::target::TargetBackend;
 use tracing::info;
 
 use super::model::{DepEdge, PackageRelations, PackageResolutionError};
@@ -35,6 +36,7 @@ struct PackageGraphBuilder<'a> {
     packages: &'a DiscoverResult,
     relations: PackageRelations,
     inject_coverage: bool,
+    backend: TargetBackend,
     user_log: &'a UserLog,
 }
 
@@ -42,6 +44,7 @@ pub(super) fn solve_only(
     modules: &ModuleDependencyGraph,
     packages: &DiscoverResult,
     enable_coverage: bool,
+    backend: TargetBackend,
     user_log: &UserLog,
 ) -> Result<PackageRelations, PackageResolutionError> {
     debug!(
@@ -54,6 +57,7 @@ pub(super) fn solve_only(
         packages,
         relations: PackageRelations::default(),
         inject_coverage: enable_coverage,
+        backend,
         user_log,
     };
 
@@ -129,7 +133,7 @@ fn solve_one_package_virtual_impl(
 
 /// Solve related dependency information for one package.
 fn solve_one_package(
-    builder: &mut PackageGraphBuilder,
+    builder: &mut PackageGraphBuilder<'_>,
     mid: ModuleId,
     pid: PackageId,
 ) -> Result<(), PackageResolutionError> {
@@ -141,12 +145,6 @@ fn solve_one_package(
         pkg_data.fqn.package()
     );
 
-    let mut resolve = |import, kind| {
-        let resolved = resolve_import(builder, mid, pid, import)?;
-        add_dep_edges_for_import(builder, pid, resolved, kind);
-        Ok(())
-    };
-
     // Gotcha: This part adds import edges based on different fields of the
     // package declaration, i.e. given each import list (regular imports,
     // whitebox test imports, etc.), which packages should use this import list.
@@ -156,26 +154,27 @@ fn solve_one_package(
     // The reason for this is mainly the efficiency. Adding the same import into
     // multiple targets reduces redundant calculation about the alias,
 
-    // regular imports
-    trace!("Processing regular imports");
-    for import in &pkg_data.raw.imports {
-        resolve(import, TargetKind::Source)?;
-    }
-    // white box tests
-    trace!("Processing whitebox test imports");
-    for import in &pkg_data.raw.wbtest_imports {
-        resolve(import, TargetKind::WhiteboxTest)?;
-    }
-    // black box tests
-    trace!("Processing blackbox test imports");
-    for import in &pkg_data.raw.test_imports {
-        resolve(import, TargetKind::BlackboxTest)?;
-    }
-    // subpackage
-    if let Some(sub) = &pkg_data.raw.sub_package {
-        trace!("Processing subpackage imports");
-        for import in &sub.import {
-            resolve(import, TargetKind::SubPackage)?;
+    let import_groups = [
+        (&pkg_data.raw.imports, TargetKind::Source),
+        (&pkg_data.raw.wbtest_imports, TargetKind::WhiteboxTest),
+        (&pkg_data.raw.test_imports, TargetKind::BlackboxTest),
+    ]
+    .into_iter()
+    .chain(
+        pkg_data
+            .raw
+            .sub_package
+            .as_ref()
+            .map(|sub| (&sub.import, TargetKind::SubPackage)),
+    );
+    for (imports, kind) in import_groups {
+        trace!("Processing {:?} imports", kind);
+        for import in imports {
+            if !import.supports_backend(builder.backend) {
+                continue;
+            }
+            let resolved = resolve_import(builder, mid, pid, import)?;
+            add_dep_edges_for_import(builder, pid, resolved, kind);
         }
     }
 

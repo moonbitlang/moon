@@ -75,12 +75,11 @@ pub(crate) fn run_bundle(
 
     let targets = lower_surface_targets(&surface_targets);
     let discovered = sync_and_discover_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_bundle_rr_from_resolved(&cli, &cmd, &dirs, &targets, resolved_project, output).with_context(
+    run_bundle_rr_from_discovered(&cli, &cmd, &dirs, &targets, discovered, output).with_context(
         || match targets.as_slice() {
             [target] => format!("failed to run bundle for target {target:?}"),
             _ => format!("failed to run bundle for targets {targets:?}"),
@@ -110,30 +109,29 @@ pub(crate) fn run_bundle_internal_rr(
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let discovered = sync_and_discover_bundle_project(cli, cmd, dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_bundle_rr_from_resolved(
+    run_bundle_rr_from_discovered(
         cli,
         cmd,
         dirs,
         selected_target_backend.as_slice(),
-        resolved_project,
+        discovered,
         output,
     )
 }
 
-/// Plans and executes a bundle from resolved project data.
+/// Resolves package relationships, plans, and executes a bundle from a discovered project.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run build.
-fn run_bundle_rr_from_resolved(
+fn run_bundle_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
@@ -142,33 +140,26 @@ fn run_bundle_rr_from_resolved(
         target_dir,
         ..
     } = dirs;
-    let planned_runs = if selected_target_backends.is_empty() {
-        vec![plan_bundle_rr_from_resolved(
-            cli,
-            cmd,
-            target_dir,
-            &dirs.mooncake_bin_dir,
-            None,
-            resolved_project,
-            user_log,
-        )?]
+    let backends = if selected_target_backends.is_empty() {
+        vec![rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default()]
     } else {
-        selected_target_backends
-            .iter()
-            .copied()
-            .map(|target| {
-                plan_bundle_rr_from_resolved(
-                    cli,
-                    cmd,
-                    target_dir,
-                    &dirs.mooncake_bin_dir,
-                    Some(target),
-                    resolved_project.clone(),
-                    user_log,
-                )
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
+        selected_target_backends.to_vec()
     };
+    let resolved_project = discovered.resolve_packages(&backends, user_log)?;
+    let planned_runs = backends
+        .into_iter()
+        .map(|target| {
+            plan_bundle_rr_from_resolved(
+                cli,
+                cmd,
+                target_dir,
+                &dirs.mooncake_bin_dir,
+                Some(target),
+                resolved_project.clone(),
+                user_log,
+            )
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     if cli.dry_run {
         output.write_result(|writer| {

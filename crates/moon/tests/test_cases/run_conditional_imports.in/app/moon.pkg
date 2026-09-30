@@ -1,0 +1,3 @@
+pkgtype(kind: "executable")
+#cfg(target = "native")
+import { "test/default_run/missing" }
