@@ -146,7 +146,7 @@ fn test_blackbox_dedup_alias() {
     let output = get_err_stderr(&dir, ["test"]);
     println!("{}", output);
     assert!(output.contains(
-        "Duplicate alias `lib` at \"$ROOT/lib/moon.pkg.json\". \"test-import\" will automatically add \"import\" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package."
+        "Duplicate alias `lib` at \"$ROOT/lib/moon.pkg\". \"test-import\" will automatically add \"import\" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package."
     ));
     assert!(
         output.contains(
@@ -159,11 +159,11 @@ Error: [4021]
    │        ╰────── Value hello not found in package `lib`.
 ───╯
 Warning: [0029]
-   ╭─[ $ROOT/lib/moon.pkg.json:3:5 ]
+   ╭─[ $ROOT/lib/moon.pkg:2:3 ]
    │
- 3 │     "username/hello/dir/lib"
-   │     ────────────┬───────────  
-   │                 ╰───────────── Warning (unused_package): Unused package 'username/hello/dir/lib'
+ 2 │   "username/hello/dir/lib",
+   │   ────────────┬───────────  
+   │               ╰───────────── Warning (unused_package): Unused package 'username/hello/dir/lib'
 ───╯
     "#
             .trim()

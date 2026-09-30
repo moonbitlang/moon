@@ -1,0 +1,7 @@
+import {
+  "username/hello/lib",
+}
+
+options(
+  "is-main": true,
+)
