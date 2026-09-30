@@ -24,6 +24,7 @@ const SEARCH_RESULTS: &[u8] = br#"[
     {
         "name": "example/json",
         "version": "1.2.3",
+        "repository": "https://github.com/example/json",
         "description": "JSON query\ntools\r\u001b[31mwith color\u001b[0m\tand spaces for MoonBit package development and automation.",
         "downloads": 12345,
         "matched_package_count": 3,
@@ -117,6 +118,7 @@ fn test_moon_search_uses_configured_registry() {
 
 example/json@1.2.3 (12345 downloads)
   JSON query tools with color and spaces for MoonBit package development and automation.
+  Repository: https://github.com/example/json
 
   example/json/query (summary from v1.1.0)
     Query JSON values.
@@ -154,6 +156,7 @@ fn test_moon_search_json_is_one_complete_result() {
             {
                 "name": "example/json",
                 "version": "1.2.3",
+                "repository": "https://github.com/example/json",
                 "description": "JSON query\ntools\r\u{1b}[31mwith color\u{1b}[0m\tand spaces for MoonBit package development and automation.",
                 "downloads": 12345,
                 "matched_package_count": 3,

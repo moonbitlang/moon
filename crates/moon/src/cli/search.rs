@@ -32,9 +32,10 @@ const SEARCH_JSON_ERROR_EXIT_CODE: i32 = -1;
 /// Search modules and package summaries in the registry
 ///
 /// Results follow the registry's ranking, as on mooncakes.io (most downloaded
-/// first). Each module includes its version, description, download count, and
-/// matching package excerpts when available. Summaries from older versions are
-/// labeled, and a count indicates when only some matching packages are shown.
+/// first). Each module includes its version, description, download count,
+/// repository link, and matching package excerpts when available. Summaries from
+/// older versions are labeled, and a count indicates when only some matching
+/// packages are shown.
 ///
 /// With --json, the result also preserves the registry's summary fragments and
 /// match markers. Registries without package summaries remain supported.
@@ -219,6 +220,14 @@ fn render_search_results(
             .map(sanitize_registry_text)
             .filter(|description| !description.is_empty());
         writeln!(writer, "  {}", description.as_deref().unwrap_or("—"))?;
+        if let Some(repository) = result
+            .repository
+            .as_deref()
+            .map(sanitize_registry_text)
+            .filter(|repository| !repository.is_empty())
+        {
+            writeln!(writer, "  Repository: {repository}")?;
+        }
         for package in &result.matched_packages {
             writeln!(writer)?;
             write!(writer, "  {}", package.name)?;
@@ -384,6 +393,7 @@ mod tests {
         let results: Vec<RegistrySearchResult> = serde_json::from_value(serde_json::json!([
             {
                 "name": "z/tools", "version": "2.0.0", "downloads": 100,
+                "repository": "  https://github.com/z/\u{1b}[31mtools\u{1b}[0m\u{202e}\r\n",
                 "matched_package_count": 7,
                 "matched_packages": [
                     {
@@ -417,6 +427,7 @@ mod tests {
 
             z/tools@2.0.0 (100 downloads)
               —
+              Repository: https://github.com/z/tools
 
               z/tools/fs (summary from v1.0.0)
                 Read
@@ -438,6 +449,35 @@ mod tests {
         .assert_eq(&plain);
         assert!(output.contains("\u{1b}[1mz/tools@2.0.0\u{1b}[0m"));
         assert!(output.contains("\u{1b}[1m\n    files\u{1b}[0m"));
+    }
+
+    #[test]
+    fn omits_empty_repository_links() {
+        for repository in [
+            serde_json::Value::Null,
+            serde_json::json!(""),
+            serde_json::json!(" \t\r\n"),
+            serde_json::json!("\u{1b}[2J\u{202e}"),
+        ] {
+            let result = serde_json::from_value(serde_json::json!({
+                "name": "alice/tools", "version": "1.0.0",
+                "repository": repository,
+            }))
+            .unwrap();
+            let mut output = Vec::new();
+            render_search_results(&mut output, &[result]).unwrap();
+            let output = String::from_utf8(output).unwrap();
+            let plain = anstream::adapter::strip_str(&output).to_string();
+            expect_test::expect![[r#"
+                1 module found
+
+                alice/tools@1.0.0
+                  —
+
+                Run `moon add <module>@<version>` to add a dependency.
+            "#]]
+            .assert_eq(&plain);
+        }
     }
 
     #[test]
@@ -494,6 +534,7 @@ mod tests {
                 RegistrySearchResult {
                     name: "mizchi/jq".to_owned(),
                     version: Version::new(0, 2, 2),
+                    repository: None,
                     downloads: None,
                     matched_package_count: None,
                     matched_packages: Vec::new(),
@@ -505,6 +546,7 @@ mod tests {
                 RegistrySearchResult {
                     name: "example/no-description".to_owned(),
                     version: Version::new(1, 0, 0),
+                    repository: None,
                     downloads: None,
                     matched_package_count: None,
                     matched_packages: Vec::new(),
@@ -513,6 +555,7 @@ mod tests {
                 RegistrySearchResult {
                     name: "example/empty-description".to_owned(),
                     version: Version::new(2, 0, 0),
+                    repository: None,
                     downloads: None,
                     matched_package_count: None,
                     matched_packages: Vec::new(),
@@ -551,6 +594,7 @@ mod tests {
                 RegistrySearchResult {
                     name: "example/ascii".to_owned(),
                     version: Version::new(1, 0, 0),
+                    repository: None,
                     downloads: None,
                     matched_package_count: None,
                     matched_packages: Vec::new(),
@@ -559,6 +603,7 @@ mod tests {
                 RegistrySearchResult {
                     name: "example/中".to_owned(),
                     version: Version::new(2, 0, 0),
+                    repository: None,
                     downloads: None,
                     matched_package_count: None,
                     matched_packages: Vec::new(),
@@ -567,6 +612,7 @@ mod tests {
                 RegistrySearchResult {
                     name: "example/e\u{301}".to_owned(),
                     version: Version::new(3, 0, 0),
+                    repository: None,
                     downloads: None,
                     matched_package_count: None,
                     matched_packages: Vec::new(),
@@ -624,6 +670,7 @@ mod tests {
                     RegistrySearchResult {
                         name: "example/valid".to_owned(),
                         version: Version::new(1, 0, 0),
+                        repository: None,
                         downloads: None,
                         matched_package_count: None,
                         matched_packages: Vec::new(),
@@ -632,6 +679,7 @@ mod tests {
                     RegistrySearchResult {
                         name: name.to_owned(),
                         version: Version::new(2, 0, 0),
+                        repository: None,
                         downloads: None,
                         matched_package_count: None,
                         matched_packages: Vec::new(),
