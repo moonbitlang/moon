@@ -1,6 +1,6 @@
 use crate::{
-    TestDir, assert_success, get_err_stderr_with_envs, get_stderr, get_stdout,
-    get_stdout_with_envs, scoped_packages_json_path,
+    TestDir, assert_success, get_err_stderr_with_envs, get_prove_dry_run_stdout, get_stderr,
+    get_stdout, get_stdout_with_envs, scoped_packages_json_path,
     util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
@@ -87,9 +87,27 @@ fn test_moon_prove_dry_run() {
         return;
     }
     let dir = TestDir::new("moon_prove/mixed.in");
-    let stdout = get_stdout(&dir, ["prove", "zzok", "--dry-run"]);
+    let stdout = get_prove_dry_run_stdout(&dir, ["prove", "zzok", "--dry-run"]);
     expect_file!["snapshots/zzok.stdout"].assert_eq(&stdout);
     assert_stdout_contains_prelude_proof(&stdout, "dry-run");
+}
+
+#[test]
+fn test_moon_prove_prefers_standalone_moonc_prove() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_prefers_standalone_moonc_prove") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/mixed.in");
+    let stdout = get_prove_dry_run_stdout(&dir, ["prove", "zzok", "--dry-run"]);
+
+    assert!(
+        stdout.starts_with("'$MOONC_PROVE_OVERRIDE' ./zzok/"),
+        "prove should invoke the standalone `moonc-prove`, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("moonc prove"),
+        "prove should not fall back to `moonc prove`, got:\n{stdout}"
+    );
 }
 
 #[test]
@@ -162,7 +180,7 @@ fn test_moon_prove_dry_run_uses_user_supplied_why3_config() {
         return;
     }
     let dir = TestDir::new("moon_prove/mixed.in");
-    let stdout = get_stdout(
+    let stdout = get_prove_dry_run_stdout(
         &dir,
         [
             "prove",
@@ -236,7 +254,7 @@ fn test_moon_prove_skips_packages_without_proof_enabled() {
         return;
     }
     let dir = TestDir::new("moon_prove/selective.in");
-    let stdout = get_stdout(&dir, ["prove", "--dry-run"]);
+    let stdout = get_prove_dry_run_stdout(&dir, ["prove", "--dry-run"]);
     expect_file!["snapshots/selective.stdout"].assert_eq(&stdout);
     assert!(
         !stdout.contains("./disabled/disabled.mbt"),
@@ -498,7 +516,7 @@ fn test_cross_package_prove_dry_run() {
         return;
     }
     let dir = TestDir::new("moon_prove/cross_package.in");
-    let stdout = get_stdout(&dir, ["prove", "downstream", "--dry-run"]);
+    let stdout = get_prove_dry_run_stdout(&dir, ["prove", "downstream", "--dry-run"]);
     expect_file!["snapshots/cross_package.stdout"].assert_eq(&stdout);
 }
 

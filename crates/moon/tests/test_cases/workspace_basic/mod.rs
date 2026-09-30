@@ -1494,9 +1494,9 @@ fn test_prove_targets_member_module_with_workspace_resolution() {
     let stderr = get_err_stderr(&dir, ["prove", "--dry-run"]);
     assert_requires_target_module(&stderr, "prove");
 
-    let stdout = get_stdout(&dir, ["-C", "app", "prove", "--dry-run"]);
+    let stdout = get_prove_dry_run_stdout(&dir, ["-C", "app", "prove", "--dry-run"]);
     assert!(
-        stdout.contains("moonc prove ./app/src/main/main.mbt"),
+        stdout.contains("'$MOONC_PROVE_OVERRIDE' ./app/src/main/main.mbt"),
         "expected app prove dry-run to target the app member, got:\n{stdout}"
     );
     assert!(
