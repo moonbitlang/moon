@@ -289,6 +289,11 @@ holds after substitution and tool semantics:
 - A built-in `:embed` argument tail contains malformed native quoting or escaping.
 - The invoked tool fails to produce all declared outputs.
 
+A command that exits unsuccessfully fails its prebuild action even if it emits
+no output. The error identifies the prebuild action, package, and executed
+command; captured output is also retained. `moon check --json` reports these
+failures as Moon-level error messages rather than compiler diagnostics.
+
 ## Compatibility and Caveats
 
 - `:embed` detection is prefix-based and requires the literal prefix `:embed `.
