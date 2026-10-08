@@ -22,7 +22,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
     rc::Rc,
     sync::LazyLock,
 };
@@ -70,9 +70,6 @@ pub struct BuildConfig {
     /// Verbose output for build progress and command echo
     pub verbose: bool,
     pub suppress_progress: bool,
-
-    /// The patch file to use
-    pub patch_file: Option<PathBuf>,
 }
 
 impl BuildConfig {
@@ -93,7 +90,6 @@ impl Default for BuildConfig {
             n2_explain: false,
             verbose: false,
             suppress_progress: false,
-            patch_file: None,
         }
     }
 }
@@ -742,7 +738,7 @@ fn process_captured_diagnostics(
                 };
             }
 
-            let mut sources = DiagnosticSources::new(cfg.patch_file.as_deref());
+            let mut sources = DiagnosticSources::default();
             match cfg.diagnostic_limit {
                 None => {
                     for file_diagnostics in by_file.values() {

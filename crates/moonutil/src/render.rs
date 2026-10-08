@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    cell::OnceCell,
     collections::HashMap,
     path::{Path, PathBuf},
 };
@@ -28,18 +27,6 @@ use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::{error_code_docs::get_error_code_doc, test_metadata::DiagnosticLevel};
-
-#[derive(Debug, Deserialize)]
-pub struct PatchJSON {
-    pub drops: Vec<String>,
-    pub patches: Vec<PatchItem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PatchItem {
-    pub name: String,
-    pub content: String,
-}
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MooncDiagnostic {
@@ -124,13 +111,12 @@ impl Position {
 }
 
 struct DiagnosticSource {
-    display_filename: String,
     source: ariadne::Source,
     line_offsets: Vec<usize>,
 }
 
 impl DiagnosticSource {
-    fn new(display_filename: String, content: String) -> Self {
+    fn new(content: String) -> Self {
         // Compiler columns and Ariadne spans count Unicode scalar values.
         // Only LF starts a compiler line; Ariadne also recognizes other
         // separators, so its line table cannot replace this index.
@@ -143,7 +129,6 @@ impl DiagnosticSource {
             )
             .collect();
         Self {
-            display_filename,
             source: ariadne::Source::from(content),
             line_offsets,
         }
@@ -159,56 +144,22 @@ impl DiagnosticSource {
 /// Source text and indexes shared by one batch of rendered diagnostics.
 ///
 /// Create a fresh cache for each batch so subsequent builds observe file edits.
-pub struct DiagnosticSources<'a> {
+#[derive(Default)]
+pub struct DiagnosticSources {
     files: HashMap<String, Option<DiagnosticSource>>,
     source_maps: HashMap<String, Option<SourceMap>>,
-    patch_file: Option<&'a Path>,
-    patch_sources: OnceCell<Option<HashMap<String, DiagnosticSource>>>,
 }
 
-impl<'a> DiagnosticSources<'a> {
-    pub fn new(patch_file: Option<&'a Path>) -> Self {
-        Self {
-            files: HashMap::new(),
-            source_maps: HashMap::new(),
-            patch_file,
-            patch_sources: OnceCell::new(),
-        }
-    }
-
+impl DiagnosticSources {
     fn get_file(&mut self, path: &str) -> Option<&DiagnosticSource> {
         self.files
             .entry(path.to_owned())
             .or_insert_with(|| {
                 std::fs::read_to_string(path)
                     .ok()
-                    .map(|content| DiagnosticSource::new(path.to_owned(), content))
+                    .map(DiagnosticSource::new)
             })
             .as_ref()
-    }
-
-    fn get_diagnostic_source(&mut self, path: &str) -> Option<&DiagnosticSource> {
-        self.get_file(path);
-        if let Some(source) = self.files.get(path)?.as_ref() {
-            return Some(source);
-        }
-
-        let patch_file = self.patch_file?;
-        let patch_sources = self
-            .patch_sources
-            .get_or_init(|| {
-                let content = std::fs::read_to_string(patch_file).ok()?;
-                let patch: PatchJSON = serde_json_lenient::from_str(&content).ok()?;
-                let mut sources = HashMap::new();
-                for item in patch.patches {
-                    sources
-                        .entry(item.name.clone())
-                        .or_insert_with(|| DiagnosticSource::new(item.name, item.content));
-                }
-                Some(sources)
-            })
-            .as_ref()?;
-        patch_sources.get(Path::new(path).file_name()?.to_str()?)
     }
 
     fn remap(
@@ -301,7 +252,7 @@ impl MooncDiagnostic {
     pub fn render_diagnostics(
         &self,
         use_fancy: bool,
-        sources: &mut DiagnosticSources<'_>,
+        sources: &mut DiagnosticSources,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
     ) -> Option<ReportKind<'static>> {
@@ -335,7 +286,7 @@ impl MooncDiagnostic {
             return Some(kind);
         }
 
-        let Some(source) = sources.get_diagnostic_source(&diagnostic.path) else {
+        let Some(source) = sources.get_file(&diagnostic.path) else {
             eprintln!(
                 "failed to read file `{}`, [{}] {}: {}",
                 diagnostic.path,
@@ -364,9 +315,9 @@ impl MooncDiagnostic {
             .remap(&diagnostic.path, start_offset, end_offset)
             .unwrap_or_else(|| (diagnostic.path.clone(), start_offset, end_offset));
         let source = sources
-            .get_diagnostic_source(&source_path)
+            .get_file(&source_path)
             .expect("diagnostic source was already loaded");
-        let display_filename = &source.display_filename;
+        let display_filename = &source_path;
 
         let mut report_builder =
             ariadne::Report::build(kind, (display_filename, start_offset..end_offset)).with_label(

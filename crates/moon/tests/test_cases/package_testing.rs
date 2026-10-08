@@ -353,6 +353,7 @@ fn test_no_mi_for_test_pkg() {
 
 #[test]
 fn test_render_diagnostic_in_patch_file() {
+    // Patch-only sources have no files on disk, so diagnostics fall back to messages.
     let dir = TestDir::new("moon_test/patch");
     check(
         get_stderr(
@@ -369,13 +370,7 @@ fn test_render_diagnostic_in_patch_file() {
         ),
         expect![[r#"
             Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: [0002]
-               ╭─[ hello_2_test.mbt:2:6 ]
-               │
-             2 │  let unused_in_patch_test_json = 1;
-               │      ────────────┬────────────  
-               │                  ╰────────────── Warning (unused_value): Unused variable 'unused_in_patch_test_json'
-            ───╯
+            failed to read file `$ROOT/lib/hello_2_test.mbt`, [0002] warning: Warning (unused_value): Unused variable 'unused_in_patch_test_json'
             Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
@@ -394,13 +389,7 @@ fn test_render_diagnostic_in_patch_file() {
         ),
         expect![[r#"
             Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: [0002]
-               ╭─[ hello_1_wbtest.mbt:2:6 ]
-               │
-             2 │  let unused_in_patch_wbtest_json = 1;
-               │      ─────────────┬─────────────  
-               │                   ╰─────────────── Warning (unused_value): Unused variable 'unused_in_patch_wbtest_json'
-            ───╯
+            failed to read file `$ROOT/lib/hello_1_wbtest.mbt`, [0002] warning: Warning (unused_value): Unused variable 'unused_in_patch_wbtest_json'
             Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
@@ -419,13 +408,7 @@ fn test_render_diagnostic_in_patch_file() {
         ),
         expect![[r#"
             Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: [0002]
-               ╭─[ hello_0.mbt:2:6 ]
-               │
-             2 │  let unused_in_patch_json = 1;
-               │      ──────────┬─────────  
-               │                ╰─────────── Warning (unused_value): Unused variable 'unused_in_patch_json'
-            ───╯
+            failed to read file `$ROOT/lib/hello_0.mbt`, [0002] warning: Warning (unused_value): Unused variable 'unused_in_patch_json'
             Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
@@ -447,97 +430,7 @@ fn test_render_diagnostic_in_patch_file() {
         ),
         expect![[r#"
             Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: 
-               ╭─[ hello_2_test.mbt:2:6 ]
-               │
-             2 │  let unused_in_patch_test_json = 1;
-               │      ────────────┬────────────  
-               │                  ╰────────────── Warning (unused_value): Unused variable 'unused_in_patch_test_json'
-               │ 
-               │ Help: # E0002
-               │       
-               │       Warning name: `unused_value`
-               │       
-               │       Unused variable.
-               │       
-               │       This variable is unused by any other part of your code, nor marked with `pub`
-               │       visibility.
-               │       
-               │       Note that this warning might uncover other bugs in your code. For example, if
-               │       there are two variables in your codebase that has similar name, you might just
-               │       use the other variable by mistake.
-               │       
-               │       Specifically, if the variable is at the toplevel, and the body of the module
-               │       contains side effects, the side effects will not happen.
-               │       
-               │       ## Erroneous example
-               │       
-               │       ```moonbit
-               │       ///|
-               │       let p : Int = {
-               │         side_effect.val = 42
-               │         42
-               │       }
-               │       
-               │       ///|
-               │       let side_effect : Ref[Int] = { val: 0 }
-               │       
-               │       ///|
-               │       test {
-               │         let x = 42
-               │       
-               │       }
-               │       ```
-               │       
-               │       ## Suggestion
-               │       
-               │       There are multiple ways to fix this warning:
-               │       
-               │       - If the variable is indeed useless, you can remove the definition of the
-               │         variable.
-               │       - If this variable is at the toplevel (i.e., not local), and is part of the
-               │         public API of your module, you can add the `pub` keyword to the variable.
-               │         ```moonbit
-               │       
-               │         ///|
-               │         pub let p = 42
-               │         ```
-               │       - If you made a typo in the variable name, you can rename the variable to the
-               │         correct name at the use site.
-               │       - If your code depends on the side-effect of the variable, you can wrap the
-               │         side-effect in a `fn init` block.
-               │         ```moonbit
-               │       
-               │         ///|
-               │         let side_effect : Ref[Int] = { val: 0 }
-               │       
-               │         ///|
-               │         fn init {
-               │           side_effect.val = 42
-               │         }
-               │         ```
-               │       
-               │       There are some cases where you might want to keep the variable private and
-               │       unused at the same time. In this case, you can call `ignore()` on the variable
-               │       to force the use of it.
-               │       
-               │       ```moonbit
-               │       
-               │       ///|
-               │       let p_unused : Int = 42
-               │       
-               │       ///|
-               │       test {
-               │         ignore(p_unused)
-               │       }
-               │       
-               │       ///|
-               │       fn main {
-               │         let x = 42
-               │         ignore(x)
-               │       }
-               │       ```
-            ───╯
+            failed to read file `$ROOT/lib/hello_2_test.mbt`, [0002] warning: Warning (unused_value): Unused variable 'unused_in_patch_test_json'
             Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
