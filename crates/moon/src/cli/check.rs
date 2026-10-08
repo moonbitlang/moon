@@ -501,9 +501,6 @@ fn run_check_impl(
     let discovered =
         sync_and_discover_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
             .context("Failed to calculate build plan")?;
-    let resolved_project = discovered
-        .resolve_packages(output.user_log())
-        .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log()).with_context(|| {
@@ -513,15 +510,8 @@ fn run_check_impl(
             )
         })?;
     }
-    let result = run_check_normal_rr_from_resolved(
-        cli,
-        cmd,
-        &dirs,
-        false,
-        &targets,
-        resolved_project,
-        output,
-        json,
+    let result = run_check_normal_rr_from_discovered(
+        cli, cmd, &dirs, false, &targets, discovered, output, json,
     )
     .with_context(|| match targets.as_slice() {
         [target] => format!("failed to run check for target {target:?}"),
@@ -576,12 +566,18 @@ fn run_check_for_single_file_rr(
         false,
         user_log,
     )?;
-    let resolved = discovered.resolve_packages(user_log)?;
     let target_backends = if selected_target_backends.is_empty() {
-        vec![cmd.build_flags.resolve_single_target_backend()?.or(backend)]
+        vec![
+            cmd.build_flags
+                .resolve_single_target_backend()?
+                .or(backend)
+                .unwrap_or_default(),
+        ]
     } else {
-        selected_target_backends.iter().copied().map(Some).collect()
+        selected_target_backends.to_vec()
     };
+
+    let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let _lock;
     if !cli.dry_run {
@@ -598,7 +594,7 @@ fn run_check_for_single_file_rr(
         let compile_config = rr_build::prepare_resolved_build(
             cli,
             &cmd.build_flags,
-            target_backend,
+            Some(target_backend),
             target_dir,
             RunMode::Check,
             user_log,
@@ -697,9 +693,6 @@ fn run_check_normal_internal_rr(
     let user_log = output.user_log();
     let discovered = sync_and_discover_check_project(cli, cmd, dirs, user_log, json.is_some())
         .context("Failed to calculate build plan")?;
-    let resolved_project = discovered
-        .resolve_packages(user_log)
-        .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, user_log).with_context(|| {
@@ -709,29 +702,29 @@ fn run_check_normal_internal_rr(
             )
         })?;
     }
-    run_check_normal_rr_from_resolved(
+    run_check_normal_rr_from_discovered(
         cli,
         cmd,
         dirs,
         watch,
         selected_target_backend.as_slice(),
-        resolved_project,
+        discovered,
         output,
         json,
     )
 }
 
-/// Plans and executes a check from resolved project data.
+/// Selects backends, resolves relationships, and executes a check.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run check.
 #[allow(clippy::too_many_arguments)]
-fn run_check_normal_rr_from_resolved(
+fn run_check_normal_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     output: &CommandOutput,
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
@@ -742,6 +735,24 @@ fn run_check_normal_rr_from_resolved(
         mooncake_bin_dir,
         ..
     } = dirs;
+    let selections = if selected_target_backends.is_empty() {
+        validate_selector_flags_before_split(&discovered, cmd, source_dir, None, user_log)
+            .context("Failed to calculate build plan")?;
+        Some(
+            resolve_check_target_selections(&discovered, cmd, source_dir, None, user_log)
+                .context("Failed to calculate build plan")?,
+        )
+    } else {
+        None
+    };
+    let (resolved_project, fallback_backend) = rr_build::resolve_project_for_targets(
+        discovered,
+        selected_target_backends,
+        selections.as_deref(),
+        user_log,
+    )
+    .context("Failed to calculate build plan")?;
+
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolved_project)
     } else {
@@ -750,15 +761,16 @@ fn run_check_normal_rr_from_resolved(
             watched_paths: Vec::new(),
         }
     };
-    let planned_runs = if selected_target_backends.is_empty() {
-        plan_check_rr_from_resolved_all(
+    let planned_runs = if let Some(selections) = selections {
+        plan_check_rr_from_selections(
             cli,
             cmd,
             source_dir,
             target_dir,
             mooncake_bin_dir,
-            None,
+            fallback_backend,
             resolved_project,
+            selections,
             user_log,
         )
         .context("Failed to calculate build plan")?

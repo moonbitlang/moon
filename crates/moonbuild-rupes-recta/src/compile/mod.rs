@@ -323,7 +323,10 @@ mod tests {
                     pkg_dirs: packages,
                     enable_coverage: false,
                 },
-                package_relations: relationship,
+                package_relations: moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&b| (b, relationship.clone()))
+                    .collect(),
             };
             for symbols in [
                 DebugSymbols::None,
@@ -541,7 +544,10 @@ mod tests {
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            package_relations: PackageRelations::default(),
+            package_relations: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, PackageRelations::default()))
+                .collect(),
         };
         // Empty plans exercise capability forwarding without resolving host tools.
         // Include foreign targets and None so a planner-side host read cannot pass.
@@ -747,7 +753,10 @@ mod tests {
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            package_relations: relationship,
+            package_relations: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, relationship.clone()))
+                .collect(),
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
@@ -863,7 +872,10 @@ mod tests {
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            package_relations: PackageRelations::default(),
+            package_relations: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, PackageRelations::default()))
+                .collect(),
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(

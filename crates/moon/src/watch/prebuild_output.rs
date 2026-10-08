@@ -123,8 +123,13 @@ mod tests {
         .unwrap();
         let synced_modules =
             sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
-        let resolved =
-            prepare_synced_project(&preparation_config, synced_modules, &user_log).unwrap();
+        let resolved = prepare_synced_project(
+            &preparation_config,
+            synced_modules,
+            moonutil::target::TargetBackend::all(),
+            &user_log,
+        )
+        .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         assert!(watch_paths.ignored_paths.is_empty());
@@ -174,8 +179,13 @@ mod tests {
         .unwrap();
         let synced_modules =
             sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
-        let resolved =
-            prepare_synced_project(&preparation_config, synced_modules, &user_log).unwrap();
+        let resolved = prepare_synced_project(
+            &preparation_config,
+            synced_modules,
+            moonutil::target::TargetBackend::all(),
+            &user_log,
+        )
+        .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         let root = dunce::canonicalize(temp_dir.path()).unwrap();

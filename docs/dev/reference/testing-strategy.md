@@ -204,10 +204,12 @@ Inputs:
 - source directory
 - registry / sync configuration
 - std / no-std / coverage flags
+- requested target backends
 
 Outputs:
 
-- resolved workspace / module / package graph
+- resolved modules and package declarations shared across configurations
+- a validated package dependency graph for an explicitly selected backend
 
 Use this phase for:
 
@@ -218,6 +220,11 @@ Use this phase for:
 Tests here should prefer injected registries or other explicit test doubles
 over full CLI update/install flows when possible.
 
+Tests of run package/backend selection retain package declarations and call the
+same selection and resolution phase as the command. They must choose the backend
+before resolving imports, so invalid imports on an unselected backend do not
+prevent the test fixture from loading.
+
 ### Phase 3: Planning and lowering
 
 Inputs:
@@ -226,6 +233,7 @@ Inputs:
 - explicit user intent
 - selected backend
 - compile configuration
+- package dependencies resolved for that configuration
 
 Outputs:
 

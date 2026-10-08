@@ -436,14 +436,13 @@ fn run_test_impl(
     validate_test_or_bench_invocation(cli, &test_cmd)?;
     let discovered =
         sync_and_discover_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
-    let ret_value = run_test_or_bench_from_resolved(
+    let ret_value = run_test_or_bench_from_discovered(
         cli,
         &test_cmd,
         &dirs,
         display_backend_hint,
         &targets,
-        resolved_project,
+        discovered,
         output,
     )
     .with_context(|| match targets.as_slice() {
@@ -571,12 +570,12 @@ fn run_test_in_single_file_rr(
         false,
         user_log,
     )?;
-    let resolved = discovered.resolve_packages(user_log)?;
     let target_backends = if targets.is_empty() {
-        vec![backend]
+        vec![backend.unwrap_or_default()]
     } else {
-        targets.into_iter().map(Some).collect()
+        targets
     };
+    let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let lock = if cli.dry_run {
         None
@@ -612,7 +611,7 @@ fn run_test_in_single_file_rr(
             let compile_config = rr_build::prepare_resolved_build(
                 cli,
                 &build_flags,
-                target_backend,
+                Some(target_backend),
                 target_dir,
                 RunMode::Test,
                 user_log,
@@ -1046,30 +1045,29 @@ fn run_test_rr(
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let discovered = sync_and_discover_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
-    run_test_or_bench_from_resolved(
+    run_test_or_bench_from_discovered(
         cli,
         cmd,
         dirs,
         display_backend_hint,
         selected_target_backend.as_slice(),
-        resolved_project,
+        discovered,
         output,
     )
 }
 
-/// Plans, builds, and runs tests from resolved project data.
+/// Selects backends, resolves relationships, and runs tests.
 ///
 /// Holds the target-directory lock through planning and the initial build,
 /// then releases it before executing tests or benchmarks.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_test_or_bench_from_resolved(
+pub(crate) fn run_test_or_bench_from_discovered(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     display_backend_hint: bool,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let user_log = output.user_log();
@@ -1079,20 +1077,34 @@ pub(crate) fn run_test_or_bench_from_resolved(
         mooncake_bin_dir,
         ..
     } = dirs;
+    let selections = if selected_target_backends.is_empty() {
+        validate_original_package_selection_filters(&discovered, cmd)?;
+        Some(resolve_test_target_selections(&discovered, cmd, user_log)?)
+    } else {
+        None
+    };
+    let (resolved_project, fallback_backend) = rr_build::resolve_project_for_targets(
+        discovered,
+        selected_target_backends,
+        selections.as_deref(),
+        user_log,
+    )?;
+
     let lock = if cli.dry_run {
         None
     } else {
         Some(lock_directory(target_dir, user_log)?)
     };
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let planned_runs = if selected_target_backends.is_empty() {
-        plan_test_or_bench_rr_from_resolved_all(
+    let planned_runs = if let Some(selections) = selections {
+        plan_test_or_bench_rr_from_selections(
             cli,
             cmd,
             target_dir,
             mooncake_bin_dir,
-            None,
+            fallback_backend,
             resolved_project,
+            selections,
             user_log,
         )?
     } else {

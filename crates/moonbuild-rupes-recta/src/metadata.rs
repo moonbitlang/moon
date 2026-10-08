@@ -163,8 +163,7 @@ fn gen_package_json(
         .collect();
 
     // Dependencies collection
-    let mut deps: Vec<AliasJSON> = ctx
-        .package_relations
+    let mut deps: Vec<AliasJSON> = ctx.package_relations[&backend]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::Source))
         .filter(|(_, _, edge)| edge.kind == TargetKind::Source)
@@ -172,8 +171,7 @@ fn gen_package_json(
         .collect();
     deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
-    let mut wbtest_deps: Vec<AliasJSON> = ctx
-        .package_relations
+    let mut wbtest_deps: Vec<AliasJSON> = ctx.package_relations[&backend]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::WhiteboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::WhiteboxTest)
@@ -181,8 +179,7 @@ fn gen_package_json(
         .collect();
     wbtest_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
-    let mut test_deps: Vec<AliasJSON> = ctx
-        .package_relations
+    let mut test_deps: Vec<AliasJSON> = ctx.package_relations[&backend]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::BlackboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::BlackboxTest)
@@ -259,7 +256,9 @@ fn metadata_mi_path(
     backend: TargetBackend,
 ) -> PathBuf {
     let is_implementing_virtual = target.kind == TargetKind::Source
-        && ctx.package_relations.virt_impl.contains_key(target.package);
+        && ctx.package_relations[&backend]
+            .virt_impl
+            .contains_key(target.package);
     artifact_paths
         .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, backend, is_implementing_virtual)
         .into_path()

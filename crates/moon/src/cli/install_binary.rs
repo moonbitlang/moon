@@ -578,6 +578,7 @@ fn prepare_native_build(
     let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
         &preparation_config,
         synced_modules,
+        &[moonutil::target::TargetBackend::Native],
         user_log,
     )?;
     let target_dir = package_dirs.target_dir;

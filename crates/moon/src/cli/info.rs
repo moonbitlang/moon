@@ -301,17 +301,23 @@ pub(crate) fn run_info(
     let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
     let discovered =
         discover_synced_project(&preparation_config, synced_modules, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
-    let selection = PackageSelection::new(&cmd, &resolved_project, output.user_log())?;
+    let selection = PackageSelection::new(&cmd, &discovered, output.user_log())?;
 
     let requested_targets = cmd
         .target
         .as_deref()
         .map(lower_surface_targets)
         .unwrap_or_default();
-    let output_plan =
-        imp::plan_info_outputs(&resolved_project, selection.package_ids.iter().copied());
+    let output_plan = imp::plan_info_outputs(&discovered, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
+    let resolved_project = discovered.resolve_packages(
+        &execution_targets
+            .iter()
+            .map(|&(backend, _)| backend)
+            .collect::<Vec<_>>(),
+        output.user_log(),
+    )?;
+
     std::fs::create_dir_all(target_dir)?;
     let _lock = lock_directory(target_dir, output.user_log())?;
 

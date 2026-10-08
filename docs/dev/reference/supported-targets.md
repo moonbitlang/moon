@@ -78,12 +78,12 @@ separate feature and unchanged.
 Notes:
 
 * `--target all` expands to `wasm`,  `wasm-gc`,  `js`,  `native` (not `llvm`).
-* A non-watch, explicit multi-backend project invocation synchronizes and
-  resolves dependencies once. Non-dry-run execution then holds one
-  target-directory lock while it plans and executes each backend separately.
-  Those backend graphs remain separate, but use the target directory's shared
-  n2 database, so actions with identical physical outputs can reuse recorded
-  execution state.
+* A non-watch, explicit multi-backend project invocation synchronizes module
+  dependencies and discovers package declarations once. Package solving resolves
+  active imports for each requested backend, returning resolution errors directly.
+  Non-dry-run execution
+  holds one target-directory lock while planning and executing the composed
+  backend plans against the shared n2 database.
 * `llvm` is still a valid value in `supported_targets`.
 * `moon doc` selects `B` from the selected module's `preferred_target`, then falls back to `wasm`.
 * `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
@@ -102,11 +102,15 @@ support `B` , the command fails with a normal user-facing error (not a panic).
 
 ## Out of MVP
 
-MVP does **not** include:
+The `supported_targets` field does **not** include:
 
-* backend-scoped dependency declarations (`import` per backend), 
 * transitive constraint propagation or inference (deduce `supported_targets` based on dependencies), 
 * package-based backend guessing when `--target` is not provided.
+
+Backend-scoped imports are supported separately through
+[`#cfg` import blocks](cond-comp.md#conditional-package-imports). Only imports
+active on the selected backend affect dependency compatibility and realizable
+test-target support.
 
 ## Mixed-backend usage pattern
 

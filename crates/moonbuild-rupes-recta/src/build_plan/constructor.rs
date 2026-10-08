@@ -42,6 +42,7 @@ use super::{
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
     pub(super) input: &'a ResolvedProject,
+    pub(super) rel: &'a crate::pkg_solve::PackageRelations,
     pub(super) mooncake_bin_dir: &'a Path,
     pub(super) config: &'a CompileConfig,
     pub(super) input_directive: &'a InputDirective,
@@ -84,6 +85,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Self {
         Self {
             input: resolved,
+            rel: &resolved.package_relations[&config.backend.target_backend()],
             mooncake_bin_dir,
             config,
             input_directive,

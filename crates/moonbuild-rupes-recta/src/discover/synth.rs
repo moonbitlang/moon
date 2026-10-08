@@ -100,6 +100,7 @@ pub fn build_synth_single_file_package(
                     alias: Some(alias),
                     sub_package: false,
                     import_all: false,
+                    targets: None,
                 });
             } else {
                 imports.push(Import::Simple(fqn_str));

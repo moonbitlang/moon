@@ -127,13 +127,12 @@ pub(crate) fn run_build(
     }
 
     let discovered = sync_and_discover_build_project(cli, &cmd, &dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     let result =
-        run_build_rr_from_resolved(cli, &cmd, &dirs, false, &targets, resolved_project, output)
+        run_build_rr_from_discovered(cli, &cmd, &dirs, false, &targets, discovered, output)
             .with_context(|| match targets.as_slice() {
                 [target] => format!("failed to run build for target {target:?}"),
                 _ => format!("failed to run build for targets {targets:?}"),
@@ -177,12 +176,18 @@ fn run_build_for_single_file_rr(
         true,
         user_log,
     )?;
-    let resolved = discovered.resolve_packages(user_log)?;
     let target_backends = if selected_target_backends.is_empty() {
-        vec![cmd.build_flags.resolve_single_target_backend()?.or(backend)]
+        vec![
+            cmd.build_flags
+                .resolve_single_target_backend()?
+                .or(backend)
+                .unwrap_or_default(),
+        ]
     } else {
-        selected_target_backends.iter().copied().map(Some).collect()
+        selected_target_backends.to_vec()
     };
+
+    let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let _lock;
     if !cli.dry_run {
@@ -197,7 +202,7 @@ fn run_build_for_single_file_rr(
         let compile_config = rr_build::prepare_resolved_build(
             cli,
             &cmd.build_flags,
-            target_backend,
+            Some(target_backend),
             target_dir,
             RunMode::Build,
             user_log,
@@ -291,33 +296,32 @@ fn run_build_rr(
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let discovered = sync_and_discover_build_project(cli, cmd, dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_build_rr_from_resolved(
+    run_build_rr_from_discovered(
         cli,
         cmd,
         dirs,
         watch,
         selected_target_backend.as_slice(),
-        resolved_project,
+        discovered,
         output,
     )
 }
 
-/// Plans and executes a build from resolved project data.
+/// Selects backends, resolves relationships, and executes a build.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run build.
 #[allow(clippy::too_many_arguments)]
-fn run_build_rr_from_resolved(
+fn run_build_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
@@ -327,6 +331,23 @@ fn run_build_rr_from_resolved(
         mooncake_bin_dir,
         ..
     } = dirs;
+    let selections = if selected_target_backends.is_empty() {
+        Some(resolve_build_target_selections(
+            &discovered,
+            cmd,
+            None,
+            user_log,
+        )?)
+    } else {
+        None
+    };
+    let (resolved_project, fallback_backend) = rr_build::resolve_project_for_targets(
+        discovered,
+        selected_target_backends,
+        selections.as_deref(),
+        user_log,
+    )?;
+
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolved_project)
     } else {
@@ -335,15 +356,15 @@ fn run_build_rr_from_resolved(
             watched_paths: Vec::new(),
         }
     };
-    let planned_runs = if selected_target_backends.is_empty() {
-        plan_build_rr_from_resolved_all(
+    let planned_runs = if let Some(selections) = selections {
+        plan_build_rr_from_selections(
             cli,
             cmd,
-            source_dir,
             target_dir,
             mooncake_bin_dir,
-            None,
+            fallback_backend,
             resolved_project,
+            selections,
             user_log,
         )?
     } else {
