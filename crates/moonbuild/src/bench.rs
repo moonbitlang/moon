@@ -145,6 +145,7 @@ pub fn write(config: &Config, base_dir: &Path) {
     let module = MoonModJSON {
         name: "build_matrix".to_string(),
         version: None,
+        private: None,
         deps: None,
         bin_deps: None,
         readme: None,

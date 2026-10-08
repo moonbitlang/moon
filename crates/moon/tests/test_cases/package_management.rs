@@ -19,6 +19,136 @@
 use super::*;
 
 #[test]
+fn private_module_publish_is_rejected_before_backend_handoff() {
+    for (file, contents) in [
+        ("moon.mod", "name = \"test/internal\"\nprivate = true\n"),
+        (
+            "moon.mod.json",
+            r#"{"name":"test/internal","private":true}"#,
+        ),
+    ] {
+        let dir = TestDir::new_empty();
+        std::fs::write(dir.join(file), contents).unwrap();
+        for args in [vec!["publish"], vec!["publish", "--dry-run"]] {
+            moon_cmd(&dir)
+                .env("MOONCAKE_OVERRIDE", dir.join("must-not-execute"))
+                .args(args)
+                .assert()
+                .failure()
+                .stdout_eq("")
+                .stderr_eq("Error: Cannot publish private module `test/internal`: publishing with private visibility is not supported yet.\n");
+        }
+    }
+}
+
+#[test]
+fn private_module_preserves_public_publishing_and_local_packaging() {
+    let dir = TestDir::new_empty();
+    let executable = dir.join(format!("fake-mooncake{}", std::env::consts::EXE_SUFFIX));
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_mooncake.rs");
+    snapbox::cmd::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .args(["--edition=2021"])
+        .arg(source)
+        .arg("-o")
+        .arg(&executable)
+        .assert()
+        .success();
+
+    for (index, manifest) in [
+        "name = \"test/internal\"\n",
+        "name = \"test/internal\"\nprivate = false\n",
+        "name = \"test/internal\"\nprivate = true\n",
+        r#"{"name":"test/internal"}"#,
+        r#"{"name":"test/internal","private":false}"#,
+        r#"{"name":"test/internal","private":true}"#,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let module_dir = dir.join(format!("module-{index}"));
+        std::fs::create_dir(&module_dir).unwrap();
+        let file = if manifest.starts_with('{') {
+            "moon.mod.json"
+        } else {
+            "moon.mod"
+        };
+        std::fs::write(module_dir.join(file), manifest).unwrap();
+        let private = manifest.contains("true");
+        for command in ["package", "publish"] {
+            if command == "publish" && private {
+                continue;
+            }
+            moon_cmd(&module_dir)
+                .env("MOONCAKE_OVERRIDE", &executable)
+                .args([command, "--dry-run"])
+                .assert()
+                .success()
+                .stdout_eq("backend result\n")
+                .stderr_eq("backend notice\n");
+            let (_, payload): (serde_json::Value, serde_json::Value) =
+                serde_json::from_slice(&std::fs::read(module_dir.join("handoff.json")).unwrap())
+                    .unwrap();
+            assert!(
+                payload
+                    .get(if command == "publish" {
+                        "Publish"
+                    } else {
+                        "Package"
+                    })
+                    .is_some()
+            );
+        }
+    }
+
+    std::fs::write(dir.join("moon.work"), "members = [\".\", \"member\"]\n").unwrap();
+    std::fs::create_dir_all(dir.join("member/src")).unwrap();
+    for member_private in [true, false] {
+        std::fs::write(
+            dir.join("moon.mod"),
+            format!("name = \"test/root\"\nprivate = {}\n", !member_private),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("member/moon.mod"),
+            format!("name = \"test/member\"\nprivate = {member_private}\n"),
+        )
+        .unwrap();
+        let assertion = moon_cmd(&dir)
+            .env("MOONCAKE_OVERRIDE", &executable)
+            .args(["-C", "member/src", "publish", "--dry-run"])
+            .assert();
+        if member_private {
+            assertion.failure().stdout_eq("").stderr_eq("Error: Cannot publish private module `test/member`: publishing with private visibility is not supported yet.\n");
+            assert!(!dir.join("member/src/handoff.json").exists());
+        } else {
+            assertion
+                .success()
+                .stdout_eq("backend result\n")
+                .stderr_eq("backend notice\n");
+        }
+    }
+}
+
+#[test]
+fn private_module_supports_local_build_and_test() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"test/internal\"\nprivate = true\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(
+        dir.join("lib.mbt"),
+        "pub fn value() -> Int { 42 }\n\ntest { assert_eq(value(), 42) }\n",
+    )
+    .unwrap();
+    for command in ["check", "build", "test"] {
+        moon_cmd(&dir).args([command]).assert().success();
+    }
+}
+
+#[test]
 fn dependency_commands_reject_invalid_coordinates_before_registry_access() {
     let dir = TestDir::new_empty();
     let manifest = "name = \"test/main\"\n";

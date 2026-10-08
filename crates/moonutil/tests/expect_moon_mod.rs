@@ -573,6 +573,7 @@ fn manifest_facade_exposes_moon_mod_json_rules() {
     let module_json = MoonModJSON {
         name: "example/mod".to_string(),
         version: None,
+        private: None,
         deps: None,
         bin_deps: None,
         readme: None,

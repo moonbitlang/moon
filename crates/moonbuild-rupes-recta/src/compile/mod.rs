@@ -170,6 +170,7 @@ mod tests {
         MoonMod {
             name: "test/single".to_string(),
             version: None,
+            private: None,
             deps: Default::default(),
             bin_deps: None,
             readme: None,
