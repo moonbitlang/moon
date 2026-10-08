@@ -16,16 +16,18 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    cell::OnceCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use ariadne::{Fmt, ReportKind};
 use clap::ValueEnum;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    error_code_docs::get_error_code_doc, test_metadata::DiagnosticLevel, text::line_col_to_byte_idx,
-};
+use crate::{error_code_docs::get_error_code_doc, test_metadata::DiagnosticLevel};
 
 #[derive(Debug, Deserialize)]
 pub struct PatchJSON {
@@ -119,22 +121,120 @@ impl Position {
             col: col.parse::<usize>().ok()?,
         })
     }
+}
 
-    pub fn calculate_offset(&self, content: &str) -> Option<usize> {
-        if self.line == 0 || self.col == 0 {
+struct DiagnosticSource {
+    display_filename: String,
+    source: ariadne::Source,
+    line_offsets: Vec<usize>,
+}
+
+impl DiagnosticSource {
+    fn new(display_filename: String, content: String) -> Self {
+        // Compiler columns and Ariadne spans count Unicode scalar values.
+        // Only LF starts a compiler line; Ariadne also recognizes other
+        // separators, so its line table cannot replace this index.
+        let line_offsets = std::iter::once(0)
+            .chain(
+                content
+                    .chars()
+                    .enumerate()
+                    .filter_map(|(offset, ch)| (ch == '\n').then_some(offset + 1)),
+            )
+            .collect();
+        Self {
+            display_filename,
+            source: ariadne::Source::from(content),
+            line_offsets,
+        }
+    }
+
+    fn calculate_offset(&self, position: &Position) -> Option<usize> {
+        let line_offset = self.line_offsets.get(position.line.checked_sub(1)?)?;
+        let offset = line_offset.checked_add(position.col.checked_sub(1)?)?;
+        (offset <= self.source.len()).then_some(offset)
+    }
+}
+
+/// Source text and indexes shared by one batch of rendered diagnostics.
+///
+/// Create a fresh cache for each batch so subsequent builds observe file edits.
+pub struct DiagnosticSources<'a> {
+    files: HashMap<String, Option<DiagnosticSource>>,
+    source_maps: HashMap<String, Option<SourceMap>>,
+    patch_file: Option<&'a Path>,
+    patch_sources: OnceCell<Option<HashMap<String, DiagnosticSource>>>,
+}
+
+impl<'a> DiagnosticSources<'a> {
+    pub fn new(patch_file: Option<&'a Path>) -> Self {
+        Self {
+            files: HashMap::new(),
+            source_maps: HashMap::new(),
+            patch_file,
+            patch_sources: OnceCell::new(),
+        }
+    }
+
+    fn get_file(&mut self, path: &str) -> Option<&DiagnosticSource> {
+        self.files
+            .entry(path.to_owned())
+            .or_insert_with(|| {
+                std::fs::read_to_string(path)
+                    .ok()
+                    .map(|content| DiagnosticSource::new(path.to_owned(), content))
+            })
+            .as_ref()
+    }
+
+    fn get_diagnostic_source(&mut self, path: &str) -> Option<&DiagnosticSource> {
+        self.get_file(path);
+        if let Some(source) = self.files.get(path)?.as_ref() {
+            return Some(source);
+        }
+
+        let patch_file = self.patch_file?;
+        let patch_sources = self
+            .patch_sources
+            .get_or_init(|| {
+                let content = std::fs::read_to_string(patch_file).ok()?;
+                let patch: PatchJSON = serde_json_lenient::from_str(&content).ok()?;
+                let mut sources = HashMap::new();
+                for item in patch.patches {
+                    sources
+                        .entry(item.name.clone())
+                        .or_insert_with(|| DiagnosticSource::new(item.name, item.content));
+                }
+                Some(sources)
+            })
+            .as_ref()?;
+        patch_sources.get(Path::new(path).file_name()?.to_str()?)
+    }
+
+    fn remap(
+        &mut self,
+        path: &str,
+        start_offset: usize,
+        end_offset: usize,
+    ) -> Option<(String, usize, usize)> {
+        let path_to_map_json = format!("{path}.map.json");
+        let map = self
+            .source_maps
+            .entry(path_to_map_json.clone())
+            .or_insert_with(|| {
+                let content = std::fs::read_to_string(&path_to_map_json).ok()?;
+                serde_json_lenient::from_str::<SourceMap>(&content).ok()
+            })
+            .as_ref()?;
+        let map_path = Path::new(&path_to_map_json);
+        let (source1, start_offset) = map.to_original(start_offset, map_path)?;
+        let (source2, end_offset) = map.to_original(end_offset, map_path)?;
+        if source1 != source2 {
             return None;
         }
-        let line_index = line_index::LineIndex::new(content);
-        let byte_based_index =
-            line_col_to_byte_idx(&line_index, self.line as u32 - 1, self.col as u32 - 1)?;
-
-        let res = content
-            .char_indices()
-            .enumerate()
-            .find(|(_, (byte_offset, _))| *byte_offset == byte_based_index)
-            .map(|(i, _)| i)
-            .unwrap_or(usize::from(line_index.len()));
-        Some(res)
+        let path = source1.display().to_string();
+        self.get_file(&path)?;
+        Some((path, start_offset, end_offset))
     }
 }
 
@@ -201,7 +301,7 @@ impl MooncDiagnostic {
     pub fn render_diagnostics(
         &self,
         use_fancy: bool,
-        check_patch_file: Option<&PathBuf>,
+        sources: &mut DiagnosticSources<'_>,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
     ) -> Option<ReportKind<'static>> {
@@ -235,40 +335,24 @@ impl MooncDiagnostic {
             return Some(kind);
         }
 
-        let source_file_path = diagnostic.path.clone();
-        let (source_file_content, display_filename) =
-            match std::fs::read_to_string(&source_file_path) {
-                Ok(content) => (content, source_file_path.clone()),
-                Err(_) => {
-                    // if the source file is not found, try to get the content from the check patch file
-                    match check_patch_file.and_then(|f| {
-                        Self::get_content_and_filename_from_diagnostic_patch_file(
-                            f,
-                            &diagnostic.path,
-                        )
-                    }) {
-                        Some((content, filename)) => (content, filename),
-                        None => {
-                            eprintln!(
-                                "failed to read file `{}`, [{}] {}: {}",
-                                source_file_path,
-                                diagnostic.formatted_error_code(),
-                                diagnostic.level,
-                                diagnostic.message
-                            );
-                            return Some(kind);
-                        }
-                    }
-                }
-            };
+        let Some(source) = sources.get_diagnostic_source(&diagnostic.path) else {
+            eprintln!(
+                "failed to read file `{}`, [{}] {}: {}",
+                diagnostic.path,
+                diagnostic.formatted_error_code(),
+                diagnostic.level,
+                diagnostic.message
+            );
+            return Some(kind);
+        };
 
         let (start_position, end_position) = diagnostic.loc.as_range();
-        let Some(start_offset) = start_position.calculate_offset(&source_file_content) else {
+        let Some(start_offset) = source.calculate_offset(start_position) else {
             error!("failed to calculate start offset for diagnostic");
             bail_print_original()?;
             return None;
         };
-        let Some(end_offset) = end_position.calculate_offset(&source_file_content) else {
+        let Some(end_offset) = source.calculate_offset(end_position) else {
             error!("failed to calculate end offset for diagnostic");
             bail_print_original()?;
             return None;
@@ -276,34 +360,17 @@ impl MooncDiagnostic {
 
         // Remapping if there's .map.json file
         // TODO: log reasons for `.map.json` exists but not works.
-        let path_to_map_json = PathBuf::from(source_file_path + ".map.json");
-        let mapped = std::fs::read_to_string(&path_to_map_json)
-            .ok()
-            .and_then(|content| {
-                let map = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
-
-                let (source1, start_pos) = map.to_original(start_offset, &path_to_map_json)?;
-                let (source2, end_pos) = map.to_original(end_offset, &path_to_map_json)?;
-
-                if source1 != source2 {
-                    return None;
-                }
-
-                std::fs::read_to_string(&source1)
-                    .ok()
-                    .map(|content| (content, source1.display().to_string(), start_pos, end_pos))
-            });
-
-        let (source_file_content, display_filename, start_offset, end_offset) = mapped.unwrap_or((
-            source_file_content,
-            display_filename,
-            start_offset,
-            end_offset,
-        ));
+        let (source_path, start_offset, end_offset) = sources
+            .remap(&diagnostic.path, start_offset, end_offset)
+            .unwrap_or_else(|| (diagnostic.path.clone(), start_offset, end_offset));
+        let source = sources
+            .get_diagnostic_source(&source_path)
+            .expect("diagnostic source was already loaded");
+        let display_filename = &source.display_filename;
 
         let mut report_builder =
-            ariadne::Report::build(kind, (&display_filename, start_offset..end_offset)).with_label(
-                ariadne::Label::new((&display_filename, start_offset..end_offset))
+            ariadne::Report::build(kind, (display_filename, start_offset..end_offset)).with_label(
+                ariadne::Label::new((display_filename, start_offset..end_offset))
                     .with_message((&diagnostic.message).fg(color))
                     .with_color(color),
             );
@@ -328,10 +395,10 @@ impl MooncDiagnostic {
                 report_builder.with_config(ariadne::Config::default().with_color(false));
         }
 
-        match report_builder.finish().eprint((
-            &display_filename,
-            ariadne::Source::from(source_file_content),
-        )) {
+        match report_builder
+            .finish()
+            .eprint((display_filename, &source.source))
+        {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("internal rendering error: {e:?}");
@@ -339,25 +406,6 @@ impl MooncDiagnostic {
         };
 
         Some(kind)
-    }
-
-    fn get_content_and_filename_from_diagnostic_patch_file(
-        patch_file: &Path,
-        diagnostic_location_path: &str,
-    ) -> Option<(String, String)> {
-        let patch_content = std::fs::read_to_string(patch_file).ok()?;
-        let patch_json: PatchJSON = serde_json_lenient::from_str(&patch_content).ok()?;
-
-        let diagnostic_filename = PathBuf::from(diagnostic_location_path)
-            .file_name()?
-            .to_str()?
-            .to_string();
-
-        patch_json
-            .patches
-            .iter()
-            .find(|it| it.name == diagnostic_filename)
-            .map(|it| (it.content.clone(), it.name.clone()))
     }
 
     fn get_level_and_color(&self) -> (ariadne::ReportKind<'static>, ariadne::Color) {
@@ -389,8 +437,185 @@ mod tests {
         let diagnostic = serde_json_lenient::from_str::<MooncDiagnostic>(diagnostic_json).unwrap();
         assert!(diagnostic.path.is_empty());
 
-        let rendered = diagnostic.render_diagnostics(false, None, false, DiagnosticLevel::Error);
+        let rendered = diagnostic.render_diagnostics(
+            false,
+            &mut DiagnosticSources::new(None),
+            false,
+            DiagnosticLevel::Error,
+        );
 
         assert!(rendered.is_some());
+    }
+
+    #[test]
+    fn diagnostic_batch_reuses_source_and_observes_edits_in_the_next_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.mbt");
+        std::fs::write(&path, "original\n").unwrap();
+        let path = path.to_str().unwrap();
+
+        let mut sources = DiagnosticSources::new(None);
+        let source = sources.get_diagnostic_source(path).unwrap();
+        let source_address = &source.source as *const _;
+        let index_address = source.line_offsets.as_ptr();
+        std::fs::write(path, "edited\n").unwrap();
+
+        let source = sources.get_diagnostic_source(path).unwrap();
+        assert_eq!(source.source.text(), "original\n");
+        assert_eq!(&source.source as *const _, source_address);
+        assert_eq!(source.line_offsets.as_ptr(), index_address);
+
+        let mut next_batch = DiagnosticSources::new(None);
+        assert_eq!(
+            next_batch
+                .get_diagnostic_source(path)
+                .unwrap()
+                .source
+                .text(),
+            "edited\n"
+        );
+    }
+
+    #[test]
+    fn diagnostic_positions_use_unicode_scalar_columns_and_lf_lines() {
+        let source =
+            DiagnosticSource::new("source.mbt".to_owned(), "é🦀\r\nx\u{2028}z\n".to_owned());
+        for (line, col, offset) in [(1, 1, 0), (1, 3, 2), (2, 1, 4), (2, 3, 6), (3, 1, 8)] {
+            assert_eq!(
+                source.calculate_offset(&Position { line, col }),
+                Some(offset)
+            );
+        }
+        for (line, col) in [(0, 1), (1, 0), (4, 1), (3, 2), (1, usize::MAX)] {
+            assert_eq!(source.calculate_offset(&Position { line, col }), None);
+        }
+        let empty = DiagnosticSource::new("empty.mbt".to_owned(), String::new());
+        assert_eq!(
+            empty.calculate_offset(&Position { line: 1, col: 1 }),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn diagnostic_batch_reuses_patch_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let patch_file = dir.path().join("patch.json");
+        std::fs::write(
+            &patch_file,
+            r#"{"drops":[],"patches":[{"name":"generated.mbt","content":"é🦀\n"},{"name":"second.mbt","content":"second\n"},{"name":"generated.mbt","content":"duplicate\n"}]}"#,
+        )
+        .unwrap();
+        let generated = dir.path().join("generated.mbt");
+        let generated = generated.to_str().unwrap();
+        let second = dir.path().join("second.mbt");
+        let second = second.to_str().unwrap();
+        let mut sources = DiagnosticSources::new(Some(&patch_file));
+        let source = sources.get_diagnostic_source(generated).unwrap();
+        assert_eq!(source.display_filename, "generated.mbt");
+        assert_eq!(source.source.text(), "é🦀\n");
+        assert_eq!(
+            source.calculate_offset(&Position { line: 1, col: 2 }),
+            Some(1)
+        );
+
+        std::fs::write(
+            &patch_file,
+            r#"{"drops":[],"patches":[{"name":"generated.mbt","content":"edited\n"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            sources
+                .get_diagnostic_source(generated)
+                .unwrap()
+                .source
+                .text(),
+            "é🦀\n"
+        );
+        assert_eq!(
+            sources.get_diagnostic_source(second).unwrap().source.text(),
+            "second\n"
+        );
+        let mut next_batch = DiagnosticSources::new(Some(&patch_file));
+        assert_eq!(
+            next_batch
+                .get_diagnostic_source(generated)
+                .unwrap()
+                .source
+                .text(),
+            "edited\n"
+        );
+    }
+
+    #[test]
+    fn diagnostic_batch_reuses_source_maps_and_original_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("original.mbt");
+        std::fs::write(&original, "é🦀\n").unwrap();
+        let map_file = dir.path().join("generated.mbt.map.json");
+        std::fs::write(
+            &map_file,
+            r#"{"mappings":[{"source":"original.mbt","original_offset":1,"generated_offset":10,"length":5}]}"#,
+        )
+        .unwrap();
+        let generated = dir.path().join("generated.mbt");
+        let generated = generated.to_str().unwrap();
+        let original = dunce::canonicalize(original).unwrap().display().to_string();
+        let mut sources = DiagnosticSources::new(None);
+        assert_eq!(
+            sources.remap(generated, 10, 12),
+            Some((original.clone(), 1, 3))
+        );
+
+        std::fs::write(&original, "edited\n").unwrap();
+        std::fs::write(
+            &map_file,
+            r#"{"mappings":[{"source":"original.mbt","original_offset":0,"generated_offset":10,"length":5}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            sources.remap(generated, 10, 12),
+            Some((original.clone(), 1, 3))
+        );
+        assert_eq!(sources.get_file(&original).unwrap().source.text(), "é🦀\n");
+
+        let mut next_batch = DiagnosticSources::new(None);
+        assert_eq!(
+            next_batch.remap(generated, 10, 12),
+            Some((original.clone(), 0, 2))
+        );
+        assert_eq!(
+            next_batch.get_file(&original).unwrap().source.text(),
+            "edited\n"
+        );
+    }
+
+    #[test]
+    fn diagnostic_batch_caches_missing_files_and_source_maps() {
+        let dir = tempfile::tempdir().unwrap();
+        let generated = dir.path().join("generated.mbt");
+        let generated = generated.to_str().unwrap();
+        let mut sources = DiagnosticSources::new(None);
+        assert!(sources.get_diagnostic_source(generated).is_none());
+        assert!(sources.remap(generated, 0, 1).is_none());
+
+        std::fs::write(generated, "new\n").unwrap();
+        std::fs::write(
+            dir.path().join("generated.mbt.map.json"),
+            r#"{"mappings":[{"source":"generated.mbt","original_offset":0,"generated_offset":0,"length":3}]}"#,
+        )
+        .unwrap();
+        assert!(sources.get_diagnostic_source(generated).is_none());
+        assert!(sources.remap(generated, 0, 1).is_none());
+
+        let mut next_batch = DiagnosticSources::new(None);
+        assert_eq!(
+            next_batch
+                .get_diagnostic_source(generated)
+                .unwrap()
+                .source
+                .text(),
+            "new\n"
+        );
+        assert!(next_batch.remap(generated, 0, 1).is_some());
     }
 }

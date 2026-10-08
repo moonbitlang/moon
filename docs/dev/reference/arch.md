@@ -636,6 +636,14 @@ Shared artifact paths remain in Rupes Recta's `target_layout` module.
 Dry-run and planner snapshots traverse the Execution Plan directly, without
 constructing an n2 graph or copying command arguments into a second map.
 
+Human-readable diagnostic rendering shares source text, character-based line
+offsets, and Ariadne sources across each diagnostic batch. Source maps and
+patch-file contents are also loaded once per batch, including cached misses.
+Compiler locations use one-based Unicode scalar columns and LF-delimited
+lines; converting them to Ariadne character offsets uses the cached line
+offsets rather than scanning the source for each span. Each batch creates a
+fresh cache so later builds, including watch-mode rebuilds, observe file edits.
+
 The target-directory lock still spans mutable preparation, build execution,
 and the command's protected result collection. Database encapsulation does not
 shorten that lifetime; test and program execution retain their existing unlock
