@@ -36,7 +36,9 @@ use moonbuild_rupes_recta::{
     target_layout::GENERATED_TEST_DRIVER_PREFIX,
 };
 use moonutil::{
-    render::MooncDiagnostic, target::TargetBackend, test_metadata::DiagnosticLevel,
+    render::{DiagnosticSources, MooncDiagnostic},
+    target::TargetBackend,
+    test_metadata::DiagnosticLevel,
     user_log::UserLog,
 };
 use tracing::instrument;
@@ -741,6 +743,7 @@ fn process_captured_diagnostics(
             }
 
             let patch_file = cfg.patch_file.as_ref();
+            let mut sources = DiagnosticSources::default();
             match cfg.diagnostic_limit {
                 None => {
                     for file_diagnostics in by_file.values() {
@@ -748,6 +751,7 @@ fn process_captured_diagnostics(
                             let kind = diag.render_diagnostics(
                                 n2::use_fancy(),
                                 patch_file,
+                                &mut sources,
                                 cfg.explain_errors,
                                 cfg.render_no_loc,
                             );
@@ -774,6 +778,7 @@ fn process_captured_diagnostics(
                                     let kind = diag.render_diagnostics(
                                         n2::use_fancy(),
                                         patch_file,
+                                        &mut sources,
                                         build_config.explain_errors,
                                         build_config.render_no_loc,
                                     );
@@ -799,6 +804,7 @@ fn process_captured_diagnostics(
                             let kind = diag.render_diagnostics(
                                 n2::use_fancy(),
                                 patch_file,
+                                &mut sources,
                                 build_config.explain_errors,
                                 build_config.render_no_loc,
                             );
