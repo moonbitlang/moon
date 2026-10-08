@@ -22,7 +22,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::LazyLock,
 };
@@ -70,6 +70,9 @@ pub struct BuildConfig {
     /// Verbose output for build progress and command echo
     pub verbose: bool,
     pub suppress_progress: bool,
+
+    /// The patch file to use
+    pub patch_file: Option<PathBuf>,
 }
 
 impl BuildConfig {
@@ -90,6 +93,7 @@ impl Default for BuildConfig {
             n2_explain: false,
             verbose: false,
             suppress_progress: false,
+            patch_file: None,
         }
     }
 }
@@ -738,6 +742,7 @@ fn process_captured_diagnostics(
                 };
             }
 
+            let patch_file = cfg.patch_file.as_ref();
             let mut sources = DiagnosticSources::default();
             match cfg.diagnostic_limit {
                 None => {
@@ -745,6 +750,7 @@ fn process_captured_diagnostics(
                         for diag in file_diagnostics {
                             let kind = diag.render_diagnostics(
                                 n2::use_fancy(),
+                                patch_file,
                                 &mut sources,
                                 cfg.explain_errors,
                                 cfg.render_no_loc,
@@ -771,6 +777,7 @@ fn process_captured_diagnostics(
                                 if displayed < limit {
                                     let kind = diag.render_diagnostics(
                                         n2::use_fancy(),
+                                        patch_file,
                                         &mut sources,
                                         build_config.explain_errors,
                                         build_config.render_no_loc,
@@ -796,6 +803,7 @@ fn process_captured_diagnostics(
                         for diag in non_errors {
                             let kind = diag.render_diagnostics(
                                 n2::use_fancy(),
+                                patch_file,
                                 &mut sources,
                                 build_config.explain_errors,
                                 build_config.render_no_loc,

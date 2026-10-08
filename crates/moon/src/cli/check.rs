@@ -837,6 +837,7 @@ fn run_planned_checks(
     let mut cfg = cmd
         .build_flags
         .execution_config(&cli.unstable_feature, cli.verbose && json.is_none());
+    cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
     for (build_meta, build_input) in &planned_runs {
         // Generate all_pkgs.json for indirect dependency resolution

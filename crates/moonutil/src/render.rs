@@ -28,6 +28,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::{error_code_docs::get_error_code_doc, test_metadata::DiagnosticLevel};
 
+#[derive(Debug, Deserialize)]
+pub struct PatchJSON {
+    pub drops: Vec<String>,
+    pub patches: Vec<PatchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchItem {
+    pub name: String,
+    pub content: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MooncDiagnostic {
     pub path: String,
@@ -111,12 +123,13 @@ impl Position {
 }
 
 struct DiagnosticSource {
+    display_filename: String,
     source: ariadne::Source,
     line_offsets: Vec<usize>,
 }
 
 impl DiagnosticSource {
-    fn new(content: String) -> Self {
+    fn new(display_filename: String, content: String) -> Self {
         // Compiler columns and Ariadne spans count Unicode scalar values.
         // Only LF starts a compiler line; Ariadne also recognizes other
         // separators, so its line table cannot replace this index.
@@ -129,6 +142,7 @@ impl DiagnosticSource {
             )
             .collect();
         Self {
+            display_filename,
             source: ariadne::Source::from(content),
             line_offsets,
         }
@@ -146,18 +160,33 @@ impl DiagnosticSource {
 /// Create a fresh cache for each batch so subsequent builds observe file edits.
 #[derive(Default)]
 pub struct DiagnosticSources {
-    files: HashMap<String, Option<DiagnosticSource>>,
+    // Keep disk-only source-map reads separate from patch-enabled lookups.
+    files: HashMap<(PathBuf, Option<PathBuf>), Option<DiagnosticSource>>,
     source_maps: HashMap<String, Option<SourceMap>>,
 }
 
 impl DiagnosticSources {
-    fn get_file(&mut self, path: &str) -> Option<&DiagnosticSource> {
+    fn get_file(
+        &mut self,
+        path: impl AsRef<Path>,
+        patch_file: Option<&PathBuf>,
+    ) -> Option<&DiagnosticSource> {
+        let path = path.as_ref();
         self.files
-            .entry(path.to_owned())
+            .entry((path.to_owned(), patch_file.cloned()))
             .or_insert_with(|| {
-                std::fs::read_to_string(path)
+                let (content, display_filename) = std::fs::read_to_string(path)
+                    .map(|content| (content, path.display().to_string()))
                     .ok()
-                    .map(DiagnosticSource::new)
+                    .or_else(|| {
+                        patch_file.and_then(|patch_file| {
+                            MooncDiagnostic::get_content_and_filename_from_diagnostic_patch_file(
+                                patch_file,
+                                path.to_str()?,
+                            )
+                        })
+                    })?;
+                Some(DiagnosticSource::new(display_filename, content))
             })
             .as_ref()
     }
@@ -167,7 +196,7 @@ impl DiagnosticSources {
         path: &str,
         start_offset: usize,
         end_offset: usize,
-    ) -> Option<(String, usize, usize)> {
+    ) -> Option<(PathBuf, usize, usize)> {
         let path_to_map_json = format!("{path}.map.json");
         let map = self
             .source_maps
@@ -183,9 +212,8 @@ impl DiagnosticSources {
         if source1 != source2 {
             return None;
         }
-        let path = source1.display().to_string();
-        self.get_file(&path)?;
-        Some((path, start_offset, end_offset))
+        self.get_file(&source1, None)?;
+        Some((source1, start_offset, end_offset))
     }
 }
 
@@ -252,6 +280,7 @@ impl MooncDiagnostic {
     pub fn render_diagnostics(
         &self,
         use_fancy: bool,
+        check_patch_file: Option<&PathBuf>,
         sources: &mut DiagnosticSources,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
@@ -286,7 +315,7 @@ impl MooncDiagnostic {
             return Some(kind);
         }
 
-        let Some(source) = sources.get_file(&diagnostic.path) else {
+        let Some(source) = sources.get_file(&diagnostic.path, check_patch_file) else {
             eprintln!(
                 "failed to read file `{}`, [{}] {}: {}",
                 diagnostic.path,
@@ -311,13 +340,21 @@ impl MooncDiagnostic {
 
         // Remapping if there's .map.json file
         // TODO: log reasons for `.map.json` exists but not works.
-        let (source_path, start_offset, end_offset) = sources
+        let (source_path, start_offset, end_offset, patch_file) = sources
             .remap(&diagnostic.path, start_offset, end_offset)
-            .unwrap_or_else(|| (diagnostic.path.clone(), start_offset, end_offset));
+            .map(|(path, start, end)| (path, start, end, None))
+            .unwrap_or_else(|| {
+                (
+                    PathBuf::from(&diagnostic.path),
+                    start_offset,
+                    end_offset,
+                    check_patch_file,
+                )
+            });
         let source = sources
-            .get_file(&source_path)
+            .get_file(&source_path, patch_file)
             .expect("diagnostic source was already loaded");
-        let display_filename = &source_path;
+        let display_filename = &source.display_filename;
 
         let mut report_builder =
             ariadne::Report::build(kind, (display_filename, start_offset..end_offset)).with_label(
@@ -357,6 +394,25 @@ impl MooncDiagnostic {
         };
 
         Some(kind)
+    }
+
+    fn get_content_and_filename_from_diagnostic_patch_file(
+        patch_file: &Path,
+        diagnostic_location_path: &str,
+    ) -> Option<(String, String)> {
+        let patch_content = std::fs::read_to_string(patch_file).ok()?;
+        let patch_json: PatchJSON = serde_json_lenient::from_str(&patch_content).ok()?;
+
+        let diagnostic_filename = PathBuf::from(diagnostic_location_path)
+            .file_name()?
+            .to_str()?
+            .to_string();
+
+        patch_json
+            .patches
+            .iter()
+            .find(|it| it.name == diagnostic_filename)
+            .map(|it| (it.content.clone(), it.name.clone()))
     }
 
     fn get_level_and_color(&self) -> (ariadne::ReportKind<'static>, ariadne::Color) {
