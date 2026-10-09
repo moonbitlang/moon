@@ -16,20 +16,22 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{TestDir, build_graph, get_stdout, moon_cmd};
+use crate::{TestDir, build_graph, get_stdout_with_envs, moon_cmd};
 
 use super::*;
 
 #[test]
 fn test_coverage_report_with_moon_cove() {
     let dir = TestDir::new("test_coverage.in");
-    moon_cmd(&dir)
-        .env("MOON_COVE_REPORT_ENABLED", "true")
-        .env("MOON_COVE_REPORT_OVERRIDE", "unused-legacy-reporter")
-        .args(["coverage", "report", "--dry-run", "-f=summary"])
-        .assert()
-        .success()
-        .stdout_eq("(cd [..] && [..]moonrun[..] [..]/bin/moon_cove.wasm -- -f=summary)\n");
+    for value in ["1", "true", "TRUE"] {
+        moon_cmd(&dir)
+            .env("MOON_COVE_REPORT_ENABLED", value)
+            .env("MOON_COVE_REPORT_OVERRIDE", "unused-legacy-reporter")
+            .args(["coverage", "report", "--dry-run", "-f=summary"])
+            .assert()
+            .success()
+            .stdout_eq("(cd [..] && [..]moonrun[..] [..]/bin/moon_cove.wasm -- -f=summary)\n");
+    }
 }
 
 #[test]
@@ -44,22 +46,22 @@ fn test_coverage_report_help_dry_run() {
 }
 
 #[test]
-fn test_coverage_report_uses_legacy_by_default() {
+fn test_coverage_report_uses_moon_cove_by_default() {
     let dir = TestDir::new("test_coverage.in");
     moon_cmd(&dir)
         .env_remove("MOON_COVE_REPORT_ENABLED")
-        .env_remove("MOON_COVE_REPORT_OVERRIDE")
+        .env("MOON_COVE_REPORT_OVERRIDE", "unused-legacy-reporter")
         .args(["coverage", "report", "--dry-run", "-f=summary"])
         .assert()
         .success()
-        .stdout_eq("(cd [..] && [..]moon_cove_report[..] -f=summary)\n");
+        .stdout_eq("(cd [..] && [..]moonrun[..] [..]/bin/moon_cove.wasm -- -f=summary)\n");
 }
 
 #[test]
 fn test_coverage_report_override() {
     let dir = TestDir::new("test_coverage.in");
     moon_cmd(&dir)
-        .env_remove("MOON_COVE_REPORT_ENABLED")
+        .env("MOON_COVE_REPORT_ENABLED", "0")
         .env("MOON_COVE_REPORT_OVERRIDE", "custom-moon-cove-report")
         .args(["coverage", "report", "--dry-run", "-f=summary"])
         .assert()
@@ -68,10 +70,10 @@ fn test_coverage_report_override() {
 }
 
 #[test]
-fn test_moon_coverage_analyze() {
+fn test_moon_coverage_analyze_legacy() {
     let dir = TestDir::new("test_coverage.in");
     check(
-        get_stdout(
+        get_stdout_with_envs(
             &dir,
             [
                 "coverage",
@@ -81,6 +83,7 @@ fn test_moon_coverage_analyze() {
                 "--",
                 "-f=caret",
             ],
+            [("MOON_COVE_REPORT_ENABLED", "0")],
         ),
         expect![["
             warning: this line has no test coverage
