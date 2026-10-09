@@ -40,11 +40,9 @@ Package settings also have these direct declarations: `proof_enabled`,
 `bin_name`, `bin_target`, `max_concurrent_tests`, `regex_backend`, `implement`,
 and `overrides` use assignments; `virtual(has_default: ...)` declares a virtual
 package. They use the same value types, defaults, and validation as their legacy
-options. Each may appear only once. Declaring one both directly and inside
-`options(...)` is an error, including when the option uses its hyphenated or
-underscore alias. Legacy options remain accepted when no direct declaration is
-present. This duplicate rule does not change the existing override behavior of
-other declarations such as imports and `formatter`.
+options. Each may appear only once. Like `formatter` and `pkgtype`, they are
+subject to `options(...)` overrides: an option with the same spelling replaces
+the direct declaration, while an alias spelling is rejected as a duplicate field.
 
 The compiler also reads package configuration, so accepting a declaration in
 Moon alone does not make it usable with older compilers. Direct declarations

@@ -835,23 +835,9 @@ fn normalize_pkg_dsl(
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(Map<String, Value>, PackageImports)> {
-    // These declarations share their value types with legacy options, but reject
-    // mixed declarations instead of allowing an option to silently replace them.
-    // TODO: Remove the aliases and mixed-declaration guard when these settings
-    // are no longer accepted inside options(...).
-    let simple_declarations = [
-        ("proof_enabled", Some("proof-enabled")),
-        ("bin_name", Some("bin-name")),
-        ("bin_target", Some("bin-target")),
-        ("max_concurrent_tests", Some("max-concurrent-tests")),
-        ("regex_backend", Some("regex-backend")),
-        ("implement", None),
-        ("overrides", None),
-        ("virtual", Some("virtual_pkg")),
-    ];
     // Top-level DSL keys accepted in `moon.pkg`; the boolean says whether
     // repeated entries should be collected as a JSON array instead of rejected.
-    let mut toplevel_keys = std::collections::HashMap::from([
+    let toplevel_keys = std::collections::HashMap::from([
         ("import", true),
         ("wbtest-import", true),
         ("test-import", true),
@@ -862,8 +848,15 @@ fn normalize_pkg_dsl(
         ("rule", true),
         ("supported_targets", false),
         ("pkgtype", false),
+        ("proof_enabled", false),
+        ("bin_name", false),
+        ("bin_target", false),
+        ("max_concurrent_tests", false),
+        ("regex_backend", false),
+        ("implement", false),
+        ("overrides", false),
+        ("virtual", false),
     ]);
-    toplevel_keys.extend(simple_declarations.iter().map(|&(key, _)| (key, false)));
     let mut map = serde_json_lenient::Map::new();
     let mut imports = PackageImports::default();
     for (key, value) in dsl.iter() {
@@ -898,21 +891,9 @@ fn normalize_pkg_dsl(
             bail!("Duplicate key '{}' found in moon.pkg.", key);
         }
     }
-    // Capture which settings came from direct declarations before merging any
-    // legacy options, so aliases within options keep their existing validation.
-    let direct_options: Vec<_> = simple_declarations
-        .iter()
-        .filter(|(key, _)| map.contains_key(*key))
-        .collect();
     if let Value::Object(options) = map.remove("options").unwrap_or_default() {
         let mut seen_import_keys = HashSet::new();
         for (k, v) in options {
-            if let Some((key, _)) = direct_options
-                .iter()
-                .find(|(key, alias)| k == *key || alias.is_some_and(|alias| k == alias))
-            {
-                bail!("Duplicate key '{key}' found in moon.pkg and options.");
-            }
             if let Some((key, imports)) = imports.get_mut(&k) {
                 if !seen_import_keys.insert(key) {
                     bail!("Duplicate key '{key}' found in moon.pkg options.");

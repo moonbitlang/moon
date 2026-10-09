@@ -18,8 +18,7 @@
 `proof-enabled`、`bin-name`、`bin-target`、`max-concurrent-tests`、`regex-backend`
 及其下划线别名，也支持以 `virtual_pkg` 作为 `virtual` 的旧别名。
 
-每项配置只能声明一次。直接声明和对应的旧配置不能同时出现，即使值相同，
-或旧配置使用了另一种拼写，也会报错。例如，不要同时使用
+每项配置只需声明一次，直接声明或写在 `options(...)` 中均可。例如，不要同时使用
 `proof_enabled = true` 和 `options("proof-enabled": true)`。
 
 结构化的 `link`、`native-stub` 和按文件配置的 `targets` 仍需写在

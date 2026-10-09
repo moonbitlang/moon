@@ -21,9 +21,8 @@ These declarations preserve the behavior of the corresponding legacy fields in
 aliases. `virtual_pkg` is also accepted as a legacy alias of `virtual` inside
 `options(...)`.
 
-Declare each setting only once. Using both a direct declaration and its legacy
-option is an error, even if the values agree or the option uses another spelling.
-For example, do not combine `proof_enabled = true` with
+Declare each setting only once, either directly or in `options(...)`. For
+example, do not combine `proof_enabled = true` with
 `options("proof-enabled": true)`.
 
 Structured `link`, `native-stub`, and per-file `targets` settings still belong in
