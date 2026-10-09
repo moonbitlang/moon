@@ -14,6 +14,21 @@ user to remove the old file. Manifest warnings follow the user-log level
 (`--quiet` suppresses them) and are suppressed for dependency cache files under
 `.mooncakes`.
 
+The optional module field `private = true` (or `"private": true` in JSON)
+requests private visibility for the published module: only authorized users may
+access it. This is a module visibility policy, not a registry selection or a
+permanent prohibition on publishing. The same registry, including Mooncakes, may
+host both public and private modules. Omission and explicit `false` request public
+visibility and are preserved distinctly when manifests are serialized. If present,
+the value must be a boolean; `null`, other types, and duplicate declarations are
+rejected. The compatibility spelling `options(private: true)` is also accepted.
+
+Publishing with private visibility is not implemented yet. As a temporary safety
+measure, `moon publish` rejects private modules, including with `--dry-run`, before
+the publishing backend is started. In a workspace, the check applies to the
+selected member. Building, testing, local dependencies, and `moon package` remain
+available. The field alone does not implement registry storage or access control.
+
 A module may contain one or more **package**s,
 which is the unit of compilation in MoonBit.
 A package contains all files (not directories) within its containing directory,

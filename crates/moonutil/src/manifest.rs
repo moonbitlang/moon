@@ -174,6 +174,7 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         ("warnings", false),
         ("name", false),
         ("version", false),
+        ("private", false),
         ("rule", true),
         // metadata for mooncakes.io
         ("readme", false),

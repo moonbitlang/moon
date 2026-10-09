@@ -740,6 +740,10 @@ Register an account at mooncakes.io
 
 Publish the current module
 
+The optional `private` field in moon.mod (or moon.mod.json) requests restricted access to the module after publication when true. Omission or false requests public visibility.
+
+Publishing with private visibility is not supported yet, so private modules are currently rejected, including with --dry-run. Local building, testing, and packaging remain available.
+
 **Usage:** `moon publish [OPTIONS]`
 
 ###### **Options:**

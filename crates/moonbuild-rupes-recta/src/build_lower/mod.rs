@@ -200,6 +200,7 @@ mod tests {
         MoonMod {
             name: name.to_string(),
             version: None,
+            private: None,
             deps: Default::default(),
             bin_deps: None,
             readme: None,
