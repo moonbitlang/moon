@@ -1,0 +1,5 @@
+options(
+  "pre-build": [
+    { "input": "a.txt", "output": "a.mbt", "command": "cp $input $output" },
+  ],
+)

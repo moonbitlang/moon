@@ -1,6 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "moonbitlang/import002/lib"
-  ]
-}

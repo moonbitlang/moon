@@ -1,0 +1,5 @@
+import {
+  "supported/missing-root/lib",
+}
+
+pkgtype(kind: "executable")

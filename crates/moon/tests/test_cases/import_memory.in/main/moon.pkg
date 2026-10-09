@@ -1,0 +1,9 @@
+import {
+  "username/hello/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  link: {"wasm": {"heap-start-address": 65536, "import-memory": {"module": "xxx", "name": "yyy"}}, "wasm-gc": {"import-memory": {"module": "xxx", "name": "yyy"}}},
+)

@@ -1,0 +1,7 @@
+pkgtype(kind: "executable")
+
+options(
+  "bin-target": "js",
+  "bin-name": "shape-tool",
+  "pre-build": [{"input": [], "output": ["generated.mbt"], "command": "bin-dep-package-prebuild-must-not-run"}],
+)

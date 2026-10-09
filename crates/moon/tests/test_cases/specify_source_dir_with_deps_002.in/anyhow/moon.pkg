@@ -1,0 +1,6 @@
+import {
+  "just/hello004",
+  "just/hello004/lib",
+}
+
+pkgtype(kind: "executable")

@@ -1,0 +1,5 @@
+import {
+  "moonbit/design/lib/queue",
+}
+
+pkgtype(kind: "executable")

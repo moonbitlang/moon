@@ -1,0 +1,8 @@
+import {
+  "username/hello/lib1",
+  "username/hello/lib2",
+}
+
+import {
+  "username/hello/lib7",
+} for "wbtest"

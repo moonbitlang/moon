@@ -1,0 +1,5 @@
+pkgtype(kind: "executable")
+
+options(
+  "native-stub": ["stub.c"],
+)

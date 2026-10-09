@@ -1,7 +1,0 @@
-{
-  "is-main": true,
-  "import": {
-    "hello/A": "C",
-    "hello/B": "D"
-  }
-}

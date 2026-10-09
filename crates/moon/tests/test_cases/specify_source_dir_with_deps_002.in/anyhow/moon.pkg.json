@@ -1,7 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "just/hello004",
-    "just/hello004/lib"
-  ]
-}

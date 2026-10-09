@@ -1,0 +1,5 @@
+pkgtype(kind: "executable")
+
+options(
+  "pre-build": [{"input": "parser.txt", "output": "generated.mby", "command": ":embed --text -i $input -o $output --name ignored"}],
+)

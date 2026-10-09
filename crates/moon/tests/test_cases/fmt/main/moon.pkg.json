@@ -1,6 +1,0 @@
-{
-  "is_main": true,
-  "import": [
-    "username/hello/lib"
-  ]
-}

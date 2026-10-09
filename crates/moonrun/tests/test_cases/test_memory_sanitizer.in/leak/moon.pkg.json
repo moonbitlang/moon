@@ -1,6 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "moonbit/ffi-memory-sanitizer-test/memory_sanitizer"
-  ]
-}

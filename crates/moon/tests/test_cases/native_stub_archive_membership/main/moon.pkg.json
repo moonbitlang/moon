@@ -1,4 +1,0 @@
-{
-  "is-main": true,
-  "import": ["native_stub_archive_membership/lib"]
-}

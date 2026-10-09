@@ -1,0 +1,4 @@
+
+import {
+  "username/hello/lib" @lll,
+} for "test"

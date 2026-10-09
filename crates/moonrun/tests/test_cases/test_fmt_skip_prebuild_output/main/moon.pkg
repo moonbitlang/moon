@@ -1,0 +1,5 @@
+pkgtype(kind: "executable")
+
+options(
+  "pre-build": [{"input": "main.mbt", "output": "generated.mbt", "command": "hostname"}],
+)

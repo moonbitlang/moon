@@ -1,0 +1,1 @@
+name = "moonbitlang/workspace-cwd-app"

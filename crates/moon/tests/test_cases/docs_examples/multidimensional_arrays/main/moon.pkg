@@ -1,0 +1,5 @@
+import {
+  "multidimensional_arrays/lib",
+}
+
+pkgtype(kind: "executable")

@@ -1,0 +1,5 @@
+import {
+  "username/hello/main lib" @lib,
+}
+
+pkgtype(kind: "executable")

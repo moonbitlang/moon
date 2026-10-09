@@ -1,0 +1,5 @@
+import {
+  "username/hello/lib6",
+} for "wbtest"
+
+supported_targets = "wasm+js"

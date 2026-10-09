@@ -1,0 +1,10 @@
+import {
+  "username/flash/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  "bin-target": "wasm",
+  "bin-name": "this-is-wasm",
+)

@@ -1,0 +1,3 @@
+name = "native_stub_archive_membership"
+
+version = "0.1.0"

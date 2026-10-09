@@ -1,0 +1,10 @@
+import {
+  "author2/flash/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  "bin-target": "native",
+  "bin-name": "author2-native",
+)
