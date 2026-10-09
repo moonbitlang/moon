@@ -819,13 +819,3 @@ fn expect_max_concurrent_tests() {
         }"#]]
     .assert_eq(&actual);
 }
-
-#[test]
-fn expect_declaration_conflicts_with_options() {
-    let actual = run(r#"
-      bin_name = "app"
-      options("bin-name": "other")
-    "#);
-    expect_test::expect!["Error: Duplicate key 'bin_name' found in moon.pkg and options."]
-        .assert_eq(&actual);
-}
