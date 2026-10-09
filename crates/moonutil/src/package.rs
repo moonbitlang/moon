@@ -848,6 +848,14 @@ fn normalize_pkg_dsl(
         ("rule", true),
         ("supported_targets", false),
         ("pkgtype", false),
+        ("proof_enabled", false),
+        ("bin_name", false),
+        ("bin_target", false),
+        ("max_concurrent_tests", false),
+        ("regex_backend", false),
+        ("implement", false),
+        ("overrides", false),
+        ("virtual", false),
     ]);
     let mut map = serde_json_lenient::Map::new();
     let mut imports = PackageImports::default();

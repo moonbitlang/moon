@@ -51,6 +51,19 @@ DSL normalization combines declarations and applies `options(...)` overrides.
 The converter then reads the normalized fields without mutating the map,
 preserving legacy option aliases and type checks. Unknown options are ignored.
 
+Package settings also have these direct declarations: `proof_enabled`,
+`bin_name`, `bin_target`, `max_concurrent_tests`, `regex_backend`, `implement`,
+and `overrides` use assignments; `virtual(has_default: ...)` declares a virtual
+package. They use the same value types, defaults, and validation as their legacy
+options. Each may appear only once. Like `formatter` and `pkgtype`, they are
+subject to `options(...)` overrides: an option with the same spelling replaces
+the direct declaration, while an alias spelling is rejected as a duplicate field.
+
+The compiler also reads package configuration, so accepting a declaration in
+Moon alone does not make it usable with older compilers. Direct declarations
+require companion compiler support and formatter support to preserve their
+spelling through `moon fmt`; see the [package configuration manual](../../manual/src/package.md).
+
 In `moon.pkg`, multiple unconditional import blocks are combined in source order,
 separately for regular, test, and whitebox-test imports. Legacy import fields in
 `options(...)` replace all corresponding blocks, including when the replacement

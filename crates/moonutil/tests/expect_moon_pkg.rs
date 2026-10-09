@@ -547,14 +547,17 @@ fn expect_supported_targets_prefers_new_config() {
 #[test]
 fn expect_options() {
     let actual = run(r#"
+    virtual(has_default: false)
+    implement = "string"
+    overrides = [ "string1", "string2" ]
+    proof_enabled = true
+    bin_name = "name"
+    bin_target = "wasm"
+    max_concurrent_tests = 4
+    regex_backend = "table"
+
     options(
-      "virtual_pkg": { "has_default": false },
-      "implement": "string",
-      "overrides": [ "string1", "string2" ],
-      "bin_name": "name",
-      "bin_target": "wasm",
       "native_stub": [ "stub.c", "another_stub.c" ],
-      "max_concurrent_tests": 4,
       "targets": {
         "file.mbt": "js",
         "platform_specific.mbt": ["or", ["and", "native", "release", ["not", "wasm"], ["not","debug"]], "llvm"]
@@ -673,7 +676,7 @@ fn expect_options() {
                 },
             ),
             warn_list: None,
-            proof_enabled: false,
+            proof_enabled: true,
             targets: Some(
                 {
                     "file.mbt": Atom(
@@ -765,7 +768,9 @@ fn expect_options() {
             max_concurrent_tests: Some(
                 4,
             ),
-            regex_backend: None,
+            regex_backend: Some(
+                Table,
+            ),
             local_rules: None,
         }"#]]
     .assert_eq(&actual);
@@ -774,9 +779,7 @@ fn expect_options() {
 #[test]
 fn expect_max_concurrent_tests() {
     let actual = run(r#"
-      options(
-        "max_concurrent_tests": 1,
-      ) 
+      max_concurrent_tests = 1
     "#);
     expect_test::expect![[r#"
         MoonPkg {
