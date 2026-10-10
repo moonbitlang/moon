@@ -17,7 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::manifest::{
-    convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_dsl_to_file,
+    convert_module_to_mod_json, read_module_desc_file_in_dir,
+    read_module_desc_file_in_dir_with_legacy, write_module_dsl_to_file,
 };
 use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use serde_json_lenient::{Value, json};
@@ -39,13 +40,13 @@ fn private_is_optional_and_survives_manifest_roundtrips() {
                 json.to_string()
             };
             std::fs::write(dir.path().join(file), contents).unwrap();
-            let module = read_module_desc_file_in_dir(dir.path()).unwrap();
+            let module = read_module_desc_file_in_dir_with_legacy(dir.path(), true).unwrap();
             assert_eq!(module.private, private);
             let json = serde_json_lenient::to_value(convert_module_to_mod_json(module)).unwrap();
             assert_eq!(json.get("private"), private.map(Value::Bool).as_ref());
             std::fs::remove_file(dir.path().join(file)).unwrap();
             std::fs::write(dir.path().join("moon.mod.json"), json.to_string()).unwrap();
-            let module = read_module_desc_file_in_dir(dir.path()).unwrap();
+            let module = read_module_desc_file_in_dir_with_legacy(dir.path(), true).unwrap();
             let json = serde_json_lenient::to_value(convert_module_to_mod_json(module)).unwrap();
             assert_eq!(json.get("private"), private.map(Value::Bool).as_ref());
         }
@@ -72,7 +73,7 @@ fn private_rejects_non_boolean_values_in_both_manifest_formats() {
             let dir = tempfile::tempdir().unwrap();
             std::fs::write(dir.path().join(file), contents).unwrap();
             assert!(
-                read_module_desc_file_in_dir(dir.path()).is_err(),
+                read_module_desc_file_in_dir_with_legacy(dir.path(), true).is_err(),
                 "{file}: {value}"
             );
         }
@@ -96,7 +97,7 @@ fn private_rejects_duplicate_declarations() {
             "moon.mod"
         };
         std::fs::write(dir.path().join(file), contents).unwrap();
-        assert!(read_module_desc_file_in_dir(dir.path()).is_err());
+        assert!(read_module_desc_file_in_dir_with_legacy(dir.path(), true).is_err());
     }
 }
 

@@ -96,9 +96,7 @@ fn test_fmt_with_moon_mod_feature_disabled() {
             ["fmt", "--dry-run", "--sort-input"],
             [("NEW_MOON_MOD", "0")],
         ),
-        expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-        "#]],
+        expect![[]],
     );
 
     check(
@@ -168,7 +166,6 @@ fn test_fmt_moon_mod_json_migration_dry_run() {
             ],
         ),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
         "#]],
     );

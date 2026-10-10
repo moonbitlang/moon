@@ -423,21 +423,12 @@ pub fn warn_module_manifest(dir: &Path, location: &str, user_log: &UserLog) {
     }
     warn_if_shadowed_manifest(dir, MOON_MOD_JSON, MOON_MOD, location, user_log);
 
-    let Some((manifest_path, format)) = preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
+    let Some((manifest_path, ManifestFormat::New)) =
+        preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
     else {
         return;
     };
-    let module = match format {
-        ManifestFormat::New => read_module_from_dsl(&manifest_path),
-        ManifestFormat::Legacy => {
-            user_log.warn(format!(
-                "`{MOON_MOD_JSON}` at '{}' is deprecated. Run `moon fmt` to migrate to `{MOON_MOD}`.",
-                dir.display()
-            ));
-            read_module_from_json(&manifest_path).map_err(anyhow::Error::from)
-        }
-    };
-    let Ok(module) = module else {
+    let Ok(module) = read_module_from_dsl(&manifest_path) else {
         // The normal manifest read reports format and I/O errors.
         return;
     };
@@ -542,9 +533,20 @@ pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Res
 }
 
 pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
+    read_module_desc_file_in_dir_with_legacy(dir, false)
+}
+
+pub fn read_module_desc_file_in_dir_with_legacy(
+    dir: &Path,
+    allow_legacy: bool,
+) -> anyhow::Result<MoonMod> {
     match preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON) {
         Some((path, ManifestFormat::New)) => read_module_from_dsl(&path),
-        Some((path, ManifestFormat::Legacy)) => Ok(read_module_from_json(&path)?),
+        Some((path, ManifestFormat::Legacy)) if allow_legacy => Ok(read_module_from_json(&path)?),
+        Some((_, ManifestFormat::Legacy)) => bail!(
+            "`{MOON_MOD_JSON}` at '{}' is no longer supported. Run `moon fmt` to migrate to `{MOON_MOD}`.",
+            dir.display()
+        ),
         None => bail!(
             "Failed to find `{}` or `{}` for module at path `{}`",
             MOON_MOD,
@@ -564,7 +566,7 @@ pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     match preferred_manifest_in_dir(dir, MOON_PKG, MOON_PKG_JSON) {
         Some((path, _)) => {
-            read_package_desc_file_from_path_with_supported_targets_decl(&path, user_log)
+            read_package_desc_file_from_path_with_supported_targets_decl(&path, user_log, false)
         }
         None => bail!(
             "Failed to find `{}` or `{}` for package at path `{}`",
@@ -578,12 +580,19 @@ pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
 pub fn read_package_desc_file_from_path_with_supported_targets_decl(
     path: &Path,
     user_log: &UserLog,
+    allow_legacy: bool,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     match path.file_name() {
         Some(filename) if filename == OsStr::new(MOON_PKG) => {
             read_package_from_dsl_with_supported_targets_decl(path, user_log)
         }
         Some(filename) if filename == OsStr::new(MOON_PKG_JSON) => {
+            if !allow_legacy {
+                bail!(
+                    "`{MOON_PKG_JSON}` at '{}' is no longer supported. Run `moon fmt` to migrate to `{MOON_PKG}`.",
+                    path.parent().unwrap_or(path).display()
+                );
+            }
             read_package_from_json_with_supported_targets_decl(path, user_log)
                 .context(format!("Failed to load {:?}", path))
         }
