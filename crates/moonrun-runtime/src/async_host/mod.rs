@@ -1069,6 +1069,7 @@ impl Drop for HostIoResult {
 }
 
 pub(crate) struct AsyncHost {
+    pub(crate) run_control: Option<crate::RunControl>,
     // V8 enters this host synchronously on one thread. Cell and RefCell encode
     // that ownership; worker threads own their Jobs and return them through the
     // completion channel instead of sharing the host's tables.
@@ -1114,6 +1115,7 @@ impl AsyncHost {
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> Self {
         Self {
+            run_control: None,
             filesystem,
             environment,
             network,
@@ -1507,6 +1509,11 @@ impl AsyncHost {
     }
 
     pub(crate) fn poll_wait(&self, poll_handle: u64, timeout_ms: i32) -> AsyncHostResult<i32> {
+        let timeout_ms = if self.run_control.is_some() && !(0..=50).contains(&timeout_ms) {
+            50
+        } else {
+            timeout_ms
+        };
         let poll_key = self.handles.borrow().poll(poll_handle)?;
         let mut polls = self.polls.borrow_mut();
         let result = {
@@ -3490,6 +3497,12 @@ impl AsyncHost {
         }
         if let Ok(process_job) = job.process_mut()
             && let Err(error) = process.configure_job_for_execution(process_job)
+        {
+            job.set_err(error.errno());
+            return;
+        }
+        if let JobPayload::Filesystem(fs_job) = job.payload_mut()
+            && let Err(error) = fs_job.configure_paths(filesystem)
         {
             job.set_err(error.errno());
             return;

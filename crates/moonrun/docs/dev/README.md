@@ -2,6 +2,8 @@
 
 Host implementations and engine adapters live in `crates/moonrun-runtime/src`;
 the CLI and its integration fixtures remain in `crates/moonrun`.
+Embedding configuration and lifecycle are documented in
+[`moonrun-runtime/README.md`](../../../moonrun-runtime/README.md).
 
 ## Developer workflows
 
@@ -154,7 +156,7 @@ retry loop and cannot forcibly stop noncooperative computation.
 ```bash
 cargo build
 cargo test
-cargo test -p moonrun --no-default-features --features wasmtime
+cargo test -p moonrun -p moonrun-runtime --no-default-features --features wasmtime
 ```
 
 ## Before PR

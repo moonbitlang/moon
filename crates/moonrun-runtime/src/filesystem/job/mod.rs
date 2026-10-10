@@ -179,6 +179,40 @@ enum Kind {
 }
 
 impl Job {
+    pub(crate) fn configure_paths(&mut self, filesystem: &HostFs) -> AsyncHostResult<()> {
+        let resolve = |p: &mut OsString| -> AsyncHostResult<()> {
+            *p = filesystem.resolve_path(p)?;
+            Ok(())
+        };
+        match &mut self.kind {
+            Kind::Open { filename, .. } => resolve(filename)?,
+            Kind::Statx {
+                parent: None, path, ..
+            }
+            | Kind::FileKindByPath {
+                parent: None, path, ..
+            }
+            | Kind::FileTimeByPath { path, .. }
+            | Kind::Access { path, .. }
+            | Kind::Chmod { path, .. }
+            | Kind::Remove { path, .. }
+            | Kind::Symlink { path, .. }
+            | Kind::Mkdir { path, .. }
+            | Kind::Rmdir { path, .. }
+            | Kind::Realpath { path, .. } => resolve(path)?,
+            Kind::Rename {
+                old_path, new_path, ..
+            } => {
+                resolve(old_path)?;
+                resolve(new_path)?;
+            }
+            #[cfg(target_os = "linux")]
+            Kind::InotifyAddWatch { path, .. } => resolve(path)?,
+            _ => {}
+        }
+        Ok(())
+    }
+
     // Generic-stat validation belongs to the Filesystem Job so every adapter
     // constructs the same valid payload. The outer adapter converts rejection
     // into the native failed-Job representation.
@@ -840,6 +874,7 @@ fn check_path_metadata_policy(
             filesystem.authorize_entry_metadata_at(parent.canonical_path(), path)
         }
     }
+    .map_err(|error| filesystem.metadata_error(error))
 }
 
 fn check_file_lock_policy(

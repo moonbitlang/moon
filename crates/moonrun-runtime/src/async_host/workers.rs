@@ -110,20 +110,21 @@ impl InstanceWorkers {
     pub(super) fn destroy(&self) -> Vec<WorkerJob> {
         let workers = self.workers.borrow_mut().take_all();
 
-        // Cancellation must fan out before any join: one slow Worker must not
-        // prevent the remaining Workers from receiving their stop request.
-        // FIXME: after the guest stops polling, a cancellation signal arriving
-        // before a blocking syscall may still need a retry to let join finish.
-        // Define cancellation retry ownership for Run teardown outside
-        // native free_worker; neither join nor repeated signals can forcibly
-        // stop noncooperative computation.
-        for worker in &workers {
-            let _ = thread_pool::cancel_worker(worker);
+        let mut pending: Vec<_> = workers
+            .iter()
+            .filter_map(|worker| worker.request_stop())
+            .collect();
+        // After the guest stops polling, teardown owns cancellation retries.
+        while workers.iter().any(|worker| !worker.is_finished()) {
+            for worker in &workers {
+                if !worker.is_finished() {
+                    let _ = thread_pool::cancel_worker(worker);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        workers
-            .into_iter()
-            .filter_map(thread_pool::free_worker)
-            .collect()
+        pending.extend(workers.into_iter().filter_map(thread_pool::free_worker));
+        pending
     }
 }
 

@@ -64,6 +64,8 @@ ported_fns! {
         options: SpawnOptions,
         policy_inheritance: Option<PolicyInheritance>,
         result: &mut Option<ResourcePublication>,
+        control: Option<&crate::RunControl>,
+        inherited_files: &[std::sync::Arc<std::fs::File>],
     ) -> AsyncHostResult<i64> {
         spawn_process_unix(
             path,
@@ -74,6 +76,8 @@ ported_fns! {
             options,
             policy_inheritance,
             result,
+            control,
+            inherited_files,
         )
     }
 
@@ -135,6 +139,8 @@ fn spawn_process_unix(
     options: SpawnOptions,
     policy_inheritance: Option<PolicyInheritance>,
     result: &mut Option<ResourcePublication>,
+    control: Option<&crate::RunControl>,
+    inherited_files: &[std::sync::Arc<std::fs::File>],
 ) -> AsyncHostResult<i64> {
     #[cfg(not(target_os = "linux"))]
     let _ = result;
@@ -159,6 +165,10 @@ fn spawn_process_unix(
     if let Some(cwd) = cwd.as_ref()
         && posix_spawn_addchdir.is_none()
     {
+        // The compatibility launcher cannot supervise groups or inherit caller files.
+        if control.is_some() || !inherited_files.is_empty() {
+            return Err(AsyncHostError::Native(libc::ENOSYS));
+        }
         if let Some(fd) = policy_transfer_fd {
             crate::async_sys::process::overwrite_process_env_var(
                 &mut env,
@@ -234,7 +244,16 @@ fn spawn_process_unix(
         check_spawn_errno(unsafe { libc::posix_spawnattr_init(&mut attr) })?;
         attr_initialized = true;
 
-        let flags = (libc::POSIX_SPAWN_SETSIGMASK | libc::POSIX_SPAWN_SETSIGDEF) as libc::c_short;
+        let flags = (libc::POSIX_SPAWN_SETSIGMASK
+            | libc::POSIX_SPAWN_SETSIGDEF
+            | if control.is_some() {
+                libc::POSIX_SPAWN_SETPGROUP
+            } else {
+                0
+            }) as libc::c_short;
+        if control.is_some() {
+            check_spawn_errno(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) })?;
+        }
         check_spawn_errno(unsafe { libc::posix_spawnattr_setflags(&mut attr, flags) })?;
 
         check_spawn_errno(unsafe {
@@ -249,6 +268,16 @@ fn spawn_process_unix(
 
         check_spawn_errno(unsafe { libc::posix_spawn_file_actions_init(&mut file_actions) })?;
         file_actions_initialized = true;
+        // dup2 spawn actions clear CLOEXEC even when source equals target.
+        for file in inherited_files {
+            check_spawn_errno(unsafe {
+                libc::posix_spawn_file_actions_adddup2(
+                    &mut file_actions,
+                    file.as_raw_fd(),
+                    file.as_raw_fd(),
+                )
+            })?;
+        }
         for (target, fd) in stdio_fds.iter().enumerate() {
             if let Some(fd) = fd {
                 check_spawn_errno(unsafe {
@@ -305,6 +334,9 @@ fn spawn_process_unix(
             }
         };
         check_spawn_errno(ret)?;
+        if let Some(control) = control {
+            control.track_child(pid);
+        }
         Ok(pid)
     })();
 

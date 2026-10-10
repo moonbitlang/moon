@@ -309,7 +309,7 @@ impl Worker {
     }
 
     /// Close admission and return any queued Job; the active Job finishes normally.
-    fn request_stop(&self) -> Option<WorkerJob> {
+    pub(crate) fn request_stop(&self) -> Option<WorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
         state.terminating = true;
         let pending = state.job.take();
@@ -423,6 +423,10 @@ impl Worker {
                 }
             }
         }
+    }
+
+    pub(crate) fn is_finished(&self) -> bool {
+        self.thread.is_finished()
     }
 
     pub(crate) fn join(self) -> Option<WorkerJob> {

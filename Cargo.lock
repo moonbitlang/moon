@@ -2094,6 +2094,7 @@ name = "moonrun-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dunce",
  "libc",
  "libsqlite3-sys",
  "moonutil",

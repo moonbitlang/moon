@@ -37,9 +37,16 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EngineConfig {
     pub(crate) stack_size: Option<usize>,
+    pub(crate) epoch_interruption: bool,
 }
 
 impl EngineConfig {
+    /// Enable Wasmtime cancellation checkpoints. The embedder drives epochs.
+    pub fn with_epoch_interruption(mut self, enabled: bool) -> Self {
+        self.epoch_interruption = enabled;
+        self
+    }
+
     /// Set the maximum guest stack size in KiB.
     pub fn with_stack_size(mut self, stack_size: usize) -> Self {
         self.stack_size = Some(stack_size);
@@ -124,8 +131,8 @@ impl RunOptions {
 
     /// Select the working-directory behavior for this run.
     ///
-    /// Only [`WorkingDirectory::Ambient`] is currently available. It preserves
-    /// process-global cwd behavior and does not isolate or snapshot a directory.
+    /// The default [`WorkingDirectory::Ambient`] preserves process cwd behavior.
+    /// [`Engine::run_in_context`] uses the context directory instead.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
         self
@@ -291,10 +298,8 @@ impl fmt::Debug for Module {
 /// on the calling thread. It does not create threads or retain run lifecycle
 /// state; callers choose execution placement and manage lifecycle.
 ///
-/// The current implementation still uses process stdio. Environment and
-/// working-directory behavior are selected per run, but unrestricted
-/// environment access and the only current working-directory mode remain
-/// process-scoped. Operating-system signal capture is left to the caller; a
+/// [`Engine::run_in_context`] binds stdio and the working directory to a
+/// caller-owned context. Unrestricted environment access remains process-scoped. Operating-system signal capture is left to the caller; a
 /// signal channel can direct cooperative delivery to one Run. In particular,
 /// unrestricted guest environment mutations write through to the process and
 /// must not race other process-environment access.
@@ -353,7 +358,13 @@ impl Engine {
         })))
     }
 
-    /// Execute one run synchronously on the calling thread.
+    /// Advance Wasmtime cancellation checkpoints for all runs of this Engine.
+    #[cfg(all(not(feature = "v8"), feature = "wasmtime"))]
+    pub fn increment_epoch(&self) {
+        self.backend.increment_epoch();
+    }
+
+    /// Execute one run using process stdio and the selected working directory.
     pub fn run(&self, module: &Module, options: RunOptions) -> anyhow::Result<RunOutcome> {
         self.run_with_signal_receiver(module, options, signal_channel().1)
     }
@@ -369,16 +380,39 @@ impl Engine {
         options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
+        let context = crate::ExecutionContext::ambient(options.working_directory.clone());
+        self.run_configured(module, options, signals, context)
+    }
+
+    /// Execute using caller-owned stdio, directory and lifecycle controls.
+    /// Guest arguments and authorization remain selected through `RunOptions`.
+    pub fn run_in_context(
+        &self,
+        module: &Module,
+        options: RunOptions,
+        context: crate::ExecutionContext,
+    ) -> anyhow::Result<RunOutcome> {
+        self.run_configured(module, options, signal_channel().1, context)
+    }
+
+    fn run_configured(
+        &self,
+        module: &Module,
+        options: RunOptions,
+        signals: SignalReceiver,
+        context: crate::ExecutionContext,
+    ) -> anyhow::Result<RunOutcome> {
         #[cfg(unix)]
         let child_signal_mask = match options.preserved_child_signal_mask {
             Some(signal_mask) => signal_mask,
             None => current_signal_mask()?,
         };
-        let runtime = Runtime::new(
+        let control = context.control.clone();
+        let runtime = Runtime::new_with_context(
             options.policy_file.as_deref(),
             options.policy_source_dir.as_deref(),
             options.inherited_policy.as_deref(),
-            options.working_directory.clone(),
+            context,
             module.executable().clone(),
             signals,
             #[cfg(unix)]
@@ -390,7 +424,17 @@ impl Engine {
             module.source_map(),
             options,
             runtime,
-        )?;
+        );
+        if let Some(control) = &control {
+            control.stop_children();
+        }
+        if control
+            .as_ref()
+            .is_some_and(|control| control.is_cancelled())
+        {
+            anyhow::bail!("run cancelled");
+        }
+        let outcome = outcome?;
         Ok(match outcome {
             BackendRunOutcome::Completed => RunOutcome::Completed,
             BackendRunOutcome::GuestFailure => RunOutcome::Exited(1),

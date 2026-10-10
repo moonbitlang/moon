@@ -91,8 +91,10 @@ let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
 The shipping configuration remains V8-backed; the Wasmtime feature provides
-the same library surface at compile time. Both configurations inherit process
-stdio, environment, and working-directory behavior. The library does not
+the same library surface at compile time. `Engine::run` defaults to process
+stdio, environment, and working-directory behavior. Embedders needing owned
+streams and directory resolution can use the shared crate's
+[`ExecutionContext`](../moonrun-runtime/README.md). The library does not
 install an operating-system signal handler. Callers may create a
 `signal_channel`, pass its receiver to `Engine::run_with_signal_receiver`, and
 send signals to that Run after its guest async handler is ready. This is
@@ -110,8 +112,8 @@ signal behavior.
 
 A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the
-existing process-global behavior. No isolated or captured working-directory
-mode is available yet. Compiled modules reuse their prepared representation
+existing process-global behavior. `Engine::run_in_context` uses the directory
+owned by its context instead. Compiled modules reuse their prepared representation
 while each run currently creates a fresh Runtime that owns its environment,
 policy, working-directory selection, and domain state alongside fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
@@ -172,7 +174,7 @@ file during migration or debugging.
 The filesystem policy restricts native host paths. It does not create a virtual
 guest filesystem, mount table, or portable `/` namespace. Relative filesystem
 roots are resolved relative to the policy file. Guest relative paths are
-resolved using the Runtime Working Directory; its only current mode observes the
+resolved using the Runtime Working Directory; the CLI default observes the
 process current directory at policy-check time. Paths use the host platform's
 path syntax; Windows policies may use normal Windows paths such as `C:\work` or
 `C:/work`; JSON strings must escape backslashes as `C:\\work`. The filesystem

@@ -101,9 +101,10 @@ _Avoid_: Mutable policy, per-import environment map
 The standard-stream behavior selected once by Runtime Configuration and owned
 by one Runtime. The V8 I/O imports, WASI descriptors, reserved Async Host
 Resources, and Host Process defaults all consume this same Runtime State.
-The only current value is `Ambient`: it preserves the historical observation
-points for process standard streams and does not snapshot, own, or close their
-OS handles. Moonrun Policy neither selects nor authorizes Runtime Stdio.
+`Ambient` preserves the historical observation points for process standard
+streams and does not own or close their OS handles. `Owned` retains the caller's
+files for one execution context. Moonrun Policy neither selects nor authorizes
+Runtime Stdio.
 _Avoid_: process-global fallback, stdio policy, Host Stdio forwarding service
 
 **WASI Capability Surface**:
@@ -116,12 +117,11 @@ _Avoid_: Moonrun Policy, FFI permissions
 
 **Runtime Working Directory**:
 The working-directory behavior owned by one Runtime and used by cwd-dependent
-Host domains and backend adapters. The only current value is `Ambient`: it
-preserves historical behavior by observing or inheriting the process current
-directory at the same execution points as before this seam. It does not
-snapshot a path, retain a directory handle, change the process cwd, or isolate
-concurrent Runs. New modes belong behind this seam rather than in individual
-filesystem, process, SQLite, policy, or WASI call sites.
+Host domains and backend adapters. `Ambient` preserves historical behavior by
+observing or inheriting the process current directory. `Fixed` resolves relative
+paths and child cwd against a caller-selected path without changing process
+cwd. Neither mode supplies sandbox authority or retains a directory handle.
+Native descendant confinement and filesystem grants remain separate concerns.
 _Avoid_: sandbox root, virtual filesystem root, captured cwd
 
 **Host Filesystem**:

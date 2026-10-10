@@ -49,6 +49,8 @@ pub(crate) struct HostProcess {
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
+    pub(crate) control: Option<crate::RunControl>,
+    pub(crate) launcher: Option<crate::ChildLauncher>,
 }
 
 #[derive(Default)]
@@ -82,6 +84,8 @@ impl HostProcess {
             working_directory,
             stdio,
             child_authority,
+            control: None,
+            launcher: None,
         }
     }
 
@@ -119,6 +123,7 @@ impl HostProcess {
     /// immediately before native execution.
     pub(crate) fn configure_job_for_execution(&self, job: &mut Job) -> AsyncHostResult<()> {
         job.configure_working_directory(&self.working_directory);
+        job.configure_embedding(self.control.clone(), self.launcher.as_ref())?;
         job.configure_stdio(&self.stdio)?;
         // Authorization is complete, so the job may retain the immutable
         // inheritance payload. Direct-moonx recognition, temporary-file I/O,
@@ -310,19 +315,21 @@ impl HostProcess {
     }
 
     fn finish_waited_child(&self, pid: i32, #[cfg(unix)] defer_reap: bool) -> AsyncHostResult<()> {
-        let Some(state) = self.child_authority.as_deref() else {
-            #[cfg(unix)]
-            if defer_reap {
-                crate::async_sys::process::reap_process(pid)?;
-            }
-            return Ok(());
-        };
-        let mut state = state.inner.lock().unwrap();
+        let mut state = self
+            .child_authority
+            .as_deref()
+            .map(|state| state.inner.lock().unwrap());
         #[cfg(unix)]
         if defer_reap {
             crate::async_sys::process::reap_process(pid)?;
         }
-        state.owned_child_pids.remove(&pid);
+        if let Some(state) = &mut state {
+            state.owned_child_pids.remove(&pid);
+        }
+        #[cfg(unix)]
+        if let Some(control) = &self.control {
+            control.finish_child(pid);
+        }
         Ok(())
     }
 

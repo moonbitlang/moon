@@ -62,6 +62,8 @@ enum Kind {
         cwd: Option<OsString>,
         policy_inheritance: Option<crate::policy::PolicyInheritance>,
         result: Option<ResourcePublication>,
+        control: Option<crate::RunControl>,
+        inherited_files: Vec<std::sync::Arc<std::fs::File>>,
     },
     #[cfg(windows)]
     SpawnWindows {
@@ -86,6 +88,47 @@ enum Kind {
 }
 
 impl Job {
+    pub(super) fn configure_embedding(
+        &mut self,
+        control: Option<crate::RunControl>,
+        launcher: Option<&crate::ChildLauncher>,
+    ) -> AsyncHostResult<()> {
+        #[cfg(unix)]
+        if let Kind::SpawnUnix {
+            path,
+            args,
+            env,
+            cwd,
+            control: job_control,
+            inherited_files,
+            ..
+        } = &mut self.kind
+        {
+            if control.as_ref().is_some_and(|c| c.is_cancelled()) {
+                return Err(AsyncHostError::Io);
+            }
+            if let Some(launcher) = launcher {
+                let mut command = crate::NativeCommand {
+                    program: path.clone(),
+                    args: args.clone(),
+                    env: env.clone(),
+                    cwd: cwd.clone(),
+                    inherited_files: Vec::new(),
+                };
+                (launcher.0)(&mut command).map_err(|_| AsyncHostError::PermissionDenied)?;
+                *path = command.program;
+                *args = command.args;
+                *env = command.env;
+                *cwd = command.cwd;
+                *inherited_files = command.inherited_files;
+            }
+            *job_control = control;
+        }
+        #[cfg(windows)]
+        let _ = (control, launcher);
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[cfg(unix)]
     pub(crate) fn spawn_unix(
@@ -108,6 +151,8 @@ impl Job {
                 cwd,
                 policy_inheritance: None,
                 result: None,
+                control: None,
+                inherited_files: Vec::new(),
             },
         }
     }
@@ -254,6 +299,8 @@ impl Job {
                 cwd,
                 policy_inheritance,
                 result,
+                control,
+                inherited_files,
             } => ambient::run_spawn_job_unix(
                 std::mem::take(path),
                 std::mem::take(args),
@@ -267,6 +314,8 @@ impl Job {
                     None
                 },
                 result,
+                control.as_ref(),
+                inherited_files,
             ),
             #[cfg(windows)]
             Kind::SpawnWindows {
@@ -322,12 +371,18 @@ impl Job {
     pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { .. } => {
-                // An absent Unix file action preserves native descriptor
-                // inheritance, which is exactly the Ambient Runtime setting.
-                match runtime_stdio {
-                    Stdio::Ambient => Ok(()),
+            Kind::SpawnUnix { stdio, .. } => {
+                if matches!(runtime_stdio, Stdio::Owned(_)) {
+                    for (slot, stream) in stdio.iter_mut().zip(crate::runtime::StdioStream::ALL) {
+                        if slot.is_none() {
+                            *slot =
+                                Some(std::sync::Arc::new(crate::resource::Resource::stdio_file(
+                                    runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?,
+                                )));
+                        }
+                    }
                 }
+                Ok(())
             }
             #[cfg(windows)]
             Kind::SpawnWindows { stdio, .. } => {

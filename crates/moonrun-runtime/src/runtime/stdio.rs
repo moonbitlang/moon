@@ -44,9 +44,10 @@ impl StdioStream {
 /// points as the historical callers: the Handle namespace snapshots them at
 /// construction, child defaults are resolved at spawn, and synchronous I/O
 /// observes them for each operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) enum Stdio {
     Ambient,
+    Owned(std::sync::Arc<[std::sync::Mutex<std::fs::File>; 3]>),
 }
 
 /// Stateful UTF-16 code-unit output used by MoonBit's legacy character ABI.
@@ -88,6 +89,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stdin().lock()),
+            Self::Owned(files) => f(&mut *files[0].lock().unwrap()),
         }
     }
 
@@ -97,6 +99,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stdout().lock()),
+            Self::Owned(files) => f(&mut *files[1].lock().unwrap()),
         }
     }
 
@@ -106,6 +109,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stderr().lock()),
+            Self::Owned(files) => f(&mut *files[2].lock().unwrap()),
         }
     }
 
@@ -145,6 +149,19 @@ impl Stdio {
     pub(crate) fn raw(&self, stream: StdioStream) -> io::Result<RawStdio> {
         match self {
             Self::Ambient => ambient_raw(stream),
+            Self::Owned(files) => {
+                let file = files[stream as usize].lock().unwrap();
+                #[cfg(unix)]
+                {
+                    use std::os::fd::AsRawFd;
+                    Ok(file.as_raw_fd())
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::io::AsRawHandle;
+                    Ok(file.as_raw_handle())
+                }
+            }
         }
     }
 

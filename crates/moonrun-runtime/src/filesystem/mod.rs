@@ -99,6 +99,39 @@ pub(crate) struct HostFs {
 }
 
 impl HostFs {
+    pub(crate) fn metadata_error(
+        &self,
+        error: crate::async_host::AsyncHostError,
+    ) -> crate::async_host::AsyncHostError {
+        if matches!(*self.working_directory, WorkingDirectory::Fixed(_))
+            && error == crate::async_host::AsyncHostError::PermissionDenied
+        {
+            #[cfg(unix)]
+            let errno = libc::ENOENT;
+            #[cfg(windows)]
+            let errno = windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND as i32;
+            crate::async_host::AsyncHostError::Native(errno)
+        } else {
+            error
+        }
+    }
+
+    pub(crate) fn resolve_path(&self, path: &std::ffi::OsStr) -> AsyncHostResult<OsString> {
+        if matches!(*self.working_directory, WorkingDirectory::Ambient) {
+            return Ok(path.to_owned());
+        }
+        self.working_directory
+            .resolve(Path::new(path))
+            .map(|p| p.into_os_string())
+            .map_err(|_| crate::async_host::AsyncHostError::Io)
+    }
+    fn resolved(&self, path: &str) -> std::path::PathBuf {
+        match *self.working_directory {
+            WorkingDirectory::Ambient => Path::new(path).to_owned(),
+            WorkingDirectory::Fixed(_) => self.working_directory.resolve(Path::new(path)).unwrap(),
+        }
+    }
+
     pub(crate) fn new(
         policy: Option<FsPolicy>,
         environment: Arc<Env>,
@@ -132,7 +165,7 @@ impl HostFs {
 
     pub(crate) fn read_file_to_string(&self, path: &str) -> Result<String, HostFsError> {
         self.ensure_read(path)?;
-        std::fs::read_to_string(path)
+        std::fs::read_to_string(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to read file: {path}")))
     }
 
@@ -142,7 +175,7 @@ impl HostFs {
         contents: &str,
     ) -> Result<(), HostFsError> {
         self.ensure_write(path)?;
-        std::fs::write(path, contents)
+        std::fs::write(self.resolved(path), contents)
             .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")))
     }
 
@@ -157,44 +190,44 @@ impl HostFs {
         self.ensure_write(path)?;
         // Decode guest-owned contents only after authorization, matching the
         // existing import's observable failure order for untrusted guests.
-        std::fs::write(path, contents()?)
+        std::fs::write(self.resolved(path), contents()?)
             .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")).into())
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), HostFsError> {
         self.ensure_write(path)?;
-        std::fs::create_dir_all(path)
+        std::fs::create_dir_all(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to create directory: {path}")))
     }
 
     pub(crate) fn read_dir(&self, path: &str) -> Result<Vec<String>, HostFsError> {
         self.ensure_read(path)?;
-        read_dir_entries(path)
+        read_dir_entries(&self.resolved(path).to_string_lossy())
             .map_err(|_| HostFsError::operation(format!("Failed to read directory: {path}")))
     }
 
     pub(crate) fn is_file(&self, path: &str) -> bool {
-        self.ensure_read(path).is_ok() && Path::new(path).is_file()
+        self.ensure_read(path).is_ok() && self.resolved(path).is_file()
     }
 
     pub(crate) fn is_dir(&self, path: &str) -> bool {
-        self.ensure_read(path).is_ok() && Path::new(path).is_dir()
+        self.ensure_read(path).is_ok() && self.resolved(path).is_dir()
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), HostFsError> {
         self.ensure_remove(path)?;
-        std::fs::remove_file(path)
+        std::fs::remove_file(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to remove file: {path}")))
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), HostFsError> {
         self.ensure_remove(path)?;
-        std::fs::remove_dir_all(path)
+        std::fs::remove_dir_all(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to remove directory: {path}")))
     }
 
     pub(crate) fn path_exists(&self, path: &str) -> bool {
-        self.ensure_read(path).is_ok() && Path::new(path).exists()
+        self.ensure_read(path).is_ok() && self.resolved(path).exists()
     }
 
     pub(crate) fn current_dir(&self) -> String {
@@ -215,7 +248,7 @@ impl HostFs {
         path: &str,
     ) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
-            std::fs::read(path).map_err(|error| {
+            std::fs::read(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to read file {path}: {error}"))
             })
         });
@@ -240,7 +273,7 @@ impl HostFs {
             .ensure_write(path)
             .and_then(|()| contents().map_err(HostFsError::operation))
             .and_then(|contents| {
-                std::fs::write(path, contents).map_err(|error| {
+                std::fs::write(self.resolved(path), contents).map_err(|error| {
                     HostFsError::operation(format!("Failed to write file {path}: {error}"))
                 })
             });
@@ -249,7 +282,7 @@ impl HostFs {
 
     pub(crate) fn create_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_write(path).and_then(|()| {
-            std::fs::create_dir_all(path).map_err(|error| {
+            std::fs::create_dir_all(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to create directory {path}: {error}"))
             })
         });
@@ -258,7 +291,7 @@ impl HostFs {
 
     pub(crate) fn read_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
-            read_dir_entries(path).map_err(|error| {
+            read_dir_entries(&self.resolved(path).to_string_lossy()).map_err(|error| {
                 HostFsError::operation(format!("Failed to read directory {path}: {error}"))
             })
         });
@@ -281,7 +314,7 @@ impl HostFs {
 
     pub(crate) fn remove_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_remove(path).and_then(|()| {
-            std::fs::remove_file(path).map_err(|error| {
+            std::fs::remove_file(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to remove file {path}: {error}"))
             })
         });
@@ -290,7 +323,7 @@ impl HostFs {
 
     pub(crate) fn remove_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_remove(path).and_then(|()| {
-            std::fs::remove_dir_all(path).map_err(|error| {
+            std::fs::remove_dir_all(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to remove directory {path}: {error}"))
             })
         });
@@ -304,7 +337,7 @@ impl HostFs {
         kind: fn(&std::fs::Metadata) -> bool,
     ) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
-            std::fs::metadata(path)
+            std::fs::metadata(self.resolved(path))
                 .map(|metadata| i32::from(kind(&metadata)))
                 .map_err(|error| HostFsError::operation(format!("{error}: {path}")))
         });
@@ -381,7 +414,30 @@ impl HostFs {
     }
 
     fn authorize_access(&self, path: &OsStr, access: i32) -> AsyncHostResult<()> {
+        // Owned environments expose inaccessible names as absent to existence probes.
+        if access == 0
+            && matches!(*self.working_directory, WorkingDirectory::Fixed(_))
+            && let Some(policy) = &self.policy
+        {
+            let resolved = self
+                .working_directory
+                .resolve(Path::new(path))
+                .ok()
+                .and_then(|p| canonicalize_existing_prefix(&p).ok());
+            if !resolved.as_deref().is_some_and(|p| policy.allows_read(p)) {
+                return Err(
+                    self.metadata_error(crate::async_host::AsyncHostError::PermissionDenied)
+                );
+            }
+        }
         self.authorize_path(path, FsIntents::for_access_check(access))
+            .map_err(|error| {
+                if access == 0 {
+                    self.metadata_error(error)
+                } else {
+                    error
+                }
+            })
     }
 
     fn authorize_remove(&self, path: &OsStr) -> AsyncHostResult<()> {

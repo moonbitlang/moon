@@ -79,6 +79,7 @@ impl Engine {
     pub(crate) fn new(config: EngineConfig) -> Self {
         let mut wasmtime_config = ::wasmtime::Config::new();
         wasmtime_config
+            .epoch_interruption(config.epoch_interruption)
             .strategy(Strategy::Cranelift)
             .gc_support(true)
             .collector(Collector::Copying)
@@ -110,6 +111,12 @@ impl Engine {
             .map_err(|error| anyhow::anyhow!(error.to_string()))
     }
 
+    pub(crate) fn increment_epoch(&self) {
+        if let Ok(engine) = self.inner() {
+            engine.increment_epoch();
+        }
+    }
+
     pub(crate) fn compile(&self, bytes: &[u8]) -> anyhow::Result<CompiledModule> {
         ::wasmtime::Module::new(self.inner()?, bytes)
             .map(CompiledModule)
@@ -133,6 +140,7 @@ impl Engine {
             &runtime,
             termination_request.clone(),
         );
+        let control = runtime.run_control().cloned();
         let stdio = Arc::clone(runtime.stdio());
         let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
         let mut store = Store::new(
@@ -147,6 +155,16 @@ impl Engine {
                 memory_sanitizer: memory_sanitizer.clone(),
             },
         );
+        store.set_epoch_deadline(1);
+        store.epoch_deadline_callback(move |_| {
+            if control
+                .as_ref()
+                .is_some_and(|control| control.is_cancelled())
+            {
+                return Err(wt::Error::msg("run cancelled"));
+            }
+            Ok(wt::UpdateDeadline::Continue(1))
+        });
         let linker = linker_for_module(engine, &mut store, &module.0)
             .map_err(|error| anyhow::anyhow!(error.to_string()))
             .with_context(|| format!("failed to instantiate `{module_name}`"))?;

@@ -51,7 +51,10 @@ mod wasm_diagnostic;
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 mod wasmtime;
 
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
+mod embedding;
+mod execution_context;
+pub use embedding::{ChildLauncher, NativeCommand, RunControl};
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
+pub use execution_context::ExecutionContext;
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use runtime::WorkingDirectory;
