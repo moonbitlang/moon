@@ -467,15 +467,18 @@ fn mooncakes_io_smoke_test() {
     check(
         std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
         expect![[r#"name = "hello"
-
 import {
   "lijunchen/hello2@0.1.0",
-}"#]],
+}
+"#]],
     );
     let _ = get_stdout(&dir, ["remove", "lijunchen/hello2"]);
     check(
         std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
-        expect![[r#"name = "hello""#]],
+        expect![[r#"name = "hello"
+import {
+  }
+"#]],
     );
     let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
     std::fs::write(
@@ -489,13 +492,10 @@ import {
 
     let mooncakes_dir = dir.as_ref().join(".mooncakes");
 
-    assert!(
-        mooncakes_dir
-            .join("lijunchen")
-            .join("hello")
-            .join(MOON_MOD)
-            .exists()
-    );
+    moonutil::manifest::read_module_desc_file_in_dir(
+        &mooncakes_dir.join("lijunchen").join("hello"),
+    )
+    .unwrap();
 
     std::fs::remove_dir_all(&mooncakes_dir).unwrap();
     let assert = moon_cmd(&dir).arg("install").assert().success();

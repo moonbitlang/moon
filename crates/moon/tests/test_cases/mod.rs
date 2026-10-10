@@ -23,9 +23,7 @@ use expect_test::expect_file;
 use super::*;
 use expect_test::expect;
 use moonutil::{
-    constants::{
-        BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD, MOON_NO_WORKSPACE, MOON_WORK_ENV,
-    },
+    constants::{BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_NO_WORKSPACE, MOON_WORK_ENV},
     path::CargoPathExt,
     target::TargetBackend,
     text::StringExt,
