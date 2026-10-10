@@ -17,7 +17,7 @@
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 [package]
-name = "moonrun"
+name = "moonrun-runtime"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -26,14 +26,27 @@ rust-version.workspace = true
 
 [features]
 default = ["v8"]
-v8 = ["moonrun-runtime/v8"]
-wasmtime = ["moonrun-runtime/wasmtime"]
+v8 = ["dep:v8"]
+wasmtime = ["dep:wasmtime"]
 
 [dependencies]
 anyhow.workspace = true
-clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_json_lenient.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+libsqlite3-sys.workspace = true
+slotmap.workspace = true
+toml = { workspace = true, features = ["parse", "serde", "std"] }
 moonutil.workspace = true
-moonrun-runtime = { path = "../moonrun-runtime", default-features = false }
+rand.workspace = true
+v8 = { workspace = true, optional = true }
+wasmtime = { workspace = true, optional = true }
+
+[target."cfg(not(windows))".dependencies]
+openssl.workspace = true
+openssl-probe.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
@@ -64,20 +77,5 @@ features = [
     "Win32_System_WindowsProgramming",
 ]
 
-[build-dependencies]
-vergen.workspace = true
-chrono.workspace = true
-
 [dev-dependencies]
-dunce.workspace = true
-escargot.workspace = true
-moon-test-util.workspace = true
-serde_json.workspace = true
-tempfile.workspace = true
-snapbox = { workspace = true, features = ["cmd"] }
-tokio = { workspace = true, features = ["io-util", "net", "time"] }
 wat.workspace = true
-
-[[bin]]
-name = "moonrun"
-bench = false

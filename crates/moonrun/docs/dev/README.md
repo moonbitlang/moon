@@ -1,5 +1,8 @@
 # Contributing Quick Start
 
+Host implementations and engine adapters live in `crates/moonrun-runtime/src`;
+the CLI and its integration fixtures remain in `crates/moonrun`.
+
 ## Developer workflows
 
 - [Host handles](host-handles.md): registration, validation, owning tables, and

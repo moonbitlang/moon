@@ -41,6 +41,13 @@ To run a WebAssembly file:
 ./target/debug/moonrun path/to/your/file.wasm
 ```
 
+## Shared runtime
+
+The host implementations and engine adapters are provided by the sibling
+`moonrun-runtime` crate. This crate owns the CLI and re-exports the existing
+library interface for compatibility. The CLI continues to inherit the process
+standard streams and working directory.
+
 ## Rust library
 
 Moonrun also exposes an experimental Rust library interface. It runs each Wasm

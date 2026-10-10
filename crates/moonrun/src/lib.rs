@@ -16,42 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Embeddable execution support for MoonBit Wasm programs.
+//! CLI-facing compatibility interface for MoonBit Wasm execution.
 //!
-//! The interface is experimental. It separates guest termination from
-//! host-process termination and selects one Engine Backend at compile time.
+//! Host implementations and engine adapters live in `moonrun-runtime`.
 
-#[cfg(not(any(feature = "v8", feature = "wasmtime")))]
-compile_error!("moonrun requires an engine feature: `v8` or `wasmtime`");
-
-mod async_api;
-mod async_host;
-mod async_sys;
-mod core_api;
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
-mod engine;
-mod filesystem;
-mod guest_memory;
-mod memory_sanitizer;
-mod network;
-mod policy;
-mod process;
-mod resource;
-mod run_signal;
-mod run_termination;
-mod runtime;
-mod source_map;
-mod sqlite;
-#[cfg(feature = "v8")]
-mod util;
-#[cfg(feature = "v8")]
-mod v8;
-mod wasi;
-mod wasm_diagnostic;
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-mod wasmtime;
-
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
-pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
-pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
-pub use runtime::WorkingDirectory;
+pub use moonrun_runtime::{
+    Engine, EngineConfig, Module, RunOptions, RunOutcome, SignalReceiver, SignalSendError,
+    SignalSender, WorkingDirectory, signal_channel,
+};

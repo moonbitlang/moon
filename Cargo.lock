@@ -2077,8 +2077,25 @@ dependencies = [
  "dunce",
  "escargot",
  "libc",
- "libsqlite3-sys",
  "moon-test-util",
+ "moonrun-runtime",
+ "moonutil",
+ "serde_json",
+ "snapbox",
+ "tempfile",
+ "tokio",
+ "vergen",
+ "wat",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "moonrun-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "libsqlite3-sys",
  "moonutil",
  "openssl",
  "openssl-probe",
@@ -2087,13 +2104,10 @@ dependencies = [
  "serde_json",
  "serde_json_lenient",
  "slotmap",
- "snapbox",
  "tempfile",
  "thiserror 1.0.63",
- "tokio",
  "toml",
  "v8",
- "vergen",
  "wasmtime",
  "wat",
  "windows-sys 0.59.0",
