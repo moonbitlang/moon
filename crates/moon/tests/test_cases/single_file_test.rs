@@ -63,7 +63,7 @@ fn test_markdown_symlink_preserves_source_format() {
     let dir = TestDir::new_empty();
     std::fs::write(
         dir.join("source.mbt"),
-        "---\nmoonbit:\n  backend: js\n---\n```mbt test\nassert_eq(1, 1)\n```\n",
+        "---\nmoonbit:\n  backend: js\n---\n```mbt check\ntest { assert_eq(1, 1) }\n```\n",
     )
     .unwrap();
     std::os::unix::fs::symlink("source.mbt", dir.join("alias.mbt.md")).unwrap();
@@ -97,8 +97,10 @@ fn test_mbtx_runs_tests_without_running_main() {
 
 fn main { println("script main must not run") }
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 /// assert_eq(@single.maximum(), 2147483647)
+/// }
 /// ```
 pub fn maximum() -> Int { @int.MAX_VALUE }
 
@@ -293,7 +295,7 @@ fn test_single_mbt_tests_do_not_require_main() {
     std::fs::write(dir.join("test.mbt"), "test { assert_eq(1, 1) }\n").unwrap();
     std::fs::write(
         dir.join("test.mbt.md"),
-        "```mbt test\nassert_eq(1, 1)\n```\n",
+        "```mbt check\ntest { assert_eq(1, 1) }\n```\n",
     )
     .unwrap();
     for file in ["test.mbt", "test.mbt.md"] {

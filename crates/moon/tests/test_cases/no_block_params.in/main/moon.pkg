@@ -1,0 +1,9 @@
+import {
+  "username/hello/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  link: {"wasm": {"flags": ["-no-block-params"]}, "wasm-gc": {"flags": ["-no-block-params"]}},
+)

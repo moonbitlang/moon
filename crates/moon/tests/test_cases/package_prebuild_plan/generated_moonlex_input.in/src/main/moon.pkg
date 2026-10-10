@@ -1,0 +1,9 @@
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output --name ignored",
+)
+dev_build(
+  rule: "generate",
+  input: "lexer.txt",
+  output: "generated.mbl",
+)

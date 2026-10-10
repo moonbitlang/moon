@@ -1,0 +1,11 @@
+pkgtype(kind: "executable")
+
+rule(
+  name: "generate",
+  command: "../provider.in/shape-tool \"$output\" \"$mooncake_bin\"",
+)
+dev_build(
+  rule: "generate",
+  input: [],
+  output: ["mooncake_bin.txt"],
+)

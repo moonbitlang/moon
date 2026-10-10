@@ -803,7 +803,7 @@ mod tests {
         WorkspaceEnv, parse_workspace_env, project_query_from_start_dir,
         resolve_project_context_from_start_dir,
     };
-    use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON};
+    use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD};
     use std::{
         ffi::OsString,
         path::{Path, PathBuf},
@@ -818,14 +818,13 @@ mod tests {
         dunce::canonicalize(path).unwrap()
     }
 
-    fn write_json_module(path: &Path, name: &str) {
+    fn write_module(path: &Path, name: &str) {
         write_file(
-            &path.join(MOON_MOD_JSON),
+            &path.join(MOON_MOD),
             &format!(
-                r#"{{
-  "name": "{name}",
-  "version": "0.1.0"
-}}
+                r#"
+name = "{name}"
+version = "0.1.0"
 "#
             ),
         );
@@ -833,7 +832,7 @@ mod tests {
 
     fn nested_workspace_under_unrelated_module() -> tempfile::TempDir {
         let project = tempfile::tempdir().expect("create test project");
-        write_json_module(&project.path().join("outer"), "alice/outer");
+        write_module(&project.path().join("outer"), "alice/outer");
         write_file(
             &project.path().join("outer/ws/moon.work"),
             r#"members = [
@@ -841,7 +840,7 @@ mod tests {
 ]
 "#,
         );
-        write_json_module(&project.path().join("outer/ws/app"), "alice/app");
+        write_module(&project.path().join("outer/ws/app"), "alice/app");
         project
     }
 
@@ -1047,7 +1046,7 @@ version = "0.1.0"
 ]
 "#,
         );
-        write_json_module(&project.path().join("app"), "alice/app");
+        write_module(&project.path().join("app"), "alice/app");
 
         let query =
             project_query_from_start_dir(project.path().join("app"), &WorkspaceEnv::Auto).unwrap();
@@ -1098,7 +1097,7 @@ version = "0.1.0"
     fn pinned_workspace_rejects_unlisted_module_under_workspace_root() {
         let project = nested_workspace_under_unrelated_module();
         let workspace_path = canonical(project.path().join("outer/ws/moon.work"));
-        write_json_module(&project.path().join("outer/ws/tools"), "alice/tools");
+        write_module(&project.path().join("outer/ws/tools"), "alice/tools");
 
         let err = resolve_project_context_from_start_dir(
             project.path().join("outer/ws/tools"),

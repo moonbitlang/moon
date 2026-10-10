@@ -1,0 +1,7 @@
+import {
+  "username/b",
+}
+
+warnings = "-alert_two"
+
+pkgtype(kind: "executable")

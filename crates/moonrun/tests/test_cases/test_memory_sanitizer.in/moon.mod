@@ -1,0 +1,1 @@
+name = "moonbit/ffi-memory-sanitizer-test"

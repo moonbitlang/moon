@@ -1,9 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "username/hello/lib"
-  ],
-  "supported-targets": [
-    "wasm-gc"
-  ]
-}

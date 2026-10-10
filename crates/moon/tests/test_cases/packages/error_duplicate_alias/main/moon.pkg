@@ -1,0 +1,6 @@
+import {
+  "lijunchen/hello/lib",
+  "lijunchen/hello/lib2" @lib,
+}
+
+pkgtype(kind: "executable")

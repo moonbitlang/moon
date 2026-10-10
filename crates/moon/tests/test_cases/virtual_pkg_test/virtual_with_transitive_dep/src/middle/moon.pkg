@@ -1,0 +1,7 @@
+import {
+  "virtual_with_transitive_dep/virtual",
+}
+
+options(
+  overrides: [ "virtual_with_transitive_dep/impl" ],
+)

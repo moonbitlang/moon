@@ -1,0 +1,5 @@
+import {
+  "hello/lib/A" @B,
+}
+
+pkgtype(kind: "executable")

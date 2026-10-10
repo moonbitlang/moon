@@ -1,5 +1,0 @@
-{
-  "name": "prebuild_link_config_self",
-  "source": "src",
-  "--moonbit-unstable-prebuild": "build.js"
-}

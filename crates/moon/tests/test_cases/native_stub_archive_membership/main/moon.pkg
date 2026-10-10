@@ -1,0 +1,5 @@
+import {
+  "native_stub_archive_membership/lib",
+}
+
+pkgtype(kind: "executable")

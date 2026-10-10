@@ -1,0 +1,10 @@
+import {
+  "indirect_depend_virtual/middle",
+  "indirect_depend_virtual/virtual",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  overrides: ["indirect_depend_virtual/impl"],
+)

@@ -1,0 +1,8 @@
+import {
+  "username/hello/lib",
+  "username/hello/lib1",
+}
+
+warnings = "-1-2"
+
+pkgtype(kind: "executable")

@@ -1,0 +1,5 @@
+import {
+  "palindrome_string/lib",
+}
+
+pkgtype(kind: "executable")

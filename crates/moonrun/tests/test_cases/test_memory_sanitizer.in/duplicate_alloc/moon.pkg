@@ -1,0 +1,5 @@
+import {
+  "moonbit/ffi-memory-sanitizer-test/memory_sanitizer",
+}
+
+pkgtype(kind: "executable")

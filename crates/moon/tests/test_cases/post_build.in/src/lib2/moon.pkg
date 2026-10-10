@@ -1,0 +1,19 @@
+options(
+  "post-build": [
+    {
+      "input": "a.mbt",
+      "output": "aa.mbt",
+      "command": ":embed --text -i $input -o $output",
+    },
+  ],
+)
+
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output",
+)
+dev_build(
+  rule: "generate",
+  input: "a.txt",
+  output: "a.mbt",
+)

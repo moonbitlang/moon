@@ -1,7 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "username/hello/lib",
-    "moonbitlang/x/stack"
-  ]
-}

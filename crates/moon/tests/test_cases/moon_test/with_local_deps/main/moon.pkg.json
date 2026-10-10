@@ -1,8 +1,0 @@
-{
-  "is-main": true,
-  "import": {
-    "hello31/lib": "",
-    "lijunchen/mooncake": "",
-    "lijunchen/mooncake2": ""
-  }
-}

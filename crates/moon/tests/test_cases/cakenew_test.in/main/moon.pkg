@@ -1,0 +1,5 @@
+import {
+  "test/cakenew/lib",
+}
+
+pkgtype(kind: "executable")

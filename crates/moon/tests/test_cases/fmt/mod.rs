@@ -123,9 +123,9 @@ fn test_moon_fmt_extra_args() {
         output,
         expect![[r#"
             moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md
-            moon tool migrate-manifest --old ./main/moon.pkg.json --dest ./main/moon.pkg
-            moon tool migrate-manifest --old ./lib/moon.pkg.json --dest ./lib/moon.pkg
-            moon tool migrate-manifest --old ./moon.mod.json --dest ./moon.mod
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moonfmt ./lib/moon.pkg -w -o ./_build/wasm-gc/release/format/lib/moon.pkg
+            moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
             moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
             moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
             moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
@@ -136,9 +136,9 @@ fn test_moon_fmt_extra_args() {
         output,
         expect![[r#"
             moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md a b
-            moon tool migrate-manifest --old ./main/moon.pkg.json --dest ./main/moon.pkg
-            moon tool migrate-manifest --old ./lib/moon.pkg.json --dest ./lib/moon.pkg
-            moon tool migrate-manifest --old ./moon.mod.json --dest ./moon.mod
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moonfmt ./lib/moon.pkg -w -o ./_build/wasm-gc/release/format/lib/moon.pkg
+            moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
             moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt a b
             moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt a b
             moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt a b
@@ -148,9 +148,9 @@ fn test_moon_fmt_extra_args() {
         get_stdout(&dir, ["fmt", "--check", "--sort-input", "--dry-run"]),
         expect![[r#"
             moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md
-            moon tool format-and-diff --old ./main/moon.pkg.json --new ./_build/wasm-gc/release/format/main/moon.pkg
-            moon tool format-and-diff --old ./lib/moon.pkg.json --new ./_build/wasm-gc/release/format/lib/moon.pkg
-            moon tool format-and-diff --old ./moon.mod.json --new ./_build/wasm-gc/release/format/moon.mod
+            moon tool format-and-diff --old ./main/moon.pkg --new ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool format-and-diff --old ./lib/moon.pkg --new ./_build/wasm-gc/release/format/lib/moon.pkg
+            moon tool format-and-diff --old ./moon.mod --new ./_build/wasm-gc/release/format/moon.mod
             moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt
             moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
             moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt
@@ -171,9 +171,9 @@ fn test_moon_fmt_extra_args() {
         ),
         expect![[r#"
             moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md -- c d
-            moon tool format-and-diff --old ./main/moon.pkg.json --new ./_build/wasm-gc/release/format/main/moon.pkg
-            moon tool format-and-diff --old ./lib/moon.pkg.json --new ./_build/wasm-gc/release/format/lib/moon.pkg
-            moon tool format-and-diff --old ./moon.mod.json --new ./_build/wasm-gc/release/format/moon.mod
+            moon tool format-and-diff --old ./main/moon.pkg --new ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool format-and-diff --old ./lib/moon.pkg --new ./_build/wasm-gc/release/format/lib/moon.pkg
+            moon tool format-and-diff --old ./moon.mod --new ./_build/wasm-gc/release/format/moon.mod
             moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt -- c d
             moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt -- c d
             moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt -- c d

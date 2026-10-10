@@ -1,8 +1,0 @@
-{
-  "import": {
-    "moontest/lib2": ""
-  },
-  "wbtest-import": [
-    "moontest/lib2"
-  ]
-}

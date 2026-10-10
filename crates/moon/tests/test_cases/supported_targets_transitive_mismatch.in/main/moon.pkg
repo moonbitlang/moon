@@ -1,0 +1,7 @@
+import {
+  "supported/mismatch/lib",
+}
+
+supported_targets = "js"
+
+pkgtype(kind: "executable")

@@ -1,0 +1,6 @@
+import {
+  "username/hello/lib",
+  "moonbitlang/x/stack",
+}
+
+pkgtype(kind: "executable")

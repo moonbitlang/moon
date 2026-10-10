@@ -1,0 +1,7 @@
+import {
+  "username/hello/dummy_lib",
+}
+
+options(
+  implement: "username/hello/lib1",
+)

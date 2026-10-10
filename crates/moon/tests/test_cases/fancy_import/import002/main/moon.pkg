@@ -1,0 +1,5 @@
+import {
+  "moonbitlang/import002/lib",
+}
+
+pkgtype(kind: "executable")

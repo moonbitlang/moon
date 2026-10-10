@@ -1,4 +1,0 @@
-{
-  "name": "moonbitlang/core",
-  "preferred-target": "wasm-gc"
-}

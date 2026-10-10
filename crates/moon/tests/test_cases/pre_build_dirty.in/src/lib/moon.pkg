@@ -1,0 +1,9 @@
+rule(
+  name: "generate",
+  command: "cp $input $output",
+)
+dev_build(
+  rule: "generate",
+  input: "a.txt",
+  output: "a.mbt",
+)

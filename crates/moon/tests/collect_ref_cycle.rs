@@ -127,14 +127,20 @@ fn collect_ref_cycle_applies_to_executable_commands_and_standalone_files() {
 fn collect_ref_cycle_preserves_wasm_allocator_flags_and_wat_output() {
     let dir = fixture("native_backend/new_native_e2e");
     for (allocator, use_env_var) in [("tlsf", false), ("tlsf-mbt", false), ("tlsf-mbt", true)] {
-        let mut manifest = serde_json::json!({
-            "is-main": true,
-        });
-        if !use_env_var {
-            manifest["link"] =
-                serde_json::json!({ "wasm": { "flags": ["-allocator", allocator] } });
-        }
-        std::fs::write(dir.join("main/moon.pkg.json"), manifest.to_string()).unwrap();
+        let manifest = if use_env_var {
+            r#"
+pkgtype(kind: "executable")
+"#
+            .to_owned()
+        } else {
+            format!(
+                r#"
+pkgtype(kind: "executable")
+options(link: {{ "wasm": {{ "flags": ["-allocator", {allocator:?}] }} }})
+"#
+            )
+        };
+        std::fs::write(dir.join("main/moon.pkg"), manifest).unwrap();
         let commands = commands(
             &dir,
             moon(&dir)

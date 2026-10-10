@@ -1,0 +1,3 @@
+name = "test/import_all_with_named_alias_conflict"
+
+version = "0.1.0"

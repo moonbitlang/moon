@@ -5,8 +5,10 @@ fn main {
   T::{} |> ignore
 }
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///   println("doc test in main pkg")
+/// }
 /// ```
 struct T {}
 

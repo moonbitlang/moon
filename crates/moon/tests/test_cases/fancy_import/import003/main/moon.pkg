@@ -1,0 +1,6 @@
+import {
+  "moonbitlang/import003/lib",
+  "moonbitlang/import003/lib2" @haha,
+}
+
+pkgtype(kind: "executable")

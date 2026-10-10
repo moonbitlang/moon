@@ -1,0 +1,5 @@
+import {
+  "my/name/is/ambiguous",
+}
+
+pkgtype(kind: "executable")

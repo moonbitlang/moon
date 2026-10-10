@@ -1,7 +1,0 @@
-{
-  "is_main": true,
-  "import": [
-    "username/flash/lib"
-  ],
-  "bin-target": "js"
-}

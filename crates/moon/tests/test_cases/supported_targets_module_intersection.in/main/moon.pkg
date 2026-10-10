@@ -1,0 +1,5 @@
+import {
+  "supported/mod-intersection/lib",
+}
+
+pkgtype(kind: "executable")

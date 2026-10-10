@@ -1,0 +1,16 @@
+pkgtype(kind: "executable")
+
+options(
+  "bin-target": "js",
+  "bin-name": "shape-tool",
+)
+
+rule(
+  name: "generate",
+  command: "bin-dep-package-prebuild-must-not-run",
+)
+dev_build(
+  rule: "generate",
+  input: [],
+  output: ["generated.mbt"],
+)

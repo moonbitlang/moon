@@ -1,0 +1,6 @@
+import {
+  "username/scratch9/a",
+  "username/scratch9/b",
+}
+
+pkgtype(kind: "executable")

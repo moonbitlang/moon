@@ -1,0 +1,23 @@
+name = "good/idea"
+
+version = "0.1.0"
+
+readme = "README.md"
+
+repository = ""
+
+license = "Apache-2.0"
+
+keywords = [ ]
+
+description = ""
+
+options(
+  "bin-deps": {
+    "username/flash": {
+      "path": "../author1.in",
+      "bin_pkg": [ "main-js", "main-wasm" ],
+    },
+    "author2/flash": { "path": "../author2.in" },
+  },
+)

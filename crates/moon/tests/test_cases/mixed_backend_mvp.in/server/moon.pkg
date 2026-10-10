@@ -1,0 +1,10 @@
+import {
+  "mixed/mvp/shared",
+  "moonbitlang/async",
+  "moonbitlang/async/http",
+  "moonbitlang/async/socket",
+}
+
+supported_targets = "native"
+
+pkgtype(kind: "executable")

@@ -1,0 +1,9 @@
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output --name generated",
+)
+dev_build(
+  rule: "generate",
+  input: "input.txt",
+  output: "generated.txt",
+)

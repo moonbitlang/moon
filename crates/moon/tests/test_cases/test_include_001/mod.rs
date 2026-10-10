@@ -9,7 +9,7 @@ fn test_include_001() {
 fn test_deprecated_packaging_config_warns_during_check() {
     let dir = TestDir::new("test_include_001.in");
     let stderr = get_stderr(&dir, ["check"]);
-    let warning = "`include` in `$ROOT/moon.mod.json` is deprecated";
+    let warning = "`include` in `$ROOT/moon.mod` is deprecated";
     assert_eq!(
         stderr.matches(warning).count(),
         1,
@@ -21,7 +21,7 @@ fn test_deprecated_packaging_config_warns_during_check() {
 fn test_deprecated_packaging_config_warns_during_fmt() {
     let dir = TestDir::new("test_include_001.in");
     let stderr = get_stderr(&dir, ["fmt", "--dry-run"]);
-    let warning = "`include` in `$ROOT/moon.mod.json` is deprecated";
+    let warning = "`include` in `$ROOT/moon.mod` is deprecated";
     assert_eq!(
         stderr.matches(warning).count(),
         1,

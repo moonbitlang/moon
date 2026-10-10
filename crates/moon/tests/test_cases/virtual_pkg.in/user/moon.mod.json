@@ -1,9 +1,0 @@
-{
-  "name": "username/xxx",
-  "version": "0.1.0",
-  "deps": {
-    "username/hello": {
-      "path": "../virtual"
-    }
-  }
-}

@@ -7,11 +7,10 @@ fn test_run_md_test() {
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Warning: [0002]
-                ╭─[ $ROOT/src/lib/1.mbt.md:39:9 ]
+                ╭─[ $ROOT/src/lib/1.mbt.md:44:9 ]
                 │
-             39 │     let a = 1
+             44 │     let a = 1
                 │         ┬  
                 │         ╰── Warning (unused_value): Unused variable 'a'
             ────╯
@@ -40,15 +39,15 @@ fn test_run_md_test() {
             +inspect in bbtest
             ----
 
-            [username/hello] test lib/1.mbt.md:26 (#2) failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:41:5-41:20
+            [username/hello] test lib/1.mbt.md:31 (#2) failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:46:5-46:20
             Diff: (- expected, + actual)
             ----
             +4234
             ----
 
-            [username/hello] test lib/1.mbt.md:49 (#3) failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:58:5-58:15
+            [username/hello] test lib/1.mbt.md:56 (#3) failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:65:5-65:15
             Diff: (- expected, + actual)
             ----
             + all

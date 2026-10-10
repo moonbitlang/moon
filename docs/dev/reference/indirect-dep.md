@@ -4,7 +4,7 @@
 
 The MoonBit build system generates an `all_pkgs.json` file for each build target to facilitate indirect dependency resolution. This metadata file is created during build operations (such as `check`, `build`, `run`, `test`, `info`, and `bundle`) and is placed in the corresponding target directory (e.g., `_build/wasm-gc/release/build/all_pkgs.json`).
 
-The `all_pkgs.json` file contains a subset of the information found in the full `packages.json` file, specifically focused on package artifacts and their locations. While `moon.pkg.json` only specifies direct dependencies of a package, `all_pkgs.json` provides the compiler (`moonc`) with the complete picture of all available packages, including indirect dependencies. This enables the compiler to resolve and import packages that are not directly listed in a package's dependency configuration but are transitively required through the dependency chain.
+The `all_pkgs.json` file contains a subset of the information found in the full `packages.json` file, specifically focused on package artifacts and their locations. While `moon.pkg` only specifies direct dependencies of a package, `all_pkgs.json` provides the compiler (`moonc`) with the complete picture of all available packages, including indirect dependencies. This enables the compiler to resolve and import packages that are not directly listed in a package's dependency configuration but are transitively required through the dependency chain.
 
 ## File Structure
 
@@ -35,7 +35,7 @@ Example structure:
 
 ## Use Case
 
-When compiling a package, the compiler needs to know the locations of all available package interfaces, not just the direct dependencies. For example, if package A depends on package B, and package B depends on package C, then package A may need to resolve types or interfaces from package C even though C is not listed in A's `moon.pkg.json`. The `all_pkgs.json` file provides this transitive dependency information to the compiler.
+When compiling a package, the compiler needs to know the locations of all available package interfaces, not just the direct dependencies. For example, if package A depends on package B, and package B depends on package C, then package A may need to resolve types or interfaces from package C even though C is not listed in A's `moon.pkg`. The `all_pkgs.json` file provides this transitive dependency information to the compiler.
 
 The file path to `all_pkgs.json` is passed to the compiler via the `--all_pkgs` option for both `moonc build-package` and `moonc check` commands, allowing the compiler to resolve indirect dependencies during compilation and type checking.
 

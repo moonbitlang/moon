@@ -722,21 +722,22 @@ mod tests {
     fn discover_packages_keeps_installed_module_manifest() {
         let dir = temp_dir("module-info");
         std::fs::write(
-            dir.join("moon.mod.json"),
-            r#"{
-  "name": "example/pkg",
-  "version": "0.2.1",
+            dir.join("moon.mod"),
+            r#"name = "example/pkg"
+
+version = "0.2.1"
+
+warnings = "+a"
+
+rule(name: "gen", command: "tool $input -o $output")
+
+options(
   "compile-flags": ["-DREGISTRY"],
   "link-flags": ["-lregistry"],
-  "warn-list": "+a",
   "--moonbit-unstable-prebuild": "prebuild.py",
-  "rule": [
-    { "name": "gen", "command": "tool $input -o $output" }
-  ]
-}
-"#,
+)"#,
         )
-        .expect("failed to write test moon.mod.json");
+        .expect("failed to write test moon.mod");
 
         let source: ModuleSource = "example/pkg@0.2.1"
             .parse()
@@ -779,20 +780,19 @@ mod tests {
     fn package_discovery_keeps_explicit_dot_source_root_but_skips_dot_descendants() {
         let dir = temp_dir("dot-directories");
         std::fs::write(
-            dir.join("moon.mod.json"),
-            r#"{
-  "name": "example/pkg",
-  "version": "0.2.1",
-  "source": ".src"
-}
-"#,
+            dir.join("moon.mod"),
+            r#"name = "example/pkg"
+
+version = "0.2.1"
+
+source = ".src""#,
         )
-        .expect("failed to write test moon.mod.json");
+        .expect("failed to write test moon.mod");
         std::fs::create_dir_all(dir.join(".src/.hidden"))
             .expect("failed to create test package directories");
-        std::fs::write(dir.join(".src/moon.pkg.json"), "{}")
+        std::fs::write(dir.join(".src/moon.pkg"), "")
             .expect("failed to write root package manifest");
-        std::fs::write(dir.join(".src/.hidden/moon.pkg.json"), "{}")
+        std::fs::write(dir.join(".src/.hidden/moon.pkg"), "")
             .expect("failed to write hidden package manifest");
 
         let source: ModuleSource = "example/pkg@0.2.1"
@@ -823,17 +823,24 @@ mod tests {
     #[test]
     fn discovery_records_only_existing_virtual_contracts() {
         let dir = temp_dir("dependency-virtual-contract");
-        let manifest_path = dir.join("moon.pkg.json");
+        let manifest_path = dir.join("moon.pkg");
         std::fs::write(
             &manifest_path,
-            r#"{
+            r#"
+options(
   "virtual": { "has-default": false },
-  "pre-build": [{
-    "input": "contract.txt",
-    "output": "./pkg.mbti",
-    "command": "generate"
-  }]
-}"#,
+)
+
+rule(
+  name: "generate",
+  command: "generate",
+)
+dev_build(
+  rule: "generate",
+  input: "contract.txt",
+  output: "./pkg.mbti",
+)
+"#,
         )
         .expect("failed to write package manifest");
         std::fs::write(dir.join("virtual.mbti"), "legacy contract")
@@ -881,13 +888,15 @@ mod tests {
 
         std::fs::create_dir_all(dir.join("nested-module"))?;
         std::fs::write(
-            dir.join("nested-module/moon.mod.json"),
-            r#"{"name":"nested/module"}"#,
+            dir.join("nested-module/moon.mod"),
+            r#"
+name = "nested/module"
+"#,
         )?;
         std::fs::write(dir.join("nested-module/foreign.h"), "foreign")?;
 
         std::fs::create_dir_all(dir.join("nested-package"))?;
-        std::fs::write(dir.join("nested-package/moon.pkg.json"), "{}")?;
+        std::fs::write(dir.join("nested-package/moon.pkg"), "")?;
         std::fs::write(dir.join("nested-package/foreign.hpp"), "foreign")?;
 
         let headers = discover_c_stub_headers(&dir)?

@@ -1,0 +1,8 @@
+import {
+  "username/hello/lib1",
+  "username/hello/lib3",
+}
+
+options(
+  overrides: [ "username/hello/lib4", "username/xxx/myabort" ],
+)

@@ -1,0 +1,7 @@
+import {
+  "native_1/lib1",
+  "native_1/lib2",
+  "native_1/lib3",
+}
+
+pkgtype(kind: "executable")

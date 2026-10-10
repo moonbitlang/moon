@@ -1,0 +1,6 @@
+name = "mixed/mvp"
+
+import {
+  "moonbit-community/rabbita@0.11.5",
+  "moonbitlang/async@0.16.6",
+}

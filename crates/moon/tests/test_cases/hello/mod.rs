@@ -39,7 +39,7 @@ fn test_source_map() {
         ),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/core.core' ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm -g -O0 -wasi
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/core.core' ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm -g -O0 -wasi
         "#]],
     );
     check(
@@ -56,7 +56,7 @@ fn test_source_map() {
         ),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
         "#]],
     );
     check(
@@ -73,7 +73,7 @@ fn test_source_map() {
         ),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
         "#]],
     );
 }
@@ -99,25 +99,16 @@ fn test_find_ancestor_with_mod() {
 
 #[test]
 fn test_preferred_target() {
-    use serde_json_lenient::Value;
     let dir = TestDir::new("hello");
-
-    // Replace the preferred backend in moon.mod.json
-    let mod_json_path = dir.join("moon.mod.json");
-    let mut mod_json: Value =
-        serde_json_lenient::from_slice(&std::fs::read(&mod_json_path).unwrap()).unwrap();
-
-    // Helper function to test a specific target
-    fn test_target(
-        dir: &TestDir,
-        mod_json_path: &std::path::Path,
-        mod_json: &mut Value,
-        target: &str,
-    ) {
-        mod_json["preferred-target"] = target.into();
+    fn test_target(dir: &TestDir, target: &str) {
         std::fs::write(
-            mod_json_path,
-            serde_json_lenient::to_string(mod_json).unwrap(),
+            dir.join("moon.mod"),
+            format!(
+                r#"
+name = "hello"
+preferred_target = {target:?}
+"#
+            ),
         )
         .unwrap();
         let target_flag = format!("-target {target}");
@@ -141,10 +132,10 @@ fn test_preferred_target() {
     }
 
     // Test different target values
-    test_target(&dir, &mod_json_path, &mut mod_json, "js");
-    test_target(&dir, &mod_json_path, &mut mod_json, "wasm");
-    test_target(&dir, &mod_json_path, &mut mod_json, "wasm-gc");
-    test_target(&dir, &mod_json_path, &mut mod_json, "native");
+    test_target(&dir, "js");
+    test_target(&dir, "wasm");
+    test_target(&dir, "wasm-gc");
+    test_target(&dir, "native");
 }
 
 /// This test ensures that paths with non-ASCII names are handled correctly,

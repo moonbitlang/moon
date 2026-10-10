@@ -1,0 +1,11 @@
+import {
+  "username/hello/main",
+}
+
+import {
+  "username/hello/main",
+} for "wbtest"
+
+import {
+  "username/hello/main",
+} for "test"

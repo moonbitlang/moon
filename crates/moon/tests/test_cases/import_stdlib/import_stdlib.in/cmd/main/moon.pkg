@@ -1,0 +1,5 @@
+import {
+  "moonbitlang/core/math" @core_math,
+}
+
+pkgtype(kind: "executable")

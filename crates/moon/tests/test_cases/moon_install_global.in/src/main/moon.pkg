@@ -1,0 +1,3 @@
+supported_targets = "native"
+
+pkgtype(kind: "executable")

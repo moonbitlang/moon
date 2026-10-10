@@ -1,0 +1,6 @@
+pkgtype(kind: "executable")
+
+options(
+  "bin-target": "js",
+  "bin-name": "sync-tool",
+)
