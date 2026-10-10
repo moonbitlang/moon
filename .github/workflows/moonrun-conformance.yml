@@ -24,6 +24,7 @@ on:
       - main
     paths:
       - 'crates/moonrun/**'
+      - 'crates/moonrun-runtime/**'
       - 'third_party/moonbitlang_async'
       - '.github/workflows/moonrun-conformance.yml'
   pull_request:
@@ -31,6 +32,7 @@ on:
       - main
     paths:
       - 'crates/moonrun/**'
+      - 'crates/moonrun-runtime/**'
       - 'third_party/moonbitlang_async'
       - '.github/workflows/moonrun-conformance.yml'
 
@@ -128,5 +130,5 @@ jobs:
 
       - name: Test Wasmtime backend conformance
         run: |
-          cargo test -p moonrun --no-default-features --features wasmtime --locked
+          cargo test -p moonrun -p moonrun-runtime --no-default-features --features wasmtime --locked
           cargo test -p moonrun --test test --no-default-features --features wasmtime --locked test_moonrun_against_upstream_async -- --ignored --exact

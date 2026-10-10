@@ -167,9 +167,9 @@ jobs:
       - name: Clippy (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          cargo clippy --workspace --exclude moonrun --all-targets --all-features -- -D warnings
-          cargo clippy -p moonrun --all-targets -- -D warnings
-          cargo clippy -p moonrun --all-targets --no-default-features --features wasmtime -- -D warnings
+          cargo clippy --workspace --exclude moonrun --exclude moonrun-runtime --all-targets --all-features -- -D warnings
+          cargo clippy -p moonrun -p moonrun-runtime --all-targets -- -D warnings
+          cargo clippy -p moonrun -p moonrun-runtime --all-targets --no-default-features --features wasmtime -- -D warnings
 
       - name: Set built binary to PATH (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
