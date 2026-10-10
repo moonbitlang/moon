@@ -1,7 +1,7 @@
 ---
 moonbit:
   import:
-    - path: moonbitlang/x@0.4.38/stack
+    - path: moonbitlang/x@0.5.5/stack
       alias: xstack
 ---
 

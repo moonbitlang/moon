@@ -432,8 +432,6 @@ fn test_workspace_fmt_removes_deprecated_preferred_target() {
         get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-            Warning: `moon.mod.json` at '$ROOT/app' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: Migrating to moon.mod at module root '$ROOT/app', deprecated moon.mod.json is removed.
         "#]],
     );
 

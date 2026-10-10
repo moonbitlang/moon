@@ -521,6 +521,9 @@ Error: Tree URLs must contain a full 40-character commit SHA; copy a permalink, 
 "#]]);
 }
 
+// TODO: Re-enable these Git install tests when moonbitlang/moon-install-git-test-cases
+// uses moon.mod and moon.pkg instead of JSON manifests.
+/*
 #[test]
 fn test_moon_install_global_git_url_default_root_package() {
     // Test installing from git URL without PATH_IN_REPO.
@@ -662,3 +665,4 @@ fn test_moon_install_global_git_url_root_wildcard() {
         assert!(install_path.join("tool2.exe").exists());
     }
 }
+*/

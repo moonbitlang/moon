@@ -216,21 +216,6 @@ fn test_moon_check_complete_json_captures_moon_warnings() {
             .unwrap()
             .contains("preferred_target")
     );
-    assert_eq!(report["summary"]["moon_warnings"], 2);
-}
-
-#[test]
-fn test_moon_check_complete_json_captures_manifest_warnings() {
-    let dir = TestDir::new("fmt_moon_mod_both.in");
-    let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
-
-    assert_eq!(report["messages"][0]["level"], "warning");
-    assert!(
-        report["messages"][0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("Both moon.mod.json and moon.mod exist")
-    );
     assert_eq!(report["summary"]["moon_warnings"], 1);
 }
 

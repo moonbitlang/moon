@@ -166,6 +166,9 @@ fn test_moon_coverage_analyze_dry_run() {
     );
 }
 
+// TODO: Re-enable when a published lijunchen/hello18 version uses
+// moon.mod and moon.pkg instead of JSON manifests.
+/*
 #[test]
 fn test_moon_coverage_analyze_third_party() {
     let dir = TestDir::new("third_party");
@@ -181,3 +184,4 @@ fn test_moon_coverage_analyze_third_party() {
         expect_file!["third_party_coverage_dry_run.jsonl"],
     );
 }
+*/
