@@ -55,8 +55,9 @@ use moonutil::{
         is_ignored_directory_name,
     },
     manifest::{
-        read_module_desc_file_in_dir, read_package_desc_file_from_path_with_supported_targets_decl,
-        warn_known_shadowed_manifest, warn_module_manifest,
+        read_module_desc_file_in_dir_with_legacy,
+        read_package_desc_file_from_path_with_supported_targets_decl, warn_known_shadowed_manifest,
+        warn_module_manifest,
     },
     package::resolve_supported_targets,
     user_log::UserLog,
@@ -104,6 +105,7 @@ pub fn discover_packages(
             module_graph.resolved_module(id),
             module_graph.input_module_ids().contains(&id),
             user_log,
+            false,
         )?;
     }
 
@@ -150,12 +152,13 @@ pub fn discover_local_project(
             &format!("at module root '{}'", module_dir.display()),
             user_log,
         );
-        let module = read_module_desc_file_in_dir(&module_dir).map_err(|inner| {
-            DiscoverError::CantReadLocalModuleFile {
-                path: module_dir.clone(),
-                inner,
-            }
-        })?;
+        let module =
+            read_module_desc_file_in_dir_with_legacy(&module_dir, true).map_err(|inner| {
+                DiscoverError::CantReadLocalModuleFile {
+                    path: module_dir.clone(),
+                    inner,
+                }
+            })?;
         let module = Arc::new(module);
         let source = ModuleSource::from_local_module(&module, &module_dir).map_err(|inner| {
             DiscoverError::CantReadLocalModuleFile {
@@ -173,6 +176,7 @@ pub fn discover_local_project(
             &root_modules[id],
             true,
             user_log,
+            true,
         )?;
     }
 
@@ -201,6 +205,7 @@ pub(crate) fn discover_packages_for_mod(
     module: &ResolvedModule,
     is_root_module: bool,
     user_log: &UserLog,
+    allow_legacy: bool,
 ) -> Result<(), DiscoverError> {
     // This information is the one we get from the registry. We will read again
     // from the resolved directory
@@ -214,10 +219,12 @@ pub(crate) fn discover_packages_for_mod(
     );
 
     // This is the version we read from directory
-    let m = read_module_desc_file_in_dir(dir).map_err(|e| DiscoverError::CantReadModuleFile {
-        module: module_source.clone(),
-        path: dir.to_owned(),
-        inner: e,
+    let m = read_module_desc_file_in_dir_with_legacy(dir, allow_legacy).map_err(|e| {
+        DiscoverError::CantReadModuleFile {
+            module: module_source.clone(),
+            path: dir.to_owned(),
+            inner: e,
+        }
     })?;
 
     // Do some basic sanity checks
@@ -321,6 +328,7 @@ pub(crate) fn discover_packages_for_mod(
             &module_supported_targets,
             &pkg_manifest_path,
             user_log,
+            allow_legacy,
         )?;
         debug!(
             "Found package: {} with {} source files",
@@ -370,6 +378,7 @@ fn discover_one_package(
     module_supported_targets: &IndexSet<TargetBackend>,
     pkg_manifest_path: &Path,
     user_log: &UserLog,
+    allow_legacy: bool,
 ) -> Result<DiscoveredPackage, DiscoverError> {
     let abs = pkg_manifest_path
         .parent()
@@ -380,8 +389,12 @@ fn discover_one_package(
 
     // Discover the package config
     let (pkg_json, supported_targets_decl) =
-        read_package_desc_file_from_path_with_supported_targets_decl(pkg_manifest_path, user_log)
-            .map_err(|e| DiscoverError::CantReadPackageFile {
+        read_package_desc_file_from_path_with_supported_targets_decl(
+            pkg_manifest_path,
+            user_log,
+            allow_legacy,
+        )
+        .map_err(|e| DiscoverError::CantReadPackageFile {
             module: m.clone(),
             package: fqn.package().clone(),
             path: abs.to_path_buf(),
@@ -855,6 +868,7 @@ dev_build(
         let (pkg, _) = read_package_desc_file_from_path_with_supported_targets_decl(
             &manifest_path,
             &UserLog::new(log::LevelFilter::Error),
+            false,
         )
         .expect("failed to read package manifest");
 

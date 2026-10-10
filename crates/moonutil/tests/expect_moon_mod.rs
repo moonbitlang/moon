@@ -20,8 +20,8 @@ use std::path::PathBuf;
 
 use moonutil::manifest::{
     MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
-    read_module_desc_file_in_dir, read_module_from_dsl, warn_module_manifest,
-    write_module_dsl_to_file,
+    read_module_desc_file_in_dir, read_module_desc_file_in_dir_with_legacy, read_module_from_dsl,
+    warn_module_manifest, write_module_dsl_to_file,
 };
 use moonutil::package::SupportedTargetsConfig;
 use moonutil::target::TargetBackend;
@@ -65,7 +65,7 @@ fn module_manifests_reject_v0_and_v1_suffixes() {
         ] {
             let dir = temp_dir("invalid-major-suffix");
             std::fs::write(dir.join(file), contents).unwrap();
-            let error = read_module_desc_file_in_dir(&dir).unwrap_err();
+            let error = read_module_desc_file_in_dir_with_legacy(&dir, true).unwrap_err();
             assert!(format!("{error:#}").contains("major-version suffix must be /v2 or higher"));
             std::fs::remove_dir_all(dir).unwrap();
         }
@@ -92,7 +92,7 @@ fn module_manifests_validate_major_version_suffixes() {
     ] {
         let dir = temp_dir("major-version-mismatch");
         std::fs::write(dir.join(file), contents).unwrap();
-        let error = read_module_desc_file_in_dir(&dir).unwrap_err();
+        let error = read_module_desc_file_in_dir_with_legacy(&dir, true).unwrap_err();
         assert!(
             format!("{error:#}")
                 .contains("module `a/b/v2` requires major version 2, but got 1.5.0")
@@ -178,26 +178,14 @@ fn read_module_desc_prefers_dsl() {
 }
 
 #[test]
-fn warn_module_manifest_reports_legacy_format_without_a_dsl_manifest() {
+fn warn_module_manifest_only_warns_when_both_formats_exist() {
     let dir = temp_dir("legacy-module-format");
     std::fs::write(dir.join("moon.mod.json"), r#"{"name": "example/legacy"}"#).unwrap();
     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
     warn_module_manifest(&dir, "at test module root", &user_log);
 
-    let entries = capture.take();
-    assert_eq!(entries.len(), 1);
-    assert!(matches!(
-        entries[0].level,
-        moonutil::user_log::UserLogEntryLevel::Warning
-    ));
-    assert_eq!(
-        entries[0].message,
-        format!(
-            "`moon.mod.json` at '{}' is deprecated. Run `moon fmt` to migrate to `moon.mod`.",
-            dir.display()
-        )
-    );
+    assert!(capture.take().is_empty());
 
     std::fs::write(dir.join("moon.mod"), "name = \"example/legacy\"\n").unwrap();
     warn_module_manifest(&dir, "at test module root", &user_log);
@@ -502,7 +490,7 @@ fn read_module_json_accepts_object_rule() {
     )
     .unwrap();
 
-    let module = read_module_desc_file_in_dir(&dir).unwrap();
+    let module = read_module_desc_file_in_dir_with_legacy(&dir, true).unwrap();
     let rule = module.rule.unwrap();
     assert_eq!(rule.len(), 1);
     assert_eq!(rule[0].name, "rule1");
