@@ -1486,7 +1486,7 @@ fn test_prove_targets_member_module_with_workspace_resolution() {
 
     let stdout = get_stdout(&dir, ["-C", "app", "prove", "--dry-run"]);
     assert!(
-        stdout.contains("moonc prove ./app/src/main/main.mbt"),
+        stdout.contains(" ./app/src/main/main.mbt -whyml-output-path "),
         "expected app prove dry-run to target the app member, got:\n{stdout}"
     );
     assert!(
