@@ -19,11 +19,46 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{
-    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, DepProof,
-};
+use moonutil::toolchain::BINARIES;
 
-/// Abstraction for `moonc prove`.
+use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, DepProof};
+
+/// The program that runs the prover.
+///
+/// The prover is migrating from the `moonc prove` subcommand to a standalone
+/// `moonc-prove` executable that accepts the same arguments.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ProveDriver<'a> {
+    /// The standalone `moonc-prove` executable.
+    Standalone(&'a Path),
+    /// The legacy `moonc prove` subcommand.
+    MooncSubcommand(&'a Path),
+}
+
+impl ProveDriver<'static> {
+    /// Prefer `moonc-prove` when the toolchain provides it, otherwise fall back
+    /// to `moonc prove`.
+    pub fn from_toolchain() -> Self {
+        match BINARIES.moonc_prove.as_deref() {
+            Some(moonc_prove) => Self::Standalone(moonc_prove),
+            None => Self::MooncSubcommand(&BINARIES.moonc),
+        }
+    }
+}
+
+impl ProveDriver<'_> {
+    /// The leading arguments that invoke the prover.
+    fn program_args(self) -> Vec<String> {
+        match self {
+            Self::Standalone(moonc_prove) => vec![moonc_prove.to_string_lossy().into_owned()],
+            Self::MooncSubcommand(moonc) => {
+                vec![moonc.to_string_lossy().into_owned(), "prove".to_string()]
+            }
+        }
+    }
+}
+
+/// Abstraction for `moonc-prove`, or `moonc prove` on older toolchains.
 #[derive(Debug)]
 pub(crate) struct MooncProve<'a> {
     pub required: BuildCommonInput<'a>,
@@ -38,10 +73,15 @@ pub(crate) struct MooncProve<'a> {
     pub extra_flags: &'a [String],
 }
 
-impl<'a> CmdlineAbstraction for MooncProve<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        args.push("prove".into());
+impl<'a> MooncProve<'a> {
+    /// Build the full command, including the program selected by `driver`.
+    pub fn build_command(&self, driver: ProveDriver<'_>) -> Vec<String> {
+        let mut args = driver.program_args();
+        self.to_args(&mut args);
+        args
+    }
 
+    fn to_args(&self, args: &mut Vec<String>) {
         self.defaults.add_patch_file_moonc(args);
         self.defaults.add_error_format(args);
         self.required.add_mbt_sources(args);
@@ -89,5 +129,24 @@ impl<'a> CmdlineAbstraction for MooncProve<'a> {
         for flag in self.extra_flags {
             args.push(flag.to_string());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::ProveDriver;
+
+    #[test]
+    fn standalone_driver_invokes_moonc_prove_directly() {
+        let args = ProveDriver::Standalone(Path::new("bin/moonc-prove")).program_args();
+        assert_eq!(args, ["bin/moonc-prove"]);
+    }
+
+    #[test]
+    fn legacy_driver_invokes_moonc_prove_subcommand() {
+        let args = ProveDriver::MooncSubcommand(Path::new("bin/moonc")).program_args();
+        assert_eq!(args, ["bin/moonc", "prove"]);
     }
 }
