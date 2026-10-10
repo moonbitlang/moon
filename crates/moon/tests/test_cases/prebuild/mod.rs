@@ -230,31 +230,38 @@ fn test_pre_build_mooncake_bin_shape() {
         "0.1.0",
         &[
             (
-                "moon.mod.json",
-                br#"{
-  "name": "username/registry_shape_tool",
-  "version": "0.1.0",
-  "source": "src",
-  "bin-deps": {
-    "username/missing_nested_tool": "0.1.0"
-  }
-}"#
+                "moon.mod",
+                br#"name = "username/registry_shape_tool"
+
+version = "0.1.0"
+
+source = "src"
+
+options(
+  "bin-deps": {"username/missing_nested_tool": "0.1.0"},
+)"#
                 .to_vec(),
             ),
             (
-                "src/main-js/moon.pkg.json",
-                br#"{
-  "is-main": true,
+                "src/main-js/moon.pkg",
+                br#"
+pkgtype(kind: "executable")
+
+options(
   "bin-target": "js",
   "bin-name": "registry-shape-tool",
-  "pre-build": [
-    {
-      "input": [],
-      "output": ["generated.mbt"],
-      "command": "bin-dep-package-prebuild-must-not-run"
-    }
-  ]
-}"#
+)
+
+rule(
+  name: "generate",
+  command: "bin-dep-package-prebuild-must-not-run",
+)
+dev_build(
+  rule: "generate",
+  input: [],
+  output: ["generated.mbt"],
+)
+"#
                 .to_vec(),
             ),
             (
@@ -440,14 +447,12 @@ fn test_pre_build_dirty() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: no work to do
         "#]],
     );
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: no work to do
         "#]],
     );

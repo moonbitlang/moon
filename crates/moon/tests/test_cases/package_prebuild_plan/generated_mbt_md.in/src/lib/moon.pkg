@@ -1,9 +1,9 @@
-options(
-  "pre-build": [
-    {
-      "input": "guide.txt",
-      "output": "generated.mbt.md",
-      "command": ":embed --text -i $input -o $output --name ignored",
-    },
-  ],
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output --name ignored",
+)
+dev_build(
+  rule: "generate",
+  input: "guide.txt",
+  output: "generated.mbt.md",
 )

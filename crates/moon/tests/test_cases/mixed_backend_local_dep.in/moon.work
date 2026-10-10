@@ -1,0 +1,6 @@
+members = [
+  ".",
+  "deps/jsdep",
+  "deps/unuseddep",
+  "deps/nativedep",
+]

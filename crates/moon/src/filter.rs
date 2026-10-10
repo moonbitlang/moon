@@ -564,7 +564,7 @@ mod tests {
         resolve::ProjectPreparationError,
     };
     use moonutil::{
-        constants::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK},
+        constants::{MOON_MOD, MOON_PKG, MOON_WORK},
         project::{SourceTargetDirs, WorkspaceEnv},
         target::TargetBackend,
         user_log::UserLog,
@@ -609,12 +609,18 @@ mod tests {
     fn package_selection_does_not_require_solvable_imports() {
         let temp = tempfile::tempdir().unwrap();
         write_file(
-            &temp.path().join(MOON_MOD_JSON),
-            r#"{ "name": "test/app" }"#,
+            &temp.path().join(MOON_MOD),
+            r#"
+name = "test/app"
+"#,
         );
         write_file(
-            &temp.path().join("main").join(MOON_PKG_JSON),
-            r#"{ "is-main": true, "import": ["test/app/missing"] }"#,
+            &temp.path().join("main").join(MOON_PKG),
+            r#"import {
+  "test/app/missing",
+}
+
+pkgtype(kind: "executable")"#,
         );
 
         let root = canonical(temp.path());
@@ -654,13 +660,13 @@ mod tests {
             "members = [\n  \"./app\",\n]\n",
         );
         write_file(
-            &workspace_root.join("app").join(MOON_MOD_JSON),
-            "{ \"name\": \"workspace/app\", \"version\": \"0.1.0\" }",
+            &workspace_root.join("app").join(MOON_MOD),
+            r#"
+name = "workspace/app"
+version = "0.1.0"
+"#,
         );
-        write_file(
-            &workspace_root.join("dangling/pkg").join(MOON_PKG_JSON),
-            "{ \"import\": [] }",
-        );
+        write_file(&workspace_root.join("dangling/pkg").join(MOON_PKG), "");
 
         let workspace_root = canonical(workspace_root);
         let dangling_pkg = workspace_root.join("dangling/pkg");
@@ -692,12 +698,17 @@ mod tests {
             "members = [\n  \"../external/app\",\n]\n",
         );
         write_file(
-            &external_module.join(MOON_MOD_JSON),
-            "{ \"name\": \"external/app\", \"version\": \"0.1.0\" }",
+            &external_module.join(MOON_MOD),
+            r#"
+name = "external/app"
+version = "0.1.0"
+"#,
         );
         write_file(
-            &external_module.join("src/main").join(MOON_PKG_JSON),
-            "{ \"is-main\": true }",
+            &external_module.join("src/main").join(MOON_PKG),
+            r#"
+pkgtype(kind: "executable")
+"#,
         );
 
         let workspace_root = canonical(workspace_root);

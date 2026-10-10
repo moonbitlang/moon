@@ -24,7 +24,7 @@ use moonutil::project::{ModuleRef, ProjectContext};
 fn project_facade_exposes_selected_module_ref() {
     let selected_module = ModuleRef {
         root: PathBuf::from("module"),
-        manifest_path: PathBuf::from("module/moon.mod.json"),
+        manifest_path: PathBuf::from("module/moon.mod"),
     };
     let project = ProjectContext::Workspace {
         root: PathBuf::from("."),

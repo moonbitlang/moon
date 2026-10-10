@@ -8,7 +8,7 @@ During Package Declaration and Package File Set discovery, Moon records
 virtual metadata and existing contract files without selecting an invocation's
 final contract input:
 
-- Each `moon.pkg.json` is parsed.
+- Each `moon.pkg` is parsed.
 - If a package declares `virtual_pkg`, discovery records each existing
   `pkg.mbti` (new) and `<package_short_name>.mbti` (old) candidate. It does not
   choose between them or treat an absent declared prebuild output as an

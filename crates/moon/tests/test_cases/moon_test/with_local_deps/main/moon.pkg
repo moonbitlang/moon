@@ -1,7 +1,0 @@
-import {
-  "hello31/lib",
-  "lijunchen/mooncake",
-  "lijunchen/mooncake2",
-}
-
-pkgtype(kind: "executable")

@@ -61,9 +61,7 @@ fn test_all_pkgs() {
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Finished. moon: ran 10 tasks, now up to date
+            Finished. moon: ran 12 tasks, now up to date
         "#]],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
@@ -75,8 +73,6 @@ fn test_all_pkgs() {
     check(
         get_stderr(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
@@ -114,9 +110,7 @@ fn test_all_pkgs() {
     check(
         get_stderr(&dir, ["info", "--target", "wasm-gc"]),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Finished. moon: ran 10 tasks, now up to date
+            Finished. moon: ran 16 tasks, now up to date
         "#]],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
@@ -127,16 +121,23 @@ fn test_all_pkgs() {
 #[test]
 fn test_indirect_dep_bundle() {
     let dir = TestDir::new("indirect_dep.in/indirect_dep2");
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "moon.pkg", "sub.mbt", "p/moon.pkg", "p/src.mbt"]
+        .map(|path| (path, std::fs::read(dir.join("sub").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "username/sub", "0.1.0", &files);
     // bundle
     let _ = get_stdout(&dir, ["clean"]);
     std::fs::create_dir_all(dir.join("_build")).unwrap();
     std::fs::write(packages_selector_path(&dir), "existing check selector").unwrap();
     std::fs::write(packages_index_path(&dir), "existing check index").unwrap();
     check(
-        get_stderr(&dir, ["bundle", "--target", "wasm-gc"]),
+        get_stderr_with_envs(
+            &dir,
+            ["bundle", "--target", "wasm-gc"],
+            [("MOON_HOME", moon_home.path())],
+        ),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: `moon.mod.json` at '$ROOT/sub' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
+            Using cached username/sub@0.1.0
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );

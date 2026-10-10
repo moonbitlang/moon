@@ -1,5 +1,11 @@
 pkgtype(kind: "executable")
 
-options(
-  "pre-build": [{"input": "input.txt", "output": "generated.txt", "command": ":embed --text -i $input -o $output --name ignored"}],
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output --name ignored",
+)
+dev_build(
+  rule: "generate",
+  input: "input.txt",
+  output: "generated.txt",
 )

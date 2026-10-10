@@ -1,11 +1,4 @@
 options(
-  "pre-build": [
-    {
-      "input": "a.txt",
-      "output": "a.mbt",
-      "command": ":embed --text -i $input -o $output",
-    },
-  ],
   "post-build": [
     {
       "input": "a.mbt",
@@ -13,4 +6,14 @@ options(
       "command": ":embed --text -i $input -o $output",
     },
   ],
+)
+
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output",
+)
+dev_build(
+  rule: "generate",
+  input: "a.txt",
+  output: "a.mbt",
 )

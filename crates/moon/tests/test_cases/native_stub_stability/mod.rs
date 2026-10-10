@@ -41,14 +41,13 @@ fn test_native_stub_archive_drops_removed_members_without_clean() {
     );
 
     std::fs::write(
-        dir.join("lib/moon.pkg.json"),
-        r#"{
+        dir.join("lib/moon.pkg"),
+        r#"options(
   "native-stub": [
     "entry.c",
     "new.c"
   ]
-}
-"#,
+)"#,
     )
     .unwrap();
 

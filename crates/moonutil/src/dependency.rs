@@ -215,7 +215,6 @@ mod tests {
             r#"{"git":"https://example.com/dep.git","branch":"main"}"#,
             r#"{"version":"1.0.0","branch":"main"}"#,
             r#"{"version":"1.0.0","git":"https://example.com/dep.git"}"#,
-            r#"{"path":"../dep","branch":"main"}"#,
         ] {
             assert!(
                 serde_json_lenient::from_str::<SourceDependencyInfo>(json).is_err(),
@@ -226,34 +225,6 @@ mod tests {
                 "accepted binary dependency {json}"
             );
         }
-    }
-
-    #[test]
-    fn detailed_dependency_allows_missing_version() {
-        let dep: SourceDependencyInfo =
-            serde_json_lenient::from_str(r#"{"path":"../dep"}"#).unwrap();
-        assert!(dep.version().is_none());
-        assert_eq!(dep.path(), Some("../dep"));
-    }
-
-    #[test]
-    fn detailed_dependency_allows_null_version() {
-        let dep: SourceDependencyInfo =
-            serde_json_lenient::from_str(r#"{"version":null,"path":"../dep"}"#).unwrap();
-        assert!(dep.version().is_none());
-        assert_eq!(dep.path(), Some("../dep"));
-    }
-
-    #[test]
-    fn detailed_dependency_rejects_path_git_mix() {
-        let err = serde_json_lenient::from_str::<SourceDependencyInfo>(
-            r#"{"path":"../dep","git":"https://example.com/dep.git"}"#,
-        )
-        .unwrap_err();
-        assert!(
-            err.to_string().contains("did not match any variant"),
-            "unexpected error message: {err}"
-        );
     }
 
     #[test]

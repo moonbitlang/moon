@@ -440,12 +440,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
             "./shared/shared.mbt",
             "./web/main.mbt",
             "./deps/jsdep/lib/lib.mbt",
-        ],
-        &[
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let (cli, cmd) = parse_build_command(&["build", "--target", "js", "--dry-run", "--sort-input"]);
@@ -473,12 +470,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
             "./shared/shared.mbt",
             "./server/main.mbt",
             "./deps/nativedep/lib/lib.mbt",
-        ],
-        &[
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 
     let (cli, cmd) =

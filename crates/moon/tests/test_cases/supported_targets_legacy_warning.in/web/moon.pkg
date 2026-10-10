@@ -1,0 +1,7 @@
+import {
+  "local/jsdep/lib",
+}
+
+options(
+  "supported-targets": ["js"],
+)

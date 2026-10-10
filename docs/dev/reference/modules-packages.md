@@ -32,7 +32,7 @@ available. The field alone does not implement registry storage or access control
 A module may contain one or more **package**s,
 which is the unit of compilation in MoonBit.
 A package contains all files (not directories) within its containing directory,
-and signified by a file named `moon.pkg.json`.
+and signified by a file named `moon.pkg`.
 All the code within a single package is compiled at once using the `moonc` compiler,
 while different packages are compiled in different calls to the compiler.
 
@@ -152,7 +152,7 @@ The two parts are separated by a forward slash if the package path is not empty.
 
 A package path is a logical path within the module, not a filesystem path.
 It is always relative to the module's package scanning root (the `source` field
-in `moon.mod.json`, if present), and never includes that root prefix.
+in `moon.mod`, if present), and never includes that root prefix.
 
 Currently, the package's full name is derived from its path and its containing module,
 specified in the following [Package discovery](#package-discovery) section.
@@ -275,8 +275,8 @@ Command paths explicitly invoke `resolve_packages` at the original preparation p
 selection, planning, or target-directory locking. This keeps the existing
 dependency-error ordering and single package graph.
 
-The `source` field in `moon.mod.json` specifies where package scanning starts,
-relative to the folder containing `moon.mod.json`.
+The `source` field in `moon.mod` specifies where package scanning starts,
+relative to the folder containing `moon.mod`.
 Package paths are the relative path (normalized to forward slash) relative to this root path.
 
 If not specified, the package scanning root path is `.`,
@@ -284,8 +284,8 @@ meaning the packages are relative to the root of the module.
 Newer modules created by `moon new` by default sets this to `src`.
 
 To discover all package within the module,
-one recursively search from the scanning root for files named `moon.pkg.json`,
-unless the folder contains `moon.mod.json`.
+one recursively search from the scanning root for files named `moon.pkg`,
+unless the folder contains `moon.mod`.
 Dot-prefixed directories and common non-code folders such as `node_modules`
 and `_build` are skipped during this process. The configured scanning root
 itself remains explicit and is still scanned when its name starts with `.`;
@@ -296,44 +296,46 @@ for common folder layouts with root `.` and root `src`:
 
 ```
 /
-  moon.mod.json       (root of module)
-    Assuming { source: ".", name: "rabbit/containers" }
+  moon.mod       (root of module)
+    name = "rabbit/containers"
+    source = "."
 
-  moon.pkg.json       (package "rabbit/containers")
+  moon.pkg       (package "rabbit/containers")
   linked_list/
-    moon.pkg.json     (package "rabbit/containers/linked_list")
+    moon.pkg     (package "rabbit/containers/linked_list")
   hashmap/
-    moon.pkg.json     (package "rabbit/containers/hashmap")
+    moon.pkg     (package "rabbit/containers/hashmap")
     raw/
-      moon.pkg.json   (package "rabbit/containers/hashmap/raw")
+      moon.pkg   (package "rabbit/containers/hashmap/raw")
 
   vendor/             (not a package)
     another/          (root of another module, not a package)
-      moon.mod.json
-      moon.pkg.json
+      moon.mod
+      moon.pkg
 ```
 
 ```
 /
-  moon.mod.json       (root of module)
-    Assuming { source: "src", name: "rabbit/containers" }
+  moon.mod       (root of module)
+    name = "rabbit/containers"
+    source = "src"
 
   src/                  (root of package scanning)
-    moon.pkg.json       (package "rabbit/containers")
+    moon.pkg       (package "rabbit/containers")
     linked_list/
-      moon.pkg.json     (package "rabbit/containers/linked_list")
+      moon.pkg     (package "rabbit/containers/linked_list")
     hashmap/
-      moon.pkg.json     (package "rabbit/containers/hashmap")
+      moon.pkg     (package "rabbit/containers/hashmap")
       raw/
-        moon.pkg.json   (package "rabbit/containers/hashmap/raw")
+        moon.pkg   (package "rabbit/containers/hashmap/raw")
 
-  moon.pkg.json       (not a package, will not be scanned)
+  moon.pkg       (not a package, will not be scanned)
   not-a-pkg/
-    moon.pkg.json     (not a package, will not be scanned)
+    moon.pkg     (not a package, will not be scanned)
   vendor/             (not a package)
     another/          (not a package)
-      moon.mod.json
-      moon.pkg.json
+      moon.mod
+      moon.pkg
 ```
 
 ## Internal packages

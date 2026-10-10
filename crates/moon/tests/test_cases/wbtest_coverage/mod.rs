@@ -13,10 +13,5 @@ fn test_wbtest_coverage() {
     );
     let _ = get_stdout(&dir, ["clean"]);
     let stderr = get_stderr(&dir, ["test", "--enable-coverage"]);
-    check(
-        &stderr,
-        expect![[r#"
-        Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-    "#]],
-    );
+    check(&stderr, expect![""]);
 }

@@ -31,7 +31,7 @@ fn test_extra_flags() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
+            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
         "#]],
     );
     check(
@@ -49,7 +49,7 @@ fn test_extra_flags() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
+            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
         "#]],
     );
 
@@ -61,7 +61,7 @@ fn test_extra_flags() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
+            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
             '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );
@@ -81,7 +81,7 @@ fn test_extra_flags() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
+            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -no-builtin
             '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );

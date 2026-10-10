@@ -665,11 +665,6 @@ mod tests {
         assert_compiled_artifact_roles(false);
     }
 
-    #[test]
-    fn local_path_dependencies_are_marked_before_execution_policy() {
-        assert_compiled_artifact_roles(true);
-    }
-
     fn assert_compiled_artifact_roles(separate_module: bool) {
         let module_source = ModuleSource::local_path(
             "test/single"

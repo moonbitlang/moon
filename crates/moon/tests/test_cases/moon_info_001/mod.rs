@@ -15,7 +15,6 @@ fn test_moon_info_user_log_output() {
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
 Warning: `--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: ran 4 tasks, now up to date
 
 "#]]);

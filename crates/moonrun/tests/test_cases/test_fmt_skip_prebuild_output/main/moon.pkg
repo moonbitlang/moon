@@ -1,5 +1,11 @@
 pkgtype(kind: "executable")
 
-options(
-  "pre-build": [{"input": "main.mbt", "output": "generated.mbt", "command": "hostname"}],
+rule(
+  name: "generate",
+  command: "hostname",
+)
+dev_build(
+  rule: "generate",
+  input: "main.mbt",
+  output: "generated.mbt",
 )

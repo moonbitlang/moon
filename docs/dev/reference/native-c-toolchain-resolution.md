@@ -51,7 +51,7 @@ For native-oriented backends, the final artifact may involve multiple inputs:
 - the output of `moonc link-core`
 - the runtime implementation built from the C translation units under `lib/runtime/`
 - the selected native allocator support object, when required
-- package-level C stubs declared in `moon.pkg.json`
+- package-level C stubs declared in `moon.pkg`
 
 The high-level build flow is documented in `build.md`:
 
@@ -181,7 +181,7 @@ This override is global to the current Moon invocation.
 
 ## Package-Level Override
 
-`moon.pkg.json` may specify native compiler overrides:
+`moon.pkg` may specify native compiler overrides:
 
 - `link.native.cc`
 - `link.native.stub_cc`

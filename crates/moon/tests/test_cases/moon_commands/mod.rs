@@ -30,9 +30,9 @@ fn test_moon_cmd() {
             moonc build-package ./lib/list/lib.mbt -o ./_build/wasm-gc/debug/build/lib/list/list.core -pkg design/lib/list -pkg-type library -pkg-sources design/lib/list:./lib/list -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./lib/queue/lib.mbt -o ./_build/wasm-gc/debug/build/lib/queue/queue.core -pkg design/lib/queue -pkg-type library -i ./_build/wasm-gc/debug/build/lib/list/list.mi:list -pkg-sources design/lib/queue:./lib/queue -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main2/main.mbt -o ./_build/wasm-gc/debug/build/main2/main2.core -pkg design/main2 -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/queue/queue.mi:queue -pkg-sources design/main2:./main2 -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main2/main2.core -main design/main2 -o ./_build/wasm-gc/debug/build/main2/main2.wasm -pkg-config-path ./main2/moon.pkg.json -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main2:./main2 -target wasm-gc -g -O0 -source-map
+            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main2/main2.core -main design/main2 -o ./_build/wasm-gc/debug/build/main2/main2.wasm -pkg-config-path ./main2/moon.pkg -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main2:./main2 -target wasm-gc -g -O0 -source-map
             moonc build-package ./main1/main.mbt -o ./_build/wasm-gc/debug/build/main1/main1.core -pkg design/main1 -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/queue/queue.mi:queue -pkg-sources design/main1:./main1 -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main1/main1.core -main design/main1 -o ./_build/wasm-gc/debug/build/main1/main1.wasm -pkg-config-path ./main1/moon.pkg.json -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main1:./main1 -target wasm-gc -g -O0 -source-map
+            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main1/main1.core -main design/main1 -o ./_build/wasm-gc/debug/build/main1/main1.wasm -pkg-config-path ./main1/moon.pkg -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main1:./main1 -target wasm-gc -g -O0 -source-map
         "#]],
     );
 }
@@ -400,10 +400,10 @@ fn test_moonx_native_output_and_cache_contract() {
     let fixture = TestDir::new("moonx_registry_native.in");
     let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
     let runner_files = [
-        "moon.mod.json",
-        "src/lib/moon.pkg.json",
+        "moon.mod",
+        "src/lib/moon.pkg",
         "src/lib/lib.mbt",
-        "src/tool/moon.pkg.json",
+        "src/tool/moon.pkg",
         "src/tool/main.mbt",
     ]
     .map(|path| (path, std::fs::read(fixture.join(path)).unwrap()));
@@ -414,8 +414,11 @@ fn test_moonx_native_output_and_cache_contract() {
         "testuser/dependency",
         "1.0.0",
         &[(
-            "moon.mod.json",
-            br#"{"name":"testuser/dependency","version":"1.0.0"}"#.to_vec(),
+            "moon.mod",
+            br#"name = "testuser/dependency"
+
+version = "1.0.0""#
+                .to_vec(),
         )],
     );
 
@@ -491,7 +494,6 @@ Warning: `moonx --target native` is deprecated and scheduled for removal after 2
 Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
 Using cached testuser/runner@1.2.3
 Using cached testuser/dependency@1.0.0
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Building `testuser/runner/tool`...
 ...
 Finished. moon: ran 9 tasks, now up to date
@@ -1337,14 +1339,18 @@ fn test_cram_build_path_error_does_not_delegate_to_moon_cram() {
 fn test_cram_rejects_unresolved_runner_before_build_path() {
     let dir = TestDir::new_empty();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{ "name": "username/cram-shadow" }"#,
+        dir.join("moon.mod"),
+        r#"
+name = "username/cram-shadow"
+"#,
     )
     .expect("failed to write module manifest");
     std::fs::create_dir_all(dir.join("moon-cram")).expect("failed to create main package");
     std::fs::write(
-        dir.join("moon-cram/moon.pkg.json"),
-        r#"{ "is-main": true }"#,
+        dir.join("moon-cram/moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
+"#,
     )
     .expect("failed to write package manifest");
     std::fs::write(
@@ -1375,11 +1381,21 @@ fn test_cram_rejects_unresolved_runner_before_build_path() {
 #[test]
 fn test_cram_build_failure_prevents_delegation() {
     let dir = TestDir::new_empty();
-    std::fs::write(dir.join("moon.mod.json"), r#"{ "name": "username/fail" }"#)
-        .expect("failed to write module manifest");
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"
+name = "username/fail"
+"#,
+    )
+    .expect("failed to write module manifest");
     std::fs::create_dir_all(dir.join("main")).expect("failed to create main package");
-    std::fs::write(dir.join("main/moon.pkg.json"), r#"{ "is-main": true }"#)
-        .expect("failed to write package manifest");
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
+"#,
+    )
+    .expect("failed to write package manifest");
     std::fs::write(dir.join("main/main.mbt"), "fn main { missing }\n")
         .expect("failed to write invalid source");
 
@@ -2225,7 +2241,7 @@ fn test_moon_add_help_includes_no_update() {
 fn test_manifest_path_is_not_supported() {
     let dir = TestDir::new("moon_commands");
     moon_cmd(&dir)
-        .args(["check", "--manifest-path", "moon.mod.json", "--dry-run"])
+        .args(["check", "--manifest-path", "moon.mod", "--dry-run"])
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"

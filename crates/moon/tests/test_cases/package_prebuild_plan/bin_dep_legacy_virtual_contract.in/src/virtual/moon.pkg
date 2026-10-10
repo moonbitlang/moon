@@ -1,10 +1,13 @@
 options(
   "virtual": { "has-default": true },
-  "pre-build": [
-    {
-      "input": "contract.txt",
-      "output": "pkg.mbti",
-      "command": ":embed --text -i $input -o $output --name ignored",
-    },
-  ],
+)
+
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output --name ignored",
+)
+dev_build(
+  rule: "generate",
+  input: "contract.txt",
+  output: "pkg.mbti",
 )

@@ -7,17 +7,29 @@ fn normalized_path(value: &serde_json::Value) -> &str {
 #[test]
 fn implement_third_party1() {
     let dir = TestDir::new("virtual_pkg2.in/p");
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "moon.pkg", "pkg.mbti"]
+        .map(|path| (path, std::fs::read(dir.join("v").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "username/v", "0.1.0", &files);
     build_graph::assert(
-        moon_cmd(&dir).args(["check", "--target", "wasm-gc", ".", "--dry-run"]),
+        moon_cmd(&dir).env("MOON_HOME", moon_home.path()).args([
+            "check",
+            "--target",
+            "wasm-gc",
+            ".",
+            "--dry-run",
+        ]),
         expect_file!["./check_graph.jsonl"],
     );
 
-    let s = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
+    let s = get_stderr_with_envs(
+        &dir,
+        ["check", "--target", "wasm-gc"],
+        [("MOON_HOME", moon_home.path())],
+    );
     check(
         s,
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: `moon.mod.json` at '$ROOT/v' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
@@ -78,17 +90,28 @@ fn implement_third_party1() {
 #[test]
 fn implement_third_party2() {
     let dir = TestDir::new("virtual_pkg2.in/p");
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "moon.pkg", "pkg.mbti"]
+        .map(|path| (path, std::fs::read(dir.join("v").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "username/v", "0.1.0", &files);
     build_graph::assert(
-        moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run"]),
+        moon_cmd(&dir).env("MOON_HOME", moon_home.path()).args([
+            "build",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+        ]),
         expect_file!["./build_graph.jsonl"],
     );
 
-    let s = get_stderr(&dir, ["build", "--target", "wasm-gc"]);
+    let s = get_stderr_with_envs(
+        &dir,
+        ["build", "--target", "wasm-gc"],
+        [("MOON_HOME", moon_home.path())],
+    );
     check(
         s,
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-            Warning: `moon.mod.json` at '$ROOT/v' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );

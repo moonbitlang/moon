@@ -20,24 +20,23 @@ use super::*;
 
 #[test]
 fn private_module_publish_is_rejected_before_backend_handoff() {
-    for (file, contents) in [
-        ("moon.mod", "name = \"test/internal\"\nprivate = true\n"),
-        (
-            "moon.mod.json",
-            r#"{"name":"test/internal","private":true}"#,
-        ),
-    ] {
-        let dir = TestDir::new_empty();
-        std::fs::write(dir.join(file), contents).unwrap();
-        for args in [vec!["publish"], vec!["publish", "--dry-run"]] {
-            moon_cmd(&dir)
-                .env("MOONCAKE_OVERRIDE", dir.join("must-not-execute"))
-                .args(args)
-                .assert()
-                .failure()
-                .stdout_eq("")
-                .stderr_eq("Error: Cannot publish private module `test/internal`: publishing with private visibility is not supported yet.\n");
-        }
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"
+name = "test/internal"
+private = true
+"#,
+    )
+    .unwrap();
+    for args in [vec!["publish"], vec!["publish", "--dry-run"]] {
+        moon_cmd(&dir)
+            .env("MOONCAKE_OVERRIDE", dir.join("must-not-execute"))
+            .args(args)
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq("Error: Cannot publish private module `test/internal`: publishing with private visibility is not supported yet.\n");
     }
 }
 
@@ -55,24 +54,24 @@ fn private_module_preserves_public_publishing_and_local_packaging() {
         .success();
 
     for (index, manifest) in [
-        "name = \"test/internal\"\n",
-        "name = \"test/internal\"\nprivate = false\n",
-        "name = \"test/internal\"\nprivate = true\n",
-        r#"{"name":"test/internal"}"#,
-        r#"{"name":"test/internal","private":false}"#,
-        r#"{"name":"test/internal","private":true}"#,
+        r#"
+name = "test/internal"
+"#,
+        r#"
+name = "test/internal"
+private = false
+"#,
+        r#"
+name = "test/internal"
+private = true
+"#,
     ]
     .into_iter()
     .enumerate()
     {
         let module_dir = dir.join(format!("module-{index}"));
         std::fs::create_dir(&module_dir).unwrap();
-        let file = if manifest.starts_with('{') {
-            "moon.mod.json"
-        } else {
-            "moon.mod"
-        };
-        std::fs::write(module_dir.join(file), manifest).unwrap();
+        std::fs::write(module_dir.join("moon.mod"), manifest).unwrap();
         let private = manifest.contains("true");
         for command in ["package", "publish"] {
             if command == "publish" && private {
@@ -242,7 +241,7 @@ fn major_version_modules_coexist_in_projects_and_scripts() {
                     "moon.mod",
                     format!("name = \"{name}\"\nversion = \"{version}\"\n").into_bytes(),
                 ),
-                ("moon.pkg.json", b"{}".to_vec()),
+                ("moon.pkg", b"".to_vec()),
                 ("lib.mbt", source.as_bytes().to_vec()),
             ],
         );
@@ -268,15 +267,22 @@ fn major_version_modules_coexist_in_projects_and_scripts() {
     // Both default aliases and explicitly duplicated aliases are rejected
     // during dependency solving, before any compiler command is emitted.
     for imports in [
-        serde_json::json!(["a/b", "a/b/v2"]),
-        serde_json::json!([
-            { "path": "a/b", "alias": "b" },
-            { "path": "a/b/v2", "alias": "b" },
-        ]),
+        r#"
+import {
+  "a/b",
+  "a/b/v2",
+}
+"#,
+        r#"
+import {
+  "a/b" @b,
+  "a/b/v2" @b,
+}
+"#,
     ] {
         std::fs::write(
-            dir.join("moon.pkg.json"),
-            serde_json::json!({ "is-main": true, "import": imports }).to_string(),
+            dir.join("moon.pkg"),
+            format!("{imports}\npkgtype(kind: \"executable\")\n"),
         )
         .unwrap();
         moon_cmd(&dir)
@@ -297,14 +303,13 @@ Caused by:
     }
 
     std::fs::write(
-        dir.join("moon.pkg.json"),
-        r#"{
-  "is-main": true,
-  "import": [
-    { "path": "a/b", "alias": "legacy" },
-    "a/b/v2"
-  ]
-}"#,
+        dir.join("moon.pkg"),
+        r#"import {
+  "a/b" @legacy,
+  "a/b/v2",
+}
+
+pkgtype(kind: "executable")"#,
     )
     .unwrap();
     let main = "fn main {\n  println(@legacy.value())\n  println(@b.value())\n}\n";
@@ -316,15 +321,6 @@ Caused by:
         .success()
         .stdout_eq("1\nv2\n");
 
-    // A legacy object import with no alias must use the same default.
-    std::fs::write(
-        dir.join("moon.pkg.json"),
-        r#"{"is-main": true, "import": [
-            {"path": "a/b", "alias": "legacy"},
-            {"path": "a/b/v2"}
-        ]}"#,
-    )
-    .unwrap();
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .args(["check"])
@@ -469,23 +465,17 @@ fn mooncakes_io_smoke_test() {
     let _ = get_stdout(&dir, ["update"]);
     let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
     check(
-        std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
-        expect![[r#"
-            {
-              "name": "hello",
-              "deps": {
-                "lijunchen/hello2": "0.1.0"
-              }
-            }"#]],
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        expect![[r#"name = "hello"
+
+import {
+  "lijunchen/hello2@0.1.0",
+}"#]],
     );
     let _ = get_stdout(&dir, ["remove", "lijunchen/hello2"]);
     check(
-        std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
-        expect![[r#"
-            {
-              "name": "hello",
-              "deps": {}
-            }"#]],
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        expect![[r#"name = "hello""#]],
     );
     let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
     std::fs::write(
@@ -503,7 +493,7 @@ fn mooncakes_io_smoke_test() {
         mooncakes_dir
             .join("lijunchen")
             .join("hello")
-            .join(MOON_MOD_JSON)
+            .join(MOON_MOD)
             .exists()
     );
 
@@ -525,14 +515,12 @@ fn mooncakes_io_smoke_test() {
     );
 
     std::fs::write(
-        dir.join("main/moon.pkg.json"),
-        r#"{
-          "is-main": true,
-          "import": [
-            "lijunchen/hello2/lib"
-          ]
-        }
-    "#,
+        dir.join("main/moon.pkg"),
+        r#"import {
+  "lijunchen/hello2/lib",
+}
+
+pkgtype(kind: "executable")"#,
     )
     .unwrap();
 
@@ -619,16 +607,15 @@ fn test_moon_package_list() {
         get_stderr(&dir, ["package", "--list"]),
         expect![[r#"
             Running moon check ...
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 4 tasks, now up to date
             Check passed
             README.md
-            moon.mod.json
+            moon.mod
             src/lib/hello.mbt
             src/lib/hello_test.mbt
-            src/lib/moon.pkg.json
+            src/lib/moon.pkg
             src/main/main.mbt
-            src/main/moon.pkg.json
+            src/main/moon.pkg
             Package to $ROOT/_build/publish/username-hello-0.1.0.zip
         "#]],
     );
@@ -831,23 +818,24 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
         )),
     )
     .expect("test PATH should be valid");
-    let manifest = serde_json::json!({
-        "name": "testuser/postadd",
-        "version": "1.0.0",
-        "source": "src",
-        "scripts": {
-            "postadd": "moon tool embed --text -i src/tool/generated.txt -o src/tool/generated.mbt --name generated"
-        }
-    })
-    .to_string()
-    .into_bytes();
+    let manifest = br#"name = "testuser/postadd"
+version = "1.0.0"
+source = "src"
+options(scripts: { "postadd": "moon tool embed --text -i src/tool/generated.txt -o src/tool/generated.mbt --name generated" })
+"#.to_vec();
     cache_registry_package(
         moon_home.path(),
         "testuser/postadd",
         "1.0.0",
         &[
-            ("moon.mod.json", manifest),
-            ("src/tool/moon.pkg.json", br#"{"is-main":true}"#.to_vec()),
+            ("moon.mod", manifest),
+            (
+                "src/tool/moon.pkg",
+                br#"
+pkgtype(kind: "executable")
+"#
+                .to_vec(),
+            ),
             ("src/tool/generated.txt", b"42".to_vec()),
             (
                 "src/tool/main.mbt",

@@ -24,15 +24,13 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     constants::{
-        BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK_ENV,
+        BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD, MOON_NO_WORKSPACE, MOON_WORK_ENV,
     },
-    manifest::MoonModJSON,
     path::CargoPathExt,
     target::TargetBackend,
     text::StringExt,
     version::get_cargo_pkg_version,
 };
-use walkdir::WalkDir;
 
 mod abort_override;
 mod backend;
