@@ -63,6 +63,10 @@ graph uses the original artifact paths for both registration and lookup; display
 normalization accepts both spellings. Source discovery and toolchain-root
 canonicalization are independent of this artifact-root invariant.
 
+Watcher containment checks treat ordinary and verbatim drive/UNC prefixes as
+equivalent. This comparison does not alter artifact paths or require event paths
+to exist, so a removed output subtree remains ignored.
+
 Consumer support still limits some commands. MSVC needs short source-file
 arguments simplified and does not accept long generated-C inputs. Node 22
 rejects long verbatim entrypoint paths. `moondoc` corrupts verbatim paths in

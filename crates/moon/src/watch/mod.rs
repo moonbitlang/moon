@@ -216,8 +216,8 @@ fn check_paths(
     let mut ignore_builder = filter_files::FileFilterBuilder::new(repo_root);
     // Only a proper descendant can be filtered as part of the watched tree.
     // An equal or ancestor directory would also suppress source events.
-    let filters_output_subtree =
-        ignored_subtree != repo_root && ignored_subtree.starts_with(repo_root);
+    let filters_output_subtree = watch_path_starts_with(ignored_subtree, repo_root)
+        && !watch_path_starts_with(repo_root, ignored_subtree);
 
     for evt in relevant_events {
         for path in &evt.paths {
@@ -231,7 +231,10 @@ fn check_paths(
 
             let explicitly_watched = path_matches(&additional_paths.watched_paths, path);
 
-            if !explicitly_watched && filters_output_subtree && path.starts_with(ignored_subtree) {
+            if !explicitly_watched
+                && filters_output_subtree
+                && watch_path_starts_with(path, ignored_subtree)
+            {
                 trace!(
                     "Ignoring event for path '{}' because it is in the output directory",
                     path.display()
@@ -274,6 +277,35 @@ fn check_paths(
     }
 
     false
+}
+
+fn watch_path_starts_with(path: &Path, base: &Path) -> bool {
+    use std::path::{Component, Prefix};
+
+    // notify preserves the watched root's spelling, while artifact roots are
+    // verbatim on Windows. Compare disk/UNC prefixes uniformly without changing
+    // paths used for I/O or canonicalizing events for already removed files.
+    let mut components = path.components();
+    base.components()
+        .all(|base| match (components.next(), base) {
+            (Some(Component::Prefix(path)), Component::Prefix(base)) => {
+                match (path.kind(), base.kind()) {
+                    (
+                        Prefix::Disk(path) | Prefix::VerbatimDisk(path),
+                        Prefix::Disk(base) | Prefix::VerbatimDisk(base),
+                    ) => path == base,
+                    (
+                        Prefix::UNC(path_server, path_share)
+                        | Prefix::VerbatimUNC(path_server, path_share),
+                        Prefix::UNC(base_server, base_share)
+                        | Prefix::VerbatimUNC(base_server, base_share),
+                    ) => path_server == base_server && path_share == base_share,
+                    (path, base) => path == base,
+                }
+            }
+            (Some(path), base) => path == base,
+            (None, _) => false,
+        })
 }
 
 fn path_matches(paths: &HashSet<PathBuf>, path: &Path) -> bool {
@@ -611,6 +643,36 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn watch_containment_accepts_drive_and_unc_prefix_spellings() {
+        for (ordinary, verbatim) in [
+            (r"C:\project", r"\\?\C:\project"),
+            (r"\\server\share\project", r"\\?\UNC\server\share\project"),
+        ] {
+            for base in [ordinary, verbatim] {
+                for path in [ordinary, verbatim] {
+                    let descendant = Path::new(path).join("segment\\".repeat(40));
+                    assert!(watch_path_starts_with(Path::new(path), Path::new(base)));
+                    assert!(watch_path_starts_with(&descendant, Path::new(base)));
+                    assert!(!watch_path_starts_with(Path::new(base), &descendant));
+                    assert!(!watch_path_starts_with(
+                        Path::new(&format!("{path}-sibling")),
+                        Path::new(base),
+                    ));
+                }
+            }
+        }
+        assert!(!watch_path_starts_with(
+            Path::new(r"\\?\D:\project\target"),
+            Path::new(r"C:\project"),
+        ));
+        assert!(!watch_path_starts_with(
+            Path::new(r"\\?\UNC\server\other-share\project\target"),
+            Path::new(r"\\server\share\project"),
+        ));
     }
 
     #[test]
