@@ -831,39 +831,6 @@ fn plan_test_or_bench_rr_from_selections(
     selections: Vec<TargetPackageGroup>,
     user_log: &UserLog,
 ) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
-    if has_explicit_test_selector(cmd) {
-        if selections.is_empty() {
-            return plan_test_or_bench_rr_from_resolved(
-                cli,
-                cmd,
-                target_dir,
-                mooncake_bin_dir,
-                selected_target_backend,
-                resolved_project,
-                user_log,
-            )
-            .map(|plan| vec![plan]);
-        }
-
-        return selections
-            .into_iter()
-            .map(|selection| {
-                let resolved_selection =
-                    resolve_scoped_test_selection(cmd, &resolved_project, selection.packages)?;
-                plan_test_or_bench_rr_from_resolved_scoped(
-                    cli,
-                    cmd,
-                    target_dir,
-                    mooncake_bin_dir,
-                    selection.target_backend,
-                    resolved_project.clone(),
-                    resolved_selection,
-                    user_log,
-                )
-            })
-            .collect();
-    }
-
     if selections.is_empty() {
         return plan_test_or_bench_rr_from_resolved(
             cli,
@@ -1717,10 +1684,6 @@ fn test_intents_from_filter(filter: &TestFilter, cmd: &TestLikeSubcommand<'_>) -
         .into_iter()
         .map(|package| cmd.package_intent(package))
         .collect()
-}
-
-fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
-    !cmd.explicit_path_filters.is_empty() || cmd.package.is_some()
 }
 
 fn resolve_test_target_selections(
