@@ -441,9 +441,10 @@ mod tests {
             watch_root.as_path(),
             disjoint_output.as_path(),
         ] {
+            let output_dir = fs::canonicalize(output_dir).unwrap();
             let result = check_rerun_trigger(
                 &watch_root,
-                output_dir,
+                &output_dir,
                 std::slice::from_ref(&event),
                 &additional_paths,
             );
@@ -553,15 +554,17 @@ mod tests {
         use std::fs;
 
         let temp_dir = tempfile::tempdir().unwrap();
-        let root = temp_dir.path();
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
 
-        let file = root.join("_build/input.txt");
+        let file = root.join("target/input.txt");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "data").unwrap();
+        let ignored_subtree = fs::canonicalize(file.parent().unwrap()).unwrap();
 
         let event = build_event(&file);
-        let result = check_events(
-            root,
+        let result = check_rerun_trigger(
+            &root,
+            &ignored_subtree,
             &[event],
             &AdditionalWatchPaths {
                 watched_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
@@ -570,6 +573,44 @@ mod tests {
         );
 
         assert!(result);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rerun_ignored_for_verbatim_output_directory_events() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+        let output_dir = root.join("target");
+        let long_relative = "segment\\".repeat(40);
+        fs::create_dir_all(output_dir.join(&long_relative)).unwrap();
+        let ignored_subtree = fs::canonicalize(&output_dir).unwrap();
+
+        for kind in [
+            EventKind::Create(CreateKind::Folder),
+            EventKind::Remove(notify::event::RemoveKind::Folder),
+        ] {
+            if kind.is_remove() {
+                fs::remove_dir_all(&output_dir).unwrap();
+            }
+            // Test both spellings and a descendant beyond MAX_PATH, including
+            // after the complete subtree has disappeared from the filesystem.
+            for path in [
+                output_dir.clone(),
+                ignored_subtree.clone(),
+                output_dir.join(&long_relative),
+                ignored_subtree.join(&long_relative),
+            ] {
+                let event = Event::new(kind).add_path(path);
+                assert!(!check_rerun_trigger(
+                    &root,
+                    &ignored_subtree,
+                    &[event],
+                    &AdditionalWatchPaths::default(),
+                ));
+            }
+        }
     }
 
     #[test]
