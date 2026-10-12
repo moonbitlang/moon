@@ -578,7 +578,7 @@ fn run_check_for_single_file_rr(
     )?;
     let resolved = discovered.resolve_packages(user_log)?;
     let target_backends = if selected_target_backends.is_empty() {
-        vec![cmd.build_flags.resolve_single_target_backend()?.or(backend)]
+        vec![backend]
     } else {
         selected_target_backends.iter().copied().map(Some).collect()
     };
