@@ -560,7 +560,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
         .map(|plan| vec![plan]);
     }
 
-    let selections = resolve_build_target_selections(&resolved_project, cmd, None, user_log)?;
+    let selections = resolve_build_target_selections(&resolved_project, cmd, user_log)?;
     plan_build_rr_from_selections(
         cli,
         cmd,
@@ -645,21 +645,8 @@ fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
 fn resolve_build_target_selections(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &BuildSubcommand,
-    selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
-    if let Some(target_backend) = selected_target_backend {
-        let packages =
-            resolve_selected_build_packages(discovered, cmd, Some(target_backend), user_log)?;
-        if packages.is_empty() {
-            return Ok(Vec::new());
-        }
-        return Ok(vec![TargetPackageGroup {
-            target_backend,
-            packages,
-        }]);
-    }
-
     let selected = resolve_selected_build_packages(discovered, cmd, None, user_log)?;
     let mut selections = group_packages_by_preferred_backend(discovered, selected);
 
