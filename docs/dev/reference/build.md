@@ -47,6 +47,31 @@ target roots for equal filenames from different source directories.
 Private `.mooncakes` dependencies also live under that per-script target root,
 so standalone commands do not install dependencies beside the source file.
 
+### Windows artifact paths
+
+Moon creates the selected build root and resolves it with
+`std::fs::canonicalize` before assigning artifact locations. On Windows this
+establishes an extended-length path (`\\?\`) even when the root is short.
+`TargetLayout` preserves that prefix while appending backend, package, and file
+components. The generated files do not need to exist, and their paths have the
+same spelling in clean and incremental builds.
+
+Do not simplify an intermediate artifact directory: a consumer can append
+enough components to exceed the ordinary Windows path limit. Complete file
+arguments may be simplified for consumer compatibility when safe. The execution
+graph uses the original artifact paths for both registration and lookup; display
+normalization accepts both spellings. Source discovery and toolchain-root
+canonicalization are independent of this artifact-root invariant.
+
+Consumer support still limits some commands. MSVC needs short source-file
+arguments simplified and does not accept long generated-C inputs. Node 22
+rejects long verbatim entrypoint paths. `moondoc` corrupts verbatim paths in
+options and package metadata, so its output directory is a compatibility
+exception: Moon simplifies it where possible to preserve ordinary documentation
+builds, but long documentation
+paths remain unsupported. Windows tests distinguish these downstream failures
+from MoonBit compiler output creation.
+
 ### Build targets
 
 Source files may also be conditionally included into the build --

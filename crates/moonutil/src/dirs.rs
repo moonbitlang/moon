@@ -240,7 +240,10 @@ fn prepare_target_dir(target_dir: PathBuf) -> Result<PathBuf, PackageDirsError> 
             .context("failed to create target directory")
             .map_err(PackageDirsError::from)?;
     }
-    dunce::canonicalize(target_dir)
+    // Artifact paths are constructed under this existing root before the files
+    // themselves exist. Keep Windows' verbatim prefix even on a short root so
+    // appending package and artifact names cannot produce an unprefixed long path.
+    std::fs::canonicalize(target_dir)
         .context("failed to set target directory")
         .map_err(PackageDirsError::from)
 }
@@ -809,6 +812,31 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    #[cfg(windows)]
+    #[test]
+    fn target_root_supports_long_outputs_before_they_exist() {
+        use std::os::windows::ffi::OsStrExt;
+        use std::path::{Component, Prefix};
+
+        let temp = tempfile::tempdir().unwrap();
+        let requested = dunce::canonicalize(temp.path()).unwrap().join("build");
+        assert!(requested.as_os_str().encode_wide().count() < 248);
+        assert!(!requested.exists());
+
+        let root = super::prepare_target_dir(requested.clone()).unwrap();
+        assert!(matches!(
+            root.components().next(),
+            Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::VerbatimDisk(_))
+        ));
+        let output = root.join(r"segment\".repeat(40)).join("output.mi");
+        assert!(output.as_os_str().encode_wide().count() > 260);
+        assert!(!output.exists());
+        assert_eq!(dunce::simplified(&output), output);
+
+        // Preparing an existing root must give the same spelling as a clean build.
+        assert_eq!(super::prepare_target_dir(requested).unwrap(), root);
+    }
+
     fn write_file(path: &Path, content: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();
@@ -857,7 +885,9 @@ version = "0.1.0"
         assert_eq!(dirs.mooncakes_dir, canonical(project.path()).join(DEP_PATH));
         assert_eq!(
             dirs.mooncake_bin_dir,
-            canonical(project.path().join("tmp-target")).join(MOON_BIN_DIR)
+            std::fs::canonicalize(project.path().join("tmp-target"))
+                .unwrap()
+                .join(MOON_BIN_DIR)
         );
     }
 
@@ -880,11 +910,11 @@ version = "0.1.0"
 
         assert_eq!(
             first.package_dirs.target_dir,
-            canonical(project.path().join("_build/first.mbt"))
+            std::fs::canonicalize(project.path().join("_build/first.mbt")).unwrap()
         );
         assert_eq!(
             second.package_dirs.target_dir,
-            canonical(project.path().join("_build/second.mbtx"))
+            std::fs::canonicalize(project.path().join("_build/second.mbtx")).unwrap()
         );
         assert_ne!(
             first.package_dirs.target_dir,
@@ -917,7 +947,7 @@ version = "0.1.0"
 
         assert_eq!(
             dirs.package_dirs.target_dir,
-            canonical(project.path().join("target/main.mbt.md"))
+            std::fs::canonicalize(project.path().join("target/main.mbt.md")).unwrap()
         );
         assert_eq!(
             dirs.package_dirs.mooncake_bin_dir,
@@ -952,7 +982,7 @@ version = "0.1.0"
         assert_eq!(dirs.file_path, canonical(&source));
         assert_eq!(
             dirs.package_dirs.target_dir,
-            canonical(project.path().join("sources/_build/source.mbt"))
+            std::fs::canonicalize(project.path().join("sources/_build/source.mbt")).unwrap()
         );
     }
 
@@ -971,7 +1001,7 @@ version = "0.1.0"
         assert!(matches!(
             result,
             Err(PackageDirsError::TargetDirNotDirectory(path))
-                if path == canonical(source_file)
+                if path == std::fs::canonicalize(source_file).unwrap()
         ));
     }
 

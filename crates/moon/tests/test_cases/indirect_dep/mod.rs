@@ -1,12 +1,6 @@
 use super::*;
 
 fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) -> String {
-    let path_str = dunce::canonicalize(dir)
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
-
     let mut all_pkgs: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(json_path).unwrap()).unwrap();
     let packages = all_pkgs["packages"].as_array_mut().unwrap();
@@ -32,24 +26,7 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
     packages.retain(|package| package["root"] != "moonbitlang/core");
     let json_content = serde_json::to_string_pretty(&all_pkgs).unwrap() + "\n";
 
-    // Normalize Windows paths: replace backslashes with forward slashes
-    // In JSON, Windows paths are escaped (e.g., "C:\\Users\\..."), so we replace "\\" with "/"
-    // For the canonical path, we replace single "\" with "/"
-    let normalized_path = path_str.replace('\\', "/");
-    let normalized_json = json_content.replace("\\\\", "/");
-
-    // Replace the project path with $ROOT
-    let normalized_json = normalized_json.replace(&normalized_path, "$ROOT");
-
-    // Replace the MOON_HOME path with $MOON_HOME
-    normalized_json.replace(
-        &moonutil::MOON_HOME
-            .root()
-            .to_str()
-            .unwrap()
-            .replace('\\', "/"),
-        "$MOON_HOME",
-    )
+    replace_dir(&json_content, dir)
 }
 
 #[test]

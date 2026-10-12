@@ -96,14 +96,14 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
                 cmd.arg("--policy-source-dir");
                 cmd.arg(source_dir);
             }
-            cmd.arg(mbt_executable);
+            cmd.arg(dunce::simplified(mbt_executable));
             cmd.arg("--");
             cmd
         }
         ExecutionMode::Node => {
             let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
-            cmd.arg(mbt_executable);
+            cmd.arg(dunce::simplified(mbt_executable));
             if let Some(t) = test {
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
             }

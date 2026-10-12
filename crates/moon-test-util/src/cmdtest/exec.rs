@@ -54,6 +54,15 @@ fn detected_toolchain_root() -> Option<PathBuf> {
 fn normalize_output(output: &str, workdir: &Path, toolchain_root: Option<&Path>) -> String {
     let mut redactions = snapbox::Redactions::new();
 
+    if let Ok(root) = fs::canonicalize(workdir) {
+        // Logs can contain either ordinary or verbatim output paths.
+        redactions
+            .insert("[WORK_DIR]", root.clone())
+            .expect("valid WORK_DIR redaction");
+        redactions
+            .insert("[WORK_DIR]", root.to_string_lossy().replace("\\\\", "\\"))
+            .expect("valid WORK_DIR redaction");
+    }
     redactions
         .insert("[WORK_DIR]", canonicalize_or_self(workdir))
         .expect("valid WORK_DIR redaction");

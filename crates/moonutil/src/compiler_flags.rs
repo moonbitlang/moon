@@ -970,7 +970,11 @@ where
 
     add_linker_moonbitrun(&cc, &mut buf, &config, lpath);
 
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(src.iter().map(|s| {
+        dunce::simplified(Path::new(s.as_ref()))
+            .display()
+            .to_string()
+    }));
 
     add_linker_common_libraries(&cc, &mut buf, &config);
     add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
@@ -1336,7 +1340,13 @@ where
     add_cc_allocator_flags(&cc, &mut buf, &config);
     add_cc_moonbitrun(&cc, &mut buf, &config, paths);
 
-    buf.extend(src.into_iter().map(|s| s.into()));
+    // MSVC rejects verbatim source arguments even when the files are short.
+    // Simplify only these complete file arguments; keep output directories
+    // verbatim because the compiler appends intermediate filenames.
+    buf.extend(src.into_iter().map(|s| {
+        let path = s.into();
+        dunce::simplified(Path::new(&path)).display().to_string()
+    }));
 
     add_cc_common_libraries(&cc, &mut buf, &config);
     buf.extend(cc_flags.iter().map(|s| s.as_ref().to_string()));
@@ -2244,6 +2254,32 @@ mod tests {
 
         assert!(command.iter().any(|flag| flag == "/nologo"));
         assert!(command.iter().any(|flag| flag == "/DEBUG"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn msvc_simplifies_short_inputs_but_preserves_long_paths_and_output_directories() {
+        let short_source = r"\\?\C:\build\main.c";
+        let long_source = format!(r"\\?\C:\build\{}main.c", "segment\\".repeat(40));
+        let output_dir = r"\\?\C:\build";
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Msvc, None),
+            executable_cc_config(),
+            &[] as &[&str],
+            &[] as &[&str],
+            [short_source, &long_source],
+            output_dir,
+            Some(r"\\?\C:\build\main.exe"),
+            &CompilerPaths {
+                include_path: "include".into(),
+                lib_path: "lib".into(),
+            },
+        );
+
+        assert!(command.iter().any(|arg| arg == r"C:\build\main.c"));
+        assert!(!command.iter().any(|arg| arg == short_source));
+        assert!(command.contains(&long_source));
+        assert!(command.contains(&format!("/Fo{output_dir}\\")));
     }
 
     #[test]

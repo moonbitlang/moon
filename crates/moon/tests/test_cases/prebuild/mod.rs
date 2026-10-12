@@ -401,7 +401,7 @@ dev_build(
         .replace("\\\"", "\"")
         .replace('\\', "/");
 
-    let expected_path = dunce::canonicalize(&target_dir)
+    let expected_path = std::fs::canonicalize(&target_dir)
         .unwrap()
         .join(MOON_BIN_DIR)
         .to_string_lossy()

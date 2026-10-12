@@ -156,6 +156,17 @@ pub(super) fn execute<'a>(
             callback,
         ))
     };
+    // Use exactly the spellings registered above. Work::lookup applies n2's
+    // lexical normalization, which does not preserve Windows verbatim prefixes.
+    let requested_outputs = outputs
+        .into_iter()
+        .map(|path| {
+            graph
+                .files
+                .lookup(&path.to_string_lossy())
+                .with_context(|| format!("Unknown requested build output: {}", path.display()))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let mut work = n2::work::Work::new(
         graph,
         hashes,
@@ -170,10 +181,7 @@ pub(super) fn execute<'a>(
         &mut *progress,
         n2::smallmap::SmallMap::default(),
     );
-    for path in outputs {
-        let file = work
-            .lookup(&path.to_string_lossy())
-            .with_context(|| format!("Unknown requested build output: {}", path.display()))?;
+    for file in requested_outputs {
         work.want_file(file)
             .context("Failed to determine the files to be built")?;
     }
