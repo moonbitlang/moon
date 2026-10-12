@@ -179,6 +179,40 @@ enum Kind {
 }
 
 impl Job {
+    pub(crate) fn configure_paths(&mut self, filesystem: &HostFs) -> AsyncHostResult<()> {
+        let resolve = |p: &mut OsString| -> AsyncHostResult<()> {
+            *p = filesystem.resolve_path(p)?;
+            Ok(())
+        };
+        match &mut self.kind {
+            Kind::Open { filename, .. } => resolve(filename)?,
+            Kind::Statx {
+                parent: None, path, ..
+            }
+            | Kind::FileKindByPath {
+                parent: None, path, ..
+            }
+            | Kind::FileTimeByPath { path, .. }
+            | Kind::Access { path, .. }
+            | Kind::Chmod { path, .. }
+            | Kind::Remove { path, .. }
+            | Kind::Symlink { path, .. }
+            | Kind::Mkdir { path, .. }
+            | Kind::Rmdir { path, .. }
+            | Kind::Realpath { path, .. } => resolve(path)?,
+            Kind::Rename {
+                old_path, new_path, ..
+            } => {
+                resolve(old_path)?;
+                resolve(new_path)?;
+            }
+            #[cfg(target_os = "linux")]
+            Kind::InotifyAddWatch { path, .. } => resolve(path)?,
+            _ => {}
+        }
+        Ok(())
+    }
+
     // Generic-stat validation belongs to the Filesystem Job so every adapter
     // constructs the same valid payload. The outer adapter converts rejection
     // into the native failed-Job representation.
@@ -840,6 +874,7 @@ fn check_path_metadata_policy(
             filesystem.authorize_entry_metadata_at(parent.canonical_path(), path)
         }
     }
+    .map_err(|error| filesystem.metadata_error(error))
 }
 
 fn check_file_lock_policy(
@@ -864,6 +899,26 @@ pub(crate) fn compat_symbols() -> Vec<crate::async_sys::CompatSymbol> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_rmdir_job_does_not_delete_the_execution_directory() {
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::sync::Arc;
+
+        let directory = tempfile::tempdir().unwrap();
+        let filesystem = HostFs::new(
+            None,
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
+        );
+        let mut job = Job::rmdir(OsString::new());
+        job.check_policy(&filesystem).unwrap();
+        job.configure_paths(&filesystem).unwrap();
+
+        let result = job.run();
+        assert!(directory.path().is_dir());
+        assert!(result.is_err());
+    }
 
     #[test]
     fn job_executors_reference_native_worker_symbols() {

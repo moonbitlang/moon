@@ -103,12 +103,43 @@ signal behavior.
 
 A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the
-existing process-global behavior. No isolated or captured working-directory
-mode is available yet. Compiled modules reuse their prepared representation
-while each run currently creates a fresh Runtime that owns its environment,
+existing process-global behavior. `WorkingDirectory::Fixed(path)` resolves
+relative paths against a supplied directory. Compiled modules reuse their
+prepared representation while each run currently creates a fresh Runtime that owns its environment,
 policy, working-directory selection, and domain state alongside fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
 responsibility.
+
+### Owned streams and working directory
+
+`Engine::run` accepts per-run streams and cwd through `RunOptions::with_context`:
+
+```rust
+use moonrun::{Engine, ExecutionContext, RunOptions};
+use std::fs::File;
+
+let engine = Engine::default();
+let module = engine.load_file("agent.wasm")?;
+let context = ExecutionContext::new(
+    "workspace",
+    File::open("stdin")?,
+    File::create("stdout")?,
+    File::create("stderr")?,
+)?;
+let outcome = engine.run(&module, RunOptions::default().with_context(context))?;
+```
+
+The context's fixed cwd takes precedence over `with_working_directory`. It
+resolves relative paths without changing process cwd; it does not grant access
+or create a filesystem sandbox. In a fixed context, denied existence/metadata
+probes appear absent. Without a context, the original ambient stream and cwd
+behavior is preserved. Engine continues to own Store, imports, execution,
+diagnostics and resource teardown; there is no caller-owned backend interface.
+
+On Unix, `ExecutionContext::with_child_launcher` can supply a `ChildLauncher`
+that prepares or rejects native commands after guest policy authorization.
+This hook lets callers apply an OS sandbox without exposing runtime internals.
+No request cancellation or epoch/fuel interface is added.
 
 ## Memory Leak Reporting
 

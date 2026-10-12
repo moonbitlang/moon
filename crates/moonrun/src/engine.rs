@@ -57,6 +57,7 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
+    context: Option<crate::ExecutionContext>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -124,10 +125,17 @@ impl RunOptions {
 
     /// Select the working-directory behavior for this run.
     ///
-    /// Only [`WorkingDirectory::Ambient`] is currently available. It preserves
-    /// process-global cwd behavior and does not isolate or snapshot a directory.
+    /// [`WorkingDirectory::Ambient`] preserves process-global cwd behavior;
+    /// [`WorkingDirectory::Fixed`] resolves paths against a caller-owned directory.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
+        self
+    }
+
+    /// Supply owned streams, a fixed directory and optional native command preparation.
+    /// Without a context, the original ambient stream/directory behavior is preserved.
+    pub fn with_context(mut self, context: crate::ExecutionContext) -> Self {
+        self.context = Some(context);
         self
     }
 
@@ -374,11 +382,15 @@ impl Engine {
             Some(signal_mask) => signal_mask,
             None => current_signal_mask()?,
         };
-        let runtime = Runtime::new(
+        let context = options
+            .context
+            .clone()
+            .unwrap_or_else(|| crate::ExecutionContext::ambient(options.working_directory.clone()));
+        let runtime = Runtime::new_with_context(
             options.policy_file.as_deref(),
             options.policy_source_dir.as_deref(),
             options.inherited_policy.as_deref(),
-            options.working_directory.clone(),
+            context,
             module.executable().clone(),
             signals,
             #[cfg(unix)]

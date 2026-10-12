@@ -86,6 +86,39 @@ enum Kind {
 }
 
 impl Job {
+    pub(super) fn configure_launcher(
+        &mut self,
+        launcher: Option<&crate::ChildLauncher>,
+    ) -> AsyncHostResult<()> {
+        #[cfg(unix)]
+        if let Kind::SpawnUnix {
+            path,
+            args,
+            env,
+            cwd,
+            ..
+        } = &mut self.kind
+            && let Some(launcher) = launcher
+        {
+            let mut command = crate::NativeCommand {
+                program: path.clone(),
+                args: args.clone(),
+                env: env.clone(),
+                cwd: cwd.clone(),
+            };
+            launcher
+                .prepare(&mut command)
+                .map_err(|_| AsyncHostError::PermissionDenied)?;
+            *path = command.program;
+            *args = command.args;
+            *env = command.env;
+            *cwd = command.cwd;
+        }
+        #[cfg(windows)]
+        let _ = launcher;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[cfg(unix)]
     pub(crate) fn spawn_unix(
@@ -322,12 +355,18 @@ impl Job {
     pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { .. } => {
-                // An absent Unix file action preserves native descriptor
-                // inheritance, which is exactly the Ambient Runtime setting.
-                match runtime_stdio {
-                    Stdio::Ambient => Ok(()),
+            Kind::SpawnUnix { stdio, .. } => {
+                if matches!(runtime_stdio, Stdio::Owned(_)) {
+                    for (slot, stream) in stdio.iter_mut().zip(crate::runtime::StdioStream::ALL) {
+                        if slot.is_none() {
+                            *slot =
+                                Some(std::sync::Arc::new(crate::resource::Resource::stdio_file(
+                                    runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?,
+                                )));
+                        }
+                    }
                 }
+                Ok(())
             }
             #[cfg(windows)]
             Kind::SpawnWindows { stdio, .. } => {
@@ -474,6 +513,34 @@ mod tests {
                 child_signal_mask: unsafe { std::mem::zeroed() },
             },
         )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fixed_child_cwd_preserves_explicit_empty_value() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("child")).unwrap();
+        let working_directory = WorkingDirectory::Fixed(directory.path().to_owned());
+
+        for (cwd, succeeds) in [
+            (None, true),
+            (Some(OsString::new()), false),
+            (Some(OsString::from("child")), true),
+        ] {
+            let mut job = spawn_job("/usr/bin/true", Vec::new());
+            if let Some(cwd) = cwd {
+                job.set_cwd(cwd).unwrap();
+            }
+            job.configure_working_directory(&working_directory);
+            let result = job.run();
+            if let Ok(pid) = result {
+                Job::wait_for_process(None, None, pid as i32, false)
+                    .unwrap()
+                    .run()
+                    .unwrap();
+            }
+            assert_eq!(result.is_ok(), succeeds);
+        }
     }
 
     #[cfg(unix)]

@@ -28,8 +28,10 @@ mod async_api;
 mod async_host;
 mod async_sys;
 mod core_api;
+mod embedding;
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
 mod engine;
+mod execution_context;
 mod filesystem;
 mod guest_memory;
 mod memory_sanitizer;
@@ -52,6 +54,8 @@ mod wasm_diagnostic;
 mod wasmtime;
 
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
+pub use embedding::{ChildLauncher, NativeCommand};
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
+pub use execution_context::ExecutionContext;
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use runtime::WorkingDirectory;

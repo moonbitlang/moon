@@ -130,6 +130,7 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    #[cfg(test)]
     pub(crate) fn new(
         policy_file: Option<&Path>,
         policy_source_dir: Option<&Path>,
@@ -139,6 +140,32 @@ impl Runtime {
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
+        Self::new_with_context(
+            policy_file,
+            policy_source_dir,
+            inherited_policy,
+            crate::ExecutionContext::ambient(working_directory),
+            executable,
+            signals,
+            #[cfg(unix)]
+            child_signal_mask,
+        )
+    }
+
+    pub(crate) fn new_with_context(
+        policy_file: Option<&Path>,
+        policy_source_dir: Option<&Path>,
+        inherited_policy: Option<&[u8]>,
+        context: crate::ExecutionContext,
+        executable: Executable,
+        signals: SignalReceiver,
+        #[cfg(unix)] child_signal_mask: libc::sigset_t,
+    ) -> anyhow::Result<Self> {
+        let crate::ExecutionContext {
+            working_directory,
+            stdio,
+            child_launcher: launcher,
+        } = context;
         let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
             (Some(contents), _) => {
                 let (policy, env) = policy::load_inherited_json(contents)
@@ -163,8 +190,16 @@ impl Runtime {
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
-        let working_directory = Arc::new(working_directory);
-        let stdio = Arc::new(Stdio::Ambient);
+        let working_directory = Arc::new(match working_directory {
+            WorkingDirectory::Ambient => WorkingDirectory::Ambient,
+            WorkingDirectory::Fixed(path) => {
+                let path = dunce::canonicalize(path)
+                    .context("failed to resolve fixed working directory")?;
+                anyhow::ensure!(path.is_dir(), "fixed working directory must be a directory");
+                WorkingDirectory::Fixed(path)
+            }
+        });
+        let stdio = Arc::new(stdio);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -172,12 +207,13 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
-        let process = HostProcess::new(
+        let mut process = HostProcess::new(
             process_policy,
             policy_inheritance,
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
         );
+        process.launcher = launcher;
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
             &stdio,
