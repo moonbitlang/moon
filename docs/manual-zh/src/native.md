@@ -1,5 +1,16 @@
 # 原生构建配置
 
+## 后端选择
+
+对于 `--target native`，macOS AArch64、Linux x86_64 和 Windows x86_64 的 debug
+构建默认使用新 native 后端，由 `moonc` 直接生成目标文件。设置
+`MOONBIT_NEW_NATIVE=0` 可切换到生成 C 代码的后端；其他值保持默认行为。
+其他平台以及 release 构建使用 C 后端，即使设置 `MOONBIT_NEW_NATIVE=1` 也不例外。
+如果选中的可执行包配置了 `link.native.cc-flags`，本次构建也会使用 C 后端。
+
+Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.exe` 或
+`clang-cl.exe`，用于编译运行时、C stub 和链接可执行文件。
+
 ## 内存分配器
 
 `MOONBIT_ALLOCATOR` 用于选择原生运行时构建所使用的内存分配器：
