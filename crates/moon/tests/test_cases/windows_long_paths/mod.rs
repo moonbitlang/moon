@@ -84,37 +84,6 @@ test "answer" {
             .to_str()
             .expect("generated package path should be valid UTF-8")
     }
-
-    #[track_caller]
-    fn assert_compiler_path_failure(
-        &self,
-        args: &[&str],
-        backend: &str,
-        profile: &str,
-        action: &str,
-    ) {
-        let expected = format!(
-            r#"...
-Oops, the compiler has encountered an unexpected situation.
-This is a bug in the compiler.
-
-A bug report containing the error description and relevant code would be
-greatly appreciated. You can submit the bug report here:
-
-  https://github.com/moonbitlang/moonbit-docs/issues/new?template=ice.md
-
-Error: Sys_error("[..]_build[..]{backend}[..]{profile}[..]{action}[..]: No such file or directory")
-...
-"#
-        );
-
-        moon_cmd(&self.dir)
-            .env("NO_COLOR", "1")
-            .args(args)
-            .assert()
-            .failure()
-            .stderr_eq(expected);
-    }
 }
 
 #[test]
@@ -183,151 +152,162 @@ fn build_succeeds_with_an_oversized_compiler_command() {
 }
 
 #[test]
-fn fmt_reports_its_long_format_directory() {
+fn fmt_handles_its_long_format_directory() {
+    let case = LongPathCase::new();
+    moon_cmd(&case.dir).arg("fmt").assert().success();
+    moon_cmd(&case.dir)
+        .args(["fmt", "--check"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn check_handles_its_long_output_directory() {
     let case = LongPathCase::new();
     moon_cmd(&case.dir)
-        .env("NO_COLOR", "1")
-        .arg("fmt")
+        .args(["check", "--target", "wasm-gc"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn info_handles_its_long_check_directory() {
+    let case = LongPathCase::new();
+    moon_cmd(&case.dir)
+        .args(["info", "--target", "wasm-gc"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn build_handles_its_long_output_directory() {
+    let case = LongPathCase::new();
+    moon_cmd(&case.dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+    // An existing output must use the same path as the initially missing one.
+    moon_cmd(&case.dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_handles_its_long_output_directory() {
+    let case = LongPathCase::new();
+    moon_cmd(&case.dir)
+        .args(["test", "--target", "wasm-gc"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn bundle_handles_its_long_output_directory() {
+    let case = LongPathCase::new();
+    moon_cmd(&case.dir)
+        .args(["bundle", "--target", "wasm-gc"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn doc_reaches_moondoc_with_long_artifacts() {
+    let case = LongPathCase::new();
+    // FIXME: moondoc must preserve verbatim paths in its options and package
+    // metadata. It currently normalizes the .mi path into an unusable spelling.
+    moon_cmd(&case.dir)
+        .arg("doc")
         .assert()
         .failure()
-        .stdout_eq(snapbox::str![[r#"
-Fatal error: exception Sys_error("[..]_build[..]wasm-gc[..]release[..]format[..]: No such file or directory")
-...
-"#]])
         .stderr_eq(snapbox::str![[r#"
-Failed with 0 warnings, 0 errors.
-Error: failed when formatting project
-
+missing .mi artifact for package test/long-path/[..]: /?/[..].mi
+...
 "#]]);
+    let interface = case
+        .dir
+        .join("_build/wasm-gc/debug/check")
+        .join(&case.package_rel)
+        .join(case.package_rel.file_name().unwrap())
+        .with_extension("mi");
+    assert!(interface.is_file(), "moonc must produce the interface");
 }
 
 #[test]
-fn check_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["check", "--target", "wasm-gc"],
-        "wasm-gc",
-        "debug",
-        "check",
-    );
-}
-
-#[test]
-fn info_reports_its_long_check_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["info", "--target", "wasm-gc"],
-        "wasm-gc",
-        "debug",
-        "check",
-    );
-}
-
-#[test]
-fn build_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["build", "--target", "wasm-gc"],
-        "wasm-gc",
-        "debug",
-        "build",
-    );
-}
-
-#[test]
-fn test_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["test", "--target", "wasm-gc"],
-        "wasm-gc",
-        "debug",
-        "test",
-    );
-}
-
-#[test]
-fn bundle_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["bundle", "--target", "wasm-gc"],
-        "wasm-gc",
-        "release",
-        "bundle",
-    );
-}
-
-// These higher-level commands currently stop in `moonc`, before moondoc, Node,
-// or the native C toolchain is reached. Keep them separate so a future change
-// reveals exactly which boundary becomes reachable.
-#[test]
-fn doc_reports_its_long_check_directory() {
-    LongPathCase::new().assert_compiler_path_failure(&["doc"], "wasm-gc", "debug", "check");
-}
-
-#[test]
-fn run_wasm_gc_reports_its_long_output_directory() {
+fn run_wasm_gc_handles_its_long_output_directory() {
     let case = LongPathCase::new();
-    case.assert_compiler_path_failure(
-        &["run", case.package(), "--target", "wasm-gc"],
-        "wasm-gc",
-        "debug",
-        "build",
-    );
+    moon_cmd(&case.dir)
+        .args(["run", case.package(), "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq("42\n");
 }
 
 #[test]
-fn run_js_reports_its_long_output_directory() {
+fn build_js_handles_its_long_output_directory() {
     let case = LongPathCase::new();
-    case.assert_compiler_path_failure(
-        &["run", case.package(), "--target", "js"],
-        "js",
-        "debug",
-        "build",
-    );
+    moon_cmd(&case.dir)
+        .args(["build", "--target", "js"])
+        .assert()
+        .success();
 }
 
 #[test]
-fn test_js_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["test", "--target", "js"],
-        "js",
-        "debug",
-        "test",
-    );
+fn js_commands_reach_node_with_long_artifacts() {
+    // FIXME: Node 22 rejects verbatim entrypoints (nodejs/node#62446). Remove
+    // this characterization when the supported Node versions include its fix.
+    for command in ["run", "test"] {
+        let case = LongPathCase::new();
+        moon_cmd(&case.dir)
+            .args([command, "--target", "js"])
+            .args((command == "run").then_some(case.package()))
+            .assert()
+            .failure()
+            .stderr_eq(snapbox::str![[r#"
+...
+Error: EISDIR: illegal operation on a directory, lstat '[..]:'
+...
+"#]]);
+    }
 }
 
 #[test]
-fn check_native_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["check", "--target", "native"],
-        "native",
-        "debug",
-        "check",
-    );
-}
-
-#[test]
-fn build_native_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["build", "--target", "native"],
-        "native",
-        "debug",
-        "build",
-    );
-}
-
-#[test]
-fn test_native_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(
-        &["test", "--target", "native"],
-        "native",
-        "debug",
-        "test",
-    );
-}
-
-#[test]
-fn run_native_reports_its_long_output_directory() {
+fn check_native_handles_its_long_output_directory() {
     let case = LongPathCase::new();
-    case.assert_compiler_path_failure(
-        &["run", case.package(), "--target", "native"],
-        "native",
-        "debug",
-        "build",
-    );
+    moon_cmd(&case.dir)
+        .args(["check", "--target", "native"])
+        .assert()
+        .success();
+}
+
+// FIXME: MSVC still rejects long generated-C paths. Keep checking that moonc
+// completes before the native toolchain fails; remove this when MSVC supports
+// the paths, or native execution gains a separate short-path strategy.
+#[test]
+fn native_commands_reach_the_c_toolchain_with_long_artifacts() {
+    for command in ["build", "test", "run"] {
+        let case = LongPathCase::new();
+        moon_cmd(&case.dir)
+            .env("MOONBIT_NEW_NATIVE", "0")
+            .args([command, "--target", "native"])
+            .args((command == "run").then_some(case.package()))
+            .assert()
+            .failure();
+        let action = if command == "test" { "test" } else { "build" };
+        let generated = case
+            .dir
+            .join("_build/native/debug")
+            .join(action)
+            .join(&case.package_rel);
+        assert!(
+            std::fs::read_dir(generated).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext == "c")
+            }),
+            "moonc must produce C before the native toolchain fails"
+        );
+    }
 }

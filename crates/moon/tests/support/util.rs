@@ -164,6 +164,13 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     } else {
         s
     };
+    // Match the extended spelling before its ordinary suffix. Apply the same
+    // JSON-backslash normalization used above to the canonical root.
+    let canonical_root = std::fs::canonicalize(dir.as_ref()).unwrap();
+    let canonical_root = canonical_root.to_string_lossy();
+    let s = s.replace(canonical_root.as_ref(), "$ROOT");
+    let s = s.replace(&canonical_root.replace("\\\\", "\\"), "$ROOT");
+    let s = s.replace(&canonical_root.replace('\\', "/"), "$ROOT");
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()
@@ -544,6 +551,23 @@ mod tests {
             replace_dir(&output, dir.path()),
             "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replace_dir_replaces_verbatim_root_before_ordinary_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = std::fs::canonicalize(dir.path())
+            .unwrap()
+            .join("_build")
+            .join("main.mi");
+        for spelling in [
+            path.to_string_lossy().replace('\\', "\\\\"),
+            path.display().to_string(),
+            path.to_string_lossy().replace('\\', "/"),
+        ] {
+            assert_eq!(replace_dir(&spelling, dir.path()), "$ROOT/_build/main.mi");
+        }
     }
 
     #[test]

@@ -61,7 +61,7 @@ pub(crate) fn compile_runtime_command(
     if collect_ref_cycle {
         command.push("/DMOONBIT_TRIAL_DELETION=1".to_string());
     }
-    command.push(source.display().to_string());
+    command.push(dunce::simplified(source).display().to_string());
     command
 }
 
@@ -77,7 +77,11 @@ pub(crate) fn link_executable_command(
         "/nologo".to_string(),
         format!("/Fe{dest}"),
     ];
-    command.extend(sources.iter().cloned());
+    command.extend(
+        sources
+            .iter()
+            .map(|source| dunce::simplified(Path::new(source)).display().to_string()),
+    );
     command.push("/link".to_string());
     command.extend([
         "/nologo".to_string(),
