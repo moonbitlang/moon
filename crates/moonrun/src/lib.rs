@@ -27,11 +27,9 @@ compile_error!("moonrun requires an engine feature: `v8` or `wasmtime`");
 mod async_api;
 mod async_host;
 mod async_sys;
-mod child_command;
 mod core_api;
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
 mod engine;
-mod execution_context;
 mod filesystem;
 mod guest_memory;
 mod memory_sanitizer;
@@ -54,8 +52,6 @@ mod wasm_diagnostic;
 mod wasmtime;
 
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
-pub use child_command::{ChildCommandPreparer, NativeCommand};
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
-pub use execution_context::ExecutionContext;
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use runtime::WorkingDirectory;

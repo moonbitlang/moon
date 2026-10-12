@@ -18,24 +18,24 @@
 
 #![cfg(unix)]
 
-use moonrun::{Engine, ExecutionContext, Module, RunOptions, RunOutcome, WorkingDirectory};
+use moonrun::{Engine, Module, RunOptions, RunOutcome, WorkingDirectory};
 use std::{
     fs::{self, File},
     path::Path,
 };
 
-fn context(dir: &Path) -> ExecutionContext {
-    ExecutionContext::new(
-        dir,
-        File::open(dir.join("stdin")).unwrap(),
-        File::create(dir.join("stdout")).unwrap(),
-        File::create(dir.join("stderr")).unwrap(),
-    )
-    .unwrap()
+fn options(dir: &Path) -> RunOptions {
+    RunOptions::default()
+        .with_working_directory(WorkingDirectory::Fixed(dir.to_owned()))
+        .with_stdio(
+            File::open(dir.join("stdin")).unwrap(),
+            File::create(dir.join("stdout")).unwrap(),
+            File::create(dir.join("stderr")).unwrap(),
+        )
 }
 
 fn execute(engine: &Engine, module: &Module, dir: &Path) -> anyhow::Result<RunOutcome> {
-    engine.run(module, RunOptions::default().with_context(context(dir)))
+    engine.run(module, options(dir))
 }
 
 // The legacy V8 filesystem callback panics on host errors instead of returning them.
@@ -177,7 +177,7 @@ fn concurrent_runs_isolate_stdio_and_relative_files() {
             i32.const 4 i32.const 1 i32.store
             i32.const 0 i32.const 0 i32.const 1 i32.const 8 call $read
             if unreachable end
-            ;; Write and read the same relative filename in each context.
+            ;; Write and read the same relative filename in each run.
             i32.const 120 call $string
             i32.const 32 i32.load8_u call $string call $save
             i32.const 32 i32.const 120 call $string call $load i32.const 0 call $char i32.store8
@@ -237,7 +237,7 @@ fn relative_sqlite_database_uses_the_execution_directory() {
 }
 
 #[test]
-fn context_preserves_exit_and_guest_failure_handling() {
+fn options_preserve_exit_and_guest_failure_handling() {
     let engine = Engine::default();
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("stdin"), []).unwrap();

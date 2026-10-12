@@ -26,7 +26,6 @@ mod stdio;
 mod working_directory;
 
 use std::cell::RefCell;
-use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -34,7 +33,7 @@ use anyhow::Context;
 use slotmap::Key;
 use slotmap::{KeyData, SlotMap, new_key_type};
 
-use crate::ExecutionContext;
+use crate::RunOptions;
 use crate::async_host::AsyncHost;
 use crate::filesystem::HostFs;
 use crate::network::HostNetwork;
@@ -131,50 +130,23 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
-    #[cfg(test)]
     pub(crate) fn new(
-        policy_file: Option<&Path>,
-        policy_source_dir: Option<&Path>,
-        inherited_policy: Option<&[u8]>,
-        working_directory: WorkingDirectory,
+        options: &RunOptions,
         executable: Executable,
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
-        Self::new_with_context(
-            policy_file,
-            policy_source_dir,
-            inherited_policy,
-            ExecutionContext::ambient(working_directory),
-            executable,
-            signals,
-            #[cfg(unix)]
-            child_signal_mask,
-        )
-    }
-
-    pub(crate) fn new_with_context(
-        policy_file: Option<&Path>,
-        policy_source_dir: Option<&Path>,
-        inherited_policy: Option<&[u8]>,
-        context: ExecutionContext,
-        executable: Executable,
-        signals: SignalReceiver,
-        #[cfg(unix)] child_signal_mask: libc::sigset_t,
-    ) -> anyhow::Result<Self> {
-        let ExecutionContext {
-            working_directory,
-            stdio,
-            child_command_preparer: command_preparer,
-        } = context;
-        let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
+        let (mut policy, env_provisioning) = match (
+            options.inherited_policy.as_deref(),
+            options.policy_file.as_deref(),
+        ) {
             (Some(contents), _) => {
                 let (policy, env) = policy::load_inherited_json(contents)
                     .context("failed to load inherited sandbox policy (experimental)")?;
                 (policy, Some(env))
             }
             (None, Some(path)) => {
-                let (policy, env) = policy::load_file_with_source_dir(path, policy_source_dir)
+                let (policy, env) = policy::load_file_with_source_dir(path, options.policy_source_dir.as_deref())
                     .context(
                     "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
                 )?;
@@ -191,7 +163,7 @@ impl Runtime {
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
-        let working_directory = Arc::new(match working_directory {
+        let working_directory = Arc::new(match options.working_directory.clone() {
             WorkingDirectory::Ambient => WorkingDirectory::Ambient,
             WorkingDirectory::Fixed(path) => {
                 let path = dunce::canonicalize(path)
@@ -200,7 +172,7 @@ impl Runtime {
                 WorkingDirectory::Fixed(path)
             }
         });
-        let stdio = Arc::new(stdio);
+        let stdio = Arc::new(options.stdio.clone());
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -208,13 +180,12 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
-        let mut process = HostProcess::new(
+        let process = HostProcess::new(
             process_policy,
             policy_inheritance,
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
         );
-        process.command_preparer = command_preparer;
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
             &stdio,
@@ -333,10 +304,7 @@ mod tests {
             mask
         };
         let runtime = Runtime::new(
-            None,
-            None,
-            None,
-            WorkingDirectory::Ambient,
+            &RunOptions::default(),
             Executable::from_file(&path),
             crate::signal_channel().1,
             #[cfg(unix)]

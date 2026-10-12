@@ -138,10 +138,7 @@ pub(super) mod tests {
             mask
         };
         crate::runtime::Runtime::new(
-            None,
-            None,
-            None,
-            WorkingDirectory::Ambient,
+            &crate::RunOptions::default(),
             crate::runtime::Executable::unavailable(),
             crate::signal_channel().1,
             #[cfg(unix)]

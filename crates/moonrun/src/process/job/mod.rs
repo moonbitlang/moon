@@ -23,9 +23,6 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::sync::Arc;
 
-use crate::ChildCommandPreparer;
-#[cfg(unix)]
-use crate::NativeCommand;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
 use crate::resource::Resource;
@@ -88,39 +85,6 @@ enum Kind {
 }
 
 impl Job {
-    pub(super) fn prepare_command(
-        &mut self,
-        preparer: Option<&ChildCommandPreparer>,
-    ) -> AsyncHostResult<()> {
-        #[cfg(unix)]
-        if let Kind::SpawnUnix {
-            path,
-            args,
-            env,
-            cwd,
-            ..
-        } = &mut self.kind
-            && let Some(preparer) = preparer
-        {
-            let mut command = NativeCommand {
-                program: path.clone(),
-                args: args.clone(),
-                env: env.clone(),
-                cwd: cwd.clone(),
-            };
-            preparer
-                .prepare(&mut command)
-                .map_err(|_| AsyncHostError::PermissionDenied)?;
-            *path = command.program;
-            *args = command.args;
-            *env = command.env;
-            *cwd = command.cwd;
-        }
-        #[cfg(windows)]
-        let _ = preparer;
-        Ok(())
-    }
-
     #[allow(clippy::too_many_arguments)]
     #[cfg(unix)]
     pub(crate) fn spawn_unix(

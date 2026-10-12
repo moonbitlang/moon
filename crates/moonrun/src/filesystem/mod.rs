@@ -99,20 +99,6 @@ pub(crate) struct HostFs {
 }
 
 impl HostFs {
-    pub(crate) fn metadata_error(&self, error: AsyncHostError) -> AsyncHostError {
-        if matches!(*self.working_directory, WorkingDirectory::Fixed(_))
-            && error == AsyncHostError::PermissionDenied
-        {
-            #[cfg(unix)]
-            let errno = libc::ENOENT;
-            #[cfg(windows)]
-            let errno = windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND as i32;
-            AsyncHostError::Native(errno)
-        } else {
-            error
-        }
-    }
-
     pub(crate) fn resolve_path(&self, path: &OsStr) -> AsyncHostResult<OsString> {
         if matches!(*self.working_directory, WorkingDirectory::Ambient) {
             return Ok(path.to_owned());
@@ -412,28 +398,7 @@ impl HostFs {
     }
 
     fn authorize_access(&self, path: &OsStr, access: i32) -> AsyncHostResult<()> {
-        // Owned environments expose inaccessible names as absent to existence probes.
-        if access == 0
-            && matches!(*self.working_directory, WorkingDirectory::Fixed(_))
-            && let Some(policy) = &self.policy
-        {
-            let resolved = self
-                .working_directory
-                .resolve(Path::new(path))
-                .ok()
-                .and_then(|p| canonicalize_existing_prefix(&p).ok());
-            if !resolved.as_deref().is_some_and(|p| policy.allows_read(p)) {
-                return Err(self.metadata_error(AsyncHostError::PermissionDenied));
-            }
-        }
         self.authorize_path(path, FsIntents::for_access_check(access))
-            .map_err(|error| {
-                if access == 0 {
-                    self.metadata_error(error)
-                } else {
-                    error
-                }
-            })
     }
 
     fn authorize_remove(&self, path: &OsStr) -> AsyncHostResult<()> {

@@ -874,7 +874,6 @@ fn check_path_metadata_policy(
             filesystem.authorize_entry_metadata_at(parent.canonical_path(), path)
         }
     }
-    .map_err(|error| filesystem.metadata_error(error))
 }
 
 fn check_file_lock_policy(
@@ -899,6 +898,39 @@ pub(crate) fn compat_symbols() -> Vec<crate::async_sys::CompatSymbol> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixed_cwd_preserves_policy_denial_errors() {
+        use crate::policy;
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::sync::Arc;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("denied.txt");
+        std::fs::write(&path, []).unwrap();
+        for cwd in [
+            WorkingDirectory::Ambient,
+            WorkingDirectory::Fixed(directory.path().to_owned()),
+        ] {
+            let (mut policy, _) = policy::load_inherited_json(b"{}").unwrap();
+            let filesystem = HostFs::new(
+                policy.take_filesystem_policy(),
+                Arc::new(Env::ambient()),
+                Arc::new(cwd),
+            );
+            let path = path.clone().into_os_string();
+            for job in [
+                Job::access(path.clone(), 0),
+                Job::file_kind_by_path(None, path.clone(), true),
+                Job::file_kind_by_path(None, path, false),
+            ] {
+                assert_eq!(
+                    job.check_policy(&filesystem),
+                    Err(AsyncHostError::PermissionDenied),
+                );
+            }
+        }
+    }
 
     #[test]
     fn empty_rmdir_job_does_not_delete_the_execution_directory() {

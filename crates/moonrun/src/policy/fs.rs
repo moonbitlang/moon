@@ -72,7 +72,7 @@ impl FsPolicy {
         Ok(())
     }
 
-    pub(crate) fn allows_read(&self, path: &Path) -> bool {
+    fn allows_read(&self, path: &Path) -> bool {
         self.read_roots.iter().any(|root| root.allows(path))
     }
 

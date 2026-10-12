@@ -112,36 +112,30 @@ responsibility.
 
 ### Owned streams and working directory
 
-`Engine::run` accepts per-run streams and cwd through `RunOptions::with_context`:
+`Engine::run` accepts per-run streams and cwd through `RunOptions`:
 
 ```rust
-use moonrun::{Engine, ExecutionContext, RunOptions};
+use moonrun::{Engine, RunOptions, WorkingDirectory};
 use std::fs::File;
 
 let engine = Engine::default();
 let module = engine.load_file("agent.wasm")?;
-let context = ExecutionContext::new(
-    "workspace",
-    File::open("stdin")?,
-    File::create("stdout")?,
-    File::create("stderr")?,
-)?;
-let outcome = engine.run(&module, RunOptions::default().with_context(context))?;
+let options = RunOptions::default()
+    .with_working_directory(WorkingDirectory::Fixed("workspace".into()))
+    .with_stdio(
+        File::open("stdin")?,
+        File::create("stdout")?,
+        File::create("stderr")?,
+    );
+let outcome = engine.run(&module, options)?;
 ```
 
-The context's fixed cwd takes precedence over `with_working_directory`. It
-resolves relative paths without changing process cwd; it does not grant access
-or create a filesystem sandbox. In a fixed context, denied existence/metadata
-probes appear absent. Without a context, streams remain ambient and cwd follows
-`with_working_directory`, which defaults to Ambient. Engine continues to own
-Store, imports, execution, diagnostics and resource teardown; there is no
-caller-owned backend interface.
-
-On Unix, `ExecutionContext::with_child_command_preparer` can supply a
-`ChildCommandPreparer` that prepares or rejects native commands after guest
-policy authorization.
-This hook lets callers apply an OS sandbox without exposing runtime internals.
-No request cancellation or epoch/fuel interface is added.
+The fixed directory must exist and is canonicalized when execution begins.
+It resolves relative paths without changing process cwd; it does not grant
+access or create a filesystem sandbox. Working-directory selection does not
+change policy-denial errors. Without explicit configuration, streams and cwd
+remain ambient. Cloned options share their supplied streams; use separate files
+for independent runs. Engine continues to own execution and resource teardown.
 
 ## Memory Leak Reporting
 

@@ -46,8 +46,9 @@ impl StdioStream {
 /// points as the historical callers: the Handle namespace snapshots them at
 /// construction, child defaults are resolved at spawn, and synchronous I/O
 /// observes them for each operation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) enum Stdio {
+    #[default]
     Ambient,
     Owned(Arc<[Mutex<File>; 3]>),
 }

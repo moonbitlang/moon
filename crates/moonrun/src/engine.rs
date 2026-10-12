@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::ExecutionContext;
 use crate::run_signal::{SignalReceiver, signal_channel};
 use crate::run_termination::RunTermination;
 use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
@@ -27,6 +26,7 @@ use crate::v8 as backend;
 use crate::wasmtime as backend;
 use anyhow::Context;
 use std::fmt;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
-    context: Option<ExecutionContext>,
+    pub(crate) stdio: Stdio,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -129,21 +129,19 @@ impl RunOptions {
     /// [`WorkingDirectory::Ambient`] preserves process-global cwd behavior;
     /// [`WorkingDirectory::Fixed`] resolves paths against a caller-owned directory.
     /// Fixed roots must be existing directories and are canonicalized when
-    /// execution begins. A supplied [`ExecutionContext`] overrides this choice.
+    /// execution begins.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
         self
     }
 
-    /// Supply owned streams, a fixed directory and optional native command preparation.
+    /// Bind this run's standard streams to caller-supplied files.
     ///
-    /// The context's working directory takes precedence over
-    /// [`Self::with_working_directory`]. Clones of a context share its streams
-    /// and preparation callback; use separate contexts for independent I/O.
-    /// Without a context, streams remain ambient and the directory follows
-    /// [`Self::with_working_directory`], which defaults to Ambient.
-    pub fn with_context(mut self, context: ExecutionContext) -> Self {
-        self.context = Some(context);
+    /// These streams also supply default child streams; explicit guest-supplied
+    /// child streams take precedence. Without this option, streams are ambient.
+    /// Clones share the files; use separate options for independent I/O.
+    pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
+        self.stdio = Stdio::owned(stdin, stdout, stderr);
         self
     }
 
@@ -390,15 +388,8 @@ impl Engine {
             Some(signal_mask) => signal_mask,
             None => current_signal_mask()?,
         };
-        let context = options
-            .context
-            .clone()
-            .unwrap_or_else(|| ExecutionContext::ambient(options.working_directory.clone()));
-        let runtime = Runtime::new_with_context(
-            options.policy_file.as_deref(),
-            options.policy_source_dir.as_deref(),
-            options.inherited_policy.as_deref(),
-            context,
+        let runtime = Runtime::new(
+            &options,
             module.executable().clone(),
             signals,
             #[cfg(unix)]
