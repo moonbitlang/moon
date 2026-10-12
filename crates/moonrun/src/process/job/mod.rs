@@ -21,14 +21,16 @@
 #[cfg(windows)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
-#[cfg(windows)]
 use std::sync::Arc;
 
+use crate::ChildCommandPreparer;
+#[cfg(unix)]
+use crate::NativeCommand;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(unix)]
+use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
-#[cfg(windows)]
-use crate::runtime::StdioStream;
-use crate::runtime::{Stdio, WorkingDirectory};
+use crate::runtime::{Stdio, StdioStream, WorkingDirectory};
 
 use super::{HostProcess, ambient};
 
@@ -86,9 +88,9 @@ enum Kind {
 }
 
 impl Job {
-    pub(super) fn configure_launcher(
+    pub(super) fn prepare_command(
         &mut self,
-        launcher: Option<&crate::ChildLauncher>,
+        preparer: Option<&ChildCommandPreparer>,
     ) -> AsyncHostResult<()> {
         #[cfg(unix)]
         if let Kind::SpawnUnix {
@@ -98,15 +100,15 @@ impl Job {
             cwd,
             ..
         } = &mut self.kind
-            && let Some(launcher) = launcher
+            && let Some(preparer) = preparer
         {
-            let mut command = crate::NativeCommand {
+            let mut command = NativeCommand {
                 program: path.clone(),
                 args: args.clone(),
                 env: env.clone(),
                 cwd: cwd.clone(),
             };
-            launcher
+            preparer
                 .prepare(&mut command)
                 .map_err(|_| AsyncHostError::PermissionDenied)?;
             *path = command.program;
@@ -115,7 +117,7 @@ impl Job {
             *cwd = command.cwd;
         }
         #[cfg(windows)]
-        let _ = launcher;
+        let _ = preparer;
         Ok(())
     }
 
@@ -357,12 +359,10 @@ impl Job {
             #[cfg(unix)]
             Kind::SpawnUnix { stdio, .. } => {
                 if matches!(runtime_stdio, Stdio::Owned(_)) {
-                    for (slot, stream) in stdio.iter_mut().zip(crate::runtime::StdioStream::ALL) {
+                    for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
                         if slot.is_none() {
-                            *slot =
-                                Some(std::sync::Arc::new(crate::resource::Resource::stdio_file(
-                                    runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?,
-                                )));
+                            let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;
+                            *slot = Some(Arc::new(Resource::stdio_file(raw)));
                         }
                     }
                 }

@@ -34,6 +34,7 @@ use anyhow::Context;
 use slotmap::Key;
 use slotmap::{KeyData, SlotMap, new_key_type};
 
+use crate::ExecutionContext;
 use crate::async_host::AsyncHost;
 use crate::filesystem::HostFs;
 use crate::network::HostNetwork;
@@ -144,7 +145,7 @@ impl Runtime {
             policy_file,
             policy_source_dir,
             inherited_policy,
-            crate::ExecutionContext::ambient(working_directory),
+            ExecutionContext::ambient(working_directory),
             executable,
             signals,
             #[cfg(unix)]
@@ -156,15 +157,15 @@ impl Runtime {
         policy_file: Option<&Path>,
         policy_source_dir: Option<&Path>,
         inherited_policy: Option<&[u8]>,
-        context: crate::ExecutionContext,
+        context: ExecutionContext,
         executable: Executable,
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
-        let crate::ExecutionContext {
+        let ExecutionContext {
             working_directory,
             stdio,
-            child_launcher: launcher,
+            child_command_preparer: command_preparer,
         } = context;
         let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
             (Some(contents), _) => {
@@ -213,7 +214,7 @@ impl Runtime {
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
         );
-        process.launcher = launcher;
+        process.command_preparer = command_preparer;
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
             &stdio,

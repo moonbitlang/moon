@@ -132,12 +132,14 @@ let outcome = engine.run(&module, RunOptions::default().with_context(context))?;
 The context's fixed cwd takes precedence over `with_working_directory`. It
 resolves relative paths without changing process cwd; it does not grant access
 or create a filesystem sandbox. In a fixed context, denied existence/metadata
-probes appear absent. Without a context, the original ambient stream and cwd
-behavior is preserved. Engine continues to own Store, imports, execution,
-diagnostics and resource teardown; there is no caller-owned backend interface.
+probes appear absent. Without a context, streams remain ambient and cwd follows
+`with_working_directory`, which defaults to Ambient. Engine continues to own
+Store, imports, execution, diagnostics and resource teardown; there is no
+caller-owned backend interface.
 
-On Unix, `ExecutionContext::with_child_launcher` can supply a `ChildLauncher`
-that prepares or rejects native commands after guest policy authorization.
+On Unix, `ExecutionContext::with_child_command_preparer` can supply a
+`ChildCommandPreparer` that prepares or rejects native commands after guest
+policy authorization.
 This hook lets callers apply an OS sandbox without exposing runtime internals.
 No request cancellation or epoch/fuel interface is added.
 

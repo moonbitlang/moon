@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::ExecutionContext;
 use crate::run_signal::{SignalReceiver, signal_channel};
 use crate::run_termination::RunTermination;
 use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
@@ -57,7 +58,7 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
-    context: Option<crate::ExecutionContext>,
+    context: Option<ExecutionContext>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -127,14 +128,21 @@ impl RunOptions {
     ///
     /// [`WorkingDirectory::Ambient`] preserves process-global cwd behavior;
     /// [`WorkingDirectory::Fixed`] resolves paths against a caller-owned directory.
+    /// Fixed roots must be existing directories and are canonicalized when
+    /// execution begins. A supplied [`ExecutionContext`] overrides this choice.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
         self
     }
 
     /// Supply owned streams, a fixed directory and optional native command preparation.
-    /// Without a context, the original ambient stream/directory behavior is preserved.
-    pub fn with_context(mut self, context: crate::ExecutionContext) -> Self {
+    ///
+    /// The context's working directory takes precedence over
+    /// [`Self::with_working_directory`]. Clones of a context share its streams
+    /// and preparation callback; use separate contexts for independent I/O.
+    /// Without a context, streams remain ambient and the directory follows
+    /// [`Self::with_working_directory`], which defaults to Ambient.
+    pub fn with_context(mut self, context: ExecutionContext) -> Self {
         self.context = Some(context);
         self
     }
@@ -385,7 +393,7 @@ impl Engine {
         let context = options
             .context
             .clone()
-            .unwrap_or_else(|| crate::ExecutionContext::ambient(options.working_directory.clone()));
+            .unwrap_or_else(|| ExecutionContext::ambient(options.working_directory.clone()));
         let runtime = Runtime::new_with_context(
             options.policy_file.as_deref(),
             options.policy_source_dir.as_deref(),

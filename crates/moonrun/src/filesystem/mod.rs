@@ -99,33 +99,31 @@ pub(crate) struct HostFs {
 }
 
 impl HostFs {
-    pub(crate) fn metadata_error(
-        &self,
-        error: crate::async_host::AsyncHostError,
-    ) -> crate::async_host::AsyncHostError {
+    pub(crate) fn metadata_error(&self, error: AsyncHostError) -> AsyncHostError {
         if matches!(*self.working_directory, WorkingDirectory::Fixed(_))
-            && error == crate::async_host::AsyncHostError::PermissionDenied
+            && error == AsyncHostError::PermissionDenied
         {
             #[cfg(unix)]
             let errno = libc::ENOENT;
             #[cfg(windows)]
             let errno = windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND as i32;
-            crate::async_host::AsyncHostError::Native(errno)
+            AsyncHostError::Native(errno)
         } else {
             error
         }
     }
 
-    pub(crate) fn resolve_path(&self, path: &std::ffi::OsStr) -> AsyncHostResult<OsString> {
+    pub(crate) fn resolve_path(&self, path: &OsStr) -> AsyncHostResult<OsString> {
         if matches!(*self.working_directory, WorkingDirectory::Ambient) {
             return Ok(path.to_owned());
         }
         self.working_directory
             .resolve(Path::new(path))
             .map(|p| p.into_os_string())
-            .map_err(|_| crate::async_host::AsyncHostError::Io)
+            .map_err(|_| AsyncHostError::Io)
     }
-    fn resolved(&self, path: &str) -> std::path::PathBuf {
+
+    fn resolved(&self, path: &str) -> PathBuf {
         match *self.working_directory {
             WorkingDirectory::Ambient => Path::new(path).to_owned(),
             WorkingDirectory::Fixed(_) => self.working_directory.resolve(Path::new(path)).unwrap(),
@@ -425,9 +423,7 @@ impl HostFs {
                 .ok()
                 .and_then(|p| canonicalize_existing_prefix(&p).ok());
             if !resolved.as_deref().is_some_and(|p| policy.allows_read(p)) {
-                return Err(
-                    self.metadata_error(crate::async_host::AsyncHostError::PermissionDenied)
-                );
+                return Err(self.metadata_error(AsyncHostError::PermissionDenied));
             }
         }
         self.authorize_path(path, FsIntents::for_access_check(access))

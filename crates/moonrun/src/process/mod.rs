@@ -30,6 +30,7 @@ mod job;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use crate::ChildCommandPreparer;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(windows)]
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -49,7 +50,7 @@ pub(crate) struct HostProcess {
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
-    pub(crate) launcher: Option<crate::ChildLauncher>,
+    pub(crate) command_preparer: Option<ChildCommandPreparer>,
 }
 
 #[derive(Default)]
@@ -83,7 +84,7 @@ impl HostProcess {
             working_directory,
             stdio,
             child_authority,
-            launcher: None,
+            command_preparer: None,
         }
     }
 
@@ -121,7 +122,7 @@ impl HostProcess {
     /// immediately before native execution.
     pub(crate) fn configure_job_for_execution(&self, job: &mut Job) -> AsyncHostResult<()> {
         job.configure_working_directory(&self.working_directory);
-        job.configure_launcher(self.launcher.as_ref())?;
+        job.prepare_command(self.command_preparer.as_ref())?;
         job.configure_stdio(&self.stdio)?;
         // Authorization is complete, so the job may retain the immutable
         // inheritance payload. Direct-moonx recognition, temporary-file I/O,
