@@ -441,14 +441,13 @@ fn run_test_impl(
     validate_test_or_bench_invocation(cli, &test_cmd)?;
     let discovered =
         sync_and_discover_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
-    let ret_value = run_test_or_bench_from_resolved(
+    let ret_value = run_test_or_bench_from_discovered(
         cli,
         &test_cmd,
         &dirs,
         display_backend_hint,
         &targets,
-        resolved_project,
+        discovered,
         output,
     )
     .with_context(|| match targets.as_slice() {
@@ -576,9 +575,9 @@ fn run_test_in_single_file_rr(
         false,
         user_log,
     )?;
-    let resolved = discovered.resolve_packages(user_log)?;
     let target_backends =
-        rr_build::single_file_target_backends(&resolved, &targets, backend, user_log);
+        rr_build::single_file_target_backends(&discovered, &targets, backend, user_log);
+    let resolved = discovered.resolve_packages(user_log)?;
 
     let lock = if cli.dry_run {
         None
@@ -786,17 +785,18 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     Ok((build_meta, build_graph, filter))
 }
 
-/// Selects backend plans, then plans each selected backend.
-pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
+/// Selects backend plans, resolves packages, then plans each selected backend.
+pub(crate) fn plan_test_or_bench_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     user_log: &UserLog,
 ) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
-    let selections = select_test_plans(&resolved_project, cmd, selected_target_backends, user_log)?;
+    let selections = select_test_plans(&discovered, cmd, selected_target_backends, user_log)?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
     selections
         .into_iter()
         .map(|selection| {
@@ -1023,30 +1023,29 @@ fn run_test_rr(
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let discovered = sync_and_discover_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
-    run_test_or_bench_from_resolved(
+    run_test_or_bench_from_discovered(
         cli,
         cmd,
         dirs,
         display_backend_hint,
         selected_target_backend.as_slice(),
-        resolved_project,
+        discovered,
         output,
     )
 }
 
-/// Plans, builds, and runs tests from resolved project data.
+/// Plans, builds, and runs tests from a discovered project.
 ///
 /// Holds the target-directory lock through planning and the initial build,
 /// then releases it before executing tests or benchmarks.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_test_or_bench_from_resolved(
+pub(crate) fn run_test_or_bench_from_discovered(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     display_backend_hint: bool,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let user_log = output.user_log();
@@ -1062,13 +1061,13 @@ pub(crate) fn run_test_or_bench_from_resolved(
         Some(lock_directory(target_dir, user_log)?)
     };
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let planned_runs = plan_test_or_bench_rr_from_resolved_all(
+    let planned_runs = plan_test_or_bench_rr_from_discovered(
         cli,
         cmd,
         target_dir,
         mooncake_bin_dir,
         selected_target_backends,
-        resolved_project,
+        discovered,
         user_log,
     )?;
     run_test_workflow(

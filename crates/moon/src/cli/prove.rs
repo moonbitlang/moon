@@ -159,9 +159,9 @@ pub(crate) fn run_prove(
         cli.workspace_env.clone(),
     );
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
     let target_backend =
-        rr_build::local_modules_preferred_target(&resolved_project, user_log).unwrap_or_default();
+        rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
+    let resolved_project = discovered.resolve_packages(user_log)?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(target_dir, user_log)?;

@@ -173,8 +173,8 @@ pub(crate) fn local_packages(
     })
 }
 
-/// Select a standalone file's Target Backends: explicit targets, then the
-/// file's preferred backend, then the project default.
+/// Select a standalone file's Target Backends before package resolution:
+/// explicit targets, then the file's preferred backend, then the project default.
 pub(crate) fn single_file_target_backends(
     discovered: &DiscoveredProject,
     selected_target_backends: &[TargetBackend],
@@ -247,7 +247,7 @@ pub fn build_patch_directive_for_package(
 
 /// Construct the final configuration for a resolved project and its selected backend.
 ///
-/// Commands select the Target Backend before calling this. CLI policy is
+/// Commands select the Target Backend before package resolution. CLI policy is
 /// resolved here while both the original flags and that backend are available;
 /// RR receives one completed configuration with no CLI parsing types.
 #[instrument(level = Level::DEBUG, skip_all)]

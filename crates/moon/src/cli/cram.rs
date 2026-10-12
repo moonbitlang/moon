@@ -155,20 +155,19 @@ fn run_cram_test(
         cli.workspace_env.clone(),
     );
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
         Some(lock_directory(target_dir, user_log)?)
     };
 
-    let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
+    let planned_runs = crate::cli::plan_build_rr_from_discovered(
         cli,
         &build_cmd,
         target_dir,
         mooncake_bin_dir,
         &[TargetBackend::Native],
-        resolved_project,
+        discovered,
         user_log,
     )?;
 
