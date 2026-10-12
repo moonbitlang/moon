@@ -1,8 +1,12 @@
 use crate::{TestDir, get_stdout_with_envs, moon_process_cmd};
 
+fn native_cc() -> &'static str {
+    if cfg!(windows) { "cl" } else { "cc" }
+}
+
 fn command_mentions_c_source(line: &str) -> bool {
     line.split_whitespace()
-        .any(|arg| arg.trim_matches('\'').ends_with(".c"))
+        .any(|arg| arg.trim_matches(['\'', '"']).ends_with(".c"))
 }
 
 fn assert_debug_uses_direct_object_without_env(dir: &TestDir, args: &[&str]) {
@@ -36,7 +40,7 @@ fn assert_debug_uses_generated_c_when_disabled(dir: &TestDir, args: &[&str]) {
     let output = get_stdout_with_envs(
         dir,
         args.iter().copied(),
-        [("MOONBIT_NEW_NATIVE", "0"), ("MOON_CC", "cc")],
+        [("MOONBIT_NEW_NATIVE", "0"), ("MOON_CC", native_cc())],
     );
 
     assert!(
@@ -55,7 +59,7 @@ fn assert_debug_with_cc_flags_uses_generated_c(dir: &TestDir, args: &[&str]) {
     let output = get_stdout_with_envs(
         dir,
         args.iter().copied(),
-        [("MOONBIT_NEW_NATIVE", "1"), ("MOON_CC", "cc")],
+        [("MOONBIT_NEW_NATIVE", "1"), ("MOON_CC", native_cc())],
     );
 
     assert!(
@@ -82,7 +86,7 @@ fn assert_release_uses_generated_c(dir: &TestDir, args: &[&str]) {
     let output = get_stdout_with_envs(
         dir,
         args.iter().copied(),
-        [("MOONBIT_NEW_NATIVE", "1"), ("MOON_CC", "cc")],
+        [("MOONBIT_NEW_NATIVE", "1"), ("MOON_CC", native_cc())],
     );
 
     assert!(
@@ -92,10 +96,11 @@ fn assert_release_uses_generated_c(dir: &TestDir, args: &[&str]) {
         "release dry-run did not generate C source:\n{output}"
     );
     assert!(
-        output
-            .lines()
-            .any(|line| line.contains(" -O2 ") && command_mentions_c_source(line)),
-        "release dry-run did not compile generated C with -O2:\n{output}"
+        output.lines().any(
+            |line| line.contains(if cfg!(windows) { " /O2 " } else { " -O2 " })
+                && command_mentions_c_source(line)
+        ),
+        "release dry-run did not compile generated C with release optimization:\n{output}"
     );
     assert!(
         !output.contains("__moonbit_link_core__"),
@@ -119,10 +124,9 @@ fn test_new_native_is_default_for_run_and_test_e2e() {
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&run_output.stdout),
-        "new native run ok\n"
-    );
+    // The Windows CRT writes CRLF when native stdout is captured by a pipe.
+    let run_stdout = String::from_utf8_lossy(&run_output.stdout).replace("\r\n", "\n");
+    assert_eq!(run_stdout, "new native run ok\n");
 
     let test_output = moon_process_cmd(&dir)
         .env_remove("MOONBIT_NEW_NATIVE")
@@ -136,8 +140,9 @@ fn test_new_native_is_default_for_run_and_test_e2e() {
         String::from_utf8_lossy(&test_output.stdout),
         String::from_utf8_lossy(&test_output.stderr)
     );
+    let test_stdout = String::from_utf8_lossy(&test_output.stdout).replace("\r\n", "\n");
     assert!(
-        String::from_utf8_lossy(&test_output.stdout).contains("new native test ok\n"),
+        test_stdout.contains("new native test ok\n"),
         "new native test stdout did not contain expected output\nstdout:\n{}",
         String::from_utf8_lossy(&test_output.stdout)
     );
@@ -189,7 +194,7 @@ fn test_new_native_cc_flags_use_generated_c_for_debug_build_run_and_test() {
 }
 
 #[test]
-fn test_new_native_release_uses_generated_c_with_o2() {
+fn test_new_native_release_uses_generated_c_with_optimization() {
     let dir = TestDir::new("native_backend/new_native_e2e");
 
     assert_release_uses_generated_c(
