@@ -126,8 +126,10 @@ impl RunOptions {
 
     /// Select the working-directory behavior for this run.
     ///
-    /// Only [`WorkingDirectory::Ambient`] is currently available. It preserves
-    /// process-global cwd behavior and does not isolate or snapshot a directory.
+    /// [`WorkingDirectory::Ambient`] preserves process-global cwd behavior;
+    /// [`WorkingDirectory::Fixed`] resolves paths against a caller-owned directory.
+    /// Fixed roots must be existing directories and are canonicalized when
+    /// execution begins.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
         self

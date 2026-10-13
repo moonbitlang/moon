@@ -116,12 +116,12 @@ _Avoid_: Moonrun Policy, FFI permissions
 
 **Runtime Working Directory**:
 The working-directory behavior owned by one Runtime and used by cwd-dependent
-Host domains and backend adapters. The only current value is `Ambient`: it
-preserves historical behavior by observing or inheriting the process current
-directory at the same execution points as before this seam. It does not
-snapshot a path, retain a directory handle, change the process cwd, or isolate
-concurrent Runs. New modes belong behind this seam rather than in individual
-filesystem, process, SQLite, policy, or WASI call sites.
+Host domains and backend adapters. `Ambient` preserves historical behavior by
+observing or inheriting the process current directory at the same execution
+points as before this seam. `Fixed` resolves relative paths against a supplied
+directory without changing process cwd. It does not grant filesystem access,
+retain a directory handle, or confine native children. New modes belong behind
+this seam rather than in individual domain call sites.
 _Avoid_: sandbox root, virtual filesystem root, captured cwd
 
 **Host Filesystem**:

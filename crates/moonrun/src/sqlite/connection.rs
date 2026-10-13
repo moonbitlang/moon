@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::{CStr, c_void};
+use std::ffi::{CStr, CString, OsStr, c_void};
 use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
@@ -219,6 +219,17 @@ pub(super) fn open_database(
     if let Err(code) = ensure_valid_database(filesystem, filename, flags, vfs) {
         return (code, None);
     }
+    let resolved;
+    let filename = if filename.to_bytes() == b":memory:" {
+        filename
+    } else {
+        let path = filesystem.resolve_path(OsStr::new(filename.to_str().unwrap()));
+        let Ok(path) = CString::new(path.as_encoded_bytes()) else {
+            return (ffi::SQLITE_CANTOPEN, None);
+        };
+        resolved = path;
+        &resolved
+    };
     let mut database = ptr::null_mut();
     let code =
         unsafe { ffi::sqlite3_open_v2(filename.as_ptr(), &mut database, flags, ptr::null()) };
