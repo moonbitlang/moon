@@ -32,7 +32,7 @@ use ariadne::ReportKind;
 use clap::ValueEnum;
 use colored::Colorize;
 use moonbuild_rupes_recta::{
-    execution_plan::{ActionId, ExecutionPlan},
+    execution_plan::{ActionId, ActionOutputKind, ExecutionPlan},
     target_layout::GENERATED_TEST_DRIVER_PREFIX,
 };
 use moonutil::{
@@ -248,10 +248,15 @@ impl BuildStats {
     pub fn print_summary(&self, quiet: bool) {
         match self.n_tasks_executed {
             None => {
-                eprintln!(
-                    "Failed with {} warnings, {} errors.",
-                    self.n_warnings, self.n_errors
-                );
+                // These are compiler diagnostic counts, not failed-task counts.
+                // Raw output is not parsed, and tool failures may have no
+                // compiler diagnostics. Do not describe either as "0 errors".
+                if self.n_warnings > 0 || self.n_errors > 0 {
+                    eprintln!(
+                        "Failed with {} warnings, {} errors.",
+                        self.n_warnings, self.n_errors
+                    );
+                }
             }
             Some(n_tasks) => {
                 if !quiet {
@@ -286,9 +291,12 @@ struct CapturedBuildExecution {
 
 struct CapturedActionOutput {
     target_backend: Option<TargetBackend>,
+    output_kind: ActionOutputKind,
     content: ResultCatcher,
-    /// Failure context when compiler diagnostics do not explain the failure.
+    /// Failure context when tool output does not explain the failure.
     error: Option<String>,
+    /// Verbose context for failures already explained by tool output.
+    failed_command: Option<String>,
 }
 
 impl CapturedBuildExecution {
@@ -319,6 +327,7 @@ impl CapturedBuildExecution {
                     .or(sole_build_meta);
                 CapturedDiagnosticSource {
                     diagnostics: &output.content,
+                    output_kind: output.output_kind,
                     build_succeeded: self.successful(),
                     build_meta,
                 }
@@ -357,6 +366,8 @@ pub struct JsonBuildOutput {
     pub diagnostics: Vec<JsonBuildDiagnostic>,
     /// Moon-authored task failures, separate from compiler diagnostics.
     pub action_errors: Vec<String>,
+    /// Failed commands requested by verbose mode, not additional errors.
+    pub failed_commands: Vec<String>,
     pub non_diagnostic_output: Vec<String>,
 }
 
@@ -391,6 +402,7 @@ pub fn execute_build_json(
             .or_insert_with(Vec::new)
             .push(CapturedDiagnosticSource {
                 diagnostics: &output.content,
+                output_kind: output.output_kind,
                 build_succeeded: execution.successful(),
                 build_meta: None,
             });
@@ -425,6 +437,11 @@ pub fn execute_build_json(
         hidden_errors,
         hidden_warnings,
         diagnostics,
+        failed_commands: execution
+            .action_outputs
+            .iter()
+            .filter_map(|output| output.failed_command.clone())
+            .collect(),
         action_errors: execution
             .action_outputs
             .into_iter()
@@ -489,21 +506,20 @@ fn finish_captured_build<'a>(
     build_metas: impl IntoIterator<Item = &'a BuildMeta>,
     user_log: &UserLog,
 ) -> BuildStats {
-    let mut action_errors = 0;
-    for error in execution
-        .action_outputs
-        .iter()
-        .filter_map(|output| output.error.as_ref())
-    {
-        user_log.error(error);
-        action_errors += 1;
+    for output in &execution.action_outputs {
+        if let Some(error) = &output.error {
+            user_log.error(error);
+        }
+        if let Some(command) = &output.failed_command {
+            user_log.info(format!("Failed command: {command}"));
+        }
     }
     let sources = execution.diagnostic_sources(build_metas);
     let processed = process_captured_diagnostics(&sources, cfg);
     processed.warn_if_limited(user_log);
     BuildStats {
         n_tasks_executed: execution.n_tasks_executed,
-        n_errors: processed.n_errors + action_errors,
+        n_errors: processed.n_errors,
         n_warnings: processed.n_warnings,
     }
 }
@@ -514,6 +530,7 @@ fn should_render_non_diagnostic_build_output(cfg: &BuildConfig, build_succeeded:
 
 struct CapturedDiagnosticSource<'a> {
     diagnostics: &'a ResultCatcher,
+    output_kind: ActionOutputKind,
     build_succeeded: bool,
     build_meta: Option<&'a BuildMeta>,
 }
@@ -614,9 +631,19 @@ fn collect_json_diagnostics(
     let mut non_diagnostic_output = Vec::new();
     for source in sources {
         for content in &source.diagnostics.content_writer {
-            let content = rewrite_captured_diagnostic(content, cfg, source.build_meta);
-            match serde_json::from_str::<MooncDiagnostic>(&content) {
-                Ok(diagnostic) => {
+            let content = if source.output_kind == ActionOutputKind::Compiler {
+                rewrite_captured_diagnostic(content, cfg, source.build_meta)
+            } else {
+                content.clone()
+            };
+            let diagnostic = match source.output_kind {
+                ActionOutputKind::Compiler => {
+                    serde_json::from_str::<MooncDiagnostic>(&content).ok()
+                }
+                ActionOutputKind::Tool => None,
+            };
+            match diagnostic {
+                Some(diagnostic) => {
                     if diagnostic_is_generated_test_driver_warning(&diagnostic) {
                         continue;
                     }
@@ -625,7 +652,7 @@ fn collect_json_diagnostics(
                         .or_default()
                         .insert((diagnostic, content));
                 }
-                Err(_) => {
+                None => {
                     if retain_suppressed_output
                         || should_render_non_diagnostic_build_output(cfg, source.build_succeeded)
                     {
@@ -738,8 +765,13 @@ fn process_captured_diagnostics(
             .iter()
             .map(move |content| {
                 (
-                    rewrite_captured_diagnostic(content, cfg, source.build_meta),
+                    if source.output_kind == ActionOutputKind::Compiler {
+                        rewrite_captured_diagnostic(content, cfg, source.build_meta)
+                    } else {
+                        content.clone()
+                    },
                     source.build_succeeded,
+                    source.output_kind,
                 )
             })
     });
@@ -748,15 +780,21 @@ fn process_captured_diagnostics(
         OutputStyle::Json => unreachable!(),
         OutputStyle::Fancy => {
             let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
-            for (content, build_succeeded) in captured {
-                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
-                    Ok(d) => {
+            for (content, build_succeeded, output_kind) in captured {
+                let diagnostic = match output_kind {
+                    ActionOutputKind::Compiler => {
+                        serde_json::from_str::<MooncDiagnostic>(&content).ok()
+                    }
+                    ActionOutputKind::Tool => None,
+                };
+                match diagnostic {
+                    Some(d) => {
                         if diagnostic_is_generated_test_driver_warning(&d) {
                             continue;
                         }
                         by_file.entry(d.path.clone()).or_default().insert(d);
                     }
-                    Err(_) => {
+                    None => {
                         // Non-diagnostics output, just print as-is
                         // This could happen for installing binaries dependencies etc.
                         if should_render_non_diagnostic_build_output(cfg, build_succeeded) {
@@ -852,7 +890,7 @@ fn process_captured_diagnostics(
             }
         }
         OutputStyle::Raw => {
-            for (content, _) in captured {
+            for (content, _, _) in captured {
                 println!("{content}");
             }
         }
@@ -937,6 +975,7 @@ mod tests {
         let processed = process_captured_diagnostics(
             &[CapturedDiagnosticSource {
                 diagnostics: &catcher,
+                output_kind: ActionOutputKind::Compiler,
                 build_succeeded: false,
                 build_meta: None,
             }],
@@ -968,11 +1007,13 @@ mod tests {
             &[
                 CapturedDiagnosticSource {
                     diagnostics: &dependency,
+                    output_kind: ActionOutputKind::Compiler,
                     build_succeeded: true,
                     build_meta: None,
                 },
                 CapturedDiagnosticSource {
                     diagnostics: &script,
+                    output_kind: ActionOutputKind::Compiler,
                     build_succeeded: false,
                     build_meta: None,
                 },
@@ -987,12 +1028,53 @@ mod tests {
     }
 
     #[test]
+    fn tool_output_is_not_parsed_as_compiler_diagnostics() {
+        // A tool can print the same JSON as the compiler. Only the compiler
+        // source participates in counting, filtering, and diagnostic limits.
+        for level in ["error", "warning"] {
+            let message = serde_json::to_string(&diagnostic("./script.mbt", level)).unwrap();
+            let mut output = ResultCatcher::default();
+            output.append_content(&message);
+            let cfg = BuildConfig {
+                output_style: OutputStyle::Json,
+                diagnostic_limit: Some(0),
+                ..Default::default()
+            };
+            let sources = [ActionOutputKind::Compiler, ActionOutputKind::Tool].map(|output_kind| {
+                CapturedDiagnosticSource {
+                    diagnostics: &output,
+                    output_kind,
+                    build_succeeded: false,
+                    build_meta: None,
+                }
+            });
+            let collected = collect_json_diagnostics(&sources, &cfg, true);
+            assert!(collected.diagnostics.is_empty());
+            assert_eq!(collected.non_diagnostic_output, [message]);
+            assert_eq!(collected.processed.n_errors, usize::from(level == "error"));
+            assert_eq!(
+                collected.processed.n_warnings,
+                usize::from(level == "warning")
+            );
+            assert_eq!(
+                collected.processed.hidden_errors,
+                usize::from(level == "error")
+            );
+            assert_eq!(
+                collected.processed.hidden_warnings,
+                usize::from(level == "warning")
+            );
+        }
+    }
+
+    #[test]
     fn structured_json_retains_successful_output_when_progress_is_suppressed() {
         let mut catcher = ResultCatcher::default();
         catcher.append_content("PREBUILD_SUCCESS");
         let cfg = BuildConfig::default().with_suppressed_progress(true);
         let sources = [CapturedDiagnosticSource {
             diagnostics: &catcher,
+            output_kind: ActionOutputKind::Tool,
             build_succeeded: true,
             build_meta: None,
         }];

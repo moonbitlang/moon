@@ -100,14 +100,11 @@ fn builtin_embed_rejects_shell_syntax() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
+Error: failed to run script username/unconsumed_prebuild/main generated.txt (prebuild): [..] tool embed [..]
 error: unexpected argument '&&' found
-Usage: moon[EXE] tool embed [OPTIONS] --input <INPUT> --output <OUTPUT>
+Usage: moon[..] tool embed [OPTIONS] --input <INPUT> --output <OUTPUT>
 For more information, try '--help'.
-Failed with 0 warnings, 0 errors.
-Error: failed to run check for target WasmGC
-
-Caused by:
-    failed when checking project
+Error: failed when checking project
 
 "#]]);
     assert!(!dir.join("src/main/generated.txt").exists());

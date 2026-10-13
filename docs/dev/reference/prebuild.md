@@ -304,9 +304,13 @@ holds after substitution and tool semantics:
 - The invoked tool fails to produce all declared outputs.
 
 A command that exits unsuccessfully fails its prebuild action even if it emits
-no output. The error identifies the prebuild action, package, and executed
-command; captured output is also retained. `moon check --json` reports these
-failures as Moon-level error messages rather than compiler diagnostics.
+no output. In rendered and JSON modes, the error identifies the prebuild action,
+package, and executed command; captured output is also retained. Raw mode
+forwards the tool's output as its failure explanation, with an action error for
+silent failures. `moon check --json` reports prebuild failures as Moon-level
+error messages rather than compiler diagnostics. This also applies when a
+prebuild command prints JSON matching the compiler diagnostic schema: its
+output remains literal tool output, without compiler filtering or rewriting.
 
 ## Compatibility and Caveats
 

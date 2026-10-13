@@ -156,6 +156,9 @@ impl CheckJsonAccumulator {
         for error in result.action_errors {
             user_log.error(error);
         }
+        for command in result.failed_commands {
+            user_log.info(format!("Failed command: {command}"));
+        }
         for message in result.non_diagnostic_output {
             if successful {
                 user_log.info(message);
@@ -839,7 +842,7 @@ fn run_planned_checks(
 
     let mut cfg = cmd
         .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose && json.is_none());
+        .execution_config(&cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
     for (build_meta, build_input) in &planned_runs {

@@ -25,7 +25,9 @@
 use std::{collections::HashMap, path::Path, rc::Rc, sync::mpsc};
 
 use anyhow::Context;
-use moonbuild_rupes_recta::execution_plan::{InputObservation, LoweredCommandExecution};
+use moonbuild_rupes_recta::execution_plan::{
+    ActionOutputKind, InputObservation, LoweredCommandExecution,
+};
 
 use super::resolve_parallelism;
 use super::{BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution, ResultCatcher};
@@ -116,6 +118,7 @@ pub(super) fn execute<'a>(
                 input.action_backends.get(&id).copied().flatten(),
                 action.description().to_owned(),
                 command.clone(),
+                action.output_kind(),
             ),
         );
     }
@@ -135,27 +138,36 @@ pub(super) fn execute<'a>(
         .with_context(|| format!("Failed to open build cache DB at {}", db_path.display()))?;
 
     let (sender, receiver) = mpsc::channel();
+    let output_style = cfg.output_style;
+    let verbose = cfg.verbose;
     let callback: Box<n2::progress::BuildResultCallback> =
         Box::new(move |build_id, termination, output: &str| {
             if termination == n2::progress::Termination::Success && output.is_empty() {
                 return;
             }
-            let (target_backend, description, command) = context_by_build
+            let (target_backend, description, command, output_kind) = context_by_build
                 .get(&build_id)
                 .expect("every n2 build should retain its action context");
             let mut captured = ResultCatcher::default();
             for line in output.split('\n').filter(|line| !line.is_empty()) {
                 captured.append_content(line);
             }
-            // Compiler diagnostics already explain ordinary compiler failures.
-            // Other failures need action context even when the child is silent.
-            let has_error_diagnostic = captured.content_writer.iter().any(|line| {
-                serde_json::from_str::<moonutil::render::MooncDiagnostic>(line)
-                    .is_ok_and(|diagnostic| diagnostic.level == "error")
-            });
+            // Raw output is opaque: preserve the tool's explanation without
+            // trying to classify it as JSON or adding a duplicate error.
+            // Structured compiler errors explain failures even when hidden by
+            // the diagnostic limit. Silent failures always need action context.
+            let has_failure_output = if output_style.needs_moonc_json() {
+                *output_kind == ActionOutputKind::Compiler
+                    && captured.content_writer.iter().any(|line| {
+                        serde_json::from_str::<moonutil::render::MooncDiagnostic>(line)
+                            .is_ok_and(|diagnostic| diagnostic.level == "error")
+                    })
+            } else {
+                !output.trim().is_empty()
+            };
             let error = match termination {
-                n2::progress::Termination::Failure if !has_error_diagnostic => {
-                    Some(format!("Failed to {description}: {command}"))
+                n2::progress::Termination::Failure if !has_failure_output => {
+                    Some(format!("failed to {description}: {command}"))
                 }
                 n2::progress::Termination::Interrupted => Some(format!(
                     "Interrupted while attempting to {description}: {command}"
@@ -165,8 +177,13 @@ pub(super) fn execute<'a>(
             sender
                 .send(CapturedActionOutput {
                     target_backend: *target_backend,
+                    output_kind: *output_kind,
                     content: captured,
                     error,
+                    failed_command: (verbose
+                        && termination == n2::progress::Termination::Failure
+                        && has_failure_output)
+                        .then(|| command.clone()),
                 })
                 .expect("captured output receiver should outlive n2 progress");
         });

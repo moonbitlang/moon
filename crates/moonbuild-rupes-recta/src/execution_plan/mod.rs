@@ -172,6 +172,16 @@ impl DeclaredOutput {
     }
 }
 
+/// How to interpret an action's captured process output.
+/// This is declared by lowering, never inferred from the output's contents.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionOutputKind {
+    /// MoonBit compiler diagnostics, in the configured output format.
+    Compiler,
+    /// Opaque output from scripts and other tools.
+    Tool,
+}
+
 /// One concrete action after command construction and path realization.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionAction {
@@ -181,6 +191,7 @@ pub struct ExecutionAction {
     cache_eligible: bool,
     fileloc: String,
     description: String,
+    output_kind: ActionOutputKind,
     // TODO: Replace dirty-on-output scheduling when execution persists and
     // replays action diagnostics instead of rerunning commands to display them.
     can_dirty_on_output: bool,
@@ -194,6 +205,7 @@ impl ExecutionAction {
         command: LoweredCommand,
         fileloc: String,
         description: String,
+        output_kind: ActionOutputKind,
     ) -> Self {
         inputs.sort();
         assert!(
@@ -207,6 +219,7 @@ impl ExecutionAction {
             cache_eligible: true,
             fileloc,
             description,
+            output_kind,
             can_dirty_on_output: false,
             error_package: None::<crate::pkg_name::PackageFQN>.into(),
         }
@@ -257,6 +270,10 @@ impl ExecutionAction {
 
     pub fn description(&self) -> &str {
         &self.description
+    }
+
+    pub fn output_kind(&self) -> ActionOutputKind {
+        self.output_kind
     }
 
     pub fn error_package(&self) -> &OptionalPackageFQNWithSource {
@@ -546,6 +563,7 @@ mod tests {
                 LoweredCommand::from(vec![command.to_string()]),
                 command.to_string(),
                 command.to_string(),
+                ActionOutputKind::Tool,
             ),
             semantic_outputs,
         )

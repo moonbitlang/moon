@@ -1978,13 +1978,20 @@ fn test_moon_run_command_string_invalid_source_keeps_diagnostics_on_stderr() {
 }
 
 #[test]
-fn test_moon_run_command_string_invalid_source_shows_failed_command_in_verbose_mode() {
+fn test_moon_run_command_string_invalid_source_shows_failed_command_on_stderr_in_verbose_mode() {
     let dir = TestDir::new_empty();
     moon_cmd(&dir)
         .args(["run", "--verbose", "-e", r#"println("hello")"#])
         .assert()
         .failure()
-        .stdout_eq("failed: [..]moonc[..] build-package [..]\n");
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Failed command: [..]moonc[..] build-package [..]
+Error: [4067] Missing main function in the main package.
+Error: [3002]
+...
+
+"#]]);
 }
 
 #[test]
