@@ -29,7 +29,7 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{self, CC, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
+    compiler_flags::{self, CC, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
         MBTI_USER_WRITTEN, MOD_DIR, MOONCAKE_BIN, PKG_DIR, PackageSourceFileKind, is_moon_mod,
@@ -964,7 +964,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let mut link_flags = native_config
+        let mut link_args = native_config
             .and_then(|native| native.stub_cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
@@ -973,7 +973,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 })
             })
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(NativeLinkArg::Opaque)
+            .collect();
 
         let effective_native_toolchain = self
             .effective_native_toolchain(stub_cc.as_ref())
@@ -984,11 +987,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 )
             })?;
 
-        self.propagate_link_config(
-            &effective_native_toolchain,
-            std::iter::once(target),
-            &mut link_flags,
-        );
+        if let Some(prebuild) = self.prebuild_config {
+            prebuild.append_link_args(std::iter::once(target), &mut link_args);
+        }
 
         let static_archive_fingerprint = effective_native_toolchain
             .cc()
@@ -1010,7 +1011,7 @@ impl<'a> BuildPlanConstructor<'a> {
             debug_info,
             opt_level,
             cc_flags,
-            link_flags,
+            link_args,
             static_archive_fingerprint,
         };
         self.res.backend.c_stubs_info.insert(target, c_info);
@@ -1120,7 +1121,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let mut link_flags = native_config
+        let mut link_args = native_config
             .and_then(|native| native.cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
@@ -1129,7 +1130,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 })
             })
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(NativeLinkArg::Opaque)
+            .collect();
 
         let mut link_pkgs: Vec<PackageId> = targets.iter().map(|x| x.package).collect();
         if !link_pkgs.contains(&target.package) {
@@ -1144,11 +1148,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 )
             })?;
 
-        self.propagate_link_config(
-            &effective_native_toolchain,
-            link_pkgs.into_iter(),
-            &mut link_flags,
-        );
+        if let Some(prebuild) = self.prebuild_config {
+            prebuild.append_link_args(link_pkgs.into_iter(), &mut link_args);
+        }
 
         let moonc_debug_info = self.res.backend.moonc_debug_info();
         let generate_dsym = match &self.config.backend {
@@ -1194,7 +1196,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 OptLevel::Release => CCOptLevel::Speed,
             },
             c_flags,
-            link_flags,
+            link_args,
             native_allocator,
         };
         self.res.backend.make_executable_info.insert(target, v);
@@ -1381,48 +1383,6 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         Ok((link_core_deps, c_stub_deps, abort_overridden))
-    }
-
-    /// Propagate the link configuration of the packages in dependency to the output list
-    fn propagate_link_config(
-        &self,
-        toolchain: &Toolchain,
-        pkgs: impl Iterator<Item = PackageId>,
-        out: &mut Vec<String>,
-    ) {
-        let Some(prebuild) = self.prebuild_config else {
-            return;
-        };
-        let is_msvc_like = toolchain.uses_msvc_link_library_names();
-        for pkg in pkgs {
-            let Some(link_config) = prebuild.package_configs.get(&pkg) else {
-                continue;
-            };
-
-            let link_flags = link_config
-                .link_flags
-                .as_ref()
-                .and_then(|x| shlex::split(x));
-            if let Some(link_flags) = link_flags {
-                out.extend(link_flags);
-            }
-
-            for lib in &link_config.link_libs {
-                if is_msvc_like {
-                    out.push(format!("{lib}.lib"));
-                } else {
-                    out.push(format!("-l{lib}"));
-                }
-            }
-
-            for path in &link_config.link_search_paths {
-                if is_msvc_like {
-                    out.push(format!("/LIBPATH:{path}"));
-                } else {
-                    out.push(format!("-L{path}"));
-                }
-            }
-        }
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

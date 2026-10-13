@@ -93,6 +93,33 @@ pub struct CC {
     pub is_env_override: bool, // Whether the cc is set by env MOON_CC
 }
 
+/// One native link input, kept in order until command construction.
+///
+/// Library names and search paths are driver-independent. Opaque arguments are
+/// already tokenized user flags and must match the selected driver.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeLinkArg {
+    Library(String),
+    SearchPath(PathBuf),
+    Opaque(String),
+}
+
+impl NativeLinkArg {
+    /// Render at the compiler-driver boundary. MSVC command builders must place
+    /// these arguments after `/link`, once all compiler options are complete.
+    pub fn render(&self, cc: &CC) -> String {
+        // Driver syntax is independent of the target ABI: plain clang still
+        // expects GCC-style library options when targeting MSVC.
+        match self {
+            Self::Library(name) if cc.uses_msvc_cli() => format!("{name}.lib"),
+            Self::Library(name) => format!("-l{name}"),
+            Self::SearchPath(path) if cc.uses_msvc_cli() => format!("/LIBPATH:{}", path.display()),
+            Self::SearchPath(path) => format!("-L{}", path.display()),
+            Self::Opaque(arg) => arg.clone(),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ToolchainSource {
     EnvOverride,
@@ -246,27 +273,25 @@ impl Toolchain {
     }
 
     pub fn abi_family(&self) -> NativeAbiFamily {
-        if self.cc.is_msvc() || self.cc.targets_msvc() {
+        if self.cc.uses_msvc_cli() || self.cc.targets_msvc() {
             NativeAbiFamily::Msvc
         } else {
             NativeAbiFamily::Other
         }
     }
 
+    /// Whether the toolchain uses the MSVC ABI, independently of its CLI syntax.
     pub fn uses_msvc_abi(&self) -> bool {
         self.abi_family() == NativeAbiFamily::Msvc
     }
 
-    pub fn uses_msvc_driver(&self) -> bool {
-        self.cc.is_msvc()
-    }
-
-    pub fn uses_msvc_link_library_names(&self) -> bool {
-        self.uses_msvc_abi()
+    /// Whether the compiler accepts the cl-compatible CLI, including clang-cl.
+    pub fn uses_msvc_cli(&self) -> bool {
+        self.cc.uses_msvc_cli()
     }
 
     pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
-        self.uses_msvc_driver().then_some(MsvcCrtPolicy::StaticMt)
+        self.uses_msvc_cli().then_some(MsvcCrtPolicy::StaticMt)
     }
 
     pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
@@ -339,7 +364,7 @@ fn resolve_native_toolchain_executables_with(
 /// Toolchains returned across this boundary always contain concrete executable paths.
 fn resolve_native_toolchain_executables(toolchain: Toolchain) -> anyhow::Result<Toolchain> {
     #[cfg(windows)]
-    if toolchain.cc.is_msvc() && !is_path_like_tool(&toolchain.cc.cc_path) {
+    if toolchain.cc.uses_msvc_cli() && !is_path_like_tool(&toolchain.cc.cc_path) {
         let discovered = resolve_windows_msvc_toolchain()?;
         return Ok(resolve_msvc_toolchain_override(toolchain, &discovered));
     }
@@ -561,7 +586,8 @@ impl CC {
         matches!(self.cc_kind, CCKind::SystemCC | CCKind::Gcc | CCKind::Clang)
     }
 
-    pub fn is_msvc(&self) -> bool {
+    /// Whether the compiler accepts the cl-compatible CLI, including clang-cl.
+    pub fn uses_msvc_cli(&self) -> bool {
         matches!(self.cc_kind, CCKind::Msvc)
     }
 
@@ -569,6 +595,7 @@ impl CC {
         matches!(self.cc_kind, CCKind::Tcc)
     }
 
+    /// Whether the probed target triple identifies the MSVC ABI.
     pub fn targets_msvc(&self) -> bool {
         self.target_triple
             .as_deref()
@@ -586,11 +613,11 @@ impl CC {
     }
 
     pub fn can_use_simdutf(&self) -> bool {
-        CAN_USE_SIMDUTF && !self.is_tcc() && !self.is_msvc() && !self.targets_msvc()
+        CAN_USE_SIMDUTF && !self.is_tcc() && !self.uses_msvc_cli() && !self.targets_msvc()
     }
 
     pub fn can_link_libmoonbitrun_o(&self) -> bool {
-        CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_tcc()
+        CAN_USE_MOONBITRUN && !self.uses_msvc_cli() && !self.is_tcc()
     }
 
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
@@ -851,7 +878,7 @@ fn add_linker_output_flags(
     config: &LinkerConfig<impl AsRef<Path>>,
     dest: &str,
 ) {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
                 // /F(executable)
@@ -885,7 +912,7 @@ fn add_linker_library_paths<P: AsRef<Path>>(
 fn add_linker_intermediate_dir_flags(cc: &CC, buf: &mut Vec<String>, dest_dir: &str) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         // /F(object)
         buf.push(format!("/Fo{dest_dir}\\"));
     }
@@ -897,7 +924,7 @@ fn add_linker_shared_lib_flags(
     config: &LinkerConfig<impl AsRef<Path>>,
 ) {
     if config.output_ty == OutputType::SharedLib {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-shared".to_string());
@@ -924,7 +951,7 @@ pub fn make_linker_command<S, P>(
     cc: CC,
     user_cc: Option<CC>,
     config: LinkerConfig<P>,
-    user_link_flags: &[S],
+    link_args: &[NativeLinkArg],
     src: &[S],
     dest_dir: &str,
     dest: &str,
@@ -938,7 +965,7 @@ where
     make_linker_command_resolved(
         resolved_cc,
         config,
-        user_link_flags,
+        link_args,
         src,
         dest_dir,
         dest,
@@ -949,7 +976,7 @@ where
 pub fn make_linker_command_resolved<S, P>(
     cc: CC,
     config: LinkerConfig<P>,
-    user_link_flags: &[S],
+    link_args: &[NativeLinkArg],
     src: &[S],
     dest_dir: &str,
     dest: &str,
@@ -979,7 +1006,7 @@ where
     add_linker_common_libraries(&cc, &mut buf, &config);
     add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
 
-    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(link_args.iter().map(|arg| arg.render(&cc)));
     if config.link_libbacktrace {
         let libbacktrace_path = Path::new(lpath).join("libbacktrace.a");
         if libbacktrace_path.exists() {
@@ -995,7 +1022,7 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
     let Some(dest) = dest else {
         return;
     };
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         match config.output_ty {
             OutputType::Object => {
                 buf.push(format!("/Fo{dest}"));
@@ -1011,7 +1038,7 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
 }
 
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push(format!("/I{ipath}"));
     } else if cc.is_tcc() {
         buf.push(format!("-I{ipath}"));
@@ -1030,7 +1057,7 @@ fn add_cc_intermediate_dir_flags(
 ) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
-    if cc.is_msvc() && config.output_ty != OutputType::Object {
+    if cc.uses_msvc_cli() && config.output_ty != OutputType::Object {
         buf.push(format!("/Fo{dest_dir}\\"));
     }
 }
@@ -1039,7 +1066,7 @@ fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.debug_info {
         if cc.is_gcc_like() {
             buf.push("-g".to_string());
-        } else if cc.is_msvc() {
+        } else if cc.uses_msvc_cli() {
             buf.push("/Z7".to_string());
         }
     }
@@ -1047,7 +1074,7 @@ fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
 fn add_cc_shared_lib_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::SharedLib {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-shared".to_string());
@@ -1058,7 +1085,7 @@ fn add_cc_shared_lib_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
 fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::Object {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/c".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-c".to_string());
@@ -1075,28 +1102,28 @@ fn add_cc_optimization_flags(
     if !has_user_flags {
         match config.opt_level {
             OptLevel::Speed => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/O2".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O2".to_string());
                 }
             }
             OptLevel::Size => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Os".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Os".to_string());
                 }
             }
             OptLevel::Debug => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Od".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Og".to_string());
                 }
             }
             OptLevel::None => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Od".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O0".to_string());
@@ -1107,7 +1134,7 @@ fn add_cc_optimization_flags(
 }
 
 fn add_cc_build_system_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    let prefix = if cc.is_msvc() {
+    let prefix = if cc.uses_msvc_cli() {
         "/D"
     } else if cc.is_gcc_like() {
         "-D"
@@ -1126,7 +1153,7 @@ fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig
     // always set this even if user cc flags are set
     // user cannot easily know when we use shared runtime
     if config.define_use_shared_runtime_macro {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/DMOONBIT_USE_SHARED_RUNTIME".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-fPIC".to_string());
@@ -1140,7 +1167,7 @@ fn add_cc_simdutf_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
         return;
     }
 
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push("/DMOONBIT_USE_SIMDUTF".to_string());
     } else if cc.is_gcc_like() {
         buf.push("-DMOONBIT_USE_SIMDUTF".to_string());
@@ -1154,7 +1181,7 @@ fn add_cc_allocator_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
     let allocator_macro = native_allocator.moonbit_allocator_macro(cc, config.link_moonbitrun);
 
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push(format!("/DMOONBIT_ALLOCATOR={allocator_macro}"));
     } else if cc.is_gcc_like() {
         buf.push(format!("-DMOONBIT_ALLOCATOR={allocator_macro}"));
@@ -1203,7 +1230,7 @@ where
 ///
 /// Use this when there are no extra link-only flags. It still may produce a
 /// link command when `config.output_ty` is `Executable` or `SharedLib`; the
-/// name only means there is no separate `user_link_flags` input.
+/// name only means there is no separate `link_args` input.
 pub fn make_cc_command_resolved<S>(
     cc: CC,
     config: CCConfig,
@@ -1216,11 +1243,11 @@ pub fn make_cc_command_resolved<S>(
 where
     S: AsRef<str>,
 {
-    make_cc_command_resolved_with_link_flags(
+    make_cc_command_resolved_with_link_args(
         cc,
         config,
         cc_flags,
-        &[] as &[&str],
+        &[],
         src,
         intermediate_dir,
         dest,
@@ -1228,21 +1255,21 @@ where
     )
 }
 
-/// Build a C compiler-driver command with separate compile and link flag inputs.
+/// Build a C compiler-driver command with separate compile flags and structured link inputs.
 ///
 /// `resolved` means this function does not consult `MOON_CC`, package CC
 /// overrides, or global `MOON_HOME` paths. Callers pass the effective `CC` and
 /// `CompilerPaths` decided by build planning/lowering.
 ///
 /// `cc_flags` are compile-driver flags. Non-empty C flags are treated as user
-/// overrides and suppress default optimization flags. `user_link_flags` are
-/// appended only for the link step and do not suppress compiler defaults.
+/// overrides and suppress default optimization flags. `link_args` do not
+/// suppress compiler defaults; callers pass an empty slice for compile-only output.
 #[allow(clippy::too_many_arguments)]
-pub fn make_cc_command_resolved_with_link_flags<S, L>(
+pub fn make_cc_command_resolved_with_link_args<S>(
     cc: CC,
     config: CCConfig,
     cc_flags: &[S],
-    user_link_flags: &[L],
+    link_args: &[NativeLinkArg],
     src: impl IntoIterator<Item = impl Into<String>>,
     intermediate_dir: &str,
     dest: Option<&str>,
@@ -1250,14 +1277,13 @@ pub fn make_cc_command_resolved_with_link_flags<S, L>(
 ) -> Vec<String>
 where
     S: AsRef<str>,
-    L: AsRef<str>,
 {
-    make_cc_command_resolved_with_link_flags_and_toolchain(
+    make_cc_command_resolved_with_link_args_and_toolchain(
         None,
         cc,
         config,
         cc_flags,
-        user_link_flags,
+        link_args,
         src,
         intermediate_dir,
         dest,
@@ -1266,11 +1292,11 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn make_cc_command_resolved_for_toolchain<S, L>(
+pub fn make_cc_command_resolved_for_toolchain<S>(
     toolchain: &Toolchain,
     config: CCConfig,
     cc_flags: &[S],
-    user_link_flags: &[L],
+    link_args: &[NativeLinkArg],
     src: impl IntoIterator<Item = impl Into<String>>,
     intermediate_dir: &str,
     dest: Option<&str>,
@@ -1278,14 +1304,13 @@ pub fn make_cc_command_resolved_for_toolchain<S, L>(
 ) -> Vec<String>
 where
     S: AsRef<str>,
-    L: AsRef<str>,
 {
-    make_cc_command_resolved_with_link_flags_and_toolchain(
+    make_cc_command_resolved_with_link_args_and_toolchain(
         Some(toolchain),
         toolchain.cc().clone(),
         config,
         cc_flags,
-        user_link_flags,
+        link_args,
         src,
         intermediate_dir,
         dest,
@@ -1294,12 +1319,12 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn make_cc_command_resolved_with_link_flags_and_toolchain<S, L>(
+fn make_cc_command_resolved_with_link_args_and_toolchain<S>(
     toolchain: Option<&Toolchain>,
     cc: CC,
     config: CCConfig,
     cc_flags: &[S],
-    user_link_flags: &[L],
+    link_args: &[NativeLinkArg],
     src: impl IntoIterator<Item = impl Into<String>>,
     intermediate_dir: &str,
     dest: Option<&str>,
@@ -1307,7 +1332,6 @@ fn make_cc_command_resolved_with_link_flags_and_toolchain<S, L>(
 ) -> Vec<String>
 where
     S: AsRef<str>,
-    L: AsRef<str>,
 {
     let mut buf = vec![
         toolchain
@@ -1351,15 +1375,16 @@ where
     add_cc_common_libraries(&cc, &mut buf, &config);
     buf.extend(cc_flags.iter().map(|s| s.as_ref().to_string()));
     add_cc_msvc_runtime_flags(&cc, toolchain, &mut buf);
-    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
+    // Finish compiler options before /link; MSVC otherwise ignores linker
+    // options such as prebuild-provided /LIBPATH entries.
+    add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
+    buf.extend(link_args.iter().map(|arg| arg.render(&cc)));
     if config.link_libbacktrace && config.output_ty != OutputType::Object {
         let libbacktrace_path = Path::new(&paths.lib_path).join("libbacktrace.a");
         if libbacktrace_path.exists() {
             buf.push(libbacktrace_path.display().to_string());
         }
     }
-    add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
-
     buf
 }
 #[cfg(test)]
@@ -1440,7 +1465,7 @@ mod tests {
         };
         for kind in [CCKind::Gcc, CCKind::Clang, CCKind::Msvc, CCKind::Tcc] {
             let cc = fake_cc(kind, None);
-            let prefix = if cc.is_msvc() { "/D" } else { "-D" };
+            let prefix = if cc.uses_msvc_cli() { "/D" } else { "-D" };
             let user_flag = format!("{prefix}USER_OPTION=1");
             for enabled in [false, true] {
                 let mut config = executable_cc_config();
@@ -1485,11 +1510,11 @@ mod tests {
         config.output_ty = OutputType::Object;
         config.native_allocator = Some(NativeAllocator::Mimalloc);
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["runtime.c"],
             "build/runtime",
             Some("build/runtime/runtime.o"),
@@ -1514,11 +1539,11 @@ mod tests {
         config.link_moonbitrun = true;
         config.native_allocator = Some(NativeAllocator::Default);
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main.exe"),
@@ -1542,11 +1567,11 @@ mod tests {
         config.link_moonbitrun = true;
         config.native_allocator = Some(NativeAllocator::System);
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main.exe"),
@@ -1572,11 +1597,11 @@ mod tests {
         config.link_moonbitrun = true;
         config.native_allocator = Some(NativeAllocator::Default);
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["runtime.c"],
             "build/runtime",
             Some("build/runtime/runtime.o"),
@@ -1603,11 +1628,11 @@ mod tests {
         let mut cc = fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu"));
         cc.is_env_override = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             cc,
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["runtime.c"],
             "build/runtime",
             Some("build/runtime/runtime.o"),
@@ -1632,7 +1657,7 @@ mod tests {
                 link_shared_runtime: None,
                 native_allocator: NativeAllocator::System,
             },
-            &[] as &[&str],
+            &[],
             &["main.o"],
             "build/main",
             "build/main/main",
@@ -1657,7 +1682,7 @@ mod tests {
                 link_shared_runtime: None,
                 native_allocator: NativeAllocator::Mimalloc,
             },
-            &[] as &[&str],
+            &[],
             &["main.o"],
             "build/main",
             "build/main/main",
@@ -1754,7 +1779,7 @@ mod tests {
 
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
-        assert!(toolchain.uses_msvc_driver());
+        assert!(toolchain.uses_msvc_cli());
         assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
         assert_eq!(
             toolchain
@@ -1772,8 +1797,7 @@ mod tests {
 
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
-        assert!(!toolchain.uses_msvc_driver());
-        assert!(toolchain.uses_msvc_link_library_names());
+        assert!(!toolchain.uses_msvc_cli());
         assert_eq!(toolchain.msvc_crt_policy(), None);
     }
 
@@ -2044,7 +2068,7 @@ mod tests {
                 .build()
                 .expect("MSVC command config should build"),
             &["/MD"],
-            &[] as &[&str],
+            &[],
             ["stub.c".to_string()],
             "pkg",
             Some("stub.obj"),
@@ -2071,11 +2095,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.no_sys_header = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Tcc, None),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main"),
@@ -2096,7 +2120,7 @@ mod tests {
                 link_shared_runtime: None,
                 native_allocator: NativeAllocator::Default,
             },
-            &[] as &[&str],
+            &[],
             &["main.o"],
             "build/main",
             "build/main/main",
@@ -2190,11 +2214,11 @@ mod tests {
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             executable_cc_config(),
             &[] as &[&str],
-            &["-lcustom"],
+            &[NativeLinkArg::Opaque("-lcustom".into())],
             ["main.c"],
             "build/main",
             Some("build/main/main"),
@@ -2212,11 +2236,11 @@ mod tests {
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Msvc, None),
             executable_cc_config(),
             &["/O2"],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main.exe"),
@@ -2235,6 +2259,154 @@ mod tests {
     }
 
     #[test]
+    fn native_link_args_use_driver_syntax() {
+        let paths = CompilerPaths {
+            include_path: "moon/include".into(),
+            lib_path: "moon/lib".into(),
+        };
+        let link_args = [
+            NativeLinkArg::Opaque("custom dir/custom.lib".into()),
+            NativeLinkArg::Library("SDL3".into()),
+            NativeLinkArg::SearchPath("SDL libs".into()),
+            NativeLinkArg::Library("SDL3".into()),
+        ];
+
+        for (driver, kind, triple, expected) in [
+            (
+                "clang.exe",
+                CCKind::Clang,
+                Some("x86_64-pc-windows-msvc"),
+                ["custom dir/custom.lib", "-lSDL3", "-LSDL libs", "-lSDL3"],
+            ),
+            (
+                "clang.exe",
+                CCKind::Clang,
+                Some("x86_64-w64-windows-gnu"),
+                ["custom dir/custom.lib", "-lSDL3", "-LSDL libs", "-lSDL3"],
+            ),
+            (
+                "cl.exe",
+                CCKind::Msvc,
+                None,
+                [
+                    "custom dir/custom.lib",
+                    "SDL3.lib",
+                    "/LIBPATH:SDL libs",
+                    "SDL3.lib",
+                ],
+            ),
+            (
+                "clang-cl.exe",
+                CCKind::Msvc,
+                None,
+                [
+                    "custom dir/custom.lib",
+                    "SDL3.lib",
+                    "/LIBPATH:SDL libs",
+                    "SDL3.lib",
+                ],
+            ),
+        ] {
+            let mut cc = fake_cc(kind, triple);
+            cc.cc_path = driver.into();
+            let toolchain = Toolchain::from_path_probe(cc.clone());
+            let generated_c = make_cc_command_resolved_for_toolchain(
+                &toolchain,
+                executable_cc_config(),
+                &[] as &[&str],
+                &link_args,
+                ["main.c"],
+                "build",
+                Some("build/main.exe"),
+                &paths,
+            );
+            let link_only = make_linker_command_resolved(
+                cc,
+                LinkerConfig::<&Path> {
+                    link_moonbitrun: false,
+                    link_libbacktrace: false,
+                    output_ty: OutputType::Executable,
+                    link_shared_runtime: None,
+                    native_allocator: NativeAllocator::Default,
+                },
+                &link_args,
+                &["main.obj"],
+                "build",
+                "build/main.exe",
+                &paths.lib_path,
+            );
+
+            for command in [generated_c, link_only] {
+                let start = command.len() - expected.len();
+                assert_eq!(
+                    &command[start..],
+                    expected,
+                    "driver: {driver}, target: {triple:?}, command: {command:?}"
+                );
+                if toolchain.uses_msvc_cli() {
+                    let link = command.iter().position(|arg| arg == "/link").unwrap();
+                    assert!(link < start, "{command:?}");
+                } else {
+                    assert!(!command.iter().any(|arg| arg == "/link"), "{command:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn msvc_cc_link_flags_follow_link_separator() {
+        let paths = CompilerPaths {
+            include_path: "moon/include".to_string(),
+            lib_path: "moon/lib".to_string(),
+        };
+
+        for driver in ["cl.exe", "clang-cl.exe"] {
+            for output_ty in [OutputType::Executable, OutputType::SharedLib] {
+                let mut cc = fake_cc(CCKind::Msvc, None);
+                cc.cc_path = driver.to_string();
+                let toolchain = Toolchain::from_path_probe(cc);
+                let mut config = executable_cc_config();
+                config.output_ty = output_ty;
+                let command = make_cc_command_resolved_for_toolchain(
+                    &toolchain,
+                    config,
+                    &["/O2"],
+                    &[
+                        NativeLinkArg::Library("SDL3".into()),
+                        NativeLinkArg::SearchPath("SDL libs".into()),
+                        NativeLinkArg::Opaque("/DEBUG".into()),
+                    ],
+                    ["main.c"],
+                    "build",
+                    Some("build/main.exe"),
+                    &paths,
+                );
+
+                let link = command
+                    .iter()
+                    .position(|arg| arg == "/link")
+                    .expect("MSVC link command needs /link");
+                for arg in ["main.c", "/O2", "/MT"] {
+                    assert!(
+                        command[..link].iter().any(|flag| flag == arg),
+                        "{command:?}"
+                    );
+                }
+                assert_eq!(
+                    &command[link + 1..],
+                    [
+                        "/LIBPATH:moon/lib",
+                        "SDL3.lib",
+                        "/LIBPATH:SDL libs",
+                        "/DEBUG"
+                    ],
+                    "driver: {driver}, command: {command:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn msvc_link_flags_keep_nologo() {
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Msvc, None),
@@ -2245,7 +2417,7 @@ mod tests {
                 link_shared_runtime: None,
                 native_allocator: NativeAllocator::Default,
             },
-            &["/DEBUG"],
+            &[NativeLinkArg::Opaque("/DEBUG".into())],
             &["main.obj"],
             "build",
             "build/main.exe",
@@ -2262,11 +2434,11 @@ mod tests {
         let short_source = r"\\?\C:\build\main.c";
         let long_source = format!(r"\\?\C:\build\{}main.c", "segment\\".repeat(40));
         let output_dir = r"\\?\C:\build";
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Msvc, None),
             executable_cc_config(),
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             [short_source, &long_source],
             output_dir,
             Some(r"\\?\C:\build\main.exe"),
@@ -2291,11 +2463,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.allow_stacktrace = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["runtime.c"],
             "build",
             Some("build/runtime.o"),
@@ -2331,11 +2503,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.link_libbacktrace = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &["-lcustom"],
+            &[NativeLinkArg::Opaque("-lcustom".into())],
             ["main.c"],
             "build/main",
             Some("build/main/main"),
@@ -2366,11 +2538,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.use_simdutf = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["runtime.c"],
             "build",
             Some("build/runtime.o"),
@@ -2417,11 +2589,11 @@ mod tests {
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             executable_cc_config(),
             &["-O3"],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main"),

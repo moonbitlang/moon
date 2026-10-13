@@ -21,7 +21,7 @@
 use std::path::Path;
 
 use moonutil::compiler_flags::{
-    MsvcCrtPolicy, NativeAllocator, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
+    MsvcCrtPolicy, NativeAllocator, NativeLinkArg, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
     WINDOWS_MSVC_DEFAULT_LIBS,
 };
 
@@ -68,7 +68,7 @@ pub(crate) fn compile_runtime_command(
 pub(crate) fn link_executable_command(
     toolchain: &Toolchain,
     sources: &[String],
-    user_link_flags: &[String],
+    link_args: &[NativeLinkArg],
     dest: &str,
     lib_path: &str,
 ) -> Vec<String> {
@@ -88,7 +88,7 @@ pub(crate) fn link_executable_command(
         "/subsystem:console".to_string(),
         format!("/LIBPATH:{lib_path}"),
     ]);
-    command.extend(user_link_flags.iter().cloned());
+    command.extend(link_args.iter().map(|arg| arg.render(toolchain.cc())));
     command.extend(WINDOWS_MSVC_DEFAULT_LIBS.iter().map(|lib| lib.to_string()));
     command
 }
@@ -161,14 +161,38 @@ mod tests {
         let command = link_executable_command(
             &fake_msvc_toolchain(),
             &["main.obj".to_string(), "runtime.obj".to_string()],
-            &["custom.lib".to_string()],
+            &[
+                NativeLinkArg::Library("custom".into()),
+                NativeLinkArg::SearchPath("custom libs".into()),
+                NativeLinkArg::Opaque("/DEBUG".into()),
+            ],
             "main.exe",
             "moon/lib",
         );
 
-        assert!(command.iter().any(|arg| arg == "/LIBPATH:moon/lib"));
-        assert!(command.iter().any(|arg| arg == "custom.lib"));
-        assert!(command.iter().any(|arg| arg == "libcmt.lib"));
-        assert!(command.iter().any(|arg| arg == "kernel32.lib"));
+        assert_eq!(
+            command,
+            [
+                "cl.exe",
+                "/nologo",
+                "/Femain.exe",
+                "main.obj",
+                "runtime.obj",
+                "/link",
+                "/nologo",
+                "/subsystem:console",
+                "/LIBPATH:moon/lib",
+                "custom.lib",
+                "/LIBPATH:custom libs",
+                "/DEBUG",
+                "libcmt.lib",
+                "oldnames.lib",
+                "kernel32.lib",
+                "shell32.lib",
+                "user32.lib",
+                "dbghelp.lib",
+                "uuid.lib",
+            ]
+        );
     }
 }
