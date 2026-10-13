@@ -228,39 +228,6 @@ pub fn build_patch_directive_for_package(
     })
 }
 
-/// Represents the result of the build process
-#[derive(Debug, Clone)]
-pub enum BuildResult {
-    /// The build succeeded with the given number of tasks executed.
-    Succeeded(usize),
-    /// The build failed.
-    Failed,
-}
-
-impl BuildResult {
-    /// Whether the build was successful.
-    pub fn successful(&self) -> bool {
-        matches!(self, BuildResult::Succeeded(_))
-    }
-
-    /// Get the return code that should be returned to the shell.
-    pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() { 0 } else { 1 }
-    }
-
-    /// Print information about the build result.
-    pub fn print_info(&self) {
-        match self {
-            BuildResult::Succeeded(n) => {
-                println!("{} task(s) executed.", n);
-            }
-            BuildResult::Failed => {
-                println!("Build failed.");
-            }
-        }
-    }
-}
-
 /// Select the backend and construct the final configuration for a resolved project.
 ///
 /// CLI policy is resolved here while both the original flags and selected backend
