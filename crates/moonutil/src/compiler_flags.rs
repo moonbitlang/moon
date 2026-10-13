@@ -111,9 +111,9 @@ impl NativeLinkArg {
         // Driver syntax is independent of the target ABI: plain clang still
         // expects GCC-style library options when targeting MSVC.
         match self {
-            Self::Library(name) if cc.is_msvc() => format!("{name}.lib"),
+            Self::Library(name) if cc.uses_msvc_cli() => format!("{name}.lib"),
             Self::Library(name) => format!("-l{name}"),
-            Self::SearchPath(path) if cc.is_msvc() => format!("/LIBPATH:{}", path.display()),
+            Self::SearchPath(path) if cc.uses_msvc_cli() => format!("/LIBPATH:{}", path.display()),
             Self::SearchPath(path) => format!("-L{}", path.display()),
             Self::Opaque(arg) => arg.clone(),
         }
@@ -273,23 +273,25 @@ impl Toolchain {
     }
 
     pub fn abi_family(&self) -> NativeAbiFamily {
-        if self.cc.is_msvc() || self.cc.targets_msvc() {
+        if self.cc.uses_msvc_cli() || self.cc.targets_msvc() {
             NativeAbiFamily::Msvc
         } else {
             NativeAbiFamily::Other
         }
     }
 
+    /// Whether the toolchain uses the MSVC ABI, independently of its CLI syntax.
     pub fn uses_msvc_abi(&self) -> bool {
         self.abi_family() == NativeAbiFamily::Msvc
     }
 
-    pub fn uses_msvc_driver(&self) -> bool {
-        self.cc.is_msvc()
+    /// Whether the compiler accepts the cl-compatible CLI, including clang-cl.
+    pub fn uses_msvc_cli(&self) -> bool {
+        self.cc.uses_msvc_cli()
     }
 
     pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
-        self.uses_msvc_driver().then_some(MsvcCrtPolicy::StaticMt)
+        self.uses_msvc_cli().then_some(MsvcCrtPolicy::StaticMt)
     }
 
     pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
@@ -362,7 +364,7 @@ fn resolve_native_toolchain_executables_with(
 /// Toolchains returned across this boundary always contain concrete executable paths.
 fn resolve_native_toolchain_executables(toolchain: Toolchain) -> anyhow::Result<Toolchain> {
     #[cfg(windows)]
-    if toolchain.cc.is_msvc() && !is_path_like_tool(&toolchain.cc.cc_path) {
+    if toolchain.cc.uses_msvc_cli() && !is_path_like_tool(&toolchain.cc.cc_path) {
         let discovered = resolve_windows_msvc_toolchain()?;
         return Ok(resolve_msvc_toolchain_override(toolchain, &discovered));
     }
@@ -584,7 +586,8 @@ impl CC {
         matches!(self.cc_kind, CCKind::SystemCC | CCKind::Gcc | CCKind::Clang)
     }
 
-    pub fn is_msvc(&self) -> bool {
+    /// Whether the compiler accepts the cl-compatible CLI, including clang-cl.
+    pub fn uses_msvc_cli(&self) -> bool {
         matches!(self.cc_kind, CCKind::Msvc)
     }
 
@@ -592,6 +595,7 @@ impl CC {
         matches!(self.cc_kind, CCKind::Tcc)
     }
 
+    /// Whether the probed target triple identifies the MSVC ABI.
     pub fn targets_msvc(&self) -> bool {
         self.target_triple
             .as_deref()
@@ -609,11 +613,11 @@ impl CC {
     }
 
     pub fn can_use_simdutf(&self) -> bool {
-        CAN_USE_SIMDUTF && !self.is_tcc() && !self.is_msvc() && !self.targets_msvc()
+        CAN_USE_SIMDUTF && !self.is_tcc() && !self.uses_msvc_cli() && !self.targets_msvc()
     }
 
     pub fn can_link_libmoonbitrun_o(&self) -> bool {
-        CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_tcc()
+        CAN_USE_MOONBITRUN && !self.uses_msvc_cli() && !self.is_tcc()
     }
 
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
@@ -874,7 +878,7 @@ fn add_linker_output_flags(
     config: &LinkerConfig<impl AsRef<Path>>,
     dest: &str,
 ) {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
                 // /F(executable)
@@ -908,7 +912,7 @@ fn add_linker_library_paths<P: AsRef<Path>>(
 fn add_linker_intermediate_dir_flags(cc: &CC, buf: &mut Vec<String>, dest_dir: &str) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         // /F(object)
         buf.push(format!("/Fo{dest_dir}\\"));
     }
@@ -920,7 +924,7 @@ fn add_linker_shared_lib_flags(
     config: &LinkerConfig<impl AsRef<Path>>,
 ) {
     if config.output_ty == OutputType::SharedLib {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-shared".to_string());
@@ -1018,7 +1022,7 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
     let Some(dest) = dest else {
         return;
     };
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         match config.output_ty {
             OutputType::Object => {
                 buf.push(format!("/Fo{dest}"));
@@ -1034,7 +1038,7 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
 }
 
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push(format!("/I{ipath}"));
     } else if cc.is_tcc() {
         buf.push(format!("-I{ipath}"));
@@ -1053,7 +1057,7 @@ fn add_cc_intermediate_dir_flags(
 ) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
-    if cc.is_msvc() && config.output_ty != OutputType::Object {
+    if cc.uses_msvc_cli() && config.output_ty != OutputType::Object {
         buf.push(format!("/Fo{dest_dir}\\"));
     }
 }
@@ -1062,7 +1066,7 @@ fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.debug_info {
         if cc.is_gcc_like() {
             buf.push("-g".to_string());
-        } else if cc.is_msvc() {
+        } else if cc.uses_msvc_cli() {
             buf.push("/Z7".to_string());
         }
     }
@@ -1070,7 +1074,7 @@ fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
 fn add_cc_shared_lib_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::SharedLib {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-shared".to_string());
@@ -1081,7 +1085,7 @@ fn add_cc_shared_lib_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
 fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::Object {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/c".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-c".to_string());
@@ -1098,28 +1102,28 @@ fn add_cc_optimization_flags(
     if !has_user_flags {
         match config.opt_level {
             OptLevel::Speed => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/O2".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O2".to_string());
                 }
             }
             OptLevel::Size => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Os".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Os".to_string());
                 }
             }
             OptLevel::Debug => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Od".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Og".to_string());
                 }
             }
             OptLevel::None => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Od".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O0".to_string());
@@ -1130,7 +1134,7 @@ fn add_cc_optimization_flags(
 }
 
 fn add_cc_build_system_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    let prefix = if cc.is_msvc() {
+    let prefix = if cc.uses_msvc_cli() {
         "/D"
     } else if cc.is_gcc_like() {
         "-D"
@@ -1149,7 +1153,7 @@ fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig
     // always set this even if user cc flags are set
     // user cannot easily know when we use shared runtime
     if config.define_use_shared_runtime_macro {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/DMOONBIT_USE_SHARED_RUNTIME".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-fPIC".to_string());
@@ -1163,7 +1167,7 @@ fn add_cc_simdutf_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
         return;
     }
 
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push("/DMOONBIT_USE_SIMDUTF".to_string());
     } else if cc.is_gcc_like() {
         buf.push("-DMOONBIT_USE_SIMDUTF".to_string());
@@ -1177,7 +1181,7 @@ fn add_cc_allocator_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
     let allocator_macro = native_allocator.moonbit_allocator_macro(cc, config.link_moonbitrun);
 
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push(format!("/DMOONBIT_ALLOCATOR={allocator_macro}"));
     } else if cc.is_gcc_like() {
         buf.push(format!("-DMOONBIT_ALLOCATOR={allocator_macro}"));
@@ -1461,7 +1465,7 @@ mod tests {
         };
         for kind in [CCKind::Gcc, CCKind::Clang, CCKind::Msvc, CCKind::Tcc] {
             let cc = fake_cc(kind, None);
-            let prefix = if cc.is_msvc() { "/D" } else { "-D" };
+            let prefix = if cc.uses_msvc_cli() { "/D" } else { "-D" };
             let user_flag = format!("{prefix}USER_OPTION=1");
             for enabled in [false, true] {
                 let mut config = executable_cc_config();
@@ -1775,7 +1779,7 @@ mod tests {
 
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
-        assert!(toolchain.uses_msvc_driver());
+        assert!(toolchain.uses_msvc_cli());
         assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
         assert_eq!(
             toolchain
@@ -1793,7 +1797,7 @@ mod tests {
 
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
-        assert!(!toolchain.uses_msvc_driver());
+        assert!(!toolchain.uses_msvc_cli());
         assert_eq!(toolchain.msvc_crt_policy(), None);
     }
 
@@ -2339,7 +2343,7 @@ mod tests {
                     expected,
                     "driver: {driver}, target: {triple:?}, command: {command:?}"
                 );
-                if toolchain.uses_msvc_driver() {
+                if toolchain.uses_msvc_cli() {
                     let link = command.iter().position(|arg| arg == "/link").unwrap();
                     assert!(link < start, "{command:?}");
                 } else {

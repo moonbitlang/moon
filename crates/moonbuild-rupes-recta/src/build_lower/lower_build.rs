@@ -1206,7 +1206,7 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let commandline = if info.effective_native_toolchain.uses_msvc_driver() {
+        let commandline = if info.effective_native_toolchain.uses_msvc_cli() {
             compiler::msvc::link_executable_command(
                 &info.effective_native_toolchain,
                 &source_args,

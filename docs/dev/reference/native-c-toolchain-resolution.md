@@ -366,6 +366,10 @@ This is why Moon records both:
 - the resolved compiler family
 - the probed target triple
 
+`uses_msvc_cli()` identifies the cl-compatible command-line interface used by
+`cl` and `clang-cl`. `uses_msvc_abi()` also covers plain Clang targeting MSVC,
+which still accepts GCC-style command-line arguments.
+
 The `-lm` behavior belongs to this semantic layer, not just to executable lookup.
 
 Build planning keeps native link inputs as an ordered list of `NativeLinkArg`

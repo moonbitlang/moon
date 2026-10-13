@@ -112,7 +112,7 @@ pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
 }
 
 pub(super) fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         Ok(())
     } else {
         anyhow::bail!(
@@ -123,7 +123,7 @@ pub(super) fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
 }
 
 pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref().filter(|cc| cc.is_msvc()) {
+    if let Some(env_cc) = ENV_CC.as_ref().filter(|cc| cc.uses_msvc_cli()) {
         let override_toolchain = Toolchain::from_env_override(env_cc.clone());
         let resolved = if is_path_like_tool(&env_cc.cc_path) {
             override_toolchain
@@ -143,7 +143,7 @@ pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<
 }
 
 pub fn has_incompatible_windows_msvc_env_override() -> bool {
-    ENV_CC.as_ref().is_some_and(|cc| !cc.is_msvc())
+    ENV_CC.as_ref().is_some_and(|cc| !cc.uses_msvc_cli())
 }
 
 pub(super) fn windows_msvc_toolchain_with_package_override(
@@ -201,7 +201,7 @@ pub(super) fn default_librarian(cc_path: &Path) -> String {
 }
 
 pub(super) fn add_linker_specific_flags(cc: &CC, buf: &mut Vec<String>) {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push("/nologo".to_string());
     }
 }
@@ -212,7 +212,7 @@ pub(super) fn add_linker_runtime<P: AsRef<Path>>(
     config: &LinkerConfig<P>,
     lpath: &str,
 ) {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push(
                 dyn_lib_path
@@ -228,7 +228,7 @@ pub(super) fn add_linker_runtime<P: AsRef<Path>>(
 }
 
 pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
-    if !cc.is_msvc() {
+    if !cc.uses_msvc_cli() {
         return;
     }
 
@@ -242,7 +242,7 @@ pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_fla
 }
 
 pub(super) fn add_cc_runtime_flags(cc: &CC, toolchain: Option<&Toolchain>, buf: &mut Vec<String>) {
-    if cc.is_msvc()
+    if cc.uses_msvc_cli()
         && let Some(crt) = toolchain.and_then(Toolchain::msvc_crt_policy)
     {
         buf.push(crt.compiler_flag().to_string());
@@ -250,7 +250,7 @@ pub(super) fn add_cc_runtime_flags(cc: &CC, toolchain: Option<&Toolchain>, buf: 
 }
 
 pub(super) fn add_cc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
-    if cc.is_msvc() && config.output_ty != OutputType::Object {
+    if cc.uses_msvc_cli() && config.output_ty != OutputType::Object {
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{lpath}"));
     }
