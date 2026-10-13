@@ -99,6 +99,18 @@ pub(crate) struct HostFs {
 }
 
 impl HostFs {
+    pub(crate) fn resolve_path(&self, path: &OsStr) -> OsString {
+        match self.working_directory.as_ref() {
+            WorkingDirectory::Ambient => path.to_owned(),
+            WorkingDirectory::Fixed(root) if !path.is_empty() => root.join(path).into_os_string(),
+            WorkingDirectory::Fixed(_) => path.to_owned(),
+        }
+    }
+
+    fn resolved(&self, path: &str) -> PathBuf {
+        self.resolve_path(OsStr::new(path)).into()
+    }
+
     pub(crate) fn new(
         policy: Option<FsPolicy>,
         environment: Arc<Env>,
@@ -132,7 +144,7 @@ impl HostFs {
 
     pub(crate) fn read_file_to_string(&self, path: &str) -> Result<String, HostFsError> {
         self.ensure_read(path)?;
-        std::fs::read_to_string(path)
+        std::fs::read_to_string(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to read file: {path}")))
     }
 
@@ -142,7 +154,7 @@ impl HostFs {
         contents: &str,
     ) -> Result<(), HostFsError> {
         self.ensure_write(path)?;
-        std::fs::write(path, contents)
+        std::fs::write(self.resolved(path), contents)
             .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")))
     }
 
@@ -157,44 +169,44 @@ impl HostFs {
         self.ensure_write(path)?;
         // Decode guest-owned contents only after authorization, matching the
         // existing import's observable failure order for untrusted guests.
-        std::fs::write(path, contents()?)
+        std::fs::write(self.resolved(path), contents()?)
             .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")).into())
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), HostFsError> {
         self.ensure_write(path)?;
-        std::fs::create_dir_all(path)
+        std::fs::create_dir_all(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to create directory: {path}")))
     }
 
     pub(crate) fn read_dir(&self, path: &str) -> Result<Vec<String>, HostFsError> {
         self.ensure_read(path)?;
-        read_dir_entries(path)
+        read_dir_entries(&self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to read directory: {path}")))
     }
 
     pub(crate) fn is_file(&self, path: &str) -> bool {
-        self.ensure_read(path).is_ok() && Path::new(path).is_file()
+        self.ensure_read(path).is_ok() && self.resolved(path).is_file()
     }
 
     pub(crate) fn is_dir(&self, path: &str) -> bool {
-        self.ensure_read(path).is_ok() && Path::new(path).is_dir()
+        self.ensure_read(path).is_ok() && self.resolved(path).is_dir()
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), HostFsError> {
         self.ensure_remove(path)?;
-        std::fs::remove_file(path)
+        std::fs::remove_file(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to remove file: {path}")))
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), HostFsError> {
         self.ensure_remove(path)?;
-        std::fs::remove_dir_all(path)
+        std::fs::remove_dir_all(self.resolved(path))
             .map_err(|_| HostFsError::operation(format!("Failed to remove directory: {path}")))
     }
 
     pub(crate) fn path_exists(&self, path: &str) -> bool {
-        self.ensure_read(path).is_ok() && Path::new(path).exists()
+        self.ensure_read(path).is_ok() && self.resolved(path).exists()
     }
 
     pub(crate) fn current_dir(&self) -> String {
@@ -215,7 +227,7 @@ impl HostFs {
         path: &str,
     ) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
-            std::fs::read(path).map_err(|error| {
+            std::fs::read(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to read file {path}: {error}"))
             })
         });
@@ -240,7 +252,7 @@ impl HostFs {
             .ensure_write(path)
             .and_then(|()| contents().map_err(HostFsError::operation))
             .and_then(|contents| {
-                std::fs::write(path, contents).map_err(|error| {
+                std::fs::write(self.resolved(path), contents).map_err(|error| {
                     HostFsError::operation(format!("Failed to write file {path}: {error}"))
                 })
             });
@@ -249,7 +261,7 @@ impl HostFs {
 
     pub(crate) fn create_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_write(path).and_then(|()| {
-            std::fs::create_dir_all(path).map_err(|error| {
+            std::fs::create_dir_all(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to create directory {path}: {error}"))
             })
         });
@@ -258,7 +270,7 @@ impl HostFs {
 
     pub(crate) fn read_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
-            read_dir_entries(path).map_err(|error| {
+            read_dir_entries(&self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to read directory {path}: {error}"))
             })
         });
@@ -281,7 +293,7 @@ impl HostFs {
 
     pub(crate) fn remove_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_remove(path).and_then(|()| {
-            std::fs::remove_file(path).map_err(|error| {
+            std::fs::remove_file(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to remove file {path}: {error}"))
             })
         });
@@ -290,7 +302,7 @@ impl HostFs {
 
     pub(crate) fn remove_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_remove(path).and_then(|()| {
-            std::fs::remove_dir_all(path).map_err(|error| {
+            std::fs::remove_dir_all(self.resolved(path)).map_err(|error| {
                 HostFsError::operation(format!("Failed to remove directory {path}: {error}"))
             })
         });
@@ -304,7 +316,7 @@ impl HostFs {
         kind: fn(&std::fs::Metadata) -> bool,
     ) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
-            std::fs::metadata(path)
+            std::fs::metadata(self.resolved(path))
                 .map(|metadata| i32::from(kind(&metadata)))
                 .map_err(|error| HostFsError::operation(format!("{error}: {path}")))
         });
@@ -524,7 +536,7 @@ fn authorization_target_at(base: Option<&Path>, path: &OsStr) -> String {
     )
 }
 
-fn read_dir_entries(path: &str) -> std::io::Result<Vec<String>> {
+fn read_dir_entries(path: &Path) -> std::io::Result<Vec<String>> {
     Ok(std::fs::read_dir(path)?
         .filter_map(Result::ok)
         .filter_map(|entry| {
@@ -562,6 +574,57 @@ mod tests {
             environment,
             Arc::new(WorkingDirectory::Ambient),
         )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_enumeration_does_not_substitute_lossy_path() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let directory = tmp.path().join(OsStr::from_bytes(b"workspace-\xff"));
+        let lossy_directory = PathBuf::from(directory.to_string_lossy().into_owned());
+        std::fs::create_dir(&lossy_directory).unwrap();
+        std::fs::write(lossy_directory.join("wrong.txt"), []).unwrap();
+        let host = HostFs::new(
+            None,
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Fixed(directory)),
+        );
+
+        let legacy_result = host.read_dir(".");
+        let mut results = FsOperationResults::default();
+        assert_eq!(host.read_dir_new(&mut results, "."), -1);
+        assert!(legacy_result.is_err());
+        assert!(results.dir_files().is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn directory_enumeration_preserves_non_utf8_working_directory() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let directory = tmp.path().join(OsStr::from_bytes(b"workspace-\xff"));
+        let lossy_directory = PathBuf::from(directory.to_string_lossy().into_owned());
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::create_dir(&lossy_directory).unwrap();
+        std::fs::write(directory.join("expected.txt"), []).unwrap();
+        std::fs::write(lossy_directory.join("wrong.txt"), []).unwrap();
+        let host = HostFs::new(
+            None,
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Fixed(directory)),
+        );
+
+        let legacy_entries = host.read_dir(".").unwrap();
+        let mut results = FsOperationResults::default();
+        assert_eq!(host.read_dir_new(&mut results, "."), 0);
+        let expected = ["expected.txt".to_owned()];
+        assert_eq!(
+            (legacy_entries.as_slice(), results.dir_files()),
+            (expected.as_slice(), expected.as_slice())
+        );
     }
 
     #[test]

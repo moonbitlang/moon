@@ -31,6 +31,7 @@ wasmtime = ["dep:wasmtime"]
 
 [dependencies]
 anyhow.workspace = true
+dunce.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
