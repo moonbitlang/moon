@@ -21,13 +21,14 @@
 #[cfg(windows)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
+#[cfg(windows)]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(unix)]
-use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
-use crate::runtime::{Stdio, StdioStream, WorkingDirectory};
+#[cfg(windows)]
+use crate::runtime::StdioStream;
+use crate::runtime::{Stdio, WorkingDirectory};
 
 use super::{HostProcess, ambient};
 
@@ -318,18 +319,12 @@ impl Job {
         }
     }
 
-    pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
+    pub(super) fn configure_stdio(&mut self, _runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { stdio, .. } => {
-                if matches!(runtime_stdio, Stdio::Owned(_)) {
-                    for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
-                        if slot.is_none() {
-                            let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;
-                            *slot = Some(Arc::new(Resource::stdio_file(raw)));
-                        }
-                    }
-                }
+            Kind::SpawnUnix { .. } => {
+                // An absent Unix file action preserves native descriptor
+                // inheritance, which is exactly the Ambient Runtime setting.
                 Ok(())
             }
             #[cfg(windows)]
@@ -338,7 +333,7 @@ impl Job {
                     // GUI processes may have no standard streams. Preserve
                     // absence for CreateProcessW instead of rejecting spawn.
                     if slot.is_none()
-                        && let Ok(raw) = runtime_stdio.raw(stream)
+                        && let Ok(raw) = Stdio::Ambient.raw(stream)
                     {
                         *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
                     }
@@ -526,58 +521,6 @@ mod tests {
                 assert_eq!(status, 0, "child used an unexpected working directory");
             }
             assert_eq!(result.is_ok(), succeeds);
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn owned_child_stdio_supplies_defaults_and_preserves_explicit_streams() {
-        use std::fs::{self, File};
-        use std::os::fd::AsRawFd;
-
-        for explicit_stdout in [false, true] {
-            let directory = tempfile::tempdir().unwrap();
-            let dir = directory.path();
-            fs::write(dir.join("stdin"), "input\n").unwrap();
-            let stdio = Stdio::owned(
-                File::open(dir.join("stdin")).unwrap(),
-                File::create(dir.join("stdout")).unwrap(),
-                File::create(dir.join("stderr")).unwrap(),
-            );
-            let output = File::create(dir.join("explicit-stdout")).unwrap();
-            let stdout =
-                explicit_stdout.then(|| Arc::new(Resource::stdio_file(output.as_raw_fd())));
-            let mut job = Job::spawn_unix(
-                "/bin/sh".into(),
-                vec![
-                    "sh".into(),
-                    "-c".into(),
-                    "IFS= read -r line; printf 'out:%s\n' \"$line\"; printf 'err:%s\n' \"$line\" >&2".into(),
-                ],
-                Vec::new(),
-                None,
-                stdout,
-                None,
-                None,
-                SpawnOptions {
-                    child_signal_mask: unsafe { std::mem::zeroed() },
-                },
-            );
-            job.configure_stdio(&stdio).unwrap();
-            let pid = job.run().unwrap() as i32;
-            let status = Job::wait_for_process(None, None, pid, false)
-                .unwrap()
-                .run()
-                .unwrap();
-            assert_eq!(status, 0);
-            assert_eq!(fs::read(dir.join("stderr")).unwrap(), b"err:input\n");
-            let (default, explicit) = if explicit_stdout {
-                (b"".as_slice(), b"out:input\n".as_slice())
-            } else {
-                (b"out:input\n".as_slice(), b"".as_slice())
-            };
-            assert_eq!(fs::read(dir.join("stdout")).unwrap(), default);
-            assert_eq!(fs::read(dir.join("explicit-stdout")).unwrap(), explicit);
         }
     }
 

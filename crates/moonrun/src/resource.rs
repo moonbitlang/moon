@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
+use crate::runtime::{Stdio, StdioStream};
 
 #[cfg(unix)]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -125,6 +126,7 @@ enum ResourcePayload {
     },
     // Reserved process stdio handle. The guest can use it, but does not own it.
     StdioFile(isize),
+    ChannelStdio(Stdio, StdioStream),
     TcpSocket {
         raw: OwnedRawSocket,
         family: i32,
@@ -179,6 +181,17 @@ impl Resource {
         )
     }
 
+    pub(crate) fn channel_stdio(stdio: Stdio, stream: StdioStream) -> Self {
+        Self::from_payload(ResourcePayload::ChannelStdio(stdio, stream))
+    }
+
+    pub(crate) fn channel(&self) -> Option<(&Stdio, StdioStream)> {
+        match &self.payload {
+            ResourcePayload::ChannelStdio(stdio, stream) => Some((stdio, *stream)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn stdio_file(raw: fd_util::stub::RawFd) -> Self {
         if raw == invalid_raw_file() {
             return Self::invalid();
@@ -227,14 +240,15 @@ impl Resource {
             ResourcePayload::UdpSocket { .. } => ResourceClass::UdpSocket,
             ResourcePayload::Invalid
             | ResourcePayload::File { .. }
-            | ResourcePayload::StdioFile(_) => ResourceClass::File,
+            | ResourcePayload::StdioFile(_)
+            | ResourcePayload::ChannelStdio(_, _) => ResourceClass::File,
         }
     }
 
     #[cfg(all(test, windows))]
     pub(crate) fn raw_identity(&self) -> isize {
         match &self.payload {
-            ResourcePayload::Invalid => -1,
+            ResourcePayload::Invalid | ResourcePayload::ChannelStdio(_, _) => -1,
             ResourcePayload::File { raw, .. } => raw.as_handle().as_raw_handle() as isize,
             ResourcePayload::StdioFile(raw) => *raw,
             ResourcePayload::TcpSocket { raw, .. } => raw.as_socket().as_raw_socket() as isize,
@@ -247,7 +261,9 @@ impl Resource {
         match &self.payload {
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::File { raw, .. } => Ok(raw.as_fd()),
-            ResourcePayload::StdioFile(_) => Err(AsyncHostError::Inval),
+            ResourcePayload::StdioFile(_) | ResourcePayload::ChannelStdio(_, _) => {
+                Err(AsyncHostError::Inval)
+            }
             ResourcePayload::TcpSocket { raw, .. } => Ok(raw.as_fd()),
             ResourcePayload::UdpSocket { raw, .. } => Ok(raw.as_fd()),
         }
@@ -258,6 +274,7 @@ impl Resource {
         match &self.payload {
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::File { raw, .. } => Ok(FileRef::Borrowed(raw.as_fd())),
+            ResourcePayload::ChannelStdio(_, _) => Err(AsyncHostError::Inval),
             ResourcePayload::StdioFile(raw) => i32::try_from(*raw)
                 .map(FileRef::Stdio)
                 .map_err(|_| AsyncHostError::Badf),
@@ -271,7 +288,9 @@ impl Resource {
         match &self.payload {
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::File { raw, .. } => Ok(raw.as_handle()),
-            ResourcePayload::StdioFile(_) => Err(AsyncHostError::Inval),
+            ResourcePayload::StdioFile(_) | ResourcePayload::ChannelStdio(_, _) => {
+                Err(AsyncHostError::Inval)
+            }
             ResourcePayload::TcpSocket { .. } | ResourcePayload::UdpSocket { .. } => {
                 Err(AsyncHostError::Inval)
             }
@@ -283,6 +302,7 @@ impl Resource {
         match &self.payload {
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::File { raw, .. } => Ok(FileRef::Borrowed(raw.as_handle())),
+            ResourcePayload::ChannelStdio(_, _) => Err(AsyncHostError::Inval),
             ResourcePayload::StdioFile(raw) => Ok(FileRef::Stdio(*raw as RawHandle)),
             ResourcePayload::TcpSocket { .. } | ResourcePayload::UdpSocket { .. } => {
                 Err(AsyncHostError::Inval)
@@ -296,9 +316,9 @@ impl Resource {
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::TcpSocket { raw, .. } => Ok(raw.as_socket()),
             ResourcePayload::UdpSocket { raw, .. } => Ok(raw.as_socket()),
-            ResourcePayload::File { .. } | ResourcePayload::StdioFile(_) => {
-                Err(AsyncHostError::Inval)
-            }
+            ResourcePayload::File { .. }
+            | ResourcePayload::StdioFile(_)
+            | ResourcePayload::ChannelStdio(_, _) => Err(AsyncHostError::Inval),
         }
     }
 
@@ -307,6 +327,7 @@ impl Resource {
             ResourcePayload::File { canonical_path, .. } => canonical_path.as_deref(),
             ResourcePayload::Invalid
             | ResourcePayload::StdioFile(_)
+            | ResourcePayload::ChannelStdio(_, _)
             | ResourcePayload::TcpSocket { .. }
             | ResourcePayload::UdpSocket { .. } => None,
         }
@@ -318,7 +339,8 @@ impl Resource {
             ResourcePayload::UdpSocket { family, .. } => Some(*family),
             ResourcePayload::Invalid
             | ResourcePayload::File { .. }
-            | ResourcePayload::StdioFile(_) => None,
+            | ResourcePayload::StdioFile(_)
+            | ResourcePayload::ChannelStdio(_, _) => None,
         }
     }
 

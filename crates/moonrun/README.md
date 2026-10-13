@@ -207,28 +207,39 @@ Absolute paths and explicit empty filenames retain their existing meaning.
 This selects path interpretation; it does not grant access, create a sandbox,
 or change policy-denial errors. Standard streams default to ambient process I/O.
 
-### Owned standard streams
+### Channel standard streams
 
-`RunOptions::with_stdio` binds a run's standard streams to caller-supplied files:
+`RunOptions::with_stdio` binds guest standard streams to in-memory channels:
 
 ```rust
 use moonrun::{Engine, RunOptions};
-use std::fs::File;
+use std::sync::mpsc::sync_channel;
 
 let engine = Engine::default();
 let module = engine.load_file("agent.wasm")?;
-let options = RunOptions::default().with_stdio(
-    File::open("stdin")?,
-    File::create("stdout")?,
-    File::create("stderr")?,
-);
-let outcome = engine.run(&module, options)?;
+let (input, stdin) = sync_channel(8);
+let (stdout, output) = sync_channel(8);
+let (stderr, errors) = sync_channel(8);
+input.send(b"request\n".to_vec())?;
+drop(input); // EOF after buffered input is consumed.
+let options = RunOptions::default().with_stdio(stdin, stdout, stderr);
+let run = std::thread::spawn(move || engine.run(&module, options));
+let output = std::thread::spawn(move || output.into_iter().flatten().collect::<Vec<_>>());
+let errors: Vec<_> = errors.into_iter().flatten().collect();
+let outcome = run.join().unwrap()?;
+let output = output.join().unwrap();
 ```
 
-Guest standard I/O and missing child standard streams use these bindings.
-Explicit guest-supplied child streams take precedence. The default remains
-ambient process I/O. Cloned options share their supplied files; use separate
-files for independent runs. Working-directory behavior is configured independently.
+Channels carry byte blocks; input preserves partial blocks across reads and
+ignores empty blocks. Output writes produce blocks up to 64 KiB. Bounded output
+channels provide backpressure, so consume both outputs while the run executes.
+Closing an output receiver reports a broken pipe. Cloned options share channel
+endpoints; drop remaining clones to close their output senders.
+
+Guest I/O, Async Host resources, and WASI stdin readiness use channels without
+files, fd/HANDLE conversion, or OS pipes. Native children retain ambient defaults;
+explicitly redirecting them to a guest channel handle is unsupported. Ambient
+process I/O remains the default. Working-directory behavior is unchanged.
 
 ## Memory Leak Reporting
 
