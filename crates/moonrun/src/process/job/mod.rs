@@ -478,25 +478,47 @@ mod tests {
     #[test]
     fn fixed_child_cwd_preserves_explicit_empty_value() {
         let directory = tempfile::tempdir().unwrap();
-        std::fs::create_dir(directory.path().join("child")).unwrap();
-        let working_directory = WorkingDirectory::Fixed(directory.path().to_owned());
+        let root = dunce::canonicalize(directory.path()).unwrap();
+        std::fs::create_dir(root.join("child")).unwrap();
+        let working_directory = WorkingDirectory::Fixed(root.clone());
 
         for (cwd, succeeds) in [
             (None, true),
             (Some(OsString::new()), false),
             (Some(OsString::from("child")), true),
         ] {
-            let mut job = spawn_job("/usr/bin/true", Vec::new());
+            let expected = if cwd.as_deref() == Some(std::ffi::OsStr::new("child")) {
+                root.join("child")
+            } else {
+                root.clone()
+            };
+            let mut job = Job::spawn_unix(
+                "/bin/sh".into(),
+                vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "test \"$PWD\" = \"$EXPECTED\"".into(),
+                ],
+                vec![format!("EXPECTED={}", expected.display()).into()],
+                None,
+                None,
+                None,
+                None,
+                SpawnOptions {
+                    child_signal_mask: unsafe { std::mem::zeroed() },
+                },
+            );
             if let Some(cwd) = cwd {
                 job.set_cwd(cwd).unwrap();
             }
             job.configure_working_directory(&working_directory);
             let result = job.run();
             if let Ok(pid) = result {
-                Job::wait_for_process(None, None, pid as i32, false)
+                let status = Job::wait_for_process(None, None, pid as i32, false)
                     .unwrap()
                     .run()
                     .unwrap();
+                assert_eq!(status, 0, "child used an unexpected working directory");
             }
             assert_eq!(result.is_ok(), succeeds);
         }

@@ -55,7 +55,7 @@ use std::{
 use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
-    compiler_flags::{NativeAllocator, OptLevel as CCOptLevel, Toolchain},
+    compiler_flags::{NativeAllocator, NativeLinkArg, OptLevel as CCOptLevel, Toolchain},
     cond_expr::OptLevel,
     resolution::ModuleId,
     target::TargetBackend,
@@ -479,10 +479,10 @@ pub struct BuildCStubsInfo {
     pub(crate) opt_level: CCOptLevel,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
-    /// Legacy C-stub linker flags retained for manifest compatibility.
+    /// Legacy C-stub link inputs retained for manifest compatibility.
     /// The current static-archive realization does not consume them.
     #[allow(unused)]
-    pub(crate) link_flags: Vec<String>,
+    pub(crate) link_args: Vec<NativeLinkArg>,
     /// Identity of the ordered static archive member list.
     ///
     /// This is only needed for archivers that update an existing archive.
@@ -499,8 +499,8 @@ pub struct MakeExecutableInfo {
     pub(crate) c_opt_level: CCOptLevel,
     /// The flags to pass to the C compiler when compiling the package itself
     pub(crate) c_flags: Vec<String>,
-    /// The flags to pass to the C compiler driver when linking the executable
-    pub(crate) link_flags: Vec<String>,
+    /// Ordered link inputs, rendered by the selected driver during command lowering.
+    pub(crate) link_args: Vec<NativeLinkArg>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<PackageId>,
     /// The allocator selected for the native runtime and executable link.

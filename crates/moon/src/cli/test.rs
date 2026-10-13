@@ -50,6 +50,7 @@ use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
 use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
@@ -1216,9 +1217,13 @@ fn run_tests_with_updates(
     build_graph_backup: Option<BuildInput>,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
+    // One runtime owns the shutdown listener across all backends and update
+    // passes. Dropping a per-worker or per-pass runtime would lose that listener
+    // while other test processes still need cancellation.
+    let rt = crate::run::default_rt().context("Failed to create test runtime")?;
     let mut exit_code = 0;
     'backends: for (build_meta, mut filter) in builds {
-        let build_meta = &build_meta;
+        let build_meta = Arc::new(build_meta);
         debug!(
             artifact_count = build_meta.artifacts.len(),
             backend = ?build_meta.target_backend(),
@@ -1228,8 +1233,8 @@ fn run_tests_with_updates(
         let mut test_result = ReplaceableTestResults::default();
         let mut run_count = 0;
         loop {
-            let latest_result = crate::run::run_tests(
-                build_meta,
+            let latest_result = rt.block_on(crate::run::run_tests(
+                Arc::clone(&build_meta),
                 source_dir,
                 target_dir,
                 &filter,
@@ -1239,7 +1244,7 @@ fn run_tests_with_updates(
                 cmd.build_flags.jobs,
                 cmd.moonrun_policy,
                 user_log,
-            )?;
+            ))?;
             run_count += 1;
             test_result.merge(&latest_result);
             if !cmd.update {
@@ -1294,7 +1299,7 @@ fn run_tests_with_updates(
                 build_config,
                 build_graph,
                 target_dir,
-                Some(build_meta),
+                Some(&build_meta),
                 user_log,
                 want_files.map(PathBuf::as_path),
             )?;
@@ -1309,7 +1314,7 @@ fn run_tests_with_updates(
             };
         }
 
-        test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
+        test_result.print_result(&build_meta, cli.verbose, cmd.test_failure_json);
         let summary = test_result.summary();
         let backend_hint =
             display_backend_hint.then_some(build_meta.target_backend().to_backend_ext());

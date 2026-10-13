@@ -1236,7 +1236,7 @@ mod tests {
             debug_info: false,
             opt_level: moonutil::compiler_flags::OptLevel::None,
             cc_flags: Vec::new(),
-            link_flags: Vec::new(),
+            link_args: Vec::new(),
             static_archive_fingerprint: Some("c-stubs-test".to_string()),
         }
     }

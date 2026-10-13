@@ -104,8 +104,8 @@ signal behavior.
 A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the
 existing process-global behavior. `WorkingDirectory::Fixed(path)` resolves
-relative paths against a supplied directory. Compiled modules reuse their
-prepared representation while each run currently creates a fresh Runtime that owns its environment,
+relative paths against a supplied directory without changing process cwd. Compiled modules reuse their prepared representation
+while each run currently creates a fresh Runtime that owns its environment,
 policy, working-directory selection, and domain state alongside fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
 responsibility.
@@ -115,7 +115,7 @@ responsibility.
 `RunOptions::with_stdio` binds guest standard streams to in-memory channels:
 
 ```rust
-use moonrun::{Engine, RunOptions};
+use moonrun::{Engine, RunOptions, WorkingDirectory};
 use std::sync::mpsc::sync_channel;
 
 let engine = Engine::default();
@@ -125,7 +125,9 @@ let (stdout, output) = sync_channel(8);
 let (stderr, errors) = sync_channel(8);
 input.send(b"request\n".to_vec())?;
 drop(input); // EOF after buffered input is consumed.
-let options = RunOptions::default().with_stdio(stdin, stdout, stderr);
+let options = RunOptions::default()
+    .with_working_directory(WorkingDirectory::Fixed("workspace".into()))
+    .with_stdio(stdin, stdout, stderr);
 let run = std::thread::spawn(move || engine.run(&module, options));
 let output = std::thread::spawn(move || output.into_iter().flatten().collect::<Vec<_>>());
 let errors: Vec<_> = errors.into_iter().flatten().collect();

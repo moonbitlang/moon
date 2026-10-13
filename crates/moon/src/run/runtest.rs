@@ -89,10 +89,8 @@ use moonutil::{
     },
     test_metadata::{MbtTestInfo, MooncGenTestInfo},
 };
-use tokio::runtime::Runtime;
-use tracing::{debug, info, instrument, trace, warn};
-
-use crate::run::default_rt;
+use tokio::{sync::Semaphore, task::JoinSet};
+use tracing::{Instrument, debug, info, instrument, trace, warn};
 
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
@@ -137,60 +135,57 @@ enum ParsedTestDriverEvent {
     Result(TestStatistics),
 }
 
-/// Run work items with one worker-local state per execution thread.
-fn try_map_with_parallelism<T, W, R, E>(
-    items: &[T],
+fn resolve_test_parallelism(no_parallelize: bool, jobs: Option<usize>) -> usize {
+    if no_parallelize {
+        1
+    } else {
+        jobs.unwrap_or(1).max(1)
+    }
+}
+
+/// Await bounded concurrent work, then restore invocation order. Concurrent runs
+/// finish and are reaped before errors propagate; serial runs stop on the first error.
+async fn run_with_parallelism<R: Send + 'static, E: Send + 'static>(
+    runs: impl ExactSizeIterator<Item = impl Future<Output = Result<R, E>> + Send + 'static>,
     parallelism: usize,
-    create_worker: impl Fn() -> Result<W, E> + Sync,
-    run: impl Fn(&W, &T) -> Result<R, E> + Sync,
-) -> Result<Vec<R>, E>
-where
-    T: Sync,
-    R: Send,
-    E: Send,
-{
-    let parallelism = parallelism.max(1);
-    if parallelism == 1 || items.len() <= 1 {
-        let worker = create_worker()?;
-        return items.iter().map(|item| run(&worker, item)).collect();
+) -> Result<Vec<R>, E> {
+    let parallelism = parallelism.max(1).min(runs.len().max(1));
+    if parallelism <= 1 {
+        let mut results = Vec::new();
+        for run in runs {
+            results.push(run.await?);
+        }
+        return Ok(results);
     }
 
-    let parallelism = parallelism.min(items.len());
-    let work_queue = std::sync::Arc::new(std::sync::Mutex::new(items.iter()));
-    let (result_tx, result_rx) = std::sync::mpsc::channel();
-    let create_worker = &create_worker;
-    let run = &run;
+    let slots = Arc::new(Semaphore::new(parallelism));
+    let mut tasks = JoinSet::new();
+    for (index, run) in runs.enumerate() {
+        let permit = Arc::clone(&slots)
+            .acquire_owned()
+            .await
+            .expect("test execution semaphore is never closed");
+        tasks.spawn(
+            async move {
+                // Keep the slot until execution and result collection finish.
+                let _permit = permit;
+                (index, run.await)
+            }
+            .in_current_span(),
+        );
+    }
 
-    std::thread::scope(|scope| {
-        for _ in 0..parallelism {
-            let work_queue = std::sync::Arc::clone(&work_queue);
-            let result_tx = result_tx.clone();
-
-            scope.spawn(move || {
-                let worker = match create_worker() {
-                    Ok(worker) => worker,
-                    Err(err) => {
-                        let _ = result_tx.send(Err(err));
-                        return;
-                    }
-                };
-
-                loop {
-                    let item = {
-                        let mut queue = work_queue.lock().unwrap();
-                        queue.next()
-                    };
-                    let Some(item) = item else { break };
-                    if result_tx.send(run(&worker, item)).is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-    });
-
-    drop(result_tx);
-    result_rx.into_iter().collect()
+    let mut completed = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        completed.push(result);
+    }
+    // Drain all tasks before propagating either a test error or a task panic.
+    let mut results = completed
+        .into_iter()
+        .map(|result| result.expect("test execution task panicked"))
+        .collect::<Vec<_>>();
+    results.sort_unstable_by_key(|(index, _)| *index);
+    results.into_iter().map(|(_, result)| result).collect()
 }
 
 /// Run the tests compiled in this session. Does **not** print or update
@@ -200,8 +195,8 @@ where
 /// docs](crate::run::runtest) for more information about the workflow.
 #[instrument(level = "debug", skip(build_meta, filter, moonrun_policy))]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_tests(
-    build_meta: &BuildMeta,
+pub(crate) async fn run_tests(
+    build_meta: Arc<BuildMeta>,
     source_dir: &Path,
     target_dir: &Path,
     filter: &TestFilter,
@@ -212,7 +207,7 @@ pub(crate) fn run_tests(
     moonrun_policy: Option<&Path>,
     user_log: &moonutil::user_log::UserLog,
 ) -> anyhow::Result<ReplaceableTestResults> {
-    let invocations = collect_test_invocations(build_meta, filter, include_skipped, bench)?;
+    let invocations = collect_test_invocations(&build_meta, filter, include_skipped, bench)?;
     debug!(count = invocations.len(), "collected test invocations");
 
     // Benchmarks are timed, so they must not share a process; see
@@ -228,12 +223,7 @@ pub(crate) fn run_tests(
         invocations
     };
 
-    // Parallelism is opt-in: sequential by default, parallel only when -j is given
-    let parallelism = if no_parallelize {
-        1
-    } else {
-        parallelism.unwrap_or(1).max(1)
-    };
+    let parallelism = resolve_test_parallelism(no_parallelize, parallelism);
 
     if parallelism > 1 && invocations.len() > 1 {
         debug!(
@@ -243,27 +233,30 @@ pub(crate) fn run_tests(
         );
     }
 
-    let results = try_map_with_parallelism(
-        &invocations,
+    let ctx = Arc::new(TestRunCtx {
+        build_meta,
+        source_dir: source_dir.to_owned(),
+        target_dir: target_dir.to_owned(),
+        moonrun_policy: moonrun_policy.map(Path::to_owned),
+        user_log: user_log.clone(),
+    });
+    let results = run_with_parallelism(
+        invocations.into_iter().map(|invocation| {
+            let ctx = Arc::clone(&ctx);
+            async move {
+                debug!(
+                    target = ?invocation.target,
+                    executable = %invocation.executable.display(),
+                    "running test invocation"
+                );
+                run_one_test_executable(&ctx, &invocation)
+                    .await
+                    .map(|result| (invocation.target, result))
+            }
+        }),
         parallelism,
-        || default_rt().context("Failed to create runtime"),
-        |rt, invocation| {
-            let ctx = TestRunCtx {
-                build_meta,
-                rt,
-                source_dir,
-                target_dir,
-                moonrun_policy,
-                user_log,
-            };
-            debug!(
-                target = ?invocation.target,
-                executable = %invocation.executable.display(),
-                "running test invocation"
-            );
-            run_one_test_executable(&ctx, invocation).map(|result| (invocation.target, result))
-        },
-    )?;
+    )
+    .await?;
 
     let mut stats = ReplaceableTestResults::default();
     let mut total_cases = 0usize;
@@ -303,19 +296,17 @@ pub(crate) struct TestInvocation {
 
 /// Context for running a single compiled test executable. This is for reducing
 /// the number of parameters shifted around.
-struct TestRunCtx<'a> {
+struct TestRunCtx {
     /// Build outputs and target backend
-    build_meta: &'a BuildMeta,
-    /// Tokio runtime used to execute the test process
-    rt: &'a Runtime,
+    build_meta: Arc<BuildMeta>,
     /// Source directory; used for rendering commands in user logs.
-    source_dir: &'a Path,
+    source_dir: PathBuf,
     /// Target directory; coverage output destination
-    target_dir: &'a Path,
+    target_dir: PathBuf,
     /// Optional Moonrun Policy applied to Wasm test executables.
-    moonrun_policy: Option<&'a Path>,
+    moonrun_policy: Option<PathBuf>,
     /// User-facing verbose command output.
-    user_log: &'a moonutil::user_log::UserLog,
+    user_log: moonutil::user_log::UserLog,
 }
 
 /// A container of test results corresponding to each test artifact, and
@@ -858,10 +849,11 @@ fn split_cases(
 }
 
 #[instrument(level = "debug", skip(ctx, test))]
-fn run_one_test_executable(
-    ctx: &TestRunCtx<'_>,
+async fn run_one_test_executable(
+    ctx: &TestRunCtx,
     test: &TestInvocation,
 ) -> Result<TargetTestResult, anyhow::Error> {
+    anyhow::ensure!(!super::shutdown_requested(), "Test execution interrupted");
     let package = ctx
         .build_meta
         .resolved_project
@@ -879,7 +871,7 @@ fn run_one_test_executable(
         crate::run::ExecutionMode::from(&ctx.build_meta.backend),
         &executable,
         Some(&test.args),
-        ctx.moonrun_policy,
+        ctx.moonrun_policy.as_deref(),
     );
     cmd.current_dir(module_root);
     let mut cov_cap = mk_coverage_capture();
@@ -887,18 +879,13 @@ fn run_one_test_executable(
     if ctx.user_log.is_enabled(log::Level::Info) {
         ctx.user_log.info(crate::rr_build::format_dry_run_command(
             &cmd,
-            ctx.source_dir,
+            &ctx.source_dir,
         ));
     }
     info!(package = %test.args.package, executable = %test.executable.display(), "launching test executable");
 
-    let exit_status = ctx
-        .rt
-        .block_on(crate::run::run(
-            &mut [&mut cov_cap, &mut test_cap],
-            true,
-            cmd,
-        ))
+    let exit_status = crate::run::run(&mut [&mut cov_cap, &mut test_cap], true, cmd)
+        .await
         .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
     debug!(?exit_status, "test process finished");
     let test_output = test_cap.finish();
@@ -924,7 +911,7 @@ fn run_one_test_executable(
         );
     }
 
-    handle_finished_coverage(ctx.target_dir, cov_cap)?;
+    handle_finished_coverage(&ctx.target_dir, cov_cap)?;
 
     parse_test_results(
         test.meta.clone(),
@@ -1203,54 +1190,46 @@ fn print_test_result_normal(
 mod tests {
     use std::{
         convert::Infallible,
-        sync::{Mutex, mpsc},
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
         time::Duration,
     };
 
-    fn assert_started_before_release(parallelism: usize, expected_started: usize) {
-        let invocations = [(), ()];
-        let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-        let release_rx = Mutex::new(release_rx);
-
-        std::thread::scope(|scope| {
-            let run = scope.spawn(|| {
-                super::try_map_with_parallelism(
-                    &invocations,
-                    parallelism,
-                    || Ok::<_, Infallible>(()),
-                    |_, _| {
-                        started_tx.send(()).unwrap();
-                        release_rx.lock().unwrap().recv().unwrap();
-                        Ok::<_, Infallible>(())
-                    },
-                )
-                .unwrap();
-            });
-
-            let expected_starts = (0..expected_started)
-                .map(|_| started_rx.recv_timeout(Duration::from_secs(1)))
-                .collect::<Vec<_>>();
-            let unexpected_start = (expected_started < invocations.len())
-                .then(|| started_rx.recv_timeout(Duration::from_millis(100)));
-
-            for _ in &invocations {
-                release_tx.send(()).unwrap();
-            }
-            run.join().unwrap();
-
-            assert!(
-                expected_starts.into_iter().all(|result| result.is_ok()),
-                "expected another invocation to start"
+    async fn assert_started_before_release(parallelism: usize, expected_started: usize) {
+        let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let job_release = Arc::clone(&release);
+        let run = tokio::spawn(super::run_with_parallelism(
+            (0..2).map(move |_| {
+                let started = started_tx.clone();
+                let release = Arc::clone(&job_release);
+                async move {
+                    started.send(()).unwrap();
+                    release.acquire().await.unwrap().forget();
+                    Ok::<_, Infallible>(())
+                }
+            }),
+            parallelism,
+        ));
+        for _ in 0..expected_started {
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(5), started_rx.recv())
+                    .await
+                    .unwrap(),
+                Some(())
             );
-            if let Some(unexpected_start) = unexpected_start {
-                assert_eq!(
-                    unexpected_start,
-                    Err(mpsc::RecvTimeoutError::Timeout),
-                    "more invocations started than the parallelism limit allows"
-                );
-            }
-        });
+        }
+        if expected_started < 2 {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), started_rx.recv())
+                    .await
+                    .is_err()
+            );
+        }
+        release.add_permits(2);
+        assert_eq!(run.await.unwrap().unwrap().len(), 2);
     }
 
     #[test]
@@ -1273,9 +1252,94 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_execution_respects_parallelism() {
+        assert_started_before_release(0, 1).await;
+        assert_started_before_release(1, 1).await;
+        assert_started_before_release(2, 2).await;
+        assert_started_before_release(8, 2).await;
+        assert_started_before_release(usize::MAX, 2).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_execution_is_sequential_by_default() {
+        let parallelism = super::resolve_test_parallelism(false, None);
+        assert_eq!(parallelism, 1);
+        assert_started_before_release(parallelism, 1).await;
+    }
+
     #[test]
-    fn test_execution_respects_parallelism() {
-        assert_started_before_release(1, 1);
-        assert_started_before_release(2, 2);
+    fn explicit_job_limits_and_sequential_override() {
+        assert_eq!(super::resolve_test_parallelism(true, None), 1);
+        assert_eq!(super::resolve_test_parallelism(true, Some(8)), 1);
+        assert_eq!(super::resolve_test_parallelism(false, Some(0)), 1);
+        assert_eq!(super::resolve_test_parallelism(false, Some(1)), 1);
+        assert_eq!(super::resolve_test_parallelism(false, Some(2)), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn parallel_execution_preserves_invocation_order() {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let run = super::run_with_parallelism(
+            (0..3).map(|index| {
+                let release = Arc::clone(&release);
+                async move {
+                    match index {
+                        0 => release.notified().await,
+                        // Item 2 must fill item 1's freed slot while item 0 is
+                        // still pending; completed results must not hold slots.
+                        2 => release.notify_one(),
+                        _ => {}
+                    }
+                    Ok::<_, Infallible>(index)
+                }
+            }),
+            2,
+        );
+        let results = tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(results, [0, 1, 2]);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn execution_drains_running_work_after_an_error() {
+        let finished = Arc::new(AtomicUsize::new(0));
+        let results = super::run_with_parallelism(
+            (0..3).map(|index| {
+                let finished = Arc::clone(&finished);
+                async move {
+                    if index == 0 {
+                        return Err("failed");
+                    }
+                    tokio::task::yield_now().await;
+                    finished.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                }
+            }),
+            2,
+        )
+        .await;
+        assert_eq!(results, Err("failed"));
+        assert_eq!(finished.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn serial_execution_stops_on_the_first_error() {
+        let started = Arc::new(AtomicUsize::new(0));
+        let results = super::run_with_parallelism(
+            (0..3).map(|_| {
+                let started = Arc::clone(&started);
+                async move {
+                    started.fetch_add(1, Ordering::Relaxed);
+                    Err::<(), _>("failed")
+                }
+            }),
+            1,
+        )
+        .await;
+        assert_eq!(results, Err("failed"));
+        assert_eq!(started.load(Ordering::Relaxed), 1);
     }
 }
