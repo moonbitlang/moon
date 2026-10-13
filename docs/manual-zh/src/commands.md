@@ -308,6 +308,8 @@ and reused on later runs.
 
 Test the current package
 
+Test executables run in parallel using the available CPU count by default. Use `-j N` to set the maximum number of concurrent executables, or `--no-parallelize` to run them sequentially without limiting build parallelism.
+
 **Usage:** `moon test [OPTIONS] [PATH]...`
 
 ###### **Arguments:**

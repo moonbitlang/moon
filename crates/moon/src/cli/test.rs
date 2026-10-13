@@ -245,6 +245,10 @@ fn print_test_outlines(
 }
 
 /// Test the current package
+///
+/// Test executables run in parallel using the available CPU count by default.
+/// Use `-j N` to set the maximum number of concurrent executables, or
+/// `--no-parallelize` to run them sequentially without limiting build parallelism.
 #[derive(Debug, clap::Parser)]
 #[clap(group = clap::ArgGroup::new("test_index_selector").multiple(false))]
 pub(crate) struct TestSubcommand {
