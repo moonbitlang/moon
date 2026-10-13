@@ -664,12 +664,9 @@ fn resolve_build_target_selections(
     let mut selections = group_packages_by_preferred_backend(discovered, selected);
 
     for selection in &mut selections {
-        selection.packages = selection
+        selection
             .packages
-            .iter()
-            .copied()
-            .filter(|&pkg| package_supports_backend(discovered, pkg, selection.target_backend))
-            .collect();
+            .retain(|&pkg| package_supports_backend(discovered, pkg, selection.target_backend));
     }
     selections.retain(|selection| !selection.packages.is_empty());
 
