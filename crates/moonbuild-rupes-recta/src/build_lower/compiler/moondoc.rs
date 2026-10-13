@@ -68,9 +68,12 @@ impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
         // Source directory (positional argument, first)
         args.push(self.source_dir.display().to_string());
 
-        // Output directory
+        // FIXME: moondoc normalizes its path options as ordinary Windows paths,
+        // corrupting verbatim prefixes. Use the compatible spelling until it
+        // preserves extended paths; documentation can still hit MAX_PATH when
+        // moondoc appends package names to this directory internally.
         args.push("-o".to_string());
-        args.push(self.output_dir.display().to_string());
+        args.push(dunce::simplified(&self.output_dir).display().to_string());
 
         // Standard library path
         if let Some(std_path) = &self.std_path {
@@ -80,7 +83,7 @@ impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
 
         // Packages metadata file
         args.push("-packages-json".to_string());
-        args.push(self.packages_json.display().to_string());
+        args.push(dunce::simplified(&self.packages_json).display().to_string());
 
         // Serve mode (optional)
         if self.serve_mode {

@@ -89,6 +89,10 @@
         "null"
       ]
     },
+    "private": {
+      "description": "Optional boolean selecting private visibility when true. When published, a private module must be accessible only to authorized users. Omit this field or set it to false for public visibility.",
+      "type": "boolean"
+    },
     "readme": {
       "description": "path to module's README file",
       "type": [

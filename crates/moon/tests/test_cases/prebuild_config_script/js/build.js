@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 // Environment-only scripts do not need to read the compatibility stdin payload.
-assert.equal(process.env.MOON_MOD, path.join(process.cwd(), 'moon.mod.json'))
+assert.equal(process.env.MOON_MOD, path.join(process.cwd(), 'moon.mod'))
 assert.ok(path.isAbsolute(process.env.MOON_BUILD_DIR))
 assert.ok(fs.statSync(process.env.MOON_BUILD_DIR).isDirectory())
 fs.writeFileSync(path.join(process.env.MOON_BUILD_DIR, 'generated.txt'), 'ready')

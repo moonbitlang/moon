@@ -1,5 +1,18 @@
 # Native build configuration
 
+## Backend selection
+
+For `--target native`, debug builds on macOS AArch64, Linux x86_64, and Windows
+x86_64 use the new native backend by default, with `moonc` emitting object files
+directly. Set `MOONBIT_NEW_NATIVE=0` to use generated C instead; other values keep
+the default. Unsupported hosts and release builds use generated C even when
+`MOONBIT_NEW_NATIVE=1` is set. If a selected executable package configures
+`link.native.cc-flags`, the invocation also uses generated C.
+
+On Windows, the new native backend requires a cl-compatible MSVC toolchain,
+such as `cl.exe` or `clang-cl.exe`, to compile the runtime and C stubs and link
+the executable.
+
 ## Allocator
 
 `MOONBIT_ALLOCATOR` selects the allocator used by native runtime builds:

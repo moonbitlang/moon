@@ -831,39 +831,6 @@ fn plan_test_or_bench_rr_from_selections(
     selections: Vec<TargetPackageGroup>,
     user_log: &UserLog,
 ) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
-    if has_explicit_test_selector(cmd) {
-        if selections.is_empty() {
-            return plan_test_or_bench_rr_from_resolved(
-                cli,
-                cmd,
-                target_dir,
-                mooncake_bin_dir,
-                selected_target_backend,
-                resolved_project,
-                user_log,
-            )
-            .map(|plan| vec![plan]);
-        }
-
-        return selections
-            .into_iter()
-            .map(|selection| {
-                let resolved_selection =
-                    resolve_scoped_test_selection(cmd, &resolved_project, selection.packages)?;
-                plan_test_or_bench_rr_from_resolved_scoped(
-                    cli,
-                    cmd,
-                    target_dir,
-                    mooncake_bin_dir,
-                    selection.target_backend,
-                    resolved_project.clone(),
-                    resolved_selection,
-                    user_log,
-                )
-            })
-            .collect();
-    }
-
     if selections.is_empty() {
         return plan_test_or_bench_rr_from_resolved(
             cli,
@@ -1490,17 +1457,7 @@ fn calc_user_intent(
     target_backend: moonutil::target::TargetBackend,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let all_affected_packages: Vec<_> = discovered
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            discovered
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .collect();
+    let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
     calc_user_intent_from_packages(
         discovered,
         cmd,
@@ -1719,10 +1676,6 @@ fn test_intents_from_filter(filter: &TestFilter, cmd: &TestLikeSubcommand<'_>) -
         .collect()
 }
 
-fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
-    !cmd.explicit_path_filters.is_empty() || cmd.package.is_some()
-}
-
 fn resolve_test_target_selections(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
@@ -1759,33 +1712,13 @@ fn resolve_selected_test_packages(
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = discovered
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                discovered
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            })
-            .collect();
+        let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
         return Ok(
             match_packages_with_fuzzy(discovered, all_affected_packages, package_filter).matched,
         );
     }
 
-    Ok(discovered
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            discovered
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .collect())
+    Ok(rr_build::local_packages(discovered).collect())
 }
 
 fn validate_original_package_selection_filters(
@@ -1806,13 +1739,7 @@ fn validate_original_package_selection_filters(
 
     let matched_packages = match_packages_with_fuzzy(
         discovered,
-        discovered.local_modules().iter().flat_map(|&module_id| {
-            discovered
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        }),
+        rr_build::local_packages(discovered),
         package_filter,
     )
     .matched;

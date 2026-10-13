@@ -145,7 +145,6 @@ fn preserves_partial_target_history() {
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: no work to do
 
 "#]]);
@@ -162,7 +161,6 @@ Finished. moon: no work to do
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: no work to do
 
 "#]]);
@@ -190,7 +188,6 @@ fn accepts_conservative_rebuild_after_output_set_change() {
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: no work to do
 
 "#]]);
@@ -213,7 +210,6 @@ Finished. moon: no work to do
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: ran 2 tasks, now up to date
 
 "#]]);
@@ -224,7 +220,6 @@ Finished. moon: ran 2 tasks, now up to date
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: no work to do
 
 "#]]);

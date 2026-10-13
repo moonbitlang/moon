@@ -1,6 +1,6 @@
 # Prebuild Tasks
 
-Prebuild tasks let a package generate source files (typically `.mbt`) from other assets before compilation, via declarative rules in `moon.pkg.json`.
+Prebuild tasks let a package generate source files (typically `.mbt`) from other assets before compilation, via declarative rules in `moon.pkg`.
 
 - Scope: Applies only to packages in the input module being built.
   Third-party dependencies are expected to already contain their generated outputs.
@@ -25,11 +25,12 @@ root. Supported extensions select the runner:
 
 For example:
 
-```json
-{
-  "name": "username/project",
+```moonbit
+name = "username/project"
+
+options(
   "--moonbit-unstable-prebuild": "build.mbtx"
-}
+)
 ```
 
 Every runner uses the module root as its working directory and receives the
@@ -115,7 +116,7 @@ directory remains the module root. An environment policy filters the script's
 environment, including the variables above, but does not filter the values
 explicitly supplied in the compatibility JSON input.
 
-`--moonbit-unstable-prebuild` in `moon.mod.json` supplies dynamic native build
+`--moonbit-unstable-prebuild` in `moon.mod` supplies dynamic native build
 configuration, such as toolchain selection and compiler or linker flags. It runs
 only for the Native and LLVM target backends. Wasm, WasmGC, and JS builds skip
 it, including `moon build --target wasm --release` and dry runs. This applies
@@ -136,18 +137,31 @@ configuration scripts.
 
 ## Package Configuration
 
-Define tasks in the `pre-build` array of `moon.pkg.json`:
+Use `rule` to declare a reusable command and `dev_build` to supply its inputs
+and outputs in `moon.pkg`:
 
-```json
-{
-  "pre-build": [
-    {
-      "input": "path/to/input.ext",
-      "output": "path/to/output.mbt",
-      "command": "..."
-    }
-  ]
-}
+```moonbit
+rule(name: "generate", command: "generator $input > $output")
+dev_build(rule: "generate", input: "input.ext", output: "output.mbt")
+```
+
+Rules can also be declared in `moon.mod`, making them available to every
+package in that module. A package-local rule takes precedence over a module
+rule with the same name. Multiple `rule` and `dev_build` declarations are
+allowed.
+
+Each `dev_build` entry selects a rule and supplies its inputs and outputs:
+
+```moonbit
+rule(
+  name: "generate",
+  command: "...",
+)
+dev_build(
+  rule: "generate",
+  input: "path/to/input.ext",
+  output: "path/to/output.mbt",
+)
 ```
 
 - input: string or array of strings; paths are relative to the package directory.
@@ -202,10 +216,10 @@ Only the `command` field is substituted. The following placeholders are recogniz
   Expands to a space-separated list of normalized prebuild-cwd-relative paths for all declared outputs (in order). If `output` is a single string, this is one path.
 
 - `$mod_dir`  
-  Expands to the absolute path of the module root directory (the directory containing `moon.mod.json`).
+  Expands to the absolute path of the module root directory (the directory containing `moon.mod`).
 
 - `$pkg_dir`  
-  Expands to the absolute path of the current package directory (the directory containing this `moon.pkg.json`).
+  Expands to the absolute path of the current package directory (the directory containing this `moon.pkg`).
 
 - `$mooncake_bin`  
   Expands to the absolute path `<project target dir>/__moonbin__`.
@@ -306,56 +320,56 @@ holds after substitution and tool semantics:
 
 Text embedding:
 
-```json
-{
-  "pre-build": [
-    {
-      "input": "assets/readme.txt",
-      "output": "readme_text.mbt",
-      "command": ":embed --text -i $input -o $output --name readme_text"
-    }
-  ]
-}
+```moonbit
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output --name readme_text",
+)
+dev_build(
+  rule: "generate",
+  input: "assets/readme.txt",
+  output: "readme_text.mbt",
+)
 ```
 
 Binary embedding:
 
-```json
-{
-  "pre-build": [
-    {
-      "input": "assets/logo.bin",
-      "output": "logo_data.mbt",
-      "command": ":embed --binary -i $input -o $output --name logo_data"
-    }
-  ]
-}
+```moonbit
+rule(
+  name: "generate",
+  command: ":embed --binary -i $input -o $output --name logo_data",
+)
+dev_build(
+  rule: "generate",
+  input: "assets/logo.bin",
+  output: "logo_data.mbt",
+)
 ```
 
 Multiple inputs (tool interprets list):
 
-```json
-{
-  "pre-build": [
-    {
-      "input": ["assets/a.txt", "assets/b.txt"],
-      "output": "all_texts.mbt",
-      "command": ":embed --text -i $input -o $output --name all_texts"
-    }
-  ]
-}
+```moonbit
+rule(
+  name: "generate",
+  command: ":embed --text -i $input -o $output --name all_texts",
+)
+dev_build(
+  rule: "generate",
+  input: ["assets/a.txt", "assets/b.txt"],
+  output: "all_texts.mbt",
+)
 ```
 
 Location placeholders:
 
-```json
-{
-  "pre-build": [
-    {
-      "input": "assets/something.dat",
-      "output": "something.mbt",
-      "command": "custom-tool --assets \"$pkg_dir/assets\" --bin \"$mooncake_bin\" -i \"$input\" -o \"$output\""
-    }
-  ]
-}
+```moonbit
+rule(
+  name: "generate",
+  command: "custom-tool --assets \"$pkg_dir/assets\" --bin \"$mooncake_bin\" -i \"$input\" -o \"$output\"",
+)
+dev_build(
+  rule: "generate",
+  input: "assets/something.dat",
+  output: "something.mbt",
+)
 ```

@@ -26,7 +26,7 @@ async fn main {
     abort("prebuild working directory is not the module root")
   }
   guard @env.get_env_var("MOON_MOD") is Some(manifest) &&
-    manifest.has_prefix(module_root) && manifest.has_suffix("moon.mod.json") else {
+    manifest.has_prefix(module_root) && manifest.has_suffix("moon.mod") else {
     abort("prebuild module manifest was not passed through the environment")
   }
   guard out_dir != "TODO" && Some(out_dir) == @env.get_env_var("MOON_BUILD_DIR") else {

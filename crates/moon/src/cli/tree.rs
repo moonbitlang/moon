@@ -923,27 +923,6 @@ mod tests {
     }
 
     #[test]
-    fn tree_render_includes_local_dependency_source() {
-        let (roots, root_id) = ResolvedModule::only_one_module(
-            local_source("username/hello", "0.1.0", "/workspace/hello"),
-            local_module("username/hello", "0.1.0"),
-        );
-        let mut env = ModuleDependencyGraph::from_root_modules(roots);
-        let dep_id = env.add_module(
-            local_source("just/hello004", "0.1.0", "/workspace/hello/deps/hello004"),
-            local_module("just/hello004", "0.1.0"),
-        );
-        env.add_dependency(root_id, dep_id, &regular_dep("just/hello004"));
-
-        let rendered = render_tree(&env, root_id, None, true);
-        expect![[r#"
-            username/hello@0.1.0 (local /workspace/hello):
-            └─ just/hello004 -> just/hello004@0.1.0 (local /workspace/hello/deps/hello004)
-        "#]]
-        .assert_eq(&rendered);
-    }
-
-    #[test]
     fn tree_render_expands_shared_subgraph_once() {
         let (env, root) = shared_subgraph();
 
@@ -1134,55 +1113,6 @@ mod tests {
                   "from": 3,
                   "to": 1,
                   "name": "alice/b",
-                  "kind": "regular"
-                }
-              ]
-            }"#]]
-        .assert_eq(&serde_json::to_string_pretty(&graph).unwrap());
-    }
-
-    #[test]
-    fn tree_json_includes_local_dependency_source() {
-        let (roots, root_id) = ResolvedModule::only_one_module(
-            local_source("username/hello", "0.1.0", "/workspace/hello"),
-            local_module("username/hello", "0.1.0"),
-        );
-        let mut env = ModuleDependencyGraph::from_root_modules(roots);
-        let dep_id = env.add_module(
-            local_source("just/hello004", "0.1.0", "/workspace/hello/deps/hello004"),
-            local_module("just/hello004", "0.1.0"),
-        );
-        env.add_dependency(root_id, dep_id, &regular_dep("just/hello004"));
-
-        let graph = render_graph_json(&env, root_id, &HashSet::new());
-        expect![[r#"
-            {
-              "root": 1,
-              "modules": [
-                {
-                  "name": "just/hello004",
-                  "version": "0.1.0",
-                  "source": {
-                    "kind": "local",
-                    "path": "/workspace/hello/deps/hello004"
-                  },
-                  "workspace_member": false
-                },
-                {
-                  "name": "username/hello",
-                  "version": "0.1.0",
-                  "source": {
-                    "kind": "local",
-                    "path": "/workspace/hello"
-                  },
-                  "workspace_member": false
-                }
-              ],
-              "edges": [
-                {
-                  "from": 1,
-                  "to": 0,
-                  "name": "just/hello004",
                   "kind": "regular"
                 }
               ]

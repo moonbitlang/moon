@@ -28,8 +28,8 @@ fn create_other_project_pkg(dir: &TestDir, name: &str) -> PathBuf {
     let root = dir.as_ref().parent().unwrap().join(name);
     let pkg = root.join("pkg");
     std::fs::create_dir_all(&pkg).unwrap();
-    std::fs::write(root.join("moon.mod.json"), "{}").unwrap();
-    std::fs::write(pkg.join("moon.pkg.json"), "{}").unwrap();
+    std::fs::write(root.join("moon.mod"), "").unwrap();
+    std::fs::write(pkg.join("moon.pkg"), "").unwrap();
     std::fs::write(pkg.join("hello.mbt"), "fn init { () }\n").unwrap();
     pkg
 }
@@ -127,8 +127,14 @@ fn test_moon_info_compile_failure_exits_with_status_1() {
     let dir = TestDir::new_empty();
     let lib = dir.join("lib");
     std::fs::create_dir_all(&lib).unwrap();
-    std::fs::write(dir.join("moon.mod.json"), r#"{"name":"username/hello"}"#).unwrap();
-    std::fs::write(lib.join("moon.pkg.json"), "{}").unwrap();
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"
+name = "username/hello"
+"#,
+    )
+    .unwrap();
+    std::fs::write(lib.join("moon.pkg"), "").unwrap();
     std::fs::write(lib.join("bad.mbt"), "pub fn bad() -> Int { true }\n").unwrap();
 
     let assert = snapbox::cmd::Command::new(moon_bin())

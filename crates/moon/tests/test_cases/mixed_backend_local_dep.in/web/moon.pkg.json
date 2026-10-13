@@ -1,8 +1,0 @@
-{
-  "import": [
-    "mixed/localdep/shared",
-    "local/jsdep/lib"
-  ],
-  "is-main": true,
-  "supported-targets": ["js"]
-}

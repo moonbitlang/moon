@@ -22,15 +22,8 @@ fn test_moon_check_complete_json_success() {
 
     assert_eq!(report["version"], 1);
     assert_eq!(report["status"], "success");
-    assert_eq!(report["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(report["messages"][0]["level"], "warning");
-    assert!(
-        report["messages"][0]["message"]
-            .as_str()
-            .unwrap()
-            .starts_with("`moon.mod.json`")
-    );
-    assert_eq!(report["summary"]["moon_warnings"], 1);
+    assert!(report["messages"].as_array().unwrap().is_empty());
+    assert_eq!(report["summary"]["moon_warnings"], 0);
     assert_eq!(report["diagnostics"].as_array().unwrap().len(), 4);
     assert_eq!(report["summary"]["diagnostic_errors"], 0);
     assert_eq!(report["summary"]["diagnostic_warnings"], 4);
@@ -75,7 +68,7 @@ fn test_moon_check_complete_json_compiler_failure() {
     assert_eq!(report["diagnostics"][0]["target_backend"], "wasm");
     assert_eq!(report["messages"][0]["$message_type"], "moon");
     assert_eq!(report["messages"][0]["level"], "warning");
-    assert_eq!(report["summary"]["moon_warnings"], 2);
+    assert_eq!(report["summary"]["moon_warnings"], 1);
     assert_eq!(report["summary"]["diagnostic_errors"], 1);
     assert_eq!(report["summary"]["diagnostic_warnings"], 3);
 }
@@ -162,7 +155,7 @@ fn test_moon_check_complete_json_target_all_preserves_backend_provenance() {
         .failure()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":1,"status":"failure","diagnostics":[[..]"target_backend":"wasm"[..]"target_backend":"wasm-gc"[..]"target_backend":"js"[..]"target_backend":"native"[..]],"messages":[{"$message_type":"moon","level":"warning","message":"`moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`."},{"$message_type":"moon","level":"warning","message":"diagnostic output limited by --diagnostic-limit: 0 errors and 12 warnings were not displayed."}],"summary":{"tasks_executed":null,"moon_errors":0,"moon_warnings":2,"diagnostic_errors":4,"diagnostic_warnings":12,"hidden_diagnostic_warnings":12}}
+{"version":1,"status":"failure","diagnostics":[[..]"target_backend":"wasm"[..]"target_backend":"wasm-gc"[..]"target_backend":"js"[..]"target_backend":"native"[..]],"messages":[{"$message_type":"moon","level":"warning","message":"diagnostic output limited by --diagnostic-limit: 0 errors and 12 warnings were not displayed."}],"summary":{"tasks_executed":null,"moon_errors":0,"moon_warnings":1,"diagnostic_errors":4,"diagnostic_warnings":12,"hidden_diagnostic_warnings":12}}
 
 "#]]);
 }
@@ -223,21 +216,6 @@ fn test_moon_check_complete_json_captures_moon_warnings() {
             .unwrap()
             .contains("preferred_target")
     );
-    assert_eq!(report["summary"]["moon_warnings"], 2);
-}
-
-#[test]
-fn test_moon_check_complete_json_captures_manifest_warnings() {
-    let dir = TestDir::new("fmt_moon_mod_both.in");
-    let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
-
-    assert_eq!(report["messages"][0]["level"], "warning");
-    assert!(
-        report["messages"][0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("Both moon.mod.json and moon.mod exist")
-    );
     assert_eq!(report["summary"]["moon_warnings"], 1);
 }
 
@@ -245,14 +223,14 @@ fn test_moon_check_complete_json_captures_manifest_warnings() {
 fn test_moon_check_complete_json_captures_resolution_failure() {
     let dir = TestDir::new_empty();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-            "name": "test/root",
-            "version": "0.1.0",
-            "deps": {
-                "this_user_should_not_exist/this_module_should_not_exist": "0.1.0"
-            }
-        }"#,
+        dir.join("moon.mod"),
+        r#"name = "test/root"
+
+version = "0.1.0"
+
+import {
+  "this_user_should_not_exist/this_module_should_not_exist@0.1.0",
+}"#,
     )
     .unwrap();
 
@@ -338,10 +316,10 @@ fn test_moon_check_complete_json_captures_postadd_failure() {
 #[test]
 fn test_moon_check_complete_json_captures_workspace_override_warning() {
     let dir = TestDir::new("workspace_basic.in");
-    let app_manifest = dir.join("app/moon.mod.json");
+    let app_manifest = dir.join("app/moon.mod");
     let content = std::fs::read_to_string(&app_manifest)
         .unwrap()
-        .replace(r#""alice/liba": "0.1.0""#, r#""alice/liba": "2.0.0""#);
+        .replace("alice/liba@0.1.0", "alice/liba@2.0.0");
     std::fs::write(app_manifest, content).unwrap();
 
     let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
@@ -440,7 +418,7 @@ fn test_moon_check_complete_json_runs_bin_dep_unstable_prebuild_config() {
     );
 
     assert_eq!(report["status"], "success");
-    assert_eq!(report["summary"]["moon_warnings"], 3);
+    assert_eq!(report["summary"]["moon_warnings"], 1);
     assert!(
         report["messages"]
             .as_array()

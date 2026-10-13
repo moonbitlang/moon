@@ -740,6 +740,10 @@ Register an account at mooncakes.io
 
 Publish the current module
 
+The optional `private` field in moon.mod (or moon.mod.json) requests restricted access to the module after publication when true. Omission or false requests public visibility.
+
+Publishing with private visibility is not supported yet, so private modules are currently rejected, including with --dry-run. Local building, testing, and packaging remain available.
+
 **Usage:** `moon publish [OPTIONS]`
 
 ###### **Options:**
@@ -798,7 +802,7 @@ Update the package registry index
 
 Code coverage utilities
 
-Set `MOON_COVE_REPORT_ENABLED=1` (or `true`) to run the toolchain's `bin/moon_cove.wasm` through `moonrun`. When disabled, Moon uses `moon_cove_report`.
+Runs the toolchain's `bin/moon_cove.wasm` through `moonrun` by default. Set `MOON_COVE_REPORT_ENABLED=0` (or `false`) to use the legacy `moon_cove_report` instead.
 
 **Usage:** `moon coverage <COMMAND>`
 

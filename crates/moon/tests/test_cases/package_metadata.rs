@@ -21,12 +21,10 @@ use super::*;
 #[test]
 fn test_bad_version() {
     let dir = TestDir::new("general.in");
-    let content = std::fs::read_to_string(dir.join("moon.mod.json")).unwrap();
-    let mut moon_mod: MoonModJSON = serde_json::from_str(&content).unwrap();
-    moon_mod.version = Some("0.0".to_string());
+    let content = std::fs::read_to_string(dir.join("moon.mod")).unwrap();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        serde_json::to_string(&moon_mod).unwrap(),
+        dir.join("moon.mod"),
+        content.replace(r#"version = "0.1.0""#, r#"version = "0.0""#),
     )
     .unwrap();
 
@@ -91,8 +89,9 @@ fn test_native_stub_in_pkg_json() {
         get_stdout(&native_2, ["test", "--target", "native", "--sort-input"]),
         expect![[r#"
             Hello world from native_1/lib/stub.c!!!
+            Hello world from native_1/lib/stub.c!!!
             Hello world from native_2/libb/stub.c!!!
-            Total tests: 1, passed: 1, failed: 0.
+            Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
     check(
@@ -106,9 +105,12 @@ fn test_native_stub_in_pkg_json() {
         get_stdout(&native_3, ["test", "--target", "native", "--sort-input"]),
         expect![[r#"
             Hello world from native_1/lib/stub.c!!!
+            Hello world from native_1/lib/stub.c!!!
+            Hello world from native_2/libb/stub.c!!!
+            Hello world from native_1/lib/stub.c!!!
             Hello world from native_2/libb/stub.c!!!
             Hello world from native_3/libbb/stub.c!!!
-            Total tests: 1, passed: 1, failed: 0.
+            Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
     check(

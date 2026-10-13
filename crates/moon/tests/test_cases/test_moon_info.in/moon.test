@@ -1,9 +1,8 @@
   $ xls lib
-  lib.mbt moon.pkg.json
+  lib.mbt moon.pkg
   $ moon info
   
-  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
   Finished. moon: ran 2 tasks, now up to date
   
   $ xls lib
-  lib.mbt moon.pkg.json pkg.generated.mbti
+  lib.mbt moon.pkg pkg.generated.mbti

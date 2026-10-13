@@ -225,7 +225,11 @@ fn gen_package_json(
         deps,
         wbtest_deps,
         test_deps,
-        artifact: source_artifact.to_string_lossy().into_owned(),
+        // moondoc consumes this complete file path and needs ordinary spelling
+        // where possible; graph lookup still uses the original artifact path.
+        artifact: dunce::simplified(&source_artifact)
+            .to_string_lossy()
+            .into_owned(),
         check_command: check_commands.get(&source_artifact).cloned(),
         wbtest_check_command,
         test_check_command,

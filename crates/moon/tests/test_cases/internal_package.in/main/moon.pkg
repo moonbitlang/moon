@@ -1,0 +1,6 @@
+import {
+  "username/hello/lib",
+  "username/hello/lib/internal",
+}
+
+pkgtype(kind: "executable")

@@ -87,7 +87,7 @@ fn builtin_embed_handles_moon_path_with_spaces() {
 #[test]
 fn builtin_embed_rejects_shell_syntax() {
     let dir = test_dir("unconsumed_output");
-    let manifest = dir.join("src/main/moon.pkg.json");
+    let manifest = dir.join("src/main/moon.pkg");
     let original = std::fs::read_to_string(&manifest).expect("failed to read package manifest");
     let modified = original.replace(
         ":embed --text -i $input -o $output --name ignored",
@@ -100,7 +100,6 @@ fn builtin_embed_rejects_shell_syntax() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 error: unexpected argument '&&' found
 Usage: moon[EXE] tool embed [OPTIONS] --input <INPUT> --output <OUTPUT>
 For more information, try '--help'.
@@ -120,7 +119,7 @@ Caused by:
 #[test]
 fn builtin_embed_rejects_malformed_quoting() {
     let dir = test_dir("unconsumed_output");
-    let manifest = dir.join("src/main/moon.pkg.json");
+    let manifest = dir.join("src/main/moon.pkg");
     let original = std::fs::read_to_string(&manifest).expect("failed to read package manifest");
     let modified = original.replace(
         ":embed --text -i $input -o $output --name ignored",
@@ -133,7 +132,6 @@ fn builtin_embed_rejects_malformed_quoting() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Error: failed to run check for target WasmGC
 
 Caused by:
@@ -260,7 +258,6 @@ fn generated_mbt_md_warns_for_main_package() {
         .assert()
         .success()
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 [..]Warning: Main package `username/generated_main_mbt_md/main` uses blackbox-only test inputs (`.mbt.md` files) [..]
 
 "#]]);

@@ -1,0 +1,9 @@
+import {
+  "supported/virtual-root/lib",
+}
+
+supported_targets = "js"
+
+options(
+  "virtual": { "has-default": false },
+)

@@ -1,0 +1,7 @@
+import {
+  "moontest/lib2",
+}
+
+import {
+  "moontest/lib2",
+} for "wbtest"

@@ -1,0 +1,8 @@
+supported_targets = "js"
+
+import {
+  "mixed/localdep/shared",
+  "local/jsdep/lib",
+}
+
+pkgtype(kind: "executable")

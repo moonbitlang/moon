@@ -32,7 +32,6 @@ fn whitespace_test() {
 
     let out = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
     expect![[r#"
-        Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
         Finished. moon: ran 5 tasks, now up to date
     "#]]
     .assert_eq(&out);
@@ -81,7 +80,6 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     check(
         &out,
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );

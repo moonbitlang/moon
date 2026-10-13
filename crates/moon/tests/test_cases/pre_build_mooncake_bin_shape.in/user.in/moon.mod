@@ -1,0 +1,25 @@
+name = "good/idea"
+
+version = "0.1.0"
+
+readme = "README.md"
+
+repository = ""
+
+license = ""
+
+keywords = [ ]
+
+description = ""
+
+source = "src"
+
+options(
+  "bin-deps": {
+    "username/registry_shape_tool": "0.1.0",
+    "username/shape_tool": {
+      "path": "../provider.in",
+      "bin_pkg": [ "main-js" ],
+    },
+  },
+)

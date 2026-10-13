@@ -1,6 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "native_2/libb"
-  ]
-}

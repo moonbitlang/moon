@@ -152,6 +152,9 @@ impl TargetLayoutMode {
 /// Target folder layout for generated artifacts.
 #[derive(Clone, Debug)]
 pub struct TargetLayout {
+    // Production callers prepare this root through moonutil's project directory
+    // resolution. Preserve its Windows verbatim prefix throughout path assembly;
+    // output paths cannot be filesystem-canonicalized before they are produced.
     /// The base target directory, usually `<project-root>/_build` or
     /// `<source-dir>/_build/<file-name>` for a standalone file.
     target_base_dir: PathBuf,
@@ -1187,6 +1190,7 @@ mod tests {
         MoonMod {
             name: name.to_string(),
             version: None,
+            private: None,
             deps: Default::default(),
             bin_deps: None,
             readme: None,

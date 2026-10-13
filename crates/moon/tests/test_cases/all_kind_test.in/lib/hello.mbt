@@ -1,16 +1,20 @@
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///   let unused_in_lib_doc_test = 1
 ///   println("doc test 1")
 ///   inspect("update in doc test")
+/// }
 /// ```
 pub fn hello() -> String {
   S::{} |> ignore
  "Hello, world!"
 }
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///   println("doc test 2")
+/// }
 /// ```
 ///
 priv struct S {}

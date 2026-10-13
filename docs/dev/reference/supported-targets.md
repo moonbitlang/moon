@@ -7,23 +7,21 @@ compatibility checks for selected roots.
 
 ## Field definition
 
-`supported_targets` is an optional field in both `moon.pkg.json` and
-`moon.mod.json` .
+`supported_targets` is an optional field in both `moon.pkg` and
+`moon.mod`.
 
 Preferred syntax (expression string):
 
-```json
-{
-  "supported-targets": "js"
-}
+```moonbit
+supported_targets = "js"
 ```
 
-Legacy syntax (array) is still accepted for compatibility:
+The deprecated array syntax is still accepted through `options`:
 
-```json
-{
-  "supported-targets": ["js", "native"]
-}
+```moonbit
+options(
+  "supported-targets": ["js", "native"],
+)
 ```
 
 Terms:
@@ -119,9 +117,9 @@ Example:
 
 ```text
 my_app/
-  moon.mod.json
+  moon.mod
   src/
-    shared/   # supported-targets: ["js", "native"]
-    web/      # is-main: true, supported-targets: ["js"]
-    server/   # is-main: true, supported-targets: ["native"]
+    shared/   # supported_targets = "+js+native"
+    web/      # pkgtype(kind: "executable"), supported_targets = "js"
+    server/   # pkgtype(kind: "executable"), supported_targets = "native"
 ```

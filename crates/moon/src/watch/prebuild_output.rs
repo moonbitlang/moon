@@ -99,8 +99,10 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         fs::write(
-            temp_dir.path().join("moon.mod.json"),
-            r#"{"name":"user/empty"}"#,
+            temp_dir.path().join("moon.mod"),
+            r#"
+name = "user/empty"
+"#,
         )
         .unwrap();
 
@@ -137,21 +139,25 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         fs::write(
-            temp_dir.path().join("moon.mod.json"),
-            r#"{"name":"user/prebuild"}"#,
+            temp_dir.path().join("moon.mod"),
+            r#"
+name = "user/prebuild"
+"#,
         )
         .unwrap();
         fs::write(
-            temp_dir.path().join("moon.pkg.json"),
-            r#"{
-                "pre-build": [
-                    {
-                        "input": ["assets/a.txt", "assets/b.txt"],
-                        "output": ["generated/a.mbt", "generated/b.txt"],
-                        "command": "tool"
-                    }
-                ]
-            }"#,
+            temp_dir.path().join("moon.pkg"),
+            r#"
+rule(
+  name: "generate",
+  command: "tool",
+)
+dev_build(
+  rule: "generate",
+  input: ["assets/a.txt", "assets/b.txt"],
+  output: ["generated/a.mbt", "generated/b.txt"],
+)
+"#,
         )
         .unwrap();
 

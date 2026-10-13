@@ -23,7 +23,7 @@ There are 4 kinds of source files within each package:
   and does not to any below belong to this kind.
 - **Whitebox test**. These files are suffixed `_wbtest.mbt`.
 - **Blackbox test**. These files are suffixed `_test.mbt`.
-- **C stub**. These are C files manually specified in `moon.pkg.json`,
+- **C stub**. These are C files manually specified in `moon.pkg`,
   and recognized by the build system to be built.
 
 Standalone inputs are represented as synthetic single-file packages. Their
@@ -46,6 +46,35 @@ adding source-path identity, so callers are responsible for using distinct
 target roots for equal filenames from different source directories.
 Private `.mooncakes` dependencies also live under that per-script target root,
 so standalone commands do not install dependencies beside the source file.
+
+### Windows artifact paths
+
+Moon creates the selected build root and resolves it with
+`std::fs::canonicalize` before assigning artifact locations. On Windows this
+establishes an extended-length path (`\\?\`) even when the root is short.
+`TargetLayout` preserves that prefix while appending backend, package, and file
+components. The generated files do not need to exist, and their paths have the
+same spelling in clean and incremental builds.
+
+Do not simplify an intermediate artifact directory: a consumer can append
+enough components to exceed the ordinary Windows path limit. Complete file
+arguments may be simplified for consumer compatibility when safe. The execution
+graph uses the original artifact paths for both registration and lookup; display
+normalization accepts both spellings. Source discovery and toolchain-root
+canonicalization are independent of this artifact-root invariant.
+
+Watcher containment checks treat ordinary and verbatim drive/UNC prefixes as
+equivalent. This comparison does not alter artifact paths or require event paths
+to exist, so a removed output subtree remains ignored.
+
+Consumer support still limits some commands. MSVC needs short source-file
+arguments simplified and does not accept long generated-C inputs. Node 22
+rejects long verbatim entrypoint paths. `moondoc` corrupts verbatim paths in
+options and package metadata, so its output directory is a compatibility
+exception: Moon simplifies it where possible to preserve ordinary documentation
+builds, but long documentation
+paths remain unsupported. Windows tests distinguish these downstream failures
+from MoonBit compiler output creation.
 
 ### Build targets
 
@@ -73,15 +102,15 @@ The detailed semantics of tests are in [the corresponding section](#building-tes
 
 ### Imports
 
-The imported packages are specified in the `import` field in `moon.pkg.json`,
+The imported packages are specified in `import { ... }` blocks in `moon.pkg`,
 and are available to all three build targets.
 Test targets (whitebox and blackbox) can also have imports that are not used in regular targets,
-specified in an additional import field named `wbtest-import` and `test-import`.
+specified in `import { ... } for "wbtest"` and `import { ... } for "test"` blocks.
 
-Main packages (`is-main: true`) are on a stricter migration path:
+Executable packages (`pkgtype(kind: "executable")`) are on a stricter migration path:
 
 - Release N warns when another package depends on a main package through
-  `import`, `wbtest-import`, or `test-import`.
+  regular, whitebox-test, or blackbox-test imports.
 - Release N+1 will reject such dependencies as hard errors.
 
 The intended structure is to keep a main package as an entrypoint only,
@@ -240,7 +269,7 @@ As you may be able to see, `BuildPackage` of C and D s shared between the two bu
 
 MoonBit allows native-backend programs to compile some C files alongside MoonBit code,
 called **C stubs**.
-These files are per-package, specified in `moon.pkg.json`.
+These files are per-package, specified in `moon.pkg`.
 MoonBit code might reference the functions defined in them in e.g. `extern "C" fn`s.
 
 Compiling C stubs of a package involves 3 steps:
@@ -306,12 +335,12 @@ In detail:
 - **Whitebox tests** are tests written in files suffixed with `_wbtest`.
   These tests are compiled alongside the source code,
   and can see the package-private symbols in the source code.
-  They get additional imports from the `wbtest-imports` in package config.
+  They get additional imports from `import { ... } for "wbtest"` blocks.
 
 - **Blackbox tests** are tests written in files suffixed with `_test`,
   as well as in the doc comments in the source code.
   These tests can only see the public symbols exported from the package.
-  They get additional imports from the `test-imports` in package config.
+  They get additional imports from `import { ... } for "test"` blocks.
 
   Implementation-wise, they form a package that depend on the source package,
   but gets special treatments to be able to import symbols in the source package

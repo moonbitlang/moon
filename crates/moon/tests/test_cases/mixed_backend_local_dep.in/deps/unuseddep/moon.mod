@@ -1,0 +1,3 @@
+name = "local/unuseddep"
+
+version = "0.1.0"

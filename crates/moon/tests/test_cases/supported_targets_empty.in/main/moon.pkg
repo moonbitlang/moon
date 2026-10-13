@@ -1,0 +1,7 @@
+import {
+  "supported/empty/lib",
+}
+
+supported_targets = "js+native"
+
+pkgtype(kind: "executable")

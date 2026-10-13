@@ -57,9 +57,9 @@ pub(crate) enum CoverageSubcommands {
 
 /// Code coverage utilities
 ///
-/// Set `MOON_COVE_REPORT_ENABLED=1` (or `true`) to run the toolchain's
-/// `bin/moon_cove.wasm` through `moonrun`. When disabled, Moon uses
-/// `moon_cove_report`.
+/// Runs the toolchain's `bin/moon_cove.wasm` through `moonrun` by default.
+/// Set `MOON_COVE_REPORT_ENABLED=0` (or `false`) to use the legacy
+/// `moon_cove_report` instead.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct CoverageSubcommand {
     #[clap(subcommand)]
@@ -192,9 +192,9 @@ fn run_coverage_reporter(
     error_context: &'static str,
     output: &CommandOutput,
 ) -> anyhow::Result<ProcessAction> {
-    let use_moon_cove = std::env::var_os(MOON_COVE_REPORT_ENABLED_ENV)
-        .and_then(|value| value.into_string().ok())
-        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+    let use_moon_cove = std::env::var(MOON_COVE_REPORT_ENABLED_ENV).map_or(true, |value| {
+        value != "0" && !value.eq_ignore_ascii_case("false")
+    });
 
     let mut command = if use_moon_cove {
         crate::run::command_for(

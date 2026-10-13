@@ -48,13 +48,17 @@ fn test_and_bench_allow_check_during_execution() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     fs::write(
-        root.join("moon.mod.json"),
-        r#"{"name":"test/lock","preferred-target":"js"}"#,
+        root.join("moon.mod"),
+        r#"name = "test/lock"
+
+preferred_target = "js""#,
     )
     .unwrap();
     fs::write(
-        root.join("moon.pkg.json"),
-        r#"{"import":["moonbitlang/core/bench"]}"#,
+        root.join("moon.pkg"),
+        r#"import {
+  "moonbitlang/core/bench",
+}"#,
     )
     .unwrap();
     fs::write(
@@ -93,8 +97,14 @@ fn standalone_test_allows_check_during_execution() {
 fn test_update_allows_check_on_each_run() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    fs::write(root.join("moon.mod.json"), r#"{"name":"test/lock"}"#).unwrap();
-    fs::write(root.join("moon.pkg.json"), "{}").unwrap();
+    fs::write(
+        root.join("moon.mod"),
+        r#"
+name = "test/lock"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("moon.pkg"), "").unwrap();
     fs::write(
         root.join("test.mbt"),
         format!(

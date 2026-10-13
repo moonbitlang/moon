@@ -1,5 +1,0 @@
-{
-  "is-main": true,
-  "bin-target": "js",
-  "bin-name": "sync-tool"
-}

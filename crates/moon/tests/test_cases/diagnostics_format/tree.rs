@@ -7,8 +7,14 @@ fn test_moon_tree_reports_deprecated_dependencies() {
     let registry_dir = tempfile::tempdir().unwrap();
     let home = moonutil::MoonHomeLayout::new(registry_dir.path().to_owned());
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{"name":"test/app","version":"1.0.0","deps":{"dep/direct":"1.0.0"}}"#,
+        dir.join("moon.mod"),
+        r#"name = "test/app"
+
+version = "1.0.0"
+
+import {
+  "dep/direct@1.0.0",
+}"#,
     )
     .unwrap();
     for (name, entry) in [
@@ -73,7 +79,7 @@ fn test_moon_tree_package_json_captures_postadd_output() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"info","message":"postadd script wrote to stdout:/nmoon [..]/n/nFeature flags enabled: rr_moon_mod,rr_moon_pkg"},{"level":"warning","message":"`moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`."}]}
+{"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"info","message":"postadd script wrote to stdout:/nmoon [..]/n/nFeature flags enabled: rr_moon_mod,rr_moon_pkg"}]}
 
 "#]]);
 }
@@ -98,24 +104,30 @@ fn test_moon_tree_package_json_aggregates_target_kinds_per_alias() {
     std::fs::create_dir_all(dir.join("src/root")).unwrap();
     std::fs::create_dir_all(dir.join("src/dep")).unwrap();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-            "name": "test/edges",
-            "version": "0.1.0",
-            "source": "src"
-        }"#,
+        dir.join("moon.mod"),
+        r#"name = "test/edges"
+
+version = "0.1.0"
+
+source = "src""#,
     )
     .unwrap();
     std::fs::write(
-        dir.join("src/root/moon.pkg.json"),
-        r#"{
-            "import": [{ "path": "test/edges/dep", "alias": "shared" }],
-            "wbtest-import": [{ "path": "test/edges/dep", "alias": "shared" }],
-            "test-import": [{ "path": "test/edges/dep", "alias": "blackbox" }]
-        }"#,
+        dir.join("src/root/moon.pkg"),
+        r#"import {
+  "test/edges/dep" @shared,
+}
+
+import {
+  "test/edges/dep" @blackbox,
+} for "test"
+
+import {
+  "test/edges/dep" @shared,
+} for "wbtest""#,
     )
     .unwrap();
-    std::fs::write(dir.join("src/dep/moon.pkg.json"), "{}").unwrap();
+    std::fs::write(dir.join("src/dep/moon.pkg"), "").unwrap();
     std::fs::write(dir.join("src/root/root.mbt"), "fn root() -> Unit { () }").unwrap();
     std::fs::write(dir.join("src/dep/dep.mbt"), "pub fn dep() -> Unit { () }").unwrap();
 
@@ -125,7 +137,7 @@ fn test_moon_tree_package_json_aggregates_target_kinds_per_alias() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"success","error":null,"root":[0,1],"nodes":[{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"dep"},{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"root"}],"edges":[{"from":1,"to":0,"alias":"blackbox","kinds":["blackbox-test"]},{"from":1,"to":0,"alias":"shared","kinds":["source","whitebox-test"]}],"logs":[{"level":"warning","message":"`moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`."}]}
+{"version":2,"status":"success","error":null,"root":[0,1],"nodes":[{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"dep"},{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"root"}],"edges":[{"from":1,"to":0,"alias":"blackbox","kinds":["blackbox-test"]},{"from":1,"to":0,"alias":"shared","kinds":["source","whitebox-test"]}],"logs":[]}
 
 "#]]);
 }

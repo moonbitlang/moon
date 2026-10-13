@@ -58,6 +58,13 @@ fn packages_selector_json_matches_compiler_contract() {
 pub struct MoonMod {
     pub name: String,
     pub version: Option<Version>,
+    /// Requested private visibility for published versions of this module.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_private"
+    )]
+    pub private: Option<bool>,
     pub deps: IndexMap<String, SourceDependencyInfo>,
     /// Deprecated third-party binary dependencies. Publish portable Wasm tools
     /// and run them with `moonx` instead.
@@ -139,6 +146,17 @@ pub struct MoonModJSON {
     /// version of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+
+    /// Optional boolean selecting private visibility when true. When published,
+    /// a private module must be accessible only to authorized users.
+    /// Omit this field or set it to false for public visibility.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_private"
+    )]
+    #[schemars(with = "bool")]
+    pub private: Option<bool>,
 
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -299,6 +317,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
         Ok(MoonMod {
             name: j.name,
             version,
+            private: j.private,
             deps,
             bin_deps,
             readme: j.readme,
@@ -332,6 +351,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
     MoonModJSON {
         name: m.name,
         version: m.version.map(|v| v.to_string()),
+        private: m.private,
         deps: Some(m.deps),
         bin_deps: m
             .bin_deps
@@ -367,6 +387,13 @@ impl From<MoonMod> for MoonModJSON {
     fn from(val: MoonMod) -> Self {
         convert_module_to_mod_json(val)
     }
+}
+
+// Absence is allowed, but an explicit null must not disable publishing protection.
+fn deserialize_private<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
 }
 
 #[test]

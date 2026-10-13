@@ -1,0 +1,3 @@
+name = "moonbitlang/import002"
+
+version = "0.1.0"

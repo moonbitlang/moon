@@ -638,6 +638,7 @@ mod test {
                         patch: 0,
                     },
                 ),
+                private: None,
                 deps: {
                     "dep/two": 0.1.0,
                 },

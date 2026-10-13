@@ -1,0 +1,11 @@
+import {
+  "moon_new/sub_pkg",
+}
+
+import {
+  "moon_new/sub_pkg",
+} for "test"
+
+import {
+  "moon_new/sub_pkg",
+} for "wbtest"

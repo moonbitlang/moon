@@ -1,6 +1,0 @@
-{
-  "import": ["virtual_artifact_lifecycle/dep"],
-  "virtual": {
-    "has-default": false
-  }
-}

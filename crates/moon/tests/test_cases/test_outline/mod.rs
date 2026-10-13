@@ -36,8 +36,20 @@ fn test_outline() {
 #[test]
 fn outline_skips_native_compilation() {
     let dir = TestDir::new_empty();
-    std::fs::write(dir.join("moon.mod.json"), r#"{"name":"test/outline"}"#).unwrap();
-    std::fs::write(dir.join("moon.pkg.json"), r#"{"native-stub":["broken.c"]}"#).unwrap();
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"
+name = "test/outline"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("moon.pkg"),
+        r#"
+options("native-stub":["broken.c"])
+"#,
+    )
+    .unwrap();
     std::fs::write(
         dir.join("broken.c"),
         "#error outline must not compile C stubs\n",

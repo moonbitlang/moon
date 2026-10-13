@@ -18,7 +18,7 @@ fn test_virtual_pkg() {
             moonc build-package ./lib4/hello.mbt -o ./_build/wasm-gc/debug/build/lib4/lib4.core -pkg username/hello/lib4 -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib4:./lib4 -target wasm-gc -g -O0 -source-map -check-mi ./_build/wasm-gc/debug/build/lib3/lib3.mi -impl-virtual -pkg-sources username/hello/lib3:./lib3 -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./dummy_lib/hello.mbt -o ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.core -pkg username/hello/dummy_lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/dummy_lib:./dummy_lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./lib2/hello.mbt -o ./_build/wasm-gc/debug/build/lib2/lib2.core -pkg username/hello/lib2 -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.mi:dummy_lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -g -O0 -source-map -check-mi ./_build/wasm-gc/debug/build/lib1/lib1.mi -impl-virtual -pkg-sources username/hello/lib1:./lib1 -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.core ./_build/wasm-gc/debug/build/lib2/lib2.core ./_build/wasm-gc/debug/build/lib4/lib4.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/dummy_lib:./dummy_lib -pkg-sources username/hello/lib2:./lib2 -pkg-sources username/hello/lib4:./lib4 -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.core ./_build/wasm-gc/debug/build/lib2/lib2.core ./_build/wasm-gc/debug/build/lib4/lib4.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources username/hello/dummy_lib:./dummy_lib -pkg-sources username/hello/lib2:./lib2 -pkg-sources username/hello/lib4:./lib4 -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
             '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );
@@ -61,11 +61,20 @@ fn test_virtual_pkg() {
     check(
         get_err_stdout(&user, ["test", "--no-parallelize"])
             .lines()
-            .take(10)
+            .take(19)
             .collect::<Vec<_>>()
             .join("\n")
             + "\n",
         expect![[r#"
+            bb test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
+            internal test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
+            wb test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
             bb test
             default impl for f1 in lib1: 1
             another impl for f3 in lib4
@@ -95,7 +104,6 @@ fn test_virtual_pkg_err() {
     check(
         get_err_stderr(&err, ["build"]),
         expect![[r#"
-            Warning: `moon.mod.json` at '$ROOT' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
             Error: [4159]
                ╭─[ $ROOT/lib1/pkg.mbti:5:1 ]
                │

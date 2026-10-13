@@ -103,17 +103,7 @@ impl PackageSelection {
         discovered: &DiscoveredProject,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = discovered
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                discovered
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            })
-            .collect();
+        let package_ids: Vec<_> = rr_build::local_packages(discovered).collect();
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;

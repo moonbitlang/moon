@@ -1,0 +1,5 @@
+import {
+  "username/fmt_path" @lib,
+}
+
+pkgtype(kind: "executable")

@@ -1,0 +1,7 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/os_error",
+  "moonbitlang/async/socket",
+}
+
+pkgtype(kind: "executable")

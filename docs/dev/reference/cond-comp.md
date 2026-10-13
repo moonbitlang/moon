@@ -44,7 +44,7 @@ it will be always included in compilation.
 
 ## Configuration-based conditional compilation
 
-The `targets` field in `moon.pkg.json` configures conditional compilation of source files
+The `targets` field in `moon.pkg` configures conditional compilation of source files
 in additional to the filename-based approach.
 
 The `targets` field is a map whose keys are the filenames,
@@ -107,22 +107,22 @@ Conditional expressions can be specified in two formats:
 
 **String format (single atom):**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": "js"
   }
-}
+)
 ```
 
 **Array format (complex expressions):**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": ["and", "js", "release"]
   }
-}
+)
 ```
 
 Note: Arrays can be nested to create complex expressions with multiple levels of logical operations.
@@ -131,66 +131,66 @@ Note: Arrays can be nested to create complex expressions with multiple levels of
 
 When an array starts with an atom (not a logical operator), it is treated as an implicit OR operation:
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": ["js", "wasm", "native"]
   }
-}
+)
 ```
 
 This is equivalent to:
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": ["or", "js", "wasm", "native"]
   }
-}
+)
 ```
 
 #### Examples
 
 **Basic target selection:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "web_impl.mbt": "js",
     "wasm_impl.mbt": ["wasm", "wasm-gc"],
     "native_impl.mbt": "native"
   }
-}
+)
 ```
 
 **Optimization-specific code:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "debug_helpers.mbt": "debug",
     "optimized_impl.mbt": ["and", "release", ["or", "js", "wasm-gc"]]
   }
-}
+)
 ```
 
 **Excluding specific targets:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "fallback_impl.mbt": ["not", "native"],
     "non_wasm_impl.mbt": ["not", "wasm", "wasm-gc"]
   }
-}
+)
 ```
 
 **Complex conditions:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "complex_impl.mbt": ["and", ["or", "js", "wasm-gc"], ["not", "debug"]]
   }
-}
+)
 ```

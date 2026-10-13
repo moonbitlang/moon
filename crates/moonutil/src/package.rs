@@ -848,6 +848,10 @@ fn normalize_pkg_dsl(
         ("rule", true),
         ("supported_targets", false),
         ("pkgtype", false),
+        ("proof_enabled", false),
+        ("max_concurrent_tests", false),
+        ("regex_backend", false),
+        ("virtual", false),
     ]);
     let mut map = serde_json_lenient::Map::new();
     let mut imports = PackageImports::default();
@@ -882,6 +886,17 @@ fn normalize_pkg_dsl(
         if map.insert(key.to_string(), value.clone()).is_some() {
             bail!("Duplicate key '{}' found in moon.pkg.", key);
         }
+    }
+    // `virtual(implement: ...)` names the virtual package this package
+    // implements; any other `virtual(...)` declares this package as virtual.
+    if let Some(Value::Object(args)) = map.get_mut("virtual")
+        && let Some(target) = args.remove("implement")
+    {
+        if !args.is_empty() {
+            bail!("`virtual(implement: ...)` cannot take other arguments in moon.pkg.");
+        }
+        map.remove("virtual");
+        map.insert(String::from("implement"), target);
     }
     if let Value::Object(options) = map.remove("options").unwrap_or_default() {
         let mut seen_import_keys = HashSet::new();

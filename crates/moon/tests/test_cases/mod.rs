@@ -23,16 +23,12 @@ use expect_test::expect_file;
 use super::*;
 use expect_test::expect;
 use moonutil::{
-    constants::{
-        BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK_ENV,
-    },
-    manifest::MoonModJSON,
+    constants::{BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_NO_WORKSPACE, MOON_WORK_ENV},
     path::CargoPathExt,
     target::TargetBackend,
     text::StringExt,
     version::get_cargo_pkg_version,
 };
-use walkdir::WalkDir;
 
 mod abort_override;
 mod backend;
@@ -132,7 +128,9 @@ mod test_moon_info;
 mod test_moonbitlang_x;
 mod test_outline;
 mod test_release;
-mod third_party;
+// TODO: Re-enable when a published lijunchen/hello18 version uses
+// moon.mod and moon.pkg instead of JSON manifests.
+// mod third_party;
 mod tool_commands;
 mod value_tracing;
 mod virtual_pkg;

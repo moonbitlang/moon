@@ -1,0 +1,6 @@
+import {
+  "lijunchen/hello/A",
+  "lijunchen/hello/B",
+}
+
+pkgtype(kind: "executable")

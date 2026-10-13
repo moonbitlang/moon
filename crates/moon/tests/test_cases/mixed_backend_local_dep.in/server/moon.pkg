@@ -1,0 +1,8 @@
+import {
+  "mixed/localdep/shared",
+  "local/nativedep/lib",
+}
+
+supported_targets = "native"
+
+pkgtype(kind: "executable")

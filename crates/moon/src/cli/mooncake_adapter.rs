@@ -28,6 +28,8 @@ use moonutil::cli_support::{
     DeprecateSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand, UniversalFlags,
 };
 use moonutil::command_output::CommandOutput;
+use moonutil::manifest::read_module_desc_file_in_dir;
+use moonutil::project::ModuleRef;
 use moonutil::user_log::UserLog;
 use serde::Serialize;
 
@@ -85,11 +87,18 @@ pub(crate) fn prepare_direct(current_dir: Option<&Path>, args: &[&str]) -> anyho
 }
 
 pub(crate) fn publish_cli(
-    cli: UniversalFlags,
+    mut cli: UniversalFlags,
     cmd: PublishSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let cli = single_module_mooncake_cli(cli, "publish", user_log)?;
+    let module = select_mooncake_module(&mut cli, "publish", user_log)?;
+    let manifest = read_module_desc_file_in_dir(&module.root)?;
+    if manifest.private == Some(true) {
+        bail!(
+            "Cannot publish private module `{}`: publishing with private visibility is not supported yet.",
+            manifest.name
+        );
+    }
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
@@ -99,11 +108,11 @@ pub(crate) fn publish_cli(
 }
 
 pub(crate) fn package_cli(
-    cli: UniversalFlags,
+    mut cli: UniversalFlags,
     cmd: PackageSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let cli = single_module_mooncake_cli(cli, "package", user_log)?;
+    select_mooncake_module(&mut cli, "package", user_log)?;
     execute_cli(
         cli,
         MooncakeSubcommands::Package(cmd),
@@ -166,24 +175,24 @@ pub(super) fn render_deprecation_preview(
     Ok(())
 }
 
-fn single_module_mooncake_cli(
-    mut cli: UniversalFlags,
+fn select_mooncake_module(
+    cli: &mut UniversalFlags,
     command: &str,
     user_log: &UserLog,
-) -> anyhow::Result<UniversalFlags> {
+) -> anyhow::Result<ModuleRef> {
     let project = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
         .select(user_log)?;
     let project = project.context();
-    if project.selected_module().is_none() {
+    let Some(module) = project.selected_module() else {
         bail!(
             "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",
             project.root().display(),
         );
-    }
+    };
     cli.source_tgt_dir.cwd = None;
-    Ok(cli)
+    Ok(module)
 }
 
 #[cfg(test)]

@@ -1,6 +1,0 @@
-{
-  "import": [
-    "supported/missing-root/lib"
-  ],
-  "is-main": true
-}

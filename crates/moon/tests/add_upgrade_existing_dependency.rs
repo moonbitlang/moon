@@ -106,21 +106,17 @@ import {
 }
 
 #[test]
-fn moon_add_upgrade_dependency_to_latest_in_moon_mod_json_succeeds() {
+fn moon_add_upgrade_dependency_to_latest_in_moon_mod_succeeds() {
     let project = tempfile::tempdir().unwrap();
     let moon_home = tempfile::tempdir().unwrap();
     let registry_base = tempfile::tempdir().unwrap();
     write_registry_index(moon_home.path());
-    let manifest = project.path().join("moon.mod.json");
+    let manifest = project.path().join("moon.mod");
     std::fs::write(
         &manifest,
-        r#"{
-  "name": "test/update_existing",
-  "version": "0.0.1",
-  "deps": {
-    "example/dep": "0.1.0"
-  }
-}
+        r#"name = "test/update_existing"
+version = "0.0.1"
+import { "example/dep@0.1.0" }
 "#,
     )
     .unwrap();
@@ -134,6 +130,6 @@ fn moon_add_upgrade_dependency_to_latest_in_moon_mod_json_succeeds() {
     assert!(
         std::fs::read_to_string(manifest)
             .unwrap()
-            .contains(r#""example/dep": "0.3.0""#)
+            .contains(r#""example/dep@0.3.0""#)
     );
 }

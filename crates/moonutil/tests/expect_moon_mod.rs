@@ -20,8 +20,8 @@ use std::path::PathBuf;
 
 use moonutil::manifest::{
     MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
-    read_module_desc_file_in_dir, read_module_from_dsl, warn_module_manifest,
-    write_module_dsl_to_file,
+    read_module_desc_file_in_dir, read_module_desc_file_in_dir_with_legacy, read_module_from_dsl,
+    warn_module_manifest, write_module_dsl_to_file,
 };
 use moonutil::package::SupportedTargetsConfig;
 use moonutil::target::TargetBackend;
@@ -60,16 +60,12 @@ fn module_manifests_reject_v0_and_v1_suffixes() {
             ("moon.mod.json", format!(r#"{{"name":"a/b/{suffix}"}}"#)),
             (
                 "moon.mod.json",
-                format!(r#"{{"name":"test/app","deps":{{"a/b/{suffix}":{{"path":"../b"}}}}}}"#),
-            ),
-            (
-                "moon.mod.json",
                 format!(r#"{{"name":"test/app","bin-deps":{{"a/b/{suffix}":"1.0.0"}}}}"#),
             ),
         ] {
             let dir = temp_dir("invalid-major-suffix");
             std::fs::write(dir.join(file), contents).unwrap();
-            let error = read_module_desc_file_in_dir(&dir).unwrap_err();
+            let error = read_module_desc_file_in_dir_with_legacy(&dir, true).unwrap_err();
             assert!(format!("{error:#}").contains("major-version suffix must be /v2 or higher"));
             std::fs::remove_dir_all(dir).unwrap();
         }
@@ -91,16 +87,12 @@ fn module_manifests_validate_major_version_suffixes() {
         ),
         (
             "moon.mod.json",
-            r#"{"name":"test/app","deps":{"a/b/v2":{"path":"../b","version":"1.5.0"}}}"#,
-        ),
-        (
-            "moon.mod.json",
             r#"{"name":"test/app","bin-deps":{"a/b/v2":"1.5.0"}}"#,
         ),
     ] {
         let dir = temp_dir("major-version-mismatch");
         std::fs::write(dir.join(file), contents).unwrap();
-        let error = read_module_desc_file_in_dir(&dir).unwrap_err();
+        let error = read_module_desc_file_in_dir_with_legacy(&dir, true).unwrap_err();
         assert!(
             format!("{error:#}")
                 .contains("module `a/b/v2` requires major version 2, but got 1.5.0")
@@ -186,26 +178,14 @@ fn read_module_desc_prefers_dsl() {
 }
 
 #[test]
-fn warn_module_manifest_reports_legacy_format_without_a_dsl_manifest() {
+fn warn_module_manifest_only_warns_when_both_formats_exist() {
     let dir = temp_dir("legacy-module-format");
     std::fs::write(dir.join("moon.mod.json"), r#"{"name": "example/legacy"}"#).unwrap();
     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
     warn_module_manifest(&dir, "at test module root", &user_log);
 
-    let entries = capture.take();
-    assert_eq!(entries.len(), 1);
-    assert!(matches!(
-        entries[0].level,
-        moonutil::user_log::UserLogEntryLevel::Warning
-    ));
-    assert_eq!(
-        entries[0].message,
-        format!(
-            "`moon.mod.json` at '{}' is deprecated. Run `moon fmt` to migrate to `moon.mod`.",
-            dir.display()
-        )
-    );
+    assert!(capture.take().is_empty());
 
     std::fs::write(dir.join("moon.mod"), "name = \"example/legacy\"\n").unwrap();
     warn_module_manifest(&dir, "at test module root", &user_log);
@@ -223,13 +203,13 @@ fn warn_module_manifest_reports_legacy_format_without_a_dsl_manifest() {
 fn warn_module_manifest_reports_deprecated_packaging_fields() {
     let dir = temp_dir("deprecated-packaging-fields");
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-  "name": "example/deprecated",
-  "include": ["src/**"],
-  "exclude": ["target/**"]
-}
-"#,
+        dir.join("moon.mod"),
+        r#"name = "example/deprecated"
+
+options(
+  include: ["src/**"],
+  exclude: ["target/**"],
+)"#,
     )
     .unwrap();
     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
@@ -237,12 +217,12 @@ fn warn_module_manifest_reports_deprecated_packaging_fields() {
     warn_module_manifest(&dir, "at test module root", &user_log);
 
     let entries = capture.take();
-    assert_eq!(entries.len(), 2);
+    assert_eq!(entries.len(), 1);
     assert_eq!(
-        entries[1].message,
+        entries[0].message,
         format!(
             "`include` and `exclude` in `{}` are deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
-            dir.join("moon.mod.json").display()
+            dir.join("moon.mod").display()
         )
     );
 }
@@ -281,33 +261,6 @@ options(
             "`include` in `{}` is deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
             dir.join("moon.mod").display()
         )
-    );
-}
-
-#[test]
-fn read_module_from_dsl_rejects_local_deps() {
-    let dir = temp_dir("local-module-read");
-    let path = dir.join("moon.mod");
-    std::fs::write(
-        &path,
-        r#"name = "example/mod"
-
-options(
-  deps: {
-    "example/local": { "path": "../local" },
-  },
-)
-"#,
-    )
-    .unwrap();
-
-    let err = read_module_from_dsl(&path).unwrap_err();
-    let message = err.to_string();
-    assert!(
-        message.contains(
-            "moon.mod does not support local dependency `example/local` in `import`; use workspace configuration in `moon.work` instead"
-        ),
-        "{err:?}"
     );
 }
 
@@ -537,7 +490,7 @@ fn read_module_json_accepts_object_rule() {
     )
     .unwrap();
 
-    let module = read_module_desc_file_in_dir(&dir).unwrap();
+    let module = read_module_desc_file_in_dir_with_legacy(&dir, true).unwrap();
     let rule = module.rule.unwrap();
     assert_eq!(rule.len(), 1);
     assert_eq!(rule[0].name, "rule1");
@@ -573,6 +526,7 @@ fn manifest_facade_exposes_moon_mod_json_rules() {
     let module_json = MoonModJSON {
         name: "example/mod".to_string(),
         version: None,
+        private: None,
         deps: None,
         bin_deps: None,
         readme: None,
@@ -731,28 +685,6 @@ fn write_module_dsl_rejects_unversioned_registry_deps() {
     assert!(
         err.to_string()
             .contains("moon.mod only supports versioned registry dependencies in `import`, found `example/no-version`"),
-        "{err:?}"
-    );
-}
-
-#[test]
-fn write_module_dsl_rejects_local_deps() {
-    let dir = temp_dir("local-module");
-    let module: MoonModJSON = serde_json_lenient::from_str(
-        r#"{
-          "name": "example/mod",
-          "deps": {
-            "example/local": { "path": "../local" }
-          }
-        }"#,
-    )
-    .unwrap();
-
-    let err = write_module_dsl_to_file(&module, &dir).unwrap_err();
-    assert!(
-        err.to_string().contains(
-            "moon.mod does not support local dependency `example/local` in `import`; use workspace configuration in `moon.work` instead"
-        ),
         "{err:?}"
     );
 }

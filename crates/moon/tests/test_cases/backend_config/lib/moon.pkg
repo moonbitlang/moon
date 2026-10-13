@@ -1,0 +1,7 @@
+options(
+  link: {
+    "wasm": { "exports": [ "hello:hello_wasm", "foo:bar" ] },
+    "wasm-gc": { "exports": [ "hello:hello_wasm_gc" ] },
+    "js": { "exports": [ "hello:hello_js" ] },
+  },
+)

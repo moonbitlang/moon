@@ -1,0 +1,3 @@
+import {
+  "indirect_depend_virtual/virtual",
+}

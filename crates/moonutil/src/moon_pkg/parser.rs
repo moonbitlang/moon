@@ -38,6 +38,7 @@ pub struct Parser {
 pub enum ParseError {
     UnexpectedToken(Token),
     IntegerOutOfRange { literal: String, loc: lexer::Loc },
+    DuplicateKey { key: String, loc: lexer::Loc },
     LexingError(Range<usize>),
     InvalidCfg { message: String, loc: lexer::Loc },
 }
@@ -45,6 +46,11 @@ pub enum ParseError {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ParseError::DuplicateKey { key, loc } => write!(
+                f,
+                "duplicate key `{key}` at line {}, column {}",
+                loc.start.line, loc.start.column
+            ),
             ParseError::InvalidCfg { message, loc } => write!(
                 f,
                 "{message} at line {}, column {}",
@@ -191,9 +197,23 @@ impl Parser {
             TokenKind::LBRACE,
             TokenKind::RBRACE,
             TokenKind::COMMA,
-            |s| s.parse_map_elem(),
+            |s| {
+                let loc = s.peek().range().clone();
+                let (key, value) = s.parse_map_elem()?;
+                Ok((key, value, loc))
+            },
         )?;
-        Ok(Value::Object(Map::from_iter(elems)))
+        Self::unique_object(elems)
+    }
+
+    fn unique_object(entries: Vec<(String, Value, lexer::Loc)>) -> Result<Value, ParseError> {
+        let mut object = Map::new();
+        for (key, value, loc) in entries {
+            if object.insert(key.clone(), value).is_some() {
+                return Err(ParseError::DuplicateKey { key, loc });
+            }
+        }
+        Ok(Value::Object(object))
     }
 
     fn parse_integer(&self) -> Result<Value, ParseError> {
@@ -243,6 +263,7 @@ impl Parser {
             |s| {
                 match (s.peek(), s.peek_nth(1)) {
                     (Token::LIDENT((_, key)) | Token::STRING((_, key)), Token::COLON(_)) => {
+                        let loc = s.peek().range().clone();
                         // skip label
                         s.skip();
                         let Token::COLON(_) = s.peek() else {
@@ -251,13 +272,13 @@ impl Parser {
                         // skip ':'
                         s.skip();
                         let expr = s.parse_expr()?;
-                        Ok((key.clone(), expr))
+                        Ok((key.clone(), expr, loc))
                     }
                     (other, _) => Err(ParseError::UnexpectedToken(other.clone())),
                 }
             },
         )?;
-        Ok((func_name, Value::Object(Map::from_iter(args))))
+        Ok((func_name, Self::unique_object(args)?))
     }
 
     /// Leave this wrapper for clarity

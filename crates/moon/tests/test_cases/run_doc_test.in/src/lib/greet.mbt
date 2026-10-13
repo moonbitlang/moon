@@ -1,5 +1,7 @@
-/// ```mbt test
+/// ```mbt check
+/// test {
 /// println("doc_test 1 from greet.mbt")
+/// }
 /// ```
 pub fn greet1() -> String {
   "greet, world!"
@@ -7,15 +9,18 @@ pub fn greet1() -> String {
 
 
 ///|
-/// ```mbt test
+/// ```mbt check
+/// test {
 /// 
 /// 
 ///
 ///   println("test block 1")
 ///
+/// }
 /// ```
 /// 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///
 /// 
 ///   println("test block 2")
@@ -25,32 +30,38 @@ pub fn greet1() -> String {
 /// 
 /// 
 ///
+/// }
 /// ```
 /// 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///
 ///   println("test block 3")
 /// 
 ///   fail("another failure")
 ///
 /// 
+/// }
 /// ```
 pub fn greet2() -> String {
   "greet, world!"
 }
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 /// 
 /// println("doc_test 3 from greet.mbt")
 /// 
 /// 
 /// 
+/// }
 /// ```
 pub fn greet3() -> String {
   "greet, wor1ld!"
 }
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///
 /// 
 /// 
@@ -60,13 +71,15 @@ pub fn greet3() -> String {
 ///
 /// 
 /// 
+/// }
 /// ```
 pub fn greet() -> String {
   "greet, wor1ld!"
 }
 
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///
 /// 
 ///   println("test block 5")
@@ -76,23 +89,27 @@ pub fn greet() -> String {
 /// 
 /// 
 /// 
+/// }
 /// ```
 pub fn greet4() -> String {
   "greet, wor1ld!"
 }
 
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 ///   println("doc_test 5 from greet.mbt")
 /// 
 /// 
 /// 
+/// }
 /// ```
 pub fn greet5() -> String {
   "greet, wor1ld!"
 }
 
-/// ```mbt test
+/// ```mbt check
+/// test {
 /// let buf = @buffer.new(size_hint=100)
 /// buf.write_string("Tes")
 /// buf.write_char('t')
@@ -131,6 +148,7 @@ pub fn greet5() -> String {
 ///  inspect(multi_line_string_4)
 ///  inspect(multi_line_string_4, content="")
 /// 
+/// }
 /// ```
 pub fn greet6() -> String {
   "greet, wor1ld!"

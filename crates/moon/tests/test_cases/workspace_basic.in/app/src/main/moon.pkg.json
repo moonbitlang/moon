@@ -1,7 +1,0 @@
-{
-  "is-main": true,
-  "proof-enabled": true,
-  "import": [
-    "alice/liba/lib"
-  ]
-}

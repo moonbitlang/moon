@@ -1,7 +1,0 @@
-{
-  "import": [
-    "moonbitlang/core/test",
-    "moonbitlang/core/bench"
-  ],
-  "warn-list": "+missing_doc"
-}

@@ -1,0 +1,7 @@
+import {
+  "virtual_with_transitive_dep/dep",
+}
+
+options(
+  implement: "virtual_with_transitive_dep/virtual",
+)

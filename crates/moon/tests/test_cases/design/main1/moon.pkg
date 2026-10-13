@@ -1,0 +1,7 @@
+import {
+  "moonbit/design/lib/queue",
+  "moonbit/design/lib/stack",
+  "moonbit/design/lib/vec",
+}
+
+pkgtype(kind: "executable")

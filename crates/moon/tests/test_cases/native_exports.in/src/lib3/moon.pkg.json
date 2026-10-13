@@ -1,8 +1,0 @@
-{
-    "link": {
-        "native": {
-            "exports": ["hello:awesome"],
-            "cc-flags": "-c"
-        }
-    }
-}

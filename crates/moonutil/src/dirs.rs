@@ -240,7 +240,10 @@ fn prepare_target_dir(target_dir: PathBuf) -> Result<PathBuf, PackageDirsError> 
             .context("failed to create target directory")
             .map_err(PackageDirsError::from)?;
     }
-    dunce::canonicalize(target_dir)
+    // Artifact paths are constructed under this existing root before the files
+    // themselves exist. Keep Windows' verbatim prefix even on a short root so
+    // appending package and artifact names cannot produce an unprefixed long path.
+    std::fs::canonicalize(target_dir)
         .context("failed to set target directory")
         .map_err(PackageDirsError::from)
 }
@@ -803,11 +806,36 @@ mod tests {
         WorkspaceEnv, parse_workspace_env, project_query_from_start_dir,
         resolve_project_context_from_start_dir,
     };
-    use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON};
+    use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD};
     use std::{
         ffi::OsString,
         path::{Path, PathBuf},
     };
+
+    #[cfg(windows)]
+    #[test]
+    fn target_root_supports_long_outputs_before_they_exist() {
+        use std::os::windows::ffi::OsStrExt;
+        use std::path::{Component, Prefix};
+
+        let temp = tempfile::tempdir().unwrap();
+        let requested = dunce::canonicalize(temp.path()).unwrap().join("build");
+        assert!(requested.as_os_str().encode_wide().count() < 248);
+        assert!(!requested.exists());
+
+        let root = super::prepare_target_dir(requested.clone()).unwrap();
+        assert!(matches!(
+            root.components().next(),
+            Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::VerbatimDisk(_))
+        ));
+        let output = root.join(r"segment\".repeat(40)).join("output.mi");
+        assert!(output.as_os_str().encode_wide().count() > 260);
+        assert!(!output.exists());
+        assert_eq!(dunce::simplified(&output), output);
+
+        // Preparing an existing root must give the same spelling as a clean build.
+        assert_eq!(super::prepare_target_dir(requested).unwrap(), root);
+    }
 
     fn write_file(path: &Path, content: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -818,14 +846,13 @@ mod tests {
         dunce::canonicalize(path).unwrap()
     }
 
-    fn write_json_module(path: &Path, name: &str) {
+    fn write_module(path: &Path, name: &str) {
         write_file(
-            &path.join(MOON_MOD_JSON),
+            &path.join(MOON_MOD),
             &format!(
-                r#"{{
-  "name": "{name}",
-  "version": "0.1.0"
-}}
+                r#"
+name = "{name}"
+version = "0.1.0"
 "#
             ),
         );
@@ -833,7 +860,7 @@ mod tests {
 
     fn nested_workspace_under_unrelated_module() -> tempfile::TempDir {
         let project = tempfile::tempdir().expect("create test project");
-        write_json_module(&project.path().join("outer"), "alice/outer");
+        write_module(&project.path().join("outer"), "alice/outer");
         write_file(
             &project.path().join("outer/ws/moon.work"),
             r#"members = [
@@ -841,7 +868,7 @@ mod tests {
 ]
 "#,
         );
-        write_json_module(&project.path().join("outer/ws/app"), "alice/app");
+        write_module(&project.path().join("outer/ws/app"), "alice/app");
         project
     }
 
@@ -858,7 +885,9 @@ mod tests {
         assert_eq!(dirs.mooncakes_dir, canonical(project.path()).join(DEP_PATH));
         assert_eq!(
             dirs.mooncake_bin_dir,
-            canonical(project.path().join("tmp-target")).join(MOON_BIN_DIR)
+            std::fs::canonicalize(project.path().join("tmp-target"))
+                .unwrap()
+                .join(MOON_BIN_DIR)
         );
     }
 
@@ -881,11 +910,11 @@ mod tests {
 
         assert_eq!(
             first.package_dirs.target_dir,
-            canonical(project.path().join("_build/first.mbt"))
+            std::fs::canonicalize(project.path().join("_build/first.mbt")).unwrap()
         );
         assert_eq!(
             second.package_dirs.target_dir,
-            canonical(project.path().join("_build/second.mbtx"))
+            std::fs::canonicalize(project.path().join("_build/second.mbtx")).unwrap()
         );
         assert_ne!(
             first.package_dirs.target_dir,
@@ -918,7 +947,7 @@ mod tests {
 
         assert_eq!(
             dirs.package_dirs.target_dir,
-            canonical(project.path().join("target/main.mbt.md"))
+            std::fs::canonicalize(project.path().join("target/main.mbt.md")).unwrap()
         );
         assert_eq!(
             dirs.package_dirs.mooncake_bin_dir,
@@ -953,7 +982,7 @@ mod tests {
         assert_eq!(dirs.file_path, canonical(&source));
         assert_eq!(
             dirs.package_dirs.target_dir,
-            canonical(project.path().join("sources/_build/source.mbt"))
+            std::fs::canonicalize(project.path().join("sources/_build/source.mbt")).unwrap()
         );
     }
 
@@ -972,7 +1001,7 @@ mod tests {
         assert!(matches!(
             result,
             Err(PackageDirsError::TargetDirNotDirectory(path))
-                if path == canonical(source_file)
+                if path == std::fs::canonicalize(source_file).unwrap()
         ));
     }
 
@@ -1047,7 +1076,7 @@ version = "0.1.0"
 ]
 "#,
         );
-        write_json_module(&project.path().join("app"), "alice/app");
+        write_module(&project.path().join("app"), "alice/app");
 
         let query =
             project_query_from_start_dir(project.path().join("app"), &WorkspaceEnv::Auto).unwrap();
@@ -1098,7 +1127,7 @@ version = "0.1.0"
     fn pinned_workspace_rejects_unlisted_module_under_workspace_root() {
         let project = nested_workspace_under_unrelated_module();
         let workspace_path = canonical(project.path().join("outer/ws/moon.work"));
-        write_json_module(&project.path().join("outer/ws/tools"), "alice/tools");
+        write_module(&project.path().join("outer/ws/tools"), "alice/tools");
 
         let err = resolve_project_context_from_start_dir(
             project.path().join("outer/ws/tools"),

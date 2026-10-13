@@ -1,0 +1,14 @@
+import {
+  "virtual_with_transitive_dep/middle",
+  "virtual_with_transitive_dep/virtual",
+}
+
+import {
+  "virtual_with_transitive_dep/virtual",
+} for "test"
+
+pkgtype(kind: "executable")
+
+options(
+  overrides: ["virtual_with_transitive_dep/impl"],
+)

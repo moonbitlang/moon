@@ -82,13 +82,13 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::write(
-            sandbox.path().join("moon.mod.json"),
+            sandbox.path().join("moon.mod"),
             format!(
-                r#"{{
-                    "name": "test/postadd",
-                    "version": "0.1.0",
-                    "scripts": {{ "postadd": "{}" }}
-                }}"#,
+                r#"
+name = "test/postadd"
+version = "0.1.0"
+options(scripts: {{ "postadd": "{}" }})
+"#,
                 script.display()
             ),
         )

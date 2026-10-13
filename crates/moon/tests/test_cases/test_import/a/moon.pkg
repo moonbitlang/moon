@@ -1,0 +1,7 @@
+import {
+  "username/hello/s",
+}
+
+import {
+  "username/hello/t",
+} for "wbtest"

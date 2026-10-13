@@ -1,0 +1,7 @@
+members = [
+  ".",
+  "deps/hello004",
+  "deps/hello003",
+  "deps/hello002",
+  "deps/hello001",
+]

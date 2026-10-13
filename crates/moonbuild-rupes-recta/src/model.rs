@@ -121,11 +121,7 @@ impl NativeTarget {
         env_value: Option<&str>,
     ) -> Option<Self> {
         let target = Self::from_host(arch, os)?;
-        let enabled = match target {
-            Self::Aarch64AppleDarwin | Self::X86_64UnknownLinuxGnu => env_value != Some("0"),
-            Self::X86_64PcWindowsMsvc => env_value == Some("1"),
-        };
-        enabled.then_some(target)
+        (env_value != Some("0")).then_some(target)
     }
 
     pub fn from_host(arch: &str, os: &str) -> Option<Self> {
@@ -627,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn new_native_defaults_on_for_apple_silicon_macos_and_x86_64_linux() {
+    fn new_native_defaults_on_for_supported_hosts() {
         assert_eq!(
             NativeTarget::from_host_with_new_native_env("aarch64", "macos", None),
             Some(NativeTarget::Aarch64AppleDarwin)
@@ -663,6 +659,10 @@ mod tests {
         );
         assert_eq!(
             NativeTarget::from_host_with_new_native_env("x86_64", "windows", None),
+            Some(NativeTarget::X86_64PcWindowsMsvc)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("0")),
             None
         );
         assert_eq!(
@@ -671,7 +671,7 @@ mod tests {
         );
         assert_eq!(
             NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("other")),
-            None
+            Some(NativeTarget::X86_64PcWindowsMsvc)
         );
         assert_eq!(
             NativeTarget::from_host_with_new_native_env("x86_64", "macos", Some("1")),

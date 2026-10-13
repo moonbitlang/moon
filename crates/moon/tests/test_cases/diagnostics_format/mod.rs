@@ -24,30 +24,34 @@ fn json_command_with_postadd(args: &[&str], postadd: &str) -> snapbox::cmd::Outp
     .expect("test PATH should be valid");
     std::fs::create_dir_all(dir.join("src/lib")).unwrap();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-            "name": "test/root",
-            "version": "0.1.0",
-            "source": "src",
-            "deps": { "testuser/postadd": "1.0.0" }
-        }"#,
+        dir.join("moon.mod"),
+        r#"name = "test/root"
+
+version = "0.1.0"
+
+source = "src"
+
+import {
+  "testuser/postadd@1.0.0",
+}"#,
     )
     .unwrap();
-    std::fs::write(dir.join("src/lib/moon.pkg.json"), "{}").unwrap();
+    std::fs::write(dir.join("src/lib/moon.pkg"), "").unwrap();
     std::fs::write(dir.join("src/lib/lib.mbt"), "pub fn answer() -> Int { 42 }").unwrap();
 
-    let dependency_manifest = serde_json::json!({
-        "name": "testuser/postadd",
-        "version": "1.0.0",
-        "scripts": { "postadd": postadd }
-    })
-    .to_string()
+    let dependency_manifest = format!(
+        r#"
+name = "testuser/postadd"
+version = "1.0.0"
+options(scripts: {{ "postadd": {postadd:?} }})
+"#
+    )
     .into_bytes();
     cache_registry_package(
         moon_home.path(),
         "testuser/postadd",
         "1.0.0",
-        &[("moon.mod.json", dependency_manifest)],
+        &[("moon.mod", dependency_manifest)],
     );
 
     moon_cmd(&dir)

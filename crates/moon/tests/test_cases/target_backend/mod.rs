@@ -10,7 +10,7 @@ fn test_target_backend_cli_wiring_smoke() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm -g -O0 -wasi
+            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm -g -O0 -wasi
         "#]],
     );
     moon_cmd(&dir)
@@ -20,7 +20,7 @@ fn test_target_backend_cli_wiring_smoke() {
         .stdout_eq(snapbox::str![[r#"
 moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
 moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
+moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
 [..]node[..] --enable-source-maps ./_build/js/debug/build/main/main.js
 
 "#]],
@@ -225,23 +225,19 @@ fn test_moon_build_package_selection_uses_user_log_policy() {
 
 #[test]
 fn test_moon_build_package_selection_preserves_warning_labels() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = TestDir::new("hello");
 
     moon_cmd(&dir)
         .args([
             "build",
             "--package",
-            "local/jsdep/lib",
+            "moonbitlang/core/array",
             "--dry-run",
         ])
         .assert()
         .success()
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-Warning: `moon.mod.json` at '[..]/deps/jsdep' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-Warning: `moon.mod.json` at '[..]/deps/unuseddep' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-Warning: `moon.mod.json` at '[..]/deps/nativedep' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-Warning: Package 'local/jsdep/lib' matched by name 'local/jsdep/lib' is not in the main module, it may not be accessible.
+Warning: Package 'moonbitlang/core/array' matched by name 'moonbitlang/core/array' is not in the main module, it may not be accessible.
 
 "#]]);
 }
@@ -312,12 +308,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
             "./shared/shared.mbt",
             "./web/main.mbt",
             "./deps/jsdep/lib/lib.mbt",
-        ],
-        &[
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let bundle_native = get_stdout(
@@ -330,12 +323,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
             "./shared/shared.mbt",
             "./server/main.mbt",
             "./deps/nativedep/lib/lib.mbt",
-        ],
-        &[
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 }
 
@@ -703,10 +693,18 @@ fn test_missing_supported_targets_root_warns_when_dep_declares() {
 
 #[test]
 fn test_legacy_supported_targets_warning_is_local_only() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
-    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
+    let dir = TestDir::new("supported_targets_legacy_warning.in");
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "lib/moon.pkg"]
+        .map(|path| (path, std::fs::read(dir.join("dep").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "local/jsdep", "0.1.0", &files);
+    let stderr = get_stderr_with_envs(
+        &dir,
+        ["check", "--target", "js", "--dry-run"],
+        [("MOON_HOME", moon_home.path())],
+    );
     assert!(stderr.contains("Package `mixed/localdep/web` uses legacy array syntax"));
-    assert!(!stderr.contains("Package `mixed/localdep/jsdep` uses legacy array syntax"));
+    assert!(!stderr.contains("Package `local/jsdep/lib` uses legacy array syntax"));
 }
 
 #[test]

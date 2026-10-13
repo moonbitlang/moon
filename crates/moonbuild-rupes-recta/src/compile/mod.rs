@@ -170,6 +170,7 @@ mod tests {
         MoonMod {
             name: "test/single".to_string(),
             version: None,
+            private: None,
             deps: Default::default(),
             bin_deps: None,
             readme: None,
@@ -662,11 +663,6 @@ mod tests {
     #[test]
     fn project_packages_are_not_marked_as_dependency_artifacts() {
         assert_compiled_artifact_roles(false);
-    }
-
-    #[test]
-    fn local_path_dependencies_are_marked_before_execution_policy() {
-        assert_compiled_artifact_roles(true);
     }
 
     fn assert_compiled_artifact_roles(separate_module: bool) {

@@ -30,7 +30,13 @@ fn test_prebuild_config_skipped_dry_runs_do_not_lock() {
     // fail immediately, without hanging the test on an intentionally held lock.
     std::fs::create_dir_all(target.join(".moon-lock")).unwrap();
     std::fs::create_dir(dir.join("main")).unwrap();
-    std::fs::write(dir.join("main/moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
+"#,
+    )
+    .unwrap();
     std::fs::write(dir.join("main/main.mbt"), "fn main {}").unwrap();
     std::fs::write(
         dir.join("build.js"),
@@ -42,14 +48,20 @@ fn test_prebuild_config_skipped_dry_runs_do_not_lock() {
         (true, "js", ["wasm", "wasm-gc", "js"].as_slice()),
         (false, "native", ["native", "llvm"].as_slice()),
     ] {
-        let mut manifest = serde_json::json!({
-            "name": "testuser/unlocked",
-            "preferred-target": preferred,
-        });
+        let mut manifest = format!(
+            r#"
+name = "testuser/unlocked"
+preferred_target = {preferred:?}
+"#
+        );
         if has_script {
-            manifest["--moonbit-unstable-prebuild"] = "build.js".into();
+            manifest.push_str(
+                r#"
+options("--moonbit-unstable-prebuild": "build.js")
+"#,
+            );
         }
-        std::fs::write(dir.join("moon.mod.json"), manifest.to_string()).unwrap();
+        std::fs::write(dir.join("moon.mod"), manifest).unwrap();
 
         for command in ["build", "run", "test", "bench", "bundle"] {
             for target_backend in std::iter::once(None).chain(targets.iter().copied().map(Some)) {
@@ -94,15 +106,23 @@ fn test_prebuild_config_skipped_dry_runs_do_not_lock() {
 fn test_prebuild_config_holds_target_lock() {
     let dir = TestDir::new_empty();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-          "name": "testuser/locked",
-          "preferred-target": "native",
-          "--moonbit-unstable-prebuild": "build.js"
-        }"#,
+        dir.join("moon.mod"),
+        r#"name = "testuser/locked"
+
+preferred_target = "native"
+
+options(
+  "--moonbit-unstable-prebuild": "build.js",
+)"#,
     )
     .unwrap();
-    std::fs::write(dir.join("moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(
+        dir.join("moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
+"#,
+    )
+    .unwrap();
     std::fs::write(dir.join("main.mbt"), "fn main { println(42) }").unwrap();
     std::fs::write(dir.join("why3.conf"), "").unwrap();
 
@@ -175,15 +195,23 @@ prebuild target is locked
 fn test_prebuild_config_build_environment() {
     let dir = TestDir::new_empty();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-          "name": "testuser/environment",
-          "preferred-target": "llvm",
-          "--moonbit-unstable-prebuild": "build.js"
-        }"#,
+        dir.join("moon.mod"),
+        r#"name = "testuser/environment"
+
+preferred_target = "llvm"
+
+options(
+  "--moonbit-unstable-prebuild": "build.js",
+)"#,
     )
     .unwrap();
-    std::fs::write(dir.join("moon.pkg.json"), r#"{"is-main":true}"#).unwrap();
+    std::fs::write(
+        dir.join("moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
+"#,
+    )
+    .unwrap();
     std::fs::write(dir.join("main.mbt"), "fn main { println(42) }").unwrap();
     std::fs::write(
         dir.join("build.js"),
@@ -268,27 +296,34 @@ fn test_prebuild_config_build_dirs() {
     let target = dir.join("custom build");
     std::fs::create_dir(&dependency).unwrap();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-          "name": "testuser/consumer",
-          "deps": { "testuser/config": { "path": "./dep" } },
-          "--moonbit-unstable-prebuild": "build.js"
-        }"#,
+        dir.join("moon.mod"),
+        r#"
+name = "testuser/consumer"
+import {
+  "testuser/config@0.1.0",
+}
+options("--moonbit-unstable-prebuild": "build.js")
+"#,
     )
     .unwrap();
-    // The preferred DSL manifest must be reported when both formats exist.
+    std::fs::write(
+        dir.join("moon.work"),
+        r#"
+members = [".", "dep"]
+"#,
+    )
+    .unwrap();
     std::fs::write(
         dependency.join("moon.mod"),
-        "name = \"testuser/config\"\nversion = \"0.1.0\"\noptions(\"--moonbit-unstable-prebuild\": \"build.js\")\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dependency.join("moon.mod.json"),
-        r#"{"name":"testuser/config","version":"0.1.0"}"#,
+        r#"
+name = "testuser/config"
+version = "0.1.0"
+options("--moonbit-unstable-prebuild": "build.js")
+"#,
     )
     .unwrap();
     for module_dir in [dir.as_ref(), dependency.as_path()] {
-        std::fs::write(module_dir.join("moon.pkg.json"), "{}").unwrap();
+        std::fs::write(module_dir.join("moon.pkg"), "").unwrap();
         std::fs::write(module_dir.join("lib.mbt"), "pub fn value() -> Int { 42 }").unwrap();
         std::fs::write(
             module_dir.join("build.js"),
@@ -315,7 +350,7 @@ console.log('{}')
             .unwrap()
             .map(|entry| std::fs::read_to_string(entry.unwrap().path().join("runs.txt")).unwrap())
             .collect::<std::collections::BTreeSet<_>>();
-        let expected = [dir.join("moon.mod.json"), dependency.join("moon.mod")]
+        let expected = [dir.join("moon.mod"), dependency.join("moon.mod")]
             .map(|manifest| {
                 format!("{}\n", dunce::canonicalize(manifest).unwrap().display()).repeat(runs)
             })
@@ -336,10 +371,13 @@ fn test_prebuild_config_mbtx_preserves_frozen_dependencies() {
         "0.1.0",
         &[
             (
-                "moon.mod.json",
-                br#"{"name":"testuser/prebuild-input","version":"0.1.0"}"#.to_vec(),
+                "moon.mod",
+                br#"name = "testuser/prebuild-input"
+
+version = "0.1.0""#
+                    .to_vec(),
             ),
-            ("moon.pkg.json", b"{}".to_vec()),
+            ("moon.pkg", b"".to_vec()),
             (
                 "lib.mbt",
                 br#"pub fn value() -> String { "ready" }"#.to_vec(),
@@ -388,17 +426,32 @@ fn test_prebuild_config_mbtx_keeps_dependency_sources_read_only() {
     let dependency = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();
     std::fs::write(
-        project.path().join("moon.mod.json"),
-        serde_json::json!({
-            "name": "testuser/consumer",
-            "deps": { "testuser/config": { "path": dependency.path() } }
-        })
-        .to_string(),
+        project.path().join("moon.mod"),
+        r#"
+name = "testuser/consumer"
+import {
+  "testuser/config@0.1.0",
+}
+"#,
     )
     .unwrap();
     std::fs::write(
-        project.path().join("moon.pkg.json"),
-        r#"{"import":["testuser/config"]}"#,
+        project.path().join("moon.work"),
+        format!(
+            r#"
+members = [".", {dependency}]
+"#,
+            dependency = serde_json::to_string(dependency.path()).unwrap(),
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("moon.pkg"),
+        r#"
+import {
+  "testuser/config",
+}
+"#,
     )
     .unwrap();
     std::fs::write(
@@ -407,11 +460,15 @@ fn test_prebuild_config_mbtx_keeps_dependency_sources_read_only() {
     )
     .unwrap();
     std::fs::write(
-        dependency.path().join("moon.mod.json"),
-        r#"{"name":"testuser/config","version":"0.1.0","--moonbit-unstable-prebuild":"build.mbtx"}"#,
+        dependency.path().join("moon.mod"),
+        r#"
+name = "testuser/config"
+version = "0.1.0"
+options("--moonbit-unstable-prebuild": "build.mbtx")
+"#,
     )
     .unwrap();
-    std::fs::write(dependency.path().join("moon.pkg.json"), "{}").unwrap();
+    std::fs::write(dependency.path().join("moon.pkg"), "").unwrap();
     std::fs::write(
         dependency.path().join("lib.mbt"),
         "pub fn value() -> Int { 42 }",
@@ -480,7 +537,6 @@ fn test_prebuild_config_mbtx_invalid_json() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Error: failed to run build for target Native
 
 Caused by:
@@ -587,11 +643,10 @@ fn test_unstable_prebuild_config_only_runs_for_native_backends() {
 fn test_unstable_prebuild_config_uses_preferred_backend() {
     for target in ["wasm", "wasm-gc", "js", "native", "llvm"] {
         let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
-        let manifest_path = dir.join("moon.mod.json");
-        let mut manifest: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
-        manifest["preferred-target"] = target.into();
-        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+        let mut module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
+        module.preferred_target =
+            Some(moonutil::target::TargetBackend::str_to_backend(target).unwrap());
+        moonutil::manifest::write_module_dsl_to_file(&module.into(), dir.as_ref()).unwrap();
 
         let result = moon_cmd(&dir)
             .args(["build", "--release", "--dry-run"])

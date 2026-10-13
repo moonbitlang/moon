@@ -73,7 +73,7 @@ impl PathNormalizer {
         };
 
         PathNormalizer {
-            project_root: dunce::canonicalize(source_dir).ok(),
+            project_root: std::fs::canonicalize(source_dir).ok(),
             relative_paths: Vec::new(),
             override_aliases,
             current_program_alias,
@@ -91,11 +91,15 @@ impl PathNormalizer {
         base: &Path,
         paths: impl IntoIterator<Item = &'a Path>,
     ) -> Self {
-        let base = dunce::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
+        let base = std::fs::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
         self.relative_paths
             .extend(paths.into_iter().filter_map(|path| {
                 // Paths on different Windows drives cannot be made relative.
-                let relative = path.relative_to(&base).ok()?.normalize();
+                let relative = path
+                    .relative_to(&base)
+                    .or_else(|_| path.relative_to(dunce::simplified(&base)))
+                    .ok()?
+                    .normalize();
                 let relative = match relative.as_str() {
                     "" => ".".to_owned(),
                     ".." => "..".to_owned(),
@@ -168,7 +172,9 @@ impl PathNormalizer {
             return relative;
         }
         let value = if let Some(root) = &self.project_root {
-            Self::replace_path_prefix(value, &Self::display_path(root), ".")
+            // Match the verbatim spelling first, before its ordinary suffix.
+            let value = Self::replace_path_prefix(value, &Self::display_path(root), ".");
+            Self::replace_path_prefix(value, &Self::display_path(dunce::simplified(root)), ".")
         } else {
             value
         };
@@ -184,10 +190,12 @@ impl PathNormalizer {
             return relative;
         }
         let path_obj = Path::new(path);
-        if let Some(root) = &self.project_root
-            && let Ok(stripped) = path_obj.strip_prefix(root)
-        {
-            return Self::relative_from_path(stripped);
+        if let Some(root) = &self.project_root {
+            for root in [root.as_path(), dunce::simplified(root)] {
+                if let Ok(stripped) = path_obj.strip_prefix(root) {
+                    return Self::relative_from_path(stripped);
+                }
+            }
         }
         self.mask_roots(normalized)
     }
@@ -269,6 +277,46 @@ impl PathNormalizer {
 mod tests {
     use super::PathNormalizer;
     use std::path::{Path, PathBuf};
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_verbatim_outputs_and_ordinary_sources() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let source = dunce::simplified(&root).join("main.mbt");
+        let output = root
+            .join("_build")
+            .join("segment\\".repeat(40))
+            .join("main.mi");
+        let normalizer = PathNormalizer::from_paths(
+            &root,
+            root.join("toolchain"),
+            root.join("home"),
+            vec![],
+            None,
+        );
+        let expected = format!("./_build/{}main.mi", "segment/".repeat(40));
+        assert_eq!(
+            normalizer.normalize_path(&source.to_string_lossy()),
+            "./main.mbt"
+        );
+        assert_eq!(
+            normalizer.normalize_path(&output.to_string_lossy()),
+            expected
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&output.to_string_lossy()),
+            expected
+        );
+
+        let normalizer =
+            normalizer.with_relative_paths(&root, [source.as_path(), output.as_path()]);
+        assert_eq!(normalizer.relative_paths.len(), 2);
+        assert_eq!(
+            normalizer.normalize_path(&output.to_string_lossy()),
+            expected
+        );
+    }
 
     fn normalizer(
         toolchain_root: &str,

@@ -21,24 +21,24 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            [username/hello] test lib/hello.mbt:9 (#1) failed
-            expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:18
+            [username/hello] test lib/hello.mbt:12 (#1) failed
+            expect test failed at $ROOT/src/lib/hello.mbt:15:5-15:18
             Diff: (- expected, + actual)
             ----
             +1256
             ----
 
-            [username/hello] test lib/hello.mbt:19 (#2) failed: src/lib/hello.mbt:22:5-22:30@username/hello FAILED: this is a failure
-            [username/hello] test lib/greet.mbt:18 (#2) failed
-            expect test failed at $ROOT/src/lib/greet.mbt:23:7-23:20
+            [username/hello] test lib/hello.mbt:24 (#2) failed: src/lib/hello.mbt:27:5-27:30@username/hello FAILED: this is a failure
+            [username/hello] test lib/greet.mbt:23 (#2) failed
+            expect test failed at $ROOT/src/lib/greet.mbt:28:7-28:20
             Diff: (- expected, + actual)
             ----
             +1256
             ----
 
-            [username/hello] test lib/greet.mbt:30 (#3) failed: src/lib/greet.mbt:34:7-34:30@username/hello FAILED: another failure
-            [username/hello] test lib/greet.mbt:95 (#8) failed
-            expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
+            [username/hello] test lib/greet.mbt:37 (#3) failed: src/lib/greet.mbt:41:7-41:30@username/hello FAILED: another failure
+            [username/hello] test lib/greet.mbt:112 (#8) failed
+            expect test failed at $ROOT/src/lib/greet.mbt:116:5-116:40
             Diff: (- expected, + actual)
             ----
             +b"T/x00e/x00s/x00t/x00"
@@ -54,21 +54,21 @@ fn test_run_doc_test() {
     let greet_mbt = read(dir.join("src/lib/greet.mbt"));
     let greet_content = greet_mbt.lines().collect::<Vec<_>>();
     check(
-        hello_content[11..13].join("\n"),
+        hello_content[14..16].join("\n"),
         expect![[r#"
             /// inspect(1256, content=(
             ///   #|1256"#]],
     );
 
     check(
-        greet_content[22..24].join("\n"),
+        greet_content[27..29].join("\n"),
         expect![[r#"
             ///   inspect(1256, content=(
             ///   #|1256"#]],
     );
 
     check(
-        greet_content[100..102].join("\n"),
+        greet_content[117..119].join("\n"),
         expect![[r#"
             /// inspect(buf.contents(), content=(
             ///   #|b"T\x00e\x00s\x00t\x00""#]],
@@ -90,8 +90,8 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            [username/hello] test lib/hello.mbt:21 (#2) failed: src/lib/hello.mbt:24:5-24:30@username/hello FAILED: this is a failure
-            [username/hello] test lib/greet.mbt:32 (#3) failed: src/lib/greet.mbt:36:7-36:30@username/hello FAILED: another failure
+            [username/hello] test lib/hello.mbt:26 (#2) failed: src/lib/hello.mbt:29:5-29:30@username/hello FAILED: this is a failure
+            [username/hello] test lib/greet.mbt:39 (#3) failed: src/lib/greet.mbt:43:7-43:30@username/hello FAILED: another failure
             Total tests: 16, passed: 14, failed: 2.
         "#]],
     );

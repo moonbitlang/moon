@@ -13,7 +13,7 @@ assert os.environ["MOON_BACKEND"] == "native"
 assert os.environ["MOON_PROFILE"] == "debug"
 assert os.environ["MOON_JOBS"] == "3"
 assert build_input["paths"]["module_root"] == os.getcwd()
-assert Path(os.environ["MOON_MOD"]) == Path.cwd() / "moon.mod.json"
+assert Path(os.environ["MOON_MOD"]) == Path.cwd() / "moon.mod"
 assert build_input["paths"]["out_dir"] == os.environ["MOON_BUILD_DIR"]
 build_dir = Path(os.environ["MOON_BUILD_DIR"])
 assert build_dir.is_absolute() and build_dir.is_dir()

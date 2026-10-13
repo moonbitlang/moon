@@ -1,0 +1,5 @@
+import {
+  "username/indirect_dep" @lib,
+}
+
+pkgtype(kind: "executable")

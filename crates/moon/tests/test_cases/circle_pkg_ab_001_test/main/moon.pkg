@@ -1,0 +1,6 @@
+import {
+  "hello/B",
+  "hello/A",
+}
+
+pkgtype(kind: "executable")

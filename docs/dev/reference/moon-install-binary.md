@@ -30,12 +30,17 @@ This document uses two different path notions:
 Important details for package paths:
 
 - `package_relative_path` is relative to the module's `source` root, not necessarily module root.
-- When `source` is set in `moon.mod.json`, the `source` directory name is not part of the package path.
+- When `source` is set in `moon.mod`, the `source` directory name is not part of the package path.
 
 Example:
 
 - module root: `/repo`
-- `moon.mod.json`: `{ "name": "user/proj", "source": "src" }`
+- `moon.mod`:
+
+  ```moonbit
+  name = "user/proj"
+  source = "src"
+  ```
 - package directory on disk: `/repo/src/tools/fmt`
 - package path: `user/proj/tools/fmt` (not `user/proj/src/tools/fmt`)
 
@@ -78,7 +83,7 @@ Input form:
 Rules:
 
 - No wildcard: exact package path in the resolved registry module.
-- With wildcard: all `is-main: true` packages under the wildcard prefix.
+- With wildcard: all executable packages under the wildcard prefix.
 
 ### Local path mode
 
@@ -94,7 +99,7 @@ Rules:
 - No wildcard: exact package at that filesystem path.
 - If the exact filesystem path is module root, install that module's root package only
   (root package path is empty string relative to `source` root).
-- With wildcard suffix: all `is-main: true` packages under the matched filesystem path prefix.
+- With wildcard suffix: all executable packages under the matched filesystem path prefix.
 
 ### GitHub permalink mode
 
@@ -147,7 +152,7 @@ Rules:
 - No wildcard:
   - no `PATH_IN_REPO`: install root package of detected module.
   - with `PATH_IN_REPO`: install exact package at the selected filesystem path.
-- With wildcard in `PATH_IN_REPO`: install all `is-main: true` packages under that filesystem prefix.
+- With wildcard in `PATH_IN_REPO`: install all executable packages under that filesystem prefix.
 - Path escape (`..` resolving outside cloned repo) is rejected.
 
 Practical caveat:
@@ -160,7 +165,7 @@ Practical caveat:
 
 These rules apply in all binary installer modes:
 
-- Only packages with `is-main: true` are installable.
+- Only executable packages (`pkgtype(kind: "executable")`) are installable.
 - Build target is native executable in release mode.
 - Output directory defaults to `~/.moon/bin` and can be overridden by `--bin`.
 - Binary name:
@@ -179,7 +184,7 @@ identify source, intent, and target.
 | Dimension | `moon install` (binary mode) | `go install` | `cargo install` |
 | --- | --- | --- | --- |
 | Source identification | Resolution order: `--path` local override, then local-path-looking `SOURCE` (`./`, `../`, `/`, drive), then git URL, else registry package path. | Package args are import paths/patterns by default. Rooted paths or args beginning with `.`/`..` are interpreted as filesystem paths. With `@version`, args must be package paths/patterns (not relative/absolute paths). | Default source is crates.io. Source is switched explicitly via `--git`, `--path`, `--registry`, or `--index`. |
-| Intent identification | Default intent: exact package install. Wildcard intent: `/...` suffix means install all matching `is-main: true` packages under prefix. | Default intent: exact package/import path(s). Wildcard intent: `...` package patterns expand to all matches; `x/...` includes `x` and descendants because wildcard can match empty string. | Exact crate install (no package-pattern wildcard like `...`). For a selected crate package, Cargo installs all binary targets by default (`--bins` behavior), or one via `--bin <name>`. |
+| Intent identification | Default intent: exact package install. Wildcard intent: `/...` suffix means install all matching executable packages under prefix. | Default intent: exact package/import path(s). Wildcard intent: `...` package patterns expand to all matches; `x/...` includes `x` and descendants because wildcard can match empty string. | Exact crate install (no package-pattern wildcard like `...`). For a selected crate package, Cargo installs all binary targets by default (`--bins` behavior), or one via `--bin <name>`. |
 | Target identification | Registry mode matches logical package path. Local/git mode matches filesystem path, then maps discovered package(s) under the module. | Target is package/import path (or package in a directory when filesystem path form is used). | Target is crate identity. If source contains multiple crates (registry/git), crate argument disambiguates. `--path` points to a local crate directory. |
 | Relative path handling | Bare `foo/bar` is treated as registry package path. Use `./foo/bar` / `../foo/bar` for local filesystem semantics. | Rooted / `.` / `..`-prefixed args are filesystem paths; otherwise import-path semantics. | Relative filesystem path is only interpreted through `--path`; positional args are crate names. |
 | Version / revision selection | Registry: `user/module/pkg@version`. Git: `--rev`, `--branch`, `--tag`. | `pkg@version` installs in module-aware mode and ignores current-module `go.mod` (subject to `go install` constraints). | Registry versions via `crate@version` or `--version`; git refs via `--branch`, `--tag`, `--rev`. |

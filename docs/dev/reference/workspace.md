@@ -330,18 +330,18 @@ This matters for layouts like:
 
 ```text
 outer/
-  moon.mod.json
+  moon.mod
   ws/
     moon.work
     app/
-      moon.mod.json
+      moon.mod
 ```
 
 From `outer/ws`, the nearer workspace should win while workspace mode is
 enabled.
 
 With `MOON_WORK=off`, the workspace is ignored and selection falls back to
-the nearest ancestor module, which is `outer/moon.mod.json`.
+the nearest ancestor module, which is `outer/moon.mod`.
 
 ## Colocated `moon.work` And A Module Manifest
 

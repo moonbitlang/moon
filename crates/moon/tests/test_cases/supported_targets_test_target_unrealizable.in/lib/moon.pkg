@@ -1,0 +1,9 @@
+supported_targets = "js"
+
+import {
+  "supported/test-target-unrealizable/nativedep",
+} for "wbtest"
+
+import {
+  "supported/test-target-unrealizable/nativedep",
+} for "test"

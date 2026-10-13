@@ -1,18 +1,17 @@
   $ moon package --list
   
   Running moon check ...
-  Warning: `moon.mod.json` at '[WORK_DIR]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
-  Warning: `exclude` in `[WORK_DIR]/moon.mod.json` is deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.
+  Warning: `exclude` in `[WORK_DIR]/moon.mod` is deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.
   Finished. moon: ran 4 tasks, now up to date
   Check passed
   README.md
-  moon.mod.json
+  moon.mod
   moon.test
   src/lib/hello.mbt
   src/lib/hello_test.mbt
-  src/lib/moon.pkg.json
+  src/lib/moon.pkg
   src/main/main.mbt
-  src/main/moon.pkg.json
+  src/main/moon.pkg
   test/b/b.txt
   Package to [WORK_DIR]/_build/publish/username-hello-0.1.0.zip
   

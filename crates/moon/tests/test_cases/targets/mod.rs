@@ -48,7 +48,6 @@ fn test_targets_share_prebuild_execution_state() {
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: ran 3 tasks, now up to date
 
 "#]]);
@@ -61,7 +60,6 @@ Finished. moon: ran 3 tasks, now up to date
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: ran 1 task, now up to date
 
 "#]]);
@@ -72,7 +70,6 @@ Finished. moon: ran 1 task, now up to date
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: ran 2 tasks, now up to date
 
 "#]]);
@@ -83,7 +80,6 @@ Finished. moon: ran 2 tasks, now up to date
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Warning: `moon.mod.json` at '[..]' is deprecated. Run `moon fmt` to migrate to `moon.mod`.
 Finished. moon: no work to do
 
 "#]]);
