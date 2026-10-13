@@ -110,6 +110,29 @@ policy, working-directory selection, and domain state alongside fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
 responsibility.
 
+### Owned standard streams
+
+`RunOptions::with_stdio` binds a run's standard streams to caller-supplied files:
+
+```rust
+use moonrun::{Engine, RunOptions};
+use std::fs::File;
+
+let engine = Engine::default();
+let module = engine.load_file("agent.wasm")?;
+let options = RunOptions::default().with_stdio(
+    File::open("stdin")?,
+    File::create("stdout")?,
+    File::create("stderr")?,
+);
+let outcome = engine.run(&module, options)?;
+```
+
+Guest standard I/O and missing child standard streams use these bindings.
+Explicit guest-supplied child streams take precedence. The default remains
+ambient process I/O. Cloned options share their supplied files; use separate
+files for independent runs. Working-directory behavior remains ambient.
+
 ## Memory Leak Reporting
 
 When a program uses `moonbit:ffi/memory-sanitizer`, `moonrun` reports objects
