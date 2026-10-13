@@ -3494,11 +3494,8 @@ impl AsyncHost {
             job.set_err(error.errno());
             return;
         }
-        if let JobPayload::Filesystem(fs_job) = job.payload_mut()
-            && let Err(error) = fs_job.configure_paths(filesystem)
-        {
-            job.set_err(error.errno());
-            return;
+        if let JobPayload::Filesystem(fs_job) = job.payload_mut() {
+            fs_job.configure_paths(filesystem);
         }
         thread_pool::run_host_job(job);
         if let Err(error) = Self::finish_process_job(process, job) {

@@ -179,13 +179,12 @@ enum Kind {
 }
 
 impl Job {
-    pub(crate) fn configure_paths(&mut self, filesystem: &HostFs) -> AsyncHostResult<()> {
-        let resolve = |p: &mut OsString| -> AsyncHostResult<()> {
-            *p = filesystem.resolve_path(p)?;
-            Ok(())
+    pub(crate) fn configure_paths(&mut self, filesystem: &HostFs) {
+        let resolve = |p: &mut OsString| {
+            *p = filesystem.resolve_path(p);
         };
         match &mut self.kind {
-            Kind::Open { filename, .. } => resolve(filename)?,
+            Kind::Open { filename, .. } => resolve(filename),
             Kind::Statx {
                 parent: None, path, ..
             }
@@ -199,18 +198,17 @@ impl Job {
             | Kind::Symlink { path, .. }
             | Kind::Mkdir { path, .. }
             | Kind::Rmdir { path, .. }
-            | Kind::Realpath { path, .. } => resolve(path)?,
+            | Kind::Realpath { path, .. } => resolve(path),
             Kind::Rename {
                 old_path, new_path, ..
             } => {
-                resolve(old_path)?;
-                resolve(new_path)?;
+                resolve(old_path);
+                resolve(new_path);
             }
             #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => resolve(path)?,
+            Kind::InotifyAddWatch { path, .. } => resolve(path),
             _ => {}
-        }
-        Ok(())
+        };
     }
 
     // Generic-stat validation belongs to the Filesystem Job so every adapter
@@ -945,7 +943,7 @@ mod tests {
         );
         let mut job = Job::rmdir(OsString::new());
         job.check_policy(&filesystem).unwrap();
-        job.configure_paths(&filesystem).unwrap();
+        job.configure_paths(&filesystem);
 
         let result = job.run();
         assert!(directory.path().is_dir());

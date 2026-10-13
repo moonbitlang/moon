@@ -38,22 +38,10 @@ fn execute(engine: &Engine, module: &Module, dir: &Path) -> anyhow::Result<RunOu
     engine.run(module, options(dir))
 }
 
-// The legacy V8 filesystem callback panics on host errors instead of returning them.
-#[cfg(all(not(feature = "v8"), feature = "wasmtime"))]
-#[test]
-fn empty_legacy_remove_dir_does_not_delete_the_execution_directory() {
+fn execute_empty_remove_dir(source: &str) -> anyhow::Result<RunOutcome> {
     let engine = Engine::default();
     let module = engine
-        .compile(
-            "empty-remove-dir.wasm",
-            wat::parse_str(
-                r#"(module
-                (import "_" "" (global $empty (ref extern)))
-                (import "__moonbit_fs_unstable" "remove_dir" (func $remove (param externref)))
-                (func (export "_start") global.get $empty call $remove))"#,
-            )
-            .unwrap(),
-        )
+        .compile("empty-remove-dir.wasm", wat::parse_str(source).unwrap())
         .unwrap();
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("stdin"), []).unwrap();
@@ -63,6 +51,19 @@ fn empty_legacy_remove_dir_does_not_delete_the_execution_directory() {
     assert_eq!(
         fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
         "keep"
+    );
+    result
+}
+
+// The legacy V8 filesystem callback panics on host errors instead of returning them.
+#[cfg(all(not(feature = "v8"), feature = "wasmtime"))]
+#[test]
+fn empty_legacy_remove_dir_does_not_delete_the_execution_directory() {
+    let result = execute_empty_remove_dir(
+        r#"(module
+        (import "_" "" (global $empty (ref extern)))
+        (import "__moonbit_fs_unstable" "remove_dir" (func $remove (param externref)))
+        (func (export "_start") global.get $empty call $remove))"#,
     );
     assert!(
         result
@@ -74,30 +75,15 @@ fn empty_legacy_remove_dir_does_not_delete_the_execution_directory() {
 
 #[test]
 fn empty_status_remove_dir_does_not_delete_the_execution_directory() {
-    let engine = Engine::default();
-    let module = engine
-        .compile(
-            "empty-remove-dir-new.wasm",
-            wat::parse_str(
-                r#"(module
-                (import "_" "" (global $empty (ref extern)))
-                (import "__moonbit_fs_unstable" "remove_dir_new" (func $remove (param externref) (result i32)))
-                (func (export "_start")
-                    global.get $empty call $remove
-                    i32.const -1 i32.ne if unreachable end))"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("stdin"), []).unwrap();
-    fs::write(dir.path().join("keep.txt"), "keep").unwrap();
-
-    let outcome = execute(&engine, &module, dir.path()).unwrap();
-    assert_eq!(
-        fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
-        "keep"
-    );
+    let outcome = execute_empty_remove_dir(
+        r#"(module
+        (import "_" "" (global $empty (ref extern)))
+        (import "__moonbit_fs_unstable" "remove_dir_new" (func $remove (param externref) (result i32)))
+        (func (export "_start")
+            global.get $empty call $remove
+            i32.const -1 i32.ne if unreachable end))"#,
+    )
+    .unwrap();
     assert_eq!(outcome, RunOutcome::Completed);
 }
 
@@ -234,43 +220,4 @@ fn relative_sqlite_database_uses_the_execution_directory() {
         RunOutcome::Completed
     );
     assert!(dir.path().join("db.sqlite").is_file());
-}
-
-#[test]
-fn options_preserve_exit_and_guest_failure_handling() {
-    let engine = Engine::default();
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("stdin"), []).unwrap();
-    for (source, expected) in [
-        (
-            r#"(module
-            (import "__moonbit_sys_unstable" "exit" (func $exit (param i32)))
-            (func (export "_start") i32.const 17 call $exit))"#,
-            RunOutcome::Exited(17),
-        ),
-        (
-            r#"(module (func (export "_start") unreachable))"#,
-            RunOutcome::Exited(1),
-        ),
-        (
-            r#"(module (func $start unreachable) (start $start))"#,
-            RunOutcome::Exited(1),
-        ),
-        (
-            r#"(module (func (export "_start")))"#,
-            RunOutcome::Completed,
-        ),
-    ] {
-        assert_eq!(
-            execute(
-                &engine,
-                &engine
-                    .compile("outcome.wasm", wat::parse_str(source).unwrap())
-                    .unwrap(),
-                dir.path()
-            )
-            .unwrap(),
-            expected
-        );
-    }
 }

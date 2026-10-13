@@ -99,21 +99,16 @@ pub(crate) struct HostFs {
 }
 
 impl HostFs {
-    pub(crate) fn resolve_path(&self, path: &OsStr) -> AsyncHostResult<OsString> {
-        if matches!(*self.working_directory, WorkingDirectory::Ambient) {
-            return Ok(path.to_owned());
+    pub(crate) fn resolve_path(&self, path: &OsStr) -> OsString {
+        match self.working_directory.as_ref() {
+            WorkingDirectory::Ambient => path.to_owned(),
+            WorkingDirectory::Fixed(root) if !path.is_empty() => root.join(path).into_os_string(),
+            WorkingDirectory::Fixed(_) => path.to_owned(),
         }
-        self.working_directory
-            .resolve(Path::new(path))
-            .map(|p| p.into_os_string())
-            .map_err(|_| AsyncHostError::Io)
     }
 
     fn resolved(&self, path: &str) -> PathBuf {
-        match *self.working_directory {
-            WorkingDirectory::Ambient => Path::new(path).to_owned(),
-            WorkingDirectory::Fixed(_) => self.working_directory.resolve(Path::new(path)).unwrap(),
-        }
+        self.resolve_path(OsStr::new(path)).into()
     }
 
     pub(crate) fn new(

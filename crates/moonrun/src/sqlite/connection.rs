@@ -224,9 +224,6 @@ pub(super) fn open_database(
         filename
     } else {
         let path = filesystem.resolve_path(OsStr::new(filename.to_str().unwrap()));
-        let Ok(path) = path else {
-            return (ffi::SQLITE_CANTOPEN, None);
-        };
         let Ok(path) = CString::new(path.as_encoded_bytes()) else {
             return (ffi::SQLITE_CANTOPEN, None);
         };
