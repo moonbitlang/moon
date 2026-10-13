@@ -466,7 +466,7 @@ fn plan_build_rr_from_resolved_with_scope(
         &resolved_project,
         &scoped_packages,
         compile_config.backend.target_backend(),
-    )?;
+    );
     rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
@@ -748,13 +748,13 @@ fn calc_user_intent(
             .collect::<Vec<_>>()
             .into())
     } else {
-        calc_user_intent_from_scoped_packages(
+        Ok(calc_user_intent_from_scoped_packages(
             discovered,
             &rr_build::local_packages(discovered)
                 .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
                 .collect::<Vec<_>>(),
             target_backend,
-        )
+        ))
     }
 }
 
@@ -762,7 +762,7 @@ fn calc_user_intent_from_scoped_packages(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     supported_packages: &[PackageId],
     target_backend: TargetBackend,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> CalcUserIntentOutput {
     let linkable_pkgs = get_linkable_pkgs(
         discovered,
         target_backend,
@@ -781,7 +781,7 @@ fn calc_user_intent_from_scoped_packages(
     } else {
         linkable_pkgs.into_iter().map(UserIntent::Build).collect()
     };
-    Ok(intents.into())
+    intents.into()
 }
 
 fn get_linkable_pkgs(
