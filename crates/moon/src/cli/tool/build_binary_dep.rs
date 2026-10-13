@@ -116,7 +116,7 @@ pub(crate) fn run_build_binary_dep(
         let compile_config = rr_build::prepare_resolved_build(
             cli,
             &build_flags,
-            Some(target),
+            target,
             target_dir,
             RunMode::Build,
             user_log,

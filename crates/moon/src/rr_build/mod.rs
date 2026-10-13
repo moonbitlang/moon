@@ -173,6 +173,31 @@ pub(crate) fn local_packages(
     })
 }
 
+/// Select the Target Backend for a project-wide plan without an explicit `--target`:
+/// local modules' agreed preferred target, then the default backend.
+pub(crate) fn default_target_backend(
+    discovered: &DiscoveredProject,
+    user_log: &UserLog,
+) -> TargetBackend {
+    let preferred_target = local_modules_preferred_target(discovered, user_log);
+    info!("Preferred backend: {:?}", preferred_target);
+    preferred_target.unwrap_or_default()
+}
+
+/// Select a standalone file's Target Backends: explicit targets, then the
+/// file's preferred backend, then the project default.
+pub(crate) fn single_file_target_backends(
+    discovered: &DiscoveredProject,
+    selected_target_backends: &[TargetBackend],
+    preferred_backend: Option<TargetBackend>,
+    user_log: &UserLog,
+) -> Vec<TargetBackend> {
+    if !selected_target_backends.is_empty() {
+        return selected_target_backends.to_vec();
+    }
+    vec![preferred_backend.unwrap_or_else(|| default_target_backend(discovered, user_log))]
+}
+
 fn local_modules_preferred_target(
     discovered: &DiscoveredProject,
     user_log: &UserLog,
@@ -228,16 +253,16 @@ pub fn build_patch_directive_for_package(
     })
 }
 
-/// Select the backend and construct the final configuration for a resolved project.
+/// Construct the final configuration for a resolved project and its selected backend.
 ///
-/// CLI policy is resolved here while both the original flags and selected backend
-/// are available. Command adapters may then use that backend to expand their
-/// intent; RR receives one completed configuration with no CLI parsing types.
+/// Commands select the Target Backend before calling this. CLI policy is
+/// resolved here while both the original flags and that backend are available;
+/// RR receives one completed configuration with no CLI parsing types.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub(crate) fn prepare_resolved_build(
     cli: &UniversalFlags,
     build_flags: &BuildFlags,
-    selected_target_backend: Option<TargetBackend>,
+    target_backend: TargetBackend,
     target_dir: &Path,
     action: RunMode,
     user_log: &UserLog,
@@ -260,22 +285,10 @@ pub(crate) fn prepare_resolved_build(
         )?;
     }
 
-    // Preferred backend
-    info!("Checking local modules and backend");
     let main_module = match resolved_project.local_modules() {
         &[module_id] => Some(resolved_project.module_info(module_id)),
         _ => None,
     };
-    let preferred_target = if selected_target_backend.is_some() {
-        None
-    } else {
-        local_modules_preferred_target(resolved_project, user_log)
-    };
-    info!("Preferred backend: {:?}", preferred_target);
-
-    let target_backend = selected_target_backend
-        .or(preferred_target)
-        .unwrap_or_default();
 
     // TODO: remove this once LLVM backend is well supported
     if target_backend == TargetBackend::LLVM {

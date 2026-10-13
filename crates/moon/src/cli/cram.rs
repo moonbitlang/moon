@@ -165,10 +165,9 @@ fn run_cram_test(
     let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
         cli,
         &build_cmd,
-        source_dir,
         target_dir,
         mooncake_bin_dir,
-        Some(TargetBackend::Native),
+        &[TargetBackend::Native],
         resolved_project,
         user_log,
     )?;

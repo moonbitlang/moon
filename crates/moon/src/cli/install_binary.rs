@@ -664,7 +664,7 @@ fn build_selected_package(
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
-        Some(TargetBackend::Native),
+        TargetBackend::Native,
         &prepared.target_dir,
         RunMode::Build,
         user_log,

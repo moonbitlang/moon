@@ -152,7 +152,7 @@ pub(crate) fn run_doc_rr(
     let mut compile_config = rr_build::prepare_resolved_build(
         &cli,
         &build_flags,
-        Some(target_backend),
+        target_backend,
         target_dir,
         RunMode::Check,
         user_log,
