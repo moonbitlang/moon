@@ -1415,14 +1415,12 @@ fn symlink_native_path(
 ) -> AsyncHostResult<()> {
     use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateSymbolicLinkW, FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
-        SYMBOLIC_LINK_FLAG_DIRECTORY,
+        CreateSymbolicLinkW, SYMBOLIC_LINK_FLAG_DIRECTORY,
     };
 
     let target_wide = path_to_wide(target.clone());
     let path_wide = path_to_wide(path.clone());
-    let attrs = unsafe { GetFileAttributesW(target_wide.as_ptr()) };
-    let is_directory = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    let is_directory = symlink_target_is_directory(&target, &path);
 
     if !force_symlink
         && is_directory
@@ -1445,6 +1443,29 @@ fn symlink_native_path(
     } else {
         Err(last_native_error())
     }
+}
+
+#[cfg(windows)]
+fn symlink_target_is_directory(target: &std::ffi::OsStr, path: &std::ffi::OsStr) -> bool {
+    use std::path::{Component, Path};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
+    };
+
+    let target = Path::new(target);
+    // Probe relative targets from the link's parent without changing the stored
+    // link text. Drive-prefixed targets retain Windows' own path semantics.
+    let probe = if matches!(target.components().next(), Some(Component::Prefix(_))) {
+        target.to_owned()
+    } else {
+        Path::new(path)
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(target)
+    };
+    let probe = path_to_wide(probe.into_os_string());
+    let attrs = unsafe { GetFileAttributesW(probe.as_ptr()) };
+    attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0
 }
 
 #[cfg(windows)]
@@ -1872,6 +1893,31 @@ fn native_io_error(error: std::io::Error) -> AsyncHostError {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symlink_target_type_is_relative_to_the_link_parent() {
+        let root = tempfile::tempdir().unwrap();
+        let links = root.path().join("links");
+        std::fs::create_dir(&links).unwrap();
+        // A unique name makes the old process-cwd probe deterministically fail.
+        let directory = tempfile::tempdir_in(root.path()).unwrap();
+        let target = std::path::Path::new("..").join(directory.path().file_name().unwrap());
+        let link = links.join("alias");
+
+        assert!(symlink_target_is_directory(
+            target.as_os_str(),
+            link.as_os_str()
+        ));
+        assert!(symlink_target_is_directory(
+            directory.path().as_os_str(),
+            link.as_os_str()
+        ));
+        std::fs::write(root.path().join("file"), []).unwrap();
+        assert!(!symlink_target_is_directory(
+            std::ffi::OsStr::new(r"..\file"),
+            link.as_os_str()
+        ));
+    }
 
     #[test]
     fn realpath_normalizes_only_windows_verbatim_prefixes() {
