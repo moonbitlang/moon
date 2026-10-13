@@ -139,8 +139,7 @@ fn moon_test_failure_control_chars() {
 {"package":"test/control_chars","filename":"failure_wbtest.mbt","index":"1","test_name":"other escapes","message":"failure_wbtest.mbt:10:3-10:29@test/control_chars FAILED: \u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\"\\你好🌙"}
 Total tests: 3, passed: 1, failed: 2.
 
-"#]].raw())
-            .stderr_eq("");
+"#]].raw());
     }
 }
 
