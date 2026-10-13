@@ -239,6 +239,46 @@ fn test_moon_test_resolves_wasm_policy_before_changing_to_module_roots() {
 
 #[test]
 fn test_zombie_child_process() {
+    let dir = TestDir::new("moon_test/zombie_child");
+    assert_test_process_shutdown(&dir, &["--no-parallelize"], None);
+}
+
+#[test]
+fn test_parallel_children_shutdown_after_one_finishes() {
+    let dir = TestDir::new("moon_test/zombie_child");
+    std::fs::create_dir(dir.join("aaa_fast")).unwrap();
+    std::fs::write(dir.join("aaa_fast/moon.pkg"), "").unwrap();
+    std::fs::write(
+        dir.join("aaa_fast/fast_test.mbt"),
+        r#"extern "js" fn record_pid() -> Unit =
+  #|() => require('fs').writeFileSync('fast_child_pid.txt', String(process.pid))
+
+test { record_pid() }
+"#,
+    )
+    .unwrap();
+    assert_test_process_shutdown(&dir, &["-j", "2"], Some(&dir.join("fast_child_pid.txt")));
+}
+
+#[test]
+fn test_child_shutdown_after_snapshot_update() {
+    let dir = TestDir::new("moon_test/zombie_child");
+    let source = dir.join("lib/hello_wbtest.mbt");
+    let contents = std::fs::read_to_string(&source).unwrap();
+    // The first pass fails before starting the long-lived child. Only the
+    // rerun after promotion reaches the PID write and waits for termination.
+    std::fs::write(
+        source,
+        contents.replace(
+            "test \"keeps_process_alive\" {",
+            "test \"keeps_process_alive\" {\n  inspect(0, content=\"1\")",
+        ),
+    )
+    .unwrap();
+    assert_test_process_shutdown(&dir, &["--update", "-j", "2"], None);
+}
+
+fn assert_test_process_shutdown(dir: &TestDir, args: &[&str], finished_child: Option<&Path>) {
     use super::process::{
         read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,
     };
@@ -246,11 +286,10 @@ fn test_zombie_child_process() {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    let dir = TestDir::new("moon_test/zombie_child");
     let child_pid_file = dir.join("test_child_pid.txt");
 
-    let build_output = moon_process_cmd(&dir)
-        .args(["test", "--target", "js", "--no-parallelize", "--build-only"])
+    let build_output = moon_process_cmd(dir)
+        .args(["test", "--target", "js", "-j", "2", "--build-only"])
         .output()
         .expect("Failed to build zombie child test fixture");
     assert!(
@@ -261,8 +300,9 @@ fn test_zombie_child_process() {
     );
 
     // Spawn moon test in background
-    let mut moon_child = moon_process_cmd(&dir)
-        .args(["test", "--target", "js", "--no-parallelize"])
+    let mut moon_child = moon_process_cmd(dir)
+        .args(["test", "--target", "js"])
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -271,7 +311,11 @@ fn test_zombie_child_process() {
     // Wait for the test executable to publish its PID.
     let start = Instant::now();
     let child_pid = loop {
-        if let Ok(pid) = read_pid_file(&child_pid_file) {
+        if let Ok(pid) = read_pid_file(&child_pid_file)
+            && finished_child.is_none_or(|path| {
+                read_pid_file(path).is_ok_and(|pid| wait_for_pid_exit(pid, Duration::ZERO))
+            })
+        {
             break pid;
         }
         if let Some(status) = moon_child
@@ -290,6 +334,14 @@ fn test_zombie_child_process() {
         thread::sleep(Duration::from_millis(100));
         if start.elapsed() > Duration::from_secs(60) {
             let _ = moon_child.kill();
+            if let Ok(pid) = read_pid_file(&child_pid_file) {
+                terminate_pid(pid);
+            }
+            if let Some(path) = finished_child
+                && let Ok(pid) = read_pid_file(path)
+            {
+                terminate_pid(pid);
+            }
             let output = moon_child
                 .wait_with_output()
                 .expect("Failed to collect moon test output");
@@ -300,6 +352,11 @@ fn test_zombie_child_process() {
             );
         }
     };
+
+    // Give Moon a chance to reap the completed child before signalling it.
+    if finished_child.is_some() {
+        thread::sleep(Duration::from_millis(100));
+    }
 
     // Terminate the moon process (simulating the scenario in example/script.js)
     terminate_child(&mut moon_child);
