@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::*;
+use snapbox::IntoData;
 
 #[test]
 fn test_panic() {
@@ -121,6 +122,26 @@ fn moon_test_with_failure_json() {
             Total tests: 2, passed: 1, failed: 1.
         "#]],
     );
+}
+
+#[test]
+fn moon_test_failure_control_chars() {
+    let dir = TestDir::new("test_failure_control_chars");
+
+    for target in ["native", "wasm-gc", "js"] {
+        moon_cmd(&dir)
+            .args(["test", "--target", target, "--test-failure-json"])
+            .assert()
+            .failure()
+            // JSON backslashes must not be normalized as path separators.
+            .stdout_eq(snapbox::str![[r#"
+{"package":"test/control_chars","filename":"failure_wbtest.mbt","index":"0","test_name":"ANSI color","message":"failure_wbtest.mbt:3:3-3:34@test/control_chars FAILED: a\u001b[31mred\u001b[0m"}
+{"package":"test/control_chars","filename":"failure_wbtest.mbt","index":"1","test_name":"other escapes","message":"failure_wbtest.mbt:10:3-10:29@test/control_chars FAILED: \u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\"\\你好🌙"}
+Total tests: 3, passed: 1, failed: 2.
+
+"#]].raw())
+            .stderr_eq("");
+    }
 }
 
 #[test]
@@ -795,9 +816,9 @@ fn moon_test_target_js_panic_with_sourcemap() {
         // should keep in this format, it's used in ide test explorer
         expect![[r#"
             [username/hello] test lib/hello_test.mbt:1 ("hello") failed: Error
-                at $panic ($ROOT/_build/js/debug/test/lib/lib.blackbox_test.js:16:9)
+                at $panic ($ROOT/_build/js/debug/test/lib/lib.blackbox_test.js:33:9)
                 at f ($ROOT/src/lib/hello_test.mbt:3:5)
-                at moonbit_test_driver_internal_js_catch ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:399:11)
+                at moonbit_test_driver_internal_js_catch ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:436:11)
             Total tests: 1, passed: 0, failed: 1."#]],
     );
 }
