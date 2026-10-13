@@ -1457,17 +1457,7 @@ fn calc_user_intent(
     target_backend: moonutil::target::TargetBackend,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let all_affected_packages: Vec<_> = discovered
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            discovered
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .collect();
+    let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
     calc_user_intent_from_packages(
         discovered,
         cmd,
@@ -1722,33 +1712,13 @@ fn resolve_selected_test_packages(
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = discovered
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                discovered
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            })
-            .collect();
+        let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
         return Ok(
             match_packages_with_fuzzy(discovered, all_affected_packages, package_filter).matched,
         );
     }
 
-    Ok(discovered
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            discovered
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .collect())
+    Ok(rr_build::local_packages(discovered).collect())
 }
 
 fn validate_original_package_selection_filters(
@@ -1769,13 +1739,7 @@ fn validate_original_package_selection_filters(
 
     let matched_packages = match_packages_with_fuzzy(
         discovered,
-        discovered.local_modules().iter().flat_map(|&module_id| {
-            discovered
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        }),
+        rr_build::local_packages(discovered),
         package_filter,
     )
     .matched;
