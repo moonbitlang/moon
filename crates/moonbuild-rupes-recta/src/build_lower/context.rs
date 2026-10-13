@@ -35,7 +35,9 @@ use crate::{
         PackagePrebuildKey, package_file_key,
     },
     discover::{DiscoverResult, DiscoveredPackage},
-    execution_plan::{ActionId, ExecutionAction, ExecutionPlanBuilder, InputObservation},
+    execution_plan::{
+        ActionId, ActionOutputKind, ExecutionAction, ExecutionPlanBuilder, InputObservation,
+    },
     model::{BackendConfig, BuildPlanNode, BuildTarget},
     pkg_solve::PackageRelations,
     target_layout::{
@@ -625,12 +627,35 @@ impl<'a> LoweringContext<'a> {
             .flat_map(|(_, paths)| paths.iter().cloned())
             .chain(declared_outputs)
             .collect();
+        let output_kind = match action {
+            BuildAction::Check { .. }
+            | BuildAction::EmitProof { .. }
+            | BuildAction::Prove { .. }
+            | BuildAction::BuildCore { .. }
+            | BuildAction::LinkCore { .. }
+            | BuildAction::BuildVirtual { .. }
+            | BuildAction::Bundle { .. } => ActionOutputKind::Compiler,
+            BuildAction::BuildCStub { .. }
+            | BuildAction::ArchiveOrLinkCStubs { .. }
+            | BuildAction::MakeExecutable { .. }
+            | BuildAction::GenerateDsym { .. }
+            | BuildAction::GenerateTestInfo { .. }
+            | BuildAction::GenerateNodeTestPackageConfig { .. }
+            | BuildAction::GenerateMbti { .. }
+            | BuildAction::BuildRuntimeObject { .. }
+            | BuildAction::BuildRuntimeLib { .. }
+            | BuildAction::BuildDocs { .. }
+            | BuildAction::RunPrebuild { .. }
+            | BuildAction::RunMoonLexPrebuild { .. }
+            | BuildAction::RunMoonYaccPrebuild { .. } => ActionOutputKind::Tool,
+        };
         let execution_action = ExecutionAction::new(
             inputs,
             outputs,
             command,
             self.string_id(action_key),
             self.human_desc(action_key, action),
+            output_kind,
         )
         .with_cache_eligible(cache_eligible)
         .with_can_dirty_on_output(matches!(

@@ -205,6 +205,7 @@ fn add_format_action<I, O>(
         command,
         description.clone(),
         description,
+        crate::execution_plan::ActionOutputKind::Tool,
     )
     .with_cache_eligible(cache_eligible)
     .with_can_dirty_on_output(can_dirty_on_output);

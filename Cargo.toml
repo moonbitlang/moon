@@ -31,7 +31,7 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "73429f6a8e6b7b5f5382e4cf98c0c2746ba4c6bd" }
+n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "26b15b3ac9c859d544bbfd9b4c66fe8fe289eaf3" }
 arcstr = "1.2"
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 moonbuild-rupes-recta = { path = "./crates/moonbuild-rupes-recta", version = "*" }

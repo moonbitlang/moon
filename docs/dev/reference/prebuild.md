@@ -303,6 +303,15 @@ holds after substitution and tool semantics:
 - A built-in `:embed` argument tail contains malformed native quoting or escaping.
 - The invoked tool fails to produce all declared outputs.
 
+A command that exits unsuccessfully fails its prebuild action even if it emits
+no output. In rendered and JSON modes, the error identifies the prebuild action,
+package, and executed command; captured output is also retained. Raw mode
+forwards the tool's output as its failure explanation, with an action error for
+silent failures. `moon check --json` reports prebuild failures as Moon-level
+error messages rather than compiler diagnostics. This also applies when a
+prebuild command prints JSON matching the compiler diagnostic schema: its
+output remains literal tool output, without compiler filtering or rewriting.
+
 ## Compatibility and Caveats
 
 - `:embed` detection is prefix-based and requires the literal prefix `:embed `.
