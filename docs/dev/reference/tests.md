@@ -86,9 +86,10 @@ without registry access or a separate version selection. Only
 
 ## Test execution parallelism
 
-Within each Target Backend, `moon test` and `moon bench` run test executables
-sequentially by default. Explicit `-j N` opts into parallel execution and sets
-the maximum number of concurrent executables.
+Within each Target Backend, `moon test` runs test executables in parallel by
+default, using the same available-CPU observation as build execution (falling
+back to one if unavailable). `-j N` sets the maximum number of concurrent
+executables.
 `--no-parallelize` forces sequential test execution even with `-j`, without
 changing build parallelism. The concurrency limit is at least one.
 
@@ -106,6 +107,10 @@ Collected test results are reported in invocation order, regardless of completio
 order. Output printed directly by test programs may interleave. Selected Target
 Backends still execute one after another, and this scheduling does not split
 individual test cases into separate processes or change async-test concurrency.
+
+`moon bench` remains sequential by default to avoid contention affecting
+measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
+`--no-parallelize` overrides it.
 
 ## Expect / snapshot promotion loop
 

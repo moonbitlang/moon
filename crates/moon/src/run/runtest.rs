@@ -135,11 +135,12 @@ enum ParsedTestDriverEvent {
     Result(TestStatistics),
 }
 
-fn resolve_test_parallelism(no_parallelize: bool, jobs: Option<usize>) -> usize {
-    if no_parallelize {
+fn resolve_test_parallelism(no_parallelize: bool, jobs: Option<usize>, bench: bool) -> usize {
+    // Keep benchmarks sequential unless requested, since contention affects timings.
+    if no_parallelize || (bench && jobs.is_none()) {
         1
     } else {
-        jobs.unwrap_or(1).max(1)
+        moonbuild::execution::resolve_parallelism(jobs).max(1)
     }
 }
 
@@ -223,7 +224,7 @@ pub(crate) async fn run_tests(
         invocations
     };
 
-    let parallelism = resolve_test_parallelism(no_parallelize, parallelism);
+    let parallelism = resolve_test_parallelism(no_parallelize, parallelism, bench);
 
     if parallelism > 1 && invocations.len() > 1 {
         debug!(
@@ -1262,19 +1263,23 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn test_execution_is_sequential_by_default() {
-        let parallelism = super::resolve_test_parallelism(false, None);
-        assert_eq!(parallelism, 1);
-        assert_started_before_release(parallelism, 1).await;
+    async fn test_execution_is_parallel_by_default() {
+        let parallelism = super::resolve_test_parallelism(false, None, false);
+        let available = moonbuild::execution::resolve_parallelism(None);
+        assert_eq!(parallelism, available);
+        assert_started_before_release(parallelism, available.min(2)).await;
     }
 
     #[test]
-    fn explicit_job_limits_and_sequential_override() {
-        assert_eq!(super::resolve_test_parallelism(true, None), 1);
-        assert_eq!(super::resolve_test_parallelism(true, Some(8)), 1);
-        assert_eq!(super::resolve_test_parallelism(false, Some(0)), 1);
-        assert_eq!(super::resolve_test_parallelism(false, Some(1)), 1);
-        assert_eq!(super::resolve_test_parallelism(false, Some(2)), 2);
+    fn explicit_job_limits_and_sequential_benchmarks() {
+        for bench in [false, true] {
+            assert_eq!(super::resolve_test_parallelism(true, None, bench), 1);
+            assert_eq!(super::resolve_test_parallelism(true, Some(8), bench), 1);
+            assert_eq!(super::resolve_test_parallelism(false, Some(0), bench), 1);
+            assert_eq!(super::resolve_test_parallelism(false, Some(1), bench), 1);
+            assert_eq!(super::resolve_test_parallelism(false, Some(2), bench), 2);
+        }
+        assert_eq!(super::resolve_test_parallelism(false, None, true), 1);
     }
 
     #[tokio::test(flavor = "current_thread")]

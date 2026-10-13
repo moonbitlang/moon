@@ -116,8 +116,8 @@ impl OutputStyle {
     }
 }
 
-/// Share the default observation between prebuild scripts and the executor so
-/// both see the same job limit throughout this Moon process.
+/// Share the default observation between prebuild scripts, build execution, and
+/// test execution so they see the same job limit throughout this Moon process.
 pub fn resolve_parallelism(jobs: Option<usize>) -> usize {
     static DEFAULT_PARALLELISM: LazyLock<usize> =
         LazyLock::new(|| std::thread::available_parallelism().map_or(1, usize::from));
