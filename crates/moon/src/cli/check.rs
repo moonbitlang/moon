@@ -1000,7 +1000,7 @@ fn validate_selector_flags_before_split(
 
     let selected =
         resolve_selected_packages(discovered, cmd, source_dir, target_backend, user_log)?;
-    if cmd.patch_file.is_some() && selected.len() != 1 {
+    if selected.len() != 1 {
         anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
     }
     Ok(())
