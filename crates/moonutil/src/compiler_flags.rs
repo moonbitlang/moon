@@ -521,8 +521,6 @@ impl CC {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Clang)
         } else if stem.ends_with("tcc") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Tcc)
-        } else if stem.ends_with("cc") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
         } else {
             // assume it's a system cc
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
