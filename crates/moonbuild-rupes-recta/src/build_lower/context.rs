@@ -574,12 +574,12 @@ impl<'a> LoweringContext<'a> {
                         .executable_realization()
                     {
                         CExecutableRealization::CompileAndLinkGeneratedC => {
-                            info.c_flags.is_empty() && info.link_flags.is_empty()
+                            info.c_flags.is_empty() && info.link_args.is_empty()
                         }
-                        CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
+                        CExecutableRealization::LinkDirectObject => info.link_args.is_empty(),
                     }
                 }
-                BackendConfig::Llvm { .. } => info.c_flags.is_empty() && info.link_flags.is_empty(),
+                BackendConfig::Llvm { .. } => info.c_flags.is_empty() && info.link_args.is_empty(),
                 BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                     unreachable!("non-native plans do not contain MakeExecutable actions")
                 }

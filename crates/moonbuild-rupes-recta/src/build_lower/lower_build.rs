@@ -924,7 +924,7 @@ impl<'a> LoweringContext<'a> {
             &info.effective_native_toolchain,
             config,
             &info.cc_flags,
-            &[] as &[&str],
+            &[],
             [input_file.display().to_string()],
             &intermediate_dir,
             Some(&output_file.display().to_string()),
@@ -1151,7 +1151,7 @@ impl<'a> LoweringContext<'a> {
             &info.effective_native_toolchain,
             config,
             &info.c_flags,
-            &info.link_flags,
+            &info.link_args,
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),
@@ -1210,7 +1210,7 @@ impl<'a> LoweringContext<'a> {
             compiler::msvc::link_executable_command(
                 &info.effective_native_toolchain,
                 &source_args,
-                &info.link_flags,
+                &info.link_args,
                 &dest,
                 &compiler_paths.lib_path,
             )
@@ -1219,7 +1219,7 @@ impl<'a> LoweringContext<'a> {
             let linker_cmd = make_linker_command_resolved(
                 cc,
                 config,
-                &info.link_flags,
+                &info.link_args,
                 &source_args,
                 &pkg_dir,
                 &dest,

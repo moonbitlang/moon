@@ -368,6 +368,19 @@ This is why Moon records both:
 
 The `-lm` behavior belongs to this semantic layer, not just to executable lookup.
 
+Build planning keeps native link inputs as an ordered list of `NativeLinkArg`
+values: library names, search paths, and opaque user arguments. Manifest and
+prebuild flags are tokenized once; arguments are not regrouped or deduplicated
+across package boundaries. The native command builders render this list using
+the already selected compiler driver, without reselecting the toolchain.
+
+Module-level prebuild `link_libs` and `link_search_paths` are rendered in that
+driver's syntax. `cl` and `clang-cl` receive `<name>.lib` and `/LIBPATH:<path>`;
+GCC-like drivers receive `-l<name>` and `-L<path>`. Plain `clang` keeps GCC-style
+arguments even when its target triple contains `msvc`: the driver translates
+library names and search paths for the Windows linker. Opaque `link_flags` remain
+the script's responsibility and must match the selected driver.
+
 ## Compile, Link, and Archive Usage
 
 ### Compile
@@ -385,6 +398,11 @@ failing command construction.
 
 - MSVC style: `cl ... /link ...`
 - GCC or Clang style: `<cc> ... -o ...`
+
+MSVC executable and shared-library commands place linker options, including
+prebuild library search paths, after `/link`. Source inputs, compiler flags, and
+the `/MT` CRT policy stay before that separator. Generated-C and direct-object
+linking both follow this ordering; prebuild scripts do not need to insert `/link`.
 
 `-lm` is added only when the selected compiler is full-featured gcc-like and the probed target
 triple does not contain `msvc`.

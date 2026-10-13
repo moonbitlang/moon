@@ -615,7 +615,7 @@ mod tests {
                 debug_info: false,
                 opt_level: moonutil::compiler_flags::OptLevel::None,
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
-                link_flags: Vec::new(),
+                link_args: Vec::new(),
                 static_archive_fingerprint: None,
             },
         );
@@ -634,7 +634,10 @@ mod tests {
                 c_debug_info: false,
                 c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
                 c_flags: Vec::new(),
-                link_flags: vec!["dep.lib".to_string(), "/LIBPATH:pkg/lib".to_string()],
+                link_args: vec![
+                    moonutil::compiler_flags::NativeLinkArg::Library("dep".into()),
+                    moonutil::compiler_flags::NativeLinkArg::SearchPath("pkg/lib".into()),
+                ],
                 link_c_stubs: vec![target.package],
                 native_allocator: NativeAllocator::Default,
             },
@@ -682,7 +685,7 @@ mod tests {
 
         let execution =
             lower_build_plan(&resolved_project, &plan, &options).expect("lowering should succeed");
-        let opaque_actions = execution
+        let custom_input_actions = execution
             .action_ids()
             .filter(|id| {
                 execution.action(*id).outputs().iter().any(|path| {
@@ -695,11 +698,11 @@ mod tests {
                 })
             })
             .collect::<Vec<_>>();
-        assert_eq!(opaque_actions.len(), 2);
-        for action in opaque_actions {
+        assert_eq!(custom_input_actions.len(), 2);
+        for action in custom_input_actions {
             assert!(
                 !execution.action(action).is_cache_eligible(),
-                "C stub and executable actions with opaque flags should be ineligible"
+                "C stub flags and native link inputs can refer to undeclared files"
             );
         }
 
@@ -904,7 +907,7 @@ mod tests {
                     is_env_override: false,
                 }),
                 c_flags: Vec::new(),
-                link_flags: Vec::new(),
+                link_args: Vec::new(),
                 link_c_stubs: Vec::new(),
                 native_allocator: NativeAllocator::Default,
             },
