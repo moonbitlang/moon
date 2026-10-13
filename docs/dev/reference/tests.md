@@ -84,6 +84,29 @@ without registry access or a separate version selection. Only
 `moon_cove_report`, whose executable can be selected with
 `MOON_COVE_REPORT_OVERRIDE`.
 
+## Test execution parallelism
+
+Within each Target Backend, `moon test` and `moon bench` run test executables
+sequentially by default. Explicit `-j N` opts into parallel execution and sets
+the maximum number of concurrent executables.
+`--no-parallelize` forces sequential test execution even with `-j`, without
+changing build parallelism. The concurrency limit is at least one.
+
+One current-thread Tokio runtime supervises the child processes; CPU parallelism
+comes from the children themselves. A launch loop awaits a semaphore permit before
+spawning each async task. The task holds the permit through child execution and
+result collection, then releases it so the next invocation can start. All tasks
+are joined before results are reported. The CLI retains this runtime across all
+backends and snapshot-update passes so the shutdown listener remains available
+until test execution ends. Finishing one child frees a concurrency slot without
+dropping the listener. The runner awaits and reaps children even when another
+invocation fails, and stops launching queued invocations after shutdown is observed.
+
+Collected test results are reported in invocation order, regardless of completion
+order. Output printed directly by test programs may interleave. Selected Target
+Backends still execute one after another, and this scheduling does not split
+individual test cases into separate processes or change async-test concurrency.
+
 ## Expect / snapshot promotion loop
 
 > TODO: this behavior is suboptimal. See:
