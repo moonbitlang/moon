@@ -542,8 +542,11 @@ fn define_filesystem_import(linker: &mut Linker<StoreData>, name: &str) -> wasmt
         | "is_file_new"
         | "is_dir_new"
         | "remove_file_new"
-        | "remove_dir_new" => define_status_path_operation(linker, name)?,
+        | "remove_dir_new"
+        | "sync_file_new" => define_status_path_operation(linker, name)?,
         "write_bytes_to_file_new" => define_write_bytes_to_file(linker, name, true)?,
+        "append_bytes_to_file_new" => define_append_bytes_to_file(linker, name)?,
+        "rename_new" => define_rename(linker, name)?,
         "get_file_content" => {
             linker.func_wrap(FS_MODULE, name, |mut caller: Caller<'_, StoreData>| {
                 let contents = caller
@@ -1015,6 +1018,49 @@ fn define_write_bytes_to_file(
     Ok(())
 }
 
+fn define_append_bytes_to_file(
+    linker: &mut Linker<StoreData>,
+    name: &str,
+) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        FS_MODULE,
+        name,
+        |mut caller: Caller<'_, StoreData>,
+         path: Option<Rooted<ExternRef>>,
+         contents: Option<Rooted<ExternRef>>|
+         -> wasmtime::Result<i32> {
+            let path = extern_string(&caller, path.as_ref())?;
+            let filesystem = caller.data().runtime().filesystem().clone();
+            let mut operation_results =
+                std::mem::take(&mut caller.data_mut().host_imports.filesystem_results);
+            let status = filesystem.append_bytes_to_file_new(&mut operation_results, &path, || {
+                extern_bytes(&caller, contents.as_ref()).map_err(|error| error.to_string())
+            });
+            caller.data_mut().host_imports.filesystem_results = operation_results;
+            Ok(status)
+        },
+    )?;
+    Ok(())
+}
+
+fn define_rename(linker: &mut Linker<StoreData>, name: &str) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        FS_MODULE,
+        name,
+        |mut caller: Caller<'_, StoreData>,
+         from: Option<Rooted<ExternRef>>,
+         to: Option<Rooted<ExternRef>>|
+         -> wasmtime::Result<i32> {
+            let from = extern_string(&caller, from.as_ref())?;
+            let to = extern_string(&caller, to.as_ref())?;
+            let filesystem = caller.data().runtime().filesystem().clone();
+            let state = &mut caller.data_mut().host_imports.filesystem_results;
+            Ok(filesystem.rename_new(state, &from, &to))
+        },
+    )?;
+    Ok(())
+}
+
 fn define_legacy_path_operation(
     linker: &mut Linker<StoreData>,
     name: &str,
@@ -1099,6 +1145,7 @@ fn define_status_path_operation(
                 "is_dir_new" => filesystem.is_dir_new(state, &path),
                 "remove_file_new" => filesystem.remove_file_new(state, &path),
                 "remove_dir_new" => filesystem.remove_dir_new(state, &path),
+                "sync_file_new" => filesystem.sync_file_new(state, &path),
                 _ => unreachable!(),
             };
             Ok(status)
