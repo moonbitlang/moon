@@ -1244,6 +1244,42 @@ fn test_moon_run_with_async_stdio_imports() {
 }
 
 #[test]
+fn moonrun_library_async_stdio_uses_channels() {
+    let dir = TestDir::new("test_async_stdio.in");
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .load_file(dir.join("_build/wasm/debug/build/main/main.wasm"))
+        .unwrap();
+    let (sender, input) = std::sync::mpsc::sync_channel(1);
+    let (output, stdout) = std::sync::mpsc::sync_channel(1);
+    let (error, stderr) = std::sync::mpsc::sync_channel(1);
+    sender.send(b"stdio input\n".to_vec()).unwrap();
+    drop(sender);
+    assert_eq!(
+        engine
+            .run(
+                &module,
+                moonrun::RunOptions::default().with_stdio(input, output, error)
+            )
+            .unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+    assert_eq!(
+        stdout.into_iter().flatten().collect::<Vec<_>>(),
+        b"stdout-ok\n"
+    );
+    assert_eq!(
+        stderr.into_iter().flatten().collect::<Vec<_>>(),
+        b"stderr-ok\n"
+    );
+}
+
+#[test]
 fn test_moon_run_with_memory_sanitizer_imports() {
     let dir = TestDir::new("test_memory_sanitizer.in");
 

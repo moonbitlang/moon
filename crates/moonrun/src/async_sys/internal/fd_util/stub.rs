@@ -49,7 +49,7 @@ const FILE_KIND_SYMLINK: i32 = 3;
 #[cfg(unix)]
 const FILE_KIND_SOCKET: i32 = 4;
 #[cfg(unix)]
-const FILE_KIND_PIPE: i32 = 5;
+pub(crate) const FILE_KIND_PIPE: i32 = 5;
 #[cfg(unix)]
 const FILE_KIND_BLOCK_DEVICE: i32 = 6;
 #[cfg(unix)]
@@ -66,7 +66,7 @@ const FILE_KIND_SYMLINK: i32 = 3;
 #[cfg(windows)]
 const FILE_KIND_SOCKET: i32 = 4;
 #[cfg(windows)]
-const FILE_KIND_PIPE: i32 = 5;
+pub(crate) const FILE_KIND_PIPE: i32 = 5;
 #[cfg(windows)]
 const FILE_KIND_CHAR_DEVICE: i32 = 7;
 
