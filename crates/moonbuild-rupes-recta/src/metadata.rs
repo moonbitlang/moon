@@ -94,7 +94,7 @@ pub fn gen_metadata_json(
         name,
         deps,
         backend: backend.to_string(),
-        opt_level: format!("{:?}", opt_level).to_lowercase(),
+        opt_level: opt_level.as_str().to_owned(),
         source,
     }
 }
@@ -115,13 +115,7 @@ fn gen_package_json(
     let mut test_files = IndexMap::new();
     if pkg.is_mbtx_single_file() {
         for path in &pkg.source_files {
-            files.insert(
-                path.to_owned(),
-                CompileCondition {
-                    backend: TargetBackend::all().to_vec(),
-                    optlevel: OptLevel::all().to_vec(),
-                },
-            );
+            files.insert(path.to_owned(), CompileCondition::default());
         }
     } else {
         for (path, test_kind, cond) in
@@ -139,27 +133,13 @@ fn gen_package_json(
         }
     }
     for path in &pkg.mbtp_files {
-        files.insert(
-            path.to_owned(),
-            CompileCondition {
-                backend: TargetBackend::all().to_vec(),
-                optlevel: OptLevel::all().to_vec(),
-            },
-        );
+        files.insert(path.to_owned(), CompileCondition::default());
     }
     let mbt_md_files = pkg
         .mbt_md_files
         .iter()
         .cloned()
-        .map(|x| {
-            (
-                x,
-                CompileCondition {
-                    backend: TargetBackend::all().to_vec(),
-                    optlevel: OptLevel::all().to_vec(),
-                },
-            )
-        })
+        .map(|x| (x, CompileCondition::default()))
         .collect();
 
     // Dependencies collection
