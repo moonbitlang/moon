@@ -173,17 +173,6 @@ pub(crate) fn local_packages(
     })
 }
 
-/// Select the Target Backend for a project-wide plan without an explicit `--target`:
-/// local modules' agreed preferred target, then the default backend.
-pub(crate) fn default_target_backend(
-    discovered: &DiscoveredProject,
-    user_log: &UserLog,
-) -> TargetBackend {
-    let preferred_target = local_modules_preferred_target(discovered, user_log);
-    info!("Preferred backend: {:?}", preferred_target);
-    preferred_target.unwrap_or_default()
-}
-
 /// Select a standalone file's Target Backends: explicit targets, then the
 /// file's preferred backend, then the project default.
 pub(crate) fn single_file_target_backends(
@@ -195,10 +184,13 @@ pub(crate) fn single_file_target_backends(
     if !selected_target_backends.is_empty() {
         return selected_target_backends.to_vec();
     }
-    vec![preferred_backend.unwrap_or_else(|| default_target_backend(discovered, user_log))]
+    vec![preferred_backend.unwrap_or_else(|| {
+        local_modules_preferred_target(discovered, user_log).unwrap_or_default()
+    })]
 }
 
-fn local_modules_preferred_target(
+/// The preferred target that all local modules agree on, if any.
+pub(crate) fn local_modules_preferred_target(
     discovered: &DiscoveredProject,
     user_log: &UserLog,
 ) -> Option<TargetBackend> {

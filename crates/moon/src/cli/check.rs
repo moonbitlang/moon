@@ -937,7 +937,7 @@ fn select_check_plans(
             resolve_check_target_selections(discovered, cmd, source_dir, None, user_log)?;
         if selections.is_empty() {
             return Ok(vec![BackendPlanSelection::command_selector(
-                rr_build::default_target_backend(discovered, user_log),
+                rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
             )]);
         }
         return Ok(selections.into_iter().map(Into::into).collect());

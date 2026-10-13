@@ -831,7 +831,7 @@ fn select_test_plans(
     let selections = resolve_test_target_selections(discovered, cmd, user_log)?;
     if selections.is_empty() {
         return Ok(vec![BackendPlanSelection::command_selector(
-            rr_build::default_target_backend(discovered, user_log),
+            rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
         )]);
     }
     Ok(selections.into_iter().map(Into::into).collect())

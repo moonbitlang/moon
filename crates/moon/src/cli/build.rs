@@ -527,7 +527,7 @@ fn select_build_plans(
         let selections = resolve_build_target_selections(discovered, cmd, None, user_log)?;
         if selections.is_empty() && !has_explicit_build_selector(cmd) {
             return Ok(vec![BackendPlanSelection::command_selector(
-                rr_build::default_target_backend(discovered, user_log),
+                rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
             )]);
         }
         return Ok(selections.into_iter().map(Into::into).collect());

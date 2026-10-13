@@ -115,7 +115,8 @@ impl PlanningFixture {
         user_log: &UserLog,
     ) -> TargetBackend {
         selected_target_backend.unwrap_or_else(|| {
-            crate::rr_build::default_target_backend(&self.resolved_project, user_log)
+            crate::rr_build::local_modules_preferred_target(&self.resolved_project, user_log)
+                .unwrap_or_default()
         })
     }
 

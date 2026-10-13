@@ -206,10 +206,10 @@ pub(crate) fn plan_bundle_rr_from_resolved_all(
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     let target_backends = if selected_target_backends.is_empty() {
-        vec![rr_build::default_target_backend(
-            &resolved_project,
-            user_log,
-        )]
+        vec![
+            rr_build::local_modules_preferred_target(&resolved_project, user_log)
+                .unwrap_or_default(),
+        ]
     } else {
         selected_target_backends.to_vec()
     };
