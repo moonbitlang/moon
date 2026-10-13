@@ -127,7 +127,7 @@ fn moonbit_test_driver_internal_do_execute(
   // These two are internalized to avoid unused warnings
 
   fn handle_start() {
-    let file_name = filename.escape()
+    let file_name = moonbit_test_driver_internal_escape_json(filename)
     @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
     @moonbitlang/core/prelude.println(
       "{\"type\":\"start\",\"file\":\{file_name},\"index\":\{index}}",
@@ -141,8 +141,8 @@ fn moonbit_test_driver_internal_do_execute(
     if !skipped && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
       // {COVERAGE_END}
     }
-    let file_name = filename.escape()
-    let message = message.escape()
+    let file_name = moonbit_test_driver_internal_escape_json(filename)
+    let message = moonbit_test_driver_internal_escape_json(message)
     @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
     @moonbitlang/core/prelude.println(
       "{\"type\":\"result\",\"file\":\{file_name},\"index\":\{index},\"message\":\{message}}",

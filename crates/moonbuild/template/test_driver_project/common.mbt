@@ -2,6 +2,43 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
 ///|
+// The shared driver must also compile in core's builtin and whitebox tests
+// without importing JSON. Use builtin operations rather than MoonBit
+// string-literal escaping. Copy unescaped runs in bulk; ASCII escape boundaries
+// cannot split a UTF-16 surrogate pair.
+fn moonbit_test_driver_internal_escape_json(value : String) -> String {
+  let buf = @moonbitlang/core/prelude.StringBuilder(
+    size_hint=value.length() * 2 + 4,
+  )
+  buf.write_char('"')
+  let mut start = 0
+  for i in 0..<value.length() {
+    let code = value[i]
+    if code == '"' || code == '\\' || code < 0x20 {
+      buf.write_substring(value, start, i - start)
+      match code {
+        '"' => buf.write_string("\\\"")
+        '\\' => buf.write_string("\\\\")
+        '\b' => buf.write_string("\\b")
+        '\t' => buf.write_string("\\t")
+        '\n' => buf.write_string("\\n")
+        '\u{c}' => buf.write_string("\\f")
+        '\r' => buf.write_string("\\r")
+        _ => {
+          buf.write_string("\\u00")
+          buf.write_char(if code < 0x10 { '0' } else { '1' })
+          buf.write_substring("0123456789abcdef", code.to_int() & 0xf, 1)
+        }
+      }
+      start = i + 1
+    }
+  }
+  buf.write_substring(value, start, value.length() - start)
+  buf.write_char('"')
+  buf.to_string()
+}
+
+///|
 #cfg(any(target="native", target="llvm"))
 fn string_get(s : String, index : Int) -> Int = "%string_get"
 
