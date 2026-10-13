@@ -19,19 +19,10 @@
 #![cfg(unix)]
 
 use moonrun::{Engine, Module, RunOptions, RunOutcome, WorkingDirectory};
-use std::{
-    fs::{self, File},
-    path::Path,
-};
+use std::{fs, path::Path};
 
 fn options(dir: &Path) -> RunOptions {
-    RunOptions::default()
-        .with_working_directory(WorkingDirectory::Fixed(dir.to_owned()))
-        .with_stdio(
-            File::open(dir.join("stdin")).unwrap(),
-            File::create(dir.join("stdout")).unwrap(),
-            File::create(dir.join("stderr")).unwrap(),
-        )
+    RunOptions::default().with_working_directory(WorkingDirectory::Fixed(dir.to_owned()))
 }
 
 fn execute(engine: &Engine, module: &Module, dir: &Path) -> anyhow::Result<RunOutcome> {
@@ -44,7 +35,6 @@ fn execute_empty_remove_dir(source: &str) -> anyhow::Result<RunOutcome> {
         .compile("empty-remove-dir.wasm", wat::parse_str(source).unwrap())
         .unwrap();
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("stdin"), []).unwrap();
     fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
     let result = execute(&engine, &module, dir.path());
@@ -147,53 +137,65 @@ fn fixed_root_must_be_an_existing_directory() {
 }
 
 #[test]
-fn concurrent_runs_isolate_stdio_and_relative_files() {
+fn concurrent_runs_isolate_relative_files() {
     let engine = Engine::default();
     let bytes = wat::parse_str(r#"(module
-        (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
-        (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
-        (import "wasm:js-string" "fromCodePoint" (func $string (param i32) (result (ref extern))))
-        (import "wasm:js-string" "charCodeAt" (func $char (param externref i32) (result i32)))
+        (import "_" "input.txt" (global $input (ref extern)))
+        (import "_" "output.txt" (global $output (ref extern)))
         (import "__moonbit_fs_unstable" "write_string_to_file" (func $save (param externref externref)))
         (import "__moonbit_fs_unstable" "read_file_to_string" (func $load (param externref) (result externref)))
-        (memory (export "memory") 1)
         (func (export "_start")
-            ;; A one-byte iovec, followed by a result slot.
-            i32.const 0 i32.const 32 i32.store
-            i32.const 4 i32.const 1 i32.store
-            i32.const 0 i32.const 0 i32.const 1 i32.const 8 call $read
-            if unreachable end
-            ;; Write and read the same relative filename in each run.
-            i32.const 120 call $string
-            i32.const 32 i32.load8_u call $string call $save
-            i32.const 32 i32.const 120 call $string call $load i32.const 0 call $char i32.store8
-            i32.const 1 i32.const 0 i32.const 1 i32.const 8 call $write
-            if unreachable end
-            i32.const 2 i32.const 0 i32.const 1 i32.const 8 call $write
-            if unreachable end))"#).unwrap();
-    let module = engine.compile("context.wasm", &bytes).unwrap();
+            global.get $output global.get $input call $load call $save))"#).unwrap();
+    let module = engine.compile("relative-files.wasm", bytes).unwrap();
     let cwd = std::env::current_dir().unwrap();
     let directories: Vec<_> = (0..2).map(|_| tempfile::tempdir().unwrap()).collect();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
     let runs: Vec<_> = directories
         .iter()
         .zip([b'A', b'B'])
         .map(|(dir, byte)| {
-            fs::write(dir.path().join("stdin"), [byte]).unwrap();
+            fs::write(dir.path().join("input.txt"), [byte]).unwrap();
             let engine = engine.clone();
             let module = module.clone();
-            let dir = dir.path().to_owned();
-            std::thread::spawn(move || execute(&engine, &module, &dir).unwrap())
+            let options = options(dir.path());
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                engine.run(&module, options).unwrap()
+            })
         })
         .collect();
     for run in runs {
         assert_eq!(run.join().unwrap(), RunOutcome::Completed);
     }
     for (dir, byte) in directories.iter().zip([b'A', b'B']) {
-        for filename in ["stdout", "stderr", "x"] {
-            assert_eq!(fs::read(dir.path().join(filename)).unwrap(), [byte]);
-        }
+        assert_eq!(fs::read(dir.path().join("output.txt")).unwrap(), [byte]);
     }
     assert_eq!(std::env::current_dir().unwrap(), cwd);
+}
+
+#[test]
+fn async_filesystem_jobs_use_the_fixed_directory() {
+    let engine = Engine::default();
+    let bytes = wat::parse_str(r#"(module
+        (import "moonbitlang/async" "thread_pool/make_mkdir_job" (func $mkdir (param i32 i32 i32) (result i64)))
+        (import "moonbitlang/async" "thread_pool/run_job" (func $run (param i64)))
+        (import "moonbitlang/async" "thread_pool/job_get_err" (func $error (param i64) (result i32)))
+        (import "moonbitlang/async" "thread_pool/free_job" (func $free (param i64)))
+        (memory (export "memory") 1)
+        (data (i32.const 16) "\64\00")
+        (func (export "_start") (local $job i64)
+            i32.const 16 i32.const 1 i32.const 448 call $mkdir local.set $job
+            local.get $job call $run
+            local.get $job call $error if unreachable end
+            local.get $job call $free))"#).unwrap();
+    let module = engine.compile("async-relative-path.wasm", bytes).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        execute(&engine, &module, dir.path()).unwrap(),
+        RunOutcome::Completed
+    );
+    assert!(dir.path().join("d").is_dir());
 }
 
 #[test]
@@ -214,7 +216,6 @@ fn relative_sqlite_database_uses_the_execution_directory() {
     let engine = Engine::default();
     let module = engine.compile("sqlite.wasm", &bytes).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("stdin"), []).unwrap();
     assert_eq!(
         execute(&engine, &module, dir.path()).unwrap(),
         RunOutcome::Completed

@@ -21,13 +21,14 @@
 #[cfg(windows)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
+#[cfg(windows)]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(unix)]
-use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
-use crate::runtime::{Stdio, StdioStream, WorkingDirectory};
+#[cfg(windows)]
+use crate::runtime::StdioStream;
+use crate::runtime::{Stdio, WorkingDirectory};
 
 use super::{HostProcess, ambient};
 
@@ -318,18 +319,12 @@ impl Job {
         }
     }
 
-    pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
+    pub(super) fn configure_stdio(&mut self, _runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { stdio, .. } => {
-                if matches!(runtime_stdio, Stdio::Owned(_)) {
-                    for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
-                        if slot.is_none() {
-                            let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;
-                            *slot = Some(Arc::new(Resource::stdio_file(raw)));
-                        }
-                    }
-                }
+            Kind::SpawnUnix { .. } => {
+                // An absent Unix file action preserves native descriptor
+                // inheritance, which is exactly the Ambient Runtime setting.
                 Ok(())
             }
             #[cfg(windows)]
@@ -338,7 +333,7 @@ impl Job {
                     // GUI processes may have no standard streams. Preserve
                     // absence for CreateProcessW instead of rejecting spawn.
                     if slot.is_none()
-                        && let Ok(raw) = runtime_stdio.raw(stream)
+                        && let Ok(raw) = Stdio::Ambient.raw(stream)
                     {
                         *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
                     }
