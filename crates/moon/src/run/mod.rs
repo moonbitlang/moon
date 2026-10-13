@@ -94,8 +94,9 @@ pub(crate) fn shutdown_requested() -> bool {
     shutdown_token().is_cancelled()
 }
 
-/// Build the canonical Tokio runtime used by `moon run` facilities and install
-/// the global shutdown handler the first time it is called.
+/// Build the test command's Tokio runtime and install the global shutdown
+/// listener. The caller must retain it across every backend and update pass,
+/// driving it whenever test children are running.
 pub(crate) fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
