@@ -28,6 +28,7 @@ use crate::wasmtime as backend;
 use crate::wee8 as backend;
 use anyhow::Context;
 use std::fmt;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -59,6 +60,7 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
+    pub(crate) stdio: Stdio,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -132,6 +134,16 @@ impl RunOptions {
     /// execution begins.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
+        self
+    }
+
+    /// Bind this run's standard streams to caller-supplied files.
+    ///
+    /// These streams also supply default child streams; explicit guest-supplied
+    /// child streams take precedence. Without this option, streams are ambient.
+    /// Clones share the files; use separate options for independent I/O.
+    pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
+        self.stdio = Stdio::owned(stdin, stdout, stderr);
         self
     }
 
@@ -379,10 +391,7 @@ impl Engine {
             None => current_signal_mask()?,
         };
         let runtime = Runtime::new(
-            options.policy_file.as_deref(),
-            options.policy_source_dir.as_deref(),
-            options.inherited_policy.as_deref(),
-            options.working_directory.clone(),
+            &options,
             module.executable().clone(),
             signals,
             #[cfg(unix)]

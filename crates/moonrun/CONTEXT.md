@@ -101,9 +101,9 @@ _Avoid_: Mutable policy, per-import environment map
 The standard-stream behavior selected once by Runtime Configuration and owned
 by one Runtime. The V8 I/O imports, WASI descriptors, reserved Async Host
 Resources, and Host Process defaults all consume this same Runtime State.
-The only current value is `Ambient`: it preserves the historical observation
-points for process standard streams and does not snapshot, own, or close their
-OS handles. Moonrun Policy neither selects nor authorizes Runtime Stdio.
+`Ambient` preserves the historical observation points for process standard
+streams without owning their OS handles. `Owned` binds caller-supplied files to
+one Run. Moonrun Policy neither selects nor authorizes Runtime Stdio.
 _Avoid_: process-global fallback, stdio policy, Host Stdio forwarding service
 
 **WASI Capability Surface**:
