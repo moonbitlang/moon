@@ -24,7 +24,7 @@ use anyhow::{Context, bail};
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    DiscoveredProject, ResolvedProject,
+    DiscoveredProject,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
     model::{BackendConfig, PackageId},
@@ -556,19 +556,18 @@ fn build_package_executable(
     )
     .with_sync_output(options.output.sync_output());
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
     let lock = if cli.dry_run {
         None
     } else {
         Some(lock_directory(target_dir, user_log)?)
     };
-    let (build_meta, build_graph) = plan_run_rr_from_resolved(
+    let (build_meta, build_graph) = plan_run_rr_from_discovered(
         cli,
         cmd,
         target_dir,
         mooncake_bin_dir,
         selected_target_backend,
-        resolved_project,
+        discovered,
         user_log,
     )?;
     build_executable_from_plan(
@@ -588,57 +587,38 @@ fn build_package_executable(
     )
 }
 
+/// Selects the run package and backend, resolves packages, then plans the run.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_run_rr_from_resolved(
+pub(crate) fn plan_run_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolved_project: ResolvedProject,
+    discovered: DiscoveredProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let input_path = cmd
         .package_or_mbt_file
         .as_deref()
         .expect("package run planning requires a positional input");
-    let selection = resolve_run_selection(input_path, &resolved_project, selected_target_backend)?;
-    plan_run_rr_from_selection(
-        cli,
-        cmd,
-        target_dir,
-        mooncake_bin_dir,
-        resolved_project,
-        selection,
-        user_log,
-    )
-}
-
-pub(crate) fn plan_run_rr_from_selection(
-    cli: &UniversalFlags,
-    cmd: &RunSubcommand,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    resolved_project: ResolvedProject,
-    selection: ResolvedRunSelection,
-    user_log: &UserLog,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let value_tracing = cmd.build_flags.enable_value_tracing;
-
+    let selection = resolve_run_selection(input_path, &discovered, selected_target_backend)?;
+    let target_backend = selection.target_backend;
+    let intent = selection.into_user_intent(
+        input_path,
+        &discovered,
+        cmd.build_flags.enable_value_tracing,
+    )?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        selection.target_backend,
+        target_backend,
         target_dir,
         RunMode::Run,
         user_log,
         &resolved_project,
     )?;
-    let input_path = cmd
-        .package_or_mbt_file
-        .as_deref()
-        .expect("package run planning requires a positional input");
-    let intent = selection.into_user_intent(input_path, &resolved_project, value_tracing)?;
     rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
@@ -790,10 +770,10 @@ fn build_single_file_executable(
         true,
         user_log,
     )?;
-    let resolved = discovered.resolve_packages(user_log)?;
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
+    let resolved = discovered.resolve_packages(user_log)?;
 
     let lock = if cli.dry_run {
         None

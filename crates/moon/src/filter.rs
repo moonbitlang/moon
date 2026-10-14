@@ -322,7 +322,7 @@ pub(crate) struct TargetPackageGroup {
     pub packages: Vec<PackageId>,
 }
 
-/// One single-backend plan selected by a command.
+/// One single-backend plan selected before package resolution.
 #[derive(Debug)]
 pub(crate) struct BackendPlanSelection {
     pub target_backend: TargetBackend,

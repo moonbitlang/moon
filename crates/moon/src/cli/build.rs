@@ -127,13 +127,12 @@ pub(crate) fn run_build(
     }
 
     let discovered = sync_and_discover_build_project(cli, &cmd, &dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
     let result =
-        run_build_rr_from_resolved(cli, &cmd, &dirs, false, &targets, resolved_project, output)
+        run_build_rr_from_discovered(cli, &cmd, &dirs, false, &targets, discovered, output)
             .with_context(|| match targets.as_slice() {
                 [target] => format!("failed to run build for target {target:?}"),
                 _ => format!("failed to run build for targets {targets:?}"),
@@ -177,13 +176,13 @@ fn run_build_for_single_file_rr(
         true,
         user_log,
     )?;
-    let resolved = discovered.resolve_packages(user_log)?;
     let target_backends = rr_build::single_file_target_backends(
-        &resolved,
+        &discovered,
         selected_target_backends,
         backend,
         user_log,
     );
+    let resolved = discovered.resolve_packages(user_log)?;
 
     let _lock;
     if !cli.dry_run {
@@ -292,33 +291,32 @@ fn run_build_rr(
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let discovered = sync_and_discover_build_project(cli, cmd, dirs, output.user_log())?;
-    let resolved_project = discovered.resolve_packages(output.user_log())?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    run_build_rr_from_resolved(
+    run_build_rr_from_discovered(
         cli,
         cmd,
         dirs,
         watch,
         selected_target_backend.as_slice(),
-        resolved_project,
+        discovered,
         output,
     )
 }
 
-/// Plans and executes a build from resolved project data.
+/// Plans and executes a build from a discovered project.
 ///
 /// The caller must hold the target-directory lock for a non-dry-run build.
 #[allow(clippy::too_many_arguments)]
-fn run_build_rr_from_resolved(
+fn run_build_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
     watch: bool,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
@@ -329,20 +327,20 @@ fn run_build_rr_from_resolved(
         ..
     } = dirs;
     let prebuild_list = if watch {
-        rr_get_prebuild_watch_paths(&resolved_project)
+        rr_get_prebuild_watch_paths(&discovered)
     } else {
         PrebuildWatchPaths {
             ignored_paths: Vec::new(),
             watched_paths: Vec::new(),
         }
     };
-    let planned_runs = plan_build_rr_from_resolved_all(
+    let planned_runs = plan_build_rr_from_discovered(
         cli,
         cmd,
         target_dir,
         mooncake_bin_dir,
         selected_target_backends,
-        resolved_project,
+        discovered,
         user_log,
     )?;
 
@@ -488,19 +486,19 @@ fn plan_build_rr_from_selection(
     )
 }
 
-/// Selects backend plans, then plans each selected backend.
+/// Selects backend plans, resolves packages, then plans each selected backend.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_build_rr_from_resolved_all(
+pub(crate) fn plan_build_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
     mooncake_bin_dir: &Path,
     selected_target_backends: &[TargetBackend],
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
-    let selections =
-        select_build_plans(&resolved_project, cmd, selected_target_backends, user_log)?;
+    let selections = select_build_plans(&discovered, cmd, selected_target_backends, user_log)?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
     selections
         .into_iter()
         .map(|selection| {

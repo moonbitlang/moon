@@ -159,9 +159,18 @@ pub(crate) fn run_prove(
         cli.workspace_env.clone(),
     );
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
     let target_backend =
-        rr_build::local_modules_preferred_target(&resolved_project, user_log).unwrap_or_default();
+        rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
+    let intent = calc_user_intent(
+        path_filter,
+        module_dir.as_deref(),
+        &discovered,
+        target_backend,
+        prove_why3_config.as_deref(),
+        &proof_prelude,
+        user_log,
+    )?;
+    let resolved_project = discovered.resolve_packages(user_log)?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(target_dir, user_log)?;
@@ -179,15 +188,6 @@ pub(crate) fn run_prove(
         RunMode::Prove,
         user_log,
         &resolved_project,
-    )?;
-    let intent = calc_user_intent(
-        path_filter,
-        module_dir.as_deref(),
-        &resolved_project,
-        compile_config.backend.target_backend(),
-        prove_why3_config.as_deref(),
-        &proof_prelude,
-        user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         compile_config,
