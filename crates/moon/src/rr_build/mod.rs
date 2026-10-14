@@ -66,10 +66,12 @@ use tracing::{Level, info, instrument};
 use crate::build_flags::BuildFlags;
 
 mod dry_run;
+mod generated_mbti;
 mod prebuild;
 #[cfg(test)]
 pub(crate) use dry_run::write_build_graph;
 pub(crate) use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_with_normalizer};
+pub(crate) use generated_mbti::{generated_mbti_artifacts, generated_mbti_dest};
 
 /// Synchronize module dependencies and discover packages.
 /// This step does not acquire the target-directory lock.
