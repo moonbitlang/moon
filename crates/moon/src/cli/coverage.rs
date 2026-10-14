@@ -112,36 +112,7 @@ fn run_coverage_analyze(
         ..cli.clone()
     };
     let test_output = CommandOutput::new(test_cli.user_log_level());
-    // The test runtime installs handlers for these signals and Tokio leaves
-    // them installed after shutdown. Preserve the incoming dispositions for
-    // the final reporter, including inherited ignores such as SIG_IGN.
-    #[cfg(unix)]
-    let mut signal_handlers = [libc::SIGINT, libc::SIGTERM, libc::SIGQUIT].map(|signal| {
-        // SAFETY: sigaction is plain C data, filled by the query below.
-        (signal, unsafe { std::mem::zeroed::<libc::sigaction>() })
-    });
-    #[cfg(unix)]
-    for (signal, handler) in &mut signal_handlers {
-        // SAFETY: the signal is valid and handler is a writable sigaction.
-        if unsafe { libc::sigaction(*signal, std::ptr::null(), handler) } != 0 {
-            return Err(std::io::Error::last_os_error())
-                .context("failed to save test signal handlers");
-        }
-    }
-
-    let test_result = run_test(test_cli, test_flags, &test_output);
-
-    // Restore even when testing returns an error. This is a terminal handoff:
-    // no test runtime is started again after restoring these dispositions.
-    #[cfg(unix)]
-    for (signal, handler) in signal_handlers {
-        // SAFETY: restore the complete disposition returned by sigaction.
-        if unsafe { libc::sigaction(signal, &handler, std::ptr::null_mut()) } != 0 {
-            return Err(std::io::Error::last_os_error())
-                .context("failed to restore test signal handlers");
-        }
-    }
-    let test_result = test_result?;
+    let test_result = run_test(test_cli, test_flags, &test_output)?;
 
     let mut report_flags = CoverageReportSubcommand::default();
     report_flags.args.push("-f=simp_caret".into());

@@ -150,14 +150,13 @@ report, then returns the test failure unless the reporter itself fails. This
 cannot use Unix `exec`, which would discard the test result. The legacy coverage
 reporter also uses `Run`, retaining its spawn/wait lifecycle.
 
-On Unix, `coverage analyze` saves the complete SIGINT, SIGTERM, and SIGQUIT
-dispositions before testing and restores them after the test runtime stops,
-including on test errors. Tokio leaves these handlers installed after runtime
-shutdown. Restoring the incoming dispositions preserves both normal termination
-and inherited ignores. This is a terminal handoff to reporting; no further test
-runtime is started after restoring them. `Run` does not change Unix signal
-dispositions, and standalone reporting leaves them untouched. A default signal
-sent only to Moon terminates it; process-group delivery also reaches the reporter.
+The test execution layer owns its shutdown listener and Unix signal dispositions
+through `TestRuntime`. Dropping it stops the runtime and restores the incoming
+dispositions, including on early returns, so coverage does not need to manage
+test signal state. See [test execution](../reference/tests.md#test-execution-parallelism)
+for this lifetime. `Run` does not change Unix signal dispositions, and standalone
+reporting leaves them untouched. A default signal sent only to Moon terminates
+it; process-group delivery also reaches the reporter.
 
 The runtime executes the action only after tracing is finalized. On Unix,
 delegation may then replace the Moon process. On Windows, Moon waits for the
