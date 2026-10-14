@@ -46,7 +46,9 @@ pub(crate) use environment::Env;
 pub(crate) use environment_provisioning::EnvProvisioning;
 pub(crate) use executable::Executable;
 pub(crate) use handles::Handles;
-pub(crate) use stdio::{Stdio, StdioStream, Utf16Writer};
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
+pub(crate) use stdio::Utf16Writer;
+pub(crate) use stdio::{Stdio, StdioStream};
 pub use working_directory::WorkingDirectory;
 
 new_key_type! {

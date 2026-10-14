@@ -21,37 +21,63 @@
 //! The interface is experimental. It separates guest termination from
 //! host-process termination and selects one Engine Backend at compile time.
 
-#[cfg(not(any(feature = "v8", feature = "wasmtime")))]
-compile_error!("moonrun requires an engine feature: `v8` or `wasmtime`");
+#[cfg(not(any(feature = "v8", feature = "wasmtime", feature = "wee8")))]
+compile_error!("moonrun requires an engine feature: `v8`, `wasmtime`, or `wee8`");
+#[cfg(all(feature = "wee8", any(feature = "v8", feature = "wasmtime")))]
+compile_error!(
+    "select wee8 with --no-default-features; it cannot share a binary with another engine"
+);
 
-mod async_api;
-mod async_host;
-mod async_sys;
-mod core_api;
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
+mod async_api;
+// The numeric wee8 MVP exposes only a subset of the shared host operations.
+// Keep unused-code checks enabled for its adapter and for the full backends.
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod async_host;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod async_sys;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod core_api;
+#[cfg(any(feature = "v8", feature = "wasmtime", feature = "wee8"))]
 mod engine;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod filesystem;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod guest_memory;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod network;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod policy;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod process;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod resource;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod run_signal;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod run_termination;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod runtime;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod source_map;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod sqlite;
 #[cfg(feature = "v8")]
 mod util;
 #[cfg(feature = "v8")]
 mod v8;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod wasi;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod wasm_diagnostic;
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 mod wasmtime;
+#[cfg(feature = "wee8")]
+mod wee8;
 
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
+#[cfg(any(feature = "v8", feature = "wasmtime", feature = "wee8"))]
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use runtime::WorkingDirectory;

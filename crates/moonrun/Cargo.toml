@@ -28,6 +28,7 @@ rust-version.workspace = true
 default = ["v8"]
 v8 = ["dep:v8"]
 wasmtime = ["dep:wasmtime"]
+wee8 = ["dep:bindgen", "dep:dunce", "dep:flate2", "dep:reqwest", "dep:sha2", "dep:wasmparser"]
 
 [dependencies]
 anyhow.workspace = true
@@ -44,6 +45,7 @@ moonutil.workspace = true
 rand.workspace = true
 v8 = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
+wasmparser = { version = "=0.258.0", default-features = false, features = ["std", "validate", "features"], optional = true }
 
 [target."cfg(not(windows))".dependencies]
 openssl.workspace = true
@@ -81,6 +83,11 @@ features = [
 [build-dependencies]
 vergen.workspace = true
 chrono.workspace = true
+bindgen = { version = "=0.72.1", optional = true }
+dunce = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
 
 [dev-dependencies]
 dunce.workspace = true
