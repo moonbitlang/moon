@@ -239,16 +239,6 @@ pub(super) fn run_fstatx_job(
     request: StatRequest,
     result: &mut Option<PackedStat>,
 ) -> AsyncHostResult<i64> {
-    if file.channel().is_some() {
-        *result = Some(PackedStat::new(
-            request,
-            StatValues {
-                kind: Some(crate::async_sys::internal::fd_util::stub::FILE_KIND_PIPE),
-                ..StatValues::default()
-            },
-        ));
-        return Ok(0);
-    }
     #[cfg(unix)]
     let raw = file.as_file()?.as_raw_fd();
     #[cfg(windows)]

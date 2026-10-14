@@ -346,41 +346,6 @@ mod tests {
     }
 
     #[test]
-    fn channel_io_acknowledges_worker_cancellation() {
-        use crate::runtime::Stdio;
-        use std::sync::mpsc::sync_channel;
-        for reading in [true, false] {
-            let (_sender, input) = sync_channel(1);
-            let (output, _receiver) = sync_channel(0);
-            let (error, _) = sync_channel(1);
-            let stdio = Stdio::channel(input, output, error);
-            let worker = WorkerCancellation::new();
-            std::thread::scope(|scope| {
-                let (started, ready) = sync_channel(0);
-                let state = &worker;
-                let thread = scope.spawn(move || {
-                    state.run(WorkerCompletionId::from_abi(1), || {
-                        started.send(()).unwrap();
-                        if reading {
-                            stdio.with_stdin(|input| input.read(&mut [0]))
-                        } else {
-                            stdio.with_stdout(|output| output.write(b"blocked"))
-                        }
-                    })
-                });
-                ready.recv().unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                assert!(worker.request());
-                assert!(thread.join().unwrap().is_err());
-            });
-            assert!(
-                !worker.request(),
-                "channel I/O did not acknowledge cancellation"
-            );
-        }
-    }
-
-    #[test]
     fn cancellation_before_syscall_is_acknowledged_and_reset_for_next_job() {
         let worker = WorkerCancellation::new();
         assert!(worker.request());

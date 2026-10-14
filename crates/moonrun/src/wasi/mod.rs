@@ -1037,9 +1037,6 @@ fn normalize_poll_subscriptions(
 
 #[cfg(unix)]
 fn poll_stdin_with_timeout(stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
-    if let Some(ready) = stdio.channel_stdin_ready(timeout) {
-        return Ok(ready);
-    }
     let timeout_ms = match timeout {
         Some(duration) => {
             let millis = duration.as_millis();
@@ -1076,9 +1073,6 @@ fn poll_stdin_with_timeout(stdio: &Stdio, timeout: Option<Duration>) -> WasiResu
 
 #[cfg(windows)]
 fn poll_stdin_with_timeout(stdio: &Stdio, timeout: Option<Duration>) -> WasiResult<bool> {
-    if let Some(ready) = stdio.channel_stdin_ready(timeout) {
-        return Ok(ready);
-    }
     use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
     use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
 
@@ -1556,23 +1550,6 @@ fn clock_now_ns(_context: &WasiContext, _clock_id: ClockId) -> WasiResult<u64> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn channel_stdin_poll_observes_data_and_eof() {
-        let (sender, input) = std::sync::mpsc::sync_channel(2);
-        let (output, _) = std::sync::mpsc::sync_channel(1);
-        let (error, _) = std::sync::mpsc::sync_channel(1);
-        let stdio = Stdio::channel(input, output, error);
-        assert!(!poll_stdin_with_timeout(&stdio, Some(Duration::ZERO)).unwrap());
-        sender.send(vec![7]).unwrap();
-        assert!(poll_stdin_with_timeout(&stdio, Some(Duration::ZERO)).unwrap());
-        let mut byte = [0];
-        assert_eq!(stdio.with_stdin(|input| input.read(&mut byte)).unwrap(), 1);
-        assert_eq!(byte, [7]);
-        drop(sender);
-        assert!(poll_stdin_with_timeout(&stdio, Some(Duration::ZERO)).unwrap());
-        assert_eq!(stdio.with_stdin(|input| input.read(&mut byte)).unwrap(), 0);
-    }
-
     use super::*;
 
     fn test_context(root: &Path) -> WasiContext {

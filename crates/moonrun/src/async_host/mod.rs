@@ -280,24 +280,6 @@ impl HandleTable {
         let invalid_resource = handles.insert(HandleKind::Resource);
         resources.insert(invalid_resource, Arc::new(Resource::invalid()));
 
-        if matches!(stdio, Stdio::Channel { .. }) {
-            let stdio_resources = StdioStream::ALL.map(|stream| {
-                let key = handles.insert(HandleKind::Resource);
-                resources.insert(
-                    key,
-                    Arc::new(Resource::channel_stdio(stdio.clone(), stream)),
-                );
-                key
-            });
-            drop(handles);
-            return Self {
-                keys,
-                resources,
-                invalid_resource,
-                stdio_resources,
-            };
-        }
-
         let stdio_raw_handles = stdio.raw_handles();
         let mut stdio_resources = [invalid_resource; 3];
         for (index, raw) in stdio_raw_handles.iter().enumerate() {
@@ -2647,9 +2629,6 @@ impl AsyncHost {
 
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         self.with_resource(handle, |file| {
-            if file.channel().is_some() {
-                return Ok(crate::async_sys::internal::fd_util::stub::FILE_KIND_PIPE);
-            }
             #[cfg(unix)]
             {
                 crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)

@@ -28,9 +28,9 @@ use crate::wasmtime as backend;
 use crate::wee8 as backend;
 use anyhow::Context;
 use std::fmt;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, SyncSender};
 
 /// Process-wide configuration for the selected Engine Backend.
 ///
@@ -137,19 +137,13 @@ impl RunOptions {
         self
     }
 
-    /// Bind guest standard streams to in-memory byte-block channels.
+    /// Bind this run's standard streams to caller-supplied files.
     ///
-    /// Dropping the stdin sender signals EOF. Consume stdout and stderr while
-    /// running to relieve bounded-channel backpressure. Clones share endpoints;
-    /// use separate channels for independent runs. Native children retain
-    /// ambient defaults and cannot inherit channel handles.
-    pub fn with_stdio(
-        mut self,
-        stdin: Receiver<Vec<u8>>,
-        stdout: SyncSender<Vec<u8>>,
-        stderr: SyncSender<Vec<u8>>,
-    ) -> Self {
-        self.stdio = Stdio::channel(stdin, stdout, stderr);
+    /// These streams also supply default child streams; explicit guest-supplied
+    /// child streams take precedence. Without this option, streams are ambient.
+    /// Clones share the files; use separate options for independent I/O.
+    pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
+        self.stdio = Stdio::owned(stdin, stdout, stderr);
         self
     }
 
