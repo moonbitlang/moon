@@ -103,7 +103,9 @@ pub enum ArtifactKey {
     RuntimeLibrary,
     GeneratedTestDriver { package: PackageId, target_kind: TargetKind },
     LinkedCore { package: PackageId, target_kind: TargetKind },
+    LinkedCoreObject { package: PackageId, target_kind: TargetKind },
     Executable { package: PackageId, target_kind: TargetKind },
+    ForeignLibrary { package: PackageId },
 
     // other logical artifacts
 }
@@ -119,7 +121,9 @@ interchangeable compiler inputs even though they all currently use `.mi`.
 `ProofWhyml` artifacts; only `Prove` additionally provides `ProofReport`.
 Provider selection belongs to the invocation lifecycle, not artifact identity.
 
-C-stub and runtime library artifacts are realized as static archives.
+C-stub, runtime, and native foreign-library artifacts are realized as static
+archives. A `ForeignLibrary` consumes C-stub and runtime objects directly
+rather than their archives, because static archives do not nest.
 `RuntimeObject` identifies each separately compiled runtime translation unit
 consumed by the runtime archive.
 
@@ -453,6 +457,13 @@ For non-native backends, `LinkCore` directly provides `Executable`; there is no
 planning-only `MakeExecutable` alias and every planned action lowers exactly
 once. Native and LLVM plans retain the distinct `LinkedCore` intermediate and a
 real `MakeExecutable` provider.
+
+A foreign-library package requests `ForeignLibrary` instead of `Executable` on
+Native and LLVM; `ArchiveForeignLibrary` provides it. Its payload member is the
+`LinkedCore` object, except for generated-C Native, where the
+`CompileLinkedCore` provider of `LinkedCoreObject` first compiles the generated
+C. Native payload-form selection treats a requested `ForeignLibrary` like an
+`Executable`, so package `cc-flags` select generated C for both.
 
 For native macOS debug targets, `Executable` remains the requested Build
 Artifact. Planning also includes `GenerateDsym`; its unconsumed concrete output
