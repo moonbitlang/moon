@@ -108,3 +108,48 @@ fn mixed_backend_explicit_test_selection_rejects_unsupported_backend() {
     assert!(test_err.contains("Selected package(s) do not support target backend 'js'"));
     assert!(test_err.contains("mixed/localdep/server ([native])"));
 }
+
+#[test]
+fn explicit_test_and_bench_selectors_are_validated_before_import_resolution() {
+    let fixture = PlanningFixture::new("test_selection_before_resolution.in")
+        .expect("invalid imports should not prevent discovery");
+    let native_path = fixture.case_dir().join("native");
+    let native_path = native_path.to_str().expect("fixture path should be UTF-8");
+
+    for command in ["test", "bench"] {
+        for (selector, expected_error) in [
+            (vec!["--target", "native"], "selection/errors/missing"),
+            (
+                vec!["--target", "js", "--package", "selection/errors/native"],
+                "Selected package(s) do not support target backend 'js'",
+            ),
+            (
+                vec!["--target", "js", native_path],
+                "Selected package(s) do not support target backend 'js'",
+            ),
+            (
+                vec![
+                    "--target",
+                    "native",
+                    "--package",
+                    "selection/errors",
+                    "--file",
+                    "test.mbt",
+                ],
+                "Cannot filter by file or index when multiple packages are specified",
+            ),
+        ] {
+            let args = [vec![command, "--dry-run"], selector].concat();
+            let error = if command == "test" {
+                let (cli, cmd) = parse_test_command(&args);
+                fixture.plan_test_all_with_cli(&cli, &cmd).err()
+            } else {
+                let (cli, cmd) = parse_bench_command(&args);
+                fixture.plan_bench_all_with_cli(&cli, &cmd).err()
+            }
+            .expect("invalid selection or imports should fail planning");
+            let error = format!("{error:#}");
+            assert!(error.contains(expected_error), "{args:?}: {error}");
+        }
+    }
+}
