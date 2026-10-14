@@ -334,6 +334,20 @@ impl<'a> BuildPlanConstructor<'a> {
                     },
                 );
             }
+            BuildPlanNode::CompileLinkedCore(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::LinkedCoreObject {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::ForeignLibrary { package });
+            }
             BuildPlanNode::GenerateDsym(_) => {}
             BuildPlanNode::GenerateTestInfo(target) => {
                 self.res.artifacts.provide(
@@ -460,6 +474,17 @@ impl<'a> BuildPlanConstructor<'a> {
                 package,
                 target_kind,
             } => BuildPlanNode::LinkCore(package.build_target(*target_kind)),
+            ArtifactKey::LinkedCoreObject {
+                package,
+                target_kind,
+            } => BuildPlanNode::CompileLinkedCore(package.build_target(*target_kind)),
+            ArtifactKey::ForeignLibrary { package } => {
+                assert!(
+                    self.config.backend.target_backend().is_native(),
+                    "foreign-library archives are only planned for Native and LLVM"
+                );
+                BuildPlanNode::ArchiveForeignLibrary(*package)
+            }
             ArtifactKey::Executable {
                 package,
                 target_kind,
@@ -565,6 +590,26 @@ impl<'a> BuildPlanConstructor<'a> {
                     );
                 }
             }
+            BuildPlanNode::CompileLinkedCore(build_target) => {
+                assert!(
+                    self.res
+                        .backend
+                        .compile_linked_core_info
+                        .contains_key(&build_target),
+                    "Compile linked core info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                assert!(
+                    self.res.backend.foreign_library_info.contains_key(&package)
+                        && self.res.backend.runtime_info.is_some(),
+                    "Foreign library and runtime info for {:?} should be present when resolving node {:?}",
+                    package,
+                    node
+                );
+            }
             BuildPlanNode::GenerateNodeTestPackageConfig(_) | BuildPlanNode::GenerateMbti(_) => (),
             BuildPlanNode::Bundle(module_id) => {
                 assert!(
@@ -652,6 +697,12 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::LinkCore(target) => self.build_link_core(node, target),
             BuildPlanNode::MakeExecutable(target) => self.build_native_executable(node, target),
+            BuildPlanNode::CompileLinkedCore(target) => {
+                self.build_compile_linked_core(node, target)
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                self.build_foreign_library(node, package)
+            }
             BuildPlanNode::GenerateDsym(_) => {
                 unreachable!("GenerateDsym nodes are resolved with their MakeExecutable node")
             }

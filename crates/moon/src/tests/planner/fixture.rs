@@ -417,6 +417,26 @@ pub(super) fn planned_root_package_intent(plan: PlannedGraph) -> PlannedPackageI
     }
 }
 
+/// The requested artifacts of a plan as `{package} {artifact kind}` labels.
+pub(super) fn planned_requested_artifacts(plan: PlannedGraph) -> Vec<String> {
+    let meta = plan.build_meta;
+    meta.artifacts
+        .keys()
+        .filter_map(|artifact| {
+            let (package, kind) = match artifact {
+                ArtifactKey::CoreIr { package, .. } => (package, "core"),
+                ArtifactKey::Executable { package, .. } => (package, "executable"),
+                ArtifactKey::ForeignLibrary { package } => (package, "foreign library"),
+                _ => return None,
+            };
+            let fqn = &meta.resolved_project.pkg_dirs.get_package(*package).fqn;
+            Some(format!("{fqn} {kind}"))
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 pub(super) fn planned_graph_inputs(graph: &str) -> std::collections::BTreeSet<String> {
     graph
         .lines()
@@ -448,6 +468,7 @@ fn root_package_names(meta: &BuildMeta) -> Vec<String> {
         | ArtifactKey::ProofReport { package, .. }
         | ArtifactKey::LinkedCore { package, .. }
         | ArtifactKey::Executable { package, .. }
+        | ArtifactKey::ForeignLibrary { package }
         | ArtifactKey::GeneratedTestDriver { package, .. }
         | ArtifactKey::GeneratedTestMetadata { package, .. }
         | ArtifactKey::GeneratedMbti { package, .. } => Some(*package),
