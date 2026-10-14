@@ -24,11 +24,13 @@ mod types;
 mod worker;
 
 pub(crate) use cancellation::with_cancellable_region;
+pub(crate) use jobs::make_failed_job;
 #[cfg(any(feature = "v8", feature = "wasmtime", test))]
 pub(crate) use jobs::make_sleep_job;
 #[cfg(any(feature = "v8", feature = "wasmtime"))]
 pub(crate) use jobs::{errno_is_cancelled, get_platform};
-pub(crate) use jobs::{job_get_err, job_get_ret, make_failed_job};
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
+pub(crate) use jobs::{job_get_err, job_get_ret};
 pub(crate) use runner::run_host_job;
 pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload, ResourceTable};
 #[cfg(unix)]

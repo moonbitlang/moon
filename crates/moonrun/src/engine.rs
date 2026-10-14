@@ -24,6 +24,8 @@ use crate::source_map;
 use crate::v8 as backend;
 #[cfg(all(not(feature = "v8"), feature = "wasmtime"))]
 use crate::wasmtime as backend;
+#[cfg(feature = "wee8")]
+use crate::wee8 as backend;
 use anyhow::Context;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -61,6 +63,7 @@ pub struct RunOptions {
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
 
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
 #[derive(serde::Deserialize)]
 pub(crate) struct TestArgs {
     pub(crate) package: String,
@@ -87,6 +90,7 @@ impl RunOptions {
         self
     }
 
+    #[cfg(any(feature = "v8", feature = "wasmtime"))]
     pub(crate) fn parsed_test_args(&self) -> anyhow::Result<Option<TestArgs>> {
         self.test_args
             .as_deref()
@@ -179,6 +183,7 @@ pub(crate) enum BackendCallOutcome {
     Terminated(RunTermination),
 }
 
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
 #[derive(serde::Serialize)]
 struct TestFailure<'a> {
     r#type: &'static str,
@@ -205,6 +210,7 @@ pub(crate) fn complete_run_call(
 
 /// Run the backend-neutral MoonBit test-driver lifecycle. Backends provide
 /// only the representation-specific calls and formatted guest diagnostics.
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
 pub(crate) fn run_test_driver<D>(
     driver: &mut D,
     test_args: TestArgs,

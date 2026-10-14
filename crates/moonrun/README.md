@@ -34,6 +34,78 @@ the MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface
 as V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy;
 both engine adapters invoke the same shared WASIp1 host operations.
 
+## Experimental wee8 backend
+
+The opt-in `wee8` backend uses V8's Wasm C entry points and the same public
+Rust `Engine`, `Module`, and `RunOptions` interface. Wasmtime continues to use its
+native Rust interface. The raw C declarations remain private to wee8.
+
+Build it directly with Cargo:
+
+```sh
+cargo build -p moonrun --no-default-features --features wee8
+```
+
+The build script downloads the target's archive and matching header from the
+pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.1),
+checks SHA-256 before extraction, and caches the downloads in Cargo's build
+output directory. It uses Cargo's target, including for cross-compilation.
+Only the five published Linux/macOS/Windows targets have automatic downloads.
+Set `WEE8_MIRROR` to an alternate release-download base URL if needed; the
+script appends the pinned release tag and asset names.
+
+CI exercises this download path and tests wee8 separately on Linux, macOS and
+Windows. The existing V8 backend and default build continue using upstream
+rusty_v8. Building wee8 requires libclang for generating its C declarations.
+
+For a source or offline build, use the [pinned recipe](https://github.com/moonbitlang/v8-custom-builds)
+and provide both its decompressed archive and matching header explicitly to
+bypass downloading:
+
+```sh
+WEE8_ARCHIVE=/path/to/libwee8.a WEE8_HEADER=/path/to/wasm_c_api_<target>.h \
+  cargo build -p moonrun --no-default-features --features wee8
+```
+
+Decompress the target's archive first (`wee8.lib` on Windows). The header is
+checked against the supported revision; stock V8's older same-named functions
+have an incompatible ABI. The supplied archive must come from the matching
+recipe. This backend cannot be linked alongside rusty_v8 in the same binary.
+
+This is a working integration MVP, not a replacement for either full backend:
+
+- Wasm 1.0 numeric execution, bulk-memory instructions, multi-value guest code,
+  guest-defined memory/globals/tables, and `_start`. Bulk memory and multi-value
+  loops are needed by MoonBit's `wasm` compiler output; the Rust host-call
+  interface still accepts only numeric values and at most one return value.
+- WASIp1 `fd_write`, `proc_exit`, `args_sizes_get`, and `args_get`, using Moonrun's
+  existing host operations. Unsupported imports and signatures fail explicitly.
+- Reusable modules and fresh state per run. Compiled modules cross stores using
+  V8's private serialization; this is not a persistent, portable AOT artifact.
+- Host state remains in Rust. Guest memory is borrowed only during a synchronous
+  host call, using its current allocation after any guest memory growth.
+
+Host-imported memory/globals/tables, guest re-entry from a host callback,
+WasmGC/reference values, exception tags, the MoonBit test driver, custom stack
+limits, and debugger access are not exposed yet. Memory-dependent imports from
+a Wasm start function are rejected because this C API provides no caller-instance
+lookup before instantiation returns. V8 still uses JS machinery internally.
+The complete backend conformance suite is not claimed to pass; CI runs the
+focused wee8 tests instead.
+
+Run the focused integration checks:
+
+```sh
+cargo test -p moonrun --no-default-features --features wee8 --test wee8
+cargo test -p moonrun --no-default-features --features wee8 --lib wee8::
+```
+
+The integration tests compile a MoonBit program for `wasm` in both debug and
+release modes and run it through the wee8 CLI, checking Unicode output and
+arithmetic. This requires the MoonBit toolchain, as do the other Moonrun
+compiler integration tests. It does not establish support for all MoonBit host
+imports or the `wasm-gc` backend.
+
 ## Running
 
 To run a WebAssembly file:
