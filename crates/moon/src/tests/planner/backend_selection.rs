@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::fixture::{PlanningFixture, parse_bench_command, parse_test_command};
+use super::fixture::{PlanningFixture, parse_bench_command, parse_run_command, parse_test_command};
 
 fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
@@ -151,5 +151,31 @@ fn explicit_test_and_bench_selectors_are_validated_before_import_resolution() {
             let error = format!("{error:#}");
             assert!(error.contains(expected_error), "{args:?}: {error}");
         }
+    }
+}
+
+#[test]
+fn run_selection_is_validated_before_import_resolution() {
+    let fixture = PlanningFixture::new("test_selection_before_resolution.in")
+        .expect("invalid imports should not prevent discovery");
+    for (package, target, expected_error) in [
+        ("main", "native", "selection/errors/missing"),
+        ("other", "native", "is not a main package"),
+        (
+            "main",
+            "js",
+            "Package 'selection/errors/main' does not support target backend 'js'",
+        ),
+    ] {
+        let (cli, cmd) = parse_run_command(&["run", "--dry-run", "--target", target, package]);
+        let error = fixture
+            .plan_run_graph_with_cli(&cli, &cmd)
+            .err()
+            .expect("invalid selection or imports should fail planning");
+        let error = format!("{error:#}");
+        assert!(
+            error.contains(expected_error),
+            "{package} ({target}): {error}"
+        );
     }
 }

@@ -2,6 +2,4 @@ import {
   "selection/errors/missing",
 }
 
-options(
-  "supported-targets": ["native"],
-)
+supported_targets = "native"
