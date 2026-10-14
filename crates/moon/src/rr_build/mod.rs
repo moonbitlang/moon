@@ -355,6 +355,23 @@ pub(crate) fn prepare_resolved_build(
     };
     info!("Final backend configuration: {:?}", backend);
     let stdlib_path = (build_flags.std() && !is_core).then(moonutil::toolchain::core);
+    if target_backend == TargetBackend::LLVM
+        && !cli.dry_run
+        && let Some(core_root) = &stdlib_path
+    {
+        // Not every toolchain ships the LLVM bundle. Catch its missing prelude
+        // before moonc tries to load the interface and reports an internal error.
+        let prelude = moonutil::toolchain::core_package_mi_in(
+            core_root,
+            target_backend,
+            "prelude",
+            "prelude",
+        );
+        anyhow::ensure!(
+            prelude.is_file(),
+            "toolchain is incomplete: missing `prelude.mi` for target `llvm`"
+        );
+    }
     let target_layout = TargetLayout::from_resolved_project(
         target_dir.to_owned(),
         resolved_project,
