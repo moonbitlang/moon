@@ -628,7 +628,7 @@ pub(crate) fn plan_run_rr_from_selection(
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        Some(selection.target_backend),
+        selection.target_backend,
         target_dir,
         RunMode::Run,
         user_log,
@@ -803,7 +803,7 @@ fn build_single_file_executable(
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        Some(selected_target_backend),
+        selected_target_backend,
         target_dir,
         RunMode::Run,
         user_log,

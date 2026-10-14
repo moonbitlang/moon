@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
+    BackendPlanSelection, TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
     group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
     select_packages, select_supported_packages,
 };
@@ -178,11 +178,12 @@ fn run_build_for_single_file_rr(
         user_log,
     )?;
     let resolved = discovered.resolve_packages(user_log)?;
-    let target_backends = if selected_target_backends.is_empty() {
-        vec![backend]
-    } else {
-        selected_target_backends.iter().copied().map(Some).collect()
-    };
+    let target_backends = rr_build::single_file_target_backends(
+        &resolved,
+        selected_target_backends,
+        backend,
+        user_log,
+    );
 
     let _lock;
     if !cli.dry_run {
@@ -335,38 +336,15 @@ fn run_build_rr_from_resolved(
             watched_paths: Vec::new(),
         }
     };
-    let planned_runs = if selected_target_backends.is_empty() {
-        plan_build_rr_from_resolved_all(
-            cli,
-            cmd,
-            source_dir,
-            target_dir,
-            mooncake_bin_dir,
-            None,
-            resolved_project,
-            user_log,
-        )?
-    } else {
-        selected_target_backends
-            .iter()
-            .copied()
-            .map(|target| {
-                plan_build_rr_from_resolved_all(
-                    cli,
-                    cmd,
-                    source_dir,
-                    target_dir,
-                    mooncake_bin_dir,
-                    Some(target),
-                    resolved_project.clone(),
-                    user_log,
-                )
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect()
-    };
+    let planned_runs = plan_build_rr_from_resolved_all(
+        cli,
+        cmd,
+        target_dir,
+        mooncake_bin_dir,
+        selected_target_backends,
+        resolved_project,
+        user_log,
+    )?;
 
     if planned_runs.is_empty() {
         return Ok(WatchOutput {
@@ -409,14 +387,14 @@ pub(crate) fn plan_build_rr_from_resolved(
     cmd: &BuildSubcommand,
     target_dir: &Path,
     mooncake_bin_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
+    target_backend: TargetBackend,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        selected_target_backend,
+        target_backend,
         target_dir,
         RunMode::Build,
         user_log,
@@ -455,13 +433,12 @@ fn plan_build_rr_from_resolved_with_scope(
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        Some(target_backend),
+        target_backend,
         target_dir,
         RunMode::Build,
         user_log,
         &resolved_project,
     )?;
-    debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     let intent = calc_user_intent_from_scoped_packages(
         &resolved_project,
         &scoped_packages,
@@ -493,13 +470,12 @@ fn plan_build_rr_from_selection(
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        Some(target_backend),
+        target_backend,
         target_dir,
         RunMode::Build,
         user_log,
         &resolved_project,
     )?;
-    debug_assert_eq!(compile_config.backend.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
@@ -512,130 +488,111 @@ fn plan_build_rr_from_selection(
     )
 }
 
+/// Selects backend plans, then plans each selected backend.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_build_rr_from_resolved_all(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
-    _source_dir: &Path,
     target_dir: &Path,
     mooncake_bin_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
+    selected_target_backends: &[TargetBackend],
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
-    if let Some(target_backend) = selected_target_backend {
-        if has_explicit_build_selector(cmd) {
-            let packages = resolve_selected_build_packages(
-                &resolved_project,
-                cmd,
-                Some(target_backend),
-                user_log,
-            )?;
-            if packages.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            return plan_build_rr_from_selection(
-                cli,
-                cmd,
-                target_dir,
-                mooncake_bin_dir,
-                target_backend,
-                resolved_project,
-                ResolvedBuildSelection { packages },
-                user_log,
-            )
-            .map(|plan| vec![plan]);
-        }
-
-        return plan_build_rr_from_resolved(
-            cli,
-            cmd,
-            target_dir,
-            mooncake_bin_dir,
-            Some(target_backend),
-            resolved_project,
-            user_log,
-        )
-        .map(|plan| vec![plan]);
-    }
-
-    let selections = resolve_build_target_selections(&resolved_project, cmd, None, user_log)?;
-    plan_build_rr_from_selections(
-        cli,
-        cmd,
-        target_dir,
-        mooncake_bin_dir,
-        selected_target_backend,
-        resolved_project,
-        selections,
-        user_log,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn plan_build_rr_from_selections(
-    cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
-    selections: Vec<TargetPackageGroup>,
-    user_log: &UserLog,
-) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
-    if has_explicit_build_selector(cmd) {
-        return selections
-            .into_iter()
-            .map(|selection| {
-                // Raw user selector paths/package names have already been
-                // resolved into PackageIds. RR will use those identities plus
-                // the bin-dependency launcher directory captured by the
-                // command adapter.
-                plan_build_rr_from_selection(
-                    cli,
-                    cmd,
-                    target_dir,
-                    mooncake_bin_dir,
-                    selection.target_backend,
-                    resolved_project.clone(),
-                    ResolvedBuildSelection {
-                        packages: selection.packages,
-                    },
-                    user_log,
-                )
-            })
-            .collect();
-    }
-
-    if selections.is_empty() {
-        return plan_build_rr_from_resolved(
-            cli,
-            cmd,
-            target_dir,
-            mooncake_bin_dir,
-            selected_target_backend,
-            resolved_project,
-            user_log,
-        )
-        .map(|plan| vec![plan]);
-    }
-
+    let selections =
+        select_build_plans(&resolved_project, cmd, selected_target_backends, user_log)?;
     selections
         .into_iter()
         .map(|selection| {
-            plan_build_rr_from_resolved_with_scope(
+            plan_build_rr_for_selection(
                 cli,
                 cmd,
                 target_dir,
                 mooncake_bin_dir,
-                selection.target_backend,
+                selection,
                 resolved_project.clone(),
-                selection.packages,
                 user_log,
             )
         })
         .collect()
+}
+
+fn select_build_plans(
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
+    cmd: &BuildSubcommand,
+    selected_target_backends: &[TargetBackend],
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<BackendPlanSelection>> {
+    if selected_target_backends.is_empty() {
+        let selections = resolve_build_target_selections(discovered, cmd, None, user_log)?;
+        if selections.is_empty() && !has_explicit_build_selector(cmd) {
+            return Ok(vec![BackendPlanSelection::command_selector(
+                rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
+            )]);
+        }
+        return Ok(selections.into_iter().map(Into::into).collect());
+    }
+
+    let mut plans = Vec::new();
+    for &target_backend in selected_target_backends {
+        if has_explicit_build_selector(cmd) {
+            let selections =
+                resolve_build_target_selections(discovered, cmd, Some(target_backend), user_log)?;
+            plans.extend(selections.into_iter().map(Into::into));
+        } else {
+            plans.push(BackendPlanSelection::command_selector(target_backend));
+        }
+    }
+    Ok(plans)
+}
+
+fn plan_build_rr_for_selection(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    selection: BackendPlanSelection,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let BackendPlanSelection {
+        target_backend,
+        packages,
+    } = selection;
+    match packages {
+        None => plan_build_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            mooncake_bin_dir,
+            target_backend,
+            resolved_project,
+            user_log,
+        ),
+        // Raw user selector paths/package names have already been resolved
+        // into PackageIds. RR will use those identities plus the
+        // bin-dependency launcher directory captured by the command adapter.
+        Some(packages) if has_explicit_build_selector(cmd) => plan_build_rr_from_selection(
+            cli,
+            cmd,
+            target_dir,
+            mooncake_bin_dir,
+            target_backend,
+            resolved_project,
+            ResolvedBuildSelection { packages },
+            user_log,
+        ),
+        Some(packages) => plan_build_rr_from_resolved_with_scope(
+            cli,
+            cmd,
+            target_dir,
+            mooncake_bin_dir,
+            target_backend,
+            resolved_project,
+            packages,
+            user_log,
+        ),
+    }
 }
 
 fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {

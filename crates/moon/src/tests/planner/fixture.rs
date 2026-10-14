@@ -108,20 +108,35 @@ impl PlanningFixture {
         })
     }
 
+    /// Select one backend, as production project-wide plans do.
+    fn select_backend(
+        &self,
+        selected_target_backend: Option<TargetBackend>,
+        user_log: &UserLog,
+    ) -> TargetBackend {
+        selected_target_backend.unwrap_or_else(|| {
+            crate::rr_build::local_modules_preferred_target(&self.resolved_project, user_log)
+                .unwrap_or_default()
+        })
+    }
+
     pub(super) fn plan_test_with_cli(
         &self,
         cli: &UniversalFlags,
         cmd: &TestSubcommand,
     ) -> anyhow::Result<String> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
+        let user_log = UserLog::new(cli.user_log_level());
+        let target_backend =
+            self.select_backend(cmd.build_flags.resolve_single_target_backend()?, &user_log);
         let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
             &borrowed,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            target_backend,
             self.resolved_project.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
@@ -146,7 +161,7 @@ impl PlanningFixture {
             &borrowed,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            selected_target_backend,
+            selected_target_backend.as_slice(),
             self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
@@ -164,14 +179,17 @@ impl PlanningFixture {
         cmd: &BenchSubcommand,
     ) -> anyhow::Result<String> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
+        let user_log = UserLog::new(cli.user_log_level());
+        let target_backend =
+            self.select_backend(cmd.build_flags.resolve_single_target_backend()?, &user_log);
         let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
             &borrowed,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            target_backend,
             self.resolved_project.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
@@ -187,7 +205,7 @@ impl PlanningFixture {
             &borrowed,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            cmd.build_flags.resolve_single_target_backend()?.as_slice(),
             self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
@@ -212,14 +230,17 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
     ) -> anyhow::Result<PlannedGraph> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let target_backend =
+            self.select_backend(cmd.build_flags.resolve_single_target_backend()?, &user_log);
         let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
             cli,
             cmd,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            target_backend,
             self.resolved_project.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )?;
         Ok(PlannedGraph::new(build_meta, build_graph))
     }
@@ -241,10 +262,9 @@ impl PlanningFixture {
         crate::cli::build::plan_build_rr_from_resolved_all(
             cli,
             cmd,
-            &self.source_dir,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            selected_target_backend,
+            selected_target_backend.as_slice(),
             self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
@@ -262,16 +282,21 @@ impl PlanningFixture {
         cmd: &BundleSubcommand,
         selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
-        crate::cli::bundle::plan_bundle_rr_from_resolved(
+        crate::cli::bundle::plan_bundle_rr_from_resolved_all(
             cli,
             cmd,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            selected_target_backend,
+            selected_target_backend.as_slice(),
             self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )
-        .map(|(meta, graph)| vec![PlannedGraph::new(meta, graph)])
+        .map(|plans| {
+            plans
+                .into_iter()
+                .map(|(meta, graph)| PlannedGraph::new(meta, graph))
+                .collect()
+        })
     }
 
     pub(super) fn plan_check_with_cli(
@@ -279,15 +304,18 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &CheckSubcommand,
     ) -> anyhow::Result<String> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let target_backend =
+            self.select_backend(cmd.build_flags.resolve_single_target_backend()?, &user_log);
         let (build_meta, build_graph) = crate::cli::check::plan_check_rr_from_resolved(
             cli,
             cmd,
             &self.source_dir,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            target_backend,
             self.resolved_project.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
@@ -312,7 +340,7 @@ impl PlanningFixture {
             &self.source_dir,
             &self.target_dir,
             &self.mooncake_bin_dir,
-            selected_target_backend,
+            selected_target_backend.as_slice(),
             self.resolved_project.clone(),
             &UserLog::new(cli.user_log_level()),
         )

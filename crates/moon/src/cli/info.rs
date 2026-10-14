@@ -375,7 +375,7 @@ fn plan_info_rr(
     let mut compile_config = rr_build::prepare_resolved_build(
         cli,
         &BuildFlags::default(),
-        Some(target),
+        target,
         target_dir,
         RunMode::Check,
         user_log,
