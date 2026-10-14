@@ -271,8 +271,9 @@ because it covers module sync, package discovery, and package resolution.
 `discover_single_file_project` synchronizes and discovers a script's synthesized
 project. The CLI's `sync_and_discover_project` and its command-specific
 preparation helpers also stop after discovery and return `DiscoveredProject`.
-Commands then run discover, select, resolve, and plan in that order: they select
-packages and Target Backends from the `DiscoveredProject`, call
+Commands using these discovery helpers run discover, select, resolve, and plan
+in that order: they select packages and Target Backends from the
+`DiscoveredProject`, call
 `resolve_packages` once, and plan each selected backend from the shared
 `ResolvedProject`. Selection uses only declared package data, so a selector
 error is reported before a package resolution error.
