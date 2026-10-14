@@ -27,10 +27,15 @@
 //!    selections into an ordered list of single-backend RR plans.
 //! 4. `plan_check_rr_for_selection` plans exactly one backend group from its
 //!    selected packages; it does not reinterpret the CLI selector.
+//!    Each plan also generates `.mbti` interfaces for the checked local
+//!    packages whose preferred backend is the planned backend, unless
+//!    `--no-mbti` or `--patch-file` is given.
 //! 5. The command layer composes those plans into one executor graph. Project
 //!    checks without a selector publish `packages.json` and `index.json`;
 //!    focused checks leave
 //!    it untouched.
+//! 6. After a successful check, generated interfaces newer than the package's
+//!    `pkg.generated.mbti` are copied over it.
 //!
 use anyhow::Context;
 use log::LevelFilter;
@@ -56,8 +61,8 @@ use tracing::instrument;
 use crate::filter::{
     TargetPackageGroup, canonicalize_with_filename, ensure_package_supports_backend,
     ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
-    group_packages_by_preferred_backend, package_supports_backend, select_packages,
-    select_supported_packages,
+    group_packages_by_preferred_backend, package_supports_backend,
+    preferred_target_backend_for_package, select_packages, select_supported_packages,
 };
 use crate::rr_build::{self, CalcUserIntentOutput};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
@@ -228,6 +233,10 @@ fn check_json_outcome(outcome: CheckJsonOutcome) -> JsonCommandOutcome {
 }
 
 /// Check the current package, but don't build object files
+///
+/// A successful check also updates `pkg.generated.mbti` of the checked local
+/// packages whose preferred backend is checked, as `moon info` does. Pass
+/// `--no-mbti` to skip this.
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
 pub(crate) struct CheckSubcommand {
@@ -274,6 +283,10 @@ pub(crate) struct CheckSubcommand {
     /// Output one complete JSON result to stdout
     #[clap(long)]
     pub json: bool,
+
+    /// Do not update `pkg.generated.mbti` files of the checked packages
+    #[clap(long)]
+    pub no_mbti: bool,
 }
 
 fn write_check_json(
@@ -732,6 +745,16 @@ fn run_check_normal_rr_from_discovered(
     )
     .context("Failed to calculate build plan")?;
 
+    // Publishing interfaces writes into the watched source tree; those writes
+    // must not trigger another check.
+    let mut ignored_paths = prebuild_list.ignored_paths;
+    if watch {
+        ignored_paths.extend(planned_runs.iter().flat_map(|(meta, _)| {
+            rr_build::generated_mbti_artifacts(meta)
+                .map(|(package, _)| rr_build::generated_mbti_dest(&meta.resolved_project, package))
+        }));
+    }
+
     let ok = run_planned_checks(
         cli,
         cmd,
@@ -744,7 +767,7 @@ fn run_check_normal_rr_from_discovered(
 
     Ok(WatchOutput {
         ok,
-        additional_ignored_paths: prebuild_list.ignored_paths,
+        additional_ignored_paths: ignored_paths,
         additional_watched_paths: prebuild_list.watched_paths,
     })
 }
@@ -805,9 +828,9 @@ fn run_planned_checks(
         rr_build::generate_metadata_index(planned_runs.iter().map(|(build_meta, _)| build_meta))?;
     }
 
-    let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
+    let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
     let build_input = BuildInput::compose(build_inputs)?;
-    if let Some(json) = json {
+    let successful = if let Some(json) = json {
         let result = moonbuild::execution::execute_build_json(
             &cfg.with_suppressed_progress(true),
             build_input,
@@ -815,7 +838,7 @@ fn run_planned_checks(
         )?;
         let successful = result.successful();
         json.append_build(result, output.user_log());
-        Ok(successful)
+        successful
     } else {
         let result =
             moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
@@ -823,8 +846,42 @@ fn run_planned_checks(
         if !result.successful() {
             output.user_log().error("failed when checking project");
         }
-        Ok(result.successful())
+        result.successful()
+    };
+    // A failed build may leave interfaces of earlier runs in the target
+    // directory, so only a successful check publishes them.
+    if successful {
+        publish_generated_mbti(&build_metas, output.user_log());
     }
+    Ok(successful)
+}
+
+/// Copy generated interfaces over their `pkg.generated.mbti`.
+///
+/// `mooninfo` only reruns when the package's `.mi` changes, so a published
+/// file at least as new as the generated one is already up to date and is
+/// left untouched.
+fn publish_generated_mbti(build_metas: &[BuildMeta], user_log: &UserLog) {
+    for meta in build_metas {
+        for (package, generated) in rr_build::generated_mbti_artifacts(meta) {
+            let dest = rr_build::generated_mbti_dest(&meta.resolved_project, package);
+            if let Err(e) = copy_if_newer(generated, &dest) {
+                user_log.warn(format!("failed to update `{}`: {e}", dest.display()));
+            }
+        }
+    }
+}
+
+fn copy_if_newer(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let src_modified = std::fs::metadata(src)?.modified()?;
+    match std::fs::metadata(dest).and_then(|meta| meta.modified()) {
+        Ok(dest_modified) if dest_modified >= src_modified => return Ok(()),
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    std::fs::copy(src, dest)?;
+    Ok(())
 }
 
 fn sync_and_discover_check_project(
@@ -954,10 +1011,17 @@ fn plan_check_rr_for_selection(
         user_log,
         &resolved_project,
     )?;
+    let mut intent = calc_user_intent(packages, cmd.patch_file.as_deref())?;
+    add_generated_mbti_intents(
+        &mut intent,
+        &resolved_project,
+        compile_config.backend.target_backend(),
+        cmd,
+    );
     rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
-        calc_user_intent(packages, cmd.patch_file.as_deref())?,
+        intent,
         mooncake_bin_dir,
         resolved_project,
         cmd.build_flags.jobs,
@@ -1112,6 +1176,36 @@ fn calc_user_intent(
         directive,
     )
         .into())
+}
+
+/// Request interface generation for the checked local packages whose
+/// `pkg.generated.mbti` belongs to `target_backend`.
+///
+/// Like `moon info`, only a package's preferred backend owns its published
+/// interface, so checking another backend never rewrites it. A check with
+/// `--patch-file` does not reflect the package sources and publishes nothing.
+fn add_generated_mbti_intents(
+    intent: &mut CalcUserIntentOutput,
+    resolved: &moonbuild_rupes_recta::ResolvedProject,
+    target_backend: TargetBackend,
+    cmd: &CheckSubcommand,
+) {
+    if cmd.no_mbti || cmd.patch_file.is_some() {
+        return;
+    }
+    let local_modules = resolved.local_modules();
+    let info_intents: Vec<_> = intent
+        .intents
+        .iter()
+        .filter_map(|intent| match intent {
+            UserIntent::Check(pkg) => Some(*pkg),
+            _ => None,
+        })
+        .filter(|&pkg| local_modules.contains(&resolved.pkg_dirs.get_package(pkg).module))
+        .filter(|&pkg| preferred_target_backend_for_package(resolved, pkg) == target_backend)
+        .map(UserIntent::Info)
+        .collect();
+    intent.intents.extend(info_intents);
 }
 
 fn build_directive_for_selected_packages(

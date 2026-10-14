@@ -579,7 +579,7 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 8 tasks, now up to date
+            Finished. moon: ran 12 tasks, now up to date
         "#]],
     );
 
@@ -762,7 +762,7 @@ fn test_in_main_pkg() {
                │       ┬  
                │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
-            Finished. moon: ran 6 tasks, now up to date (1 warnings, 0 errors)
+            Finished. moon: ran 8 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 

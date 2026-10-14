@@ -219,7 +219,7 @@ fn test_warn_list_real_run() {
     check(
         get_stderr(&dir, ["check", "--sort-input", "--no-render"]),
         expect![[r#"
-            Finished. moon: ran 6 tasks, now up to date
+            Finished. moon: ran 9 tasks, now up to date
         "#]],
     );
 }
@@ -411,7 +411,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
-            Finished. moon: ran 4 tasks, now up to date (4 warnings, 0 errors)
+            Finished. moon: ran 6 tasks, now up to date (4 warnings, 0 errors)
         "#]],
     );
 

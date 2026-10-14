@@ -148,6 +148,8 @@ Build the current package
 
 Check the current package, but don't build object files
 
+A successful check also updates `pkg.generated.mbti` of the checked local packages whose preferred backend is checked, as `moon info` does. Pass `--no-mbti` to skip this.
+
 **Usage:** `moon check [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
@@ -185,6 +187,7 @@ Check the current package, but don't build object files
 * `--explain` — Whether to explain the error code with details
 * `--fmt` — Check whether the code is properly formatted
 * `--json` — Output one complete JSON result to stdout
+* `--no-mbti` — Do not update `pkg.generated.mbti` files of the checked packages
 
 
 

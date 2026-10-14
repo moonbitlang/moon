@@ -89,6 +89,13 @@ Notes:
   other backends skip this check. This does not probe compiler capabilities.
 * `moon doc` selects `B` from the selected module's `preferred_target`, then falls back to `wasm`.
 * `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
+* `moon check` also publishes `pkg.generated.mbti` for checked local
+  non-virtual packages, but only from a plan whose `B` is the package's
+  canonical backend. Unlike `moon info`, it copies the generated interface only
+  when `pkg.generated.mbti` is missing or older than it, because `mooninfo`
+  reruns only when the package's `.mi` changes. A failed check, `--dry-run`,
+  `--patch-file`, and `--no-mbti` publish nothing. `moon check --watch`
+  ignores the published files.
 
 ## Dependency tree target selection
 
