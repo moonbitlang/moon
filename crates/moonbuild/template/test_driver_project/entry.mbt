@@ -80,7 +80,7 @@ let moonbit_test_driver_internal_wasm_async_tests : Array[async () -> Unit] = []
 #cfg(target="wasm")
 pub fn moonbit_test_driver_internal_execute(
   filename : MoonbitTestDriverInternalExternString,
-  index : Int,
+  index : Int32,
 ) -> Unit {
   let filename = moonbit_test_driver_internal_get_file_name(filename)
   moonbit_test_driver_internal_do_execute(
@@ -93,7 +93,7 @@ pub fn moonbit_test_driver_internal_execute(
 #cfg(target="wasm-gc")
 pub fn moonbit_test_driver_internal_execute(
   filename : MoonbitTestDriverInternalExternString,
-  index : Int,
+  index : Int32,
 ) -> Unit {
   let filename = moonbit_test_driver_internal_get_file_name(filename)
   let async_tests = []
@@ -122,7 +122,7 @@ pub fn moonbit_test_driver_finish() -> Unit {
 fn moonbit_test_driver_internal_do_execute(
   async_tests : Array[async () -> Unit],
   filename : String,
-  index : Int,
+  index : Int32,
 ) -> Unit {
   // These two are internalized to avoid unused warnings
 

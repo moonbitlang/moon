@@ -40,11 +40,11 @@ fn moonbit_test_driver_internal_escape_json(value : String) -> String {
 
 ///|
 #cfg(any(target="native", target="llvm"))
-fn string_get(s : String, index : Int) -> Int = "%string_get"
+fn string_get(s : String, index : Int32) -> Int32 = "%string_get"
 
 ///|
 #cfg(not(target="js"))
-fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
+fn moonbit_unsafe_char_from_int(x : Int32) -> Char = "%identity"
 
 ///|
 #cfg(any(target="native", target="llvm"))
@@ -149,7 +149,7 @@ fn moonbit_test_driver_internal_begin_read_string(
 #cfg(any(target="wasm", target="wasm-gc"))
 fn moonbit_test_driver_internal_string_read_char(
   handle : MoonbitTestDriverInternalStringReadHandle,
-) -> Int = "__moonbit_fs_unstable" "string_read_char"
+) -> Int32 = "__moonbit_fs_unstable" "string_read_char"
 
 ///|
 #cfg(any(target="wasm", target="wasm-gc"))
@@ -196,9 +196,9 @@ fn moonbit_test_driver_internal_string_from_extern(
 ///|
 #cfg(any(target="native", target="llvm"))
 fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude.Array[
-  (String, Int),
+  (String, Int32),
 ] {
-  fn moonbit_test_driver_internal_parse_int_(s : String) -> Int {
+  fn moonbit_test_driver_internal_parse_int_(s : String) -> Int32 {
     let mut res = 0
     let len = s.length()
     for i in 0..<len {
@@ -277,7 +277,7 @@ extern "js" fn MoonBitTestDriverInternalTestEntry::filename(
 
 ///|
 #cfg(target="js")
-extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int =
+extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int32 =
   #| (entry) => entry[1]
 
 ///|

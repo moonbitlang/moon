@@ -24,7 +24,7 @@ trait MoonBit_Test_Driver {
   fn run_test(
     @moonbitlang/core/prelude.Array[async () -> Unit],
     String,
-    Int,
+    Int32,
     () -> Unit,
     (String, String, Bool) -> Unit,
     (Error) -> String,
@@ -123,7 +123,7 @@ fn init {
 priv struct MoonBitTestDriverInternalTestMap[F](
   @moonbitlang/core/prelude.Map[
     String,
-    @moonbitlang/core/prelude.Map[Int, (F, ReadOnlyArray[String])],
+    @moonbitlang/core/prelude.Map[Int32, (F, ReadOnlyArray[String])],
   ]
 )
 
