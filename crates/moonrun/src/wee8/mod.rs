@@ -96,7 +96,15 @@ impl Engine {
             .with_context(|| format!("failed to instantiate `{module_name}`"))?;
         let result = module
             .instantiate(&imports.iter().collect::<Vec<_>>())
-            .and_then(|mut instance| instance.call("_start", &[]));
+            .and_then(|mut instance| {
+                // Instantiation already executes any Wasm start section. The
+                // conventional `_start` export is optional, as in other backends.
+                if instance.has_export("_start") {
+                    instance.call("_start", &[])
+                } else {
+                    Ok(Vec::new())
+                }
+            });
         let outcome = if let Some(termination) = termination.take() {
             BackendCallOutcome::Terminated(termination)
         } else {

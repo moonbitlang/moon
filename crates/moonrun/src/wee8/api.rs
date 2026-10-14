@@ -603,6 +603,10 @@ impl<T> Drop for Instance<'_, T> {
 }
 
 impl<T> Instance<'_, T> {
+    pub fn has_export(&self, name: &str) -> bool {
+        self.names.iter().any(|export| export == name.as_bytes())
+    }
+
     fn export(&self, name: &str) -> Result<*mut ffi::wasm_extern_t> {
         let index = self
             .names

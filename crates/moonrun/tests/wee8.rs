@@ -121,6 +121,24 @@ fn modules_reuse_compilation_with_fresh_memory_and_arguments() {
 }
 
 #[test]
+fn modules_without_start_export_complete() {
+    let engine = Engine::default();
+    for source in [
+        "(module)",
+        r#"(module (func (export "answer") (result i32) i32.const 42))"#,
+        "(module (func $initialize) (start $initialize))",
+    ] {
+        let module = engine
+            .compile("library.wasm", wat::parse_str(source).unwrap())
+            .unwrap();
+        assert_eq!(
+            engine.run(&module, RunOptions::default()).unwrap(),
+            RunOutcome::Completed
+        );
+    }
+}
+
+#[test]
 fn guest_exit_and_guest_traps_preserve_run_outcomes() {
     let engine = Engine::default();
     for (source, expected) in [
