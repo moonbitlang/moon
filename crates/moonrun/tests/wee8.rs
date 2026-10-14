@@ -18,6 +18,9 @@
 
 #![cfg(feature = "wee8")]
 
+#[path = "../build/checksums.rs"]
+mod checksums;
+
 use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome};
 
 #[test]

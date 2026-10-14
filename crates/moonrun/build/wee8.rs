@@ -19,6 +19,9 @@
 //! Acquisition and linking of the optional wee8 backend. This is independent of
 //! rusty_v8's build script and is compiled only when the wee8 feature is selected.
 
+#[path = "checksums.rs"]
+mod checksums;
+
 use flate2::read::GzDecoder;
 use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
@@ -140,16 +143,7 @@ fn release_files(out: &Path, target: &str) -> Result<(PathBuf, PathBuf), Box<dyn
     let checksums = fs::read_to_string(&manifest)?;
     let header_name = format!("wasm_c_api_{target}.h");
     for name in [&archive_name, &header_name] {
-        let checksum = checksums
-            .lines()
-            .find_map(|line| {
-                let (hash, file) = line.split_once(char::is_whitespace)?;
-                (file.trim().trim_start_matches("./") == name).then_some(hash)
-            })
-            .ok_or_else(|| format!("release checksum missing for {name}"))?;
-        if checksum.len() != 64 || !checksum.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(format!("invalid release checksum for {name}").into());
-        }
+        let checksum = checksums::checksum(&checksums, name)?;
         let path = cache.join(name);
         if !path.exists() || !sha256(&path)?.eq_ignore_ascii_case(checksum) {
             download(&client, &format!("{url}/{name}"), &path, Some(checksum))?;
