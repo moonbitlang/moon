@@ -129,20 +129,13 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &TestSubcommand,
     ) -> anyhow::Result<String> {
-        let borrowed: TestLikeSubcommand<'_> = cmd.into();
-        let user_log = UserLog::new(cli.user_log_level());
-        let (target_backend, resolved_project) =
-            self.select_and_resolve(cmd.build_flags.resolve_single_target_backend()?, &user_log)?;
-        let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
-            cli,
-            &borrowed,
-            &self.target_dir,
-            &self.mooncake_bin_dir,
-            target_backend,
-            resolved_project,
-            &user_log,
-        )?;
-        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
+        let [plan]: [PlannedGraph; 1] =
+            self.plan_test_all_with_cli(cli, cmd)?
+                .try_into()
+                .map_err(|plans: Vec<_>| {
+                    anyhow::anyhow!("expected one test plan, got {}", plans.len())
+                })?;
+        self.dump_plan(plan)
     }
 
     pub(super) fn plan_test_all_with_cli(
@@ -182,20 +175,13 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BenchSubcommand,
     ) -> anyhow::Result<String> {
-        let borrowed: TestLikeSubcommand<'_> = cmd.into();
-        let user_log = UserLog::new(cli.user_log_level());
-        let (target_backend, resolved_project) =
-            self.select_and_resolve(cmd.build_flags.resolve_single_target_backend()?, &user_log)?;
-        let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
-            cli,
-            &borrowed,
-            &self.target_dir,
-            &self.mooncake_bin_dir,
-            target_backend,
-            resolved_project,
-            &user_log,
-        )?;
-        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
+        let [plan]: [PlannedGraph; 1] = self
+            .plan_bench_all_with_cli(cli, cmd)?
+            .try_into()
+            .map_err(|plans: Vec<_>| {
+                anyhow::anyhow!("expected one bench plan, got {}", plans.len())
+            })?;
+        self.dump_plan(plan)
     }
 
     pub(super) fn plan_bench_all_with_cli(
