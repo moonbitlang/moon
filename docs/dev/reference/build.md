@@ -180,6 +180,8 @@ When actually building a package, the pipeline has 2 or 3 main steps depending o
    together with C stubs and other build outputs,
    to produce the final executable.
    Non-native backends do not need this step.
+   A foreign-library package builds a static library instead; see
+   [foreign libraries on native backends](#foreign-libraries-on-native-backends).
 
 macOS debug builds that emit native object code add one post-link step:
 
@@ -300,6 +302,37 @@ removed member behind. See
 [archive commands](native-c-toolchain-resolution.md#archive) for which archivers this
 applies to.
 
+### Foreign libraries on native backends
+
+A package declared with `pkgtype(kind: "foreign_library")` (or the legacy
+`link: true`) and no `main` is built for a foreign host. On Wasm and JS its
+`LinkCore` output is that library. On Native and LLVM, `moon build` instead
+requests a `ForeignLibrary` artifact, provided by `ArchiveForeignLibrary`,
+and plans no executable link.
+
+`ArchiveForeignLibrary` creates one static archive whose members are objects,
+because static archives do not nest:
+
+1. the MoonBit payload: the `LinkCore` object for direct-object Native and
+   LLVM, or for generated-C Native the object a `CompileLinkedCore` action
+   compiles from the generated C with the package's `cc-flags`;
+2. the C stub objects of every package the payload links, in link order;
+3. the native runtime objects and, in release builds, the selected SIMDUTF
+   objects;
+4. `libmoonbitrun.o` when the selected allocator links it.
+
+The archive shares its stem with the package's executable, such as
+`lib.a` or `lib.lib` for package `lib`, so it never collides with the
+package's `lib{package}` C stub archive. Like the runtime archive, it is
+created from exactly its current members, with update-style archivers run
+through `moon tool exec --fresh-output`. GNU and TCC `ar` also keep only one of
+several members with the same file name, so lowering rejects such a member list
+instead of producing an incomplete library.
+
+The archive cannot carry link flags. `link.native.cc-link-flags`, prebuild
+link arguments, system libraries, and, for builds with runtime backtraces,
+`libbacktrace.a` remain the foreign host's responsibility.
+
 ### Reading and writing MBTI interfaces
 
 **A `.mbti` file** is the textural representation of `.mi`.
@@ -407,6 +440,8 @@ Backend build-plan nodes and package prebuild actions are peer action kinds.
 | `LinkCore(BuildTarget)`         | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
 | `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs, runtime       | Compiles/links the final executable (optional) |
 | `GenerateDsym(BuildTarget)`     | `dsymutil`                  | `.dSYM` bundle        | executable                                 | Generates macOS debug symbols (optional)       |
+| `CompileLinkedCore(BuildTarget)` | C compiler                 | object file           | generated-C `LinkCore` output              | Compiles a foreign library's payload           |
+| `ArchiveForeignLibrary(PackageId)` | archiver                 | static library        | payload, C stub and runtime objects        | Builds a native foreign library                |
 | `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |
 | `BuildRuntimeObject(int)`       | C compiler                  | object file           | N/A                                        | Builds one runtime translation unit            |
