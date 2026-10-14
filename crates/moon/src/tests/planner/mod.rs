@@ -21,6 +21,7 @@ mod backend_selection;
 mod cli_to_planner;
 mod dummy_core_planning;
 mod fixture;
+mod foreign_library_planning;
 mod package_filter_planning;
 mod path_filter_planning;
 mod profile_planning;

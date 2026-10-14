@@ -21,8 +21,8 @@ use std::path::Path;
 use moonutil::resolution::ModuleId;
 
 use super::{
-    BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
-    MakeExecutableInfo, PrebuildInfo,
+    BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileLinkedCoreInfo,
+    ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo,
 };
 use crate::model::{BuildPlanNode, BuildTarget, PackageId};
 
@@ -65,6 +65,14 @@ pub(crate) enum BuildAction<'a> {
     MakeExecutable {
         target: BuildTarget,
         info: &'a MakeExecutableInfo,
+    },
+    CompileLinkedCore {
+        target: BuildTarget,
+        info: &'a CompileLinkedCoreInfo,
+    },
+    ArchiveForeignLibrary {
+        info: &'a ForeignLibraryInfo,
+        runtime: &'a BuildRuntimeInfo,
     },
     GenerateDsym {
         target: BuildTarget,
@@ -164,6 +172,23 @@ impl BackendPlan {
                     .make_executable_info
                     .get(&target)
                     .expect("MakeExecutable nodes should contain native linking info"),
+            },
+            BuildPlanNode::CompileLinkedCore(target) => BuildAction::CompileLinkedCore {
+                target,
+                info: self
+                    .compile_linked_core_info
+                    .get(&target)
+                    .expect("CompileLinkedCore nodes should contain native compile info"),
+            },
+            BuildPlanNode::ArchiveForeignLibrary(package) => BuildAction::ArchiveForeignLibrary {
+                info: self
+                    .foreign_library_info
+                    .get(&package)
+                    .expect("ArchiveForeignLibrary nodes should contain archive info"),
+                runtime: self
+                    .runtime_info
+                    .as_ref()
+                    .expect("Runtime info should be present for ArchiveForeignLibrary nodes"),
             },
             BuildPlanNode::GenerateDsym(target) => BuildAction::GenerateDsym {
                 target,

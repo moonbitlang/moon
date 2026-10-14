@@ -430,6 +430,12 @@ impl CC {
         matches!(self.ar_kind, ARKind::GnuAr | ARKind::LlvmAr | ARKind::TccAr)
     }
 
+    /// Whether this archiver keeps only one of several inputs that share a
+    /// file name, because it matches existing members by file name alone.
+    pub fn archiver_merges_same_named_members(&self) -> bool {
+        matches!(self.ar_kind, ARKind::GnuAr | ARKind::TccAr)
+    }
+
     pub fn cc_path(&self) -> &str {
         &self.cc_path
     }
