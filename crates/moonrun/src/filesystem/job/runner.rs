@@ -29,7 +29,6 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 use crate::resource::{Resource, ResourcePublication};
-use crate::runtime::StdioStream;
 
 use super::stat::{StatRequest, run_fstatx_job};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
@@ -85,14 +84,7 @@ ported_fns! {
         result: &mut Option<Vec<u8>>,
     ) -> AsyncHostResult<i64> {
         let mut buf = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        let n = if let Some((stdio, stream)) = file.channel() {
-            if stream != StdioStream::Stdin { return Err(AsyncHostError::Badf); }
-            if position != -1 { return Err(AsyncHostError::Inval); }
-            stdio.with_stdin(|input| input.read(&mut buf))
-                .map_err(|error| error.raw_os_error().map_or(AsyncHostError::Io, AsyncHostError::Native))?
-        } else {
-            read_from_native_file(raw_file_handle(file)?, &mut buf, position)?
-        };
+        let n = read_from_native_file(raw_file_handle(file)?, &mut buf, position)?;
         buf.truncate(n);
         *result = Some(buf);
         Ok(n as i64)
@@ -107,17 +99,7 @@ ported_fns! {
         data: &[u8],
         position: i64,
     ) -> AsyncHostResult<i64> {
-        let n = if let Some((stdio, stream)) = file.channel() {
-            if position != -1 { return Err(AsyncHostError::Inval); }
-            let result = match stream {
-                StdioStream::Stdout => stdio.with_stdout(|output| output.write(data)),
-                StdioStream::Stderr => stdio.with_stderr(|output| output.write(data)),
-                StdioStream::Stdin => return Err(AsyncHostError::Badf),
-            };
-            result.map_err(|error| error.raw_os_error().map_or(AsyncHostError::Io, AsyncHostError::Native))?
-        } else {
-            write_to_native_file(raw_file_handle(file)?, data, position)?
-        };
+        let n = write_to_native_file(raw_file_handle(file)?, data, position)?;
         Ok(n as i64)
     }
 

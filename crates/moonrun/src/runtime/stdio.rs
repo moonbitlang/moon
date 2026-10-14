@@ -19,12 +19,9 @@
 //! Standard-stream behavior selected for one Moonrun Runtime.
 
 use std::cell::Cell;
+use std::fs::File;
 use std::io::{self, Read, Write};
-use std::sync::{
-    Arc, Mutex,
-    mpsc::{Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError},
-};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
 
 #[cfg(unix)]
 pub(crate) type RawStdio = std::os::fd::RawFd;
@@ -53,110 +50,7 @@ impl StdioStream {
 pub(crate) enum Stdio {
     #[default]
     Ambient,
-    Channel {
-        stdin: Arc<Mutex<ChannelInput>>,
-        stdout: SyncSender<Vec<u8>>,
-        stderr: SyncSender<Vec<u8>>,
-    },
-}
-
-/// Buffered input for the channel's byte-block protocol.
-#[derive(Debug)]
-pub(crate) struct ChannelInput {
-    receiver: Receiver<Vec<u8>>,
-    bytes: Vec<u8>,
-    offset: usize,
-    eof: bool,
-}
-
-fn check_worker_cancellation() -> io::Result<()> {
-    crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region(|| Ok(()))
-        .map_err(|error| io::Error::from_raw_os_error(error.errno()))
-}
-
-impl ChannelInput {
-    fn ready(&mut self, timeout: Option<Duration>) -> bool {
-        let deadline = timeout.map(|duration| Instant::now() + duration);
-        while self.offset == self.bytes.len() && !self.eof {
-            let received = match deadline {
-                None => self
-                    .receiver
-                    .recv()
-                    .map_err(|_| RecvTimeoutError::Disconnected),
-                Some(deadline) => {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if remaining.is_zero() {
-                        match self.receiver.try_recv() {
-                            Ok(bytes) => Ok(bytes),
-                            Err(TryRecvError::Empty) => Err(RecvTimeoutError::Timeout),
-                            Err(TryRecvError::Disconnected) => Err(RecvTimeoutError::Disconnected),
-                        }
-                    } else {
-                        self.receiver.recv_timeout(remaining)
-                    }
-                }
-            };
-            match received {
-                Ok(bytes) => {
-                    self.bytes = bytes;
-                    self.offset = 0;
-                }
-                Err(RecvTimeoutError::Disconnected) => self.eof = true,
-                Err(RecvTimeoutError::Timeout) => return false,
-            }
-        }
-        true
-    }
-}
-
-impl Read for ChannelInput {
-    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        if buffer.is_empty() {
-            return Ok(0);
-        }
-        loop {
-            check_worker_cancellation()?;
-            if self.ready(Some(Duration::from_millis(10))) {
-                break;
-            }
-        }
-        let count = buffer.len().min(self.bytes.len() - self.offset);
-        buffer[..count].copy_from_slice(&self.bytes[self.offset..self.offset + count]);
-        self.offset += count;
-        Ok(count)
-    }
-}
-
-struct ChannelOutput<'a>(&'a SyncSender<Vec<u8>>);
-
-impl Write for ChannelOutput<'_> {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.is_empty() {
-            return Ok(0);
-        }
-        let count = bytes.len().min(64 * 1024);
-        let mut block = bytes[..count].to_vec();
-        loop {
-            check_worker_cancellation()?;
-            match self.0.try_send(block) {
-                Ok(()) => return Ok(count),
-                Err(TrySendError::Disconnected(_)) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "stdio receiver closed",
-                    ));
-                }
-                Err(TrySendError::Full(bytes)) => {
-                    block = bytes;
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-            }
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
+    Owned(Arc<[Mutex<File>; 3]>),
 }
 
 /// Stateful UTF-16 code-unit output used by MoonBit's legacy character ABI.
@@ -192,38 +86,12 @@ impl Utf16Writer {
 }
 
 impl Stdio {
-    pub(crate) fn channel(
-        stdin: Receiver<Vec<u8>>,
-        stdout: SyncSender<Vec<u8>>,
-        stderr: SyncSender<Vec<u8>>,
-    ) -> Self {
-        Self::Channel {
-            stdin: Arc::new(Mutex::new(ChannelInput {
-                receiver: stdin,
-                bytes: Vec::new(),
-                offset: 0,
-                eof: false,
-            })),
-            stdout,
-            stderr,
-        }
-    }
-
-    pub(crate) fn channel_stdin_ready(&self, timeout: Option<Duration>) -> Option<bool> {
-        match self {
-            Self::Channel { stdin, .. } => {
-                if timeout == Some(Duration::ZERO) {
-                    match stdin.try_lock() {
-                        Ok(mut input) => Some(input.ready(timeout)),
-                        Err(std::sync::TryLockError::WouldBlock) => Some(false),
-                        Err(std::sync::TryLockError::Poisoned(_)) => panic!("stdio input poisoned"),
-                    }
-                } else {
-                    Some(stdin.lock().unwrap().ready(timeout))
-                }
-            }
-            Self::Ambient => None,
-        }
+    pub(crate) fn owned(stdin: File, stdout: File, stderr: File) -> Self {
+        Self::Owned(Arc::new([
+            Mutex::new(stdin),
+            Mutex::new(stdout),
+            Mutex::new(stderr),
+        ]))
     }
 
     pub(crate) fn with_stdin<T, E>(
@@ -232,7 +100,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stdin().lock()),
-            Self::Channel { stdin, .. } => f(&mut *stdin.lock().unwrap()),
+            Self::Owned(files) => f(&mut *files[0].lock().unwrap()),
         }
     }
 
@@ -242,7 +110,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stdout().lock()),
-            Self::Channel { stdout, .. } => f(&mut ChannelOutput(stdout)),
+            Self::Owned(files) => f(&mut *files[1].lock().unwrap()),
         }
     }
 
@@ -252,7 +120,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stderr().lock()),
-            Self::Channel { stderr, .. } => f(&mut ChannelOutput(stderr)),
+            Self::Owned(files) => f(&mut *files[2].lock().unwrap()),
         }
     }
 
@@ -292,10 +160,19 @@ impl Stdio {
     pub(crate) fn raw(&self, stream: StdioStream) -> io::Result<RawStdio> {
         match self {
             Self::Ambient => ambient_raw(stream),
-            Self::Channel { .. } => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "channel stdio has no native handle",
-            )),
+            Self::Owned(files) => {
+                let file = files[stream as usize].lock().unwrap();
+                #[cfg(unix)]
+                {
+                    use std::os::fd::AsRawFd;
+                    Ok(file.as_raw_fd())
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::io::AsRawHandle;
+                    Ok(file.as_raw_handle())
+                }
+            }
         }
     }
 
@@ -339,63 +216,5 @@ mod tests {
         for (stream, expected) in StdioStream::ALL.into_iter().zip([0, 1, 2]) {
             assert_eq!(Stdio::Ambient.raw(stream).unwrap(), expected);
         }
-    }
-}
-
-#[cfg(test)]
-mod channel_tests {
-    use super::*;
-    use std::sync::mpsc::sync_channel;
-
-    #[test]
-    fn input_preserves_bytes_across_blocks_and_reports_eof() {
-        let (sender, input) = sync_channel(3);
-        let (output, _) = sync_channel(1);
-        let (error, _) = sync_channel(1);
-        let stdio = Stdio::channel(input, output, error);
-        sender.send(Vec::new()).unwrap();
-        sender.send(vec![1, 2]).unwrap();
-        sender.send(vec![3]).unwrap();
-        drop(sender);
-        let mut bytes = [0; 3];
-        stdio
-            .with_stdin(|input| input.read_exact(&mut bytes))
-            .unwrap();
-        assert_eq!(bytes, [1, 2, 3]);
-        assert_eq!(stdio.with_stdin(|input| input.read(&mut bytes)).unwrap(), 0);
-        assert!(stdio.raw(StdioStream::Stdin).is_err());
-    }
-
-    #[test]
-    fn output_backpressure_resumes_after_consumption_and_detects_closed_receiver() {
-        let (_, input) = sync_channel(1);
-        let (output, receiver) = sync_channel(1);
-        let (error, _) = sync_channel(1);
-        let stdio = Stdio::channel(input, output, error);
-        stdio
-            .with_stdout(|output| output.write_all(b"first"))
-            .unwrap();
-        let writer = stdio.clone();
-        let (done, finished) = sync_channel(1);
-        let thread = std::thread::spawn(move || {
-            done.send(writer.with_stdout(|output| output.write_all(b"second")))
-                .unwrap();
-        });
-        assert!(finished.recv_timeout(Duration::from_millis(30)).is_err());
-        assert_eq!(receiver.recv().unwrap(), b"first");
-        finished
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .unwrap();
-        thread.join().unwrap();
-        assert_eq!(receiver.recv().unwrap(), b"second");
-        drop(receiver);
-        assert_eq!(
-            stdio
-                .with_stdout(|output| output.write(b"closed"))
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::BrokenPipe
-        );
     }
 }

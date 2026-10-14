@@ -115,8 +115,8 @@ impl HostProcess {
     /// value before worker execution. Ambient deliberately leaves it alone,
     /// including `None`, so the operating system observes its current
     /// directory at spawn time. Guest-supplied standard streams also remain
-    /// authoritative; missing child streams inherit ambient process I/O.
-    /// Guest channel streams do not provide native child handles.
+    /// authoritative; the Runtime binding resolves only missing child streams
+    /// immediately before native execution.
     pub(crate) fn configure_job_for_execution(&self, job: &mut Job) -> AsyncHostResult<()> {
         job.configure_working_directory(&self.working_directory);
         job.configure_stdio(&self.stdio)?;

@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
-use std::sync::mpsc::sync_channel;
+use std::fs::{self, File};
 
 #[test]
 fn concurrent_runs_isolate_standard_streams_and_relative_files() {
@@ -42,22 +42,22 @@ fn concurrent_runs_isolate_standard_streams_and_relative_files() {
             i32.const 2 i32.const 0 i32.const 1 i32.const 8 call $write
             if unreachable end))"#).unwrap();
     let module = engine.compile("stdio.wasm", bytes).unwrap();
+    let directories: Vec<_> = (0..2).map(|_| tempfile::tempdir().unwrap()).collect();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let mut results = Vec::new();
-    let runs: Vec<_> = [b'A', b'B']
-        .into_iter()
-        .map(|byte| {
-            let directory = tempfile::tempdir().unwrap();
-            std::fs::write(directory.path().join("input.txt"), [byte]).unwrap();
-            let (input, stdin) = sync_channel(1);
-            let (stdout, output) = sync_channel(1);
-            let (stderr, error) = sync_channel(1);
-            input.send(vec![byte]).unwrap();
-            drop(input);
+    let runs: Vec<_> = directories
+        .iter()
+        .zip([b'A', b'B'])
+        .map(|(dir, byte)| {
+            let dir = dir.path();
+            fs::write(dir.join("stdin"), [byte]).unwrap();
+            fs::write(dir.join("input.txt"), [byte]).unwrap();
             let options = RunOptions::default()
-                .with_working_directory(WorkingDirectory::Fixed(directory.path().to_owned()))
-                .with_stdio(stdin, stdout, stderr);
-            results.push((byte, output, error, directory));
+                .with_working_directory(WorkingDirectory::Fixed(dir.to_owned()))
+                .with_stdio(
+                    File::open(dir.join("stdin")).unwrap(),
+                    File::create(dir.join("stdout")).unwrap(),
+                    File::create(dir.join("stderr")).unwrap(),
+                );
             let engine = engine.clone();
             let module = module.clone();
             let barrier = barrier.clone();
@@ -70,12 +70,9 @@ fn concurrent_runs_isolate_standard_streams_and_relative_files() {
     for run in runs {
         assert_eq!(run.join().unwrap(), RunOutcome::Completed);
     }
-    for (byte, output, error, directory) in results {
-        assert_eq!(output.into_iter().flatten().collect::<Vec<_>>(), [byte]);
-        assert_eq!(error.into_iter().flatten().collect::<Vec<_>>(), [byte]);
-        assert_eq!(
-            std::fs::read(directory.path().join("output.txt")).unwrap(),
-            [byte]
-        );
+    for (dir, byte) in directories.iter().zip([b'A', b'B']) {
+        for filename in ["stdout", "stderr", "output.txt"] {
+            assert_eq!(fs::read(dir.path().join(filename)).unwrap(), [byte]);
+        }
     }
 }

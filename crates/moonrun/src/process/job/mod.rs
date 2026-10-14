@@ -21,14 +21,13 @@
 #[cfg(windows)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
-#[cfg(windows)]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(unix)]
+use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
-#[cfg(windows)]
-use crate::runtime::StdioStream;
-use crate::runtime::{Stdio, WorkingDirectory};
+use crate::runtime::{Stdio, StdioStream, WorkingDirectory};
 
 use super::{HostProcess, ambient};
 
@@ -319,12 +318,18 @@ impl Job {
         }
     }
 
-    pub(super) fn configure_stdio(&mut self, _runtime_stdio: &Stdio) -> AsyncHostResult<()> {
+    pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         match &mut self.kind {
             #[cfg(unix)]
-            Kind::SpawnUnix { .. } => {
-                // An absent Unix file action preserves native descriptor
-                // inheritance, which is exactly the Ambient Runtime setting.
+            Kind::SpawnUnix { stdio, .. } => {
+                if matches!(runtime_stdio, Stdio::Owned(_)) {
+                    for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
+                        if slot.is_none() {
+                            let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;
+                            *slot = Some(Arc::new(Resource::stdio_file(raw)));
+                        }
+                    }
+                }
                 Ok(())
             }
             #[cfg(windows)]
@@ -333,7 +338,7 @@ impl Job {
                     // GUI processes may have no standard streams. Preserve
                     // absence for CreateProcessW instead of rejecting spawn.
                     if slot.is_none()
-                        && let Ok(raw) = Stdio::Ambient.raw(stream)
+                        && let Ok(raw) = runtime_stdio.raw(stream)
                     {
                         *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
                     }
@@ -476,51 +481,53 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn fixed_child_cwd_preserves_explicit_empty_value() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = dunce::canonicalize(directory.path()).unwrap();
-        std::fs::create_dir(root.join("child")).unwrap();
-        let working_directory = WorkingDirectory::Fixed(root.clone());
+    fn owned_child_stdio_supplies_defaults_and_preserves_explicit_streams() {
+        use std::fs::{self, File};
+        use std::os::fd::AsRawFd;
 
-        for (cwd, succeeds) in [
-            (None, true),
-            (Some(OsString::new()), false),
-            (Some(OsString::from("child")), true),
-        ] {
-            let expected = if cwd.as_deref() == Some(std::ffi::OsStr::new("child")) {
-                root.join("child")
-            } else {
-                root.clone()
-            };
+        for explicit_stdout in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let dir = directory.path();
+            fs::write(dir.join("stdin"), "input\n").unwrap();
+            let stdio = Stdio::owned(
+                File::open(dir.join("stdin")).unwrap(),
+                File::create(dir.join("stdout")).unwrap(),
+                File::create(dir.join("stderr")).unwrap(),
+            );
+            let output = File::create(dir.join("explicit-stdout")).unwrap();
+            let stdout =
+                explicit_stdout.then(|| Arc::new(Resource::stdio_file(output.as_raw_fd())));
             let mut job = Job::spawn_unix(
                 "/bin/sh".into(),
                 vec![
                     "sh".into(),
                     "-c".into(),
-                    "test \"$PWD\" = \"$EXPECTED\"".into(),
+                    "IFS= read -r line; printf 'out:%s\n' \"$line\"; printf 'err:%s\n' \"$line\" >&2".into(),
                 ],
-                vec![format!("EXPECTED={}", expected.display()).into()],
+                Vec::new(),
                 None,
-                None,
+                stdout,
                 None,
                 None,
                 SpawnOptions {
                     child_signal_mask: unsafe { std::mem::zeroed() },
                 },
             );
-            if let Some(cwd) = cwd {
-                job.set_cwd(cwd).unwrap();
-            }
-            job.configure_working_directory(&working_directory);
-            let result = job.run();
-            if let Ok(pid) = result {
-                let status = Job::wait_for_process(None, None, pid as i32, false)
-                    .unwrap()
-                    .run()
-                    .unwrap();
-                assert_eq!(status, 0, "child used an unexpected working directory");
-            }
-            assert_eq!(result.is_ok(), succeeds);
+            job.configure_stdio(&stdio).unwrap();
+            let pid = job.run().unwrap() as i32;
+            let status = Job::wait_for_process(None, None, pid, false)
+                .unwrap()
+                .run()
+                .unwrap();
+            assert_eq!(status, 0);
+            assert_eq!(fs::read(dir.join("stderr")).unwrap(), b"err:input\n");
+            let (default, explicit) = if explicit_stdout {
+                (b"".as_slice(), b"out:input\n".as_slice())
+            } else {
+                (b"out:input\n".as_slice(), b"".as_slice())
+            };
+            assert_eq!(fs::read(dir.join("stdout")).unwrap(), default);
+            assert_eq!(fs::read(dir.join("explicit-stdout")).unwrap(), explicit);
         }
     }
 
@@ -640,6 +647,55 @@ mod tests {
                 symbol.rust_module,
                 symbol.rust_symbol
             );
+        }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn fixed_child_cwd_preserves_explicit_empty_value() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(directory.path()).unwrap();
+        std::fs::create_dir(root.join("child")).unwrap();
+        let working_directory = WorkingDirectory::Fixed(root.clone());
+
+        for (cwd, succeeds) in [
+            (None, true),
+            (Some(OsString::new()), false),
+            (Some(OsString::from("child")), true),
+        ] {
+            let expected = if cwd.as_deref() == Some(std::ffi::OsStr::new("child")) {
+                root.join("child")
+            } else {
+                root.clone()
+            };
+            let mut job = Job::spawn_unix(
+                "/bin/sh".into(),
+                vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "test \"$PWD\" = \"$EXPECTED\"".into(),
+                ],
+                vec![format!("EXPECTED={}", expected.display()).into()],
+                None,
+                None,
+                None,
+                None,
+                SpawnOptions {
+                    child_signal_mask: unsafe { std::mem::zeroed() },
+                },
+            );
+            if let Some(cwd) = cwd {
+                job.set_cwd(cwd).unwrap();
+            }
+            job.configure_working_directory(&working_directory);
+            let result = job.run();
+            if let Ok(pid) = result {
+                let status = Job::wait_for_process(None, None, pid as i32, false)
+                    .unwrap()
+                    .run()
+                    .unwrap();
+                assert_eq!(status, 0, "child used an unexpected working directory");
+            }
+            assert_eq!(result.is_ok(), succeeds);
         }
     }
 }
