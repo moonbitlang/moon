@@ -908,14 +908,10 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn build_build_c_stub(
         &mut self,
         node: BuildPlanNode,
-        _target: PackageId,
+        target: PackageId,
         _index: u32,
     ) -> Result<(), BuildPlanConstructError> {
-        // depends on nothing, but needs to be inserted into the list
-        self.need_node(node);
-
-        // We rely on the `link_c_stubs` action to resolve the C stub info
-        // so this doesn't panic.
+        self.populate_c_stubs_info(target)?;
         self.resolved_node(node);
         Ok(())
     }
@@ -926,19 +922,35 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         target: PackageId,
     ) -> Result<(), BuildPlanConstructError> {
-        // Resolve the C stub files
-        let pkg = self.input.pkg_dirs.get_package(target);
+        self.require_c_stub_objects(node, target);
+        self.populate_c_stubs_info(target)?;
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Require every C stub object declared by `package`, in declaration order.
+    fn require_c_stub_objects(&mut self, consumer: BuildPlanNode, package: PackageId) {
+        let pkg = self.input.pkg_dirs.get_package(package);
         for source in &pkg.c_stub_files {
             self.require_artifact(
-                node,
+                consumer,
                 ArtifactKey::CStubObject {
-                    package: target,
+                    package,
                     source: package_file_key(&pkg.root_path, source),
                 },
             );
         }
+    }
 
-        // Populate C stub info
+    /// Resolve the compile and archive settings shared by a package's C stub
+    /// actions. Every C stub action populates it, so no action depends on
+    /// another having been planned first.
+    fn populate_c_stubs_info(&mut self, target: PackageId) -> Result<(), BuildPlanConstructError> {
+        if self.res.backend.c_stubs_info.contains_key(&target) {
+            return Ok(());
+        }
+
+        let pkg = self.input.pkg_dirs.get_package(target);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
         let stub_cc = native_config
@@ -1007,8 +1019,6 @@ impl<'a> BuildPlanConstructor<'a> {
             link_args,
         };
         self.res.backend.c_stubs_info.insert(target, c_info);
-        self.resolved_node(node);
-
         Ok(())
     }
 
@@ -1530,6 +1540,39 @@ impl<'a> BuildPlanConstructor<'a> {
         &mut self,
         node: BuildPlanNode,
     ) -> Result<(), BuildPlanConstructError> {
+        self.require_runtime_objects(node)?;
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Require every runtime translation unit, resolving the runtime settings
+    /// that their providers are lowered from.
+    fn require_runtime_objects(
+        &mut self,
+        consumer: BuildPlanNode,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.populate_runtime_info()?;
+        let sources = self
+            .res
+            .backend
+            .runtime_info
+            .as_ref()
+            .expect("runtime info was just populated")
+            .source_files
+            .iter()
+            .map(|source| runtime_source_key(source))
+            .collect::<Vec<_>>();
+        for source in sources {
+            self.require_artifact(consumer, ArtifactKey::RuntimeObject { source });
+        }
+        Ok(())
+    }
+
+    fn populate_runtime_info(&mut self) -> Result<(), BuildPlanConstructError> {
+        if self.res.backend.runtime_info.is_some() {
+            return Ok(());
+        }
+
         let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
             BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
         })?;
@@ -1567,32 +1610,6 @@ impl<'a> BuildPlanConstructor<'a> {
             simdutf_objects,
             native_allocator,
         });
-
-        let source_count = self
-            .res
-            .backend
-            .runtime_info
-            .as_ref()
-            .expect("runtime info was just populated")
-            .source_files
-            .len();
-        for index in 0..source_count {
-            let source = &self
-                .res
-                .backend
-                .runtime_info
-                .as_ref()
-                .expect("runtime info was just populated")
-                .source_files[index];
-            self.require_artifact(
-                node,
-                ArtifactKey::RuntimeObject {
-                    source: runtime_source_key(source),
-                },
-            );
-        }
-
-        self.resolved_node(node);
         Ok(())
     }
 
