@@ -25,7 +25,7 @@ use ::wee8 as api;
 mod wasi;
 
 use crate::engine::{
-    BackendCallOutcome, BackendRunOutcome, EngineConfig, RunOptions, complete_run_call,
+    BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,
 };
 use crate::run_termination::TerminationRequest;
 use crate::runtime::Runtime;
@@ -64,28 +64,26 @@ impl Engine {
         Ok(module.serialize())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run(
         &self,
         module_name: &str,
         compiled: &CompiledModule,
         _source_map: Option<&SourceMap>,
-        options: RunOptions,
+        args: &[String],
+        test_args: Option<TestArgs>,
+        _no_stack_trace: bool,
         runtime: Runtime,
     ) -> anyhow::Result<BackendRunOutcome> {
         self.initialization
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
         anyhow::ensure!(
-            options.test_args.is_none(),
+            test_args.is_none(),
             "wee8 does not support the MoonBit test driver yet"
         );
         let termination = TerminationRequest::default();
-        let wasi = crate::wasi::WasiContext::new(
-            module_name,
-            &options.args,
-            &runtime,
-            termination.clone(),
-        );
+        let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
         let stdio = Arc::clone(runtime.stdio());
         let store = api::Store::new(StoreData {
             _runtime: runtime,
