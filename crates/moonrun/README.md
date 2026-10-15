@@ -182,12 +182,30 @@ signal behavior.
 
 A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the
-existing process-global behavior. No isolated or captured working-directory
-mode is available yet. Compiled modules reuse their prepared representation
+existing process-global behavior. `WorkingDirectory::Fixed(path)` resolves
+relative paths against a supplied directory without changing process cwd. Compiled modules reuse their prepared representation
 while each run currently creates a fresh Runtime that owns its environment,
 policy, working-directory selection, and domain state alongside fresh guest
 execution state. Thread placement and lifecycle tracking remain the caller's
 responsibility.
+
+### Fixed working directory
+
+```rust
+use moonrun::{Engine, RunOptions, WorkingDirectory};
+
+let engine = Engine::default();
+let module = engine.load_file("agent.wasm")?;
+let options = RunOptions::default()
+    .with_working_directory(WorkingDirectory::Fixed("workspace".into()));
+let outcome = engine.run(&module, options)?;
+```
+
+The directory must exist and is canonicalized when execution begins. Relative
+filesystem paths, SQLite filenames, and child directories use this root.
+Absolute paths and explicit empty filenames retain their existing meaning.
+This selects path interpretation; it does not grant access, create a sandbox,
+or change policy-denial errors. Standard streams remain ambient process I/O.
 
 ## Memory Leak Reporting
 
