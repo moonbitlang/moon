@@ -5,7 +5,6 @@ use expect_test::{expect, expect_file};
 fn test_moonbitlang_x() {
     let dir = TestDir::new("test_moonbitlang_x");
     get_stdout(&dir, ["update"]);
-    get_stdout(&dir, ["install"]);
 
     build_graph::assert(
         moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run", "--sort-input"]),

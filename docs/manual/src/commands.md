@@ -66,7 +66,7 @@ This document contains the help content for the `moon` command-line program.
 * `bench` — Run benchmarks in the current package
 * `add` — Add a dependency
 * `remove` — Remove a dependency
-* `install` — Install a binary package globally or install project dependencies (deprecated without args)
+* `install` — Install a binary package globally
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
 * `search` — Search modules and package summaries in the registry
@@ -543,7 +543,7 @@ Remove a dependency
 
 ## `moon install`
 
-Install a binary package globally or install project dependencies (deprecated without args)
+Install a binary package globally
 
 **Usage:** `moon install [OPTIONS] [SOURCE] [PATH_IN_REPO]`
 

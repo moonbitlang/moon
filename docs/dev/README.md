@@ -170,7 +170,7 @@ cargo install --path ./crates/moon --debug --offline
 
 - `crates/mooncake`: package manager
   - `src/pkg/add`: `moon add`
-  - `src/pkg/{install, sync}`: `moon install`
+  - `src/pkg/{install, sync}`: project dependency synchronization
   - `src/pkg/remove`: `moon remove`
   - `src/pkg/tree`: `moon tree`
   - `src/registry/client.rs`: synchronizes registry metadata and downloads

@@ -26,7 +26,7 @@ use moonbuild_rupes_recta::{
 };
 use mooncake::{
     pkg::{legacy_postadd, sync::SyncOutputOptions},
-    registry::{Registry, RegistryClient, path::RegistryPath},
+    registry::{RegistryClient, path::RegistryPath},
 };
 use moonutil::{
     build_options::RunMode,
@@ -34,12 +34,11 @@ use moonutil::{
     cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::lock_directory,
-    project::{PackageDirs, SourceTargetDirs, WorkspaceEnv},
-    resolution::{ModuleName, ModuleSource, ModuleSourceKind},
+    project::PackageDirs,
+    resolution::{ModuleName, ModuleSourceKind},
     target::TargetBackend,
     user_log::UserLog,
 };
-use semver::Version;
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
@@ -710,121 +709,6 @@ fn build_selected_package(
     ))
 }
 
-fn build_native_executable_to(
-    cli: &UniversalFlags,
-    module_name: &ModuleName,
-    module_dir: &Path,
-    package_dirs: PackageDirs,
-    package_path: &str,
-    destination: &Path,
-    user_log: &UserLog,
-) -> anyhow::Result<()> {
-    let prepared = prepare_native_build(
-        cli,
-        module_name,
-        module_dir,
-        package_dirs,
-        SyncOutputOptions::default(),
-        PackageFilter::package_path(package_path.to_string(), false),
-        user_log,
-    )?;
-    let pkg = prepared
-        .selected_packages
-        .first()
-        .context("exact package selection returned no package")?;
-    let binary_src = build_selected_package(cli, &prepared, pkg, user_log)?
-        .ok_or_else(|| anyhow::anyhow!("Failed to build `{}`", pkg.full_pkg_name))?;
-    std::fs::copy(&binary_src, destination).with_context(|| {
-        format!(
-            "Failed to copy binary from `{}` to `{}`",
-            binary_src.display(),
-            destination.display()
-        )
-    })?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(destination)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(destination, perms)?;
-    }
-
-    Ok(())
-}
-
-pub(super) fn build_registry_native_executable_to(
-    module: &ModuleSource,
-    package_path: &str,
-    destination: &Path,
-    quiet: bool,
-    verbose: bool,
-    user_log: &UserLog,
-) -> anyhow::Result<()> {
-    let module_name = module.name();
-    let version = module.version();
-    let registry = RegistryClient::configured();
-    ensure_registry_version_available(
-        module_name,
-        version,
-        || {
-            registry
-                .all_versions_of(module_name)
-                .is_ok_and(|versions| versions.contains_key(version))
-        },
-        || registry.sync(user_log),
-    )?;
-
-    let source = tempfile::TempDir::new().context("Failed to create temporary directory")?;
-    // Moonx needs the sources for its temporary build, but must not run package
-    // installation hooks or let acquisition progress precede program stdout.
-    let checksum = registry.source_archive_checksum(module)?;
-    registry.acquire_source_to(module, &checksum, source.path(), user_log)?;
-
-    let cli = UniversalFlags {
-        source_tgt_dir: SourceTargetDirs {
-            cwd: None,
-            target_dir: None,
-        },
-        workspace_env: WorkspaceEnv::default(),
-        quiet,
-        verbose,
-        trace: false,
-        dry_run: false,
-        build_graph: false,
-        unstable_feature: ""
-            .parse()
-            .expect("empty unstable feature set must be valid"),
-    };
-    let package_dirs = cli.source_tgt_dir.source_root_package_dirs(source.path())?;
-    build_native_executable_to(
-        &cli,
-        module_name,
-        source.path(),
-        package_dirs,
-        package_path,
-        destination,
-        user_log,
-    )
-}
-
-fn ensure_registry_version_available(
-    module_name: &ModuleName,
-    version: &Version,
-    mut version_is_available: impl FnMut() -> bool,
-    mut update_registry: impl FnMut() -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    if version_is_available() {
-        return Ok(());
-    }
-
-    update_registry().context("Failed to update registry index")?;
-    if !version_is_available() {
-        bail!("Module `{module_name}` version `{version}` not found in registry");
-    }
-    Ok(())
-}
-
 /// Build matching packages and install binaries using RR build engine.
 fn build_and_install_packages(
     cli: &UniversalFlags,
@@ -981,8 +865,6 @@ pub(crate) fn install_file_atomically(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
     use super::*;
 
     fn test_path(parts: &[&str]) -> PathBuf {
@@ -991,40 +873,6 @@ mod tests {
             path.push(part);
         }
         path
-    }
-
-    #[test]
-    fn pinned_registry_version_uses_existing_index_entry() {
-        let updated = Cell::new(false);
-        ensure_registry_version_available(
-            &"testuser/runner".parse().unwrap(),
-            &"1.2.3".parse().unwrap(),
-            || true,
-            || {
-                updated.set(true);
-                Ok(())
-            },
-        )
-        .unwrap();
-
-        assert!(!updated.get());
-    }
-
-    #[test]
-    fn pinned_registry_version_updates_missing_index_entry() {
-        let updated = Cell::new(false);
-        ensure_registry_version_available(
-            &"testuser/runner".parse().unwrap(),
-            &"1.2.3".parse().unwrap(),
-            || updated.get(),
-            || {
-                updated.set(true);
-                Ok(())
-            },
-        )
-        .unwrap();
-
-        assert!(updated.get());
     }
 
     #[test]

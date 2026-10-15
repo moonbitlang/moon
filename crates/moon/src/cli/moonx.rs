@@ -22,18 +22,12 @@ use clap::{Parser, Subcommand, ValueEnum};
 use mooncake::registry::RegistryClient;
 use moonutil::user_log::UserLog;
 
-use super::registry_runner::{self, RegistryRunTarget};
-
-pub(crate) const NATIVE_TARGET_DEPRECATION_WARNING: &str =
-    "`moonx --target native` is deprecated and scheduled for removal after 2026-09-14.";
+use super::registry_runner;
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub(crate) enum MoonxTarget {
     #[default]
     Wasm,
-    // TODO(2026-09-14): Remove the native moonx target and its registry
-    // build/cache path after the two-week deprecation window.
-    Native,
 }
 
 #[derive(Debug, Parser)]
@@ -51,9 +45,7 @@ Accepted input forms:
 Standalone .mbtx files always use the linear-memory Wasm backend. Pinned
 package coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
-the latest version already known to the local registry index.
-
-The native target is deprecated and scheduled for removal after 2026-09-14."#,
+the latest version already known to the local registry index."#,
     override_usage = "moonx [OPTIONS] <MBTX|PACKAGE> [PROGRAM_ARGS]...",
     version
 )]
@@ -61,7 +53,7 @@ pub(crate) struct MoonxCli {
     #[arg(long, value_enum, default_value_t)]
     pub target: MoonxTarget,
 
-    /// Experimental moonrun policy file; only valid for wasm
+    /// Experimental moonrun policy file
     #[arg(long = "experimental-policy", value_name = "PATH")]
     pub experimental_policy: Option<PathBuf>,
 
@@ -81,7 +73,6 @@ enum MoonxInput {
 
 #[derive(Debug)]
 pub(crate) struct MoonxInvocation {
-    pub(crate) target: MoonxTarget,
     pub(crate) experimental_policy: Option<PathBuf>,
     pub(crate) verbose: bool,
     input: String,
@@ -106,7 +97,6 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
         _ => args,
     };
     Ok(MoonxInvocation {
-        target: cli.target,
         experimental_policy: cli.experimental_policy,
         verbose: cli.verbose,
         input: input.clone(),
@@ -119,68 +109,41 @@ pub(crate) fn prepare(
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {
     let MoonxInvocation {
-        target,
         experimental_policy,
         verbose,
         input,
         args,
     } = invocation;
-    let quiet = !verbose;
 
-    match target {
-        MoonxTarget::Wasm => {
-            let policy_relay = moonutil::policy_transport::PolicyTransfer::take_from_env()?
-                .map(moonutil::policy_transport::PolicyTransfer::into_relay);
-            let (wasm_path, embedded_policy) = if is_mbtx_input(&input) {
-                let dirs = moonutil::project::SourceTargetDirs {
-                    cwd: None,
-                    target_dir: None,
-                }
-                .single_file_package_dirs(&input)?;
-                let built = super::run::build_standalone_wasm(dirs, false, verbose)?;
-                (built.executable, built.embedded_mbtx_policy)
-            } else {
-                (
-                    RegistryClient::configured().acquire_executable_wasm(&input, user_log)?,
-                    None,
-                )
-            };
-            let (policy, policy_source_dir) = super::run::effective_moonrun_policy(
-                experimental_policy.as_deref(),
-                embedded_policy.as_ref(),
-            );
+    let policy_relay = moonutil::policy_transport::PolicyTransfer::take_from_env()?
+        .map(moonutil::policy_transport::PolicyTransfer::into_relay);
+    let (wasm_path, embedded_policy) = if is_mbtx_input(&input) {
+        let dirs = moonutil::project::SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        }
+        .single_file_package_dirs(&input)?;
+        let built = super::run::build_standalone_wasm(dirs, false, verbose)?;
+        (built.executable, built.embedded_mbtx_policy)
+    } else {
+        (
+            RegistryClient::configured().acquire_executable_wasm(&input, user_log)?,
+            None,
+        )
+    };
+    let (policy, policy_source_dir) = super::run::effective_moonrun_policy(
+        experimental_policy.as_deref(),
+        embedded_policy.as_ref(),
+    );
 
-            registry_runner::prepare_artifact(
-                crate::run::ExecutionMode::MoonRun,
-                &wasm_path,
-                policy,
-                policy_source_dir,
-                policy_relay,
-                &args,
-                user_log,
-            )
-        }
-        MoonxTarget::Native if is_mbtx_input(&input) => {
-            anyhow::bail!("standalone `.mbtx` inputs only support `--target wasm`")
-        }
-        MoonxTarget::Native if experimental_policy.is_some() => {
-            anyhow::bail!("--experimental-policy is only valid with `--target wasm`")
-        }
-        MoonxTarget::Native => {
-            // Native execution has no descendant moonrun. Consume and close a
-            // valid relay without letting an ambient malformed marker change
-            // native behavior.
-            moonutil::policy_transport::PolicyTransfer::discard_from_env();
-            registry_runner::prepare(
-                input,
-                RegistryRunTarget::Native,
-                args,
-                quiet,
-                verbose,
-                user_log,
-            )
-        }
-    }
+    registry_runner::prepare_artifact(
+        &wasm_path,
+        policy,
+        policy_source_dir,
+        policy_relay,
+        &args,
+        user_log,
+    )
 }
 
 fn is_mbtx_input(input: &str) -> bool {

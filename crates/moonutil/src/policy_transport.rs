@@ -76,13 +76,6 @@ impl PolicyTransfer {
         Self::from_token(&token).map(Some)
     }
 
-    /// Remove an inherited-policy marker from a process that cannot forward
-    /// it. A valid handle is closed; a malformed marker is ignored because it
-    /// cannot describe a policy resource owned by this process.
-    pub fn discard_from_env() {
-        let _ = Self::take_from_env();
-    }
-
     pub fn read(mut self) -> anyhow::Result<Vec<u8>> {
         let mut contents = Vec::new();
         self.file

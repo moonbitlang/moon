@@ -18,17 +18,13 @@
 
 use anyhow::{Context, bail};
 use mooncake::{
-    pkg::{
-        add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand,
-        sync::SyncOutputOptions,
-    },
+    pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand},
     registry::{
         RegistryClient,
         path::{ModuleNotFound, parse_install_package_path, parse_module_path},
     },
 };
 use moonutil::{
-    cli_support::AutoSyncFlags,
     constants::MOD_NAME_STDLIB,
     project::{PackageDirs, ProjectContext},
     user_log::UserLog,
@@ -78,29 +74,6 @@ pub(crate) fn install_cli(
     cmd: InstallSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    // If no package path and no local path, use legacy behavior
-    if cmd.source.is_none() && cmd.path.is_none() {
-        user_log.warn(
-            "`moon install` without arguments is deprecated and will be removed in a future version. \
-             Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
-        );
-        let dirs = cli
-            .source_tgt_dir
-            .query(cli.workspace_env.clone())?
-            .select(user_log)?
-            .package_dirs()?;
-        mooncake::pkg::sync::auto_sync(
-            &dirs,
-            &AutoSyncFlags { frozen: false },
-            SyncOutputOptions::default(),
-            user_log,
-            true,
-            cli.workspace_env.clone(),
-            true,
-        )?;
-        return Ok(0);
-    }
-
     let install_dir = cmd.bin.unwrap_or_else(|| moonutil::MOON_HOME.bin_dir());
     let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 

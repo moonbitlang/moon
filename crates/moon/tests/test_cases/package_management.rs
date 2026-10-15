@@ -501,7 +501,7 @@ import {
     .unwrap();
 
     std::fs::remove_dir_all(&mooncakes_dir).unwrap();
-    let assert = moon_cmd(&dir).arg("install").assert().success();
+    let assert = moon_cmd(&dir).arg("check").assert().success();
     let output = assert.get_output();
     assert!(output.stdout.is_empty());
     let mut lines = std::str::from_utf8(&output.stderr)
@@ -627,7 +627,7 @@ fn test_moon_package_list() {
 
 #[test]
 #[allow(clippy::just_underscores_and_digits)]
-fn test_moon_install_bin() {
+fn test_check_reinstalls_missing_binary_dependencies() {
     struct BinFileCleanup(Vec<std::path::PathBuf>);
 
     impl Drop for BinFileCleanup {
@@ -682,8 +682,8 @@ fn test_moon_install_bin() {
         }
     }
 
-    // moon install should install bin deps
-    get_stdout(&dir, ["install"]);
+    // A repeated check should restore missing binary dependencies.
+    get_stdout(&dir, ["check"]);
 
     for bin in &installed_bins {
         assert!(bin.exists());

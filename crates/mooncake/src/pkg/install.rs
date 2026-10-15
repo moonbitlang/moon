@@ -42,7 +42,7 @@ struct PreparedBinDep {
     _temp_dir: Option<tempfile::TempDir>,
 }
 
-/// Install a binary package globally or install project dependencies (deprecated without args)
+/// Install a binary package globally
 #[derive(Debug, clap::Parser)]
 #[clap(
     group = clap::ArgGroup::new("git_ref").multiple(false),
@@ -63,6 +63,7 @@ repository URL, PATH_IN_REPO, and --branch or --tag instead."
 pub struct InstallSubcommand {
     #[clap(
         value_name = "SOURCE",
+        required_unless_present = "path",
         help = "Package path, local path, or git URL",
         long_help = "Install source.\n\nInterpretation order:\n  1. local path (`./`, `../`, `/`, Windows drive)\n  2. git URL\n  3. registry package path (`user/module/pkg[@version]`)\n\nUse `/...` suffix to install all matching main packages."
     )]

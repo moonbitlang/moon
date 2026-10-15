@@ -63,7 +63,7 @@ fn test_moon_help() {
               bench                  Run benchmarks in the current package
               add                    Add a dependency
               remove                 Remove a dependency
-              install                Install a binary package globally or install project dependencies (deprecated without args)
+              install                Install a binary package globally
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
               search                 Search modules and package summaries in the registry
@@ -131,17 +131,15 @@ package coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already known to the local registry index.
 
-The native target is deprecated and scheduled for removal after 2026-09-14.
-
 Usage: moonx [OPTIONS] <MBTX|PACKAGE> [PROGRAM_ARGS]...
 
 Options:
       --target <TARGET>
           [default: wasm]
-          [possible values: wasm, native]
+          [possible values: wasm]
 
       --experimental-policy <PATH>
-          Experimental moonrun policy file; only valid for wasm
+          Experimental moonrun policy file
 
   -v, --verbose
           Show progress and execution details
@@ -185,23 +183,27 @@ native
 }
 
 #[test]
-fn test_moonx_rejects_native_for_mbtx() {
-    let dir = TestDir::new("moon_test_single_file.in");
-    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+fn test_moonx_rejects_native_before_acquisition() {
+    let dir = TestDir::new_empty();
+    let bin_dir = tempfile::TempDir::new().unwrap();
     let moonx = moonx_bin(&bin_dir);
+    for input in ["missing.mbtx", "user/module"] {
+        snapbox::cmd::Command::new(&moonx)
+            .current_dir(&dir)
+            .env("MOON_HOME", dir.join("moon-home"))
+            .args(["--target", "native", input])
+            .assert()
+            .code(2)
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+error: invalid value 'native' for '--target <TARGET>'
+  [possible values: wasm]
 
-    snapbox::cmd::Command::new(&moonx)
-        .current_dir(&dir)
-        .args(["--target", "native", "moonx_args.mbtx"])
-        .assert()
-        .failure()
-        .stdout_eq("")
-        .stderr_eq(snapbox::str![[r#"
-Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
-Error: standalone `.mbtx` inputs only support `--target wasm`
+For more information, try '--help'.
 
 "#]]);
-
+    }
+    assert!(!dir.join("moon-home").exists());
     assert!(!dir.join("_build").exists());
 }
 
@@ -303,35 +305,6 @@ fn test_moonx_inherited_policy_skips_malformed_embedded_policy() {
 }
 
 #[test]
-fn test_moonx_validates_native_options_before_discarding_an_inherited_marker() {
-    let dir = TestDir::new_empty();
-    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
-    let moonx = moonx_bin(&bin_dir);
-
-    snapbox::cmd::Command::new(&moonx)
-        .current_dir(&dir)
-        .env(
-            moonutil::constants::MOONRUN_INHERITED_POLICY,
-            "not-an-os-handle",
-        )
-        .args([
-            "--target",
-            "native",
-            "--experimental-policy",
-            "unused.toml",
-            "user/module",
-        ])
-        .assert()
-        .failure()
-        .stdout_eq("")
-        .stderr_eq(snapbox::str![[r#"
-Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
-Error: --experimental-policy is only valid with `--target wasm`
-
-"#]]);
-}
-
-#[test]
 fn test_moonx_runs_cached_wasm_and_forwards_everything_after_the_coordinate() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
@@ -393,206 +366,6 @@ native
         .code(7)
         .stdout_eq("")
         .stderr_eq("");
-}
-
-#[test]
-fn test_moonx_native_output_and_cache_contract() {
-    let fixture = TestDir::new("moonx_registry_native.in");
-    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
-    let runner_files = [
-        "moon.mod",
-        "src/lib/moon.pkg",
-        "src/lib/lib.mbt",
-        "src/tool/moon.pkg",
-        "src/tool/main.mbt",
-    ]
-    .map(|path| (path, std::fs::read(fixture.join(path)).unwrap()));
-    let (zip_path, index_path) =
-        cache_registry_package(moon_home.path(), "testuser/runner", "1.2.3", &runner_files);
-    cache_registry_package(
-        moon_home.path(),
-        "testuser/dependency",
-        "1.0.0",
-        &[(
-            "moon.mod",
-            br#"name = "testuser/dependency"
-
-version = "1.0.0""#
-                .to_vec(),
-        )],
-    );
-
-    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
-    let moonx = moonx_bin(&bin_dir);
-
-    snapbox::cmd::Command::new(&moonx)
-        .current_dir(&fixture)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args(["--target", "native", "testuser/runner@1.2.3"])
-        .assert()
-        .failure()
-        .stdout_eq("")
-        .stderr_eq(snapbox::str![[r#"
-Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
-[..]Package `testuser/runner` not found or is not a main package (is-main: true required)
-
-"#]]);
-
-    snapbox::cmd::Command::new(&moonx)
-        .current_dir(&fixture)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args(["--target", "native", "testuser/runner/lib@1.2.3"])
-        .assert()
-        .failure()
-        .stdout_eq("")
-        .stderr_eq(snapbox::str![[r#"
-Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
-[..]Package `testuser/runner/lib` not found or is not a main package (is-main: true required)
-
-"#]]);
-
-    let run = || {
-        snapbox::cmd::Command::new(&moonx)
-            .current_dir(&fixture)
-            .env("MOON_HOME", moon_home.path())
-            .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-            .args([
-                "--target",
-                "native",
-                "testuser/runner/tool@1.2.3",
-                "--child-arg",
-            ])
-            .assert()
-            .success()
-            .stdout_eq("native runner\n--child-arg\n")
-            .stderr_eq(snapbox::str![[r#"
-...
-
-"#]]);
-    };
-
-    let executable = moon_home
-        .path()
-        .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe");
-    snapbox::cmd::Command::new(&moonx)
-        .current_dir(&fixture)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args([
-            "--verbose",
-            "--target",
-            "native",
-            "testuser/runner/tool@1.2.3",
-            "--child-arg",
-        ])
-        .assert()
-        .success()
-        .stdout_eq("native runner\n--child-arg\n")
-        .stderr_eq(snapbox::str![[r#"
-Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.
-Using cached testuser/runner@1.2.3
-Using cached testuser/dependency@1.0.0
-Building `testuser/runner/tool`...
-...
-Finished. moon: ran 9 tasks, now up to date
-'$MOON_HOME/registry/cache/assets/testuser/runner/1.2.3/tool/tool[..]' --child-arg
-
-"#]]);
-
-    std::fs::remove_file(&executable).unwrap();
-    run();
-    assert!(executable.is_file());
-
-    let transfer = moonutil::policy_transport::PolicyTransfer::from_file(
-        tempfile::tempfile().expect("failed to create inherited policy handle"),
-    )
-    .unwrap();
-    let mut inherited_native = std::process::Command::new(&moonx);
-    inherited_native
-        .current_dir(&fixture)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args([
-            "--target",
-            "native",
-            "testuser/runner/tool@1.2.3",
-            "--inherited-native",
-        ]);
-    let relay = transfer
-        .into_relay()
-        .attach_to(&mut inherited_native)
-        .unwrap();
-    snapbox::cmd::Command::from_std(inherited_native)
-        .assert()
-        .success()
-        .stdout_eq("native runner\n--inherited-native\n")
-        .stderr_eq(
-            "Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.\n",
-        );
-    relay.finish().unwrap();
-
-    snapbox::cmd::Command::new(&moonx)
-        .current_dir(&fixture)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .env(
-            moonutil::constants::MOONRUN_INHERITED_POLICY,
-            "not-an-os-handle",
-        )
-        .args([
-            "--target",
-            "native",
-            "testuser/runner/tool@1.2.3",
-            "--malformed-inherited-marker",
-        ])
-        .assert()
-        .success()
-        .stdout_eq("native runner\n--malformed-inherited-marker\n")
-        .stderr_eq(
-            "Warning: `moonx --target native` is deprecated and scheduled for removal after 2026-09-14.\n",
-        );
-
-    std::fs::remove_file(&zip_path).unwrap();
-    std::fs::remove_file(&index_path).unwrap();
-    run();
-}
-
-#[cfg(any(unix, windows))]
-#[test]
-fn test_moonx_delegates_interrupt_to_cached_native_executable() {
-    let dir = TestDir::new_empty();
-    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
-    let cache_path = moon_home
-        .path()
-        .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe");
-    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
-
-    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
-    std::fs::copy(compile_signal_fixture(fake_bin_dir.path()), &cache_path)
-        .expect("failed to populate cached native executable");
-
-    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
-    let moonx = moonx_bin(&bin_dir);
-    let ready_file = bin_dir.path().join("moonx-native-ready");
-    let mut command = interruptible_command(&moonx);
-    let mut child = command
-        .current_dir(&dir)
-        .env("MOON_HOME", moon_home.path())
-        .args(["--target", "native", "testuser/runner/tool@1.2.3"])
-        .arg(&ready_file)
-        .spawn()
-        .expect("failed to spawn moonx");
-
-    wait_for_ready_file(&mut child, &ready_file);
-    send_interrupt(child.id());
-    let status = wait_for_child_status(&mut child);
-    assert_eq!(
-        status.code(),
-        Some(42),
-        "cached native executable did not handle interrupt itself; status was {status}"
-    );
 }
 
 #[test]
@@ -1435,21 +1208,6 @@ fn interruptible_moon_command(dir: &impl AsRef<std::path::Path>) -> std::process
     use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
 
     let mut command = moon_process_cmd(dir);
-    command.creation_flags(CREATE_NEW_PROCESS_GROUP);
-    command
-}
-
-#[cfg(unix)]
-fn interruptible_command(program: &std::path::Path) -> std::process::Command {
-    std::process::Command::new(program)
-}
-
-#[cfg(windows)]
-fn interruptible_command(program: &std::path::Path) -> std::process::Command {
-    use std::os::windows::process::CommandExt;
-    use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
-
-    let mut command = std::process::Command::new(program);
     command.creation_flags(CREATE_NEW_PROCESS_GROUP);
     command
 }
