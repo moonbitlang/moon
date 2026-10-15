@@ -52,6 +52,10 @@ mod statement;
 #[cfg(feature = "v8")]
 use crate::v8::context::V8RunContext;
 
+#[allow(
+    unused_imports,
+    reason = "shared interface may be unused by a partial backend"
+)]
 pub(crate) use registry::MOONBIT_SQLITE_MODULE;
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 pub(crate) use registry::register_wasmtime_imports;

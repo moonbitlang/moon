@@ -22,9 +22,9 @@ use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
 use crate::source_map;
 #[cfg(feature = "v8")]
 use crate::v8 as backend;
-#[cfg(all(not(feature = "v8"), feature = "wasmtime"))]
+#[cfg(all(not(feature = "v8"), not(feature = "wee8"), feature = "wasmtime"))]
 use crate::wasmtime as backend;
-#[cfg(feature = "wee8")]
+#[cfg(all(feature = "wee8", not(feature = "v8")))]
 use crate::wee8 as backend;
 use anyhow::Context;
 use std::fmt;
@@ -63,7 +63,6 @@ pub struct RunOptions {
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
 
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
 #[derive(serde::Deserialize)]
 pub(crate) struct TestArgs {
     pub(crate) package: String,
@@ -90,7 +89,6 @@ impl RunOptions {
         self
     }
 
-    #[cfg(any(feature = "v8", feature = "wasmtime"))]
     pub(crate) fn parsed_test_args(&self) -> anyhow::Result<Option<TestArgs>> {
         self.test_args
             .as_deref()
@@ -183,7 +181,6 @@ pub(crate) enum BackendCallOutcome {
     Terminated(RunTermination),
 }
 
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
 #[derive(serde::Serialize)]
 struct TestFailure<'a> {
     r#type: &'static str,
@@ -210,7 +207,6 @@ pub(crate) fn complete_run_call(
 
 /// Run the backend-neutral MoonBit test-driver lifecycle. Backends provide
 /// only the representation-specific calls and formatted guest diagnostics.
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
 pub(crate) fn run_test_driver<D>(
     driver: &mut D,
     test_args: TestArgs,
@@ -427,6 +423,32 @@ impl Default for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_driver_lifecycle_is_backend_neutral() {
+        // The shared lifecycle remains usable even when a partial adapter does
+        // not register the guest imports needed by MoonBit's test driver yet.
+        let options = RunOptions::default().with_test_args(
+            r#"{"package":"test","file_and_index":[["main.mbt",[{"start":2,"end":4}]]]}"#,
+        );
+        let mut calls = Vec::new();
+        let outcome = run_test_driver(
+            &mut calls,
+            options.parsed_test_args().unwrap().unwrap(),
+            &Stdio::Ambient,
+            |calls, file, index| {
+                calls.push(format!("{file}:{index}"));
+                Ok(BackendCallOutcome::Completed)
+            },
+            |calls| {
+                calls.push("finish".into());
+                Ok(BackendCallOutcome::Completed)
+            },
+        )
+        .unwrap();
+        assert!(matches!(outcome, BackendRunOutcome::Completed));
+        assert_eq!(calls, ["main.mbt:2", "main.mbt:3", "finish"]);
+    }
 
     #[test]
     fn run_options_default_to_ambient_working_directory() {

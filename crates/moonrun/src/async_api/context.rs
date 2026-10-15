@@ -45,10 +45,10 @@ pub(super) struct ImportContext<'a, 'scope> {
     runtime: &'a Runtime,
     #[cfg(feature = "v8")]
     memory_binding: &'a V8MemoryBinding,
-    #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+    #[cfg(not(feature = "v8"))]
     memory: &'a mut [u8],
     termination_request: &'a TerminationRequest,
-    #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+    #[cfg(not(feature = "v8"))]
     scope: std::marker::PhantomData<&'scope ()>,
 }
 
@@ -94,7 +94,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
             self.memory_binding
                 .with_memory_mut(self.scope, |memory| f(host, memory))
         }
-        #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+        #[cfg(not(feature = "v8"))]
         {
             f(host, &mut *self.memory)
         }

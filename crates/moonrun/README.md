@@ -38,7 +38,10 @@ both engine adapters invoke the same shared WASIp1 host operations.
 
 The opt-in `wee8` backend uses V8's Wasm C entry points and the same public
 Rust `Engine`, `Module`, and `RunOptions` interface. Wasmtime continues to use its
-native Rust interface. The raw C declarations remain private to wee8.
+native Rust interface. Moonrun depends on the upstream `wee8` Rust crate at a
+pinned Git revision, like `n2`. That crate owns the safe native handles, private C
+declarations, artifact acquisition, and linking. Moonrun owns the engine adapter
+and shared host services.
 
 Build it directly with Cargo:
 
@@ -46,7 +49,7 @@ Build it directly with Cargo:
 cargo build -p moonrun --no-default-features --features wee8
 ```
 
-The build script downloads the target's archive and matching header from the
+The upstream crate's build script downloads the target's archive and matching header from the
 pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.1),
 checks SHA-256 before extraction, and caches the downloads in Cargo's build
 output directory. It uses Cargo's target, including for cross-compilation.
@@ -71,6 +74,8 @@ Decompress the target's archive first (`wee8.lib` on Windows). The header is
 checked against the supported revision; stock V8's older same-named functions
 have an incompatible ABI. The supplied archive must come from the matching
 recipe. This backend cannot be linked alongside rusty_v8 in the same binary.
+Enabling both `wee8` and `wasmtime` is allowed and selects wee8; Wasmtime uses
+its native Rust API and does not introduce another V8 archive.
 
 This is a working integration MVP, not a replacement for either full backend:
 
@@ -79,7 +84,9 @@ This is a working integration MVP, not a replacement for either full backend:
   loops are needed by MoonBit's `wasm` compiler output; the Rust host-call
   interface still accepts only numeric values and at most one return value.
 - WASIp1 `fd_write`, `proc_exit`, `args_sizes_get`, and `args_get`, using Moonrun's
-  existing host operations. Unsupported imports and signatures fail explicitly.
+  existing host operations. These implementations remain defined for all engines;
+  only registration is limited to these four imports in the wee8 adapter.
+  Unsupported imports and signatures fail explicitly.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
@@ -97,7 +104,7 @@ Run the focused integration checks:
 
 ```sh
 cargo test -p moonrun --no-default-features --features wee8 --test wee8
-cargo test -p moonrun --no-default-features --features wee8 --lib wee8::
+cargo test -p moonrun --no-default-features --features wee8 --lib
 ```
 
 The integration tests compile a MoonBit program for `wasm` in both debug and
