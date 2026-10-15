@@ -294,20 +294,9 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &CheckSubcommand,
     ) -> anyhow::Result<String> {
-        let user_log = UserLog::new(cli.user_log_level());
-        let (target_backend, resolved_project) =
-            self.select_and_resolve(cmd.build_flags.resolve_single_target_backend()?, &user_log)?;
-        let (build_meta, build_graph) = crate::cli::check::plan_check_rr_from_resolved(
-            cli,
-            cmd,
-            &self.source_dir,
-            &self.target_dir,
-            &self.mooncake_bin_dir,
-            target_backend,
-            resolved_project,
-            &user_log,
-        )?;
-        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
+        let mut plans = self.plan_check_all_with_cli(cli, cmd)?;
+        assert_eq!(plans.len(), 1, "expected a single-backend check plan");
+        self.dump_plan(plans.pop().unwrap())
     }
 
     pub(super) fn plan_check_all_with_cli(
