@@ -168,7 +168,15 @@ impl Runtime {
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
-        let working_directory = Arc::new(working_directory.prepare()?);
+        let working_directory = Arc::new(match working_directory {
+            WorkingDirectory::Ambient => WorkingDirectory::Ambient,
+            WorkingDirectory::Fixed(path) => {
+                let path = dunce::canonicalize(path)
+                    .context("failed to resolve fixed working directory")?;
+                anyhow::ensure!(path.is_dir(), "fixed working directory must be a directory");
+                WorkingDirectory::Fixed(path)
+            }
+        });
         let stdio = Arc::new(Stdio::Ambient);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(

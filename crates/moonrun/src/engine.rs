@@ -370,7 +370,7 @@ impl Engine {
     pub fn run_with_signal_receiver(
         &self,
         module: &Module,
-        mut options: RunOptions,
+        options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
         #[cfg(unix)]
@@ -382,7 +382,7 @@ impl Engine {
             options.policy_file.as_deref(),
             options.policy_source_dir.as_deref(),
             options.inherited_policy.as_deref(),
-            std::mem::take(&mut options.working_directory),
+            options.working_directory.clone(),
             module.executable().clone(),
             signals,
             #[cfg(unix)]
