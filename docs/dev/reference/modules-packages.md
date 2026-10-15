@@ -65,16 +65,19 @@ Moon alone does not make it usable with older compilers. Direct declarations
 require companion compiler support and formatter support to preserve their
 spelling through `moon fmt`; see the [package configuration manual](../../manual/src/package.md).
 
-In `moon.pkg`, multiple unconditional import blocks are combined in source order,
+In `moon.pkg`, multiple import blocks are combined in source order,
 separately for regular, test, and whitebox-test imports. Legacy import fields in
 `options(...)` replace all corresponding blocks, including when the replacement
 is empty. Both
 `test-import`/`test_import` and `wbtest-import`/`wbtest_import`
 spellings are accepted; specifying both spellings of the same option is an error.
-After these overrides, importing the same package more than once emits one
-warning per package and import kind. Duplicate items, aliases, and import-all
-flags are retained in source order, preserving existing dependency ordering and
-alias precedence. Different import kinds do not produce duplicate warnings.
+After these overrides, importing the same package more than once is allowed. It
+emits one warning per package and import kind when the repeated declarations are
+active for a common backend; unconditional declarations always overlap, and
+declarations with disjoint [import conditions](cond-comp.md) do not warn.
+Duplicate items, aliases, and import-all flags are retained in source order,
+preserving existing dependency ordering and alias precedence. Different import
+kinds do not produce duplicate warnings.
 These manifest warnings are suppressed for dependency manifests in `.mooncakes`.
 
 Named import aliases must be unique within each build target's dependencies.
