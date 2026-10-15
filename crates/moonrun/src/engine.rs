@@ -382,7 +382,7 @@ impl Engine {
     pub fn run_with_signal_receiver(
         &self,
         module: &Module,
-        mut options: RunOptions,
+        options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
         #[cfg(unix)]
@@ -391,10 +391,12 @@ impl Engine {
             None => current_signal_mask()?,
         };
         let test_args = options.parsed_test_args()?;
-        let args = std::mem::take(&mut options.args);
-        let no_stack_trace = options.no_stack_trace;
         let runtime = Runtime::new(
-            options,
+            options.policy_file.as_deref(),
+            options.policy_source_dir.as_deref(),
+            options.inherited_policy.as_deref(),
+            options.working_directory,
+            options.stdio,
             module.executable().clone(),
             signals,
             #[cfg(unix)]
@@ -404,9 +406,9 @@ impl Engine {
             module.name(),
             module.compiled(),
             module.source_map(),
-            &args,
+            &options.args,
             test_args,
-            no_stack_trace,
+            options.no_stack_trace,
             runtime,
         )?;
         Ok(match outcome {

@@ -80,7 +80,11 @@ mod tests {
             mask
         };
         let runtime = Runtime::new(
-            crate::RunOptions::default(),
+            None,
+            None,
+            None,
+            crate::WorkingDirectory::Ambient,
+            crate::runtime::Stdio::Ambient,
             Executable::unavailable(),
             crate::signal_channel().1,
             #[cfg(unix)]
