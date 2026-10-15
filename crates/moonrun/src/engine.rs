@@ -380,7 +380,7 @@ impl Engine {
     pub fn run_with_signal_receiver(
         &self,
         module: &Module,
-        options: RunOptions,
+        mut options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
         #[cfg(unix)]
@@ -389,7 +389,7 @@ impl Engine {
             None => current_signal_mask()?,
         };
         let runtime = Runtime::new(
-            &options,
+            &mut options,
             module.executable().clone(),
             signals,
             #[cfg(unix)]

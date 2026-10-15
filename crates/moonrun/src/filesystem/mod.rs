@@ -100,11 +100,7 @@ pub(crate) struct HostFs {
 
 impl HostFs {
     pub(crate) fn resolve_path(&self, path: &OsStr) -> OsString {
-        match self.working_directory.as_ref() {
-            WorkingDirectory::Ambient => path.to_owned(),
-            WorkingDirectory::Fixed(root) if !path.is_empty() => root.join(path).into_os_string(),
-            WorkingDirectory::Fixed(_) => path.to_owned(),
-        }
+        self.working_directory.resolve_path(path)
     }
 
     fn resolved(&self, path: &str) -> PathBuf {
@@ -436,9 +432,10 @@ impl HostFs {
         };
         let target = quote_os_str(path);
         let resolved = self
-            .resolve_from_working_directory(Path::new(path))
-            .and_then(|path| canonicalize_existing_prefix(&path))
-            .ok();
+            .working_directory
+            .resolve_absolute(Path::new(path))
+            .ok()
+            .and_then(|path| canonicalize_existing_prefix(&path).ok());
         policy.authorize(resolved.as_deref(), intents, &target)
     }
 
@@ -448,20 +445,11 @@ impl HostFs {
         };
         let target = quote_os_str(path);
         let resolved = self
-            .resolve_from_working_directory(Path::new(path))
-            .and_then(|path| canonicalize_entry_path(&path))
-            .ok();
+            .working_directory
+            .resolve_absolute(Path::new(path))
+            .ok()
+            .and_then(|path| canonicalize_entry_path(&path).ok());
         policy.authorize(resolved.as_deref(), intents, &target)
-    }
-
-    fn resolve_from_working_directory(&self, path: &Path) -> AsyncHostResult<PathBuf> {
-        if path.is_absolute() {
-            Ok(path.to_path_buf())
-        } else {
-            self.working_directory
-                .resolve(path)
-                .map_err(|_| AsyncHostError::PermissionDenied)
-        }
     }
 
     fn ensure_read(&self, path: &str) -> Result<(), HostFsError> {

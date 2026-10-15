@@ -28,7 +28,8 @@
 //! authorization; the API must also represent a directory with no recoverable
 //! pathname after unlink.
 
-use std::ffi::OsString;
+use anyhow::Context;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 /// Selects how one run observes and inherits a working directory.
@@ -47,6 +48,18 @@ pub enum WorkingDirectory {
 }
 
 impl WorkingDirectory {
+    pub(crate) fn prepare(self) -> anyhow::Result<Self> {
+        match self {
+            Self::Ambient => Ok(Self::Ambient),
+            Self::Fixed(path) => {
+                let path = dunce::canonicalize(path)
+                    .context("failed to resolve fixed working directory")?;
+                anyhow::ensure!(path.is_dir(), "fixed working directory must be a directory");
+                Ok(Self::Fixed(path))
+            }
+        }
+    }
+
     pub(crate) fn current_dir(&self) -> std::io::Result<PathBuf> {
         match self {
             Self::Ambient => std::env::current_dir(),
@@ -54,20 +67,29 @@ impl WorkingDirectory {
         }
     }
 
-    pub(crate) fn resolve(&self, path: &Path) -> std::io::Result<PathBuf> {
+    /// Interpret a native operation's filename without capturing ambient cwd.
+    pub(crate) fn resolve_path(&self, path: &OsStr) -> OsString {
+        match self {
+            Self::Fixed(root) if !path.is_empty() => root.join(path).into_os_string(),
+            _ => path.to_owned(),
+        }
+    }
+
+    /// Resolve a policy query's filename at the point where it is checked.
+    pub(crate) fn resolve_absolute(&self, path: &Path) -> std::io::Result<PathBuf> {
+        let path = PathBuf::from(self.resolve_path(path.as_os_str()));
         // An empty filename must retain its native semantics, not become cwd.
         if path.as_os_str().is_empty() || path.is_absolute() {
-            return Ok(path.to_path_buf());
+            return Ok(path);
         }
-        self.current_dir().map(|current_dir| current_dir.join(path))
+        std::env::current_dir().map(|current_dir| current_dir.join(path))
     }
 
     pub(crate) fn configure_child_cwd(&self, cwd: &mut Option<OsString>) {
         match self {
             Self::Ambient => {}
             Self::Fixed(root) => match cwd {
-                Some(path) if path.is_empty() => {}
-                Some(path) => *path = root.join(&*path).into_os_string(),
+                Some(path) => *path = self.resolve_path(path),
                 None => *cwd = Some(root.clone().into_os_string()),
             },
         }
@@ -91,13 +113,19 @@ mod tests {
     fn ambient_resolves_relative_paths_at_observation_time() {
         let path = Path::new("relative/path");
         let expected = std::env::current_dir().unwrap().join(path);
-        assert_eq!(WorkingDirectory::Ambient.resolve(path).unwrap(), expected);
+        assert_eq!(
+            WorkingDirectory::Ambient.resolve_absolute(path).unwrap(),
+            expected
+        );
     }
 
     #[test]
     fn resolving_an_absolute_path_does_not_observe_cwd() {
         let path = std::env::current_exe().unwrap();
-        assert_eq!(WorkingDirectory::Ambient.resolve(&path).unwrap(), path);
+        assert_eq!(
+            WorkingDirectory::Ambient.resolve_absolute(&path).unwrap(),
+            path
+        );
     }
 
     #[test]
