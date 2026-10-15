@@ -35,14 +35,14 @@ use super::provenance::ported_imports;
 ported_imports! {
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(unix)]
-pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> u64 {
+pub(super) fn get_curr_env(context: &mut ImportContext<'_>) -> u64 {
     let env = inherited_unix_env(context).into_iter().map(Some).collect();
     context.host.insert_process_env(env)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(windows)]
-pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
+pub(super) fn get_curr_env(context: &mut ImportContext<'_>) -> AsyncHostResult<u64> {
     let env = windows_env_block(inherited_windows_env(context));
     Ok(context.host.insert_process_env(env))
 }
@@ -50,7 +50,7 @@ pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResu
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_length")]
 #[cfg(unix)]
 pub(super) fn env_block_length(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     env: u64,
 ) -> AsyncHostResult<u32> {
     context.host.process_env_length(env)
@@ -59,7 +59,7 @@ pub(super) fn env_block_length(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_env_block_length")]
 #[cfg(windows)]
 pub(super) fn env_block_length(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     env: u64,
 ) -> AsyncHostResult<u32> {
     context.host.process_env_length(env)
@@ -68,7 +68,7 @@ pub(super) fn env_block_length(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_allocate_env_block")]
 #[cfg(unix)]
 pub(super) fn allocate_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     size: u32,
 ) -> AsyncHostResult<u64> {
     let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
@@ -78,7 +78,7 @@ pub(super) fn allocate_env_block(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_allocate_env_block")]
 #[cfg(windows)]
 pub(super) fn allocate_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     size: u32,
 ) -> AsyncHostResult<u64> {
     let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
@@ -93,7 +93,7 @@ pub(super) fn allocate_env_block(
     replacement = "spawn ownership transfer",
     no_op = true
 )]
-pub(super) fn free_env(_context: &mut ImportContext<'_, '_>, _env: u64) -> AsyncHostResult<()> {
+pub(super) fn free_env(_context: &mut ImportContext<'_>, _env: u64) -> AsyncHostResult<()> {
     Ok(())
 }
 
@@ -105,14 +105,14 @@ pub(super) fn free_env(_context: &mut ImportContext<'_, '_>, _env: u64) -> Async
     no_op = true
 )]
 #[cfg(unix)]
-pub(super) fn free_argv(_context: &mut ImportContext<'_, '_>, _argv: u64) -> AsyncHostResult<()> {
+pub(super) fn free_argv(_context: &mut ImportContext<'_>, _argv: u64) -> AsyncHostResult<()> {
     Ok(())
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_write_env_block")]
 #[cfg(unix)]
 pub(super) fn write_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
@@ -122,7 +122,7 @@ pub(super) fn write_env_block(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_write_env_block")]
 #[cfg(windows)]
 pub(super) fn write_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
@@ -132,7 +132,7 @@ pub(super) fn write_env_block(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_add_entry")]
 #[cfg(unix)]
 pub(super) fn env_block_add_entry(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     env: u64,
     index: u32,
     key: u32,
@@ -148,7 +148,7 @@ pub(super) fn env_block_add_entry(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_env_block_add_entry")]
 #[cfg(windows)]
 pub(super) fn env_block_add_entry(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     env: u64,
     offset: u32,
     key: u32,
@@ -166,7 +166,7 @@ pub(super) fn env_block_add_entry(
 #[ported(source = "src/process/wasm.mbt", original = "process/make_env")]
 #[cfg(unix)]
 pub(super) fn make_env(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     inherit_env: i32,
 ) -> AsyncHostResult<u64> {
     let inherited = if inherit_env == 0 {
@@ -180,7 +180,7 @@ pub(super) fn make_env(
 #[ported(source = "src/process/wasm.mbt", original = "process/make_env")]
 #[cfg(windows)]
 pub(super) fn make_env(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     inherit_env: i32,
 ) -> AsyncHostResult<u64> {
     let inherited = if inherit_env == 0 {
@@ -197,7 +197,7 @@ pub(super) fn make_env(
 )]
 #[cfg(unix)]
 pub(super) fn env_add_entry(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     env: u64,
     key: u32,
     key_len: u32,
@@ -215,7 +215,7 @@ pub(super) fn env_add_entry(
 )]
 #[cfg(windows)]
 pub(super) fn env_add_entry(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     env: u64,
     key: u32,
     key_len: u32,
@@ -232,7 +232,7 @@ pub(super) fn env_add_entry(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_make_argv_array")]
 #[cfg(unix)]
 pub(super) fn make_argv_array_unix(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     len: u32,
 ) -> AsyncHostResult<u64> {
     context.host.insert_process_argv(len)
@@ -244,7 +244,7 @@ pub(super) fn make_argv_array_unix(
 )]
 #[cfg(unix)]
 pub(super) fn argv_array_add_encoded_entry_unix(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     argv: u64,
     index: u32,
     arg: u32,
@@ -257,7 +257,7 @@ pub(super) fn argv_array_add_encoded_entry_unix(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_argv_array_add_entry")]
 #[cfg(unix)]
 pub(super) fn argv_array_add_entry_unix(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     argv: u64,
     index: u32,
     arg: u32,
@@ -269,7 +269,7 @@ pub(super) fn argv_array_add_entry_unix(
 
 #[cfg(all(unix, not(target_os = "linux")))]
 pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
     let handle = context
@@ -287,7 +287,7 @@ pub(super) fn open_pid_handle(
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
     let handle = context.host.with_owned_child_pid(pid, || {
@@ -309,7 +309,7 @@ pub(super) fn open_pid_handle(
 )]
 #[cfg(windows)]
 pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
     let handle = context
@@ -323,7 +323,7 @@ pub(super) fn open_pid_handle(
     original = "moonbitlang_async_get_process_result"
 )]
 pub(super) fn get_process_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     handle: u64,
     pid: i32,
     out: u32,
@@ -381,7 +381,7 @@ pub(super) fn get_process_result(
 )]
 #[cfg(unix)]
 pub(super) fn terminate(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
@@ -397,7 +397,7 @@ pub(super) fn terminate(
 )]
 #[cfg(windows)]
 pub(super) fn terminate(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
@@ -412,7 +412,7 @@ pub(super) fn terminate(
     original = "moonbitlang_async_kill_process"
 )]
 #[cfg(unix)]
-pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+pub(super) fn kill(context: &mut ImportContext<'_>, pid: i32) -> AsyncHostResult<()> {
     context.host.with_owned_child_pid(pid, || {
         let _ = process::kill_process(pid);
         Ok(())
@@ -424,7 +424,7 @@ pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostRe
     original = "moonbitlang_async_kill_process"
 )]
 #[cfg(windows)]
-pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+pub(super) fn kill(context: &mut ImportContext<'_>, pid: i32) -> AsyncHostResult<()> {
     context.host.with_owned_child_pid(pid, || {
         let _ = process::kill_process(pid);
         Ok(())
@@ -433,7 +433,7 @@ pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostRe
 }
 
 #[cfg(unix)]
-fn inherited_unix_env(context: &ImportContext<'_, '_>) -> Vec<OsString> {
+fn inherited_unix_env(context: &ImportContext<'_>) -> Vec<OsString> {
     context
         .host
         .environment()
@@ -448,7 +448,7 @@ fn inherited_unix_env(context: &ImportContext<'_, '_>) -> Vec<OsString> {
 }
 
 #[cfg(windows)]
-fn inherited_windows_env(context: &ImportContext<'_, '_>) -> Vec<OsString> {
+fn inherited_windows_env(context: &ImportContext<'_>) -> Vec<OsString> {
     context
         .host
         .environment()
@@ -480,7 +480,7 @@ fn windows_env_block(entries: Vec<OsString>) -> Vec<u16> {
 
 #[cfg(windows)]
 fn read_guest_u16(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     ptr: u32,
     len: u32,
 ) -> AsyncHostResult<Vec<u16>> {

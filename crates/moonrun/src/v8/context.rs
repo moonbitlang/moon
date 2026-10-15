@@ -122,16 +122,29 @@ impl V8MemoryBinding {
     where
         E: From<V8ImportError>,
     {
-        let memory_object = self.memory_object(scope)?;
+        self.with_memory_access(scope, |memory| f(memory.map_err(E::from)?))
+    }
+
+    /// Acquire memory for one import while allowing memory-free operations to
+    /// proceed when no binding is available. No V8 call may occur in `f`.
+    pub(crate) fn with_memory_access<T>(
+        &self,
+        scope: &mut v8::HandleScope,
+        f: impl FnOnce(Result<&mut [u8], V8ImportError>) -> T,
+    ) -> T {
+        let memory_object = match self.memory_object(scope) {
+            Ok(memory) => memory,
+            Err(error) => return f(Err(error)),
+        };
         let buffer = memory_object.buffer();
         let len = buffer.byte_length();
         let pointer = match buffer.data() {
             Some(pointer) => pointer.cast::<u8>(),
             None if len == 0 => NonNull::dangling(),
-            None => return Err(V8ImportError::Fault.into()),
+            None => return f(Err(V8ImportError::Fault)),
         };
         let memory = unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), len) };
-        f(memory)
+        f(Ok(memory))
     }
 
     fn memory_object<'s>(

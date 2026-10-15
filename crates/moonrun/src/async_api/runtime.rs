@@ -20,7 +20,7 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 use crate::run_termination::RunTermination;
 
-pub(super) fn exit(context: &mut ImportContext<'_, '_>, code: i32) {
+pub(super) fn exit(context: &mut ImportContext<'_>, code: i32) {
     context.request_termination(RunTermination::Exit(code))
 }
 
@@ -30,7 +30,7 @@ ported_imports! {
     original = "moonbitlang_async_terminate_process_by_signal"
 )]
 pub(super) fn terminate_process_by_signal(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     signal: i32,
 ) {
     // The native implementation terminates its process here. Moonrun instead

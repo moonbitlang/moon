@@ -26,7 +26,7 @@ use super::context::ImportContext;
 // length. Unix needs valid Unicode before encoding it as native UTF-8, while
 // Windows OsString preserves the original UTF-16 code units.
 pub(super) fn read_guest(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     ptr: u32,
     len: u32,
 ) -> AsyncHostResult<OsString> {
@@ -67,7 +67,7 @@ fn guest_os_string_from_utf16(units: &[u16]) -> AsyncHostResult<OsString> {
 }
 
 pub(super) fn decode_len(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     ptr: u64,
     offset: u32,
     len: i32,
@@ -79,7 +79,7 @@ pub(super) fn decode_len(
 }
 
 pub(super) fn decode(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     ptr: u64,
     offset: u32,
     len: i32,

@@ -25,6 +25,7 @@
 //! Ported native-stub behavior belongs in `async_sys`; shared runtime state
 //! belongs in `async_host`.
 
+mod backend;
 mod c_buffer;
 mod context;
 mod env_util;
