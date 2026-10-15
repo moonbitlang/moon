@@ -99,9 +99,6 @@ fn run_moonx(invocation: super::moonx::MoonxInvocation) -> i32 {
     // moonx intentionally has no Moon tracing or workspace bootstrap. It owns
     // standalone or registry preparation, then returns the final program as a
     // process action.
-    if matches!(invocation.target, super::moonx::MoonxTarget::Native) {
-        UserLog::new(log::LevelFilter::Warn).warn(super::moonx::NATIVE_TARGET_DEPRECATION_WARNING);
-    }
     let verbose = invocation.verbose;
     let user_log = UserLog::new(user_log_level(verbose, !verbose));
     let result = super::moonx::prepare(invocation, &user_log).and_then(process::execute);

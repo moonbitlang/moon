@@ -90,8 +90,7 @@ design work:
   lock scopes;
 - the dependency source cache encodes nested module names with `+`, while the
   registry cache represents them as path segments; and
-- registry downloads, locally built native executables, and downloaded wasm
-  executables share one `registry/cache` tree.
+- registry source downloads and downloaded Wasm executables share one `registry/cache` tree.
 
 This refactor does not change those paths. Changes to them require a migration
 and compatibility decision rather than an incidental `PathBuf::join` edit.

@@ -17,7 +17,7 @@ The build system performs the following operations on demand:
 - Dependency management.
 
   - Discovers dependency graph from registry.
-  - Downloads and manages the dependencies' files on disk. (`moon install`)
+  - Downloads and manages the dependencies' files on disk. (automatic dependency synchronization)
   - Modifies the dependency list upon request (`moon {add,remove}`).
 
 - Build graph generation and execution.

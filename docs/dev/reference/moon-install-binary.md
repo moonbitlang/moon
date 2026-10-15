@@ -1,18 +1,13 @@
 # Behavior of `moon install` (binary installer)
 
 > This page documents the binary-install mode of `moon install`.
-> It does not describe the legacy no-arg dependency-sync behavior.
 >
 > Status: expected behavior in this branch as of September 18, 2026.
 
 ## Scope
 
-`moon install` has two modes:
-
-1. `moon install` with no package arguments:
-   legacy dependency install/sync for the current project (deprecated).
-2. `moon install <package-selector> ...`:
-   binary installer mode (this document).
+`moon install <package-selector> ...` installs binary packages. A source is
+required, either as a positional argument or through `--path`.
 
 ## Selector model
 

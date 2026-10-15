@@ -22,8 +22,7 @@ moonx [OPTIONS] <MBTX|PACKAGE> [PROGRAM_ARGS]...
 The supported options are:
 
 ```text
---target <wasm|native>        # defaults to wasm; native is deprecated and registry-only
---experimental-policy <PATH> # wasm only
+--experimental-policy <PATH>
 -v, --verbose
 -h, --help
 -V, --version
@@ -60,24 +59,21 @@ Policy publication and handle setup run as part of the direct `moonx` spawn
 job. If either fails, the job reports the corresponding OS error and no child
 process is created or registered.
 
-For the Wasm target, the inherited policy takes precedence over an explicit
+The inherited policy takes precedence over an explicit
 `--experimental-policy`; the child may not replace or widen it. This applies to
-both registry packages and standalone `.mbtx` files. Native execution does not
-pass through `moonrun`, so moonx closes an inherited policy relay before
-registry work and otherwise preserves native execution behavior.
+both registry packages and standalone `.mbtx` files.
 
 ## Standalone `.mbtx`
 
 An input whose extension is `.mbtx` is treated as a persistent standalone
 script path. Moonx reuses the same synthesized-package dependency resolution,
-build planning, and incremental target directory as
-`moon run <PATH> --target wasm`. Imports declared by the `.mbtx` prelude are
+build planning, and incremental target directory as a standalone linear-memory
+Wasm build through `moon run`. Imports declared by the `.mbtx` prelude are
 resolved and built before the synthesized script package. The resulting Wasm
 artifact then uses the same moonx execution path as a registry Wasm artifact.
 
-Standalone `.mbtx` execution supports only the linear-memory Wasm backend.
-`--target wasm` is the default; `--target native` is rejected before dependency
-acquisition or building. Program arguments are forwarded to the final
+Standalone `.mbtx` execution uses the linear-memory Wasm backend.
+Program arguments are forwarded to the final
 `moonrun`, and `--experimental-policy` has the same meaning as for a registry
 Wasm artifact.
 
@@ -140,10 +136,10 @@ Unpinned coordinates resolve the latest version already known to the local
 registry index. The index is updated only when the module cannot be resolved
 locally, matching `moon runwasm`.
 
-## Registry package Wasm target
+## Registry package execution
 
-The default `wasm` target means the linear-memory Wasm backend, not WasmGC.
-It reuses registry-backed `moon runwasm` behavior:
+Registry packages run as linear-memory Wasm artifacts, using the same
+acquisition and execution path as registry-backed `moon runwasm`:
 
 1. Resolve the exact module version.
 2. Compute the published linear-Wasm asset URL and cache path.
@@ -156,40 +152,6 @@ downloading source and building Wasm locally.
 Registry-backed `moon runwasm` must use the linear Wasm backend consistently.
 Tests for its cached-asset mode must use linear-Wasm fixtures rather than
 WasmGC fixtures.
-
-## Registry package native target
-
-The `native` target is deprecated and scheduled for removal after September
-14, 2026. Until then, it retains its existing behavior and emits a deprecation
-warning on every invocation.
-
-The `native` target reuses the registry acquisition, exact main-package
-selection, and release build behavior of `moon install`, but publishes the
-finished executable into the registry cache instead of the user's binary
-directory.
-
-Registry source acquisition never executes the downloaded module's
-`scripts.postadd` hook. `moonx` stops after source acquisition and therefore
-does not opt into the legacy hook. Existing project sync, `moon fetch`, and
-binary-install paths retain an explicit postadd compatibility step.
-
-The Cached Executable Artifact is keyed by the resolved module version, package
-path, and Target Backend. A cache hit executes it directly; Moon toolchain
-upgrades do not invalidate an existing cached executable. Source trees and
-build directories are temporary and are not retained.
-
-Wasm and native artifacts share the coordinate-shaped registry asset cache:
-`registry/cache/assets/<module>/<version>/<package>/<binary>`. Their file
-suffixes distinguish `.wasm` and `.exe`; cached native artifacts use `.exe` on
-every platform, including Unix. The physical path and lock scope are defined by
-the [Moon home layout](./moon-home-layout.md).
-The existing Mooncakes download cache may retain the verified source archive;
-`moonx` does not retain an extracted source tree or build workspace alongside
-the Cached Executable Artifact.
-
-Native cache misses use the same concurrency and publication discipline as the
-Wasm asset cache: check, lock, re-check, produce a temporary file, and publish
-atomically. Failed downloads or builds leave no final cache entry.
 
 ## Distribution
 

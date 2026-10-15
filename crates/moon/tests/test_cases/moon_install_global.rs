@@ -43,29 +43,26 @@ fn test_moon_install_major_version_root_uses_base_name() {
 }
 
 #[test]
-fn test_moon_install_global_deprecated_warning() {
-    // Test that running `moon install` without arguments shows deprecation warning
-    let dir = TestDir::new("moon_install_global.in");
+fn test_moon_install_without_source_does_not_sync_dependencies() {
+    for fixture in ["moon_install_global.in", "workspace_basic.in"] {
+        let dir = TestDir::new(fixture);
+        moon_cmd(&dir)
+            .arg("install")
+            .assert()
+            .code(2)
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+error: the following required arguments were not provided:
+  <SOURCE>
 
-    // Running moon install without arguments should show deprecation warning
-    let stderr = get_stderr(&dir, ["install"]);
-    assert!(
-        stderr.contains("deprecated"),
-        "Expected deprecation warning in stderr, got: {}",
-        stderr
-    );
-}
+Usage: moon[EXE] install <SOURCE> [PATH_IN_REPO]
 
-#[test]
-fn test_moon_install_global_deprecated_uses_workspace_context() {
-    let dir = TestDir::new("workspace_basic.in");
+For more information, try '--help'.
 
-    let stderr = get_stderr(&dir, ["-C", "app", "install"]);
-    assert!(
-        stderr.contains("deprecated"),
-        "Expected deprecation warning in stderr, got: {}",
-        stderr
-    );
+"#]]);
+        assert!(!dir.join(".mooncakes").exists());
+        assert!(!dir.join("_build").exists());
+    }
 }
 
 #[test]
