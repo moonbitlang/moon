@@ -25,7 +25,8 @@ mod memory_sanitizer;
 mod wasi;
 
 use crate::engine::{
-    BackendCallOutcome, BackendRunOutcome, EngineConfig, complete_run_call, run_test_driver,
+    BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,
+    run_test_driver,
 };
 use crate::run_termination::TerminationRequest;
 use crate::runtime::Runtime;
@@ -204,14 +205,27 @@ impl Engine {
         compile(&self.config, bytes)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run(
         &self,
         module_name: &str,
         module: &CompiledModule,
         source_map: Option<&SourceMap>,
+        args: &[String],
+        test_args: Option<TestArgs>,
+        no_stack_trace: bool,
         runtime: Runtime,
     ) -> anyhow::Result<BackendRunOutcome> {
-        run(&self.config, module_name, module, source_map, runtime)
+        run(
+            &self.config,
+            module_name,
+            module,
+            source_map,
+            args,
+            test_args,
+            no_stack_trace,
+            runtime,
+        )
     }
 }
 
@@ -298,16 +312,18 @@ pub(crate) fn compile(config: &EngineConfig, bytes: &[u8]) -> anyhow::Result<Com
     Ok(CompiledModule(module.get_compiled_module()))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     config: &EngineConfig,
     module_name: &str,
     module: &CompiledModule,
     source_map: Option<&SourceMap>,
+    args: &[String],
+    test_args: Option<TestArgs>,
+    no_stack_trace: bool,
     runtime: Runtime,
 ) -> anyhow::Result<BackendRunOutcome> {
     initialize(config)?;
-    let test_args = runtime.options().parsed_test_args()?;
-    let no_stack_trace = runtime.options().no_stack_trace;
 
     let isolate = &mut v8::Isolate::new(Default::default());
     let scope = &mut v8::HandleScope::new(isolate);
@@ -337,7 +353,8 @@ pub(crate) fn run(
     let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
     let stdio = Arc::clone(runtime.stdio());
 
-    let installed_imports = host_imports::install(scope, module_name, runtime, &memory_sanitizer)?;
+    let installed_imports =
+        host_imports::install(scope, module_name, args, runtime, &memory_sanitizer)?;
     let module_imports = installed_imports.module_imports;
     let termination_request = &installed_imports.termination_request;
     let memory_binding = &installed_imports.memory_binding;

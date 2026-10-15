@@ -60,7 +60,7 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
-    pub(crate) stdio: Arc<Stdio>,
+    pub(crate) stdio: Stdio,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -143,7 +143,7 @@ impl RunOptions {
     /// child streams take precedence. Without this option, streams are ambient.
     /// The files are moved into the Runtime for this run.
     pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
-        self.stdio = Arc::new(Stdio::owned(stdin, stdout, stderr));
+        self.stdio = Stdio::owned(stdin, stdout, stderr);
         self
     }
 
@@ -382,7 +382,7 @@ impl Engine {
     pub fn run_with_signal_receiver(
         &self,
         module: &Module,
-        options: RunOptions,
+        mut options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
         #[cfg(unix)]
@@ -390,6 +390,9 @@ impl Engine {
             Some(signal_mask) => signal_mask,
             None => current_signal_mask()?,
         };
+        let test_args = options.parsed_test_args()?;
+        let args = std::mem::take(&mut options.args);
+        let no_stack_trace = options.no_stack_trace;
         let runtime = Runtime::new(
             options,
             module.executable().clone(),
@@ -401,6 +404,9 @@ impl Engine {
             module.name(),
             module.compiled(),
             module.source_map(),
+            &args,
+            test_args,
+            no_stack_trace,
             runtime,
         )?;
         Ok(match outcome {

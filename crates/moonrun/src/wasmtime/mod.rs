@@ -34,7 +34,8 @@ use ::wasmtime::{
 use anyhow::Context;
 
 use crate::engine::{
-    BackendCallOutcome, BackendRunOutcome, EngineConfig, complete_run_call, run_test_driver,
+    BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,
+    run_test_driver,
 };
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Runtime, Utf16Writer};
@@ -115,26 +116,23 @@ impl Engine {
             .map_err(|error| anyhow::anyhow!(error.to_string()))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run(
         &self,
         module_name: &str,
         module: &CompiledModule,
         source_map: Option<&SourceMap>,
+        args: &[String],
+        test_args: Option<TestArgs>,
+        no_stack_trace: bool,
         runtime: Runtime,
     ) -> anyhow::Result<BackendRunOutcome> {
-        let test_args = runtime.options().parsed_test_args()?;
-        let no_stack_trace = runtime.options().no_stack_trace;
         let engine = self.inner()?;
         let termination_request = TerminationRequest::default();
-        let wasi = crate::wasi::WasiContext::new(
-            module_name,
-            &runtime.options().args,
-            &runtime,
-            termination_request.clone(),
-        );
+        let wasi =
+            crate::wasi::WasiContext::new(module_name, args, &runtime, termination_request.clone());
         let stdio = Arc::clone(runtime.stdio());
         let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
-        let host_imports = host_imports::State::new(module_name, &runtime.options().args);
         let mut store = Store::new(
             engine,
             StoreData {
@@ -143,7 +141,7 @@ impl Engine {
                 print: Utf16Writer::default(),
                 exception_tag: None,
                 wasi,
-                host_imports,
+                host_imports: host_imports::State::new(module_name, args),
                 memory_sanitizer: memory_sanitizer.clone(),
             },
         );

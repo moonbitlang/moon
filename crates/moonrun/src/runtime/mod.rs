@@ -123,10 +123,10 @@ impl HostKeys {
 /// realizes them once, distributes domain policy together with shared Runtime
 /// State, wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
-    options: RunOptions,
     environment: Arc<Env>,
     executable: Executable,
     working_directory: Arc<WorkingDirectory>,
+    stdio: Arc<Stdio>,
     filesystem: Arc<HostFs>,
     // Field order is significant: join workers and drop their SQLite payloads
     // before destroying the Database and Statement tables they refer to.
@@ -168,7 +168,7 @@ impl Runtime {
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
-        let working_directory = Arc::new(match options.working_directory.clone() {
+        let working_directory = Arc::new(match options.working_directory {
             WorkingDirectory::Ambient => WorkingDirectory::Ambient,
             WorkingDirectory::Fixed(path) => {
                 let path = dunce::canonicalize(path)
@@ -177,7 +177,7 @@ impl Runtime {
                 WorkingDirectory::Fixed(path)
             }
         });
-        let stdio = Arc::clone(&options.stdio);
+        let stdio = Arc::new(options.stdio);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -204,18 +204,14 @@ impl Runtime {
         );
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
-            options,
             environment,
             executable,
             working_directory,
+            stdio,
             filesystem,
             async_host,
             sqlite,
         })
-    }
-
-    pub(crate) fn options(&self) -> &RunOptions {
-        &self.options
     }
 
     pub(crate) fn environment(&self) -> &Arc<Env> {
@@ -235,7 +231,7 @@ impl Runtime {
     }
 
     pub(crate) fn stdio(&self) -> &Arc<Stdio> {
-        &self.options.stdio
+        &self.stdio
     }
 
     pub(crate) fn async_host(&self) -> &AsyncHost {
