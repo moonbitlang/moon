@@ -73,6 +73,7 @@ mod v8;
 mod wasi;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod wasm_diagnostic;
+mod wasm_imports;
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod wasmtime;

@@ -14,6 +14,30 @@
   deliver one upstream port at a time, and mark the originating async pull
   request completed after the Moon change lands.
 
+## Shared Wasm import registration
+
+`wasm_imports::ImportRegistry` defines synchronous imports once for V8,
+Wasmtime and wee8. The first migrated group is WASIp1 `args_get`,
+`args_sizes_get`, `fd_write` and `proc_exit` in `wasi/imports.rs`.
+The argument array supplies the i32 arity, and the Rust return type supplies
+the i32 or void result. Engine adapters retain callbacks, convert values,
+borrow current memory and unwind the guest after a termination request.
+Adding another import with this signature needs only a shared registration
+and its Host Domain implementation. Wider numeric types and references are
+follow-up work; existing imports outside this group keep their adapters.
+
+The caller contains borrowed Host Domain state and deferred memory access,
+with no engine handles or guest re-entry. A memory-free operation can run
+without an exported memory, including in a module start section. The existing
+memory-access behavior is preserved: V8's unbound memory becomes WASI EFAULT,
+Wasmtime supplies an empty slice without a memory export, and wee8 reports its
+current start-section memory limitation as a host error. Memory is reacquired
+each call and released before returning a value or interrupting the engine.
+
+`tests/wasi_imports.rs` runs identical modules on all three selected engines,
+covering import order/duplicates, arguments, memory growth, invalid unsigned
+addresses, fresh run state and termination during instantiation.
+
 ## Async import context
 
 Async FFI implementations use one engine-independent `ImportContext`: borrowed
