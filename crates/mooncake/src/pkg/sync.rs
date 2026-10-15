@@ -18,15 +18,13 @@
 
 //! Sync dependencies with mod/pkg definition
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use moonutil::{
-    build_options::{MoonbuildOpt, MooncOpt},
     cache::CacheRoot,
     child_process::ChildOutputMode,
     cli_support::AutoSyncFlags,
-    front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
     resolution::{
@@ -132,57 +130,6 @@ fn resolve_workspace_sync(
         sync_result,
         Some(workspace.manifest().clone()),
     ))
-}
-
-pub fn auto_sync_for_single_mbt_md(
-    moonc_opt: &MooncOpt,
-    moonbuild_opt: &MoonbuildOpt,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    front_matter_config: Option<MbtMdHeader>,
-    user_log: &UserLog,
-) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Arc<MoonMod>)> {
-    let mut deps = IndexMap::new();
-
-    // don't sync for gen-test-driver
-    let dont_sync = front_matter_config.is_none();
-
-    if let Some(deps_map) =
-        front_matter_config.and_then(|config| config.moonbit.unwrap_or_default().deps)
-    {
-        for (k, v) in deps_map.iter() {
-            deps.insert(k.clone(), v.clone());
-        }
-    }
-
-    let m = Arc::new(MoonMod {
-        name: moonutil::constants::SINGLE_FILE_TEST_MODULE.to_string(),
-        version: Some(Version::new(0, 0, 1)),
-        deps,
-        warn_list: moonc_opt.build_opt.warn_list.clone(),
-        ..Default::default()
-    });
-    let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir)?;
-    let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
-    let dirs = PackageDirs {
-        source_dir: moonbuild_opt.source_dir.clone(),
-        target_dir: moonbuild_opt.target_dir.clone(),
-        mooncake_bin_dir: mooncake_bin_dir.to_path_buf(),
-        mooncakes_dir: mooncakes_dir.to_path_buf(),
-        project_manifest: ProjectManifest::None,
-    };
-
-    let (module_graph, dir_sync_result) = super::install::install_impl(
-        &dirs,
-        roots,
-        SyncOutputOptions::default(),
-        user_log,
-        dont_sync,
-        false,
-        &CacheRoot::Disabled,
-    )?;
-    log::debug!("Dir sync result: {:?}", dir_sync_result);
-    Ok((module_graph, dir_sync_result, m))
 }
 
 pub fn auto_sync_for_single_file_rr(

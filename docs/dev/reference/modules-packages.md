@@ -269,12 +269,16 @@ because it covers module sync, package discovery, and package resolution.
 `sync_module_dependencies` resolves and synchronizes modules;
 `prepare_synced_project` discovers packages and resolves their relationships.
 `discover_single_file_project` synchronizes and discovers a script's synthesized
-project; script commands immediately call `resolve_packages` before selecting
-a backend. The CLI's `sync_and_discover_project` and its command-specific
+project. The CLI's `sync_and_discover_project` and its command-specific
 preparation helpers also stop after discovery and return `DiscoveredProject`.
-Command paths explicitly invoke `resolve_packages` at the original preparation point, before package
-selection, planning, or target-directory locking. This keeps the existing
-dependency-error ordering and single package graph.
+Commands using these discovery helpers run discover, select, resolve, and plan
+in that order: they select packages and Target Backends from the
+`DiscoveredProject`, call
+`resolve_packages` once, and plan each selected backend from the shared
+`ResolvedProject`. Selection uses only declared package data, so a selector
+error is reported before a package resolution error.
+`rr_build::prepare_resolved_build` receives the already selected backend and
+does not choose one itself.
 
 The `source` field in `moon.mod` specifies where package scanning starts,
 relative to the folder containing `moon.mod`.

@@ -221,6 +221,7 @@ fn doc_reaches_moondoc_with_long_artifacts() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
+Error: failed to build docs test/long-path@0.0.0 (local [..]) (wasm-gc): [..]moondoc[EXE] [..]
 missing .mi artifact for package test/long-path/[..]: /?/[..].mi
 ...
 "#]]);

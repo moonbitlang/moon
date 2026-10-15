@@ -25,7 +25,9 @@
 use std::{collections::HashMap, path::Path, rc::Rc, sync::mpsc};
 
 use anyhow::Context;
-use moonbuild_rupes_recta::execution_plan::{InputObservation, LoweredCommandExecution};
+use moonbuild_rupes_recta::execution_plan::{
+    ActionOutputKind, InputObservation, LoweredCommandExecution,
+};
 
 use super::resolve_parallelism;
 use super::{BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution, ResultCatcher};
@@ -45,7 +47,7 @@ pub(super) fn execute<'a>(
     use n2::graph::{Build, BuildIns, BuildOuts, FileLoc, Graph, RspFile};
 
     let mut graph = Graph::default();
-    let mut backend_by_build = HashMap::with_capacity(input.action_backends.len());
+    let mut context_by_build = HashMap::with_capacity(input.action_backends.len());
     for id in input.execution_plan.action_ids() {
         let action = input.execution_plan.action(id);
         // Recursive interface observations participate in content identity.
@@ -110,7 +112,15 @@ pub(super) fn execute<'a>(
                 action.error_package()
             )
         })?;
-        backend_by_build.insert(build_id, input.action_backends.get(&id).copied().flatten());
+        context_by_build.insert(
+            build_id,
+            (
+                input.action_backends.get(&id).copied().flatten(),
+                action.description().to_owned(),
+                command.clone(),
+                action.output_kind(),
+            ),
+        );
     }
 
     std::fs::create_dir_all(target_dir).with_context(|| {
@@ -128,32 +138,64 @@ pub(super) fn execute<'a>(
         .with_context(|| format!("Failed to open build cache DB at {}", db_path.display()))?;
 
     let (sender, receiver) = mpsc::channel();
-    let callback: Option<Box<n2::progress::BuildOutputCallback>> =
-        Some(Box::new(move |build_id, output: &str| {
-            let target_backend = backend_by_build
+    let output_style = cfg.output_style;
+    let verbose = cfg.verbose;
+    let callback: Box<n2::progress::BuildResultCallback> =
+        Box::new(move |build_id, termination, output: &str| {
+            if termination == n2::progress::Termination::Success && output.is_empty() {
+                return;
+            }
+            let (target_backend, description, command, output_kind) = context_by_build
                 .get(&build_id)
-                .copied()
-                .expect("every n2 build should retain its action backend");
+                .expect("every n2 build should retain its action context");
             let mut captured = ResultCatcher::default();
             for line in output.split('\n').filter(|line| !line.is_empty()) {
                 captured.append_content(line);
             }
+            // Raw output is opaque: preserve the tool's explanation without
+            // trying to classify it as JSON or adding a duplicate error.
+            // Structured compiler errors explain failures even when hidden by
+            // the diagnostic limit. Silent failures always need action context.
+            let has_failure_output = if output_style.needs_moonc_json() {
+                *output_kind == ActionOutputKind::Compiler
+                    && captured.content_writer.iter().any(|line| {
+                        serde_json::from_str::<moonutil::render::MooncDiagnostic>(line)
+                            .is_ok_and(|diagnostic| diagnostic.level == "error")
+                    })
+            } else {
+                !output.trim().is_empty()
+            };
+            let error = match termination {
+                n2::progress::Termination::Failure if !has_failure_output => {
+                    Some(format!("failed to {description}: {command}"))
+                }
+                n2::progress::Termination::Interrupted => Some(format!(
+                    "Interrupted while attempting to {description}: {command}"
+                )),
+                _ => None,
+            };
             sender
                 .send(CapturedActionOutput {
-                    target_backend,
+                    target_backend: *target_backend,
+                    output_kind: *output_kind,
                     content: captured,
+                    error,
+                    failed_command: (verbose
+                        && termination == n2::progress::Termination::Failure
+                        && has_failure_output)
+                        .then(|| command.clone()),
                 })
                 .expect("captured output receiver should outlive n2 progress");
-        }));
+        });
     let mut progress: Box<dyn n2::progress::Progress> = if !cfg.suppress_progress && use_fancy() {
-        Box::new(n2::progress::FancyConsoleProgress::new_with_build_output(
+        Box::new(n2::progress::FancyConsoleProgress::new(
             cfg.verbose,
-            callback,
+            Some(callback),
         ))
     } else {
-        Box::new(n2::progress::DumbConsoleProgress::new_with_build_output(
+        Box::new(n2::progress::DumbConsoleProgress::new(
             cfg.verbose,
-            callback,
+            Some(callback),
         ))
     };
     // Use exactly the spellings registered above. Work::lookup applies n2's

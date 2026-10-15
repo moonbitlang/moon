@@ -31,7 +31,7 @@ use super::os_string::encode_guest_units;
 use super::provenance::ported_imports;
 
 ported_imports! {
-pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_>) -> i32 {
     match context
         .filesystem()
         .temp_dir()
@@ -47,7 +47,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: u32, len: u32) -> i32 {
+pub(super) fn get_tmp_path(context: &mut ImportContext<'_>, ptr: u32, len: u32) -> i32 {
     let result = (|| {
         let path = context.filesystem().temp_dir()?;
         let units = encode_guest_units(&path)?;
@@ -60,7 +60,7 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: u32, len: u
     zero_or_minus_one(context, result)
 }
 
-pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
+pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_>) -> AsyncHostResult<u64> {
     let path = context.filesystem().temp_dir()?;
     Ok(context
         .host
@@ -68,18 +68,18 @@ pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncH
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn close_fd(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn close_fd(context: &mut ImportContext<'_>, fd: u64) -> i32 {
     zero_or_minus_one(context, context.host.close_fd(fd))
 }
 
 #[ported(source = "src/fs/dir.c")]
-pub(super) fn dir_buffer_min_size(_context: &mut ImportContext<'_, '_>) -> u32 {
+pub(super) fn dir_buffer_min_size(_context: &mut ImportContext<'_>) -> u32 {
     dir::buffer_min_size()
 }
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_length(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buf: u64,
     offset: u32,
 ) -> AsyncHostResult<u32> {
@@ -89,7 +89,7 @@ pub(super) fn dir_entry_length(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_name_len(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buf: u64,
     offset: u32,
 ) -> AsyncHostResult<u32> {
@@ -99,7 +99,7 @@ pub(super) fn dir_entry_name_len(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_name_offset(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buf: u64,
     offset: u32,
 ) -> AsyncHostResult<u32> {
@@ -109,7 +109,7 @@ pub(super) fn dir_entry_name_offset(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_is_dir(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buf: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
@@ -119,7 +119,7 @@ pub(super) fn dir_entry_is_dir(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_is_hidden(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buf: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
@@ -130,7 +130,7 @@ pub(super) fn dir_entry_is_hidden(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_file_id(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buf: u64,
     offset: u32,
 ) -> AsyncHostResult<u64> {
@@ -143,7 +143,7 @@ pub(super) fn dir_entry_file_id(
     original = "moonbitlang_async_inotify_create"
 )]
 #[cfg(target_os = "linux")]
-pub(super) fn inotify_create(context: &mut ImportContext<'_, '_>) -> u64 {
+pub(super) fn inotify_create(context: &mut ImportContext<'_>) -> u64 {
     match watch_inotify::create() {
         Ok(fd) => context.host.insert_file_resource(fd),
         Err(error) => {
@@ -159,7 +159,7 @@ pub(super) fn inotify_create(context: &mut ImportContext<'_, '_>) -> u64 {
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn inotify_remove_file(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     watcher: u64,
     wd: u64,
 ) -> i32 {
@@ -179,7 +179,7 @@ pub(super) fn inotify_remove_file(
     original = "moonbitlang_async_inotify_event_buffer_size"
 )]
 #[cfg(target_os = "linux")]
-pub(super) fn inotify_event_buffer_size(_context: &mut ImportContext<'_, '_>) -> u32 {
+pub(super) fn inotify_event_buffer_size(_context: &mut ImportContext<'_>) -> u32 {
     watch_inotify::event_buffer_size()
 }
 
@@ -189,7 +189,7 @@ pub(super) fn inotify_event_buffer_size(_context: &mut ImportContext<'_, '_>) ->
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn inotify_fetch_event(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     watcher: u64,
     buffer: u64,
     len: u32,
@@ -217,7 +217,7 @@ pub(super) fn inotify_fetch_event(
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn inotify_event_get_size(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u32> {
@@ -232,7 +232,7 @@ pub(super) fn inotify_event_get_size(
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn inotify_event_get_wd(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u64> {
@@ -248,7 +248,7 @@ pub(super) fn inotify_event_get_wd(
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn inotify_event_has_relevant_event(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
@@ -263,7 +263,7 @@ pub(super) fn inotify_event_has_relevant_event(
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn inotify_event_has_overflow(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
@@ -278,7 +278,7 @@ pub(super) fn inotify_event_has_overflow(
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn inotify_event_has_ignore(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
@@ -292,7 +292,7 @@ pub(super) fn inotify_event_has_ignore(
     original = "moonbitlang_async_kqueue_watcher_create"
 )]
 #[cfg(target_os = "macos")]
-pub(super) fn kqueue_watcher_create(context: &mut ImportContext<'_, '_>) -> u64 {
+pub(super) fn kqueue_watcher_create(context: &mut ImportContext<'_>) -> u64 {
     match watch_kqueue::create() {
         Ok(fd) => context.host.insert_file_resource(fd),
         Err(error) => {
@@ -307,7 +307,7 @@ pub(super) fn kqueue_watcher_create(context: &mut ImportContext<'_, '_>) -> u64 
     original = "moonbitlang_async_kqueue_watcher_buffer_size"
 )]
 #[cfg(target_os = "macos")]
-pub(super) fn kqueue_watcher_buffer_size(_context: &mut ImportContext<'_, '_>) -> u32 {
+pub(super) fn kqueue_watcher_buffer_size(_context: &mut ImportContext<'_>) -> u32 {
     watch_kqueue::buffer_size()
 }
 
@@ -317,7 +317,7 @@ pub(super) fn kqueue_watcher_buffer_size(_context: &mut ImportContext<'_, '_>) -
 )]
 #[cfg(target_os = "macos")]
 pub(super) fn kqueue_watcher_add_file(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     kqueue: u64,
     file: u64,
     is_dir: i32,
@@ -336,7 +336,7 @@ pub(super) fn kqueue_watcher_add_file(
 )]
 #[cfg(target_os = "macos")]
 pub(super) fn kqueue_watcher_fetch_event(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     kqueue: u64,
     buffer: u64,
     len: u32,
@@ -364,7 +364,7 @@ pub(super) fn kqueue_watcher_fetch_event(
 )]
 #[cfg(target_os = "macos")]
 pub(super) fn kqueue_watcher_event_get_fd(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     index: u32,
 ) -> AsyncHostResult<u64> {
@@ -379,7 +379,7 @@ pub(super) fn kqueue_watcher_event_get_fd(
 )]
 #[cfg(target_os = "macos")]
 pub(super) fn kqueue_watcher_event_has_modify(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     index: u32,
 ) -> AsyncHostResult<i32> {
@@ -389,13 +389,13 @@ pub(super) fn kqueue_watcher_event_has_modify(
 }
 
 #[cfg(windows)]
-pub(super) fn windows_watcher_buffer_new(context: &mut ImportContext<'_, '_>) -> u64 {
+pub(super) fn windows_watcher_buffer_new(context: &mut ImportContext<'_>) -> u64 {
     context.host.insert_windows_watcher_buffer()
 }
 
 #[cfg(windows)]
 pub(super) fn windows_watcher_buffer_free(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
 ) -> AsyncHostResult<()> {
     context.host.free_windows_watcher_buffer(buffer)
@@ -407,7 +407,7 @@ pub(super) fn windows_watcher_buffer_free(
 )]
 #[cfg(windows)]
 pub(super) fn watcher_event_get_size(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u32> {
@@ -424,7 +424,7 @@ pub(super) fn watcher_event_get_size(
 )]
 #[cfg(windows)]
 pub(super) fn watcher_event_is_modify(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
@@ -435,7 +435,7 @@ pub(super) fn watcher_event_is_modify(
 
 #[cfg(windows)]
 pub(super) fn watcher_event_path_len(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u32> {
@@ -448,7 +448,7 @@ pub(super) fn watcher_event_path_len(
 
 #[cfg(windows)]
 pub(super) fn watcher_event_path_copy(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
     out: u32,
@@ -467,7 +467,7 @@ pub(super) fn watcher_event_path_copy(
 
 #[cfg(windows)]
 pub(super) fn watcher_event_has_file_ids(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
 ) -> AsyncHostResult<i32> {
     context.host.with_windows_watcher_buffer(buffer, |buffer| {
@@ -477,7 +477,7 @@ pub(super) fn watcher_event_has_file_ids(
 
 #[cfg(windows)]
 pub(super) fn watcher_event_dirty_file_id(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u64> {
@@ -487,7 +487,7 @@ pub(super) fn watcher_event_dirty_file_id(
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
+pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
     if stub::errno_is_lock_violation(errno) {
         1
     } else {
@@ -496,16 +496,16 @@ pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_, '_>, errn
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn try_lock_file(context: &mut ImportContext<'_, '_>, fd: u64, exclusive: i32) -> i32 {
+pub(super) fn try_lock_file(context: &mut ImportContext<'_>, fd: u64, exclusive: i32) -> i32 {
     zero_or_minus_one(context, context.host.try_lock_file(fd, exclusive != 0))
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn unlock_file(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn unlock_file(context: &mut ImportContext<'_>, fd: u64) -> i32 {
     zero_or_minus_one(context, context.host.unlock_file(fd))
 }
 
-fn zero_or_minus_one(context: &ImportContext<'_, '_>, result: AsyncHostResult<()>) -> i32 {
+fn zero_or_minus_one(context: &ImportContext<'_>, result: AsyncHostResult<()>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {

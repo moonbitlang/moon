@@ -16,108 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{collections::HashSet, path::PathBuf, str::FromStr};
-
-use crate::{
-    target::{OutputFormat, TargetBackend},
-    test_metadata::DiagnosticLevel,
-};
-
-#[derive(Debug, Clone)]
-pub struct BuildPackageFlags {
-    pub debug_flag: bool,
-    pub strip_flag: bool,
-    pub source_map: bool,
-    pub enable_coverage: bool,
-    // treat all warnings as errors
-    pub deny_warn: bool,
-    pub target_backend: TargetBackend,
-    pub warn_list: Option<String>,
-    pub enable_value_tracing: bool,
-}
-
-impl BuildPackageFlags {
-    pub fn new() -> Self {
-        Self {
-            debug_flag: false,
-            strip_flag: true,
-            source_map: false,
-            enable_coverage: false,
-            deny_warn: false,
-            target_backend: TargetBackend::default(),
-            warn_list: None,
-            enable_value_tracing: false,
-        }
-    }
-}
-
-impl Default for BuildPackageFlags {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LinkCoreFlags {
-    pub debug_flag: bool,
-    pub source_map: bool,
-    pub output_format: OutputFormat,
-    pub target_backend: TargetBackend,
-}
-
-impl LinkCoreFlags {
-    pub fn new() -> Self {
-        Self {
-            debug_flag: false,
-            source_map: false,
-            output_format: OutputFormat::Wasm,
-            target_backend: TargetBackend::default(),
-        }
-    }
-}
-
-impl Default for LinkCoreFlags {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct MoonbuildOpt {
-    pub source_dir: PathBuf,
-    pub raw_target_dir: PathBuf,
-    pub target_dir: PathBuf,
-    pub test_opt: Option<TestOpt>,
-    pub check_opt: Option<CheckOpt>,
-    pub build_opt: Option<BuildOpt>,
-    pub sort_input: bool,
-    pub run_mode: RunMode,
-    pub fmt_opt: Option<FmtOpt>,
-    pub args: Vec<String>,
-    pub verbose: bool,
-    pub quiet: bool,
-    pub no_render_output: bool,
-    pub no_parallelize: bool,
-    pub build_graph: bool,
-    /// Max parallel tasks to run in n2; `None` to use default
-    pub parallelism: Option<usize>,
-    pub render_no_loc: DiagnosticLevel,
-}
-
-#[derive(Debug, Clone)]
-pub struct BuildOpt {
-    pub install_path: Option<PathBuf>,
-
-    pub filter_package: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CheckOpt {
-    pub package_name_filter: Option<String>,
-    pub patch_file: Option<PathBuf>,
-    pub no_mi: bool,
-    pub explain: bool,
-}
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct TestIndexRange {
@@ -199,62 +98,11 @@ fn parse_index_bound(
         .map_err(|_| TestIndexRangeParseError::InvalidNumber(s.to_string()))
 }
 
-#[derive(Debug, Clone)]
-pub struct TestOpt {
-    pub filter_package: Option<HashSet<String>>,
-    pub filter_file: Option<String>,
-    pub filter_index: Option<TestIndexRange>,
-    pub filter_doc_index: Option<u32>,
-    pub limit: u32,
-    pub test_failure_json: bool,
-    pub display_backend_hint: Option<()>, // use Option to avoid if else
-    pub patch_file: Option<PathBuf>,
-    /// Glob pattern to filter tests by name
-    pub filter_name: Option<String>,
-}
-
 #[derive(serde::Serialize, Clone)]
 pub struct TestArtifacts {
     pub artifacts_path: Vec<PathBuf>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub test_filter_args: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FmtOpt {
-    pub check: bool,
-    pub extra_args: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct MooncOpt {
-    pub build_opt: BuildPackageFlags,
-    pub link_opt: LinkCoreFlags,
-    pub extra_build_opt: Vec<String>,
-    pub extra_link_opt: Vec<String>,
-    pub nostd: bool,
-    pub json_diagnostics: bool,
-    pub single_file: bool,
-}
-
-impl Default for MooncOpt {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MooncOpt {
-    pub fn new() -> Self {
-        Self {
-            build_opt: BuildPackageFlags::new(),
-            link_opt: LinkCoreFlags::new(),
-            extra_build_opt: vec![],
-            extra_link_opt: vec![],
-            nostd: false,
-            json_diagnostics: true,
-            single_file: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]

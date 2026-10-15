@@ -323,7 +323,7 @@ fn test_fmt_path() {
         read(dir.join("fmt_path.mbt")),
         expect![[r#"
             ///|
-            pub fn fib(n : Int) -> Int {
+            pub fn fib(n : Int32) -> Int32 {
               n
             }
         "#]],
@@ -359,7 +359,7 @@ fn test_fmt_multiple_paths_skip_filtered_entries() {
         read(dir.join("fmt_path.mbt")),
         expect![[r#"
             ///|
-            pub fn fib(n : Int) -> Int {
+            pub fn fib(n : Int32) -> Int32 {
               n
             }
         "#]],

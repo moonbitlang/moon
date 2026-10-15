@@ -18,7 +18,6 @@
 
 use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
-use colored::Colorize;
 use derive_builder::Builder;
 use std::{
     env,
@@ -32,7 +31,7 @@ mod gcc_like;
 mod msvc;
 mod tcc;
 
-pub use archiver::{make_archiver_command, make_archiver_command_resolved};
+pub use archiver::make_archiver_command_resolved;
 #[cfg(all(test, target_os = "macos"))]
 use gcc_like::resolve_apple_libtool_path;
 use gcc_like::{
@@ -253,14 +252,6 @@ impl Toolchain {
             cc,
             source: ToolchainSource::PackageOverride,
             msvc_environment: None,
-        }
-    }
-
-    pub fn from_cc(cc: CC) -> Self {
-        if cc.is_env_override {
-            Toolchain::from_env_override(cc)
-        } else {
-            Toolchain::from_path_probe(cc)
         }
     }
 
@@ -521,8 +512,6 @@ impl CC {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Clang)
         } else if stem.ends_with("tcc") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Tcc)
-        } else if stem.ends_with("cc") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
         } else {
             // assume it's a system cc
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
@@ -701,10 +690,6 @@ pub fn try_cc_on_path() -> anyhow::Result<CC> {
     cached_cc(&DETECTED_CC_ON_PATH)
 }
 
-pub fn has_cc_env_override() -> bool {
-    env::var_os(ENV_MOON_CC).is_some()
-}
-
 fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     #[cfg(windows)]
     {
@@ -821,20 +806,6 @@ pub struct ArchiverConfig {
     pub native_allocator: NativeAllocator,
 }
 
-/// Resolve the C compiler to use from global state
-pub fn resolve_cc(cc: &CC, user_cc: Option<&CC>) -> CC {
-    if ENV_CC.is_some() && user_cc.is_some() {
-        eprintln!(
-            "{}: Both MOON_CC environment variable and user-specified CC are provided. \
-            MOON_CC takes precedence.",
-            "Warning".yellow().bold(),
-        );
-    }
-    ENV_CC
-        .clone()
-        .unwrap_or_else(|| user_cc.cloned().unwrap_or_else(|| cc.clone()))
-}
-
 // Struct to hold path configuration for commands
 #[derive(Clone, Debug)]
 pub struct CompilerPaths {
@@ -945,32 +916,6 @@ fn add_linker_moonbitrun(
     {
         buf.push(object);
     }
-}
-
-pub fn make_linker_command<S, P>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: LinkerConfig<P>,
-    link_args: &[NativeLinkArg],
-    src: &[S],
-    dest_dir: &str,
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-    P: AsRef<Path>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let lib_path = &MOON_DIRS.moon_lib_path.display().to_string();
-    make_linker_command_resolved(
-        resolved_cc,
-        config,
-        link_args,
-        src,
-        dest_dir,
-        dest,
-        lib_path,
-    )
 }
 
 pub fn make_linker_command_resolved<S, P>(
@@ -1198,31 +1143,6 @@ fn add_cc_moonbitrun(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, paths: &
     ) {
         buf.push(object);
     }
-}
-
-pub fn make_cc_command<S>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: CCConfig,
-    cc_flags: &[S],
-    src: impl IntoIterator<Item = impl Into<String>>,
-    intermediate_dir: &str,
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let paths = CompilerPaths::from_moon_dirs();
-    make_cc_command_resolved(
-        resolved_cc,
-        config,
-        cc_flags,
-        src,
-        intermediate_dir,
-        Some(dest),
-        &paths,
-    )
 }
 
 /// Build a C compiler command after the caller has already selected the exact
@@ -1713,14 +1633,20 @@ mod tests {
     }
 
     #[test]
-    fn explicit_archiver_names_follow_the_target_abi() {
-        assert_eq!(
-            CC::classify_gcc_like_archiver(
-                "C:/LLVM/bin/llvm-lib.exe",
-                Some("x86_64-pc-windows-msvc")
-            ),
-            ARKind::MsvcLib
-        );
+    fn explicit_archiver_names_select_the_matching_cli() {
+        for target in [
+            None,
+            Some("x86_64-pc-windows-msvc"),
+            Some("aarch64-pc-windows-msvc"),
+        ] {
+            for archiver in ["lib", "LIB.ExE", "llvm-lib", "C:/LLVM/bin/LLVM-LIB.exe"] {
+                assert_eq!(
+                    CC::classify_gcc_like_archiver(archiver, target),
+                    ARKind::MsvcLib,
+                    "archiver: {archiver}, target: {target:?}"
+                );
+            }
+        }
         assert_eq!(
             CC::classify_gcc_like_archiver(
                 "/Applications/Xcode.app/usr/bin/libtool",
@@ -2674,6 +2600,84 @@ mod tests {
             return;
         }
         assert_eq!(cc.ar_path, CC::resolve_tool_path(&clang_path, &reported_ar));
+    }
+
+    #[test]
+    fn llvm_lib_archives_real_msvc_object_with_or_without_target_metadata() {
+        let tools = which::which("clang").ok().and_then(|clang| {
+            CC::probe_existing_prog_name(&clang, "llvm-lib").map(|llvm_lib| (clang, llvm_lib))
+        });
+        let Some((clang, llvm_lib)) = tools else {
+            if cfg!(windows) {
+                panic!("Windows CI requires clang and llvm-lib");
+            }
+            eprintln!("skipping MSVC archive test: clang and llvm-lib are unavailable");
+            return;
+        };
+
+        // Compile a header-free MSVC object so the test needs no Windows SDK
+        // and can exercise the real tools on any host.
+        let dir = tempfile::tempdir().expect("create compiler working directory");
+        std::fs::write(
+            dir.path().join("answer.c"),
+            "int answer(void) { return 42; }\n",
+        )
+        .expect("write C source");
+        let target_flag = "--target=x86_64-pc-windows-msvc";
+        let target = Command::new(&clang)
+            .args([target_flag, "-dumpmachine"])
+            .output()
+            .expect("probe Clang target");
+        assert!(target.status.success(), "{target:?}");
+        let target = String::from_utf8(target.stdout)
+            .expect("Clang target is UTF-8")
+            .trim()
+            .to_string();
+        let compiled = Command::new(&clang)
+            .current_dir(dir.path())
+            .args([target_flag, "-c", "answer.c", "-o", "answer.o"])
+            .output()
+            .expect("compile MSVC object");
+        assert!(compiled.status.success(), "{compiled:?}");
+
+        // Missing probe metadata must not change the selected librarian's CLI.
+        for target in [Some(target.as_str()), None] {
+            let cc = CC::new(
+                CCKind::Clang,
+                clang.display().to_string(),
+                CC::classify_gcc_like_archiver(&llvm_lib, target),
+                llvm_lib.clone(),
+                target.map(str::to_string),
+            );
+            let command = make_archiver_command_resolved(
+                cc,
+                ArchiverConfig {
+                    archive_moonbitrun: false,
+                    native_allocator: NativeAllocator::Default,
+                },
+                &["answer.o"],
+                "answer.lib",
+                &CompilerPaths {
+                    include_path: ".".to_string(),
+                    lib_path: ".".to_string(),
+                },
+            );
+            let archived = Command::new(&command[0])
+                .current_dir(dir.path())
+                .args(&command[1..])
+                .output()
+                .expect("run Moon's archive command");
+            assert!(archived.status.success(), "{command:?}: {archived:?}");
+
+            let members = Command::new(&llvm_lib)
+                .current_dir(dir.path())
+                .args(["/list", "answer.lib"])
+                .output()
+                .expect("inspect archive members");
+            assert!(members.status.success(), "{members:?}");
+            assert_eq!(String::from_utf8_lossy(&members.stdout).trim(), "answer.o");
+            std::fs::remove_file(dir.path().join("answer.lib")).expect("remove checked archive");
+        }
     }
 
     #[cfg(windows)]

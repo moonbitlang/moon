@@ -1,5 +1,5 @@
 use crate::{
-    TestDir, assert_success, get_err_stderr_with_envs, get_stderr, get_stdout,
+    TestDir, assert_success, get_err_stderr, get_err_stderr_with_envs, get_stderr, get_stdout,
     get_stdout_with_envs, scoped_packages_json_path,
     util::{check, moon_bin, replace_dir},
 };
@@ -16,6 +16,22 @@ fn skip_unless_verification_tests_enabled(name: &str) -> bool {
 
     eprintln!("skipping {name}: set VERIFICATION_TESTS=1 to enable verification tests");
     true
+}
+
+#[test]
+fn prove_selection_is_validated_before_import_resolution() {
+    let dir = TestDir::new("test_selection_before_resolution.in");
+    for (path, expected_error) in [
+        ("other", "selection/errors/missing"),
+        ("missing", "Failed to canonicalize input filter directory"),
+        (
+            "native",
+            "Package 'selection/errors/native' does not support target backend 'wasm-gc'",
+        ),
+    ] {
+        let error = get_err_stderr(&dir, ["prove", path, "--dry-run", "--frozen"]);
+        assert!(error.contains(expected_error), "{path}: {error}");
+    }
 }
 
 fn z3_path() -> Option<std::path::PathBuf> {

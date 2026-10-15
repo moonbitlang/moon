@@ -983,3 +983,111 @@ fn engine_backends_share_the_wasip1_adapter() {
         .stdout_eq("")
         .stderr_eq("");
 }
+
+#[test]
+fn async_imports_without_memory_work_during_instantiation_and_execution() {
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "async-no-memory.wasm",
+            wat::parse_str(
+                r#"(module
+        (import "moonbitlang/async" "runtime/get_platform" (func $platform (result i32)))
+        (import "moonbitlang/async" "c_buffer/new" (func $new (param i32) (result i64)))
+        (import "moonbitlang/async" "c_buffer/free" (func $free (param i64)))
+        (func $initialize call $platform drop i32.const 8 call $new call $free)
+        (start $initialize)
+        (func (export "_start") call $initialize))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
+fn async_termination_interrupts_without_guest_memory() {
+    let engine = moonrun::Engine::default();
+    for (import, outcome) in [
+        ("runtime/exit", moonrun::RunOutcome::Exited(7)),
+        (
+            "runtime/terminate_process_by_signal",
+            moonrun::RunOutcome::KilledBySignal(7),
+        ),
+    ] {
+        for start in ["(start $run)", "(export \"_start\" (func $run))"] {
+            let module = engine
+                .compile(
+                    "async-termination.wasm",
+                    wat::parse_str(format!(
+                        r#"(module
+                (import "moonbitlang/async" "{import}" (func $terminate (param i32)))
+                (func $run i32.const 7 call $terminate unreachable)
+                {start})"#
+                    ))
+                    .unwrap(),
+                )
+                .unwrap();
+            assert_eq!(
+                engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+                outcome,
+                "{import}: {start}"
+            );
+        }
+    }
+}
+
+#[test]
+fn async_memory_is_reacquired_after_growth() {
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "async-memory-growth.wasm",
+            wat::parse_str(
+                r#"(module
+        (import "moonbitlang/async" "c_buffer/new" (func $new (param i32) (result i64)))
+        (import "moonbitlang/async" "c_buffer/free" (func $free (param i64)))
+        (import "moonbitlang/async" "c_buffer/blit_to_c" (func $to (param i64 i32 i32 i32 i32)))
+        (import "moonbitlang/async" "c_buffer/blit_from_c" (func $from (param i64 i32 i32 i32 i32)))
+        (memory (export "memory") 1)
+        (func (export "_start") (local $buffer i64)
+            i32.const 1 call $new local.set $buffer
+            i32.const 0 i32.const 42 i32.store8
+            local.get $buffer i32.const 0 i32.const 0 i32.const 0 i32.const 1 call $to
+            i32.const 1 memory.grow i32.const 1 i32.ne if unreachable end
+            local.get $buffer i32.const 0 i32.const 65536 i32.const 0 i32.const 1 call $from
+            i32.const 65536 i32.load8_u i32.const 42 i32.ne if unreachable end
+            i32.const 65536 i32.const 99 i32.store8
+            local.get $buffer i32.const 0 i32.const 65536 i32.const 0 i32.const 1 call $to
+            local.get $buffer i32.const 0 i32.const 0 i32.const 0 i32.const 1 call $from
+            i32.const 0 i32.load8_u i32.const 99 i32.ne if unreachable end
+            local.get $buffer call $free))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
+fn async_memory_access_rejects_missing_memory_and_invalid_ranges() {
+    let engine = moonrun::Engine::default();
+    for memory in ["", "(memory (export \"memory\") 1)"] {
+        let module = engine.compile("async-invalid-memory.wasm", wat::parse_str(format!(r#"(module
+            (import "moonbitlang/async" "c_buffer/new" (func $new (param i32) (result i64)))
+            (import "moonbitlang/async" "c_buffer/blit_to_c" (func $to (param i64 i32 i32 i32 i32)))
+            {memory}
+            (func (export "_start")
+                i32.const 1 call $new i32.const 0 i32.const 65536 i32.const 0 i32.const 1 call $to))"#)).unwrap()).unwrap();
+        let error = engine
+            .run(&module, moonrun::RunOptions::default())
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("Fault"), "{error:#}");
+    }
+}

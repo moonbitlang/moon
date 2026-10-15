@@ -22,8 +22,10 @@ use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
 use crate::source_map;
 #[cfg(feature = "v8")]
 use crate::v8 as backend;
-#[cfg(all(not(feature = "v8"), feature = "wasmtime"))]
+#[cfg(all(not(feature = "v8"), not(feature = "wee8"), feature = "wasmtime"))]
 use crate::wasmtime as backend;
+#[cfg(all(feature = "wee8", not(feature = "v8")))]
+use crate::wee8 as backend;
 use anyhow::Context;
 use std::fmt;
 use std::fs::File;
@@ -49,7 +51,7 @@ impl EngineConfig {
 }
 
 /// Configuration for one MoonBit Wasm run.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct RunOptions {
     pub(crate) args: Vec<String>,
     pub(crate) no_stack_trace: bool,
@@ -139,7 +141,7 @@ impl RunOptions {
     ///
     /// These streams also supply default child streams; explicit guest-supplied
     /// child streams take precedence. Without this option, streams are ambient.
-    /// Clones share the files; use separate options for independent I/O.
+    /// The files are moved into the Runtime for this run.
     pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
         self.stdio = Stdio::owned(stdin, stdout, stderr);
         self
@@ -388,8 +390,13 @@ impl Engine {
             Some(signal_mask) => signal_mask,
             None => current_signal_mask()?,
         };
+        let test_args = options.parsed_test_args()?;
         let runtime = Runtime::new(
-            &options,
+            options.policy_file.as_deref(),
+            options.policy_source_dir.as_deref(),
+            options.inherited_policy.as_deref(),
+            options.working_directory,
+            options.stdio,
             module.executable().clone(),
             signals,
             #[cfg(unix)]
@@ -399,7 +406,9 @@ impl Engine {
             module.name(),
             module.compiled(),
             module.source_map(),
-            options,
+            &options.args,
+            test_args,
+            options.no_stack_trace,
             runtime,
         )?;
         Ok(match outcome {
@@ -432,6 +441,32 @@ impl Default for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_driver_lifecycle_is_backend_neutral() {
+        // The shared lifecycle remains usable even when a partial adapter does
+        // not register the guest imports needed by MoonBit's test driver yet.
+        let options = RunOptions::default().with_test_args(
+            r#"{"package":"test","file_and_index":[["main.mbt",[{"start":2,"end":4}]]]}"#,
+        );
+        let mut calls = Vec::new();
+        let outcome = run_test_driver(
+            &mut calls,
+            options.parsed_test_args().unwrap().unwrap(),
+            &Stdio::Ambient,
+            |calls, file, index| {
+                calls.push(format!("{file}:{index}"));
+                Ok(BackendCallOutcome::Completed)
+            },
+            |calls| {
+                calls.push("finish".into());
+                Ok(BackendCallOutcome::Completed)
+            },
+        )
+        .unwrap();
+        assert!(matches!(outcome, BackendRunOutcome::Completed));
+        assert_eq!(calls, ["main.mbt:2", "main.mbt:3", "finish"]);
+    }
 
     #[test]
     fn run_options_default_to_ambient_working_directory() {

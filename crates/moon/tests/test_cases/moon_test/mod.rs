@@ -33,7 +33,7 @@ fn test_moon_test_succ() {
     unsafe { std::env::set_var("NO_COLOR", "1") };
     let dir = TestDir::new("moon_test/succ");
     check(
-        get_stdout(&dir, ["test", "-v", "--sort-input", "-j", "2"]),
+        get_stdout(&dir, ["test", "-v", "--sort-input"]),
         expect![[r#"
             [moontest] test lib/hello_wbtest.mbt:1 (#0) ok
             [moontest] test lib2/hello_wbtest.mbt:1 (#0) ok

@@ -25,6 +25,7 @@
 //! Ported native-stub behavior belongs in `async_sys`; shared runtime state
 //! belongs in `async_host`.
 
+mod backend;
 mod c_buffer;
 mod context;
 mod env_util;
@@ -50,6 +51,10 @@ mod tls;
 #[cfg(feature = "v8")]
 use crate::v8::context::V8RunContext;
 
+#[allow(
+    unused_imports,
+    reason = "shared interface may be unused by a partial backend"
+)]
 pub(crate) use registry::MOONBIT_ASYNC_MODULE;
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 pub(crate) use registry::register_wasmtime_imports;

@@ -131,16 +131,16 @@ const fn ported_from(
     }
 }
 
-pub(super) fn create(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
+pub(super) fn create(context: &mut ImportContext<'_>) -> AsyncHostResult<u64> {
     context.host.poll_create()
 }
 
-pub(super) fn destroy(context: &mut ImportContext<'_, '_>, bus: u64) -> AsyncHostResult<()> {
+pub(super) fn destroy(context: &mut ImportContext<'_>, bus: u64) -> AsyncHostResult<()> {
     context.host.poll_destroy(bus)
 }
 
 pub(super) fn try_register(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     bus: u64,
     fd: u64,
     read_only: i32,
@@ -157,7 +157,7 @@ pub(super) fn try_register(
 // Older Wasm guests interpret every nonnegative result as successful
 // registration. Keep their 0/-1 contract separate from the tri-state import.
 pub(super) fn register_legacy(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     bus: u64,
     fd: u64,
     read_only: i32,
@@ -172,7 +172,7 @@ pub(super) fn register_legacy(
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn register_pid(context: &mut ImportContext<'_, '_>, bus: u64, pid: i32) -> i32 {
+pub(super) fn register_pid(context: &mut ImportContext<'_>, bus: u64, pid: i32) -> i32 {
     match context.host.poll_register_pid(bus, pid) {
         Ok(result) => result,
         Err(error) => {
@@ -182,7 +182,7 @@ pub(super) fn register_pid(context: &mut ImportContext<'_, '_>, bus: u64, pid: i
     }
 }
 
-pub(super) fn wait(context: &mut ImportContext<'_, '_>, bus: u64, timeout_ms: i32) -> i32 {
+pub(super) fn wait(context: &mut ImportContext<'_>, bus: u64, timeout_ms: i32) -> i32 {
     match context.host.poll_wait(bus, timeout_ms) {
         Ok(n) => n,
         Err(error) => {
@@ -193,41 +193,35 @@ pub(super) fn wait(context: &mut ImportContext<'_, '_>, bus: u64, timeout_ms: i3
 }
 
 pub(super) fn get_event(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     bus: u64,
     index: u32,
 ) -> AsyncHostResult<u64> {
     context.host.poll_get_event(bus, index)
 }
 
-pub(super) fn event_fd(context: &mut ImportContext<'_, '_>, event: u64) -> AsyncHostResult<u64> {
+pub(super) fn event_fd(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<u64> {
     context.host.poll_event_fd(event)
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn event_pid(context: &mut ImportContext<'_, '_>, event: u64) -> AsyncHostResult<i32> {
+pub(super) fn event_pid(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<i32> {
     context.host.poll_event_pid(event)
 }
 
 #[cfg(unix)]
-pub(super) fn event_events(
-    context: &mut ImportContext<'_, '_>,
-    event: u64,
-) -> AsyncHostResult<i32> {
+pub(super) fn event_events(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<i32> {
     context.host.poll_event_events(event)
 }
 
 #[cfg(windows)]
-pub(super) fn event_io_result(
-    context: &mut ImportContext<'_, '_>,
-    event: u64,
-) -> AsyncHostResult<u64> {
+pub(super) fn event_io_result(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<u64> {
     context.host.poll_event_io_result(event)
 }
 
 #[cfg(windows)]
 pub(super) fn event_bytes_transferred(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     event: u64,
 ) -> AsyncHostResult<u32> {
     context.host.poll_event_bytes_transferred(event)

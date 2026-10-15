@@ -16,10 +16,12 @@ important ones and why they exist.
   downstream compilation steps see a builtin package that already contains the
   coverage helpers. This is essential for `builtin` to correctly get code
   coverage support. This is **only available when `--enable-coverage` is set**.
-- **Pin prelude imports for core packages.** Whenever discovery encounters a
+- **Pin prelude imports for core blackbox tests.** Whenever discovery encounters a
   package under the core module, `add_prelude_as_import_for_core` injects
-  `moonbitlang/core/prelude` into `test_imports`. Without this implicit import,
-  core tests would fail to compile because they rely on the prelude symbols.
+  `moonbitlang/core/prelude` into `test_imports`. This supports blackbox tests;
+  whitebox and inline tests retain their package's imports. Generated drivers
+  adapt prelude references to builtin operations as described in the
+  [test driver core dependencies](tests.md#core-dependencies).
 
 ## Solver-time dependency hacks
 

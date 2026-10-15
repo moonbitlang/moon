@@ -97,9 +97,8 @@ pub(crate) fn run_build_binary_dep(
     )
     .without_bin_deps();
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let pkgs = select_binary_dep_packages(&discovered, cmd, user_log)?;
     let resolved_project = discovered.resolve_packages(user_log)?;
-
-    let pkgs = select_binary_dep_packages(&resolved_project.discovered, cmd, user_log)?;
 
     // For each package we need to get its target backend and then we can build it
     let _lock = lock_directory(target_dir, user_log)?;
@@ -116,7 +115,7 @@ pub(crate) fn run_build_binary_dep(
         let compile_config = rr_build::prepare_resolved_build(
             cli,
             &build_flags,
-            Some(target),
+            target,
             target_dir,
             RunMode::Build,
             user_log,

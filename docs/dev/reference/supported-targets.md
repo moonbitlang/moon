@@ -83,8 +83,24 @@ Notes:
   n2 database, so actions with identical physical outputs can reuse recorded
   execution state.
 * `llvm` is still a valid value in `supported_targets`.
+* Before executing an LLVM build or check that uses installed std, Moon checks
+  for `prelude/prelude.mi` in the selected LLVM std bundle. A missing file
+  reports an incomplete toolchain. Dry runs, `--nostd`, core builds, and
+  other backends skip this check. This does not probe compiler capabilities.
 * `moon doc` selects `B` from the selected module's `preferred_target`, then falls back to `wasm`.
 * `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
+
+## Dependency tree target selection
+
+`moon tree --package --target B` accepts one concrete backend. Without
+`--target`, it selects the current module's `preferred_target`, then `wasm`.
+Package-tree JSON version 3 records this backend in its top-level `target`
+field. Failure reports record the explicit target, or `null` if none was given.
+The module-level tree is backend-independent and does not accept `--target`.
+
+Package imports currently produce one backend-independent graph, so graph
+contents are shared across targets. The package tree continues to include all
+discovered non-standard-library packages and their import relationships.
 
 ## Dependency compatibility (fail-fast)
 

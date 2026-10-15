@@ -23,7 +23,7 @@ ported_imports! {
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
 pub(super) fn read(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     fd: u64,
     dst: u32,
     offset: u32,
@@ -45,7 +45,7 @@ pub(super) fn read(
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
 pub(super) fn write(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     fd: u64,
     src: u32,
     offset: u32,
@@ -70,7 +70,7 @@ pub(super) fn write(
 )]
 #[cfg(windows)]
 pub(super) fn make_file_read_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     len: u32,
     position: i64,
 ) -> crate::async_host::AsyncHostResult<u64> {
@@ -83,7 +83,7 @@ pub(super) fn make_file_read_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn make_file_write_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     src: u32,
     offset: u32,
     len: u32,
@@ -100,7 +100,7 @@ pub(super) fn make_file_write_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn make_socket_read_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     len: u32,
     flags: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
@@ -113,7 +113,7 @@ pub(super) fn make_socket_read_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn make_socket_write_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     src: u32,
     offset: u32,
     len: u32,
@@ -131,7 +131,7 @@ pub(super) fn make_socket_write_io_result(
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_socket_with_addr_read_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     len: u32,
     flags: i32,
     addr: u32,
@@ -149,7 +149,7 @@ pub(super) fn make_socket_with_addr_read_io_result(
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_socket_with_addr_write_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     src: u32,
     offset: u32,
     len: u32,
@@ -168,7 +168,7 @@ pub(super) fn make_socket_with_addr_write_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn make_connect_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     addr: u32,
     addr_len: u32,
 ) -> crate::async_host::AsyncHostResult<u64> {
@@ -183,7 +183,7 @@ pub(super) fn make_connect_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn make_accept_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     addr_len: u32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.host.make_accept_io_result(addr_len)
@@ -191,7 +191,7 @@ pub(super) fn make_accept_io_result(
 
 #[cfg(windows)]
 pub(super) fn make_read_dir_changes_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     buffer: u64,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.host.make_read_dir_changes_io_result(buffer)
@@ -203,7 +203,7 @@ pub(super) fn make_read_dir_changes_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn get_accept_peer_addr(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     result: u64,
     dst: u32,
     dst_len: u32,
@@ -219,7 +219,7 @@ pub(super) fn get_accept_peer_addr(
 )]
 #[cfg(windows)]
 pub(super) fn free_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     result: u64,
 ) -> crate::async_host::AsyncHostResult<()> {
     context.host.free_io_result(result)
@@ -231,7 +231,7 @@ pub(super) fn free_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn io_result_get_event(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     result: u64,
 ) -> crate::async_host::AsyncHostResult<i32> {
     context.host.io_result_get_event(result)
@@ -242,7 +242,7 @@ pub(super) fn io_result_get_event(
     original = "moonbitlang_async_cancel_io_result"
 )]
 #[cfg(windows)]
-pub(super) fn cancel_io_result(context: &mut ImportContext<'_, '_>, result: u64, fd: u64) -> i32 {
+pub(super) fn cancel_io_result(context: &mut ImportContext<'_>, result: u64, fd: u64) -> i32 {
     match context.host.cancel_io_result(result, fd) {
         Ok(status) => status,
         Err(error) => {
@@ -258,7 +258,7 @@ pub(super) fn cancel_io_result(context: &mut ImportContext<'_, '_>, result: u64,
 )]
 #[cfg(windows)]
 pub(super) fn io_result_get_status(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     result: u64,
     fd: u64,
 ) -> i32 {
@@ -273,7 +273,7 @@ pub(super) fn io_result_get_status(
 
 #[cfg(windows)]
 pub(super) fn io_result_copy_read(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     result: u64,
     dst: u32,
     offset: u32,
@@ -287,7 +287,7 @@ pub(super) fn io_result_copy_read(
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn io_result_copy_read_with_addr(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     result: u64,
     dst: u32,
     offset: u32,
@@ -306,7 +306,7 @@ pub(super) fn io_result_copy_read_with_addr(
 )]
 #[cfg(windows)]
 pub(super) fn read_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     fd: u64,
     result: u64,
 ) -> i32 {
@@ -325,7 +325,7 @@ pub(super) fn read_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn read_dir_changes_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     fd: u64,
     result: u64,
 ) -> i32 {
@@ -344,7 +344,7 @@ pub(super) fn read_dir_changes_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn write_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     fd: u64,
     result: u64,
 ) -> i32 {
@@ -362,7 +362,7 @@ pub(super) fn write_io_result(
     original = "moonbitlang_async_errno_is_read_EOF"
 )]
 #[cfg(windows)]
-pub(super) fn errno_is_read_eof(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
+pub(super) fn errno_is_read_eof(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
     if crate::async_sys::internal::event_loop::io::errno_is_read_eof(errno) {
         1
     } else {

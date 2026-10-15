@@ -21,7 +21,7 @@
 use std::cell::Cell;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 #[cfg(unix)]
 pub(crate) type RawStdio = std::os::fd::RawFd;
@@ -46,11 +46,11 @@ impl StdioStream {
 /// points as the historical callers: the Handle namespace snapshots them at
 /// construction, child defaults are resolved at spawn, and synchronous I/O
 /// observes them for each operation.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub(crate) enum Stdio {
     #[default]
     Ambient,
-    Owned(Arc<[Mutex<File>; 3]>),
+    Owned([Mutex<File>; 3]),
 }
 
 /// Stateful UTF-16 code-unit output used by MoonBit's legacy character ABI.
@@ -87,11 +87,7 @@ impl Utf16Writer {
 
 impl Stdio {
     pub(crate) fn owned(stdin: File, stdout: File, stderr: File) -> Self {
-        Self::Owned(Arc::new([
-            Mutex::new(stdin),
-            Mutex::new(stdout),
-            Mutex::new(stderr),
-        ]))
+        Self::Owned([Mutex::new(stdin), Mutex::new(stdout), Mutex::new(stderr)])
     }
 
     pub(crate) fn with_stdin<T, E>(

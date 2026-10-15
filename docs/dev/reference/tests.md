@@ -86,9 +86,10 @@ without registry access or a separate version selection. Only
 
 ## Test execution parallelism
 
-Within each Target Backend, `moon test` and `moon bench` run test executables
-sequentially by default. Explicit `-j N` opts into parallel execution and sets
-the maximum number of concurrent executables.
+Within each Target Backend, `moon test` runs test executables in parallel by
+default, using the same available-CPU observation as build execution (falling
+back to one if unavailable). `-j N` sets the maximum number of concurrent
+executables.
 `--no-parallelize` forces sequential test execution even with `-j`, without
 changing build parallelism. The concurrency limit is at least one.
 
@@ -106,6 +107,10 @@ Collected test results are reported in invocation order, regardless of completio
 order. Output printed directly by test programs may interleave. Selected Target
 Backends still execute one after another, and this scheduling does not split
 individual test cases into separate processes or change async-test concurrency.
+
+`moon bench` remains sequential by default to avoid contention affecting
+measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
+`--no-parallelize` overrides it.
 
 ## Expect / snapshot promotion loop
 
@@ -176,6 +181,11 @@ The transport payload is intentionally minimal:
 - `message` exists only on `result` events and carries the same result payload
   used by expect, snapshot, panic, benchmark, and runtime-error handling.
 
+The driver escapes `file` and `message` as JSON strings, including control
+characters such as ANSI escape codes. The escaper is embedded in the driver and
+uses only primitive string/buffer operations, without a core JSON dependency.
+MoonBit string-literal escaping is not valid JSON escaping.
+
 The transport deliberately does not include package name, test display name,
 source location, backend, timestamp, duration, or tracing subscriber details.
 Those are either known by the runner, recoverable from metadata, or belong in
@@ -184,6 +194,21 @@ Rust `tracing` rather than the driver-to-runner protocol.
 During stdout draining, `moon` only reads lines, captures delimited protocol
 sections, and forwards all other stdout unchanged. The runner parses and
 interprets the captured event payloads only after the test executable exits.
+
+### Core dependencies
+
+The shared driver must work inside `moonbitlang/core/builtin` and in core
+whitebox tests without importing `prelude` or `json`. Driver generation adapts
+every `@moonbitlang/core/prelude.` reference: it removes the prefix for `builtin`
+and replaces it with `@moonbitlang/core/builtin.` for other core packages.
+For ordinary packages the prefix stays unchanged and package resolution injects
+the prelude dependency.
+
+Consequently, shared template operations such as `println` and `StringBuilder`
+must be available in `builtin`, even though the template qualifies them through
+`prelude`. `Json::stringify` is implemented in the separate `json` package and
+cannot be used unconditionally. Core blackbox tests receive an injected prelude
+import; that injection does not extend to whitebox or inline tests.
 
 ## Commands per backend (and how to specify test cases)
 

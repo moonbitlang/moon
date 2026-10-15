@@ -79,7 +79,7 @@ fn test_moon_tree_package_json_captures_postadd_output() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"info","message":"postadd script wrote to stdout:/nmoon [..]/n/nFeature flags enabled: rr_moon_mod,rr_moon_pkg"}]}
+{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"info","message":"postadd script wrote to stdout:/nmoon [..]/n/nFeature flags enabled: rr_moon_mod,rr_moon_pkg"}]}
 
 "#]]);
 }
@@ -93,7 +93,7 @@ fn test_moon_tree_package_json_captures_postadd_failure() {
     .failure()
     .stderr_eq("")
     .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"failure","error":"Failed to resolve the module dependency graph: When installing packages: failed to execute postadd script in [..],/ncommand: moon","root":[],"nodes":[],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"error","message":"postadd script wrote to stderr:/nerror: unexpected argument '--not-a-real-option' found/n/n[..]Usage: moon check [OPTIONS] [PATH].../n/nFor more information, try '--help'."}]}
+{"version":3,"status":"failure","error":"Failed to resolve the module dependency graph: When installing packages: failed to execute postadd script in [..],/ncommand: moon","target":null,"root":[],"nodes":[],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"error","message":"postadd script wrote to stderr:/nerror: unexpected argument '--not-a-real-option' found/n/n[..]Usage: moon check [OPTIONS] [PATH].../n/nFor more information, try '--help'."}]}
 
 "#]]);
 }
@@ -137,7 +137,7 @@ import {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"success","error":null,"root":[0,1],"nodes":[{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"dep"},{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"root"}],"edges":[{"from":1,"to":0,"alias":"blackbox","kinds":["blackbox-test"]},{"from":1,"to":0,"alias":"shared","kinds":["source","whitebox-test"]}],"logs":[]}
+{"version":3,"status":"success","error":null,"target":"wasm","root":[0,1],"nodes":[{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"dep"},{"module":"test/edges","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"root"}],"edges":[{"from":1,"to":0,"alias":"blackbox","kinds":["blackbox-test"]},{"from":1,"to":0,"alias":"shared","kinds":["source","whitebox-test"]}],"logs":[]}
 
 "#]]);
 }

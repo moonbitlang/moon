@@ -17,16 +17,18 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[cfg(feature = "v8")]
-use super::context::ImportContext;
-#[cfg(feature = "v8")]
 use crate::core_api;
 
 #[cfg(feature = "v8")]
-use super::context::{
+use super::backend::{
     FinishI32, FinishI64, FinishVoid, ImportArgs, callback_context, throw_import_error,
 };
 #[cfg(test)]
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
+#[allow(
+    unused_imports,
+    reason = "implementations referenced by enabled registrations and ABI tests"
+)]
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
     random, runtime, signal, socket, stdio, thread_pool, time, tls,
@@ -453,9 +455,16 @@ macro_rules! register_async_import {
             match decoded_args {
                 Ok(($($arg,)*)) => {
                     let result = {
-                        let mut context = ImportContext::new(scope, host_context);
-                        $module::$callback(&mut context, $($arg),*)
+                        super::backend::with_v8_context(scope, host_context, |context| {
+                            $module::$callback(context, $($arg),*)
+                        })
                     };
+                    if host_context.termination_request().is_requested() {
+                        // Guest Memory is no longer borrowed. Interrupt before
+                        // encoding a return value or creating an exception.
+                        scope.terminate_execution();
+                        return;
+                    }
                     finish_wasm_import!(
                         scope,
                         ret,
@@ -515,7 +524,7 @@ macro_rules! register_wasmtime_async_import {
             |mut caller: wasmtime::Caller<'_, crate::wasmtime::StoreData>
                 $(, $arg: wasmtime_arg_type!($arg_ty))*|
                 -> wasmtime::Result<wasmtime_return_type!($ret_ty)> {
-                let result = super::context::with_wasmtime_context(
+                let result = super::backend::with_wasmtime_context(
                     &mut caller,
                     |context| {
                         $module::$callback(
@@ -539,25 +548,19 @@ pub(super) fn register_core_imports<'s>(
     scope: &mut v8::HandleScope<'s>,
     context_ptr: *const crate::v8::context::V8RunContext,
 ) {
-    register_async_import!(
-        helper,
+    crate::v8::context::register_func(
         obj,
         scope,
-        context_ptr,
         "env/current_exe",
-        u64,
         core_import::current_exe,
-        ()
+        context_ptr,
     );
-    register_async_import!(
-        helper,
+    crate::v8::context::register_func(
         obj,
         scope,
-        context_ptr,
         "env/current_exe_dir",
-        u64,
         core_import::current_exe_dir,
-        ()
+        context_ptr,
     );
 }
 
@@ -565,12 +568,44 @@ pub(super) fn register_core_imports<'s>(
 mod core_import {
     use super::*;
 
-    pub(super) fn current_exe(context: &mut ImportContext<'_, '_>) -> u64 {
-        core_api::current_exe(context.runtime())
+    pub(super) fn current_exe(
+        scope: &mut v8::HandleScope,
+        args: v8::FunctionCallbackArguments,
+        mut ret: v8::ReturnValue,
+    ) {
+        if args.length() != 0 {
+            throw_import_error(
+                scope,
+                "env/current_exe",
+                crate::async_host::AsyncHostError::Inval,
+            );
+            return;
+        }
+        core_api::current_exe(callback_context(&args).runtime()).finish_i64(
+            scope,
+            &mut ret,
+            "env/current_exe",
+        );
     }
 
-    pub(super) fn current_exe_dir(context: &mut ImportContext<'_, '_>) -> u64 {
-        core_api::current_exe_dir(context.runtime())
+    pub(super) fn current_exe_dir(
+        scope: &mut v8::HandleScope,
+        args: v8::FunctionCallbackArguments,
+        mut ret: v8::ReturnValue,
+    ) {
+        if args.length() != 0 {
+            throw_import_error(
+                scope,
+                "env/current_exe_dir",
+                crate::async_host::AsyncHostError::Inval,
+            );
+            return;
+        }
+        core_api::current_exe_dir(callback_context(&args).runtime()).finish_i64(
+            scope,
+            &mut ret,
+            "env/current_exe_dir",
+        );
     }
 }
 

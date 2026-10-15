@@ -79,6 +79,7 @@ mod moon_install_global;
 mod moon_new;
 mod moon_prove;
 mod moon_test;
+mod moon_tree;
 mod moon_version;
 #[cfg(unix)]
 mod native_abort_trace;

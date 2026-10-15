@@ -26,18 +26,18 @@ use super::provenance::ported_imports;
 ported_imports! {
 #[ported(source = "src/internal/event_loop/signal.c")]
 #[cfg(unix)]
-pub(super) fn start_signal_handler(context: &mut ImportContext<'_, '_>) -> crate::async_host::AsyncHostResult<()> {
+pub(super) fn start_signal_handler(context: &mut ImportContext<'_>) -> crate::async_host::AsyncHostResult<()> {
     context.host.start_signal_handler()
 }
 
 #[ported(source = "src/internal/event_loop/signal.c")]
 #[cfg(unix)]
-pub(super) fn terminate_signal_handler(context: &mut ImportContext<'_, '_>) {
+pub(super) fn terminate_signal_handler(context: &mut ImportContext<'_>) {
     context.host.terminate_signal_handler();
 }
 
 pub(super) fn get_signal_by_index(
-    _context: &mut ImportContext<'_, '_>,
+    _context: &mut ImportContext<'_>,
     index: u32,
 ) -> i32 {
     signal::get_signal_by_index(index)
@@ -46,7 +46,7 @@ pub(super) fn get_signal_by_index(
 #[ported(source = "src/internal/event_loop/signal.c")]
 #[cfg(any(unix, windows))]
 pub(super) fn set_global_cancellation_signals(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     all_signals: u32,
     all_signals_len: u32,
     signals: u32,
@@ -64,7 +64,7 @@ pub(super) fn set_global_cancellation_signals(
 #[ported(source = "src/internal/event_loop/signal.c")]
 #[cfg(windows)]
 pub(super) fn set_console_control_handler(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_>,
     add: i32,
 ) -> crate::async_host::AsyncHostResult<i32> {
     context.host.set_signal_delivery_enabled(add != 0)
