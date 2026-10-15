@@ -19,7 +19,9 @@
 //! Standard-stream behavior selected for one Moonrun Runtime.
 
 use std::cell::Cell;
+use std::fs::File;
 use std::io::{self, Read, Write};
+use std::sync::Mutex;
 
 #[cfg(unix)]
 pub(crate) type RawStdio = std::os::fd::RawFd;
@@ -44,9 +46,11 @@ impl StdioStream {
 /// points as the historical callers: the Handle namespace snapshots them at
 /// construction, child defaults are resolved at spawn, and synchronous I/O
 /// observes them for each operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Default)]
 pub(crate) enum Stdio {
+    #[default]
     Ambient,
+    Owned([Mutex<File>; 3]),
 }
 
 /// Stateful UTF-16 code-unit output used by MoonBit's legacy character ABI.
@@ -82,12 +86,17 @@ impl Utf16Writer {
 }
 
 impl Stdio {
+    pub(crate) fn owned(stdin: File, stdout: File, stderr: File) -> Self {
+        Self::Owned([Mutex::new(stdin), Mutex::new(stdout), Mutex::new(stderr)])
+    }
+
     pub(crate) fn with_stdin<T, E>(
         &self,
         f: impl FnOnce(&mut dyn Read) -> Result<T, E>,
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stdin().lock()),
+            Self::Owned(files) => f(&mut *files[0].lock().unwrap()),
         }
     }
 
@@ -97,6 +106,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stdout().lock()),
+            Self::Owned(files) => f(&mut *files[1].lock().unwrap()),
         }
     }
 
@@ -106,6 +116,7 @@ impl Stdio {
     ) -> Result<T, E> {
         match self {
             Self::Ambient => f(&mut io::stderr().lock()),
+            Self::Owned(files) => f(&mut *files[2].lock().unwrap()),
         }
     }
 
@@ -145,6 +156,19 @@ impl Stdio {
     pub(crate) fn raw(&self, stream: StdioStream) -> io::Result<RawStdio> {
         match self {
             Self::Ambient => ambient_raw(stream),
+            Self::Owned(files) => {
+                let file = files[stream as usize].lock().unwrap();
+                #[cfg(unix)]
+                {
+                    use std::os::fd::AsRawFd;
+                    Ok(file.as_raw_fd())
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::io::AsRawHandle;
+                    Ok(file.as_raw_handle())
+                }
+            }
         }
     }
 

@@ -135,11 +135,13 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         policy_file: Option<&Path>,
         policy_source_dir: Option<&Path>,
         inherited_policy: Option<&[u8]>,
         working_directory: WorkingDirectory,
+        stdio: Stdio,
         executable: Executable,
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
@@ -177,7 +179,7 @@ impl Runtime {
                 WorkingDirectory::Fixed(path)
             }
         });
-        let stdio = Arc::new(Stdio::Ambient);
+        let stdio = Arc::new(stdio);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -313,6 +315,7 @@ mod tests {
             None,
             None,
             WorkingDirectory::Ambient,
+            Stdio::Ambient,
             Executable::from_file(&path),
             crate::signal_channel().1,
             #[cfg(unix)]

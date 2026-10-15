@@ -205,7 +205,30 @@ The directory must exist and is canonicalized when execution begins. Relative
 filesystem paths, SQLite filenames, and child directories use this root.
 Absolute paths and explicit empty filenames retain their existing meaning.
 This selects path interpretation; it does not grant access, create a sandbox,
-or change policy-denial errors. Standard streams remain ambient process I/O.
+or change policy-denial errors. Standard streams default to ambient process I/O.
+
+### Owned standard streams
+
+`RunOptions::with_stdio` binds a run's standard streams to caller-supplied files:
+
+```rust
+use moonrun::{Engine, RunOptions};
+use std::fs::File;
+
+let engine = Engine::default();
+let module = engine.load_file("agent.wasm")?;
+let options = RunOptions::default().with_stdio(
+    File::open("stdin")?,
+    File::create("stdout")?,
+    File::create("stderr")?,
+);
+let outcome = engine.run(&module, options)?;
+```
+
+Guest standard I/O and missing child standard streams use these bindings.
+Explicit guest-supplied child streams take precedence. The default remains
+ambient process I/O. Options and their supplied files are moved into one run;
+create separate options for independent runs. Working-directory behavior is configured independently.
 
 ## Memory Leak Reporting
 

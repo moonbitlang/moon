@@ -237,7 +237,10 @@ fn proposals_and_unsupported_options_fail_before_execution() {
     let module = engine.compile("test.wasm", &bytes).unwrap();
     assert!(
         engine
-            .run(&module, RunOptions::default().with_test_args("{}"))
+            .run(
+                &module,
+                RunOptions::default().with_test_args(r#"{"package":"test","file_and_index":[]}"#)
+            )
             .unwrap_err()
             .to_string()
             .contains("test driver")

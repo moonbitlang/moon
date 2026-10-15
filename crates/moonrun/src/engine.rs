@@ -28,6 +28,7 @@ use crate::wasmtime as backend;
 use crate::wee8 as backend;
 use anyhow::Context;
 use std::fmt;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -50,7 +51,7 @@ impl EngineConfig {
 }
 
 /// Configuration for one MoonBit Wasm run.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct RunOptions {
     pub(crate) args: Vec<String>,
     pub(crate) no_stack_trace: bool,
@@ -59,6 +60,7 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
+    pub(crate) stdio: Stdio,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -132,6 +134,16 @@ impl RunOptions {
     /// execution begins.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
         self.working_directory = working_directory;
+        self
+    }
+
+    /// Bind this run's standard streams to caller-supplied files.
+    ///
+    /// These streams also supply default child streams; explicit guest-supplied
+    /// child streams take precedence. Without this option, streams are ambient.
+    /// The files are moved into the Runtime for this run.
+    pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
+        self.stdio = Stdio::owned(stdin, stdout, stderr);
         self
     }
 
@@ -378,11 +390,13 @@ impl Engine {
             Some(signal_mask) => signal_mask,
             None => current_signal_mask()?,
         };
+        let test_args = options.parsed_test_args()?;
         let runtime = Runtime::new(
             options.policy_file.as_deref(),
             options.policy_source_dir.as_deref(),
             options.inherited_policy.as_deref(),
-            options.working_directory.clone(),
+            options.working_directory,
+            options.stdio,
             module.executable().clone(),
             signals,
             #[cfg(unix)]
@@ -392,7 +406,9 @@ impl Engine {
             module.name(),
             module.compiled(),
             module.source_map(),
-            options,
+            &options.args,
+            test_args,
+            options.no_stack_trace,
             runtime,
         )?;
         Ok(match outcome {
