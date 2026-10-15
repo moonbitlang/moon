@@ -113,6 +113,14 @@ fn test_check_publishes_mbti() {
     assert_success(&dir, ["check"]);
     assert_eq!(modified_time(&lib_mbti), published_at);
 
+    // Moving declarations changes the `.mi` and regenerates the same
+    // interface, which must not rewrite the published file either.
+    let hello = dir.join("lib").join("hello.mbt");
+    let source = std::fs::read_to_string(&hello).unwrap();
+    std::fs::write(&hello, format!("\n{source}")).unwrap();
+    assert_success(&dir, ["check"]);
+    assert_eq!(modified_time(&lib_mbti), published_at);
+
     // A changed interface is published again.
     let mut source = std::fs::OpenOptions::new()
         .append(true)
@@ -122,6 +130,28 @@ fn test_check_publishes_mbti() {
     assert_success(&dir, ["check"]);
     let updated = std::fs::read_to_string(&lib_mbti).unwrap();
     assert!(updated.contains("pub fn goodbye() -> String"), "{updated}");
+}
+
+#[test]
+fn test_check_repairs_stale_mbti() {
+    let dir = TestDir::new("mbti");
+    let lib_mbti = dir.join("lib").join(MBTI_GENERATED);
+    assert_success(&dir, ["check"]);
+    let published = std::fs::read_to_string(&lib_mbti).unwrap();
+
+    // Restoring a stale interface, e.g. from another revision, gives it a
+    // newer timestamp than the unchanged generated interface.
+    std::fs::write(&lib_mbti, "stale interface\n").unwrap();
+    let future = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&lib_mbti)
+        .unwrap()
+        .set_modified(future)
+        .unwrap();
+
+    assert_success(&dir, ["check"]);
+    assert_eq!(std::fs::read_to_string(&lib_mbti).unwrap(), published);
 }
 
 #[test]

@@ -34,8 +34,8 @@
 //!    checks without a selector publish `packages.json` and `index.json`;
 //!    focused checks leave
 //!    it untouched.
-//! 6. After a successful check, generated interfaces newer than the package's
-//!    `pkg.generated.mbti` are copied over it.
+//! 6. After a successful check, generated interfaces that differ from the
+//!    package's `pkg.generated.mbti` are copied over it.
 //!
 use anyhow::Context;
 use log::LevelFilter;
@@ -858,30 +858,30 @@ fn run_planned_checks(
 
 /// Copy generated interfaces over their `pkg.generated.mbti`.
 ///
-/// `mooninfo` only reruns when the package's `.mi` changes, so a published
-/// file at least as new as the generated one is already up to date and is
-/// left untouched.
+/// Timestamps cannot tell whether a published file is current: one restored
+/// from another revision is newer than the generated interface, and moving
+/// declarations regenerates an identical interface. Only differing content is
+/// written, so an up-to-date file is never touched.
 fn publish_generated_mbti(build_metas: &[BuildMeta], user_log: &UserLog) {
     for meta in build_metas {
         for (package, generated) in rr_build::generated_mbti_artifacts(meta) {
             let dest = rr_build::generated_mbti_dest(&meta.resolved_project, package);
-            if let Err(e) = copy_if_newer(generated, &dest) {
+            if let Err(e) = write_if_changed(generated, &dest) {
                 user_log.warn(format!("failed to update `{}`: {e}", dest.display()));
             }
         }
     }
 }
 
-fn copy_if_newer(src: &Path, dest: &Path) -> std::io::Result<()> {
-    let src_modified = std::fs::metadata(src)?.modified()?;
-    match std::fs::metadata(dest).and_then(|meta| meta.modified()) {
-        Ok(dest_modified) if dest_modified >= src_modified => return Ok(()),
+fn write_if_changed(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let content = std::fs::read(src)?;
+    match std::fs::read(dest) {
+        Ok(published) if published == content => return Ok(()),
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
-    std::fs::copy(src, dest)?;
-    Ok(())
+    std::fs::write(dest, content)
 }
 
 fn sync_and_discover_check_project(

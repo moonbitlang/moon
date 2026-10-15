@@ -91,9 +91,10 @@ Notes:
 * `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
 * `moon check` also publishes `pkg.generated.mbti` for checked local
   non-virtual packages, but only from a plan whose `B` is the package's
-  canonical backend. Unlike `moon info`, it copies the generated interface only
-  when `pkg.generated.mbti` is missing or older than it, because `mooninfo`
-  reruns only when the package's `.mi` changes. A failed check, `--dry-run`,
+  canonical backend. Unlike `moon info`, it writes `pkg.generated.mbti` only
+  when its content differs from the generated interface, so an up-to-date file
+  keeps its timestamp; `mooninfo` itself reruns only when the package's `.mi`
+  changes. A failed check, `--dry-run`,
   `--patch-file`, and `--no-mbti` publish nothing. `moon check --watch`
   ignores the published files.
 
