@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! The shared WASIp1 subset currently supported by all three engine adapters.
+//! The shared WASIp1 subset supported by all three engine adapters.
 
 use super::{WASI_ERRNO_FAULT, WasiContext, WasiResult, result_to_errno};
 use crate::wasm_imports::{Caller, ImportError, ImportRegistry};
@@ -24,25 +24,210 @@ use crate::wasm_imports::{Caller, ImportError, ImportRegistry};
 pub(crate) const MODULE: &str = "wasi_snapshot_preview1";
 
 pub(crate) fn register<R: ImportRegistry<WasiContext>>(registry: &mut R) -> Result<(), R::Error> {
-    registry.define(MODULE, "args_sizes_get", |caller, [argc, size]| {
-        with_memory(caller, |data, memory| {
-            super::args_sizes_get_impl(data, memory, argc as u32, size as u32)
-        })
-    })?;
-    registry.define(MODULE, "args_get", |caller, [argv, bytes]| {
+    registry.define(
+        MODULE,
+        "args_sizes_get",
+        |caller, (argc, size): (i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::args_sizes_get_impl(data, memory, argc as u32, size as u32)
+            })
+        },
+    )?;
+    registry.define(MODULE, "args_get", |caller, (argv, bytes): (i32, i32)| {
         with_memory(caller, |data, memory| {
             super::args_get_impl(data, memory, argv as u32, bytes as u32)
         })
     })?;
-    registry.define(MODULE, "fd_write", |caller, [fd, iovs, count, written]| {
-        with_memory(caller, |data, memory| {
-            super::fd_write_impl(data, memory, fd, iovs as u32, count as u32, written as u32)
-        })
+    registry.define(
+        MODULE,
+        "fd_write",
+        |caller, (fd, iovs, count, written): (i32, i32, i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::fd_write_impl(data, memory, fd, iovs as u32, count as u32, written as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "environ_sizes_get",
+        |caller, (count, size): (i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::environ_sizes_get_impl(data, memory, count as u32, size as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "environ_get",
+        |caller, (environ, bytes): (i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::environ_get_impl(data, memory, environ as u32, bytes as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "random_get",
+        |caller, (buffer, length): (i32, i32)| {
+            with_memory(caller, |_data, memory| {
+                super::random_get_impl(memory, buffer as u32, length as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "fd_read",
+        |caller, (fd, iovs, count, read): (i32, i32, i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::fd_read_impl(data, memory, fd, iovs as u32, count as u32, read as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "fd_prestat_get",
+        |caller, (fd, prestat): (i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::fd_prestat_get_impl(data, memory, fd, prestat as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "fd_prestat_dir_name",
+        |caller, (fd, path, length): (i32, i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::fd_prestat_dir_name_impl(data, memory, fd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "fd_readdir",
+        |caller, (fd, buffer, length, cookie, used): (i32, i32, i32, i64, i32)| {
+            with_memory(caller, |data, memory| {
+                super::fd_readdir_impl(
+                    data,
+                    memory,
+                    fd,
+                    buffer as u32,
+                    length as u32,
+                    cookie as u64,
+                    used as u32,
+                )
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "path_open",
+        |caller,
+         (dirfd, dirflags, path, length, oflags, rights, inheriting, fdflags, opened): (
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            i64,
+            i64,
+            i32,
+            i32,
+        )| {
+            with_memory(caller, |data, memory| {
+                super::path_open_impl(
+                    data,
+                    memory,
+                    dirfd,
+                    dirflags,
+                    path as u32,
+                    length as u32,
+                    oflags,
+                    rights as u64,
+                    inheriting as u64,
+                    fdflags,
+                    opened as u32,
+                )
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "path_readlink",
+        |caller, (dirfd, path, length, buffer, capacity, used): (i32, i32, i32, i32, i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::path_readlink_impl(
+                    data,
+                    memory,
+                    dirfd,
+                    path as u32,
+                    length as u32,
+                    buffer as u32,
+                    capacity as u32,
+                    used as u32,
+                )
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "path_rename",
+        |caller,
+         (old_fd, old_path, old_length, new_fd, new_path, new_length): (
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+        )| {
+            with_memory(caller, |data, memory| {
+                super::path_rename_impl(
+                    data,
+                    memory,
+                    old_fd,
+                    old_path as u32,
+                    old_length as u32,
+                    new_fd,
+                    new_path as u32,
+                    new_length as u32,
+                )
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "path_create_directory",
+        |caller, (dirfd, path, length): (i32, i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::path_create_directory_impl(data, memory, dirfd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "path_remove_directory",
+        |caller, (dirfd, path, length): (i32, i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::path_remove_directory_impl(data, memory, dirfd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.define(
+        MODULE,
+        "path_unlink_file",
+        |caller, (dirfd, path, length): (i32, i32, i32)| {
+            with_memory(caller, |data, memory| {
+                super::path_unlink_file_impl(data, memory, dirfd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.define(MODULE, "fd_close", |caller, (fd,): (i32,)| {
+        Ok(result_to_errno(super::fd_close_impl(caller.data, fd)))
     })?;
     registry.define(
         MODULE,
         "proc_exit",
-        |caller, [code]| -> Result<(), ImportError> {
+        |caller, (code,): (i32,)| -> Result<(), ImportError> {
             super::proc_exit_impl(caller.data, code as u32);
             Err(ImportError::Terminated)
         },

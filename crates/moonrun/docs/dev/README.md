@@ -17,14 +17,18 @@
 ## Shared Wasm import registration
 
 `wasm_imports::ImportRegistry` defines synchronous imports once for V8,
-Wasmtime and wee8. The first migrated group is WASIp1 `args_get`,
-`args_sizes_get`, `fd_write` and `proc_exit` in `wasi/imports.rs`.
-The argument array supplies the i32 arity, and the Rust return type supplies
-the i32 or void result. Engine adapters retain callbacks, convert values,
-borrow current memory and unwind the guest after a termination request.
-Adding another import with this signature needs only a shared registration
-and its Host Domain implementation. Wider numeric types and references are
-follow-up work; existing imports outside this group keep their adapters.
+Wasmtime and wee8. All 18 WASIp1 operations supported by Moonrun are registered
+in `wasi/imports.rs`; backend WASI setup only supplies the per-run Host Domain
+state and registration adapter.
+
+A Rust argument tuple supplies parameter types and order, including the mixed
+i32/i64 signatures of `path_open` and `fd_readdir`. The Rust return type supplies
+the i32 or void result. Wasmtime and wee8 derive native signatures from the
+same tuple. All adapters decode parameters before borrowing Guest Memory.
+V8 decodes i64 arguments from BigInt, retaining all bits; registration interprets
+addresses and rights/cookies as unsigned values. Adding a supported import
+needs only a shared registration and its Host Domain implementation. Other
+result types, references and other host families remain follow-up work.
 
 The caller contains borrowed Host Domain state and deferred memory access,
 with no engine handles or guest re-entry. A memory-free operation can run
@@ -36,7 +40,9 @@ each call and released before returning a value or interrupting the engine.
 
 `tests/wasi_imports.rs` runs identical modules on all three selected engines,
 covering import order/duplicates, arguments, memory growth, invalid unsigned
-addresses, fresh run state and termination during instantiation.
+addresses, fresh run state, filesystem operations, 64-bit rights and directory
+cookies, and termination during instantiation. The existing CLI WASI surface
+test also runs here, so wee8 exercises it alongside V8 and Wasmtime.
 
 ## Async import context
 

@@ -18,8 +18,13 @@
 
 //! V8 callback ownership and conversion for shared host imports.
 
-use super::{builder::ScopeExt, context::V8MemoryBinding};
-use crate::wasm_imports::{Caller, HostFunction, ImportError, ImportRegistry, WasmResult};
+use super::{
+    builder::ScopeExt,
+    context::{V8MemoryBinding, decode_wasm_u64},
+};
+use crate::wasm_imports::{
+    Caller, HostFunction, ImportError, ImportRegistry, WasmParams, WasmResult, WasmType,
+};
 use std::{any::Any, convert::Infallible, rc::Rc};
 
 pub(super) struct Registry<'a, 's, T> {
@@ -31,20 +36,20 @@ pub(super) struct Registry<'a, 's, T> {
     pub(super) retained: &'a mut Vec<Box<dyn Any>>,
 }
 
-struct Binding<T, const N: usize, R> {
+struct Binding<T, P, R> {
     data: Rc<T>,
     memory: Rc<V8MemoryBinding>,
-    function: HostFunction<T, N, R>,
+    function: HostFunction<T, P, R>,
 }
 
 impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
     type Error = Infallible;
 
-    fn define<const N: usize, R: WasmResult>(
+    fn define<P: WasmParams, R: WasmResult>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, N, R>,
+        function: HostFunction<T, P, R>,
     ) -> Result<(), Infallible> {
         // V8 receives the already-created namespace object from import setup.
         assert_eq!(module, self.module);
@@ -55,9 +60,10 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
         });
         let external = v8::External::new(
             self.scope,
-            (&*binding as *const Binding<T, N, R>).cast_mut().cast(),
+            (&*binding as *const Binding<T, P, R>).cast_mut().cast(),
         );
-        let callback = v8::Function::builder(invoke::<T, N, R>)
+        let callback = v8::Function::builder(invoke::<T, P, R>)
+            .length(P::TYPES.len() as i32)
             .data(external.into())
             .build(self.scope)
             .unwrap();
@@ -68,21 +74,26 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
     }
 }
 
-fn invoke<T, const N: usize, R: WasmResult>(
+fn invoke<T, P: WasmParams, R: WasmResult>(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let external = v8::Local::<v8::External>::try_from(args.data()).unwrap();
     // Registry retains this exact allocation until the run's callbacks are gone.
-    let binding = unsafe { &*external.value().cast::<Binding<T, N, R>>() };
-    let mut params = [0; N];
-    for (index, param) in params.iter_mut().enumerate() {
-        let Some(value) = args.get(index as i32).int32_value(scope) else {
-            return;
-        };
-        *param = value;
-    }
+    let binding = unsafe { &*external.value().cast::<Binding<T, P, R>>() };
+    let Ok(params) = P::decode(|index, kind| {
+        let value = args.get(index as i32);
+        match kind {
+            WasmType::I32 => value.int32_value(scope).map(i64::from),
+            // Wasm i64 reaches a JS callback as BigInt. Preserve the complete
+            // bit pattern, including unsigned rights/cookies with bit 63 set.
+            WasmType::I64 => decode_wasm_u64(value).map(|bits| bits as i64),
+        }
+        .ok_or(())
+    }) else {
+        return;
+    };
     // All conversions precede the memory borrow. No V8 calls occur within it.
     let result = binding.memory.with_memory_access(scope, |memory| {
         (binding.function)(

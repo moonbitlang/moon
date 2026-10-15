@@ -181,6 +181,16 @@ fn unsupported_imports_and_start_memory_are_host_errors() {
             "incorrect signature",
         ),
         (
+            r#"(module (import "wasi_snapshot_preview1" "fd_readdir"
+                (func (param i32 i32 i32 i32 i32) (result i32))))"#,
+            "incorrect signature",
+        ),
+        (
+            r#"(module (import "wasi_snapshot_preview1" "path_open"
+                (func (param i32 i32 i32 i32 i32 i64 i64 i32 i32))))"#,
+            "incorrect signature",
+        ),
+        (
             r#"(module (import "host" "memory" (memory 1)))"#,
             "unsupported non-function import host::memory",
         ),
