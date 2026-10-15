@@ -84,6 +84,7 @@ mod moon_version;
 #[cfg(unix)]
 mod native_abort_trace;
 mod native_backend;
+mod native_foreign_library;
 mod native_stub_stability;
 mod no_export_when_test;
 mod output_format;
