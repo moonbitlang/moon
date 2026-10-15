@@ -28,7 +28,6 @@
 //! authorization; the API must also represent a directory with no recoverable
 //! pathname after unlink.
 
-use anyhow::Context;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
@@ -48,18 +47,6 @@ pub enum WorkingDirectory {
 }
 
 impl WorkingDirectory {
-    pub(crate) fn prepare(self) -> anyhow::Result<Self> {
-        match self {
-            Self::Ambient => Ok(Self::Ambient),
-            Self::Fixed(path) => {
-                let path = dunce::canonicalize(path)
-                    .context("failed to resolve fixed working directory")?;
-                anyhow::ensure!(path.is_dir(), "fixed working directory must be a directory");
-                Ok(Self::Fixed(path))
-            }
-        }
-    }
-
     pub(crate) fn current_dir(&self) -> std::io::Result<PathBuf> {
         match self {
             Self::Ambient => std::env::current_dir(),

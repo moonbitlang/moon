@@ -131,7 +131,7 @@ pub(crate) struct Runtime {
 
 impl Runtime {
     pub(crate) fn new(
-        options: &mut RunOptions,
+        options: &RunOptions,
         executable: Executable,
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
@@ -163,7 +163,15 @@ impl Runtime {
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
-        let working_directory = Arc::new(std::mem::take(&mut options.working_directory).prepare()?);
+        let working_directory = Arc::new(match options.working_directory.clone() {
+            WorkingDirectory::Ambient => WorkingDirectory::Ambient,
+            WorkingDirectory::Fixed(path) => {
+                let path = dunce::canonicalize(path)
+                    .context("failed to resolve fixed working directory")?;
+                anyhow::ensure!(path.is_dir(), "fixed working directory must be a directory");
+                WorkingDirectory::Fixed(path)
+            }
+        });
         let stdio = Arc::new(options.stdio.clone());
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
@@ -296,7 +304,7 @@ mod tests {
             mask
         };
         let runtime = Runtime::new(
-            &mut RunOptions::default(),
+            &RunOptions::default(),
             Executable::from_file(&path),
             crate::signal_channel().1,
             #[cfg(unix)]
