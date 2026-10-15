@@ -170,3 +170,25 @@ Warning: Package `example/conditional/app` depends on main package `example/cond
 
 "#]]);
 }
+
+#[test]
+fn test_package_graph_export_is_written_per_backend() {
+    let dir = TestDir::new("conditional_imports/fixture");
+    moon_cmd(&dir)
+        .args([
+            "-Z",
+            "rr_export_package_graph",
+            "check",
+            "--target",
+            "js,native",
+            "--dry-run",
+        ])
+        .assert()
+        .success();
+
+    let graph = |backend: &str| {
+        std::fs::read_to_string(dir.join(format!("_build/package_graph.{backend}.dot"))).unwrap()
+    };
+    // Each requested backend keeps its own graph instead of overwriting one file.
+    assert_ne!(graph("js"), graph("native"));
+}
