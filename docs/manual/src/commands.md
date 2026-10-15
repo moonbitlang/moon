@@ -600,6 +600,12 @@ Text output expands each dependency once per root. When another path reaches a d
 * `--package` — Show the package-level dependency graph instead of the module-level tree
 
    Text output expands source imports from every package in the selected module. With `--json`, the result contains every non-standard-library package in the resolved project, all import target kinds, and the selected module's packages in `root`.
+* `--target <TARGET>` — Select the backend for the package dependency graph
+
+   Defaults to the selected module's preferred target, then wasm. JSON output records the selected backend in `target`; all edges belong to it.
+
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`
+
 
 
 

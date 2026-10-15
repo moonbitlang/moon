@@ -992,7 +992,7 @@ fn test_member_dir_tree_package_json_output() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":2,"status":"success","error":null,"root":[0],"nodes":[{"module":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"rel":"main"},{"module":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"rel":"lib"}],"edges":[{"from":0,"to":1,"alias":"lib","kinds":["source"]}],"logs":[]}
+{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"rel":"main"},{"module":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"rel":"lib"}],"edges":[{"from":0,"to":1,"alias":"lib","kinds":["source"]}],"logs":[]}
 
 "#]]);
 }

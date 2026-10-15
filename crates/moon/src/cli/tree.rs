@@ -25,7 +25,7 @@ use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
     resolve::{
-        DiscoveredProject, ProjectPreparationConfig, ResolvedProject, prepare_synced_project,
+        DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
         sync_module_dependencies,
     },
 };
@@ -34,9 +34,9 @@ use moonutil::{
     child_process::ChildOutputMode,
     cli_support::UniversalFlags,
     command_output::CommandOutput,
-    manifest::read_module_desc_file_in_dir,
     project::PackageDirs,
-    resolution::{DependencyKind, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSourceKind},
+    resolution::{DependencyKind, ModuleDependencyGraph, ModuleId, ModuleSourceKind},
+    target::TargetBackend,
     user_log::{UserLog, UserLogCapture, UserLogEntry},
 };
 use serde::Serialize;
@@ -47,7 +47,7 @@ use super::{
 };
 
 const MODULE_TREE_JSON_VERSION: u32 = 1;
-const PACKAGE_TREE_JSON_VERSION: u32 = 2;
+const PACKAGE_TREE_JSON_VERSION: u32 = 3;
 const TREE_JSON_ERROR_EXIT_CODE: i32 = -1;
 
 /// Display the dependency tree
@@ -76,6 +76,19 @@ pub(crate) struct TreeSubcommand {
     /// selected module's packages in `root`.
     #[clap(long)]
     pub package: bool,
+
+    /// Select the backend for the package dependency graph
+    ///
+    /// Defaults to the selected module's preferred target, then wasm. JSON
+    /// output records the selected backend in `target`; all edges belong to it.
+    #[clap(long, requires = "package")]
+    pub target: Option<TargetBackend>,
+}
+
+struct ResolvedPackageTree {
+    project: ResolvedProject,
+    selected_module: ModuleId,
+    target: TargetBackend,
 }
 
 pub(crate) fn tree_cli(
@@ -85,9 +98,13 @@ pub(crate) fn tree_cli(
 ) -> anyhow::Result<i32> {
     let dedupe = !cmd.no_dedupe;
     let rendered = if cmd.package {
-        let (resolved_project, selected) =
-            resolve_selected_package_graph(&cli, output.user_log(), ChildOutputMode::Inherit)?;
-        render_package_tree(&resolved_project, selected, dedupe)
+        let tree = resolve_selected_package_graph(
+            &cli,
+            cmd.target,
+            output.user_log(),
+            ChildOutputMode::Inherit,
+        )?;
+        render_package_tree(&tree.project, tree.selected_module, dedupe)
     } else {
         let resolved = resolve_selected_tree(&cli, output.user_log())?;
         let workspace_members =
@@ -123,9 +140,10 @@ fn resolve_selected_tree(cli: &UniversalFlags, user_log: &UserLog) -> anyhow::Re
 /// pipeline, together with the module the tree is rooted at.
 fn resolve_selected_package_graph(
     cli: &UniversalFlags,
+    target: Option<TargetBackend>,
     user_log: &UserLog,
     child_output: ChildOutputMode,
-) -> anyhow::Result<(ResolvedProject, ModuleId)> {
+) -> anyhow::Result<ResolvedPackageTree> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
         false,
@@ -138,18 +156,27 @@ fn resolve_selected_package_graph(
         child_output,
     });
     let synced = sync_module_dependencies(&preparation_config, &dirs, user_log)?;
-    let resolved_project = prepare_synced_project(&preparation_config, synced, user_log)?;
-
-    let module = read_module_desc_file_in_dir(&module_dir)?;
-    let module_name: ModuleName = module.name.as_str().into();
-    let selected = resolved_project
+    let discovered = discover_synced_project(&preparation_config, synced, user_log)?;
+    let selected_module = discovered
         .local_modules()
         .iter()
         .copied()
-        .find(|id| resolved_project.module_graph.module_source(*id).name() == &module_name)
-        .or_else(|| resolved_project.local_modules().first().copied())
-        .context("resolved dependency graph has no root modules")?;
-    Ok((resolved_project, selected))
+        .find(|id| {
+            discovered
+                .module_dirs
+                .get(*id)
+                .is_some_and(|path| path == &module_dir)
+        })
+        .context("selected module is not in the discovered project")?;
+    let target = target
+        .or(discovered.module_info(selected_module).preferred_target)
+        .unwrap_or_default();
+    let project = discovered.resolve_packages(user_log)?;
+    Ok(ResolvedPackageTree {
+        project,
+        selected_module,
+        target,
+    })
 }
 
 fn run_tree_json(
@@ -160,9 +187,10 @@ fn run_tree_json(
     let user_log = output.user_log();
     if cmd.package {
         TreeJsonOutcome::package(
-            resolve_selected_package_graph(cli, user_log, ChildOutputMode::Capture)
-                .map(|(resolved, selected)| (Box::new(resolved), selected))
+            resolve_selected_package_graph(cli, cmd.target, user_log, ChildOutputMode::Capture)
+                .map(Box::new)
                 .map_err(|error| format!("{error:#}")),
+            cmd.target,
         )
     } else {
         TreeJsonOutcome::module(
@@ -180,7 +208,10 @@ struct TreeJsonOutcome {
 
 enum TreeJsonOutcomeKind {
     Module(Result<Box<ResolvedTree>, String>),
-    Package(Result<(Box<ResolvedProject>, ModuleId), String>),
+    Package(
+        Result<Box<ResolvedPackageTree>, String>,
+        Option<TargetBackend>,
+    ),
 }
 
 impl TreeJsonOutcome {
@@ -195,14 +226,17 @@ impl TreeJsonOutcome {
         }
     }
 
-    fn package(result: Result<(Box<ResolvedProject>, ModuleId), String>) -> Self {
+    fn package(
+        result: Result<Box<ResolvedPackageTree>, String>,
+        target: Option<TargetBackend>,
+    ) -> Self {
         Self {
             exit_code: if result.is_ok() {
                 0
             } else {
                 TREE_JSON_ERROR_EXIT_CODE
             },
-            kind: TreeJsonOutcomeKind::Package(result),
+            kind: TreeJsonOutcomeKind::Package(result, target),
         }
     }
 
@@ -227,7 +261,7 @@ impl JsonCommand for TreeJsonCommand {
 
     fn bootstrap_error(&self, message: String) -> JsonCommandOutcome {
         let outcome = if self.command.package {
-            TreeJsonOutcome::package(Err(message))
+            TreeJsonOutcome::package(Err(message), self.command.target)
         } else {
             TreeJsonOutcome::module(Err(message))
         };
@@ -269,15 +303,16 @@ fn write_tree_json(
                 };
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            TreeJsonOutcomeKind::Package(Ok((resolved_project, selected))) => {
-                let report = render_package_json_report(&resolved_project, selected, status, logs);
+            TreeJsonOutcomeKind::Package(Ok(tree), _) => {
+                let report = render_package_json_report(&tree, status, logs);
                 serde_json::to_writer(&mut *writer, &report)?;
             }
-            TreeJsonOutcomeKind::Package(Err(error)) => {
+            TreeJsonOutcomeKind::Package(Err(error), target) => {
                 let report = PackageJsonReport {
                     version: PACKAGE_TREE_JSON_VERSION,
                     status,
                     error: Some(error),
+                    target: target.map(TargetBackend::to_flag),
                     root: vec![],
                     nodes: vec![],
                     edges: vec![],
@@ -349,6 +384,7 @@ struct PackageJsonReport {
     version: u32,
     status: &'static str,
     error: Option<String>,
+    target: Option<&'static str>,
     root: Vec<usize>,
     nodes: Vec<PackageNodeJSON>,
     edges: Vec<PackageEdgeJSON>,
@@ -442,16 +478,16 @@ fn render_graph_json(
 }
 
 fn render_package_json_report(
-    resolved_project: &ResolvedProject,
-    selected_module: ModuleId,
+    tree: &ResolvedPackageTree,
     status: &'static str,
     logs: Vec<UserLogEntry>,
 ) -> PackageJsonReport {
-    let graph = render_package_graph_json(resolved_project, selected_module);
+    let graph = render_package_graph_json(&tree.project, tree.selected_module);
     PackageJsonReport {
         version: PACKAGE_TREE_JSON_VERSION,
         status,
         error: None,
+        target: Some(tree.target.to_flag()),
         root: graph.root,
         nodes: graph.nodes,
         edges: graph.edges,
@@ -853,6 +889,29 @@ mod tests {
             <TreeSubcommand as clap::Parser>::try_parse_from(["tree", "--json", "--no-dedupe"])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn target_selects_one_package_backend() {
+        let command = <TreeSubcommand as clap::Parser>::try_parse_from([
+            "tree",
+            "--package",
+            "--target",
+            "native",
+            "--json",
+        ])
+        .unwrap();
+        assert_eq!(
+            command.target,
+            Some(moonutil::target::TargetBackend::Native)
+        );
+        for args in [
+            vec!["tree", "--target", "native"],
+            vec!["tree", "--package", "--target", "all"],
+            vec!["tree", "--package", "--target", "js,native"],
+        ] {
+            assert!(<TreeSubcommand as clap::Parser>::try_parse_from(args).is_err());
+        }
     }
 
     fn shared_subgraph() -> (ModuleDependencyGraph, ModuleId) {
