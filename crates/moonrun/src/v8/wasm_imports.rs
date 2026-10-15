@@ -36,20 +36,20 @@ pub(super) struct Registry<'a, 's, T> {
     pub(super) retained: &'a mut Vec<Box<dyn Any>>,
 }
 
-struct Binding<T, P, R> {
+struct Binding<T, F> {
     data: Rc<T>,
     memory: Rc<V8MemoryBinding>,
-    function: HostFunction<T, P, R>,
+    function: F,
 }
 
 impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
     type Error = Infallible;
 
-    fn define<P: WasmParams, R: WasmResult>(
+    fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, P, R>,
+        function: F,
     ) -> Result<(), Infallible> {
         // V8 receives the already-created namespace object from import setup.
         assert_eq!(module, self.module);
@@ -60,9 +60,9 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
         });
         let external = v8::External::new(
             self.scope,
-            (&*binding as *const Binding<T, P, R>).cast_mut().cast(),
+            (&*binding as *const Binding<T, F>).cast_mut().cast(),
         );
-        let callback = v8::Function::builder(invoke::<T, P, R>)
+        let callback = v8::Function::builder(invoke::<T, P, R, F>)
             .length(P::TYPES.len() as i32)
             .data(external.into())
             .build(self.scope)
@@ -74,14 +74,14 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
     }
 }
 
-fn invoke<T, P: WasmParams, R: WasmResult>(
+fn invoke<T, P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let external = v8::Local::<v8::External>::try_from(args.data()).unwrap();
     // Registry retains this exact allocation until the run's callbacks are gone.
-    let binding = unsafe { &*external.value().cast::<Binding<T, P, R>>() };
+    let binding = unsafe { &*external.value().cast::<Binding<T, F>>() };
     let Ok(params) = P::decode(|index, kind| {
         let value = args.get(index as i32);
         match kind {
@@ -96,7 +96,7 @@ fn invoke<T, P: WasmParams, R: WasmResult>(
     };
     // All conversions precede the memory borrow. No V8 calls occur within it.
     let result = binding.memory.with_memory_access(scope, |memory| {
-        (binding.function)(
+        binding.function.call(
             Caller {
                 data: &binding.data,
                 memory: memory.map_err(|_| ImportError::MemoryUnavailable),

@@ -22,6 +22,7 @@ use super::{StoreData, api};
 use crate::wasm_imports::{
     Caller, HostFunction, ImportError, ImportRegistry, WasmParams, WasmResult, WasmType,
 };
+use std::rc::Rc;
 
 pub(super) struct Registry<'s, T> {
     store: &'s api::Store<StoreData>,
@@ -64,13 +65,16 @@ impl<'s, T> Registry<'s, T> {
 
 impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
     type Error = api::Error;
-    fn define<P: WasmParams, R: WasmResult>(
+    fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, P, R>,
+        function: F,
     ) -> api::Result<()> {
         let data = self.data;
+        // A module can import the same definition more than once. All slots
+        // retain the same callback and its captures until their store is dropped.
+        let function = Rc::new(function);
         let params: Vec<_> = P::TYPES
             .iter()
             .map(|kind| match kind {
@@ -91,6 +95,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                     "incorrect signature for {module}::{name}"
                 )));
             }
+            let function = Rc::clone(&function);
             *slot = Some(
                 self.store
                     .host_func(&params, &results, move |caller, args| {
@@ -106,7 +111,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         // exactly once with deferred failure so memory-free calls such
                         // as proc_exit still work during module instantiation.
                         let result = match caller.with_memory(|state, memory| {
-                            function(
+                            function.call(
                                 Caller {
                                     data: data(state),
                                     memory: Ok(memory),
@@ -116,7 +121,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         }) {
                             Ok(result) => result,
                             Err(error) => caller.with_data(|state| {
-                                function(
+                                function.call(
                                     Caller {
                                         data: data(state),
                                         memory: Err(ImportError::Host(error.into())),

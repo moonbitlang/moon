@@ -28,11 +28,11 @@ pub(super) struct Registry<'a, T> {
 
 impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
     type Error = wasmtime::Error;
-    fn define<P: WasmParams, R: WasmResult>(
+    fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, P, R>,
+        function: F,
     ) -> wasmtime::Result<()> {
         let data = self.data;
         let ty = wasmtime::FuncType::new(
@@ -58,7 +58,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                 let value = match memory {
                     Some(memory) => {
                         let (bytes, state) = memory.data_and_store_mut(&mut caller);
-                        function(
+                        function.call(
                             Caller {
                                 data: data(state),
                                 memory: Ok(bytes),
@@ -67,7 +67,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         )
                     }
                     // Preserve Wasmtime's existing empty-memory behavior.
-                    None => function(
+                    None => function.call(
                         Caller {
                             data: data(caller.data()),
                             memory: Ok(&mut []),

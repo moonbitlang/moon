@@ -89,7 +89,7 @@ impl WasmParam for i64 {
     }
 }
 
-/// A Rust tuple is the single source of truth for parameter types and order.
+/// The internal argument tuple supplies parameter types and order.
 /// The adapter-provided `read` decodes the requested Wasm type: i32 values
 /// are widened to i64, and i64 values retain all bits (never through f64).
 /// Decoding finishes before borrowing guest memory and needs no parameter Vec.
@@ -100,7 +100,17 @@ pub(crate) trait WasmParams: Copy + 'static {
     ) -> Result<Self, Error>;
 }
 
-macro_rules! wasm_params {
+/// Like Wasmtime's `func_wrap`/`IntoFunc`, registration derives the signature
+/// from an ordinary typed Rust callback. The tuple only connects adapter decoding
+/// to invocation; import definitions do not construct or unpack it. Adapters
+/// retain the closure itself, including any captures, for the callback lifetime.
+/// Send + Sync permits registration with Wasmtime's thread-safe Linker; Caller
+/// still borrows each run's state and memory only for this invocation.
+pub(crate) trait HostFunction<T, P, R>: Send + Sync + 'static {
+    fn call(&self, caller: Caller<'_, T>, params: P) -> Result<R, ImportError>;
+}
+
+macro_rules! host_function {
     ($($param:ident: $index:tt),+) => {
         impl<$($param: WasmParam),+> WasmParams for ($($param,)+) {
             const TYPES: &'static [WasmType] = &[$($param::TYPE,)+];
@@ -108,28 +118,37 @@ macro_rules! wasm_params {
                 Ok(($($param::from_bits(read($index, $param::TYPE)?),)+))
             }
         }
+
+        impl<T, Func, R, $($param),+> HostFunction<T, ($($param,)+), R> for Func
+        where
+            Func: Fn(Caller<'_, T>, $($param),+) -> Result<R, ImportError> + Send + Sync + 'static,
+            $($param: WasmParam,)+
+            R: WasmResult,
+        {
+            fn call(&self, caller: Caller<'_, T>, params: ($($param,)+)) -> Result<R, ImportError> {
+                self(caller, $(params.$index),+)
+            }
+        }
     };
 }
 
-wasm_params!(A: 0);
-wasm_params!(A: 0, B: 1);
-wasm_params!(A: 0, B: 1, C: 2);
-wasm_params!(A: 0, B: 1, C: 2, D: 3);
-wasm_params!(A: 0, B: 1, C: 2, D: 3, E: 4);
-wasm_params!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
-wasm_params!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
-wasm_params!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
-wasm_params!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
-
-pub(crate) type HostFunction<T, P, R> = fn(Caller<'_, T>, P) -> Result<R, ImportError>;
+host_function!(A: 0);
+host_function!(A: 0, B: 1);
+host_function!(A: 0, B: 1, C: 2);
+host_function!(A: 0, B: 1, C: 2, D: 3);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
 
 /// Reference values and guest re-entry remain outside this interface.
 pub(crate) trait ImportRegistry<T> {
     type Error;
-    fn define<P: WasmParams, R: WasmResult>(
+    fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, P, R>,
+        function: F,
     ) -> Result<(), Self::Error>;
 }

@@ -21,10 +21,14 @@ Wasmtime and wee8. All 18 WASIp1 operations supported by Moonrun are registered
 in `wasi/imports.rs`; backend WASI setup only supplies the per-run Host Domain
 state and registration adapter.
 
-A Rust argument tuple supplies parameter types and order, including the mixed
-i32/i64 signatures of `path_open` and `fd_readdir`. The Rust return type supplies
-the i32 or void result. Wasmtime and wee8 derive native signatures from the
-same tuple. All adapters decode parameters before borrowing Guest Memory.
+Registration follows Wasmtime's [`func_wrap`/`IntoFunc` pattern](https://github.com/bytecodealliance/wasmtime/blob/v48.0.1/crates/wasmtime/src/runtime/func.rs):
+ordinary typed Rust callbacks supply the parameter types and order, including
+the mixed i32/i64 signatures of `path_open` and `fd_readdir`. The Rust return
+type supplies the i32 or void result. The tuple used to decode arguments is
+internal to the adapters; import definitions take individual arguments and may
+capture owned state. The small `HostFunction` trait invokes these callbacks;
+it does not reuse Wasmtime's engine-specific host-function representation.
+All adapters decode parameters before borrowing Guest Memory.
 V8 decodes i64 arguments from BigInt, retaining all bits; registration interprets
 addresses and rights/cookies as unsigned values. Adding a supported import
 needs only a shared registration and its Host Domain implementation. Other
