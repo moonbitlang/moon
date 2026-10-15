@@ -23,22 +23,23 @@
 
 #[cfg(not(any(feature = "v8", feature = "wasmtime", feature = "wee8")))]
 compile_error!("moonrun requires an engine feature: `v8`, `wasmtime`, or `wee8`");
-#[cfg(all(feature = "wee8", any(feature = "v8", feature = "wasmtime")))]
+#[cfg(all(feature = "wee8", feature = "v8"))]
 compile_error!(
-    "select wee8 with --no-default-features; it cannot share a binary with another engine"
+    "select wee8 with --no-default-features; wee8 and v8 link incompatible copies of V8"
 );
 
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
+// Shared host definitions remain available to every backend. The numeric wee8
+// adapter registers only a subset; unused definitions are intentional until its
+// import coverage grows. Its adapter still has unused-code checks enabled.
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod async_api;
-// The numeric wee8 MVP exposes only a subset of the shared host operations.
-// Keep unused-code checks enabled for its adapter and for the full backends.
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod async_host;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod async_sys;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod core_api;
-#[cfg(any(feature = "v8", feature = "wasmtime", feature = "wee8"))]
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod engine;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod filesystem;
@@ -73,11 +74,11 @@ mod wasi;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod wasm_diagnostic;
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod wasmtime;
 #[cfg(feature = "wee8")]
 mod wee8;
 
-#[cfg(any(feature = "v8", feature = "wasmtime", feature = "wee8"))]
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use runtime::WorkingDirectory;

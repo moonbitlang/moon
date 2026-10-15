@@ -27,6 +27,10 @@ use super::context::{
 };
 #[cfg(test)]
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
+#[allow(
+    unused_imports,
+    reason = "implementations referenced by enabled registrations and ABI tests"
+)]
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
     random, runtime, signal, socket, stdio, thread_pool, time, tls,

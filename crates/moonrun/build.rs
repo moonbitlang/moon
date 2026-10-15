@@ -23,13 +23,7 @@ use std::{
 };
 use vergen::EmitBuilder;
 
-#[cfg(feature = "wee8")]
-#[path = "build/wee8.rs"]
-mod wee8;
-
 pub fn main() -> Result<(), Box<dyn Error>> {
-    #[cfg(feature = "wee8")]
-    wee8::build()?;
     EmitBuilder::builder().build_date().git_sha(true).emit()?;
 
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();

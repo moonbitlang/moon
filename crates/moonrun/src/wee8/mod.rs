@@ -17,11 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Experimental numeric Wasm backend using V8's C entry points. The public Moonrun
-//! Engine/Module/Run interface is shared with the other backends; the native ABI
-//! is private to this adapter. Extending host references is a separate step.
+//! Engine/Module/Run interface is shared with the other backends. The upstream
+//! Rust crate owns native lifetimes and the C ABI; this adapter wires Moonrun
+//! host services. Extending host references is a separate step.
 
-mod api;
-mod ffi;
+use ::wee8 as api;
 mod wasi;
 
 use crate::engine::{

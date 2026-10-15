@@ -75,7 +75,9 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 -- -D warnings
-      - name: Test wee8 ownership and Moonrun integration
+      - name: Test shared host definitions and Moonrun integration
         run: |
-          cargo test --locked -p moonrun --no-default-features --features wee8 --lib wee8::
+          cargo test --locked -p moonrun --no-default-features --features wee8 --lib
           cargo test --locked -p moonrun --no-default-features --features wee8 --test wee8
+      - name: Check compatible engine features
+        run: cargo test --locked -p moonrun --no-default-features --features wee8,wasmtime --test wee8 modules_without_start_export_complete

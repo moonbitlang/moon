@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
 use super::context::SqliteError;
 #[cfg(feature = "v8")]
 use super::context::with_memory_context;
@@ -27,6 +28,7 @@ use super::registry_macros::{
     decode_wasmtime_arg, finish_wasmtime_sqlite_import, invoke_wasmtime_sqlite_import,
     wasmtime_arg_type, wasmtime_return_type,
 };
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
 use super::{bind, column, connection, jobs, statement};
 #[cfg(feature = "v8")]
 use crate::v8::context::{ImportArgs, V8ImportError, V8RunContext};

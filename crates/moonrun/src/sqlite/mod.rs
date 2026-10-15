@@ -18,7 +18,6 @@
 
 //! SQLite behavior, lifetime state, admission rules, and runtime adapters.
 
-#[cfg(any(feature = "v8", feature = "wasmtime"))]
 pub(crate) mod wasm;
 
 mod bind;
