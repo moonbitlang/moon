@@ -14,6 +14,22 @@
   deliver one upstream port at a time, and mark the originating async pull
   request completed after the Moon change lands.
 
+## Async import context
+
+Async FFI implementations use one engine-independent `ImportContext`: borrowed
+Async Host and Host Filesystem references, Guest Memory, and a termination
+request. Backend adapters decode arguments before borrowing memory and release
+the borrow before converting results or interrupting execution. The context
+cannot re-enter the guest or retain an engine scope or memory binding.
+
+Memory access failures are deferred until an implementation requests memory,
+so memory-free imports also work during instantiation and without an exported
+memory. V8 reacquires the current backing buffer for each import; Wasmtime
+borrows its caller's memory and store together. A termination import records
+its outcome; the backend interrupts guest execution after the borrow ends.
+Core executable-path imports access Runtime directly from backend registration
+rather than exposing Runtime through the async context.
+
 ## V8 value imports
 
 The imports are grouped by their guest ABI:

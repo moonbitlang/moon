@@ -1,0 +1,236 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Backend-specific invocation and result conversion for async imports.
+
+#[cfg(any(feature = "v8", feature = "wasmtime"))]
+use super::context::ImportContext;
+#[cfg(feature = "v8")]
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(feature = "v8")]
+use crate::v8::context::{V8ImportError, V8RunContext};
+
+#[cfg(feature = "v8")]
+pub(super) use crate::v8::context::ImportArgs;
+
+#[cfg(feature = "v8")]
+pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s V8RunContext {
+    // SAFETY: every async callback is registered with the pointer to the V8
+    // run context retained by the V8 host imports for the complete run.
+    unsafe { crate::v8::context::callback_context(args) }
+}
+
+#[cfg(feature = "v8")]
+pub(super) fn with_v8_context<R>(
+    scope: &mut v8::HandleScope,
+    context: &V8RunContext,
+    f: impl FnOnce(&mut ImportContext<'_>) -> R,
+) -> R {
+    context
+        .memory_binding()
+        .with_memory_access(scope, |memory| {
+            f(&mut ImportContext {
+                host: context.runtime().async_host(),
+                filesystem: context.runtime().filesystem(),
+                memory: memory.map_err(AsyncHostError::from),
+                termination_request: context.termination_request(),
+            })
+        })
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+pub(crate) fn with_wasmtime_context<R>(
+    caller: &mut wasmtime::Caller<'_, crate::wasmtime::StoreData>,
+    f: impl FnOnce(&mut ImportContext<'_>) -> R,
+) -> R {
+    let memory = caller
+        .get_export("memory")
+        .and_then(wasmtime::Extern::into_memory);
+    match memory {
+        Some(memory) => {
+            let (memory, data) = memory.data_and_store_mut(&mut *caller);
+            let mut context = ImportContext {
+                host: data.runtime().async_host(),
+                filesystem: data.runtime().filesystem(),
+                memory: Ok(memory),
+                termination_request: data.termination_request(),
+            };
+            f(&mut context)
+        }
+        None => {
+            let data = caller.data_mut();
+            let mut empty = [];
+            let mut context = ImportContext {
+                host: data.runtime().async_host(),
+                filesystem: data.runtime().filesystem(),
+                memory: Ok(&mut empty),
+                termination_request: data.termination_request(),
+            };
+            f(&mut context)
+        }
+    }
+}
+
+#[cfg(feature = "v8")]
+impl From<V8ImportError> for AsyncHostError {
+    fn from(error: V8ImportError) -> Self {
+        match error {
+            V8ImportError::Fault => Self::Fault,
+            V8ImportError::InvalidArgument => Self::Inval,
+        }
+    }
+}
+
+#[cfg(feature = "v8")]
+pub(super) fn throw_import_error(
+    scope: &mut v8::HandleScope,
+    import_name: &str,
+    error: AsyncHostError,
+) {
+    crate::v8::context::throw_import_error(scope, super::MOONBIT_ASYNC_MODULE, import_name, error);
+}
+
+#[cfg(feature = "v8")]
+pub(super) trait FinishVoid {
+    fn finish_void(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str);
+}
+
+#[cfg(feature = "v8")]
+impl FinishVoid for () {
+    fn finish_void(
+        self,
+        _scope: &mut v8::HandleScope,
+        ret: &mut v8::ReturnValue,
+        _import_name: &str,
+    ) {
+        ret.set_undefined();
+    }
+}
+
+#[cfg(feature = "v8")]
+impl FinishVoid for AsyncHostResult<()> {
+    fn finish_void(
+        self,
+        scope: &mut v8::HandleScope,
+        ret: &mut v8::ReturnValue,
+        import_name: &str,
+    ) {
+        match self {
+            Ok(()) => ret.set_undefined(),
+            Err(error) => throw_import_error(scope, import_name, error),
+        }
+    }
+}
+
+#[cfg(feature = "v8")]
+pub(super) trait FinishI32 {
+    fn finish_i32(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str);
+}
+
+#[cfg(feature = "v8")]
+impl FinishI32 for i32 {
+    fn finish_i32(
+        self,
+        _scope: &mut v8::HandleScope,
+        ret: &mut v8::ReturnValue,
+        _import_name: &str,
+    ) {
+        ret.set_int32(self);
+    }
+}
+
+#[cfg(feature = "v8")]
+impl FinishI32 for u32 {
+    fn finish_i32(
+        self,
+        _scope: &mut v8::HandleScope,
+        ret: &mut v8::ReturnValue,
+        _import_name: &str,
+    ) {
+        ret.set_uint32(self);
+    }
+}
+
+#[cfg(feature = "v8")]
+impl FinishI32 for AsyncHostResult<i32> {
+    fn finish_i32(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+        match self {
+            Ok(value) => ret.set_int32(value),
+            Err(error) => throw_import_error(scope, import_name, error),
+        }
+    }
+}
+
+#[cfg(feature = "v8")]
+impl FinishI32 for AsyncHostResult<u32> {
+    fn finish_i32(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+        match self {
+            Ok(value) => ret.set_uint32(value),
+            Err(error) => throw_import_error(scope, import_name, error),
+        }
+    }
+}
+
+#[cfg(feature = "v8")]
+pub(super) trait FinishI64 {
+    fn finish_i64(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str);
+}
+
+#[cfg(feature = "v8")]
+impl FinishI64 for i64 {
+    fn finish_i64(
+        self,
+        scope: &mut v8::HandleScope,
+        ret: &mut v8::ReturnValue,
+        _import_name: &str,
+    ) {
+        ret.set(v8::BigInt::new_from_i64(scope, self).into());
+    }
+}
+
+#[cfg(feature = "v8")]
+impl FinishI64 for u64 {
+    fn finish_i64(
+        self,
+        scope: &mut v8::HandleScope,
+        ret: &mut v8::ReturnValue,
+        _import_name: &str,
+    ) {
+        ret.set(v8::BigInt::new_from_u64(scope, self).into());
+    }
+}
+
+#[cfg(feature = "v8")]
+impl FinishI64 for AsyncHostResult<i64> {
+    fn finish_i64(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+        match self {
+            Ok(value) => value.finish_i64(scope, ret, import_name),
+            Err(error) => throw_import_error(scope, import_name, error),
+        }
+    }
+}
+
+#[cfg(feature = "v8")]
+impl FinishI64 for AsyncHostResult<u64> {
+    fn finish_i64(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+        match self {
+            Ok(value) => value.finish_i64(scope, ret, import_name),
+            Err(error) => throw_import_error(scope, import_name, error),
+        }
+    }
+}
