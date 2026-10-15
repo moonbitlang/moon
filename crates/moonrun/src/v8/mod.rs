@@ -25,8 +25,7 @@ mod memory_sanitizer;
 mod wasi;
 
 use crate::engine::{
-    BackendCallOutcome, BackendRunOutcome, EngineConfig, RunOptions, complete_run_call,
-    run_test_driver,
+    BackendCallOutcome, BackendRunOutcome, EngineConfig, complete_run_call, run_test_driver,
 };
 use crate::run_termination::TerminationRequest;
 use crate::runtime::Runtime;
@@ -210,17 +209,9 @@ impl Engine {
         module_name: &str,
         module: &CompiledModule,
         source_map: Option<&SourceMap>,
-        options: RunOptions,
         runtime: Runtime,
     ) -> anyhow::Result<BackendRunOutcome> {
-        run(
-            &self.config,
-            module_name,
-            module,
-            source_map,
-            options,
-            runtime,
-        )
+        run(&self.config, module_name, module, source_map, runtime)
     }
 }
 
@@ -312,11 +303,11 @@ pub(crate) fn run(
     module_name: &str,
     module: &CompiledModule,
     source_map: Option<&SourceMap>,
-    options: RunOptions,
     runtime: Runtime,
 ) -> anyhow::Result<BackendRunOutcome> {
     initialize(config)?;
-    let test_args = options.parsed_test_args()?;
+    let test_args = runtime.options().parsed_test_args()?;
+    let no_stack_trace = runtime.options().no_stack_trace;
 
     let isolate = &mut v8::Isolate::new(Default::default());
     let scope = &mut v8::HandleScope::new(isolate);
@@ -346,13 +337,7 @@ pub(crate) fn run(
     let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
     let stdio = Arc::clone(runtime.stdio());
 
-    let installed_imports = host_imports::install(
-        scope,
-        module_name,
-        &options.args,
-        runtime,
-        &memory_sanitizer,
-    )?;
+    let installed_imports = host_imports::install(scope, module_name, runtime, &memory_sanitizer)?;
     let module_imports = installed_imports.module_imports;
     let termination_request = &installed_imports.termination_request;
     let memory_binding = &installed_imports.memory_binding;
@@ -361,7 +346,7 @@ pub(crate) fn run(
         runtime_error,
         wasm_exception,
         source_map,
-        no_stack_trace: options.no_stack_trace,
+        no_stack_trace,
     };
 
     let result = (|| -> anyhow::Result<BackendRunOutcome> {

@@ -227,8 +227,8 @@ let outcome = engine.run(&module, options)?;
 
 Guest standard I/O and missing child standard streams use these bindings.
 Explicit guest-supplied child streams take precedence. The default remains
-ambient process I/O. Cloned options share their supplied files; use separate
-files for independent runs. Working-directory behavior is configured independently.
+ambient process I/O. Options and their supplied files are moved into one run;
+create separate options for independent runs. Working-directory behavior is configured independently.
 
 ## Memory Leak Reporting
 

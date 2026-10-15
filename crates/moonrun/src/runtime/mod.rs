@@ -123,10 +123,10 @@ impl HostKeys {
 /// realizes them once, distributes domain policy together with shared Runtime
 /// State, wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
+    options: RunOptions,
     environment: Arc<Env>,
     executable: Executable,
     working_directory: Arc<WorkingDirectory>,
-    stdio: Arc<Stdio>,
     filesystem: Arc<HostFs>,
     // Field order is significant: join workers and drop their SQLite payloads
     // before destroying the Database and Statement tables they refer to.
@@ -136,7 +136,7 @@ pub(crate) struct Runtime {
 
 impl Runtime {
     pub(crate) fn new(
-        options: &RunOptions,
+        options: RunOptions,
         executable: Executable,
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
@@ -177,7 +177,7 @@ impl Runtime {
                 WorkingDirectory::Fixed(path)
             }
         });
-        let stdio = Arc::new(options.stdio.clone());
+        let stdio = Arc::clone(&options.stdio);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -204,14 +204,18 @@ impl Runtime {
         );
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
+            options,
             environment,
             executable,
             working_directory,
-            stdio,
             filesystem,
             async_host,
             sqlite,
         })
+    }
+
+    pub(crate) fn options(&self) -> &RunOptions {
+        &self.options
     }
 
     pub(crate) fn environment(&self) -> &Arc<Env> {
@@ -231,7 +235,7 @@ impl Runtime {
     }
 
     pub(crate) fn stdio(&self) -> &Arc<Stdio> {
-        &self.stdio
+        &self.options.stdio
     }
 
     pub(crate) fn async_host(&self) -> &AsyncHost {
@@ -309,7 +313,7 @@ mod tests {
             mask
         };
         let runtime = Runtime::new(
-            &RunOptions::default(),
+            RunOptions::default(),
             Executable::from_file(&path),
             crate::signal_channel().1,
             #[cfg(unix)]

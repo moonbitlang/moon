@@ -281,7 +281,6 @@ fn is_windows(
 pub(super) fn install<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
-    args: &[String],
     runtime: crate::runtime::Runtime,
     memory_sanitizer: &crate::memory_sanitizer::MemorySanitizer,
 ) -> anyhow::Result<InstalledImports<'s>> {
@@ -348,16 +347,11 @@ pub(super) fn install<'s>(
             wasi,
             scope,
             wasm_file_name,
-            args,
+            &v8_context.runtime().options().args,
             &v8_context,
             &mut retained_callback_state,
         );
     }
-
-    // All V8 callbacks are unreachable after the single-shot run returns, so
-    // retaining this one box in the installed imports covers every pointer
-    // registered above.
-    retained_callback_state.push(v8_context);
 
     // API for the fs module
     {
@@ -366,12 +360,17 @@ pub(super) fn install<'s>(
             obj,
             scope,
             wasm_file_name,
-            args,
+            &v8_context.runtime().options().args,
             environment,
             filesystem,
             &mut retained_callback_state,
         )?;
     }
+    // All V8 callbacks are unreachable after the single-shot run returns, so
+    // retaining this one box in the installed imports covers every pointer
+    // registered above.
+    retained_callback_state.push(v8_context);
+
     {
         let io = module_imports.child(scope, "__moonbit_io_unstable");
         context::register_func(

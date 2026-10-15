@@ -51,7 +51,7 @@ impl EngineConfig {
 }
 
 /// Configuration for one MoonBit Wasm run.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct RunOptions {
     pub(crate) args: Vec<String>,
     pub(crate) no_stack_trace: bool,
@@ -60,7 +60,7 @@ pub struct RunOptions {
     pub(crate) policy_source_dir: Option<PathBuf>,
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
-    pub(crate) stdio: Stdio,
+    pub(crate) stdio: Arc<Stdio>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -141,9 +141,9 @@ impl RunOptions {
     ///
     /// These streams also supply default child streams; explicit guest-supplied
     /// child streams take precedence. Without this option, streams are ambient.
-    /// Clones share the files; use separate options for independent I/O.
+    /// The files are moved into the Runtime for this run.
     pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
-        self.stdio = Stdio::owned(stdin, stdout, stderr);
+        self.stdio = Arc::new(Stdio::owned(stdin, stdout, stderr));
         self
     }
 
@@ -391,7 +391,7 @@ impl Engine {
             None => current_signal_mask()?,
         };
         let runtime = Runtime::new(
-            &options,
+            options,
             module.executable().clone(),
             signals,
             #[cfg(unix)]
@@ -401,7 +401,6 @@ impl Engine {
             module.name(),
             module.compiled(),
             module.source_map(),
-            options,
             runtime,
         )?;
         Ok(match outcome {

@@ -34,8 +34,7 @@ use ::wasmtime::{
 use anyhow::Context;
 
 use crate::engine::{
-    BackendCallOutcome, BackendRunOutcome, EngineConfig, RunOptions, complete_run_call,
-    run_test_driver,
+    BackendCallOutcome, BackendRunOutcome, EngineConfig, complete_run_call, run_test_driver,
 };
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Runtime, Utf16Writer};
@@ -121,20 +120,21 @@ impl Engine {
         module_name: &str,
         module: &CompiledModule,
         source_map: Option<&SourceMap>,
-        options: RunOptions,
         runtime: Runtime,
     ) -> anyhow::Result<BackendRunOutcome> {
-        let test_args = options.parsed_test_args()?;
+        let test_args = runtime.options().parsed_test_args()?;
+        let no_stack_trace = runtime.options().no_stack_trace;
         let engine = self.inner()?;
         let termination_request = TerminationRequest::default();
         let wasi = crate::wasi::WasiContext::new(
             module_name,
-            &options.args,
+            &runtime.options().args,
             &runtime,
             termination_request.clone(),
         );
         let stdio = Arc::clone(runtime.stdio());
         let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
+        let host_imports = host_imports::State::new(module_name, &runtime.options().args);
         let mut store = Store::new(
             engine,
             StoreData {
@@ -143,7 +143,7 @@ impl Engine {
                 print: Utf16Writer::default(),
                 exception_tag: None,
                 wasi,
-                host_imports: host_imports::State::new(module_name, &options.args),
+                host_imports,
                 memory_sanitizer: memory_sanitizer.clone(),
             },
         );
@@ -159,13 +159,13 @@ impl Engine {
                     BackendCallOutcome::GuestFailure(format_wasm_error(
                         &error,
                         source_map,
-                        options.no_stack_trace,
+                        no_stack_trace,
                     ))
                 } else if error.downcast_ref::<wt::WasmBacktrace>().is_some() {
                     return Err(anyhow::anyhow!(format_host_error(
                         &error,
                         source_map,
-                        options.no_stack_trace,
+                        no_stack_trace,
                     )))
                     .with_context(|| format!("failed to instantiate `{module_name}`"));
                 } else {
@@ -195,17 +195,17 @@ impl Engine {
                         &execute,
                         &[Val::ExternRef(Some(file)), Val::I32(index as i32)],
                         source_map,
-                        options.no_stack_trace,
+                        no_stack_trace,
                     )
                     .context("failed to execute a MoonBit test")
                 },
                 |store| {
-                    call_export(store, &finish, &[], source_map, options.no_stack_trace)
+                    call_export(store, &finish, &[], source_map, no_stack_trace)
                         .context("failed to finish the MoonBit test driver")
                 },
             )
         } else if let Some(start) = instance.get_func(&mut store, "_start") {
-            let outcome = call_export(&mut store, &start, &[], source_map, options.no_stack_trace)?;
+            let outcome = call_export(&mut store, &start, &[], source_map, no_stack_trace)?;
             complete_run_call(outcome, &stdio)
         } else {
             Ok(BackendRunOutcome::Completed)
