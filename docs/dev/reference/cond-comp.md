@@ -71,8 +71,8 @@ Planning, lowering, and backend-scoped metadata consume the same resolved
 relationship. Its derived support sets describe the intersection of active
 dependencies' declared backends; they do not predict another backend's imports.
 This applies across build, check, run, test, bench, info, doc, bundle, and proof
-operations. `moon tree --package` requests all backends and shows the union of
-their imports; any backend's resolution failure fails the command.
+operations. `moon tree --package` resolves only its selected backend and shows that
+backend's imports; see [supported targets](supported-targets.md).
 
 Conditions do not declare module dependencies or infer package
 `supported_targets`. Imports from another module still require that module

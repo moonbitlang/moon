@@ -99,9 +99,10 @@ Package-tree JSON version 3 records this backend in its top-level `target`
 field. Failure reports record the explicit target, or `null` if none was given.
 The module-level tree is backend-independent and does not accept `--target`.
 
-Package imports currently produce one backend-independent graph, so graph
-contents are shared across targets. The package tree continues to include all
-discovered non-standard-library packages and their import relationships.
+The package tree resolves only backend `B` and shows that backend's import
+relationships: imports inactive for `B` are omitted, and another backend's
+resolution failure does not affect the tree. Nodes still include all
+discovered non-standard-library packages.
 
 ## Dependency compatibility (fail-fast)
 

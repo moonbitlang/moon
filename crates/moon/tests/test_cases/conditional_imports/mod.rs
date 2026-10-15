@@ -31,17 +31,18 @@ import {{ "example/conditional/missing" }}
         )
         .unwrap();
 
-        moon_cmd(&dir)
-            .args(["check", "--target", valid, "--dry-run"])
-            .assert()
-            .success()
-            .stderr_eq("");
+        for args in [
+            vec!["check", "--target", valid, "--dry-run"],
+            vec!["tree", "--package", "--target", valid],
+        ] {
+            moon_cmd(&dir).args(args).assert().success().stderr_eq("");
+        }
 
         for args in [
             vec!["check", "--target", broken, "--dry-run"],
             vec!["check", "--target", "js,native", "--dry-run"],
             vec!["check", "--target", "native,js", "--dry-run"],
-            vec!["tree", "--package"],
+            vec!["tree", "--package", "--target", broken],
         ] {
             moon_cmd(&dir)
                 .args(args)
@@ -191,4 +192,27 @@ fn test_package_graph_export_is_written_per_backend() {
     };
     // Each requested backend keeps its own graph instead of overwriting one file.
     assert_ne!(graph("js"), graph("native"));
+}
+
+#[test]
+fn test_package_tree_shows_selected_backend_imports() {
+    let dir = TestDir::new("conditional_imports/fixture");
+    moon_cmd(&dir)
+        .args(["tree", "--package", "--target", "native"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..] [app]:
+└─ platform -> [..] [native]
+...
+"#]]);
+    moon_cmd(&dir)
+        .args(["tree", "--package", "--target", "js"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..] [app]:
+└─ platform -> [..] [portable]
+...
+"#]]);
 }
