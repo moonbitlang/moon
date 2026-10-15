@@ -55,7 +55,7 @@ fn test_moon_install_without_source_does_not_sync_dependencies() {
 error: the following required arguments were not provided:
   <SOURCE>
 
-Usage: moon install <SOURCE> [PATH_IN_REPO]
+Usage: moon[EXE] install <SOURCE> [PATH_IN_REPO]
 
 For more information, try '--help'.
 
