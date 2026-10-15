@@ -18,7 +18,6 @@
 
 use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
-use colored::Colorize;
 use derive_builder::Builder;
 use std::{
     env,
@@ -32,7 +31,7 @@ mod gcc_like;
 mod msvc;
 mod tcc;
 
-pub use archiver::{make_archiver_command, make_archiver_command_resolved};
+pub use archiver::make_archiver_command_resolved;
 #[cfg(all(test, target_os = "macos"))]
 use gcc_like::resolve_apple_libtool_path;
 use gcc_like::{
@@ -253,14 +252,6 @@ impl Toolchain {
             cc,
             source: ToolchainSource::PackageOverride,
             msvc_environment: None,
-        }
-    }
-
-    pub fn from_cc(cc: CC) -> Self {
-        if cc.is_env_override {
-            Toolchain::from_env_override(cc)
-        } else {
-            Toolchain::from_path_probe(cc)
         }
     }
 
@@ -699,10 +690,6 @@ pub fn try_cc_on_path() -> anyhow::Result<CC> {
     cached_cc(&DETECTED_CC_ON_PATH)
 }
 
-pub fn has_cc_env_override() -> bool {
-    env::var_os(ENV_MOON_CC).is_some()
-}
-
 fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     #[cfg(windows)]
     {
@@ -819,20 +806,6 @@ pub struct ArchiverConfig {
     pub native_allocator: NativeAllocator,
 }
 
-/// Resolve the C compiler to use from global state
-pub fn resolve_cc(cc: &CC, user_cc: Option<&CC>) -> CC {
-    if ENV_CC.is_some() && user_cc.is_some() {
-        eprintln!(
-            "{}: Both MOON_CC environment variable and user-specified CC are provided. \
-            MOON_CC takes precedence.",
-            "Warning".yellow().bold(),
-        );
-    }
-    ENV_CC
-        .clone()
-        .unwrap_or_else(|| user_cc.cloned().unwrap_or_else(|| cc.clone()))
-}
-
 // Struct to hold path configuration for commands
 #[derive(Clone, Debug)]
 pub struct CompilerPaths {
@@ -943,32 +916,6 @@ fn add_linker_moonbitrun(
     {
         buf.push(object);
     }
-}
-
-pub fn make_linker_command<S, P>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: LinkerConfig<P>,
-    link_args: &[NativeLinkArg],
-    src: &[S],
-    dest_dir: &str,
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-    P: AsRef<Path>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let lib_path = &MOON_DIRS.moon_lib_path.display().to_string();
-    make_linker_command_resolved(
-        resolved_cc,
-        config,
-        link_args,
-        src,
-        dest_dir,
-        dest,
-        lib_path,
-    )
 }
 
 pub fn make_linker_command_resolved<S, P>(
@@ -1196,31 +1143,6 @@ fn add_cc_moonbitrun(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, paths: &
     ) {
         buf.push(object);
     }
-}
-
-pub fn make_cc_command<S>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: CCConfig,
-    cc_flags: &[S],
-    src: impl IntoIterator<Item = impl Into<String>>,
-    intermediate_dir: &str,
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let paths = CompilerPaths::from_moon_dirs();
-    make_cc_command_resolved(
-        resolved_cc,
-        config,
-        cc_flags,
-        src,
-        intermediate_dir,
-        Some(dest),
-        &paths,
-    )
 }
 
 /// Build a C compiler command after the caller has already selected the exact

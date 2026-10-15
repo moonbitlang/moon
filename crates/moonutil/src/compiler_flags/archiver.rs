@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::{ARKind, ArchiverConfig, CC, CompilerPaths, moonbitrun_object, resolve_cc, tcc};
+use super::{ARKind, ArchiverConfig, CC, CompilerPaths, moonbitrun_object, tcc};
 
 fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
     match cc.ar_kind {
@@ -55,21 +55,6 @@ fn add_archiver_moonbitrun(
     ) {
         buf.push(object);
     }
-}
-
-pub fn make_archiver_command<S>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: ArchiverConfig,
-    src: &[S],
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let paths = CompilerPaths::from_moon_dirs();
-    make_archiver_command_resolved(resolved_cc, config, src, dest, &paths)
 }
 
 pub fn make_archiver_command_resolved<S>(
