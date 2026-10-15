@@ -20,6 +20,7 @@
 
 mod host_imports;
 mod wasi;
+mod wasm_imports;
 
 use std::collections::HashSet;
 use std::fmt;

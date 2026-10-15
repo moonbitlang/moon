@@ -23,6 +23,7 @@
 
 use ::wee8 as api;
 mod wasi;
+mod wasm_imports;
 
 use crate::engine::{
     BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,

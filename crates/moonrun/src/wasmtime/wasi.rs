@@ -47,29 +47,6 @@ fn with_memory(
 pub(super) fn register_imports(linker: &mut wasmtime::Linker<StoreData>) -> wasmtime::Result<()> {
     linker.func_wrap(
         WASI_SNAPSHOT_PREVIEW1_MODULE,
-        "args_get",
-        |mut caller: wasmtime::Caller<'_, StoreData>, argv_ptr: i32, argv_buf_ptr: i32| {
-            with_memory(&mut caller, |context, memory| {
-                wasi::args_get_impl(context, memory, argv_ptr as u32, argv_buf_ptr as u32)
-            })
-        },
-    )?;
-    linker.func_wrap(
-        WASI_SNAPSHOT_PREVIEW1_MODULE,
-        "args_sizes_get",
-        |mut caller: wasmtime::Caller<'_, StoreData>, argc_ptr: i32, argv_buf_size_ptr: i32| {
-            with_memory(&mut caller, |context, memory| {
-                wasi::args_sizes_get_impl(
-                    context,
-                    memory,
-                    argc_ptr as u32,
-                    argv_buf_size_ptr as u32,
-                )
-            })
-        },
-    )?;
-    linker.func_wrap(
-        WASI_SNAPSHOT_PREVIEW1_MODULE,
         "environ_get",
         |mut caller: wasmtime::Caller<'_, StoreData>, environ_ptr: i32, environ_buf_ptr: i32| {
             with_memory(&mut caller, |context, memory| {
@@ -118,26 +95,6 @@ pub(super) fn register_imports(linker: &mut wasmtime::Linker<StoreData>) -> wasm
                     iovs_ptr as u32,
                     iovs_len as u32,
                     nread_ptr as u32,
-                )
-            })
-        },
-    )?;
-    linker.func_wrap(
-        WASI_SNAPSHOT_PREVIEW1_MODULE,
-        "fd_write",
-        |mut caller: wasmtime::Caller<'_, StoreData>,
-         fd: i32,
-         iovs_ptr: i32,
-         iovs_len: i32,
-         nwritten_ptr: i32| {
-            with_memory(&mut caller, |context, memory| {
-                wasi::fd_write_impl(
-                    context,
-                    memory,
-                    fd,
-                    iovs_ptr as u32,
-                    iovs_len as u32,
-                    nwritten_ptr as u32,
                 )
             })
         },
@@ -318,13 +275,8 @@ pub(super) fn register_imports(linker: &mut wasmtime::Linker<StoreData>) -> wasm
             })
         },
     )?;
-    linker.func_wrap(
-        WASI_SNAPSHOT_PREVIEW1_MODULE,
-        "proc_exit",
-        |caller: wasmtime::Caller<'_, StoreData>, code: i32| -> wasmtime::Result<()> {
-            wasi::proc_exit_impl(caller.data().wasi(), code as u32);
-            Err(wasmtime::format_err!("run termination requested"))
-        },
-    )?;
-    Ok(())
+    wasi::imports::register(&mut super::wasm_imports::Registry {
+        linker,
+        data: StoreData::wasi,
+    })
 }

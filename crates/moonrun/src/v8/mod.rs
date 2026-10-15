@@ -23,6 +23,7 @@ pub(crate) mod ffi_bytes;
 mod host_imports;
 mod memory_sanitizer;
 mod wasi;
+mod wasm_imports;
 
 use crate::engine::{
     BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,

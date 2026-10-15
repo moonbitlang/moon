@@ -18,6 +18,8 @@
 
 //! Backend-neutral WASIp1 Host state and operations.
 
+pub(crate) mod imports;
+
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Env, Runtime, Stdio, StdioStream};
 use rand::{RngCore, rngs::OsRng};

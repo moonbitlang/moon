@@ -26,7 +26,7 @@ use super::context::{self, V8ImportError, V8MemoryBinding, V8RunContext};
 use crate::wasi::{self, WASI_ERRNO_FAULT, WASI_ERRNO_INVAL, WasiContext, WasiResult};
 
 struct V8WasiContext {
-    host: WasiContext,
+    host: Rc<WasiContext>,
     memory_binding: Rc<V8MemoryBinding>,
 }
 
@@ -329,42 +329,6 @@ fn fd_readdir(
     finish_with_result(&mut ret, result);
 }
 
-fn args_sizes_get(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = (|| -> WasiResult<()> {
-        let argc_ptr = read_u32_arg(scope, &args, 0)?;
-        let argv_buf_size_ptr = read_u32_arg(scope, &args, 1)?;
-
-        let context = callback_context(&args);
-        with_wasi_memory_mut(scope, context, |memory| {
-            wasi::args_sizes_get_impl(context, memory, argc_ptr, argv_buf_size_ptr)
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
-}
-
-fn args_get(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = (|| -> WasiResult<()> {
-        let argv_ptr = read_u32_arg(scope, &args, 0)?;
-        let argv_buf_ptr = read_u32_arg(scope, &args, 1)?;
-        let context = callback_context(&args);
-
-        with_wasi_memory_mut(scope, context, |memory| {
-            wasi::args_get_impl(context, memory, argv_ptr, argv_buf_ptr)
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
-}
-
 fn environ_sizes_get(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -395,35 +359,6 @@ fn environ_get(
 
         with_wasi_memory_mut(scope, context, |memory| {
             wasi::environ_get_impl(context, memory, environ_ptr, environ_buf_ptr)
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
-}
-
-fn proc_exit(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let code = args.get(0).uint32_value(scope).unwrap_or(1);
-    wasi::proc_exit_impl(callback_context(&args), code);
-    scope.terminate_execution();
-}
-
-fn fd_write(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = (|| -> WasiResult<()> {
-        let fd = read_i32_arg(scope, &args, 0)?;
-        let iovs_ptr = read_u32_arg(scope, &args, 1)?;
-        let iovs_len = read_u32_arg(scope, &args, 2)?;
-        let nwritten_ptr = read_u32_arg(scope, &args, 3)?;
-        let context = callback_context(&args);
-        with_wasi_memory_mut(scope, context, |memory| {
-            wasi::fd_write_impl(context, memory, fd, iovs_ptr, iovs_len, nwritten_ptr)
         })
     })();
 
@@ -480,23 +415,20 @@ pub(super) fn init_env<'s>(
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     let context = Box::new(V8WasiContext {
-        host: WasiContext::new(
+        host: Rc::new(WasiContext::new(
             wasm_file_name,
             args,
             run_context.runtime(),
             run_context.termination_request().clone(),
-        ),
+        )),
         memory_binding: Rc::clone(run_context.memory_binding()),
     });
     let context_ptr = &*context as *const V8WasiContext as *mut std::ffi::c_void;
 
-    set_wasi_func!(obj, scope, context_ptr, args_get);
-    set_wasi_func!(obj, scope, context_ptr, args_sizes_get);
     set_wasi_func!(obj, scope, context_ptr, environ_get);
     set_wasi_func!(obj, scope, context_ptr, environ_sizes_get);
     set_wasi_func!(obj, scope, context_ptr, random_get);
     set_wasi_func!(obj, scope, context_ptr, fd_read);
-    set_wasi_func!(obj, scope, context_ptr, fd_write);
     set_wasi_func!(obj, scope, context_ptr, fd_close);
     set_wasi_func!(obj, scope, context_ptr, fd_prestat_get);
     set_wasi_func!(obj, scope, context_ptr, fd_prestat_dir_name);
@@ -507,7 +439,15 @@ pub(super) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, path_create_directory);
     set_wasi_func!(obj, scope, context_ptr, path_remove_directory);
     set_wasi_func!(obj, scope, context_ptr, path_unlink_file);
-    set_wasi_func!(obj, scope, context_ptr, proc_exit);
 
+    wasi::imports::register(&mut super::wasm_imports::Registry {
+        object: obj,
+        scope,
+        module: wasi::imports::MODULE,
+        data: Rc::clone(&context.host),
+        memory: Rc::clone(&context.memory_binding),
+        retained: dtors,
+    })
+    .unwrap();
     dtors.push(context);
 }
