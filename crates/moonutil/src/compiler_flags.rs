@@ -1633,14 +1633,20 @@ mod tests {
     }
 
     #[test]
-    fn explicit_archiver_names_follow_the_target_abi() {
-        assert_eq!(
-            CC::classify_gcc_like_archiver(
-                "C:/LLVM/bin/llvm-lib.exe",
-                Some("x86_64-pc-windows-msvc")
-            ),
-            ARKind::MsvcLib
-        );
+    fn explicit_archiver_names_select_the_matching_cli() {
+        for target in [
+            None,
+            Some("x86_64-pc-windows-msvc"),
+            Some("aarch64-pc-windows-msvc"),
+        ] {
+            for archiver in ["lib", "LIB.ExE", "llvm-lib", "C:/LLVM/bin/LLVM-LIB.exe"] {
+                assert_eq!(
+                    CC::classify_gcc_like_archiver(archiver, target),
+                    ARKind::MsvcLib,
+                    "archiver: {archiver}, target: {target:?}"
+                );
+            }
+        }
         assert_eq!(
             CC::classify_gcc_like_archiver(
                 "/Applications/Xcode.app/usr/bin/libtool",
@@ -2594,6 +2600,84 @@ mod tests {
             return;
         }
         assert_eq!(cc.ar_path, CC::resolve_tool_path(&clang_path, &reported_ar));
+    }
+
+    #[test]
+    fn llvm_lib_archives_real_msvc_object_with_or_without_target_metadata() {
+        let tools = which::which("clang").ok().and_then(|clang| {
+            CC::probe_existing_prog_name(&clang, "llvm-lib").map(|llvm_lib| (clang, llvm_lib))
+        });
+        let Some((clang, llvm_lib)) = tools else {
+            if cfg!(windows) {
+                panic!("Windows CI requires clang and llvm-lib");
+            }
+            eprintln!("skipping MSVC archive test: clang and llvm-lib are unavailable");
+            return;
+        };
+
+        // Compile a header-free MSVC object so the test needs no Windows SDK
+        // and can exercise the real tools on any host.
+        let dir = tempfile::tempdir().expect("create compiler working directory");
+        std::fs::write(
+            dir.path().join("answer.c"),
+            "int answer(void) { return 42; }\n",
+        )
+        .expect("write C source");
+        let target_flag = "--target=x86_64-pc-windows-msvc";
+        let target = Command::new(&clang)
+            .args([target_flag, "-dumpmachine"])
+            .output()
+            .expect("probe Clang target");
+        assert!(target.status.success(), "{target:?}");
+        let target = String::from_utf8(target.stdout)
+            .expect("Clang target is UTF-8")
+            .trim()
+            .to_string();
+        let compiled = Command::new(&clang)
+            .current_dir(dir.path())
+            .args([target_flag, "-c", "answer.c", "-o", "answer.o"])
+            .output()
+            .expect("compile MSVC object");
+        assert!(compiled.status.success(), "{compiled:?}");
+
+        // Missing probe metadata must not change the selected librarian's CLI.
+        for target in [Some(target.as_str()), None] {
+            let cc = CC::new(
+                CCKind::Clang,
+                clang.display().to_string(),
+                CC::classify_gcc_like_archiver(&llvm_lib, target),
+                llvm_lib.clone(),
+                target.map(str::to_string),
+            );
+            let command = make_archiver_command_resolved(
+                cc,
+                ArchiverConfig {
+                    archive_moonbitrun: false,
+                    native_allocator: NativeAllocator::Default,
+                },
+                &["answer.o"],
+                "answer.lib",
+                &CompilerPaths {
+                    include_path: ".".to_string(),
+                    lib_path: ".".to_string(),
+                },
+            );
+            let archived = Command::new(&command[0])
+                .current_dir(dir.path())
+                .args(&command[1..])
+                .output()
+                .expect("run Moon's archive command");
+            assert!(archived.status.success(), "{command:?}: {archived:?}");
+
+            let members = Command::new(&llvm_lib)
+                .current_dir(dir.path())
+                .args(["/list", "answer.lib"])
+                .output()
+                .expect("inspect archive members");
+            assert!(members.status.success(), "{members:?}");
+            assert_eq!(String::from_utf8_lossy(&members.stdout).trim(), "answer.o");
+            std::fs::remove_file(dir.path().join("answer.lib")).expect("remove checked archive");
+        }
     }
 
     #[cfg(windows)]
