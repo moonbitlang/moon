@@ -230,6 +230,10 @@ Filename text is preserved when Moon later needs a case-preserving fallback path
 
 ## Archiver Resolution
 
+Selected `lib` and `llvm-lib` executables use MSVC-style librarian options
+regardless of the compiler's target ABI. This includes explicit `MOON_AR`
+overrides for GNU/MinGW targets and compilers whose target probe is unavailable.
+
 ### MSVC (`cl` and `clang-cl`)
 
 - Archiver is `lib.exe`. A path-like `clang-cl` installation falls back to its sibling

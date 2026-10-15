@@ -120,9 +120,9 @@ impl CC {
         ar_name_or_path: &str,
         target_triple: Option<&str>,
     ) -> ARKind {
-        if target_triple.is_some_and(|target| target.contains("msvc"))
-            && CC::is_msvc_librarian_name(ar_name_or_path)
-        {
+        // A selected librarian keeps its CLI even for GNU targets or when
+        // the compiler's target probe is unavailable.
+        if CC::is_msvc_librarian_name(ar_name_or_path) {
             ARKind::MsvcLib
         } else if target_triple.is_some_and(|target| target.contains("apple-darwin"))
             && CC::is_apple_libtool_name(ar_name_or_path)
