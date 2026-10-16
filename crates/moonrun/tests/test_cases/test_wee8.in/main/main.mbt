@@ -25,4 +25,6 @@ fn main {
     sum += value
   }
   println(sum)
+  let error : Error = Failure("format probe")
+  eprintln(error.to_string())
 }
