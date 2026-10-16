@@ -31,7 +31,8 @@ Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.ex
 
 将 `MOON_CC`（以及按需设置的 `MOON_AR`）设为面向其他目标的编译器，例如执行
 `zig cc -target x86_64-linux-musl "$@"` 的包装脚本。Moon 会以 `-dumpmachine`
-运行该编译器以确定其目标。当目标的架构或操作系统与主机不同时，Moon 不会链接
+运行该编译器以确定其目标。当目标的架构、操作系统或 ABI（例如 glibc Linux
+主机上的 `musl`）与主机不同时，Moon 不会链接
 MoonBit lib 目录中的预编译目标文件（`libmoonbitrun.o`、SIMDUTF 目标文件以及
 `libbacktrace.a`），因为它们是为主机构建的。此时运行时使用系统分配器和标量
 UTF 代码路径，且 panic 时不打印调用栈。

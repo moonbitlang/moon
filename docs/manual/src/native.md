@@ -36,7 +36,8 @@ Windows, with TCC, and when cross-compiling.
 Set `MOON_CC` (and `MOON_AR` if needed) to a compiler for another target, for
 example a wrapper script that runs `zig cc -target x86_64-linux-musl "$@"`.
 Moon runs the compiler with `-dumpmachine` to find its target. When the
-architecture or operating system differs from the host, Moon does not link the
+architecture, operating system, or ABI (for example `musl` on a glibc Linux
+host) differs from the host, Moon does not link the
 prebuilt objects in the MoonBit lib directory (`libmoonbitrun.o`, the SIMDUTF
 objects, and `libbacktrace.a`), because they are built for the host. The
 runtime then uses the system allocator and its scalar UTF code path, and

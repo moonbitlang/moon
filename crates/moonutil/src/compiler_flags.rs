@@ -321,7 +321,8 @@ const CAN_USE_MOONBITRUN: bool = false;
 const CAN_USE_SIMDUTF: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
 /// Whether a target triple names the given host architecture and operating
-/// system, as reported by `std::env::consts::{ARCH, OS}`.
+/// system, as reported by `std::env::consts::{ARCH, OS}`, with the default
+/// ABI of that host.
 fn triple_matches_host(triple: &str, host_arch: &str, host_os: &str) -> bool {
     let triple = triple.to_ascii_lowercase();
     let mut components = triple.split('-');
@@ -331,8 +332,11 @@ fn triple_matches_host(triple: &str, host_arch: &str, host_os: &str) -> bool {
         "i386" | "i486" | "i586" | "i686" => "x86",
         arch => arch,
     };
+    if arch != host_arch {
+        return false;
+    }
     // OS components can carry a version, as in `darwin25.6.0` or `mingw32`.
-    let os_matches = components.any(|component| {
+    let os_matches = components.by_ref().any(|component| {
         let os = match component.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
             "darwin" | "macos" | "macosx" => "macos",
             "mingw" | "cygwin" => "windows",
@@ -340,7 +344,18 @@ fn triple_matches_host(triple: &str, host_arch: &str, host_os: &str) -> bool {
         };
         os == host_os
     });
-    arch == host_arch && os_matches
+    if !os_matches {
+        return false;
+    }
+    // The component after the OS names the ABI, as in `gnu`, `gnux32` or
+    // `musl`. Host-only objects use glibc on Linux and no named ABI on other
+    // Unix hosts. On Windows they are not used, and the MSVC toolchain
+    // policy selects the ABI, so the ABI is not compared there.
+    match (host_os, components.next()) {
+        ("windows", _) | (_, None) => true,
+        ("linux", Some(abi)) => abi == "gnu",
+        (_, Some(_)) => false,
+    }
 }
 
 fn is_path_like_tool(tool: &str) -> bool {
@@ -620,7 +635,7 @@ impl CC {
             .is_some_and(|target| target.contains("apple-darwin"))
     }
 
-    /// Whether the compiler builds for the machine that runs Moon.
+    /// Whether the compiler builds for the machine and ABI that run Moon.
     ///
     /// The prebuilt objects in the MoonBit lib directory (`libmoonbitrun.o`,
     /// the simdutf objects and `libbacktrace.a`) are built for that machine,
@@ -2194,8 +2209,8 @@ mod tests {
         for triple in [
             "arm64-apple-darwin25.6.0",
             "aarch64-apple-darwin",
-            "aarch64-macos-none",
-            "aarch64-unknown-macosx14.0",
+            "aarch64-unknown-macos",
+            "arm64-apple-macosx14.0.0",
         ] {
             assert!(triple_matches_host(triple, "aarch64", "macos"), "{triple}");
         }
@@ -2203,6 +2218,7 @@ mod tests {
             "x86_64-linux-gnu",
             "x86_64-unknown-linux-gnu",
             "amd64-pc-linux-gnu",
+            "x86_64-redhat-linux",
         ] {
             assert!(triple_matches_host(triple, "x86_64", "linux"), "{triple}");
         }
@@ -2242,6 +2258,18 @@ mod tests {
             "aarch64",
             "macos"
         ));
+        assert!(!triple_matches_host(
+            "aarch64-macos-none",
+            "aarch64",
+            "macos"
+        ));
+        for triple in [
+            "x86_64-unknown-linux-gnux32",
+            "x86_64-unknown-linux-musl",
+            "x86_64-linux-android",
+        ] {
+            assert!(!triple_matches_host(triple, "x86_64", "linux"), "{triple}");
+        }
     }
 
     /// A Linux target triple whose architecture differs from the test host.

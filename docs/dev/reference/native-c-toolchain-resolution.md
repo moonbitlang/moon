@@ -97,8 +97,12 @@ The runtime uses the same explicit multi-step shape for ordinary native builds:
 The MoonBit lib directory ships `libmoonbitrun.o`, the SIMDUTF objects
 (`moonbit_simdutf.o` and `simdutf.o`), and, on some hosts, `libbacktrace.a`.
 These objects are built for the machine that runs Moon. `CC::targets_host()`
-compares the architecture and operating system of the probed target triple
-with the host. When they differ, Moon does not link `libmoonbitrun.o` or
+compares the architecture, operating system, and ABI of the probed target
+triple with the host. On Linux the ABI after the OS must be absent or `gnu`, so
+targets such as `gnux32`, `musl`, and `android` do not match. Other Unix hosts
+require no ABI component. Windows does not compare the ABI, because the shipped
+objects are not used there and the MSVC toolchain policy selects the ABI. When
+they differ, Moon does not link `libmoonbitrun.o` or
 `libbacktrace.a`, and it does not define `MOONBIT_USE_SIMDUTF` or archive the
 SIMDUTF objects. The runtime then uses its scalar UTF code path. Runtime
 backtraces depend on `libbacktrace.a`, so Moon also does not define
