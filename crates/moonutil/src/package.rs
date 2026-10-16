@@ -137,7 +137,7 @@ impl BoolOrLink {
 ///   (equivalent to the deprecated `is-main: true`).
 /// - `foreign_library`: a non-main library force-linked into a standalone,
 ///   foreign-consumable artifact (equivalent to the deprecated `link: true`).
-///   Not yet supported on the native/LLVM backends.
+///   The native/LLVM backends build it as a static library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PackageKind {

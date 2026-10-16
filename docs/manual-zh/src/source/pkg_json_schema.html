@@ -442,7 +442,7 @@
       }
     },
     "PackageKind": {
-      "description": "The kind of a package, declared via `pkgtype(kind: \"...\")` in `moon.pkg`.\n\nThis supersedes the deprecated `is-main` and `link: true` flags: - `library` (the default): a normal library, emits a `.core` consumed by other MoonBit packages. - `executable`: has a `main` and links to a runnable artifact (equivalent to the deprecated `is-main: true`). - `foreign_library`: a non-main library force-linked into a standalone, foreign-consumable artifact (equivalent to the deprecated `link: true`). Not yet supported on the native/LLVM backends.",
+      "description": "The kind of a package, declared via `pkgtype(kind: \"...\")` in `moon.pkg`.\n\nThis supersedes the deprecated `is-main` and `link: true` flags: - `library` (the default): a normal library, emits a `.core` consumed by other MoonBit packages. - `executable`: has a `main` and links to a runnable artifact (equivalent to the deprecated `is-main: true`). - `foreign_library`: a non-main library force-linked into a standalone, foreign-consumable artifact (equivalent to the deprecated `link: true`). The native/LLVM backends build it as a static library.",
       "type": "string",
       "enum": [
         "library",
