@@ -151,8 +151,8 @@ for direct object output, which uses `-O0 -stacktrace` for unoptimized code
 and lightweight stack-trace metadata.
 The generated-C compiler step separately retains the source locations emitted
 by MoonBit. This includes C output selected by
-`MOONBIT_NEW_NATIVE=0`, an unsupported direct-object host, or package C compiler
-flags. Explicit `--debug` or `--no-strip` retains full debug information, while
+`MOONBIT_NEW_NATIVE=0`, an unsupported direct-object host, a `MOON_CC` compiler
+for another target, or package C compiler flags. Explicit `--debug` or `--no-strip` retains full debug information, while
 `--strip` and ordinary release builds omit it.
 
 A debug-profile `moon run --strip` still requests native runtime backtrace
