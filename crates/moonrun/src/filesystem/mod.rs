@@ -35,6 +35,7 @@ pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -255,6 +256,30 @@ impl HostFs {
         operation_status(results, result)
     }
 
+    pub(crate) fn append_bytes_to_file_new(
+        &self,
+        results: &mut FsOperationResults,
+        path: &str,
+        contents: impl FnOnce() -> Result<Vec<u8>, String>,
+    ) -> i32 {
+        // As above, the adapter supplies conversion lazily so denial wins over
+        // an invalid guest byte-array value.
+        let result = self
+            .ensure_append(path)
+            .and_then(|()| contents().map_err(HostFsError::operation))
+            .and_then(|contents| {
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(path)
+                    .and_then(|mut file| file.write_all(&contents))
+                    .map_err(|error| {
+                        HostFsError::operation(format!("Failed to append file {path}: {error}"))
+                    })
+            });
+        operation_status(results, result)
+    }
+
     pub(crate) fn create_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_write(path).and_then(|()| {
             std::fs::create_dir_all(self.resolved(path)).map_err(|error| {
@@ -302,6 +327,27 @@ impl HostFs {
                 HostFsError::operation(format!("Failed to remove directory {path}: {error}"))
             })
         });
+        operation_status(results, result)
+    }
+
+    pub(crate) fn sync_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
+        let result = self.ensure_read(path).and_then(|()| {
+            sync_file(path).map_err(|error| {
+                HostFsError::operation(format!("Failed to sync file {path}: {error}"))
+            })
+        });
+        operation_status(results, result)
+    }
+
+    pub(crate) fn rename_new(&self, results: &mut FsOperationResults, from: &str, to: &str) -> i32 {
+        let result = self
+            .authorize_rename(OsStr::new(from), OsStr::new(to))
+            .map_err(|_| HostFsError::permission_denied(from))
+            .and_then(|()| {
+                std::fs::rename(from, to).map_err(|error| {
+                    HostFsError::operation(format!("Failed to rename file {from}: {error}"))
+                })
+            });
         operation_status(results, result)
     }
 
@@ -462,6 +508,11 @@ impl HostFs {
             .map_err(|_| HostFsError::permission_denied(path))
     }
 
+    fn ensure_append(&self, path: &str) -> Result<(), HostFsError> {
+        self.authorize_open(OsStr::new(path), 1, 1, true)
+            .map_err(|_| HostFsError::permission_denied(path))
+    }
+
     fn ensure_remove(&self, path: &str) -> Result<(), HostFsError> {
         self.authorize_remove(OsStr::new(path))
             .map_err(|_| HostFsError::permission_denied(path))
@@ -545,6 +596,22 @@ fn operation_status(results: &mut FsOperationResults, result: Result<(), HostFsE
 fn set_error(results: &mut FsOperationResults, error: HostFsError) -> i32 {
     results.error_message = error.to_string();
     -1
+}
+
+#[cfg(not(windows))]
+fn sync_file(path: &str) -> std::io::Result<()> {
+    std::fs::File::open(path)?.sync_all()
+}
+
+#[cfg(windows)]
+fn sync_file(path: &str) -> std::io::Result<()> {
+    // Flushing buffered data requires a write handle on Windows, so open the
+    // file with both read and write access.
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?
+        .sync_all()
 }
 
 #[cfg(test)]
@@ -748,6 +815,101 @@ mod tests {
         assert_eq!(status, -1);
         assert!(!converted.get());
         assert_eq!(results.error_message(), "Permission denied: denied.bin");
+    }
+
+    #[test]
+    fn append_bytes_creates_file_and_appends() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("append.txt");
+        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let mut results = FsOperationResults::default();
+
+        assert_eq!(
+            host.append_bytes_to_file_new(&mut results, path.to_str().unwrap(), || {
+                Ok(b"first".to_vec())
+            }),
+            0
+        );
+        assert_eq!(
+            host.append_bytes_to_file_new(&mut results, path.to_str().unwrap(), || {
+                Ok(b"-second".to_vec())
+            }),
+            0
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "first-second");
+    }
+
+    #[test]
+    fn append_denied_preserves_existing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("append.txt");
+        std::fs::write(&path, "original").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let mut results = FsOperationResults::default();
+
+        let status = host.append_bytes_to_file_new(&mut results, path.to_str().unwrap(), || {
+            Ok(b"appended".to_vec())
+        });
+        assert_eq!(status, -1);
+        assert_eq!(
+            results.error_message(),
+            format!("Permission denied: {}", path.display())
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    }
+
+    #[test]
+    fn sync_file_reports_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("sync.txt");
+        std::fs::write(&path, "data").unwrap();
+        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let mut results = FsOperationResults::default();
+
+        assert_eq!(host.sync_file_new(&mut results, path.to_str().unwrap()), 0);
+
+        let missing = tmp.path().join("missing.txt");
+        assert_eq!(
+            host.sync_file_new(&mut results, missing.to_str().unwrap()),
+            -1
+        );
+        assert!(results
+            .error_message()
+            .starts_with(&format!("Failed to sync file {}", missing.display())));
+    }
+
+    #[test]
+    fn rename_replaces_existing_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let from = tmp.path().join("from.txt");
+        let to = tmp.path().join("to.txt");
+        std::fs::write(&from, "from").unwrap();
+        std::fs::write(&to, "to").unwrap();
+        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let mut results = FsOperationResults::default();
+
+        assert_eq!(
+            host.rename_new(&mut results, from.to_str().unwrap(), to.to_str().unwrap()),
+            0
+        );
+        assert!(!from.exists());
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "from");
+    }
+
+    #[test]
+    fn rename_denied_records_guest_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let mut results = FsOperationResults::default();
+
+        assert_eq!(host.rename_new(&mut results, "from.txt", "to.txt"), -1);
+        assert_eq!(results.error_message(), "Permission denied: from.txt");
     }
 
     #[test]

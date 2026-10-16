@@ -246,3 +246,75 @@ fn byte_to_string_conversion_does_not_depend_on_js_argument_stack_limits() {
             i32.const 0 i32.const 1048576 call $string
             call $len i32.const 524288 i32.ne if unreachable end))"#);
 }
+
+#[test]
+fn append_sync_and_rename_round_trip() {
+    let directory = tempfile::tempdir().unwrap();
+    let append_path = directory.path().join("append.txt");
+    let renamed_path = directory.path().join("renamed.txt");
+    let append = append_path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let renamed = renamed_path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "append-sync-rename.wasm",
+            wat::parse_str(format!(
+                r#"(module
+                    (import "_" "{append}" (global $append (ref extern)))
+                    (import "_" "{renamed}" (global $renamed (ref extern)))
+                    (import "__moonbit_fs_unstable" "begin_create_byte_array"
+                        (func $builder (result externref)))
+                    (import "__moonbit_fs_unstable" "byte_array_append_byte"
+                        (func $append_byte (param externref i32)))
+                    (import "__moonbit_fs_unstable" "finish_create_byte_array"
+                        (func $finish (param externref) (result externref)))
+                    (import "__moonbit_fs_unstable" "append_bytes_to_file_new"
+                        (func $append_file (param externref externref) (result i32)))
+                    (import "__moonbit_fs_unstable" "sync_file_new"
+                        (func $sync (param externref) (result i32)))
+                    (import "__moonbit_fs_unstable" "rename_new"
+                        (func $rename (param externref externref) (result i32)))
+                    (func $contents (result externref) (local $builder externref)
+                        call $builder
+                        local.set $builder
+                        local.get $builder
+                        i32.const 104
+                        call $append_byte
+                        local.get $builder
+                        i32.const 105
+                        call $append_byte
+                        local.get $builder
+                        call $finish)
+                    (func (export "_start")
+                        global.get $append
+                        call $contents
+                        call $append_file
+                        drop
+                        global.get $append
+                        call $contents
+                        call $append_file
+                        drop
+                        global.get $append
+                        call $sync
+                        drop
+                        global.get $append
+                        global.get $renamed
+                        call $rename
+                        drop))"#,
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+    assert_eq!(std::fs::read_to_string(&renamed_path).unwrap(), "hihi");
+    assert!(!append_path.exists());
+}

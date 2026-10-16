@@ -335,6 +335,53 @@ fn remove_dir_new(
     ret.set_int32(status);
 }
 
+fn append_bytes_to_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let imports = fs_imports(&args);
+    let path = args.string_lossy(scope, 0);
+    let status = imports.filesystem.append_bytes_to_file_new(
+        &mut imports.operation_results.borrow_mut(),
+        &path,
+        || match v8::Local::<v8::Uint8Array>::try_from(args.get(1)) {
+            Ok(array) => Ok(copy_uint8_array(array)),
+            Err(_) => Err("Failed to convert contents to Uint8Array".to_string()),
+        },
+    );
+    ret.set_int32(status);
+}
+
+fn sync_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let imports = fs_imports(&args);
+    let path = args.string_lossy(scope, 0);
+    let status = imports
+        .filesystem
+        .sync_file_new(&mut imports.operation_results.borrow_mut(), &path);
+    ret.set_int32(status);
+}
+
+fn rename_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let imports = fs_imports(&args);
+    let from = args.string_lossy(scope, 0);
+    let to = args.string_lossy(scope, 1);
+    let status = imports.filesystem.rename_new(
+        &mut imports.operation_results.borrow_mut(),
+        &from,
+        &to,
+    );
+    ret.set_int32(status);
+}
+
 fn get_error_message(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -429,6 +476,9 @@ pub(super) fn register<'s>(
     set_host_func(obj, scope, "is_dir_new", is_dir_new, imports_ptr);
     set_host_func(obj, scope, "remove_file_new", remove_file_new, imports_ptr);
     set_host_func(obj, scope, "remove_dir_new", remove_dir_new, imports_ptr);
+    set_host_func(obj, scope, "append_bytes_to_file_new", append_bytes_to_file_new, imports_ptr);
+    set_host_func(obj, scope, "sync_file_new", sync_file_new, imports_ptr);
+    set_host_func(obj, scope, "rename_new", rename_new, imports_ptr);
 }
 
 fn set_host_func<'s>(
