@@ -31,13 +31,9 @@ compile_error!(
 // Shared host definitions remain available to every backend. The numeric wee8
 // adapter registers only a subset; unused definitions are intentional until its
 // import coverage grows. Its adapter still has unused-code checks enabled.
-#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod async_api;
-#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod async_host;
-#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod async_sys;
-#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod core_api;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod engine;
@@ -57,13 +53,11 @@ mod process;
 mod resource;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod run_signal;
-#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod run_termination;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod runtime;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod source_map;
-#[cfg_attr(feature = "wee8", allow(dead_code))]
 mod sqlite;
 #[cfg(feature = "v8")]
 mod util;

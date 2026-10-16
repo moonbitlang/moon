@@ -35,20 +35,27 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
         function: F,
     ) -> wasmtime::Result<()> {
         let data = self.data;
+        let val_type = |kind| match kind {
+            WasmType::I32 => wasmtime::ValType::I32,
+            WasmType::I64 => wasmtime::ValType::I64,
+            WasmType::F32 => wasmtime::ValType::F32,
+            WasmType::F64 => wasmtime::ValType::F64,
+        };
         let ty = wasmtime::FuncType::new(
             self.linker.engine(),
-            P::TYPES.iter().map(|kind| match kind {
-                WasmType::I32 => wasmtime::ValType::I32,
-                WasmType::I64 => wasmtime::ValType::I64,
-            }),
-            R::HAS_RESULT.then_some(wasmtime::ValType::I32),
+            P::TYPES.iter().copied().map(val_type),
+            R::TYPE.map(val_type),
         );
         self.linker
             .func_new(module, name, ty, move |mut caller, args, results| {
                 let params = P::decode::<std::convert::Infallible>(|index, kind| {
                     Ok(match kind {
-                        WasmType::I32 => i64::from(args[index].i32().expect("declared i32 import")),
-                        WasmType::I64 => args[index].i64().expect("declared i64 import"),
+                        WasmType::I32 => args[index].i32().expect("declared i32 import") as u64,
+                        WasmType::I64 => args[index].i64().expect("declared i64 import") as u64,
+                        WasmType::F32 => {
+                            u64::from(args[index].f32().expect("declared f32 import").to_bits())
+                        }
+                        WasmType::F64 => args[index].f64().expect("declared f64 import").to_bits(),
                     })
                 })
                 .unwrap();
@@ -61,6 +68,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         function.call(
                             Caller {
                                 data: data(state),
+                                termination: state.termination_request(),
                                 memory: Ok(bytes),
                             },
                             params,
@@ -70,13 +78,20 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                     None => function.call(
                         Caller {
                             data: data(caller.data()),
+                            termination: caller.data().termination_request(),
                             memory: Ok(&mut []),
                         },
                         params,
                     ),
-                }?;
-                if let Some(value) = value.into_i32() {
-                    results[0] = wasmtime::Val::I32(value);
+                }
+                .map_err(|error| error.at(module, name))?;
+                if let (Some(kind), Some(bits)) = (R::TYPE, value.into_bits()) {
+                    results[0] = match kind {
+                        WasmType::I32 => wasmtime::Val::I32(bits as i32),
+                        WasmType::I64 => wasmtime::Val::I64(bits as i64),
+                        WasmType::F32 => wasmtime::Val::F32(bits as u32),
+                        WasmType::F64 => wasmtime::Val::F64(bits),
+                    };
                 }
                 Ok(())
             })?;

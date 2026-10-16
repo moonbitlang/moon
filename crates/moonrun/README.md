@@ -79,7 +79,7 @@ its native Rust API and does not introduce another V8 archive.
 
 This is a working integration MVP, not a replacement for either full backend:
 
-- Wasm 1.0 numeric execution, bulk-memory instructions, multi-value guest code,
+- Wasm 1.0 execution, bulk-memory and SIMD instructions, multi-value guest code,
   guest-defined memory/globals/tables, and `_start`. Bulk memory and multi-value
   loops are needed by MoonBit's `wasm` compiler output; the Rust host-call
   interface still accepts only numeric values and at most one return value.
@@ -89,10 +89,17 @@ This is a working integration MVP, not a replacement for either full backend:
   Host Domain implementations are shared across all three engines. This is
   Moonrun's existing capability surface, not the complete WASIp1 standard;
   unsupported imports and signatures fail explicitly.
+- The existing numeric async and SQLite imports, including worker jobs,
+  completion pipes, host Handles, database values and filesystem policy; plus
+  the core executable-path imports. All use the same typed registrations and
+  Host Domains as V8 and Wasmtime.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
   host call, using its current allocation after any guest memory growth.
+
+SIMD values remain internal to guest code: `v128` in function or global
+imports/exports is rejected by the upstream crate.
 
 Host-imported memory/globals/tables, guest re-entry from a host callback,
 WasmGC/reference values, exception tags, the MoonBit test driver, custom stack
@@ -105,14 +112,15 @@ focused wee8 tests instead.
 Run the focused integration checks:
 
 ```sh
-cargo test -p moonrun --no-default-features --features wee8 --test wee8
+cargo test -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test numeric_host_imports
 cargo test -p moonrun --no-default-features --features wee8 --lib
 ```
 
 The integration tests compile a MoonBit program for `wasm` in both debug and
 release modes and run it through the wee8 CLI, checking Unicode output and
-arithmetic. This requires the MoonBit toolchain, as do the other Moonrun
-compiler integration tests. It does not establish support for all MoonBit host
+arithmetic. Async and SQLite CLI fixtures additionally check host services and
+SQLite i64/f64 round trips. This requires the MoonBit toolchain, as do the other
+Moonrun compiler integration tests. It does not establish support for all MoonBit host
 imports or the `wasm-gc` backend.
 
 ## Running

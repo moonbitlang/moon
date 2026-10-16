@@ -16,25 +16,94 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(feature = "v8")]
-use crate::core_api;
-
-#[cfg(feature = "v8")]
-use super::backend::{
-    FinishI32, FinishI64, FinishVoid, ImportArgs, callback_context, throw_import_error,
-};
+use super::context::ImportContext;
 #[cfg(test)]
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
-#[allow(
-    unused_imports,
-    reason = "implementations referenced by enabled registrations and ABI tests"
-)]
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
     random, runtime, signal, socket, stdio, thread_pool, time, tls,
 };
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::runtime::Runtime;
+use crate::wasm_imports::{Caller, ImportError, ImportRegistry, WasmResult};
 
-pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
+use super::MOONBIT_ASYNC_MODULE;
+
+// Ported operations retain their native-shaped infallible/fallible signatures.
+// Normalize them here, before the engine-specific return conversion.
+trait IntoAsyncResult<T> {
+    fn into_async_result(self) -> AsyncHostResult<T>;
+}
+impl<T: WasmResult> IntoAsyncResult<T> for T {
+    fn into_async_result(self) -> AsyncHostResult<T> {
+        Ok(self)
+    }
+}
+impl<T: WasmResult> IntoAsyncResult<T> for AsyncHostResult<T> {
+    fn into_async_result(self) -> AsyncHostResult<T> {
+        self
+    }
+}
+
+macro_rules! return_type {
+    (void) => {
+        ()
+    };
+    ($ty:ident) => {
+        $ty
+    };
+}
+
+macro_rules! register_async_import {
+    (fake, $registry:ident, $name:literal, $ret:ident, $module:ident::$callback:ident, ($($arg:ident: $ty:ident),*)) => {
+        $registry.func_wrap(MOONBIT_ASYNC_MODULE, $name,
+            |_: Caller<'_, Runtime>, $($arg: $ty),*| -> Result<return_type!($ret), ImportError> {
+                let _ = ($($arg,)*);
+                Err(anyhow::anyhow!("platform-inactive moonbitlang/async import `{}` was called", $name).into())
+            })?;
+    };
+    ($kind:ident, $registry:ident, $name:literal, $ret:ident, $module:ident::$callback:ident, ($($arg:ident: $ty:ident),*)) => {
+        $registry.func_wrap(MOONBIT_ASYNC_MODULE, $name,
+            |caller: Caller<'_, Runtime>, $($arg: $ty),*| -> Result<return_type!($ret), ImportError> {
+                let mut context = ImportContext {
+                    host: caller.data.async_host(),
+                    filesystem: caller.data.filesystem(),
+                    memory: caller.memory.map_err(|_| AsyncHostError::Fault),
+                    termination_request: caller.termination,
+                };
+                let result = $module::$callback(&mut context, $($arg),*).into_async_result();
+                if caller.termination.is_requested() {
+                    return Err(ImportError::Terminated);
+                }
+                result.map_err(|error| ImportError::Operation(format!("{error:?}")))
+            })?;
+    };
+}
+
+macro_rules! declare_async_imports {
+    ($(
+        $(#[$meta:meta])*
+        $kind:ident $module:ident::$callback:ident ($($arg:ident: $arg_ty:ident),* $(,)?)
+        -> $ret_ty:ident => $wasm_symbol:literal;
+    )*) => {
+        #[cfg(test)]
+        const ASYNC_IMPORTS: &[AsyncImport] = &[
+            $($(#[$meta])* AsyncImport {
+                kind: import_kind!($kind),
+                callback_module: stringify!($module),
+                callback_symbol: stringify!($callback),
+                wasm_symbol: $wasm_symbol,
+                params: &[$(wasm_type!($arg_ty)),*],
+                result: wasm_result!($ret_ty),
+            },)*
+        ];
+        pub(crate) fn register<R: ImportRegistry<Runtime>>(registry: &mut R) -> Result<(), R::Error> {
+            $($(#[$meta])* register_async_import!($kind, registry, $wasm_symbol, $ret_ty, $module::$callback, ($($arg: $arg_ty),*));)*
+            Ok(())
+        }
+    };
+}
+
 #[cfg(test)]
 const NATIVE_ASYNC_PREFIX: &str = "moonbitlang_async_";
 
@@ -106,507 +175,6 @@ macro_rules! wasm_result {
     ($ty:ident) => {
         Some(wasm_type!($ty))
     };
-}
-
-#[cfg(feature = "v8")]
-macro_rules! decode_wasm_arg {
-    ($args:ident, i32) => {
-        $args.next_i32()
-    };
-    ($args:ident, u32) => {
-        $args.next_u32()
-    };
-    ($args:ident, i64) => {
-        $args.next_i64()
-    };
-    ($args:ident, u64) => {
-        $args.next_u64()
-    };
-}
-
-#[cfg(feature = "v8")]
-macro_rules! decode_wasm_args {
-    ($scope:ident, $args:ident,) => {
-        Ok(())
-    };
-    ($scope:ident, $args:ident, $($arg:ident : $arg_ty:ident),+ $(,)?) => {{
-        let mut import_args = ImportArgs::new($scope, &$args);
-        let decoded_args: crate::async_host::AsyncHostResult<_> = (|| {
-            $(
-                let $arg = decode_wasm_arg!(import_args, $arg_ty)?;
-            )*
-            Ok(($($arg,)*))
-        })();
-        decoded_args
-    }};
-}
-
-#[cfg(feature = "v8")]
-macro_rules! wasm_arg_count {
-    () => {
-        0_i32
-    };
-    ($head:ident $(, $tail:ident)*) => {
-        1_i32 + wasm_arg_count!($($tail),*)
-    };
-}
-
-#[cfg(feature = "v8")]
-macro_rules! finish_wasm_import {
-    ($scope:ident, $ret:ident, $name:expr, void, $result:expr) => {
-        $result.finish_void($scope, &mut $ret, $name)
-    };
-    ($scope:ident, $ret:ident, $name:expr, i32, $result:expr) => {
-        $result.finish_i32($scope, &mut $ret, $name)
-    };
-    ($scope:ident, $ret:ident, $name:expr, u32, $result:expr) => {
-        $result.finish_i32($scope, &mut $ret, $name)
-    };
-    ($scope:ident, $ret:ident, $name:expr, i64, $result:expr) => {
-        $result.finish_i64($scope, &mut $ret, $name)
-    };
-    ($scope:ident, $ret:ident, $name:expr, u64, $result:expr) => {
-        $result.finish_i64($scope, &mut $ret, $name)
-    };
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-trait FinishWasmtimeVoid {
-    fn finish(self, import_name: &str) -> wasmtime::Result<()>;
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeVoid for () {
-    fn finish(self, _import_name: &str) -> wasmtime::Result<()> {
-        Ok(())
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeVoid for crate::async_host::AsyncHostResult<()> {
-    fn finish(self, import_name: &str) -> wasmtime::Result<()> {
-        self.map_err(|error| {
-            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
-        })
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-trait FinishWasmtimeI32 {
-    fn finish(self, import_name: &str) -> wasmtime::Result<i32>;
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI32 for i32 {
-    fn finish(self, _import_name: &str) -> wasmtime::Result<i32> {
-        Ok(self)
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI32 for u32 {
-    fn finish(self, _import_name: &str) -> wasmtime::Result<i32> {
-        Ok(self as i32)
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI32 for crate::async_host::AsyncHostResult<i32> {
-    fn finish(self, import_name: &str) -> wasmtime::Result<i32> {
-        self.map_err(|error| {
-            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
-        })
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI32 for crate::async_host::AsyncHostResult<u32> {
-    fn finish(self, import_name: &str) -> wasmtime::Result<i32> {
-        self.map(|value| value as i32).map_err(|error| {
-            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
-        })
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-trait FinishWasmtimeI64 {
-    fn finish(self, import_name: &str) -> wasmtime::Result<i64>;
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI64 for i64 {
-    fn finish(self, _import_name: &str) -> wasmtime::Result<i64> {
-        Ok(self)
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI64 for u64 {
-    fn finish(self, _import_name: &str) -> wasmtime::Result<i64> {
-        Ok(self as i64)
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI64 for crate::async_host::AsyncHostResult<i64> {
-    fn finish(self, import_name: &str) -> wasmtime::Result<i64> {
-        self.map_err(|error| {
-            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
-        })
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-impl FinishWasmtimeI64 for crate::async_host::AsyncHostResult<u64> {
-    fn finish(self, import_name: &str) -> wasmtime::Result<i64> {
-        self.map(|value| value as i64).map_err(|error| {
-            wasmtime::format_err!("{MOONBIT_ASYNC_MODULE}.{import_name} failed: {error:?}")
-        })
-    }
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-macro_rules! wasmtime_arg_type {
-    (i32) => {
-        i32
-    };
-    (u32) => {
-        i32
-    };
-    (i64) => {
-        i64
-    };
-    (u64) => {
-        i64
-    };
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-macro_rules! decode_wasmtime_arg {
-    ($arg:ident, i32) => {
-        $arg
-    };
-    ($arg:ident, u32) => {
-        $arg as u32
-    };
-    ($arg:ident, i64) => {
-        $arg
-    };
-    ($arg:ident, u64) => {
-        $arg as u64
-    };
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-macro_rules! wasmtime_return_type {
-    (void) => {
-        ()
-    };
-    (i32) => {
-        i32
-    };
-    (u32) => {
-        i32
-    };
-    (i64) => {
-        i64
-    };
-    (u64) => {
-        i64
-    };
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-macro_rules! finish_wasmtime_import {
-    ($name:expr, void, $result:expr) => {
-        FinishWasmtimeVoid::finish($result, $name)
-    };
-    ($name:expr, i32, $result:expr) => {
-        FinishWasmtimeI32::finish($result, $name)
-    };
-    ($name:expr, u32, $result:expr) => {
-        FinishWasmtimeI32::finish($result, $name)
-    };
-    ($name:expr, i64, $result:expr) => {
-        FinishWasmtimeI64::finish($result, $name)
-    };
-    ($name:expr, u64, $result:expr) => {
-        FinishWasmtimeI64::finish($result, $name)
-    };
-}
-
-macro_rules! declare_async_imports {
-    ($(
-        $(#[$meta:meta])*
-        $kind:ident $module:ident::$callback:ident (
-            $($arg:ident : $arg_ty:ident),* $(,)?
-        ) -> $ret_ty:ident => $wasm_symbol:literal;
-    )*) => {
-        #[cfg(test)]
-        const ASYNC_IMPORTS: &[AsyncImport] = &[
-            $(
-                $(#[$meta])*
-                AsyncImport {
-                    kind: import_kind!($kind),
-                    callback_module: stringify!($module),
-                    callback_symbol: stringify!($callback),
-                    wasm_symbol: $wasm_symbol,
-                    params: &[$(wasm_type!($arg_ty)),*],
-                    result: wasm_result!($ret_ty),
-                },
-            )*
-        ];
-
-        #[cfg(feature = "v8")]
-        pub(super) fn register_imports<'s>(
-            obj: v8::Local<'s, v8::Object>,
-            scope: &mut v8::HandleScope<'s>,
-            context_ptr: *const crate::v8::context::V8RunContext,
-        ) {
-            $(
-                $(#[$meta])*
-                register_async_import!(
-                    $kind,
-                    obj,
-                    scope,
-                    context_ptr,
-                    $wasm_symbol,
-                    $ret_ty,
-                    $module::$callback,
-                    ($($arg : $arg_ty),*)
-                );
-            )*
-        }
-
-        #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-        pub(crate) fn register_wasmtime_imports(
-            linker: &mut wasmtime::Linker<crate::wasmtime::StoreData>,
-        ) -> wasmtime::Result<()> {
-            $(
-                $(#[$meta])*
-                register_wasmtime_async_import!(
-                    $kind,
-                    linker,
-                    $wasm_symbol,
-                    $ret_ty,
-                    $module::$callback,
-                    ($($arg : $arg_ty),*)
-                );
-            )*
-            Ok(())
-        }
-    };
-}
-
-#[cfg(feature = "v8")]
-macro_rules! register_async_import {
-    (
-        fake,
-        $obj:ident,
-        $scope:ident,
-        $context_ptr:ident,
-        $wasm_symbol:literal,
-        $ret_ty:ident,
-        $module:ident::$callback:ident,
-        ($($arg:ident : $arg_ty:ident),* $(,)?)
-    ) => {{
-        fn callback(
-            _scope: &mut v8::HandleScope,
-            _args: v8::FunctionCallbackArguments,
-            _ret: v8::ReturnValue,
-        ) {
-            unreachable!("fake async import should not be called")
-        }
-        crate::v8::context::register_func(
-            $obj,
-            $scope,
-            $wasm_symbol,
-            callback,
-            $context_ptr,
-        );
-    }};
-    (
-        $kind:ident,
-        $obj:ident,
-        $scope:ident,
-        $context_ptr:ident,
-        $wasm_symbol:literal,
-        $ret_ty:ident,
-        $module:ident::$callback:ident,
-        ($($arg:ident : $arg_ty:ident),* $(,)?)
-    ) => {{
-        fn callback(
-            scope: &mut v8::HandleScope,
-            args: v8::FunctionCallbackArguments,
-            mut ret: v8::ReturnValue,
-        ) {
-            if args.length() != wasm_arg_count!($($arg),*) {
-                throw_import_error(
-                    scope,
-                    $wasm_symbol,
-                    crate::async_host::AsyncHostError::Inval,
-                );
-                return;
-            }
-            let _ = &args;
-            let host_context = callback_context(&args);
-            let decoded_args: crate::async_host::AsyncHostResult<_> =
-                decode_wasm_args!(scope, args, $($arg : $arg_ty),*);
-            match decoded_args {
-                Ok(($($arg,)*)) => {
-                    let result = {
-                        super::backend::with_v8_context(scope, host_context, |context| {
-                            $module::$callback(context, $($arg),*)
-                        })
-                    };
-                    if host_context.termination_request().is_requested() {
-                        // Guest Memory is no longer borrowed. Interrupt before
-                        // encoding a return value or creating an exception.
-                        scope.terminate_execution();
-                        return;
-                    }
-                    finish_wasm_import!(
-                        scope,
-                        ret,
-                        $wasm_symbol,
-                        $ret_ty,
-                        result
-                    );
-                }
-                Err(error) => throw_import_error(scope, $wasm_symbol, error),
-            }
-        }
-        crate::v8::context::register_func(
-            $obj,
-            $scope,
-            $wasm_symbol,
-            callback,
-            $context_ptr,
-        );
-    }};
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-macro_rules! register_wasmtime_async_import {
-    (
-        fake,
-        $linker:ident,
-        $wasm_symbol:literal,
-        $ret_ty:ident,
-        $module:ident::$callback:ident,
-        ($($arg:ident : $arg_ty:ident),* $(,)?)
-    ) => {{
-        $linker.func_wrap(
-            MOONBIT_ASYNC_MODULE,
-            $wasm_symbol,
-            |_: wasmtime::Caller<'_, crate::wasmtime::StoreData>
-                $(, $arg: wasmtime_arg_type!($arg_ty))*|
-                -> wasmtime::Result<wasmtime_return_type!($ret_ty)> {
-                let _ = ($($arg,)*);
-                Err(wasmtime::format_err!(
-                    "platform-inactive moonbitlang/async import `{}` was called",
-                    $wasm_symbol,
-                ))
-            },
-        )?;
-    }};
-    (
-        $kind:ident,
-        $linker:ident,
-        $wasm_symbol:literal,
-        $ret_ty:ident,
-        $module:ident::$callback:ident,
-        ($($arg:ident : $arg_ty:ident),* $(,)?)
-    ) => {{
-        $linker.func_wrap(
-            MOONBIT_ASYNC_MODULE,
-            $wasm_symbol,
-            |mut caller: wasmtime::Caller<'_, crate::wasmtime::StoreData>
-                $(, $arg: wasmtime_arg_type!($arg_ty))*|
-                -> wasmtime::Result<wasmtime_return_type!($ret_ty)> {
-                let result = super::backend::with_wasmtime_context(
-                    &mut caller,
-                    |context| {
-                        $module::$callback(
-                            context,
-                            $(decode_wasmtime_arg!($arg, $arg_ty)),*
-                        )
-                    },
-                );
-                if caller.data().termination_request().is_requested() {
-                    return Err(wasmtime::format_err!("run termination requested"));
-                }
-                finish_wasmtime_import!($wasm_symbol, $ret_ty, result)
-            },
-        )?;
-    }};
-}
-
-#[cfg(feature = "v8")]
-pub(super) fn register_core_imports<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    context_ptr: *const crate::v8::context::V8RunContext,
-) {
-    crate::v8::context::register_func(
-        obj,
-        scope,
-        "env/current_exe",
-        core_import::current_exe,
-        context_ptr,
-    );
-    crate::v8::context::register_func(
-        obj,
-        scope,
-        "env/current_exe_dir",
-        core_import::current_exe_dir,
-        context_ptr,
-    );
-}
-
-#[cfg(feature = "v8")]
-mod core_import {
-    use super::*;
-
-    pub(super) fn current_exe(
-        scope: &mut v8::HandleScope,
-        args: v8::FunctionCallbackArguments,
-        mut ret: v8::ReturnValue,
-    ) {
-        if args.length() != 0 {
-            throw_import_error(
-                scope,
-                "env/current_exe",
-                crate::async_host::AsyncHostError::Inval,
-            );
-            return;
-        }
-        core_api::current_exe(callback_context(&args).runtime()).finish_i64(
-            scope,
-            &mut ret,
-            "env/current_exe",
-        );
-    }
-
-    pub(super) fn current_exe_dir(
-        scope: &mut v8::HandleScope,
-        args: v8::FunctionCallbackArguments,
-        mut ret: v8::ReturnValue,
-    ) {
-        if args.length() != 0 {
-            throw_import_error(
-                scope,
-                "env/current_exe_dir",
-                crate::async_host::AsyncHostError::Inval,
-            );
-            return;
-        }
-        core_api::current_exe_dir(callback_context(&args).runtime()).finish_i64(
-            scope,
-            &mut ret,
-            "env/current_exe_dir",
-        );
-    }
 }
 
 // This block is the complete `moonbitlang/async` ABI surface registered by moonrun.

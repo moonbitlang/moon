@@ -507,7 +507,7 @@ fn main raise {
   let blob_backing = b"\xAA\x00\x7F\xFF\xBB"
   let blob = blob_backing[1:4]
   assert_true(
-    sqlite3_bind_int64(bound, 1, 5000000000L) == SQLITE_OK,
+    sqlite3_bind_int64(bound, 1, -9007199254740993L) == SQLITE_OK,
     msg="sqlite3_bind_int64 failed",
   )
   assert_true(
@@ -605,7 +605,7 @@ fn main raise {
     msg="bound query returned the wrong SQLite types",
   )
   assert_true(
-    sqlite3_column_int64(bound, 0) == 5000000000L,
+    sqlite3_column_int64(bound, 0) == -9007199254740993L,
     msg="bound integer did not round-trip",
   )
   assert_true(

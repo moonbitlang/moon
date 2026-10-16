@@ -329,23 +329,22 @@ pub(super) fn install<'s>(
     }
 
     {
-        let async_runtime = module_imports.child(scope, async_api::MOONBIT_ASYNC_MODULE);
-        let core = module_imports.child(scope, core_api::MOONBIT_CORE_MODULE);
-        // SAFETY: the installed imports retain `v8_context` throughout guest
-        // execution.
-        unsafe { async_api::init_env(async_runtime, core, scope, v8_context_ptr) };
+        let mut registry = super::wasm_imports::Registry {
+            object: module_imports,
+            scope,
+            data: Rc::clone(v8_context.runtime()),
+            memory: Rc::clone(&memory_binding),
+            termination: termination_request.clone(),
+            retained: &mut retained_callback_state,
+        };
+        async_api::register(&mut registry).unwrap();
+        core_api::register(&mut registry).unwrap();
+        sqlite::wasm::register(&mut registry).unwrap();
     }
 
     {
-        let sqlite = module_imports.child(scope, sqlite::wasm::MOONBIT_SQLITE_MODULE);
-        // SAFETY: the same lifetime invariant as the async adapter above.
-        unsafe { sqlite::wasm::init_env(sqlite, scope, v8_context_ptr) };
-    }
-
-    {
-        let wasi = module_imports.child(scope, "wasi_snapshot_preview1");
         super::wasi::init_env(
-            wasi,
+            module_imports,
             scope,
             wasm_file_name,
             args,

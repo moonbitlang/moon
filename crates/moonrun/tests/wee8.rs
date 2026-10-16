@@ -239,7 +239,7 @@ fn proposals_and_unsupported_options_fail_before_execution() {
             .compile("unsupported.wasm", wat::parse_str(source).unwrap())
             .unwrap_err();
         assert!(
-            format!("{error:#}").contains("supported numeric Wasm subset"),
+            format!("{error:#}").contains("supported Wasm subset"),
             "{error:#}"
         );
     }

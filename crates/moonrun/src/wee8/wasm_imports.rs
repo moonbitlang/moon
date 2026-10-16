@@ -24,18 +24,16 @@ use crate::wasm_imports::{
 };
 use std::rc::Rc;
 
-pub(super) struct Registry<'s, T> {
+pub(super) struct Registry<'s> {
     store: &'s api::Store<StoreData>,
     imports: Vec<api::Import>,
     functions: Vec<Option<api::HostFunc<'s, StoreData>>>,
-    data: fn(&StoreData) -> &T,
 }
 
-impl<'s, T> Registry<'s, T> {
+impl<'s> Registry<'s> {
     pub(super) fn new(
         store: &'s api::Store<StoreData>,
         module: &api::Module<'s, StoreData>,
-        data: fn(&StoreData) -> &T,
     ) -> api::Result<Self> {
         let imports = module.imports()?;
         let functions = (0..imports.len()).map(|_| None).collect();
@@ -43,7 +41,6 @@ impl<'s, T> Registry<'s, T> {
             store,
             imports,
             functions,
-            data,
         })
     }
 
@@ -63,7 +60,10 @@ impl<'s, T> Registry<'s, T> {
     }
 }
 
-impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
+impl<T: 'static> ImportRegistry<T> for Registry<'_>
+where
+    StoreData: AsRef<T>,
+{
     type Error = api::Error;
     fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
@@ -71,21 +71,17 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
         name: &'static str,
         function: F,
     ) -> api::Result<()> {
-        let data = self.data;
         // A module can import the same definition more than once. All slots
         // retain the same callback and its captures until their store is dropped.
         let function = Rc::new(function);
-        let params: Vec<_> = P::TYPES
-            .iter()
-            .map(|kind| match kind {
-                WasmType::I32 => api::Kind::I32,
-                WasmType::I64 => api::Kind::I64,
-            })
-            .collect();
-        let results: Vec<_> = R::HAS_RESULT
-            .then_some(api::Kind::I32)
-            .into_iter()
-            .collect();
+        let kind = |kind| match kind {
+            WasmType::I32 => api::Kind::I32,
+            WasmType::I64 => api::Kind::I64,
+            WasmType::F32 => api::Kind::F32,
+            WasmType::F64 => api::Kind::F64,
+        };
+        let params: Vec<_> = P::TYPES.iter().copied().map(kind).collect();
+        let results: Vec<_> = R::TYPE.map(kind).into_iter().collect();
         for (import, slot) in self.imports.iter().zip(&mut self.functions) {
             if import.module != module || import.name != name {
                 continue;
@@ -101,9 +97,13 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                     .host_func(&params, &results, move |caller, args| {
                         let params = P::decode::<std::convert::Infallible>(|index, kind| {
                             Ok(match (kind, args[index]) {
-                                (WasmType::I32, api::Value::I32(value)) => i64::from(value),
-                                (WasmType::I64, api::Value::I64(value)) => value,
-                                _ => unreachable!("checked integer import signature"),
+                                (WasmType::I32, api::Value::I32(value)) => value as u64,
+                                (WasmType::I64, api::Value::I64(value)) => value as u64,
+                                (WasmType::F32, api::Value::F32(value)) => {
+                                    u64::from(value.to_bits())
+                                }
+                                (WasmType::F64, api::Value::F64(value)) => value.to_bits(),
+                                _ => unreachable!("checked numeric import signature"),
                             })
                         })
                         .unwrap();
@@ -113,7 +113,8 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         let result = match caller.with_memory(|state, memory| {
                             function.call(
                                 Caller {
-                                    data: data(state),
+                                    data: state.as_ref(),
+                                    termination: &state.termination,
                                     memory: Ok(memory),
                                 },
                                 params,
@@ -123,7 +124,8 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                             Err(error) => caller.with_data(|state| {
                                 function.call(
                                     Caller {
-                                        data: data(state),
+                                        data: state.as_ref(),
+                                        termination: &state.termination,
                                         memory: Err(ImportError::Host(error.into())),
                                     },
                                     params,
@@ -132,9 +134,20 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         };
                         result
                             .map(|value| {
-                                value.into_i32().map(api::Value::I32).into_iter().collect()
+                                R::TYPE
+                                    .zip(value.into_bits())
+                                    .map(|(kind, bits)| match kind {
+                                        WasmType::I32 => api::Value::I32(bits as i32),
+                                        WasmType::I64 => api::Value::I64(bits as i64),
+                                        WasmType::F32 => {
+                                            api::Value::F32(f32::from_bits(bits as u32))
+                                        }
+                                        WasmType::F64 => api::Value::F64(f64::from_bits(bits)),
+                                    })
+                                    .into_iter()
+                                    .collect()
                             })
-                            .map_err(|error| api::Error::Host(error.to_string()))
+                            .map_err(|error| api::Error::Host(error.at(module, name).to_string()))
                     })?,
             );
         }

@@ -20,8 +20,6 @@ use std::ffi::CString;
 
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::sqlite::{SqliteHost, SqliteHostError};
-#[cfg(feature = "v8")]
-use crate::v8::context::{V8ImportError, V8RunContext};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SqliteError {
@@ -32,54 +30,29 @@ pub(super) enum SqliteError {
 
 pub(super) type SqliteResult<T> = Result<T, SqliteError>;
 
-#[cfg(feature = "v8")]
-pub(super) fn with_memory_context<T>(
-    scope: &mut v8::HandleScope,
-    context: &V8RunContext,
-    f: impl FnOnce(&mut ImportContext<'_>) -> SqliteResult<T>,
-) -> SqliteResult<T> {
-    context.memory_binding().with_memory_mut(scope, |memory| {
-        f(&mut ImportContext {
-            host: context.runtime().sqlite(),
-            resources: context.runtime().async_host(),
-            memory,
-        })
-    })
-}
-
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-pub(super) fn with_wasmtime_context<T>(
-    caller: &mut wasmtime::Caller<'_, crate::wasmtime::StoreData>,
-    f: impl FnOnce(&mut ImportContext<'_>) -> SqliteResult<T>,
-) -> SqliteResult<T> {
-    let memory = caller
-        .get_export("memory")
-        .and_then(wasmtime::Extern::into_memory);
-    match memory {
-        Some(memory) => {
-            let (memory, data) = memory.data_and_store_mut(&mut *caller);
-            f(&mut ImportContext {
-                host: data.runtime().sqlite(),
-                resources: data.runtime().async_host(),
-                memory,
-            })
-        }
-        None => {
-            let data = caller.data_mut();
-            let mut empty = [];
-            f(&mut ImportContext {
-                host: data.runtime().sqlite(),
-                resources: data.runtime().async_host(),
-                memory: &mut empty,
-            })
-        }
-    }
-}
-
 pub(super) struct ImportContext<'a> {
     pub(super) host: &'a SqliteHost,
     pub(super) resources: &'a crate::async_host::AsyncHost,
     memory: &'a mut [u8],
+}
+
+impl<'a> TryFrom<crate::wasm_imports::Caller<'a, crate::runtime::Runtime>> for ImportContext<'a> {
+    type Error = SqliteError;
+    fn try_from(
+        caller: crate::wasm_imports::Caller<'a, crate::runtime::Runtime>,
+    ) -> SqliteResult<Self> {
+        Ok(Self {
+            host: caller.data.sqlite(),
+            resources: caller.data.async_host(),
+            memory: caller.memory.map_err(|_| SqliteError::Fault)?,
+        })
+    }
+}
+
+impl From<SqliteError> for crate::wasm_imports::ImportError {
+    fn from(error: SqliteError) -> Self {
+        Self::Operation(format!("{error:?}"))
+    }
 }
 
 impl ImportContext<'_> {
@@ -200,13 +173,6 @@ impl ImportContext<'_> {
 
 impl From<GuestMemoryError> for SqliteError {
     fn from(_error: GuestMemoryError) -> Self {
-        Self::Fault
-    }
-}
-
-#[cfg(feature = "v8")]
-impl From<V8ImportError> for SqliteError {
-    fn from(_error: V8ImportError) -> Self {
         Self::Fault
     }
 }

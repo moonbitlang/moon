@@ -84,7 +84,7 @@ traps or abandons Handles. Job leak accounting belongs to the Async Host.
 ## Wasm representation
 
 [The shared import registry](../../src/sqlite/wasm/registry.rs) declares the same
-nine SQLite job imports for V8 and Wasmtime: constructors for open, prepare,
+nine SQLite job imports for V8, Wasmtime and wee8: constructors for open, prepare,
 step, finalize, and discard; result copying; handle transfer; and UTF-16 message
 length and copying. Job Handles use the existing async Job kind in the Runtime's
 shared namespace. Scheduling, return status, OS errors, completion, and release

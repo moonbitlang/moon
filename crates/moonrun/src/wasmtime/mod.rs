@@ -236,8 +236,13 @@ fn linker_for_module(
 ) -> wt::Result<Linker<StoreData>> {
     let mut linker = Linker::new(engine);
     wasi::register_imports(&mut linker)?;
-    crate::async_api::register_wasmtime_imports(&mut linker)?;
-    crate::sqlite::wasm::register_wasmtime_imports(&mut linker)?;
+    let mut registry = wasm_imports::Registry {
+        linker: &mut linker,
+        data: StoreData::runtime,
+    };
+    crate::async_api::register(&mut registry)?;
+    crate::sqlite::wasm::register(&mut registry)?;
+    crate::core_api::register(&mut registry)?;
     let mut defined = HashSet::new();
 
     for import in module.imports() {
@@ -249,6 +254,11 @@ fn linker_for_module(
             (crate::wasi::imports::MODULE, _, ExternType::Func(_)) => {}
             (crate::async_api::MOONBIT_ASYNC_MODULE, _, ExternType::Func(_)) => {}
             (crate::sqlite::wasm::MOONBIT_SQLITE_MODULE, _, ExternType::Func(_)) => {}
+            (
+                crate::core_api::MOONBIT_CORE_MODULE,
+                "env/current_exe" | "env/current_exe_dir",
+                ExternType::Func(_),
+            ) => {}
             ("ffi-bytes", "memory", ExternType::Memory(_)) => {
                 host_imports::define_ffi_bytes_memory(&mut linker, store)?;
             }

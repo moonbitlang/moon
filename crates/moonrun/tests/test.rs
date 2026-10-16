@@ -1194,7 +1194,7 @@ Sandbox policy blocked file read: "denied/database.sqlite"
         .failure()
         .stderr_eq(snapbox::str![[r#"
 Error: moonbitlang/sqlite.sqlite3_close failed: InvalidHandle
-[..]
+...
 "#]]);
 
     let entered_mutex_wasm = dir.join("_build/wasm/debug/build/entered_mutex/entered_mutex.wasm");
@@ -1204,7 +1204,7 @@ Error: moonbitlang/sqlite.sqlite3_close failed: InvalidHandle
         .failure()
         .stderr_eq(snapbox::str![[r#"
 Error: moonbitlang/sqlite.sqlite3_close failed: Fault
-[..]
+...
 "#]]);
 }
 
@@ -1814,7 +1814,7 @@ fn test_moon_run_with_async_host_invalid_c_buffer_traps() {
         .failure()
         .stderr_eq(snapbox::str![[r#"
 Error: moonbitlang/async.c_buffer/c_buffer_get failed: Badf
-[..]
+...
 "#]]);
 }
 

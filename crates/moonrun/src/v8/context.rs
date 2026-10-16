@@ -18,7 +18,6 @@
 
 //! Per-run context and shared mechanics for the current V8 host adapters.
 
-use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -114,17 +113,6 @@ impl V8MemoryBinding {
             .map_err(|_| V8ImportError::InvalidArgument)
     }
 
-    pub(crate) fn with_memory_mut<T, E>(
-        &self,
-        scope: &mut v8::HandleScope,
-        f: impl FnOnce(&mut [u8]) -> Result<T, E>,
-    ) -> Result<T, E>
-    where
-        E: From<V8ImportError>,
-    {
-        self.with_memory_access(scope, |memory| f(memory.map_err(E::from)?))
-    }
-
     /// Acquire memory for one import while allowing memory-free operations to
     /// proceed when no binding is available. No V8 call may occur in `f`.
     pub(crate) fn with_memory_access<T>(
@@ -163,7 +151,7 @@ impl V8MemoryBinding {
 /// This is deliberately V8-private. Other wasm runtimes acquire Guest Memory
 /// and retain the backend-neutral Runtime through their own adapter mechanisms.
 pub(crate) struct V8RunContext {
-    runtime: Runtime,
+    runtime: Rc<Runtime>,
     memory_binding: Rc<V8MemoryBinding>,
     termination_request: TerminationRequest,
 }
@@ -171,13 +159,13 @@ pub(crate) struct V8RunContext {
 impl V8RunContext {
     pub(crate) fn new(runtime: Runtime, termination_request: TerminationRequest) -> Self {
         Self {
-            runtime,
+            runtime: Rc::new(runtime),
             memory_binding: Rc::new(V8MemoryBinding::new()),
             termination_request,
         }
     }
 
-    pub(crate) fn runtime(&self) -> &Runtime {
+    pub(crate) fn runtime(&self) -> &Rc<Runtime> {
         &self.runtime
     }
 
@@ -204,72 +192,6 @@ pub(crate) unsafe fn callback_context<'s, T>(args: &v8::FunctionCallbackArgument
     unsafe { &*(pointer as *const T) }
 }
 
-pub(crate) struct ImportArgs<'a, 'scope, 'args> {
-    scope: &'a mut v8::HandleScope<'scope>,
-    args: &'a v8::FunctionCallbackArguments<'args>,
-    next_index: i32,
-}
-
-impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
-    pub(crate) fn new(
-        scope: &'a mut v8::HandleScope<'scope>,
-        args: &'a v8::FunctionCallbackArguments<'args>,
-    ) -> Self {
-        Self {
-            scope,
-            args,
-            next_index: 0,
-        }
-    }
-
-    pub(crate) fn next_i32(&mut self) -> Result<i32, V8ImportError> {
-        let value = self.args.get(self.next_index);
-        self.next_index += 1;
-        value
-            .int32_value(self.scope)
-            .ok_or(V8ImportError::InvalidArgument)
-    }
-
-    /// Decode the same Wasm `i32` value with unsigned Rust semantics.
-    pub(crate) fn next_u32(&mut self) -> Result<u32, V8ImportError> {
-        let value = self.args.get(self.next_index);
-        self.next_index += 1;
-        value
-            .uint32_value(self.scope)
-            .ok_or(V8ImportError::InvalidArgument)
-    }
-
-    pub(crate) fn next_i64(&mut self) -> Result<i64, V8ImportError> {
-        let value = self.args.get(self.next_index);
-        self.next_index += 1;
-        if value.is_big_int() {
-            let bigint = v8::Local::<v8::BigInt>::try_from(value)
-                .map_err(|_| V8ImportError::InvalidArgument)?;
-            let (result, lossless) = bigint.i64_value();
-            if lossless {
-                return Ok(result);
-            }
-        }
-        value
-            .integer_value(self.scope)
-            .ok_or(V8ImportError::InvalidArgument)
-    }
-
-    pub(crate) fn next_f64(&mut self) -> Result<f64, V8ImportError> {
-        let value = self.args.get(self.next_index);
-        self.next_index += 1;
-        value
-            .number_value(self.scope)
-            .ok_or(V8ImportError::InvalidArgument)
-    }
-
-    pub(crate) fn next_u64(&mut self) -> Result<u64, V8ImportError> {
-        let value = self.args.get(self.next_index);
-        self.next_index += 1;
-        decode_wasm_u64(value).ok_or(V8ImportError::InvalidArgument)
-    }
-}
-
 pub(crate) fn decode_wasm_u64(value: v8::Local<v8::Value>) -> Option<u64> {
     let bigint = v8::Local::<v8::BigInt>::try_from(value).ok()?;
     let (signed, signed_lossless) = bigint.i64_value();
@@ -293,18 +215,6 @@ pub(crate) fn register_func<'s, T>(
         .build(scope)
         .unwrap();
     obj.set_value(scope, name, function.into());
-}
-
-pub(crate) fn throw_import_error(
-    scope: &mut v8::HandleScope,
-    module: &str,
-    import_name: &str,
-    error: impl Debug,
-) {
-    let message = format!("{module}.{import_name} failed: {error:?}");
-    let message = v8::String::new(scope, &message).unwrap_or_else(|| v8::String::empty(scope));
-    let exception = v8::Exception::error(scope, message);
-    scope.throw_exception(exception);
 }
 
 #[cfg(test)]

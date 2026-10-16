@@ -46,30 +46,7 @@ mod connection;
 mod context;
 mod jobs;
 mod registry;
-mod registry_macros;
 mod statement;
 
-#[cfg(feature = "v8")]
-use crate::v8::context::V8RunContext;
-
-#[allow(
-    unused_imports,
-    reason = "shared interface may be unused by a partial backend"
-)]
-pub(crate) use registry::MOONBIT_SQLITE_MODULE;
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-pub(crate) use registry::register_wasmtime_imports;
-
-/// # Safety
-///
-/// `context` must remain valid whenever a registered callback can be invoked.
-#[cfg(feature = "v8")]
-pub(crate) unsafe fn init_env<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    context: *const V8RunContext,
-) {
-    // SAFETY: the caller retains the per-run V8 context throughout guest
-    // execution and does not re-enter V8 after dropping it.
-    unsafe { registry::register_imports(obj, scope, context) };
-}
+pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
+pub(crate) use registry::register;

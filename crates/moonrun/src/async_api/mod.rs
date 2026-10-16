@@ -18,14 +18,12 @@
 
 //! `moonbitlang/async` Wasm Adapter shared by the engine backends.
 //!
-//! This layer owns the canonical wasm import list, decodes wasm ABI values from
-//! callback arguments, acquires guest memory, sets return values, and reports
-//! traps. Callback implementations are written against `ImportContext` so the
-//! engine-neutral Host behavior stays separate from V8-specific memory access.
+//! This layer owns the canonical import list and typed registrations. Backend
+//! adapters decode arguments, acquire guest memory, convert results and traps.
+//! Implementations use `ImportContext` independently of the selected engine.
 //! Ported native-stub behavior belongs in `async_sys`; shared runtime state
 //! belongs in `async_host`.
 
-mod backend;
 mod c_buffer;
 mod context;
 mod env_util;
@@ -48,27 +46,5 @@ mod thread_pool;
 mod time;
 mod tls;
 
-#[cfg(feature = "v8")]
-use crate::v8::context::V8RunContext;
-
-#[allow(
-    unused_imports,
-    reason = "shared interface may be unused by a partial backend"
-)]
-pub(crate) use registry::MOONBIT_ASYNC_MODULE;
-#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
-pub(crate) use registry::register_wasmtime_imports;
-
-/// # Safety
-///
-/// `context` must remain valid whenever a registered callback can be invoked.
-#[cfg(feature = "v8")]
-pub(crate) unsafe fn init_env<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    core_obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    context: *const V8RunContext,
-) {
-    registry::register_imports(obj, scope, context);
-    registry::register_core_imports(core_obj, scope, context);
-}
+pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
+pub(crate) use registry::register;
