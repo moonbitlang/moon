@@ -16,10 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Experimental numeric Wasm backend using V8's C entry points. The public Moonrun
+//! Experimental Wasm backend using V8's C entry points. The public Moonrun
 //! Engine/Module/Run interface is shared with the other backends. The upstream
 //! Rust crate owns native lifetimes and the C ABI; this adapter wires Moonrun
-//! host services. Extending host references is a separate step.
+//! host services. GC objects remain internal to guest execution.
 
 use ::wee8 as api;
 mod wasm_imports;
@@ -28,8 +28,9 @@ use crate::engine::{
     BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,
 };
 use crate::run_termination::TerminationRequest;
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, Utf16Writer};
 use crate::source_map::SourceMap;
+use crate::wasm_imports::{Caller, ImportRegistry};
 use anyhow::Context;
 use std::sync::Arc;
 
@@ -42,8 +43,15 @@ pub(crate) type CompiledModule = api::Compiled;
 
 struct StoreData {
     runtime: Runtime,
+    print: Utf16Writer,
     termination: TerminationRequest,
     wasi: crate::wasi::WasiContext,
+}
+
+impl AsRef<StoreData> for StoreData {
+    fn as_ref(&self) -> &Self {
+        self
+    }
 }
 
 impl AsRef<Runtime> for StoreData {
@@ -99,6 +107,7 @@ impl Engine {
         let stdio = Arc::clone(runtime.stdio());
         let store = api::Store::new(StoreData {
             runtime,
+            print: Utf16Writer::default(),
             termination: termination.clone(),
             wasi,
         })?;
@@ -109,6 +118,19 @@ impl Engine {
             crate::async_api::register(&mut registry)?;
             crate::sqlite::wasm::register(&mut registry)?;
             crate::core_api::register(&mut registry)?;
+            // The GC compiler uses the legacy character ABI. Reuse the same
+            // per-run UTF-16 writer as V8 and Wasmtime, including surrogate pairs.
+            registry.func_wrap(
+                "spectest",
+                "print_char",
+                |caller: Caller<'_, StoreData>, value: i32| {
+                    caller
+                        .data
+                        .print
+                        .write_stdout(caller.data.runtime.stdio(), value as u32)
+                        .map_err(|error| crate::wasm_imports::ImportError::Host(error.into()))
+                },
+            )?;
             registry.finish()
         })()
         .with_context(|| format!("failed to instantiate `{module_name}`"))?;

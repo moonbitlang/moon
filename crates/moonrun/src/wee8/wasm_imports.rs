@@ -96,9 +96,9 @@ where
                 self.store
                     .host_func(&params, &results, move |caller, args| {
                         let params = P::decode::<std::convert::Infallible>(|index, kind| {
-                            Ok(match (kind, args[index]) {
-                                (WasmType::I32, api::Value::I32(value)) => value as u64,
-                                (WasmType::I64, api::Value::I64(value)) => value as u64,
+                            Ok(match (kind, &args[index]) {
+                                (WasmType::I32, api::Value::I32(value)) => *value as u64,
+                                (WasmType::I64, api::Value::I64(value)) => *value as u64,
                                 (WasmType::F32, api::Value::F32(value)) => {
                                     u64::from(value.to_bits())
                                 }
