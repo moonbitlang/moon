@@ -36,7 +36,12 @@ impl<'s> Registry<'s> {
         module: &api::Module<'s, StoreData>,
     ) -> api::Result<Self> {
         let imports = module.imports()?;
-        let functions = (0..imports.len()).map(|_| None).collect();
+        // Reference-valued imports use the native rooted-value adapter. The
+        // shared func_wrap registry below remains the numeric host interface.
+        let functions = imports
+            .iter()
+            .map(|import| super::core_values::define(store, import))
+            .collect::<api::Result<Vec<_>>>()?;
         Ok(Self {
             store,
             imports,

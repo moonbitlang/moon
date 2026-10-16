@@ -22,6 +22,7 @@
 //! host services. GC objects remain internal to guest execution.
 
 use ::wee8 as api;
+mod core_values;
 mod wasm_imports;
 
 use crate::engine::{
