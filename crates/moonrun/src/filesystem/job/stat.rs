@@ -239,6 +239,19 @@ pub(super) fn run_fstatx_job(
     request: StatRequest,
     result: &mut Option<PackedStat>,
 ) -> AsyncHostResult<i64> {
+    *result = Some(PackedStat::new(request, query_handle(file, request)?));
+    Ok(0)
+}
+
+// Stdio initialization runs before exported guest memory is available. Reuse
+// generic stat's Console-aware classification without a guest result buffer.
+pub(crate) fn stdio_kind(file: &Resource) -> AsyncHostResult<i32> {
+    query_handle(file, StatRequest::new(STAT_FILE_KIND, 16)?)?
+        .kind
+        .ok_or_else(|| AsyncHostError::Native(crate::async_sys::os_error::stub::get_enotsup()))
+}
+
+fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatValues> {
     #[cfg(unix)]
     let raw = file.as_file()?.as_raw_fd();
     #[cfg(windows)]
@@ -248,11 +261,20 @@ pub(super) fn run_fstatx_job(
         file.as_file()?.as_raw_handle()
     };
 
-    *result = Some(PackedStat::new(
-        request,
-        platform::query_handle(raw, request)?,
-    ));
-    Ok(0)
+    let mut values = platform::query_handle(raw, request)?;
+    if values.kind == Some(7) {
+        #[cfg(unix)]
+        let is_console = unsafe { libc::isatty(raw) } == 1;
+        #[cfg(windows)]
+        let is_console = {
+            let mut mode = 0;
+            (unsafe { windows_sys::Win32::System::Console::GetConsoleMode(raw, &mut mode) }) != 0
+        };
+        if is_console {
+            values.kind = Some(8);
+        }
+    }
+    Ok(values)
 }
 
 pub(super) fn run_statx_job(
@@ -1058,6 +1080,39 @@ mod tests {
         assert_eq!(packed.scalar(STAT_FILE_KIND), Some(2));
         assert_eq!(packed.scalar(STAT_FILE_SIZE), Some(0));
         assert_eq!(packed.scalar(STAT_DEVICE_ID), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn console_kind_distinguishes_a_terminal_from_other_character_devices() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        let (mut master, mut slave) = (-1, -1);
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        let _master = unsafe { OwnedFd::from_raw_fd(master) };
+        let slave = Resource::new(slave);
+        let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
+        let mut result = None;
+        run_fstatx_job(&slave, request, &mut result).unwrap();
+        assert_eq!(stdio_kind(&slave).unwrap(), 8);
+        assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(8));
+
+        let null = std::fs::File::open("/dev/null").unwrap();
+        let null = Resource::new(unsafe { libc::dup(null.as_raw_fd()) });
+        let mut result = None;
+        run_fstatx_job(&null, request, &mut result).unwrap();
+        assert_eq!(stdio_kind(&null).unwrap(), 7);
+        assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(7));
     }
 
     #[cfg(unix)]

@@ -51,36 +51,73 @@ pub(super) fn kind_of_fd(context: &mut ImportContext<'_>, fd: u64) -> i32 {
     }
 }
 
+#[compat(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_sizeof_file_time",
+    upstream_pr = 660,
+    replacement = "generic stat timestamps in src/internal/event_loop/fs.c",
+    api_only = true
+)]
 pub(super) fn sizeof_file_time(_context: &mut ImportContext<'_>) -> u32 {
     FILE_TIME_RECORD_LEN
 }
 
-#[ported(source = "src/internal/fd_util/stub.c")]
+#[compat(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_get_atime_sec",
+    upstream_pr = 660,
+    replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
+)]
 pub(super) fn get_atime_sec(context: &mut ImportContext<'_>, ptr: u32) -> AsyncHostResult<i64> {
     file_time_i64(context, ptr, ATIME_SEC_OFFSET)
 }
 
-#[ported(source = "src/internal/fd_util/stub.c")]
+#[compat(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_get_atime_nsec",
+    upstream_pr = 660,
+    replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
+)]
 pub(super) fn get_atime_nsec(context: &mut ImportContext<'_>, ptr: u32) -> AsyncHostResult<i32> {
     file_time_i32(context, ptr, ATIME_NSEC_OFFSET)
 }
 
-#[ported(source = "src/internal/fd_util/stub.c")]
+#[compat(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_get_mtime_sec",
+    upstream_pr = 660,
+    replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
+)]
 pub(super) fn get_mtime_sec(context: &mut ImportContext<'_>, ptr: u32) -> AsyncHostResult<i64> {
     file_time_i64(context, ptr, MTIME_SEC_OFFSET)
 }
 
-#[ported(source = "src/internal/fd_util/stub.c")]
+#[compat(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_get_mtime_nsec",
+    upstream_pr = 660,
+    replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
+)]
 pub(super) fn get_mtime_nsec(context: &mut ImportContext<'_>, ptr: u32) -> AsyncHostResult<i32> {
     file_time_i32(context, ptr, MTIME_NSEC_OFFSET)
 }
 
-#[ported(source = "src/internal/fd_util/stub.c")]
+#[compat(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_get_ctime_sec",
+    upstream_pr = 660,
+    replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
+)]
 pub(super) fn get_ctime_sec(context: &mut ImportContext<'_>, ptr: u32) -> AsyncHostResult<i64> {
     file_time_i64(context, ptr, CTIME_SEC_OFFSET)
 }
 
-#[ported(source = "src/internal/fd_util/stub.c")]
+#[compat(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_get_ctime_nsec",
+    upstream_pr = 660,
+    replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
+)]
 pub(super) fn get_ctime_nsec(context: &mut ImportContext<'_>, ptr: u32) -> AsyncHostResult<i32> {
     file_time_i32(context, ptr, CTIME_NSEC_OFFSET)
 }

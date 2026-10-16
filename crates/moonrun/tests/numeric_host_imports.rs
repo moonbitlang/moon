@@ -326,7 +326,11 @@ fn async_imports_without_memory_work_during_instantiation_and_execution() {
         (import "moonbitlang/async" "runtime/get_platform" (func $platform (result i32)))
         (import "moonbitlang/async" "c_buffer/new" (func $new (param i32) (result i64)))
         (import "moonbitlang/async" "c_buffer/free" (func $free (param i64)))
-        (func $initialize call $platform drop i32.const 8 call $new call $free)
+        (import "moonbitlang/async" "stdio/get_stdio_handle" (func $stdio (param i32) (result i64)))
+        (import "moonbitlang/async" "stdio/kind_of_fd" (func $kind (param i64) (result i32)))
+        (func $initialize
+            call $platform drop i32.const 8 call $new call $free
+            i32.const 1 call $stdio call $kind i32.const 0 i32.lt_s if unreachable end)
         (start $initialize)
         (func (export "_start") call $initialize))"#,
             )

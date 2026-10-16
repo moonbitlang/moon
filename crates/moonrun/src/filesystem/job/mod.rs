@@ -18,8 +18,11 @@
 
 //! Filesystem-owned Job state submitted to moonrun's shared thread pool.
 
+mod console;
 mod runner;
 mod stat;
+
+pub(crate) use stat::stdio_kind;
 
 use std::ffi::{OsStr, OsString};
 
@@ -105,6 +108,15 @@ enum Kind {
         file: Option<ResourceRef>,
         data: Vec<u8>,
         position: i64,
+    },
+    ReadConsole {
+        file: Option<ResourceRef>,
+        len: u32,
+        result: Option<Vec<u16>>,
+    },
+    WriteConsole {
+        file: Option<ResourceRef>,
+        data: Vec<u16>,
     },
     FileKindByPath {
         parent: Option<ResourceRef>,
@@ -314,6 +326,25 @@ impl Job {
         }
     }
 
+    pub(crate) fn read_console(file: ResourceRef, len: u32) -> Self {
+        Self {
+            kind: Kind::ReadConsole {
+                file: Some(file),
+                len,
+                result: None,
+            },
+        }
+    }
+
+    pub(crate) fn write_console(file: ResourceRef, data: Vec<u16>) -> Self {
+        Self {
+            kind: Kind::WriteConsole {
+                file: Some(file),
+                data,
+            },
+        }
+    }
+
     pub(crate) fn file_kind_by_path(
         parent: Option<ResourceRef>,
         path: OsString,
@@ -503,9 +534,12 @@ impl Job {
             Kind::Symlink { path, .. } | Kind::Mkdir { path, .. } | Kind::Rmdir { path } => {
                 filesystem.authorize_write_entry(path)
             }
-            Kind::Read { .. } | Kind::Write { .. } | Kind::Fsync { .. } | Kind::Readdir { .. } => {
-                Ok(())
-            }
+            Kind::Read { .. }
+            | Kind::Write { .. }
+            | Kind::ReadConsole { .. }
+            | Kind::WriteConsole { .. }
+            | Kind::Fsync { .. }
+            | Kind::Readdir { .. } => Ok(()),
         }
     }
 
@@ -569,6 +603,14 @@ impl Job {
                 position,
             } => match file.take() {
                 Some(file) => runner::run_write_job(&file, data, *position),
+                None => Err(AsyncHostError::Badf),
+            },
+            Kind::ReadConsole { file, len, result } => match file.take() {
+                Some(file) => console::read(&file, *len, result),
+                None => Err(AsyncHostError::Badf),
+            },
+            Kind::WriteConsole { file, data } => match file.take() {
+                Some(file) => console::write(&file, data),
                 None => Err(AsyncHostError::Badf),
             },
             Kind::FileKindByPath {
@@ -764,6 +806,39 @@ impl Job {
         Ok(())
     }
 
+    // Console offsets and capacities are UTF-16 code units, not bytes.
+    // Copy only after completion, into a newly acquired guest memory view.
+    pub(crate) fn copy_read_console_result(
+        &self,
+        job_error: i32,
+        memory: &mut (impl GuestMemory + ?Sized),
+        dst: u32,
+        offset: u32,
+        len: u32,
+    ) -> AsyncHostResult<()> {
+        if job_error != 0 {
+            return Ok(());
+        }
+        let Kind::ReadConsole {
+            result: Some(result),
+            ..
+        } = &self.kind
+        else {
+            return Err(AsyncHostError::Badf);
+        };
+        if result.len() > len as usize {
+            return Err(AsyncHostError::Fault);
+        }
+        let offset = offset.checked_mul(2).ok_or(AsyncHostError::Fault)?;
+        let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        let len = len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
+        let out = memory.read_exact_mut(dst, len)?;
+        for (unit, bytes) in result.iter().zip(out.chunks_exact_mut(2)) {
+            bytes.copy_from_slice(&unit.to_le_bytes());
+        }
+        Ok(())
+    }
+
     pub(crate) fn copy_file_time_result(
         &self,
         job_error: i32,
@@ -885,7 +960,7 @@ fn check_file_lock_policy(
 
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    runner::PORTED_SYMBOLS.to_vec()
+    [runner::PORTED_SYMBOLS, console::PORTED_SYMBOLS].concat()
 }
 
 #[cfg(test)]
@@ -896,6 +971,42 @@ pub(crate) fn compat_symbols() -> Vec<crate::async_sys::CompatSymbol> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn console_read_result_uses_utf16_units_and_checks_the_entire_destination() {
+        let job = Job {
+            kind: Kind::ReadConsole {
+                file: None,
+                len: 3,
+                result: Some(vec![0x03bb, 0xd83d, 0xde00]),
+            },
+        };
+        let mut guest = [0xaa; 12];
+        job.copy_read_console_result(0, &mut guest, 1, 1, 3)
+            .unwrap();
+        assert_eq!(&guest[3..9], &[0xbb, 0x03, 0x3d, 0xd8, 0x00, 0xde]);
+        assert_eq!(&guest[..3], &[0xaa; 3]);
+        assert_eq!(&guest[9..], &[0xaa; 3]);
+        for (offset, len) in [(1, 2), (u32::MAX, 3), (0, u32::MAX), (3, 3)] {
+            let mut guest = [0xaa; 8];
+            assert_eq!(
+                job.copy_read_console_result(0, &mut guest, 1, offset, len),
+                Err(AsyncHostError::Fault)
+            );
+            assert_eq!(guest, [0xaa; 8]);
+        }
+        // A failed/cancelled native read must not expose an uninitialized buffer.
+        let failed = Job {
+            kind: Kind::ReadConsole {
+                file: None,
+                len: 3,
+                result: None,
+            },
+        };
+        failed
+            .copy_read_console_result(1, &mut guest, u32::MAX, u32::MAX, u32::MAX)
+            .unwrap();
+    }
 
     #[test]
     fn fixed_cwd_preserves_policy_denial_errors() {

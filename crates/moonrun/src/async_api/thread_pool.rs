@@ -301,6 +301,59 @@ pub(super) fn make_write_job(
         .insert_job(FilesystemJob::write(file, data, position))
 }
 
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_read_console_job(
+    context: &mut ImportContext<'_>,
+    fd: u64,
+    len: u32,
+) -> AsyncHostResult<u64> {
+    len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
+    context
+        .host
+        .insert_job(FilesystemJob::read_console(file, len))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_write_console_job(
+    context: &mut ImportContext<'_>,
+    fd: u64,
+    ptr: u32,
+    offset: u32,
+    len: u32,
+) -> AsyncHostResult<u64> {
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
+    let offset = offset.checked_mul(2).ok_or(AsyncHostError::Fault)?;
+    let ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+    let len = len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
+    let data = context.with_memory_mut(|memory| {
+        Ok(memory
+            .read_exact(ptr, len)?
+            .chunks_exact(2)
+            .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+            .collect())
+    })?;
+    context
+        .host
+        .insert_job(FilesystemJob::write_console(file, data))
+}
+
+pub(super) fn get_read_console_result(
+    context: &mut ImportContext<'_>,
+    job: u64,
+    dst: u32,
+    offset: u32,
+    len: u32,
+) -> AsyncHostResult<()> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.get_read_console_result(memory, job, dst, offset, len)
+    })
+}
+
 pub(super) fn get_read_result(
     context: &mut ImportContext<'_>,
     job: u64,
