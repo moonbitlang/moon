@@ -1418,12 +1418,14 @@ fn test_moon_run_policy_with_workspace_async_fs() {
         std::fs::canonicalize(dir.path().join("process-prefix-deny.toml")).unwrap();
 
     #[cfg(not(windows))]
-    let fs_deny_read_stdout = snapbox::str![[r#"
+    let fs_deny_read_stderr = snapbox::str![[r#"
+Sandbox policy blocked file read: "denied/secret.txt"
 OSError("[..]@fs.open()[..]denied/secret.txt[..]Permission denied")
 
 "#]];
     #[cfg(windows)]
-    let fs_deny_read_stdout = snapbox::str![[r#"
+    let fs_deny_read_stderr = snapbox::str![[r#"
+Sandbox policy blocked file read: "denied/secret.txt"
 OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
 
 "#]];
@@ -1755,11 +1757,8 @@ Sandbox policy blocked network bind: "0.0.0.0:0"
         .arg(&fs_deny_read_wasm)
         .assert()
         .failure()
-        .stdout_eq(fs_deny_read_stdout)
-        .stderr_eq(snapbox::str![[r#"
-Sandbox policy blocked file read: "denied/secret.txt"
-
-"#]]);
+        .stdout_eq("")
+        .stderr_eq(fs_deny_read_stderr);
 }
 
 #[test]

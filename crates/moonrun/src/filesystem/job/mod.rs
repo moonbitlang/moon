@@ -22,6 +22,8 @@ mod console;
 mod runner;
 mod stat;
 
+pub(crate) use stat::stdio_kind;
+
 use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};

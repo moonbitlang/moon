@@ -340,6 +340,7 @@ declare_async_imports! {
 
     helper fd_util::invalid_fd() -> u64 => "fd_util/invalid_fd";
 
+    helper stdio::kind_of_fd(fd: u64) -> i32 => "stdio/kind_of_fd";
     helper stdio::get_stdio_handle(id: i32) -> u64 => "stdio/get_stdio_handle";
 
     helper signal::get_signal_by_index(index: u32) -> i32 => "signal/get_signal_by_index";
