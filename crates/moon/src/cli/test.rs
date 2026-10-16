@@ -577,7 +577,7 @@ fn run_test_in_single_file_rr(
     )?;
     let target_backends =
         rr_build::single_file_target_backends(&discovered, &targets, backend, user_log);
-    let resolved = discovered.resolve_packages(user_log)?;
+    let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let lock = if cli.dry_run {
         None
@@ -766,7 +766,11 @@ pub(crate) fn plan_test_or_bench_rr_from_discovered(
             Ok((target_backend, intent, filter))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let target_backends = selections
+        .iter()
+        .map(|&(backend, _, _)| backend)
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     selections
         .into_iter()
         .map(|(target_backend, intent, filter)| {

@@ -666,8 +666,9 @@ pkgtype(kind: "executable")"#,
             "test/app/main"
         );
 
-        let ProjectPreparationError::PackageResolutionError(error) =
-            discovered.resolve_packages(&user_log).unwrap_err()
+        let ProjectPreparationError::PackageResolutionError(error) = discovered
+            .resolve_packages(&[TargetBackend::default()], &user_log)
+            .unwrap_err()
         else {
             panic!("missing imports must be reported during package solving");
         };
