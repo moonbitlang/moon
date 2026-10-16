@@ -1571,10 +1571,13 @@ impl<'a> BuildPlanConstructor<'a> {
             .validate_for_cc(effective_native_toolchain.cc())
             .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
 
+        // Runtime backtraces need the prebuilt host `libbacktrace.a`.
+        let enable_backtrace = self.config.debug_info.runtime_backtrace
+            && self.config.backend.os() != OperatingSystem::Windows
+            && effective_native_toolchain.cc().targets_host();
         self.res.backend.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
-            enable_backtrace: self.config.debug_info.runtime_backtrace
-                && self.config.backend.os() != OperatingSystem::Windows,
+            enable_backtrace,
             source_files,
             simdutf_objects,
             static_archive_fingerprint,

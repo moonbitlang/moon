@@ -1,0 +1,4 @@
+#!/bin/sh
+if [ "$1" = "-dumpmachine" ]; then
+  echo x86_64-unknown-fake_os-fake_libc
+fi
