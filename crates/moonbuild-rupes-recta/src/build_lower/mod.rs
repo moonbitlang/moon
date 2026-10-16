@@ -904,7 +904,9 @@ mod tests {
                     cc_path: "/toolchain/bin/clang".to_string(),
                     ar_kind: ARKind::AppleLibtool,
                     ar_path: "/toolchain/bin/libtool".to_string(),
-                    target_triple: Some("arm64-apple-darwin".to_string()),
+                    // An unprobed target counts as the host, so the host-only
+                    // libbacktrace.a is linked on every test host.
+                    target_triple: None,
                     is_env_override: false,
                 }),
                 c_flags: Vec::new(),
