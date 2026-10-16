@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Wasm adapter for the SQLite Host interface.
+//! Backend-neutral SQLite import definitions and ABI validation.
 //!
 //! The `sqlite3_*` imports keep SQLite-shaped operations while adapting native
 //! pointers to a portable wasm ABI. Guest-memory pointers are unsigned wasm
@@ -32,8 +32,9 @@
 //! SQLite before the Guest Memory borrow ends. Error messages and variable-size
 //! columns use length-and-copy pairs instead of exposing borrowed native
 //! pointers. Column names follow the same length-and-copy convention. SQLite
-//! behavior and policy belong to the parent `sqlite` module; this adapter only
-//! lowers engine values and Guest Memory.
+//! behavior and policy belong to the parent `sqlite` module. This layer checks
+//! decoded values and Guest Memory; backend adapters own engine-value conversion,
+//! memory acquisition, and result and trap conversion.
 //! One-shot jobs copy inputs before submission, capture owned results, and use
 //! the existing async pool for scheduling and completion. Prepare tails are relative
 //! to the copied SQL view. See `docs/dev/sqlite-jobs.md` for ownership rules.

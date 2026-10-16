@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! `moonbitlang/async` Wasm Adapter shared by the engine backends.
+//! Backend-neutral `moonbitlang/async` import definitions and ABI validation.
 //!
 //! This layer owns the canonical import list and typed registrations. Backend
 //! adapters decode arguments, acquire guest memory, convert results and traps.
