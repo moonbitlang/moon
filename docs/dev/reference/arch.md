@@ -413,6 +413,11 @@ Current registry configuration behavior today is:
 - `RegistryClient` constructs those URLs internally; callers do not construct
   or depend on its transport URLs. The optional `RegistryConfig.symbols` URL
   remains a compatibility override for `symbols.zip`.
+- Dynamic registry API reads share optional Bearer authentication from the
+  saved login bound to that API base URL, regardless of module visibility.
+  Download clients remain anonymous. See [Moon home layout](./moon-home-layout.md)
+  for credential compatibility and redirect boundaries. This does not add
+  authenticated metadata fallback to the local-index resolver.
 - Existing `registry`-format configurations and `MOONCAKES_REGISTRY` retain
   their former combined endpoint layout while users migrate to the split
   configuration.

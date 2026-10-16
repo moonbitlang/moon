@@ -48,6 +48,7 @@ fn moon_search(
     args: &[&str],
     response_status: &'static str,
     response_body: &'static [u8],
+    token: Option<&'static str>,
 ) -> snapbox::cmd::OutputAssert {
     // Initialize the shared test dependency before starting the server's timeout.
     let _ = moonrun_bin();
@@ -83,6 +84,11 @@ fn moon_search(
             "unexpected registry request: {}",
             String::from_utf8_lossy(&request)
         );
+        let headers = String::from_utf8_lossy(&request).to_ascii_lowercase();
+        match token {
+            Some(token) => assert!(headers.contains(&format!("authorization: bearer {token}\r\n"))),
+            None => assert!(!headers.contains("authorization:")),
+        }
 
         write!(
             stream,
@@ -95,6 +101,16 @@ fn moon_search(
 
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    if let Some(token) = token {
+        std::fs::write(
+            moon_home.path().join("credentials.json"),
+            serde_json::json!({
+                "token": token, "username": "alice", "registry_api": registry
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
     let assert = moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("MOONCAKES_REGISTRY", registry)
@@ -111,6 +127,7 @@ fn test_moon_search_uses_configured_registry() {
         &["search", "json query", "--limit", "2"],
         "200 OK",
         SEARCH_RESULTS,
+        None,
     )
     .success()
     .stdout_eq(snapbox::str![[r#"
@@ -141,6 +158,7 @@ fn test_moon_search_json_is_one_complete_result() {
         &["search", "json query", "--limit", "2", "--json"],
         "200 OK",
         SEARCH_RESULTS,
+        None,
     )
     .success()
     .stderr_eq("");
@@ -188,6 +206,7 @@ fn test_moon_search_json_failure_stays_in_json() {
         &["search", "json query", "--limit", "2", "--json"],
         "500 Internal Server Error",
         b"",
+        None,
     )
     .failure()
     .stderr_eq("");
@@ -205,6 +224,19 @@ fn test_moon_search_json_failure_stays_in_json() {
             .unwrap()
             .contains("registry search request failed at http://127.0.0.1:")
     );
+}
+
+#[test]
+fn test_moon_search_sends_saved_registry_bound_credentials() {
+    moon_search(
+        &["search", "json query", "--limit", "2", "--quiet"],
+        "200 OK",
+        b"[]",
+        Some("test-cli-token"),
+    )
+    .success()
+    .stdout_eq("No modules found.\n")
+    .stderr_eq("");
 }
 
 #[test]
