@@ -91,6 +91,8 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
         // is-main
         self.defaults.add_pkgtype(args);
 
+        self.defaults.add_use_async_io(args);
+
         // Single file mode
         if self.single_file {
             args.push("-single-file".to_string());

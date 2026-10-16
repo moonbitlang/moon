@@ -219,6 +219,7 @@ impl<'a> LoweringContext<'a> {
             no_mi,
             workspace_root,
             pkgtype,
+            use_async_io: pkg.raw.use_async_io,
 
             check_mi,
             virtual_implementation,

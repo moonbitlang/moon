@@ -52,13 +52,17 @@ The converter then reads the normalized fields without mutating the map,
 preserving legacy option aliases and type checks. Unknown options are ignored.
 
 Package settings also have these direct declarations: `proof_enabled`,
-`max_concurrent_tests`, and `regex_backend` use assignments;
+`use_async_io`, `max_concurrent_tests`, and `regex_backend` use assignments;
 `virtual(has_default: ...)` declares a virtual package, and
 `virtual(implement: ...)` normalizes to the legacy `implement` field. The two
 `virtual` forms cannot be combined. They use the same value types, defaults, and
 validation as their legacy options. Each may appear only once. Like `formatter` and `pkgtype`, they are
 subject to `options(...)` overrides: an option with the same spelling replaces
 the direct declaration, while an alias spelling is rejected as a duplicate field.
+
+`use_async_io` is a boolean and defaults to `false`. When enabled, Moon passes
+`-use-async-io` to every `moonc check` and `moonc build-package` action for the
+package, including its test build targets.
 
 The compiler also reads package configuration, so accepting a declaration in
 Moon alone does not make it usable with older compilers. Direct declarations

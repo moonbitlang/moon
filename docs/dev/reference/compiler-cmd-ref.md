@@ -2,6 +2,14 @@
 
 See doc comments in: [`moonbuild_rupes_recta::build_lower::compiler`](../../../crates/moonbuild-rupes-recta/src/build_lower/compiler/mod.rs).
 
+## Package asynchronous I/O
+
+The top-level `moon.pkg` declaration `use_async_io = true` adds
+`-use-async-io` to every `moonc check` and `moonc build-package` action for
+that package. This includes source, inline-test, whitebox-test, and
+blackbox-test targets. The declaration defaults to `false`; when omitted or
+set to `false`, Moon does not add the flag.
+
 ## Wasm allocator
 
 The command adapter captures `MOON_WASM_NEW_ALLOCATOR=1` in `BackendConfig::Wasm`.

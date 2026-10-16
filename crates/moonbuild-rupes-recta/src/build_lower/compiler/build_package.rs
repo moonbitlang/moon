@@ -88,6 +88,8 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         // is-main (no condition)
         self.defaults.add_pkgtype(args);
 
+        self.defaults.add_use_async_io(args);
+
         // Standard library
         self.defaults.add_stdlib_path(args);
 
