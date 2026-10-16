@@ -24,7 +24,7 @@ fn test_specify_source_dir_003() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 }
@@ -35,7 +35,7 @@ fn test_specify_source_dir_004() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 4 tasks, now up to date
+            Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
 
@@ -81,7 +81,7 @@ fn test_specify_source_dir_with_deps() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 8 tasks, now up to date
+            Finished. moon: ran 12 tasks, now up to date
         "#]],
     );
     check(
@@ -115,7 +115,7 @@ fn test_specify_source_dir_with_deps_002() {
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
-            Finished. moon: ran 18 tasks, now up to date
+            Finished. moon: ran 27 tasks, now up to date
         "#]],
     );
     check(

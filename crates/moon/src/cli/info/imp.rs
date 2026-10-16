@@ -29,14 +29,13 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
 use moonbuild::expect::write_diff;
-use moonbuild_rupes_recta::{
-    DiscoveredProject, build_plan::ArtifactKey, model::PackageId, pkg_name::PackageFQN,
-};
-use moonutil::{constants::MBTI_GENERATED, target::TargetBackend};
+use moonbuild_rupes_recta::{DiscoveredProject, model::PackageId, pkg_name::PackageFQN};
+use moonutil::target::TargetBackend;
 use sha2::Digest;
 use tracing::error;
 
 use crate::filter::preferred_target_backend_for_package;
+use crate::rr_build::{generated_mbti_artifacts, generated_mbti_dest};
 
 const REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
 const ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();
@@ -112,7 +111,7 @@ pub(super) fn plan_info_outputs(
 
             PackageOutputPlan::new_from_fqn(
                 &pkg.fqn,
-                pkg.root_path.join(MBTI_GENERATED),
+                generated_mbti_dest(discovered, package_id),
                 canonical_backend,
             )
         });
@@ -218,24 +217,10 @@ fn collect_package_output_groups<'a>(
         .collect::<IndexMap<_, _>>();
 
     for (backend, meta) in it {
-        for (artifact, paths) in &meta.artifacts {
-            let ArtifactKey::GeneratedMbti {
-                package,
-                target_kind: _,
-            } = artifact
-            else {
-                continue;
-            };
-            let Some(group) = transposed.get_mut(package) else {
-                continue;
-            };
-
-            assert!(
-                paths.len() == 1,
-                "mbti generation should only produce one artifact"
-            );
-            let mbti_path = paths.first().unwrap();
-            group.insert(*backend, mbti_path);
+        for (package, mbti_path) in generated_mbti_artifacts(meta) {
+            if let Some(group) = transposed.get_mut(&package) {
+                group.insert(*backend, mbti_path);
+            }
         }
     }
 

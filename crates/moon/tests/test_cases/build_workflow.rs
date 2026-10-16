@@ -588,7 +588,7 @@ fn test_no_warn_deps() {
         ),
         expect![[r#"
             Using cached username/flash@0.1.0
-            Finished. moon: ran 5 tasks, now up to date
+            Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
     check(

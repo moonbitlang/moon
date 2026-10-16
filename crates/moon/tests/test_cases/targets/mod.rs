@@ -48,7 +48,7 @@ fn test_targets_share_prebuild_execution_state() {
         .success()
         .stdout_eq(snapbox::str![""])
         .stderr_eq(snapbox::str![[r#"
-Finished. moon: ran 3 tasks, now up to date
+Finished. moon: ran 4 tasks, now up to date
 
 "#]]);
 
