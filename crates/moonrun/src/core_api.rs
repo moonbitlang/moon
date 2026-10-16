@@ -25,6 +25,22 @@ use crate::runtime::Runtime;
 
 pub(crate) const MOONBIT_CORE_MODULE: &str = "moonbitlang/core";
 
+pub(crate) fn register<R: crate::wasm_imports::ImportRegistry<Runtime>>(
+    registry: &mut R,
+) -> Result<(), R::Error> {
+    use crate::wasm_imports::Caller;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "env/current_exe",
+        |caller: Caller<'_, Runtime>| Ok(current_exe(caller.data)),
+    )?;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "env/current_exe_dir",
+        |caller: Caller<'_, Runtime>| Ok(current_exe_dir(caller.data)),
+    )
+}
+
 pub(crate) fn current_exe(runtime: &Runtime) -> u64 {
     path_to_handle(runtime, runtime.executable().path())
 }

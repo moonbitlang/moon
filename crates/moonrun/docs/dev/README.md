@@ -17,36 +17,47 @@
 ## Shared Wasm import registration
 
 `wasm_imports::ImportRegistry` defines synchronous imports once for V8,
-Wasmtime and wee8. All 18 WASIp1 operations supported by Moonrun are registered
-in `wasi/imports.rs`; backend WASI setup only supplies the per-run Host Domain
-state and registration adapter.
+Wasmtime and wee8. WASIp1, async, SQLite and the core executable-path imports
+supply shared registrations; backend setup supplies per-run state, memory access
+and callback retention.
 
 Registration follows Wasmtime's [`func_wrap`/`IntoFunc` pattern](https://github.com/bytecodealliance/wasmtime/blob/v48.0.1/crates/wasmtime/src/runtime/func.rs):
-ordinary typed Rust callbacks supply the parameter types and order, including
-the mixed i32/i64 signatures of `path_open` and `fd_readdir`. The Rust return
-type supplies the i32 or void result. The tuple used to decode arguments is
-internal to the adapters; import definitions take individual arguments and may
-capture owned state. The small `HostFunction` trait invokes these callbacks;
-it does not reuse Wasmtime's engine-specific host-function representation.
-All adapters decode parameters before borrowing Guest Memory.
-V8 decodes i64 arguments from BigInt, retaining all bits; registration interprets
-addresses and rights/cookies as unsigned values. Adding a supported import
-needs only a shared registration and its Host Domain implementation. Other
-result types, references and other host families remain follow-up work.
+ordinary typed Rust callbacks supply the parameter types and order. The Rust
+return type supplies one scalar numeric result or no result. The internal tuple
+connects argument decoding to invocation; definitions take individual arguments
+and may capture owned state. `HostFunction` supports zero through eleven arguments,
+including async's process-spawn and TLS signatures. It does not reuse Wasmtime's
+engine-specific host-function representation.
 
-The caller contains borrowed Host Domain state and deferred memory access,
-with no engine handles or guest re-entry. A memory-free operation can run
-without an exported memory, including in a module start section. The existing
-memory-access behavior is preserved: V8's unbound memory becomes WASI EFAULT,
-Wasmtime supplies an empty slice without a memory export, and wee8 reports its
-current start-section memory limitation as a host error. Memory is reacquired
-each call and released before returning a value or interrupting the engine.
+All adapters decode parameters before borrowing Guest Memory. Integers cross
+as signless bits; floats use their bit representation. V8 converts i64 through
+BigInt, never through a JavaScript Number. This preserves host Handles and
+SQLite integer values outside the exact f64 integer range. References and
+multi-result host calls remain outside this interface.
 
-`tests/wasi_imports.rs` runs identical modules on all three selected engines,
-covering import order/duplicates, arguments, memory growth, invalid unsigned
-addresses, fresh run state, filesystem operations, 64-bit rights and directory
-cookies, and termination during instantiation. The existing CLI WASI surface
-test also runs here, so wee8 exercises it alongside V8 and Wasmtime.
+The caller contains borrowed Host Domain state, deferred memory access and a
+run termination request, with no engine handles or guest re-entry. A memory-free
+operation can run without exported memory, including in a module start section.
+Each domain interprets memory-access failure as before: WASI returns EFAULT for
+unbound V8 memory, async records Fault when its implementation needs memory, and
+SQLite memory operations trap with Fault. Wasmtime supplies an empty slice
+without an exported memory; wee8 cannot obtain memory during a start section.
+This registration change does not add load-time memory validation. Memory is
+reacquired each call and released before returning or interrupting the engine.
+
+Async keeps its provenance-bearing declaration list and produces one set of
+typed registrations. SQLite definitions call the existing Host Domain methods
+or construct the shared checked memory context. Errors retain their import name
+and domain error; platform-inactive async definitions produce a host error if
+called. No engine-specific context or return-conversion macro remains in either
+host family.
+
+`tests/wasi_imports.rs` and `tests/numeric_host_imports.rs` run identical modules
+on all three selected engines. They cover import order, numeric values and
+Handles, memory growth, invalid memory and handles, termination during
+instantiation, and worker completion/teardown. Compiler-produced async and
+SQLite CLI fixtures exercise the same registrations, including filesystem
+policy, native resource cleanup, and i64/f64 database values.
 
 ## Async import context
 
@@ -61,7 +72,7 @@ so memory-free imports also work during instantiation and without an exported
 memory. V8 reacquires the current backing buffer for each import; Wasmtime
 borrows its caller's memory and store together. A termination import records
 its outcome; the backend interrupts guest execution after the borrow ends.
-Core executable-path imports access Runtime directly from backend registration
+Core executable-path imports access Runtime directly from shared registration
 rather than exposing Runtime through the async context.
 
 ## V8 value imports

@@ -33,7 +33,6 @@ pub(super) fn init_env<'s>(
     wasi::imports::register(&mut super::wasm_imports::Registry {
         object: obj,
         scope,
-        module: wasi::imports::MODULE,
         data: Rc::new(WasiContext::new(
             wasm_file_name,
             args,
@@ -41,6 +40,7 @@ pub(super) fn init_env<'s>(
             run_context.termination_request().clone(),
         )),
         memory: Rc::clone(run_context.memory_binding()),
+        termination: run_context.termination_request().clone(),
         retained: dtors,
     })
     .unwrap();

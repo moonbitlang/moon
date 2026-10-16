@@ -71,9 +71,9 @@ _Avoid_: Runtime Configuration, Runtime State, WASI sandbox, virtual filesystem
 The unique semantic owner for one family of host behavior. A Host Domain
 interprets a request using its Runtime State and Handles, derives the complete
 intent, authorizes it with its domain policy at the last safe moment, performs
-the Raw Operation, and updates its state. The primary call chain is Wasm
-Adapter → Host Domain → Raw Operation; Runtime composes this chain but does not
-forward each call through another layer.
+the Raw Operation, and updates its state. Wasm Adapters and shared import APIs
+invoke Host Domains, which perform Raw Operations; Runtime composes these
+relationships but does not forward each call through another layer.
 _Avoid_: Wasm Adapter, Raw Operation, forwarding service
 
 **Raw Operation**:
@@ -83,10 +83,11 @@ authorization; it does not independently own Policy or Runtime State.
 _Avoid_: Host Domain, Wasm Adapter, policy check
 
 **Wasm Adapter**:
-A backend-specific boundary that decodes guest representations, validates ABI
-contracts, invokes the owning Host Domain, and encodes results. It does not own
-domain semantics and must not bypass a Host Domain to call its Raw Operations.
-_Avoid_: Host Domain, Raw Operation, Runtime
+The backend-specific boundary responsible for engine-value conversion, fresh
+Guest Memory acquisition, callback retention, and delivery of errors and Run
+Termination. Shared import APIs use this boundary to invoke Host Domains without
+owning engine handles or bypassing domain semantics.
+_Avoid_: shared import API, Host Domain, Raw Operation, Runtime
 
 **Env**:
 The environment interface owned by one Runtime and shared by MoonBit
@@ -296,10 +297,11 @@ torn down.
 _Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
 **Async API**:
-The `moonbitlang/async` Wasm Adapter that registers imports through an Engine
-Backend, decodes wasm ABI values, reacquires Guest Memory, sets return values,
-and reports Host Errors.
-_Avoid_: Host state, native-stub implementation
+The backend-neutral `moonbitlang/async` import definitions and ABI validation
+that invoke the Async Host and other Host Domains using decoded values and
+borrowed Guest Memory. Wasm Adapters supply engine conversion and memory access;
+the Async API supplies typed results, Host Errors, and Run Termination requests.
+_Avoid_: Wasm Adapter, Host state, native-stub implementation
 
 **Async Host**:
 Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace and materializes its reserved standard-stream Resources from the Runtime Stdio. It owns the common Job lifecycle for Filesystem, Network, Process, Run Signal, and SQLite payloads; domain semantics remain with their Host Domains.
@@ -309,8 +311,8 @@ target, and retains the Unix virtual signal-wait Job for older guests.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
-The `moonbitlang/sqlite` Wasm Adapter that lowers SQLite-shaped calls into the portable wasm ABI, borrows Guest Memory for synchronous native calls, and reports ABI contract violations as traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. A SQLite Database Mutex is a stable, lifetime-checked Handle owned by its Database; the null Handle preserves SQLite's mutex no-op behavior when a connection has no mutex. UTF-8 filenames use a backing Bytes value plus its byte length; the adapter bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
-_Avoid_: SQLite Host, SQLite wrapper SDK
+The backend-neutral `moonbitlang/sqlite` import definitions and ABI validation that invoke the SQLite Host using decoded values and borrowed Guest Memory. Wasm Adapters supply engine conversion and memory access, and translate reported ABI contract violations into traps. Native SQLite pointers never cross this interface: SQLite objects and the reserved VFS parameter use opaque `u64` Handles with one runtime-discovered null Host Key. A SQLite Database Mutex is a stable, lifetime-checked Handle owned by its Database; the null Handle preserves SQLite's mutex no-op behavior when a connection has no mutex. UTF-8 filenames use a backing Bytes value plus its byte length; the API bounds the read by that length, validates the encoding and absence of interior NULs, then copies it into a NUL-terminated Host Buffer for SQLite. UTF-16 SQL uses a backing String plus code-unit offset and length; `pzTail` is returned as an absolute code-unit offset in that same String so a StringView can contain multiple statements. Bound UTF-16 and blob views use `SQLITE_TRANSIENT`, so SQLite copies them before the Guest Memory borrow ends. Borrowed error messages, column names, and text/blob columns use length-and-copy imports instead of exposing SQLite-owned pointers.
+_Avoid_: Wasm Adapter, SQLite Host, SQLite wrapper SDK
 
 **SQLite Host**:
 The backend-neutral SQLite implementation owned by one Runtime. It owns SQLite

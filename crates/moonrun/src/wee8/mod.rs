@@ -22,7 +22,6 @@
 //! host services. Extending host references is a separate step.
 
 use ::wee8 as api;
-mod wasi;
 mod wasm_imports;
 
 use crate::engine::{
@@ -42,8 +41,20 @@ pub(crate) struct Engine {
 pub(crate) type CompiledModule = api::Compiled;
 
 struct StoreData {
-    _runtime: Runtime,
+    runtime: Runtime,
+    termination: TerminationRequest,
     wasi: crate::wasi::WasiContext,
+}
+
+impl AsRef<Runtime> for StoreData {
+    fn as_ref(&self) -> &Runtime {
+        &self.runtime
+    }
+}
+impl AsRef<crate::wasi::WasiContext> for StoreData {
+    fn as_ref(&self) -> &crate::wasi::WasiContext {
+        &self.wasi
+    }
 }
 
 impl Engine {
@@ -87,12 +98,20 @@ impl Engine {
         let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
         let stdio = Arc::clone(runtime.stdio());
         let store = api::Store::new(StoreData {
-            _runtime: runtime,
+            runtime,
+            termination: termination.clone(),
             wasi,
         })?;
         let module = store.module(compiled)?;
-        let imports = wasi::imports(&store, &module)
-            .with_context(|| format!("failed to instantiate `{module_name}`"))?;
+        let imports = (|| -> api::Result<_> {
+            let mut registry = wasm_imports::Registry::new(&store, &module)?;
+            crate::wasi::imports::register(&mut registry)?;
+            crate::async_api::register(&mut registry)?;
+            crate::sqlite::wasm::register(&mut registry)?;
+            crate::core_api::register(&mut registry)?;
+            registry.finish()
+        })()
+        .with_context(|| format!("failed to instantiate `{module_name}`"))?;
         let result = module
             .instantiate(&imports.iter().collect::<Vec<_>>())
             .and_then(|mut instance| {
