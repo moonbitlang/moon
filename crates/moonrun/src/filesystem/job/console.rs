@@ -154,6 +154,7 @@ pkgtype(kind: "executable")
                 .success();
             snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "filesystem::job::console::tests::windows_console_roundtrips_utf16_through_owned_jobs", "--nocapture"])
+                .env("MOONBIT_ASYNC_CHECK_FD_LEAK", "1")
                 .env(CHILD, directory.path().join("_build/wasm/debug/build/console_probe/console_probe.wasm"))
                 .timeout(std::time::Duration::from_secs(30))
                 .assert().success();

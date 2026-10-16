@@ -2627,6 +2627,10 @@ impl AsyncHost {
         )
     }
 
+    pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
+        self.with_resource(handle, crate::filesystem::stdio_kind)
+    }
+
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         self.with_resource(handle, |file| {
             #[cfg(unix)]

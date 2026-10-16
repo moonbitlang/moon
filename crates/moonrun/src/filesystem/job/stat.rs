@@ -239,6 +239,19 @@ pub(super) fn run_fstatx_job(
     request: StatRequest,
     result: &mut Option<PackedStat>,
 ) -> AsyncHostResult<i64> {
+    *result = Some(PackedStat::new(request, query_handle(file, request)?));
+    Ok(0)
+}
+
+// Stdio initialization runs before exported guest memory is available. Reuse
+// generic stat's Console-aware classification without a guest result buffer.
+pub(crate) fn stdio_kind(file: &Resource) -> AsyncHostResult<i32> {
+    query_handle(file, StatRequest::new(STAT_FILE_KIND, 16)?)?
+        .kind
+        .ok_or_else(|| AsyncHostError::Native(crate::async_sys::os_error::stub::get_enotsup()))
+}
+
+fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatValues> {
     #[cfg(unix)]
     let raw = file.as_file()?.as_raw_fd();
     #[cfg(windows)]
@@ -261,8 +274,7 @@ pub(super) fn run_fstatx_job(
             values.kind = Some(8);
         }
     }
-    *result = Some(PackedStat::new(request, values));
-    Ok(0)
+    Ok(values)
 }
 
 pub(super) fn run_statx_job(
@@ -1092,12 +1104,14 @@ mod tests {
         let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
         let mut result = None;
         run_fstatx_job(&slave, request, &mut result).unwrap();
+        assert_eq!(stdio_kind(&slave).unwrap(), 8);
         assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(8));
 
         let null = std::fs::File::open("/dev/null").unwrap();
         let null = Resource::new(unsafe { libc::dup(null.as_raw_fd()) });
         let mut result = None;
         run_fstatx_job(&null, request, &mut result).unwrap();
+        assert_eq!(stdio_kind(&null).unwrap(), 7);
         assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(7));
     }
 

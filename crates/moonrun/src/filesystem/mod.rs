@@ -28,7 +28,7 @@ pub(crate) mod v8;
 
 mod job;
 
-pub(crate) use job::Job;
+pub(crate) use job::{Job, stdio_kind};
 
 #[cfg(test)]
 pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
