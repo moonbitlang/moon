@@ -19,7 +19,7 @@
 //! Lowering implementation for build actions.
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -46,7 +46,10 @@ use crate::{
             MiDependency, PackageSource, WasmConfig,
         },
     },
-    build_plan::{ArtifactKey, BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
+    build_plan::{
+        ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileLinkedCoreInfo,
+        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
+    },
     discover::DiscoveredPackage,
     model::{BackendConfig, BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
@@ -1045,6 +1048,149 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
+    /// Compile a foreign library's generated C into its payload object, e.g.
+    /// for package `lib` in a release build with a GCC-like compiler:
+    ///
+    /// ```text
+    /// cc -o _build/native/release/build/lib/__moonbit_link_core__/lib.o \
+    ///    -I$MOON_HOME/include -c -fwrapv -fno-strict-aliasing -O2 \
+    ///    -DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC \
+    ///    _build/native/release/build/lib/lib.c
+    /// ```
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
+    pub(super) fn lower_compile_linked_core(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        target: BuildTarget,
+        info: &CompileLinkedCoreInfo,
+    ) -> BuildCommand {
+        let source = artifacts.single_dependency_path_matching(|artifact| {
+            matches!(
+                artifact,
+                ArtifactKey::LinkedCore { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
+            )
+        });
+        let output = artifacts.single_output_path();
+
+        // Compile with the settings an executable link would use for the
+        // same generated C, so the object matches the runtime it links with.
+        let config = CCConfigBuilder::default()
+            .no_sys_header(true)
+            .output_ty(CCOutputType::Object)
+            .opt_level(info.c_opt_level)
+            .debug_info(info.c_debug_info)
+            .link_moonbitrun(true)
+            .define_use_shared_runtime_macro(false)
+            .native_allocator(info.native_allocator)
+            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
+            .build()
+            .expect("Failed to build CC configuration for linked core object");
+
+        let pkg_dir = self
+            .artifact_paths
+            .target_layout()
+            .package_dir(
+                &self.get_package(target).fqn,
+                self.opt.backend.target_backend(),
+            )
+            .display()
+            .to_string();
+
+        let cc_cmd = make_cc_command_resolved_for_toolchain(
+            &info.effective_native_toolchain,
+            config,
+            &info.c_flags,
+            &[],
+            [source.display().to_string()],
+            &pkg_dir,
+            Some(&output.display().to_string()),
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
+        );
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cc_cmd.into(),
+        }
+        .with_msvc_env(&info.effective_native_toolchain)
+    }
+
+    /// Archive a foreign library's payload, C stub, and runtime objects, e.g.
+    /// for package `lib` importing `dep`, with GNU `ar` in a release build:
+    ///
+    /// ```text
+    /// moon tool exec --fresh-output _build/native/release/build/lib/lib.a -- \
+    ///   ar -r -c -s _build/native/release/build/lib/lib.a \
+    ///    $MOON_HOME/lib/libmoonbitrun.o \
+    ///    _build/native/release/build/lib/__moonbit_link_core__/lib.o \
+    ///    _build/native/release/build/lib/lib_stub.o \
+    ///    _build/native/release/build/dep/dep_stub.o \
+    ///    _build/native/release/build/runtime-runtime.o ... \
+    ///    $MOON_HOME/lib/simdutf.o
+    /// ```
+    ///
+    /// Archivers that recreate the archive run directly with the same members,
+    /// such as `libtool -static -o .../lib.a` on macOS or
+    /// `lib /nologo /Out:...\lib.lib` with MSVC. Windows ships no
+    /// `libmoonbitrun.o`.
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info, runtime))]
+    pub(super) fn lower_archive_foreign_library(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        info: &ForeignLibraryInfo,
+        runtime: &BuildRuntimeInfo,
+    ) -> Result<BuildCommand, LoweringError> {
+        let archive = artifacts.single_output_path();
+
+        // The MoonBit payload comes first, followed by the C stubs that may
+        // reference runtime symbols, and then the runtime itself.
+        let mut members = artifacts.dependency_paths_matching(|artifact| {
+            matches!(
+                artifact,
+                ArtifactKey::LinkedCore { .. } | ArtifactKey::LinkedCoreObject { .. }
+            )
+        });
+        for package in &info.c_stub_packages {
+            members.extend(artifacts.dependency_paths_matching(|artifact| {
+                matches!(artifact, ArtifactKey::CStubObject { package: actual, .. } if actual == package)
+            }));
+        }
+        members.extend(artifacts.dependency_paths_matching(|artifact| {
+            matches!(artifact, ArtifactKey::RuntimeObject { .. })
+        }));
+        members.extend(runtime.simdutf_objects.iter().cloned());
+
+        let cc = info.effective_native_toolchain.cc().clone();
+        if cc.archiver_merges_same_named_members() {
+            // FIXME: Give archive members unique file names instead, so
+            // packages whose C stubs share a file name can be archived together.
+            ensure_distinct_member_names(&archive, &members)?;
+        }
+
+        let config = ArchiverConfigBuilder::default()
+            .archive_moonbitrun(true)
+            .native_allocator(info.native_allocator)
+            .build()
+            .expect("Failed to build archiver configuration");
+        let mut command = BuildCommand::archive(
+            &info.effective_native_toolchain,
+            config,
+            &members,
+            &archive,
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
+        );
+        command
+            .extra_inputs
+            .extend(runtime.simdutf_objects.iter().cloned());
+        Ok(command)
+    }
+
     pub(super) fn lower_generate_dsym(
         &self,
         artifacts: &ActionArtifacts,
@@ -1323,5 +1469,59 @@ impl<'a> LoweringContext<'a> {
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
         deps
+    }
+}
+
+/// Reject archive inputs that share a file name, for archivers that would
+/// silently keep only one of them. For example, GNU `ar` names members by file
+/// name and inserts them with replacement, so this keeps only `dep/stub.o`:
+///
+/// ```text
+/// ar -r -c -s lib.a lib/stub.o dep/stub.o
+/// ```
+fn ensure_distinct_member_names(archive: &Path, members: &[PathBuf]) -> Result<(), LoweringError> {
+    let mut seen = HashMap::new();
+    for member in members {
+        let name = member
+            .file_name()
+            .expect("archive member should have a file name");
+        if let Some(first) = seen.insert(name, member) {
+            return Err(LoweringError::SameNamedArchiveMembers {
+                archive: archive.to_path_buf(),
+                member: name.to_string_lossy().into_owned(),
+                first: first.clone(),
+                second: member.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_named_archive_members_are_rejected() {
+        let archive = Path::new("_build/lib/lib.a");
+        let distinct = [
+            PathBuf::from("_build/lib/__moonbit_link_core__/lib.o"),
+            PathBuf::from("_build/lib/stub.o"),
+        ];
+        assert!(ensure_distinct_member_names(archive, &distinct).is_ok());
+
+        let clashing = [
+            PathBuf::from("_build/lib/stub.o"),
+            PathBuf::from("_build/dep/stub.o"),
+        ];
+        let error = ensure_distinct_member_names(archive, &clashing)
+            .expect_err("same-named members should be rejected")
+            .to_string()
+            .replace('\\', "/");
+        assert_eq!(
+            error,
+            "cannot archive both _build/lib/stub.o and _build/dep/stub.o into _build/lib/lib.a: \
+             the archiver keeps only one member named `stub.o`; rename one of their sources"
+        );
     }
 }

@@ -57,8 +57,9 @@ use crate::{
 };
 
 use super::{
-    BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
-    MakeExecutableInfo, PackagePrebuildKey,
+    BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo,
+    CompileLinkedCoreInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
+    PackagePrebuildKey,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
     constructor::{BuildPlanConstructor, PackageFileSet},
 };
@@ -66,6 +67,16 @@ use super::{
 static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
+
+/// A package's `link.native` compiler selection and the settings for
+/// compiling its generated-C payload.
+struct PackageNativeCompile {
+    effective_native_toolchain: Toolchain,
+    c_flags: Vec<String>,
+    c_debug_info: bool,
+    c_opt_level: CCOptLevel,
+    native_allocator: compiler_flags::NativeAllocator,
+}
 
 fn should_generate_llvm_dsym(debug_symbols: bool, os: OperatingSystem) -> bool {
     debug_symbols && os == OperatingSystem::MacOS
@@ -908,14 +919,10 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn build_build_c_stub(
         &mut self,
         node: BuildPlanNode,
-        _target: PackageId,
+        target: PackageId,
         _index: u32,
     ) -> Result<(), BuildPlanConstructError> {
-        // depends on nothing, but needs to be inserted into the list
-        self.need_node(node);
-
-        // We rely on the `link_c_stubs` action to resolve the C stub info
-        // so this doesn't panic.
+        self.populate_c_stubs_info(target)?;
         self.resolved_node(node);
         Ok(())
     }
@@ -926,19 +933,35 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         target: PackageId,
     ) -> Result<(), BuildPlanConstructError> {
-        // Resolve the C stub files
-        let pkg = self.input.pkg_dirs.get_package(target);
+        self.require_c_stub_objects(node, target);
+        self.populate_c_stubs_info(target)?;
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Require every C stub object declared by `package`, in declaration order.
+    fn require_c_stub_objects(&mut self, consumer: BuildPlanNode, package: PackageId) {
+        let pkg = self.input.pkg_dirs.get_package(package);
         for source in &pkg.c_stub_files {
             self.require_artifact(
-                node,
+                consumer,
                 ArtifactKey::CStubObject {
-                    package: target,
+                    package,
                     source: package_file_key(&pkg.root_path, source),
                 },
             );
         }
+    }
 
-        // Populate C stub info
+    /// Resolve the compile and archive settings shared by a package's C stub
+    /// actions. Every C stub action populates it, so no action depends on
+    /// another having been planned first.
+    fn populate_c_stubs_info(&mut self, target: PackageId) -> Result<(), BuildPlanConstructError> {
+        if self.res.backend.c_stubs_info.contains_key(&target) {
+            return Ok(());
+        }
+
+        let pkg = self.input.pkg_dirs.get_package(target);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
         let stub_cc = native_config
@@ -1007,8 +1030,6 @@ impl<'a> BuildPlanConstructor<'a> {
             link_args,
         };
         self.res.backend.c_stubs_info.insert(target, c_info);
-        self.resolved_node(node);
-
         Ok(())
     }
 
@@ -1091,28 +1112,16 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        // Fill auxiliary flags for CC flags
+        let PackageNativeCompile {
+            effective_native_toolchain,
+            c_flags,
+            c_debug_info,
+            c_opt_level,
+            native_allocator,
+        } = self.resolve_package_native_compile(target.package)?;
+
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
-        let cc = native_config
-            .and_then(|native| native.cc.as_ref())
-            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref())
-                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
-            })
-            .transpose()?;
-        let c_flags = native_config
-            .and_then(|native| native.cc_flags.as_ref())
-            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-            .unwrap_or_default();
-
         let mut link_args = native_config
             .and_then(|native| native.cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
@@ -1131,14 +1140,6 @@ impl<'a> BuildPlanConstructor<'a> {
         if !link_pkgs.contains(&target.package) {
             link_pkgs.push(target.package);
         }
-
-        let effective_native_toolchain =
-            self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
-                BuildPlanConstructError::FailedToSetCC(
-                    self.new_native_linker_context(e),
-                    pkg.fqn.clone().into(),
-                )
-            })?;
 
         if let Some(prebuild) = self.prebuild_config {
             prebuild.append_link_args(link_pkgs.into_iter(), &mut link_args);
@@ -1167,26 +1168,11 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
-        let native_allocator = self
-            .config
-            .backend
-            .native_allocator()
-            .expect("native executable planning requires an allocator");
-        native_allocator
-            .validate_for_cc(effective_native_toolchain.cc())
-            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
-
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             effective_native_toolchain,
-            // The native compiler must retain the source locations emitted into
-            // generated C. A direct-object link cannot create that information.
-            c_debug_info: self.res.backend.direct_native_target().is_none()
-                && self.config.debug_info.symbols != DebugSymbols::None,
-            c_opt_level: match self.config.opt_level {
-                OptLevel::Debug => CCOptLevel::Debug,
-                OptLevel::Release => CCOptLevel::Speed,
-            },
+            c_debug_info,
+            c_opt_level,
             c_flags,
             link_args,
             native_allocator,
@@ -1209,6 +1195,170 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.resolved_node(node);
 
+        Ok(())
+    }
+
+    /// Resolve the package's `link.native` compiler selection together with
+    /// the settings for compiling its generated-C payload.
+    fn resolve_package_native_compile(
+        &mut self,
+        package: PackageId,
+    ) -> Result<PackageNativeCompile, BuildPlanConstructError> {
+        let pkg = self.input.pkg_dirs.get_package(package);
+        let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
+        let cc = native_config
+            .and_then(|native| native.cc.as_ref())
+            .map(|s| self.replace_build_vars(package, pkg.module, s))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref())
+                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
+            })
+            .transpose()?;
+        let c_flags = native_config
+            .and_then(|native| native.cc_flags.as_ref())
+            .map(|s| self.replace_build_vars(package, pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let effective_native_toolchain =
+            self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
+                BuildPlanConstructError::FailedToSetCC(
+                    self.new_native_linker_context(e),
+                    pkg.fqn.clone().into(),
+                )
+            })?;
+
+        let native_allocator = self
+            .config
+            .backend
+            .native_allocator()
+            .expect("native payload planning requires an allocator");
+        native_allocator
+            .validate_for_cc(effective_native_toolchain.cc())
+            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
+
+        Ok(PackageNativeCompile {
+            effective_native_toolchain,
+            c_flags,
+            // The native compiler must retain the source locations emitted into
+            // generated C. A direct-object payload cannot create that information.
+            c_debug_info: self.res.backend.direct_native_target().is_none()
+                && self.config.debug_info.symbols != DebugSymbols::None,
+            c_opt_level: match self.config.opt_level {
+                OptLevel::Debug => CCOptLevel::Debug,
+                OptLevel::Release => CCOptLevel::Speed,
+            },
+            native_allocator,
+        })
+    }
+
+    /// Plan the native compiler action that turns generated-C linked Core
+    /// output into an object.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_compile_linked_core(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        debug_assert!(matches!(
+            self.res.backend.native_mode(),
+            NativeBackendMode::GeneratedC
+        ));
+
+        self.require_artifact(
+            node,
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+
+        let PackageNativeCompile {
+            effective_native_toolchain,
+            c_flags,
+            c_debug_info,
+            c_opt_level,
+            native_allocator,
+        } = self.resolve_package_native_compile(target.package)?;
+        self.res.backend.compile_linked_core_info.insert(
+            target,
+            CompileLinkedCoreInfo {
+                effective_native_toolchain,
+                c_debug_info,
+                c_opt_level,
+                c_flags,
+                native_allocator,
+            },
+        );
+
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Plan the static archive a foreign host links to use a foreign-library
+    /// package on Native or LLVM.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_foreign_library(
+        &mut self,
+        node: BuildPlanNode,
+        package: PackageId,
+    ) -> Result<(), BuildPlanConstructError> {
+        debug_assert!(self.config.backend.target_backend().is_native());
+
+        // A foreign library exports its source target; tests link executables.
+        let target = package.build_target(TargetKind::Source);
+        let (_, c_stub_packages, _) = self.dfs_link_core_sources(target)?;
+
+        // Archive members are objects. Generated C needs its own compile step,
+        // while direct-object and LLVM linking already produce an object.
+        let generated_c = matches!(&self.config.backend, BackendConfig::Native { .. })
+            && matches!(
+                self.res.backend.native_mode(),
+                NativeBackendMode::GeneratedC
+            );
+        let payload = if generated_c {
+            ArtifactKey::LinkedCoreObject {
+                package,
+                target_kind: target.kind,
+            }
+        } else {
+            ArtifactKey::LinkedCore {
+                package,
+                target_kind: target.kind,
+            }
+        };
+        self.require_artifact(node, payload);
+
+        // Static archives cannot nest, so C stubs and the runtime contribute
+        // their objects directly instead of their intermediate archives.
+        for c_stub_package in &c_stub_packages {
+            self.require_c_stub_objects(node, *c_stub_package);
+        }
+        self.require_runtime_objects(node)?;
+        // TODO: Report `link.native.cc-link-flags`, prebuild link arguments,
+        // system libraries, and the backtrace library to the foreign host. A
+        // static archive cannot carry them.
+
+        let PackageNativeCompile {
+            effective_native_toolchain,
+            native_allocator,
+            ..
+        } = self.resolve_package_native_compile(package)?;
+        self.res.backend.foreign_library_info.insert(
+            package,
+            ForeignLibraryInfo {
+                effective_native_toolchain,
+                c_stub_packages: c_stub_packages.into_iter().collect(),
+                native_allocator,
+            },
+        );
+
+        self.resolved_node(node);
         Ok(())
     }
 
@@ -1530,6 +1680,39 @@ impl<'a> BuildPlanConstructor<'a> {
         &mut self,
         node: BuildPlanNode,
     ) -> Result<(), BuildPlanConstructError> {
+        self.require_runtime_objects(node)?;
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Require every runtime translation unit, resolving the runtime settings
+    /// that their providers are lowered from.
+    fn require_runtime_objects(
+        &mut self,
+        consumer: BuildPlanNode,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.populate_runtime_info()?;
+        let sources = self
+            .res
+            .backend
+            .runtime_info
+            .as_ref()
+            .expect("runtime info was just populated")
+            .source_files
+            .iter()
+            .map(|source| runtime_source_key(source))
+            .collect::<Vec<_>>();
+        for source in sources {
+            self.require_artifact(consumer, ArtifactKey::RuntimeObject { source });
+        }
+        Ok(())
+    }
+
+    fn populate_runtime_info(&mut self) -> Result<(), BuildPlanConstructError> {
+        if self.res.backend.runtime_info.is_some() {
+            return Ok(());
+        }
+
         let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
             BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
         })?;
@@ -1567,32 +1750,6 @@ impl<'a> BuildPlanConstructor<'a> {
             simdutf_objects,
             native_allocator,
         });
-
-        let source_count = self
-            .res
-            .backend
-            .runtime_info
-            .as_ref()
-            .expect("runtime info was just populated")
-            .source_files
-            .len();
-        for index in 0..source_count {
-            let source = &self
-                .res
-                .backend
-                .runtime_info
-                .as_ref()
-                .expect("runtime info was just populated")
-                .source_files[index];
-            self.require_artifact(
-                node,
-                ArtifactKey::RuntimeObject {
-                    source: runtime_source_key(source),
-                },
-            );
-        }
-
-        self.resolved_node(node);
         Ok(())
     }
 

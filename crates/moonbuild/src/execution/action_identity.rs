@@ -280,9 +280,13 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::LinkedCore { target_kind, .. } => {
                 (b"linked-core".as_slice(), Some(*target_kind), None)
             }
+            ArtifactKey::LinkedCoreObject { target_kind, .. } => {
+                (b"linked-core-object".as_slice(), Some(*target_kind), None)
+            }
             ArtifactKey::Executable { target_kind, .. } => {
                 (b"executable".as_slice(), Some(*target_kind), None)
             }
+            ArtifactKey::ForeignLibrary { .. } => (b"foreign-library".as_slice(), None, None),
             ArtifactKey::GeneratedTestDriver { target_kind, .. } => (
                 b"generated-test-driver".as_slice(),
                 Some(*target_kind),

@@ -426,6 +426,12 @@ impl<'a> LoweringContext<'a> {
             BuildAction::MakeExecutable { target, info } => {
                 self.lower_make_exe(&action_artifacts, target, info)
             }
+            BuildAction::CompileLinkedCore { target, info } => {
+                self.lower_compile_linked_core(&action_artifacts, target, info)
+            }
+            BuildAction::ArchiveForeignLibrary { info, runtime } => {
+                self.lower_archive_foreign_library(&action_artifacts, info, runtime)?
+            }
             BuildAction::GenerateDsym { target, dsymutil } => {
                 self.lower_generate_dsym(&action_artifacts, target, dsymutil)
             }
@@ -482,7 +488,9 @@ impl<'a> LoweringContext<'a> {
 
         let observes_toolchain_headers = matches!(
             action,
-            BuildAction::BuildCStub { .. } | BuildAction::BuildRuntimeObject { .. }
+            BuildAction::BuildCStub { .. }
+                | BuildAction::BuildRuntimeObject { .. }
+                | BuildAction::CompileLinkedCore { .. }
         ) || matches!(
             action,
             BuildAction::MakeExecutable { .. }
@@ -586,7 +594,9 @@ impl<'a> LoweringContext<'a> {
                     unreachable!("non-native plans do not contain MakeExecutable actions")
                 }
             },
-            BuildAction::GenerateDsym { .. }
+            BuildAction::CompileLinkedCore { info, .. } => info.c_flags.is_empty(),
+            BuildAction::ArchiveForeignLibrary { .. }
+            | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateNodeTestPackageConfig { .. }
             | BuildAction::GenerateMbti { .. }
@@ -638,6 +648,8 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildCStub { .. }
             | BuildAction::ArchiveOrLinkCStubs { .. }
             | BuildAction::MakeExecutable { .. }
+            | BuildAction::CompileLinkedCore { .. }
+            | BuildAction::ArchiveForeignLibrary { .. }
             | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateNodeTestPackageConfig { .. }
