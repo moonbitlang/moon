@@ -34,18 +34,20 @@ fn cli_runs_compiler_produced_moonbit() {
         .current_release()
         .run()
         .expect("build moon");
-    for (profile, flag) in [("debug", "--debug"), ("release", "--release")] {
-        snapbox::cmd::Command::new(moon.path())
-            .current_dir(&directory)
-            .args(["build", "--target", "wasm", flag])
-            .assert()
-            .success();
-        snapbox::cmd::Command::new(env!("CARGO_BIN_EXE_moonrun"))
-            .arg(directory.join(format!("_build/wasm/{profile}/build/main/main.wasm")))
-            .assert()
-            .success()
-            .stdout_eq("Hello, 世界 🦀\n42\n")
-            .stderr_eq("");
+    for target in ["wasm", "wasm-gc"] {
+        for (profile, flag) in [("debug", "--debug"), ("release", "--release")] {
+            snapbox::cmd::Command::new(moon.path())
+                .current_dir(&directory)
+                .args(["build", "--target", target, flag])
+                .assert()
+                .success();
+            snapbox::cmd::Command::new(env!("CARGO_BIN_EXE_moonrun"))
+                .arg(directory.join(format!("_build/{target}/{profile}/build/main/main.wasm")))
+                .assert()
+                .success()
+                .stdout_eq("Hello, 世界 🦀\n42\n")
+                .stderr_eq("");
+        }
     }
 }
 
@@ -229,12 +231,7 @@ fn wasi_reports_bad_guest_addresses_without_panicking() {
 #[test]
 fn proposals_and_unsupported_options_fail_before_execution() {
     let engine = Engine::default();
-    for source in [
-        "(module (global externref (ref.null extern)))",
-        "(module (type (struct (field i32))))",
-        "(module (memory 1 1 shared))",
-        "(module (tag (param i32)))",
-    ] {
+    for source in ["(module (memory 1 1 shared))", "(module (tag (param i32)))"] {
         let error = engine
             .compile("unsupported.wasm", wat::parse_str(source).unwrap())
             .unwrap_err();
@@ -280,4 +277,47 @@ fn cli_start_exit_is_silent() {
         .success()
         .stdout_eq("")
         .stderr_eq("");
+}
+
+#[test]
+fn gc_modules_reuse_compilation_with_fresh_guest_references() {
+    let engine = Engine::default();
+    let module = engine
+        .compile(
+            "gc.wasm",
+            wat::parse_str(
+                r#"(module
+        (type $cell (struct (field (mut i32))))
+        (type $items (array (mut (ref null $cell))))
+        (global $saved (mut (ref null $items)) (ref.null $items))
+        (func (export "_start")
+            global.get $saved ref.is_null i32.eqz if unreachable end
+            i32.const 42 struct.new $cell i32.const 2 array.new $items global.set $saved
+            global.get $saved i32.const 1 array.get $items struct.get $cell 0
+            i32.const 42 i32.ne if unreachable end))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    for _ in 0..3 {
+        assert_eq!(
+            engine.run(&module, RunOptions::default()).unwrap(),
+            RunOutcome::Completed
+        );
+    }
+}
+
+#[test]
+fn unsupported_gc_boundary_types_fail_during_compilation() {
+    let engine = Engine::default();
+    for source in [
+        r#"(module (type $s (struct)) (func (export "f") (result (ref $s)) struct.new $s))"#,
+        r#"(module (type $a (array i32)) (global (export "g") (ref null $a) (ref.null $a)))"#,
+        r#"(module (func (export "f") (result externref) i32.const 1 ref.i31 extern.convert_any))"#,
+    ] {
+        let error = engine
+            .compile("boundary.wasm", wat::parse_str(source).unwrap())
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("C API"), "{error:#}");
+    }
 }
