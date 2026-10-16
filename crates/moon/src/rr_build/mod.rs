@@ -334,11 +334,18 @@ pub(crate) fn prepare_resolved_build(
         TargetBackend::Native => {
             let new_native_env = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
             BackendConfig::Native {
+                // Direct objects are emitted for the host, so a `MOON_CC`
+                // that targets another machine needs generated C.
                 direct_object_candidate: NativeTarget::from_host_with_new_native_env(
                     std::env::consts::ARCH,
                     std::env::consts::OS,
                     new_native_env.as_deref(),
-                ),
+                )
+                .filter(|_| {
+                    compiler_flags::ENV_CC
+                        .as_ref()
+                        .is_none_or(compiler_flags::CC::targets_host)
+                }),
                 allocator: compiler_flags::NativeAllocator::from_env()?,
                 collect_ref_cycle,
                 os: std::env::consts::OS

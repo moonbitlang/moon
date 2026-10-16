@@ -80,17 +80,38 @@ The runtime uses the same explicit multi-step shape for ordinary native builds:
 
 `MOONBIT_ALLOCATOR` may override the native runtime allocator:
 
-- unset on Linux and macOS with a non-MSVC, non-TCC compiler that was not selected through
-  `MOON_CC`: compile the runtime with
+- unset on Linux and macOS with a non-MSVC, non-TCC compiler that targets the
+  host and was not selected through `MOON_CC`: compile the runtime with
   `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC` and link `libmoonbitrun.o`
 - unset on other native toolchains: compile the runtime with
   `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
 - `mimalloc`: compile the runtime with
   `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC` and link `libmoonbitrun.o`;
   fail during planning when that support object is unavailable for the selected
-  platform or toolchain, including Windows and TCC
+  platform or toolchain, including Windows, TCC, and compilers for another target
 - `system`: compile the runtime with
   `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
+
+### Host-only prebuilt objects
+
+The MoonBit lib directory ships `libmoonbitrun.o`, the SIMDUTF objects
+(`moonbit_simdutf.o` and `simdutf.o`), and, on some hosts, `libbacktrace.a`.
+These objects are built for the machine that runs Moon. `CC::targets_host()`
+compares the architecture, operating system, and ABI of the probed target
+triple with the host. On Linux the ABI after the OS must be absent or `gnu`, so
+targets such as `gnux32`, `musl`, and `android` do not match. Other Unix hosts
+require no ABI component. Windows does not compare the ABI, because the shipped
+objects are not used there and the MSVC toolchain policy selects the ABI. When
+they differ, Moon does not link `libmoonbitrun.o` or
+`libbacktrace.a`, and it does not define `MOONBIT_USE_SIMDUTF` or archive the
+SIMDUTF objects. The runtime then uses its scalar UTF code path. Runtime
+backtraces depend on `libbacktrace.a`, so Moon also does not define
+`MOONBIT_ALLOW_STACKTRACE` for such a compiler. A compiler whose target triple
+cannot be probed is treated as targeting the host.
+
+This check applies to the effective toolchain, whether it comes from `MOON_CC`,
+a package-level `cc`, or auto-detection. A target selected only through
+`cc-flags` is not visible to the probe.
 
 Moon passes the `MOONBIT_ALLOCATOR` macro when compiling the shipped runtime
 sources and the C file emitted by `moonc link-core`, so that a program inlines
@@ -324,11 +345,14 @@ incompatible objects or archives fail naturally when the final linker consumes t
 
 Native payload selection is internal to RR build planning. `BackendConfig::Native`
 contains the allocator choice, cycle-collection setting, and a direct-object
-candidate captured by the CLI from the host and `MOONBIT_NEW_NATIVE`.
+candidate captured by the CLI from the host, `MOONBIT_NEW_NATIVE`, and
+`MOON_CC`.
 Direct object output is enabled by default on macOS AArch64, Linux x86_64,
 and Windows x86_64 unless `MOONBIT_NEW_NATIVE=0` is set. Other values, including
 `1`, preserve that default; unsupported hosts still use generated C. Release
-builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set.
+builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set. Direct
+objects are emitted for the host, so a `MOON_CC` compiler that does not target
+the host (see `CC::targets_host()`) also selects generated C.
 Callers do not supply the final payload
 mode. The planner derives it from requested artifacts, the build profile, and
 that explicit candidate, without reading the process environment. It stores the

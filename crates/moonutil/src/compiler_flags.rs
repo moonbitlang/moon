@@ -320,6 +320,44 @@ const CAN_USE_MOONBITRUN: bool = false;
 // backend still needs a no-stdlib runtime build there, plus an /MT vs /MD call.
 const CAN_USE_SIMDUTF: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
+/// Whether a target triple names the given host architecture and operating
+/// system, as reported by `std::env::consts::{ARCH, OS}`, with the default
+/// ABI of that host.
+fn triple_matches_host(triple: &str, host_arch: &str, host_os: &str) -> bool {
+    let triple = triple.to_ascii_lowercase();
+    let mut components = triple.split('-');
+    let arch = match components.next().unwrap_or_default() {
+        "arm64" | "arm64e" => "aarch64",
+        "amd64" => "x86_64",
+        "i386" | "i486" | "i586" | "i686" => "x86",
+        arch => arch,
+    };
+    if arch != host_arch {
+        return false;
+    }
+    // OS components can carry a version, as in `darwin25.6.0` or `mingw32`.
+    let os_matches = components.by_ref().any(|component| {
+        let os = match component.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
+            "darwin" | "macos" | "macosx" => "macos",
+            "mingw" | "cygwin" => "windows",
+            os => os,
+        };
+        os == host_os
+    });
+    if !os_matches {
+        return false;
+    }
+    // The component after the OS names the ABI, as in `gnu`, `gnux32` or
+    // `musl`. Host-only objects use glibc on Linux and no named ABI on other
+    // Unix hosts. On Windows they are not used, and the MSVC toolchain
+    // policy selects the ABI, so the ABI is not compared there.
+    match (host_os, components.next()) {
+        ("windows", _) | (_, None) => true,
+        ("linux", Some(abi)) => abi == "gnu",
+        (_, Some(_)) => false,
+    }
+}
+
 fn is_path_like_tool(tool: &str) -> bool {
     let path = Path::new(tool);
     let has_parent = path
@@ -597,16 +635,32 @@ impl CC {
             .is_some_and(|target| target.contains("apple-darwin"))
     }
 
+    /// Whether the compiler builds for the machine and ABI that run Moon.
+    ///
+    /// The prebuilt objects in the MoonBit lib directory (`libmoonbitrun.o`,
+    /// the simdutf objects and `libbacktrace.a`) are built for that machine,
+    /// so a cross compiler must not link them. A compiler whose target triple
+    /// could not be probed is assumed to target the host.
+    pub fn targets_host(&self) -> bool {
+        self.target_triple
+            .as_deref()
+            .is_none_or(|triple| triple_matches_host(triple, env::consts::ARCH, env::consts::OS))
+    }
+
     pub fn should_link_libm(&self) -> bool {
         self.is_full_featured_gcc_like() && !self.targets_msvc()
     }
 
     pub fn can_use_simdutf(&self) -> bool {
-        CAN_USE_SIMDUTF && !self.is_tcc() && !self.uses_msvc_cli() && !self.targets_msvc()
+        CAN_USE_SIMDUTF
+            && !self.is_tcc()
+            && !self.uses_msvc_cli()
+            && !self.targets_msvc()
+            && self.targets_host()
     }
 
     pub fn can_link_libmoonbitrun_o(&self) -> bool {
-        CAN_USE_MOONBITRUN && !self.uses_msvc_cli() && !self.is_tcc()
+        CAN_USE_MOONBITRUN && !self.uses_msvc_cli() && !self.is_tcc() && self.targets_host()
     }
 
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
@@ -749,7 +803,8 @@ pub struct CCConfig {
     // TCC cannot link libmoonbitrun.o
     pub link_moonbitrun: bool,
     #[builder(default = false)]
-    // Link libbacktrace.a from the configured MoonBit lib path if it exists.
+    // Link libbacktrace.a from the configured MoonBit lib path if it exists
+    // and the compiler targets the host.
     pub link_libbacktrace: bool,
     // Define MOONBIT_NATIVE_NO_SYS_HEADER
     // Usually used with TCC
@@ -786,7 +841,8 @@ pub struct LinkerConfig<P: AsRef<Path>> {
     #[builder(default = false)]
     pub link_moonbitrun: bool,
     #[builder(default = false)]
-    // Link libbacktrace.a from the configured MoonBit lib path if it exists.
+    // Link libbacktrace.a from the configured MoonBit lib path if it exists
+    // and the compiler targets the host.
     pub link_libbacktrace: bool,
     #[builder(default = OutputType::Executable)]
     pub output_ty: OutputType,
@@ -953,13 +1009,22 @@ where
 
     buf.extend(link_args.iter().map(|arg| arg.render(&cc)));
     if config.link_libbacktrace {
-        let libbacktrace_path = Path::new(lpath).join("libbacktrace.a");
-        if libbacktrace_path.exists() {
-            buf.push(libbacktrace_path.display().to_string());
-        }
+        add_libbacktrace(&cc, &mut buf, lpath);
     }
 
     buf
+}
+
+/// Link `libbacktrace.a` from the MoonBit lib path if it exists. The archive
+/// is prebuilt for the host, so a compiler for another target skips it.
+fn add_libbacktrace(cc: &CC, buf: &mut Vec<String>, lib_path: &str) {
+    if !cc.targets_host() {
+        return;
+    }
+    let libbacktrace_path = Path::new(lib_path).join("libbacktrace.a");
+    if libbacktrace_path.exists() {
+        buf.push(libbacktrace_path.display().to_string());
+    }
 }
 
 // Helper functions for CC command building
@@ -1300,10 +1365,7 @@ where
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
     buf.extend(link_args.iter().map(|arg| arg.render(&cc)));
     if config.link_libbacktrace && config.output_ty != OutputType::Object {
-        let libbacktrace_path = Path::new(&paths.lib_path).join("libbacktrace.a");
-        if libbacktrace_path.exists() {
-            buf.push(libbacktrace_path.display().to_string());
-        }
+        add_libbacktrace(&cc, &mut buf, &paths.lib_path);
     }
     buf
 }
@@ -1321,6 +1383,15 @@ mod tests {
         } else {
             name.to_string()
         }
+    }
+
+    /// A target triple that names the machine running the tests.
+    fn host_triple() -> String {
+        let os = match env::consts::OS {
+            "macos" => "apple-darwin",
+            os => os,
+        };
+        format!("{}-unknown-{os}", env::consts::ARCH)
     }
 
     fn fake_cc(kind: CCKind, target_triple: Option<&str>) -> CC {
@@ -1460,7 +1531,7 @@ mod tests {
         config.native_allocator = Some(NativeAllocator::Default);
 
         let command = make_cc_command_resolved_with_link_args(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
             config,
             &[] as &[&str],
             &[],
@@ -1518,7 +1589,7 @@ mod tests {
         config.native_allocator = Some(NativeAllocator::Default);
 
         let command = make_cc_command_resolved_with_link_args(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
             config,
             &[] as &[&str],
             &[],
@@ -1590,7 +1661,7 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn explicit_mimalloc_links_moonbitrun_for_env_compiler() {
-        let mut cc = fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu"));
+        let mut cc = fake_cc(CCKind::Gcc, Some(&host_triple()));
         cc.is_env_override = true;
 
         let command = make_linker_command_resolved(
@@ -2065,7 +2136,7 @@ mod tests {
         };
 
         let command = make_archiver_command_resolved(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
             ArchiverConfig {
                 archive_moonbitrun: true,
                 native_allocator: NativeAllocator::Default,
@@ -2125,12 +2196,155 @@ mod tests {
     #[test]
     fn simdutf_requires_supported_host_and_non_tcc_compiler() {
         assert_eq!(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf(),
+            fake_cc(CCKind::Gcc, Some(&host_triple())).can_use_simdutf(),
             CAN_USE_SIMDUTF
         );
         assert!(!fake_cc(CCKind::Tcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf());
         assert!(!fake_cc(CCKind::Msvc, None).can_use_simdutf());
         assert!(!fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")).can_use_simdutf());
+    }
+
+    #[test]
+    fn target_triple_matches_host_arch_and_os() {
+        for triple in [
+            "arm64-apple-darwin25.6.0",
+            "aarch64-apple-darwin",
+            "aarch64-unknown-macos",
+            "arm64-apple-macosx14.0.0",
+        ] {
+            assert!(triple_matches_host(triple, "aarch64", "macos"), "{triple}");
+        }
+        for triple in [
+            "x86_64-linux-gnu",
+            "x86_64-unknown-linux-gnu",
+            "amd64-pc-linux-gnu",
+            "x86_64-redhat-linux",
+        ] {
+            assert!(triple_matches_host(triple, "x86_64", "linux"), "{triple}");
+        }
+        assert!(triple_matches_host(
+            "x86_64-w64-mingw32",
+            "x86_64",
+            "windows"
+        ));
+        assert!(triple_matches_host(
+            "x86_64-pc-windows-msvc",
+            "x86_64",
+            "windows"
+        ));
+
+        assert!(!triple_matches_host(
+            "x86_64-apple-darwin",
+            "aarch64",
+            "macos"
+        ));
+        assert!(!triple_matches_host(
+            "x86_64-unknown-linux-musl",
+            "aarch64",
+            "macos"
+        ));
+        assert!(!triple_matches_host(
+            "aarch64-linux-musl",
+            "x86_64",
+            "linux"
+        ));
+        assert!(!triple_matches_host(
+            "x86_64-w64-windows-gnu",
+            "x86_64",
+            "linux"
+        ));
+        assert!(!triple_matches_host(
+            "arm64-apple-ios17.0",
+            "aarch64",
+            "macos"
+        ));
+        assert!(!triple_matches_host(
+            "aarch64-macos-none",
+            "aarch64",
+            "macos"
+        ));
+        for triple in [
+            "x86_64-unknown-linux-gnux32",
+            "x86_64-unknown-linux-musl",
+            "x86_64-linux-android",
+        ] {
+            assert!(!triple_matches_host(triple, "x86_64", "linux"), "{triple}");
+        }
+    }
+
+    /// A Linux target triple whose architecture differs from the test host.
+    fn foreign_triple() -> &'static str {
+        if env::consts::ARCH == "x86_64" {
+            "aarch64-unknown-linux-musl"
+        } else {
+            "x86_64-unknown-linux-musl"
+        }
+    }
+
+    #[test]
+    fn cross_compiler_does_not_use_host_prebuilt_objects() {
+        let cc = fake_cc(CCKind::Gcc, Some(foreign_triple()));
+        assert!(!cc.targets_host());
+        assert!(!cc.can_use_simdutf());
+        assert!(!cc.can_link_libmoonbitrun_o());
+        assert!(!cc.is_libmoonbitrun_o_available());
+        assert!(NativeAllocator::Mimalloc.validate_for_cc(&cc).is_err());
+
+        assert!(fake_cc(CCKind::Gcc, Some(&host_triple())).targets_host());
+        assert!(fake_cc(CCKind::Gcc, None).targets_host());
+    }
+
+    #[test]
+    fn cross_compiler_does_not_link_host_libbacktrace() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "moonutil-cross-libbacktrace-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after Unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).expect("create temp lib dir");
+        let libbacktrace_path = temp_dir.join("libbacktrace.a");
+        std::fs::write(&libbacktrace_path, b"").expect("create temp libbacktrace.a");
+        let libbacktrace_arg = libbacktrace_path.display().to_string();
+
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: temp_dir.display().to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.link_libbacktrace = true;
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Gcc, Some(foreign_triple())),
+            config,
+            &[] as &[&str],
+            &[],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main"),
+            &paths,
+        );
+        assert!(!command.iter().any(|flag| flag == &libbacktrace_arg));
+
+        let linker_config = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(false)
+            .link_libbacktrace(true)
+            .output_ty(OutputType::Executable)
+            .build()
+            .expect("build linker config");
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Gcc, Some(foreign_triple())),
+            linker_config,
+            &[],
+            &["main.o"],
+            "build/main",
+            "build/main/main",
+            &temp_dir.display().to_string(),
+        );
+        assert!(!command.iter().any(|flag| flag == &libbacktrace_arg));
+
+        std::fs::remove_dir_all(temp_dir).expect("remove temp lib dir");
     }
 
     #[test]
@@ -2430,7 +2644,7 @@ mod tests {
         config.link_libbacktrace = true;
 
         let command = make_cc_command_resolved_with_link_args(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
             config,
             &[] as &[&str],
             &[NativeLinkArg::Opaque("-lcustom".into())],

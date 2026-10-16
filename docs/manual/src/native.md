@@ -7,7 +7,8 @@ x86_64 use the new native backend by default, with `moonc` emitting object files
 directly. Set `MOONBIT_NEW_NATIVE=0` to use generated C instead; other values keep
 the default. Unsupported hosts and release builds use generated C even when
 `MOONBIT_NEW_NATIVE=1` is set. If a selected executable package configures
-`link.native.cc-flags`, the invocation also uses generated C.
+`link.native.cc-flags`, or `MOON_CC` selects a compiler for another target, the
+invocation also uses generated C.
 
 On Windows, the new native backend requires a cl-compatible MSVC toolchain,
 such as `cl.exe` or `clang-cl.exe`, to compile the runtime and C stubs and link
@@ -28,7 +29,21 @@ the same allocator as the runtime it links against.
 
 When the variable is unset, Moon preserves the platform and toolchain default.
 Selecting `mimalloc` fails when its support object is unavailable, including on
-Windows and with TCC.
+Windows, with TCC, and when cross-compiling.
+
+## Cross-compiling
+
+Set `MOON_CC` (and `MOON_AR` if needed) to a compiler for another target, for
+example a wrapper script that runs `zig cc -target x86_64-linux-musl "$@"`.
+Moon runs the compiler with `-dumpmachine` to find its target. When the
+architecture, operating system, or ABI (for example `musl` on a glibc Linux
+host) differs from the host, Moon does not link the
+prebuilt objects in the MoonBit lib directory (`libmoonbitrun.o`, the SIMDUTF
+objects, and `libbacktrace.a`), because they are built for the host. The
+runtime then uses the system allocator and its scalar UTF code path, and
+panics do not print a backtrace.
+
+The `platform` cfg and the prebuilt `core` library still follow the host.
 
 ## Reference cycle collection
 
