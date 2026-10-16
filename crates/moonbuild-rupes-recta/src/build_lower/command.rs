@@ -18,8 +18,12 @@
 
 use std::path::{Path, PathBuf};
 
-use moonutil::compiler_flags::Toolchain;
+use moonutil::{
+    compiler_flags::{ArchiverConfig, CompilerPaths, Toolchain, make_archiver_command_resolved},
+    toolchain::BINARIES,
+};
 
+use super::compiler::{CmdlineAbstraction, MoonArchive};
 use crate::execution_plan::{InputObservation, LoweredCommand};
 
 /// Command data produced by action-specific lowering before common execution
@@ -31,6 +35,54 @@ pub(super) struct BuildCommand {
 }
 
 impl BuildCommand {
+    /// Create the static archive `archive` from exactly `members`.
+    ///
+    /// Archivers that update an existing archive in place, such as `ar -r`,
+    /// would keep members that are no longer listed. They run through
+    /// `moon tool archive`, which deletes the old archive first:
+    ///
+    /// ```text
+    /// moon tool archive --output lib.a -- ar -r -c -s lib.a a.o b.o
+    /// ```
+    pub(super) fn archive(
+        toolchain: &Toolchain,
+        config: ArchiverConfig,
+        members: &[PathBuf],
+        archive: &Path,
+        compiler_paths: &CompilerPaths,
+    ) -> Self {
+        let cc = toolchain.cc().clone();
+        let archive_arg = archive.display().to_string();
+        let archiver_command = make_archiver_command_resolved(
+            cc.clone(),
+            config,
+            &members
+                .iter()
+                .map(|member| member.to_string_lossy())
+                .collect::<Vec<_>>(),
+            &archive_arg,
+            compiler_paths,
+        );
+        let command = if cc.archiver_updates_existing_archive() {
+            let command = MoonArchive {
+                output: archive.into(),
+                archiver: &archiver_command,
+            }
+            .build_command(&*BINARIES.moonbuild);
+            Self {
+                // The archiver is no longer `argv[0]`, so observe it explicitly.
+                extra_inputs: vec![PathBuf::from(&cc.ar_path)],
+                commandline: command.into(),
+            }
+        } else {
+            Self {
+                extra_inputs: vec![],
+                commandline: archiver_command.into(),
+            }
+        };
+        command.with_msvc_env(toolchain)
+    }
+
     /// Finish the common action-lowering boundary.
     ///
     /// Structured commands carry a concrete executable as `argv[0]`. Keep that
@@ -85,9 +137,78 @@ impl BuildCommand {
 
 #[cfg(test)]
 mod tests {
+    use moonutil::compiler_flags::{ARKind, ArchiverConfigBuilder, CC, CCKind};
+
     use crate::execution_plan::{LoweredCommandExecution, LoweredResponseFile};
 
     use super::*;
+
+    fn archive_with(ar_kind: ARKind, ar_path: &str) -> BuildCommand {
+        let toolchain = Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Gcc,
+            cc_path: "/toolchain/bin/cc".to_string(),
+            ar_kind,
+            ar_path: ar_path.to_string(),
+            target_triple: None,
+            is_env_override: false,
+        });
+        BuildCommand::archive(
+            &toolchain,
+            ArchiverConfigBuilder::default()
+                .archive_moonbitrun(false)
+                .build()
+                .expect("archiver configuration should build"),
+            &[PathBuf::from("a.o"), PathBuf::from("b.o")],
+            Path::new("lib.a"),
+            &CompilerPaths {
+                include_path: "/toolchain/include".to_string(),
+                lib_path: "/toolchain/lib".to_string(),
+            },
+        )
+    }
+
+    #[test]
+    fn update_style_archivers_replace_the_archive() {
+        let command = archive_with(ARKind::GnuAr, "/toolchain/bin/ar");
+        // Command construction drops the Windows `\\?\` prefix from tool paths.
+        let moon = dunce::simplified(&BINARIES.moonbuild).display().to_string();
+        assert_eq!(
+            command.commandline.args(),
+            [
+                moon.as_str(),
+                "tool",
+                "archive",
+                "--output",
+                "lib.a",
+                "--",
+                "/toolchain/bin/ar",
+                "-r",
+                "-c",
+                "-s",
+                "lib.a",
+                "a.o",
+                "b.o",
+            ]
+        );
+        assert_eq!(command.extra_inputs, [PathBuf::from("/toolchain/bin/ar")]);
+    }
+
+    #[test]
+    fn recreating_archivers_run_directly() {
+        let command = archive_with(ARKind::AppleLibtool, "/toolchain/bin/libtool");
+        assert_eq!(
+            command.commandline.args(),
+            [
+                "/toolchain/bin/libtool",
+                "-static",
+                "-o",
+                "lib.a",
+                "a.o",
+                "b.o"
+            ]
+        );
+        assert!(command.extra_inputs.is_empty());
+    }
 
     #[test]
     fn structured_executable_is_derived_from_original_args_and_inputs_are_canonical() {

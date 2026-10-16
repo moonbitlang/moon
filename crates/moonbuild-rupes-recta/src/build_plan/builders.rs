@@ -60,9 +60,7 @@ use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
     MakeExecutableInfo, PackagePrebuildKey,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
-    c_stub_archive_fingerprint,
     constructor::{BuildPlanConstructor, PackageFileSet},
-    runtime_archive_fingerprint,
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -935,11 +933,6 @@ impl<'a> BuildPlanConstructor<'a> {
             prebuild.append_link_args(std::iter::once(target), &mut link_args);
         }
 
-        let static_archive_fingerprint = effective_native_toolchain
-            .cc()
-            .archiver_updates_existing_archive()
-            .then(|| c_stub_archive_fingerprint(&pkg.c_stub_files));
-
         // Backtrace-only requests concern MoonBit source locations. They must
         // not change the debug or optimization settings of user-written C stubs.
         let debug_info = self.config.debug_info.symbols == DebugSymbols::Full;
@@ -956,7 +949,6 @@ impl<'a> BuildPlanConstructor<'a> {
             opt_level,
             cc_flags,
             link_args,
-            static_archive_fingerprint,
         };
         self.res.backend.c_stubs_info.insert(target, c_info);
         self.resolved_node(node);
@@ -1502,10 +1494,6 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             Vec::new()
         };
-        let static_archive_fingerprint = effective_native_toolchain
-            .cc()
-            .archiver_updates_existing_archive()
-            .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
         let native_allocator = self
             .config
             .backend
@@ -1524,7 +1512,6 @@ impl<'a> BuildPlanConstructor<'a> {
             enable_backtrace,
             source_files,
             simdutf_objects,
-            static_archive_fingerprint,
             native_allocator,
         });
 

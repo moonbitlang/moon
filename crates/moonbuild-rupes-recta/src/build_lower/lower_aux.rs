@@ -21,7 +21,7 @@
 use moonutil::{
     compiler_flags::{
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_archiver_command_resolved, make_cc_command_resolved,
+        make_cc_command_resolved,
     },
     resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
@@ -265,26 +265,20 @@ impl<'a> super::LoweringContext<'a> {
             .archive_moonbitrun(false)
             .build()
             .expect("Failed to build archiver configuration");
-        let member_args = object_files
-            .iter()
-            .map(|member| member.to_string_lossy())
-            .collect::<Vec<_>>();
-        let commandline = make_archiver_command_resolved(
-            info.effective_native_toolchain.cc().clone(),
+        let mut command = BuildCommand::archive(
+            &info.effective_native_toolchain,
             config,
-            &member_args,
-            &artifact_path.display().to_string(),
+            &object_files,
+            &artifact_path,
             self.opt
                 .backend
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
         );
-
-        BuildCommand {
-            extra_inputs: info.simdutf_objects.clone(),
-            commandline: commandline.into(),
-        }
-        .with_msvc_env(&info.effective_native_toolchain)
+        command
+            .extra_inputs
+            .extend(info.simdutf_objects.iter().cloned());
+        command
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]

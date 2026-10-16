@@ -59,8 +59,18 @@ pub(crate) fn moonrun_bin() -> PathBuf {
 
 #[cfg(unix)]
 pub(crate) fn normalize_host_archiver(s: &mut String) {
+    static ARCHIVE_WRAPPER: OnceLock<Regex> = OnceLock::new();
     static HOST_ARCHIVER: OnceLock<snapbox::Redactions> = OnceLock::new();
     static ARCHIVE_CREATE_ARGS: OnceLock<snapbox::Redactions> = OnceLock::new();
+
+    // Hosts whose `ar` updates archives in place run it through
+    // `moon tool archive`, while macOS runs `libtool` directly.
+    // Drop that wrapper so host-archiver snapshots match on both.
+    let archive_wrapper = ARCHIVE_WRAPPER.get_or_init(|| {
+        Regex::new(r"moon tool archive --output \S+ -- ((?:/usr/bin/)?ar )")
+            .expect("valid archive wrapper regex")
+    });
+    *s = archive_wrapper.replace_all(s, "$1").into_owned();
 
     let host_archiver = HOST_ARCHIVER.get_or_init(|| {
         let mut redactions = snapbox::Redactions::new();
@@ -110,31 +120,6 @@ pub(crate) fn normalize_host_archiver(s: &mut String) {
         redactions
     });
     *s = archive_create_args.redact(s);
-    normalize_archive_fingerprints(s);
-}
-
-#[cfg(unix)]
-pub(crate) fn normalize_archive_fingerprints(s: &mut String) {
-    static ARCHIVE_FINGERPRINTS: OnceLock<snapbox::Redactions> = OnceLock::new();
-    let redactions = ARCHIVE_FINGERPRINTS.get_or_init(|| {
-        let mut redactions = snapbox::Redactions::new();
-        redactions
-            .insert(
-                "[FINGER_PRINT]",
-                Regex::new(r"(?<redacted>-[0-9a-f]{16})\.a")
-                    .expect("valid archive fingerprint regex"),
-            )
-            .expect("valid fingerprint redaction");
-        redactions
-            .insert(
-                "[FINGER_PRINT]",
-                Regex::new(r"libruntime(?<redacted>(?:-[0-9a-f]{16})?)\.a")
-                    .expect("valid runtime archive fingerprint regex"),
-            )
-            .expect("valid fingerprint redaction");
-        redactions
-    });
-    *s = redactions.redact(s);
 }
 
 pub(crate) fn toolchain_root_for_tests() -> PathBuf {
@@ -517,24 +502,21 @@ mod tests {
             assert_eq!(input, "[ARCHIVER]");
         }
 
-        for archive in [
-            "./_build/native/debug/build/libruntime.a",
-            "./_build/native/debug/build/libruntime-0123456789abcdef.a",
+        for wrapped_host_ar in [
+            "moon tool archive --output out.a -- /usr/bin/ar -r -c -s out.a in.o",
+            "moon tool archive --output out.a -- ar -r -c -s out.a in.o",
         ] {
-            let mut archive = archive.to_string();
-            super::normalize_host_archiver(&mut archive);
-            assert_eq!(
-                archive,
-                "./_build/native/debug/build/libruntime[FINGER_PRINT].a"
-            );
+            let mut wrapped_host_ar = wrapped_host_ar.to_string();
+            super::normalize_host_archiver(&mut wrapped_host_ar);
+            assert_eq!(wrapped_host_ar, "[ARCHIVER] [CREATE_ARGS] out.a in.o");
         }
 
-        let mut explicit_ar_archive =
-            "./_build/native/debug/build/lib/liblib-0123456789abcdef.a".to_string();
-        super::normalize_archive_fingerprints(&mut explicit_ar_archive);
+        let mut wrapped_custom_ar =
+            "moon tool archive --output out.a -- stubar -r -c -s out.a in.o".to_string();
+        super::normalize_host_archiver(&mut wrapped_custom_ar);
         assert_eq!(
-            explicit_ar_archive,
-            "./_build/native/debug/build/lib/liblib[FINGER_PRINT].a"
+            wrapped_custom_ar,
+            "moon tool archive --output out.a -- stubar -r -c -s out.a in.o"
         );
     }
 
