@@ -246,7 +246,7 @@ fn linker_for_module(
             continue;
         }
         match (import.module(), import.name(), import.ty()) {
-            (wasi::WASI_SNAPSHOT_PREVIEW1_MODULE, _, ExternType::Func(_)) => {}
+            (crate::wasi::imports::MODULE, _, ExternType::Func(_)) => {}
             (crate::async_api::MOONBIT_ASYNC_MODULE, _, ExternType::Func(_)) => {}
             (crate::sqlite::wasm::MOONBIT_SQLITE_MODULE, _, ExternType::Func(_)) => {}
             ("ffi-bytes", "memory", ExternType::Memory(_)) => {

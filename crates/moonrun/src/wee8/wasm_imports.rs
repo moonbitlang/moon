@@ -19,7 +19,10 @@
 //! Resolve shared definitions in the module's import order for the Wasm C API.
 
 use super::{StoreData, api};
-use crate::wasm_imports::{Caller, HostFunction, ImportError, ImportRegistry, WasmResult};
+use crate::wasm_imports::{
+    Caller, HostFunction, ImportError, ImportRegistry, WasmParams, WasmResult, WasmType,
+};
+use std::rc::Rc;
 
 pub(super) struct Registry<'s, T> {
     store: &'s api::Store<StoreData>,
@@ -62,14 +65,23 @@ impl<'s, T> Registry<'s, T> {
 
 impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
     type Error = api::Error;
-    fn define<const N: usize, R: WasmResult>(
+    fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, N, R>,
+        function: F,
     ) -> api::Result<()> {
         let data = self.data;
-        let params = [api::Kind::I32; N];
+        // A module can import the same definition more than once. All slots
+        // retain the same callback and its captures until their store is dropped.
+        let function = Rc::new(function);
+        let params: Vec<_> = P::TYPES
+            .iter()
+            .map(|kind| match kind {
+                WasmType::I32 => api::Kind::I32,
+                WasmType::I64 => api::Kind::I64,
+            })
+            .collect();
         let results: Vec<_> = R::HAS_RESULT
             .then_some(api::Kind::I32)
             .into_iter()
@@ -83,18 +95,23 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                     "incorrect signature for {module}::{name}"
                 )));
             }
+            let function = Rc::clone(&function);
             *slot = Some(
                 self.store
                     .host_func(&params, &results, move |caller, args| {
-                        let params = std::array::from_fn(|index| match args[index] {
-                            api::Value::I32(value) => value,
-                            _ => unreachable!("checked i32 import signature"),
-                        });
+                        let params = P::decode::<std::convert::Infallible>(|index, kind| {
+                            Ok(match (kind, args[index]) {
+                                (WasmType::I32, api::Value::I32(value)) => i64::from(value),
+                                (WasmType::I64, api::Value::I64(value)) => value,
+                                _ => unreachable!("checked integer import signature"),
+                            })
+                        })
+                        .unwrap();
                         // with_memory fails before invoking the operation. Invoke it
                         // exactly once with deferred failure so memory-free calls such
                         // as proc_exit still work during module instantiation.
                         let result = match caller.with_memory(|state, memory| {
-                            function(
+                            function.call(
                                 Caller {
                                     data: data(state),
                                     memory: Ok(memory),
@@ -104,7 +121,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         }) {
                             Ok(result) => result,
                             Err(error) => caller.with_data(|state| {
-                                function(
+                                function.call(
                                     Caller {
                                         data: data(state),
                                         memory: Err(ImportError::Host(error.into())),

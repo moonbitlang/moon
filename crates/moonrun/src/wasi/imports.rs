@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! The shared WASIp1 subset currently supported by all three engine adapters.
+//! The shared WASIp1 subset supported by all three engine adapters.
 
 use super::{WASI_ERRNO_FAULT, WasiContext, WasiResult, result_to_errno};
 use crate::wasm_imports::{Caller, ImportError, ImportRegistry};
@@ -24,25 +24,225 @@ use crate::wasm_imports::{Caller, ImportError, ImportRegistry};
 pub(crate) const MODULE: &str = "wasi_snapshot_preview1";
 
 pub(crate) fn register<R: ImportRegistry<WasiContext>>(registry: &mut R) -> Result<(), R::Error> {
-    registry.define(MODULE, "args_sizes_get", |caller, [argc, size]| {
-        with_memory(caller, |data, memory| {
-            super::args_sizes_get_impl(data, memory, argc as u32, size as u32)
-        })
-    })?;
-    registry.define(MODULE, "args_get", |caller, [argv, bytes]| {
-        with_memory(caller, |data, memory| {
-            super::args_get_impl(data, memory, argv as u32, bytes as u32)
-        })
-    })?;
-    registry.define(MODULE, "fd_write", |caller, [fd, iovs, count, written]| {
-        with_memory(caller, |data, memory| {
-            super::fd_write_impl(data, memory, fd, iovs as u32, count as u32, written as u32)
-        })
-    })?;
-    registry.define(
+    registry.func_wrap(
+        MODULE,
+        "args_sizes_get",
+        |caller: Caller<'_, WasiContext>, argc: i32, size: i32| {
+            with_memory(caller, |data, memory| {
+                super::args_sizes_get_impl(data, memory, argc as u32, size as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "args_get",
+        |caller: Caller<'_, WasiContext>, argv: i32, bytes: i32| {
+            with_memory(caller, |data, memory| {
+                super::args_get_impl(data, memory, argv as u32, bytes as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "fd_write",
+        |caller: Caller<'_, WasiContext>, fd: i32, iovs: i32, count: i32, written: i32| {
+            with_memory(caller, |data, memory| {
+                super::fd_write_impl(data, memory, fd, iovs as u32, count as u32, written as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "environ_sizes_get",
+        |caller: Caller<'_, WasiContext>, count: i32, size: i32| {
+            with_memory(caller, |data, memory| {
+                super::environ_sizes_get_impl(data, memory, count as u32, size as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "environ_get",
+        |caller: Caller<'_, WasiContext>, environ: i32, bytes: i32| {
+            with_memory(caller, |data, memory| {
+                super::environ_get_impl(data, memory, environ as u32, bytes as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "random_get",
+        |caller: Caller<'_, WasiContext>, buffer: i32, length: i32| {
+            with_memory(caller, |_data, memory| {
+                super::random_get_impl(memory, buffer as u32, length as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "fd_read",
+        |caller: Caller<'_, WasiContext>, fd: i32, iovs: i32, count: i32, read: i32| {
+            with_memory(caller, |data, memory| {
+                super::fd_read_impl(data, memory, fd, iovs as u32, count as u32, read as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "fd_prestat_get",
+        |caller: Caller<'_, WasiContext>, fd: i32, prestat: i32| {
+            with_memory(caller, |data, memory| {
+                super::fd_prestat_get_impl(data, memory, fd, prestat as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "fd_prestat_dir_name",
+        |caller: Caller<'_, WasiContext>, fd: i32, path: i32, length: i32| {
+            with_memory(caller, |data, memory| {
+                super::fd_prestat_dir_name_impl(data, memory, fd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "fd_readdir",
+        |caller: Caller<'_, WasiContext>,
+         fd: i32,
+         buffer: i32,
+         length: i32,
+         cookie: i64,
+         used: i32| {
+            with_memory(caller, |data, memory| {
+                super::fd_readdir_impl(
+                    data,
+                    memory,
+                    fd,
+                    buffer as u32,
+                    length as u32,
+                    cookie as u64,
+                    used as u32,
+                )
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "path_open",
+        |caller: Caller<'_, WasiContext>,
+         dirfd: i32,
+         dirflags: i32,
+         path: i32,
+         length: i32,
+         oflags: i32,
+         rights: i64,
+         inheriting: i64,
+         fdflags: i32,
+         opened: i32| {
+            with_memory(caller, |data, memory| {
+                super::path_open_impl(
+                    data,
+                    memory,
+                    dirfd,
+                    dirflags,
+                    path as u32,
+                    length as u32,
+                    oflags,
+                    rights as u64,
+                    inheriting as u64,
+                    fdflags,
+                    opened as u32,
+                )
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "path_readlink",
+        |caller: Caller<'_, WasiContext>,
+         dirfd: i32,
+         path: i32,
+         length: i32,
+         buffer: i32,
+         capacity: i32,
+         used: i32| {
+            with_memory(caller, |data, memory| {
+                super::path_readlink_impl(
+                    data,
+                    memory,
+                    dirfd,
+                    path as u32,
+                    length as u32,
+                    buffer as u32,
+                    capacity as u32,
+                    used as u32,
+                )
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "path_rename",
+        |caller: Caller<'_, WasiContext>,
+         old_fd: i32,
+         old_path: i32,
+         old_length: i32,
+         new_fd: i32,
+         new_path: i32,
+         new_length: i32| {
+            with_memory(caller, |data, memory| {
+                super::path_rename_impl(
+                    data,
+                    memory,
+                    old_fd,
+                    old_path as u32,
+                    old_length as u32,
+                    new_fd,
+                    new_path as u32,
+                    new_length as u32,
+                )
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "path_create_directory",
+        |caller: Caller<'_, WasiContext>, dirfd: i32, path: i32, length: i32| {
+            with_memory(caller, |data, memory| {
+                super::path_create_directory_impl(data, memory, dirfd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "path_remove_directory",
+        |caller: Caller<'_, WasiContext>, dirfd: i32, path: i32, length: i32| {
+            with_memory(caller, |data, memory| {
+                super::path_remove_directory_impl(data, memory, dirfd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "path_unlink_file",
+        |caller: Caller<'_, WasiContext>, dirfd: i32, path: i32, length: i32| {
+            with_memory(caller, |data, memory| {
+                super::path_unlink_file_impl(data, memory, dirfd, path as u32, length as u32)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MODULE,
+        "fd_close",
+        |caller: Caller<'_, WasiContext>, fd: i32| {
+            Ok(result_to_errno(super::fd_close_impl(caller.data, fd)))
+        },
+    )?;
+    registry.func_wrap(
         MODULE,
         "proc_exit",
-        |caller, [code]| -> Result<(), ImportError> {
+        |caller: Caller<'_, WasiContext>, code: i32| -> Result<(), ImportError> {
             super::proc_exit_impl(caller.data, code as u32);
             Err(ImportError::Terminated)
         },

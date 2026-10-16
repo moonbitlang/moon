@@ -83,10 +83,12 @@ This is a working integration MVP, not a replacement for either full backend:
   guest-defined memory/globals/tables, and `_start`. Bulk memory and multi-value
   loops are needed by MoonBit's `wasm` compiler output; the Rust host-call
   interface still accepts only numeric values and at most one return value.
-- WASIp1 `fd_write`, `proc_exit`, `args_sizes_get`, and `args_get`, using Moonrun's
-  existing host operations. These implementations remain defined for all engines;
-  only registration is limited to these four imports in the wee8 adapter.
-  Unsupported imports and signatures fail explicitly.
+- The same 18 WASIp1 imports registered by V8 and Wasmtime: arguments,
+  environment, randomness, stdio, descriptor closing and preopens, file opening,
+  directory enumeration, path operations, and process exit. Registrations and
+  Host Domain implementations are shared across all three engines. This is
+  Moonrun's existing capability surface, not the complete WASIp1 standard;
+  unsupported imports and signatures fail explicitly.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous

@@ -19,7 +19,7 @@
 //! Wasmtime signature, caller borrowing and trap conversion for shared imports.
 
 use super::StoreData;
-use crate::wasm_imports::{Caller, HostFunction, ImportRegistry, WasmResult};
+use crate::wasm_imports::{Caller, HostFunction, ImportRegistry, WasmParams, WasmResult, WasmType};
 
 pub(super) struct Registry<'a, T> {
     pub(super) linker: &'a mut wasmtime::Linker<StoreData>,
@@ -28,29 +28,37 @@ pub(super) struct Registry<'a, T> {
 
 impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
     type Error = wasmtime::Error;
-    fn define<const N: usize, R: WasmResult>(
+    fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, N, R>,
+        function: F,
     ) -> wasmtime::Result<()> {
         let data = self.data;
         let ty = wasmtime::FuncType::new(
             self.linker.engine(),
-            [const { wasmtime::ValType::I32 }; N],
+            P::TYPES.iter().map(|kind| match kind {
+                WasmType::I32 => wasmtime::ValType::I32,
+                WasmType::I64 => wasmtime::ValType::I64,
+            }),
             R::HAS_RESULT.then_some(wasmtime::ValType::I32),
         );
         self.linker
             .func_new(module, name, ty, move |mut caller, args, results| {
-                let params =
-                    std::array::from_fn(|index| args[index].i32().expect("declared i32 import"));
+                let params = P::decode::<std::convert::Infallible>(|index, kind| {
+                    Ok(match kind {
+                        WasmType::I32 => i64::from(args[index].i32().expect("declared i32 import")),
+                        WasmType::I64 => args[index].i64().expect("declared i64 import"),
+                    })
+                })
+                .unwrap();
                 let memory = caller
                     .get_export("memory")
                     .and_then(wasmtime::Extern::into_memory);
                 let value = match memory {
                     Some(memory) => {
                         let (bytes, state) = memory.data_and_store_mut(&mut caller);
-                        function(
+                        function.call(
                             Caller {
                                 data: data(state),
                                 memory: Ok(bytes),
@@ -59,7 +67,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, T> {
                         )
                     }
                     // Preserve Wasmtime's existing empty-memory behavior.
-                    None => function(
+                    None => function.call(
                         Caller {
                             data: data(caller.data()),
                             memory: Ok(&mut []),

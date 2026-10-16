@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Shared registration for synchronous host functions with Wasm i32 arguments.
+//! Shared registration for synchronous host functions with Wasm integer arguments.
 //!
-//! This first interface covers the numeric WASIp1 imports used by all engines.
+//! This interface covers the WASIp1 imports supported by Moonrun.
 //! An adapter owns conversion and callback retention. A host operation receives
 //! only borrowed state and memory, so it cannot re-enter Wasm or retain a view
 //! across memory growth. Missing memory is deferred until the operation uses it.
@@ -41,7 +41,7 @@ pub(crate) struct Caller<'a, T> {
     pub(crate) memory: Result<&'a mut [u8], ImportError>,
 }
 
-/// Only unit and i32 results are supported by this first registration interface.
+/// WASIp1 imports return either an i32 errno or no value.
 /// The Rust return type determines the Wasm signature; callers cannot declare
 /// one result type and accidentally return another.
 pub(crate) trait WasmResult: 'static {
@@ -63,18 +63,92 @@ impl WasmResult for () {
     }
 }
 
-pub(crate) type HostFunction<T, const N: usize, R> =
-    fn(Caller<'_, T>, [i32; N]) -> Result<R, ImportError>;
+/// The two integer representations used by WASIp1 host parameters.
+#[derive(Clone, Copy)]
+pub(crate) enum WasmType {
+    I32,
+    I64,
+}
 
-/// The argument array fixes the Wasm arity and avoids allocating a parameter
-/// vector on each call. Reference values and guest re-entry are intentionally
-/// outside this interface; extend it when an actual host operation needs them.
+pub(crate) trait WasmParam: Copy + 'static {
+    const TYPE: WasmType;
+    fn from_bits(value: i64) -> Self;
+}
+
+impl WasmParam for i32 {
+    const TYPE: WasmType = WasmType::I32;
+    fn from_bits(value: i64) -> Self {
+        value as i32
+    }
+}
+
+impl WasmParam for i64 {
+    const TYPE: WasmType = WasmType::I64;
+    fn from_bits(value: i64) -> Self {
+        value
+    }
+}
+
+/// The internal argument tuple supplies parameter types and order.
+/// The adapter-provided `read` decodes the requested Wasm type: i32 values
+/// are widened to i64, and i64 values retain all bits (never through f64).
+/// Decoding finishes before borrowing guest memory and needs no parameter Vec.
+pub(crate) trait WasmParams: Copy + 'static {
+    const TYPES: &'static [WasmType];
+    fn decode<Error>(
+        read: impl FnMut(usize, WasmType) -> Result<i64, Error>,
+    ) -> Result<Self, Error>;
+}
+
+/// Like Wasmtime's `func_wrap`/`IntoFunc`, registration derives the signature
+/// from an ordinary typed Rust callback. The tuple only connects adapter decoding
+/// to invocation; import definitions do not construct or unpack it. Adapters
+/// retain the closure itself, including any captures, for the callback lifetime.
+/// Send + Sync permits registration with Wasmtime's thread-safe Linker; Caller
+/// still borrows each run's state and memory only for this invocation.
+pub(crate) trait HostFunction<T, P, R>: Send + Sync + 'static {
+    fn call(&self, caller: Caller<'_, T>, params: P) -> Result<R, ImportError>;
+}
+
+macro_rules! host_function {
+    ($($param:ident: $index:tt),+) => {
+        impl<$($param: WasmParam),+> WasmParams for ($($param,)+) {
+            const TYPES: &'static [WasmType] = &[$($param::TYPE,)+];
+            fn decode<Error>(mut read: impl FnMut(usize, WasmType) -> Result<i64, Error>) -> Result<Self, Error> {
+                Ok(($($param::from_bits(read($index, $param::TYPE)?),)+))
+            }
+        }
+
+        impl<T, Func, R, $($param),+> HostFunction<T, ($($param,)+), R> for Func
+        where
+            Func: Fn(Caller<'_, T>, $($param),+) -> Result<R, ImportError> + Send + Sync + 'static,
+            $($param: WasmParam,)+
+            R: WasmResult,
+        {
+            fn call(&self, caller: Caller<'_, T>, params: ($($param,)+)) -> Result<R, ImportError> {
+                self(caller, $(params.$index),+)
+            }
+        }
+    };
+}
+
+host_function!(A: 0);
+host_function!(A: 0, B: 1);
+host_function!(A: 0, B: 1, C: 2);
+host_function!(A: 0, B: 1, C: 2, D: 3);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
+
+/// Reference values and guest re-entry remain outside this interface.
 pub(crate) trait ImportRegistry<T> {
     type Error;
-    fn define<const N: usize, R: WasmResult>(
+    fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         &mut self,
         module: &'static str,
         name: &'static str,
-        function: HostFunction<T, N, R>,
+        function: F,
     ) -> Result<(), Self::Error>;
 }
