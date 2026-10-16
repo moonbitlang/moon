@@ -150,9 +150,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/fd_util/stub.c",
-        original = "moonbitlang_async_get_atime_sec"
+        original = "moonbitlang_async_get_atime_sec",
+        upstream_pr = 660,
+        replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
     )]
     #[allow(clippy::unnecessary_cast)]
     pub(crate) fn get_atime_sec(file_time: &FileTime) -> i64 {
@@ -166,9 +168,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/fd_util/stub.c",
-        original = "moonbitlang_async_get_atime_nsec"
+        original = "moonbitlang_async_get_atime_nsec",
+        upstream_pr = 660,
+        replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
     )]
     pub(crate) fn get_atime_nsec(file_time: &FileTime) -> i32 {
         #[cfg(windows)]
@@ -181,9 +185,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/fd_util/stub.c",
-        original = "moonbitlang_async_get_mtime_sec"
+        original = "moonbitlang_async_get_mtime_sec",
+        upstream_pr = 660,
+        replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
     )]
     #[allow(clippy::unnecessary_cast)]
     pub(crate) fn get_mtime_sec(file_time: &FileTime) -> i64 {
@@ -197,9 +203,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/fd_util/stub.c",
-        original = "moonbitlang_async_get_mtime_nsec"
+        original = "moonbitlang_async_get_mtime_nsec",
+        upstream_pr = 660,
+        replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
     )]
     pub(crate) fn get_mtime_nsec(file_time: &FileTime) -> i32 {
         #[cfg(windows)]
@@ -212,9 +220,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/fd_util/stub.c",
-        original = "moonbitlang_async_get_ctime_sec"
+        original = "moonbitlang_async_get_ctime_sec",
+        upstream_pr = 660,
+        replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
     )]
     #[allow(clippy::unnecessary_cast)]
     pub(crate) fn get_ctime_sec(file_time: &FileTime) -> i64 {
@@ -228,9 +238,11 @@ ported_fns! {
         }
     }
 
-    #[ported(
+    #[compat(
         source = "src/internal/fd_util/stub.c",
-        original = "moonbitlang_async_get_ctime_nsec"
+        original = "moonbitlang_async_get_ctime_nsec",
+        upstream_pr = 660,
+        replacement = "generic stat timestamps in src/internal/event_loop/fs.c"
     )]
     pub(crate) fn get_ctime_nsec(file_time: &FileTime) -> i32 {
         #[cfg(windows)]

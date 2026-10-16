@@ -389,19 +389,19 @@ declare_async_imports! {
 
     helper fd_util::set_cloexec(fd: u64) -> i32 => "fd_util/set_cloexec";
 
-    helper fd_util::sizeof_file_time() -> u32 => "fd_util/sizeof_file_time";
+    compat fd_util::sizeof_file_time() -> u32 => "fd_util/sizeof_file_time";
 
-    ported fd_util::get_atime_sec(ptr: u32) -> i64 => "fd_util/get_atime_sec";
+    compat fd_util::get_atime_sec(ptr: u32) -> i64 => "fd_util/get_atime_sec";
 
-    ported fd_util::get_atime_nsec(ptr: u32) -> i32 => "fd_util/get_atime_nsec";
+    compat fd_util::get_atime_nsec(ptr: u32) -> i32 => "fd_util/get_atime_nsec";
 
-    ported fd_util::get_mtime_sec(ptr: u32) -> i64 => "fd_util/get_mtime_sec";
+    compat fd_util::get_mtime_sec(ptr: u32) -> i64 => "fd_util/get_mtime_sec";
 
-    ported fd_util::get_mtime_nsec(ptr: u32) -> i32 => "fd_util/get_mtime_nsec";
+    compat fd_util::get_mtime_nsec(ptr: u32) -> i32 => "fd_util/get_mtime_nsec";
 
-    ported fd_util::get_ctime_sec(ptr: u32) -> i64 => "fd_util/get_ctime_sec";
+    compat fd_util::get_ctime_sec(ptr: u32) -> i64 => "fd_util/get_ctime_sec";
 
-    ported fd_util::get_ctime_nsec(ptr: u32) -> i32 => "fd_util/get_ctime_nsec";
+    compat fd_util::get_ctime_nsec(ptr: u32) -> i32 => "fd_util/get_ctime_nsec";
 
     // Small internal utility stubs.
     ported env_util::getpid() -> i32 => "env_util/getpid";
@@ -781,7 +781,7 @@ declare_async_imports! {
 
     ported tls::take_error(tls: u64) -> u64 => "tls/connection/take_error";
 
-    ported tls::take_global_error() -> u64 => "tls/error/take_global";
+    compat tls::take_global_error() -> u64 => "tls/error/take_global";
 
     ported tls::read_plain(
         tls: u64,
@@ -1071,6 +1071,11 @@ declare_async_imports! {
     ported thread_pool::make_read_job(fd: u64, len: u32, position: i64) -> u64 => "thread_pool/make_read_job";
 
     ported thread_pool::make_write_job(fd: u64, ptr: u32, offset: u32, len: u32, position: i64) -> u64 => "thread_pool/make_write_job";
+
+    // Counts and offsets are UTF-16 code units. Read results are copied after completion.
+    ported thread_pool::make_read_console_job(fd: u64, len: u32) -> u64 => "thread_pool/make_read_console_job";
+    ported thread_pool::make_write_console_job(fd: u64, ptr: u32, offset: u32, len: u32) -> u64 => "thread_pool/make_write_console_job";
+    helper thread_pool::get_read_console_result(job: u64, dst: u32, offset: u32, len: u32) -> void => "thread_pool/get_read_console_result";
 
     helper thread_pool::get_read_result(job: u64, dst: u32, offset: u32, len: u32) -> void => "thread_pool/get_read_result";
 
@@ -1395,6 +1400,7 @@ fn async_api_compat_imports() -> Vec<super::provenance::CompatImport> {
     imports.extend_from_slice(fd_util::COMPAT_IMPORTS);
     imports.extend_from_slice(process::COMPAT_IMPORTS);
     imports.extend_from_slice(os_error::COMPAT_IMPORTS);
+    imports.extend_from_slice(tls::COMPAT_IMPORTS);
     imports
 }
 
@@ -1492,8 +1498,12 @@ mod tests {
         {
             assert_eq!(
                 import.kind,
-                AsyncImportKind::Ported,
-                "TLS import {} must be classified as ported ABI",
+                if import.wasm_symbol == "tls/error/take_global" {
+                    AsyncImportKind::Compat
+                } else {
+                    AsyncImportKind::Ported
+                },
+                "TLS import {} must preserve its upstream provenance",
                 import.wasm_symbol
             );
         }
@@ -1639,6 +1649,34 @@ mod tests {
         assert_eq!(legacy.result, Some(WasmType::I64));
         #[cfg(unix)]
         assert_eq!(legacy.kind, AsyncImportKind::Compat);
+    }
+
+    #[test]
+    fn console_jobs_use_code_unit_counts_and_exact_wasm_abis() {
+        for (name, params, result) in [
+            (
+                "thread_pool/make_read_console_job",
+                &[WasmType::I64, WasmType::I32][..],
+                Some(WasmType::I64),
+            ),
+            (
+                "thread_pool/make_write_console_job",
+                &[WasmType::I64, WasmType::I32, WasmType::I32, WasmType::I32][..],
+                Some(WasmType::I64),
+            ),
+            (
+                "thread_pool/get_read_console_result",
+                &[WasmType::I64, WasmType::I32, WasmType::I32, WasmType::I32][..],
+                None,
+            ),
+        ] {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == name)
+                .unwrap_or_else(|| panic!("missing console import {name}"));
+            assert_eq!(import.params, params);
+            assert_eq!(import.result, result);
+        }
     }
 
     #[test]

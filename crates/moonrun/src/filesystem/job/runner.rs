@@ -1744,10 +1744,10 @@ fn rename_native_path(
         CloseHandle, ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, DELETE, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_RENAME_INFO,
-        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileRenameInfoEx,
-        MOVEFILE_COPY_ALLOWED, MOVEFILE_REPLACE_EXISTING, MoveFileExW, OPEN_EXISTING,
-        SetFileInformationByHandle,
+        CreateFileW, DELETE, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, FileRenameInfoEx, MOVEFILE_COPY_ALLOWED, MOVEFILE_REPLACE_EXISTING,
+        MoveFileExW, OPEN_EXISTING, SetFileInformationByHandle,
     };
 
     let old_path = path_to_wide(old_path);
@@ -1759,7 +1759,7 @@ fn rename_native_path(
             FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
             std::ptr::null(),
             OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
             std::ptr::null_mut(),
         )
     };
@@ -1893,6 +1893,30 @@ fn native_io_error(error: std::io::Error) -> AsyncHostError {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renaming_a_junction_preserves_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        let old_link = dir.path().join("old-link");
+        let new_link = dir.path().join("new-link");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("data"), b"unchanged").unwrap();
+        create_junction_native_path(
+            target.clone().into_os_string(),
+            old_link.clone().into_os_string(),
+        )
+        .unwrap();
+        rename_native_path(
+            old_link.clone().into_os_string(),
+            new_link.clone().into_os_string(),
+            false,
+        )
+        .unwrap();
+        assert!(target.is_dir());
+        assert!(!old_link.exists());
+        assert_eq!(std::fs::read(new_link.join("data")).unwrap(), b"unchanged");
+    }
 
     #[test]
     fn symlink_target_type_is_relative_to_the_link_parent() {
