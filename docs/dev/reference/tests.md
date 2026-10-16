@@ -103,6 +103,15 @@ until test execution ends. Finishing one child frees a concurrency slot without
 dropping the listener. The runner awaits and reaps children even when another
 invocation fails, and stops launching queued invocations after shutdown is observed.
 
+`TestRuntime` owns that lifetime for tests and benchmarks. On Unix it saves the
+incoming SIGINT, SIGTERM, and SIGQUIT dispositions before installing the shutdown
+listener. When dropped, it stops the Tokio runtime before restoring those exact
+dispositions, including inherited ignores. Cleanup also runs on early error
+returns, so later command phases such as coverage reporting inherit the original
+signal behavior. Tokio retains its internal signal registrations after this
+cleanup, so only one test runtime may be created per process; backends and update
+passes reuse it until all test execution ends.
+
 Collected test results are reported in invocation order, regardless of completion
 order. Output printed directly by test programs may interleave. Selected Target
 Backends still execute one after another, and this scheduling does not split

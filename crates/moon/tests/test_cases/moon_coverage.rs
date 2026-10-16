@@ -113,6 +113,182 @@ fn test_moon_coverage_report_disabled_with_override() {
 }
 
 #[test]
+fn test_moon_coverage_analyze_exit_status() {
+    for (reporter, report_exit_code) in [("0", 2), ("1", 1)] {
+        let dir = TestDir::new("test_coverage.in");
+        for test_exit_code in [0, 2] {
+            if test_exit_code != 0 {
+                std::fs::write(
+                    dir.join("lib/fail_test.mbt"),
+                    "test \"failure\" { assert_eq(1, 2) }\n",
+                )
+                .unwrap();
+            }
+
+            moon_cmd(&dir)
+                .env("MOON_COVE_REPORT_ENABLED", reporter)
+                .env_remove("MOON_COVE_REPORT_OVERRIDE")
+                .args([
+                    "coverage",
+                    "analyze",
+                    "--test-flag=--target=wasm-gc",
+                    "--",
+                    "-f=invalid-format",
+                ])
+                .assert()
+                .code(report_exit_code)
+                .stderr_eq(if reporter == "0" {
+                    "...\nFatal error: exception Failure(\"Unknown output format: invalid-format\")\n...\n"
+                } else {
+                    "...\nerror: unknown output format 'invalid-format'\n"
+                });
+
+            moon_cmd(&dir)
+                .env("MOON_COVE_REPORT_ENABLED", reporter)
+                .env_remove("MOON_COVE_REPORT_OVERRIDE")
+                .args([
+                    "coverage",
+                    "analyze",
+                    "--trace",
+                    "--test-flag=--target=wasm-gc",
+                    "--",
+                    "-f=coveralls",
+                    "-o=coverage.json",
+                ])
+                .assert()
+                .code(test_exit_code)
+                .stdout_eq(if test_exit_code == 0 {
+                    ""
+                } else {
+                    "...\nTotal tests: 4, passed: 3, failed: 1.\n"
+                });
+            let report = std::fs::read_to_string(dir.join("coverage.json")).unwrap();
+            assert!(!report.is_empty(), "reporter did not generate coverage");
+            std::fs::remove_file(dir.join("coverage.json")).unwrap();
+            let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+            serde_json::from_str::<serde_json::Value>(&trace).unwrap();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_moon_coverage_report_preserves_signal_dispositions() {
+    use std::io::Write;
+    use std::os::unix::{fs::PermissionsExt, process::CommandExt, process::ExitStatusExt};
+    use std::time::{Duration, Instant};
+
+    for analyze in [false, true] {
+        let dir = TestDir::new("test_coverage.in");
+        if analyze {
+            std::fs::write(
+                dir.join("lib/fail_test.mbt"),
+                "test \"failure\" { assert_eq(1, 2) }\n",
+            )
+            .unwrap();
+        }
+        let reporter = dir.join("reporter");
+        std::fs::write(
+            &reporter,
+            "#!/bin/sh\nprintf ready > reporter-ready\nread -r finish\nprintf done > reporter-done\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&reporter, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        for (ignored, group) in [(true, false), (false, false), (true, true), (false, true)] {
+            for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT] {
+                // Avoid producing core dumps while still covering inherited SIGQUIT ignores.
+                if signal == libc::SIGQUIT && !ignored {
+                    continue;
+                }
+                let ready = dir.join("reporter-ready");
+                let done = dir.join("reporter-done");
+                let mut command = crate::moon_process_cmd(&dir);
+                command
+                    .args([
+                        "coverage",
+                        if analyze { "analyze" } else { "report" },
+                        "--trace",
+                    ])
+                    .env("MOON_COVE_REPORT_ENABLED", "0")
+                    .env("MOON_COVE_REPORT_OVERRIDE", &reporter)
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    // Isolate group delivery and cleanup from the test runner.
+                    .process_group(0);
+                // Control both incoming dispositions only in the subprocess,
+                // independently of the test runner's own inherited ignores.
+                unsafe {
+                    command.pre_exec(move || {
+                        let disposition = if ignored {
+                            libc::SIG_IGN
+                        } else {
+                            libc::SIG_DFL
+                        };
+                        if libc::signal(signal, disposition) == libc::SIG_ERR {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        Ok(())
+                    });
+                }
+                let mut child = command.spawn().unwrap();
+                let deadline = Instant::now() + Duration::from_secs(30);
+                while !ready.exists() && Instant::now() < deadline {
+                    if child.try_wait().unwrap().is_some() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                let reporter_started = ready.exists();
+                // Observe the trace while the reporter is blocked on stdin,
+                // proving finalization precedes reporter completion.
+                let trace = std::fs::read_to_string(dir.join("trace.json"));
+                let pid = child.id() as libc::pid_t;
+                let sent = reporter_started
+                    && unsafe { libc::kill(if group { -pid } else { pid }, signal) } == 0;
+                if ignored {
+                    // Successful completion proves that both Moon and the
+                    // reporter retained the inherited ignored disposition.
+                    let _ = child.stdin.take().unwrap().write_all(b"finish\n");
+                }
+                let exited =
+                    sent && crate::process::wait_for_child_exit(&mut child, Duration::from_secs(2));
+                // Clean up a reporter left waiting after parent-only termination,
+                // or the entire group if a regression prevents Moon from exiting.
+                unsafe { libc::kill(-pid, libc::SIGKILL) };
+                let status = child.wait().unwrap();
+                assert!(
+                    reporter_started,
+                    "reporter did not start (analyze={analyze})"
+                );
+                assert!(
+                    exited,
+                    "Moon did not exit: analyze={analyze}, signal={signal}, ignored={ignored}, group={group}"
+                );
+                serde_json::from_str::<serde_json::Value>(&trace.unwrap()).unwrap();
+                if ignored {
+                    assert_eq!(
+                        status.code(),
+                        Some(if analyze { 2 } else { 0 }),
+                        "ignored signal {signal}, analyze={analyze}, group={group}"
+                    );
+                    assert!(
+                        done.exists(),
+                        "reporter did not complete after ignored signal"
+                    );
+                    std::fs::remove_file(done).unwrap();
+                } else {
+                    assert_eq!(status.signal(), Some(signal));
+                }
+                std::fs::remove_file(ready).unwrap();
+                std::fs::remove_file(dir.join("trace.json")).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn test_moon_coverage_analyze_legacy() {
     let dir = TestDir::new("test_coverage.in");
     check(

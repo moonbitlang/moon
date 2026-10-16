@@ -131,12 +131,32 @@ action:
 enum ProcessAction {
     Exit(i32),
     Delegate(Command),
+    Run {
+        command: Command,
+        success_code: i32,
+        error_context: &'static str,
+    },
 }
 ```
 
 Most commands return `Exit`. A command such as registry-backed `runwasm` or
 `cram test` may perform Moon-owned preparation and return a fully configured
 child command as `Delegate`.
+
+`Run` waits for a final child and preserves its failure, including Unix signal
+termination as `128 + signal`. If the child succeeds, it returns `success_code`.
+`coverage analyze` uses this when tests fail: it still generates the coverage
+report, then returns the test failure unless the reporter itself fails. This
+cannot use Unix `exec`, which would discard the test result. The legacy coverage
+reporter also uses `Run`, retaining its spawn/wait lifecycle.
+
+The test execution layer owns its shutdown listener and Unix signal dispositions
+through `TestRuntime`. Dropping it stops the runtime and restores the incoming
+dispositions, including on early returns, so coverage does not need to manage
+test signal state. See [test execution](../reference/tests.md#test-execution-parallelism)
+for this lifetime. `Run` does not change Unix signal dispositions, and standalone
+reporting leaves them untouched. A default signal sent only to Moon terminates
+it; process-group delivery also reaches the reporter.
 
 The runtime executes the action only after tracing is finalized. On Unix,
 delegation may then replace the Moon process. On Windows, Moon waits for the
