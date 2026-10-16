@@ -109,6 +109,11 @@ separate:
 
 - `RegistryClient` owns registry synchronization, validation, downloads, and
   cache publication.
+- `moonutil::registry::RegistryCredentials` owns saved credential loading and
+  persistence, legacy compatibility, and API destination matching. Login and
+  API consumers share these operations; HTTP headers and redirect policy stay
+  in the request layer. `registry_api_url` validates and normalizes their API
+  base URLs without selecting the configured registry.
 - `moonutil::cache` owns cache-root selection, ownership validation, and
   lifecycle rules.
 - `moonutil::toolchain` owns installed toolchain paths and must not be used to
