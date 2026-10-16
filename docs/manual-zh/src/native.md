@@ -6,7 +6,8 @@
 构建默认使用新 native 后端，由 `moonc` 直接生成目标文件。设置
 `MOONBIT_NEW_NATIVE=0` 可切换到生成 C 代码的后端；其他值保持默认行为。
 其他平台以及 release 构建使用 C 后端，即使设置 `MOONBIT_NEW_NATIVE=1` 也不例外。
-如果选中的可执行包配置了 `link.native.cc-flags`，本次构建也会使用 C 后端。
+如果选中的可执行包配置了 `link.native.cc-flags`，或 `MOON_CC` 指定了面向其他
+目标的编译器，本次构建也会使用 C 后端。
 
 Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.exe` 或
 `clang-cl.exe`，用于编译运行时、C stub 和链接可执行文件。
@@ -23,8 +24,19 @@ Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.ex
 以保证程序内联的分配器与其链接的运行时一致。
 
 未设置该变量时，Moon 保留当前平台和工具链的默认行为。如果所选平台或
-工具链不提供相应的支持目标文件（包括 Windows 和 TCC），选择 `mimalloc`
-将在构建规划阶段报错。
+工具链不提供相应的支持目标文件（包括 Windows、TCC 以及交叉编译），选择
+`mimalloc` 将在构建规划阶段报错。
+
+## 交叉编译
+
+将 `MOON_CC`（以及按需设置的 `MOON_AR`）设为面向其他目标的编译器，例如执行
+`zig cc -target x86_64-linux-musl "$@"` 的包装脚本。Moon 会以 `-dumpmachine`
+运行该编译器以确定其目标。当目标的架构或操作系统与主机不同时，Moon 不会链接
+MoonBit lib 目录中的预编译目标文件（`libmoonbitrun.o`、SIMDUTF 目标文件以及
+`libbacktrace.a`），因为它们是为主机构建的。此时运行时使用系统分配器和标量
+UTF 代码路径，且 panic 时不打印调用栈。
+
+`platform` cfg 以及预编译的 `core` 库仍然跟随主机。
 
 ## 引用环回收
 
