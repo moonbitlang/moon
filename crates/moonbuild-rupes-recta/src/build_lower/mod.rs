@@ -617,7 +617,6 @@ mod tests {
                 opt_level: moonutil::compiler_flags::OptLevel::None,
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
                 link_args: Vec::new(),
-                static_archive_fingerprint: None,
             },
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
@@ -625,7 +624,6 @@ mod tests {
             enable_backtrace: false,
             source_files: vec![PathBuf::from("runtime.c")],
             simdutf_objects: Vec::new(),
-            static_archive_fingerprint: Some("runtime-test".to_string()),
             native_allocator: NativeAllocator::Default,
         });
         plan.test_insert_make_executable_info(
@@ -735,7 +733,7 @@ mod tests {
         ));
         assert!(command_arg_has_normalized_suffix(
             command,
-            "native/debug/build/libruntime-runtime-test.lib"
+            "native/debug/build/libruntime.lib"
         ));
         let c_stub_position = command
             .iter()
@@ -748,7 +746,7 @@ mod tests {
             .iter()
             .position(|arg| {
                 arg.replace('\\', "/")
-                    .ends_with("native/debug/build/libruntime-runtime-test.lib")
+                    .ends_with("native/debug/build/libruntime.lib")
             })
             .expect("runtime archive should be linked");
         assert!(c_stub_position < runtime_position);
@@ -775,13 +773,13 @@ mod tests {
                 command.iter().any(|arg| arg == "msvc/bin/lib.exe")
                     && command_arg_has_normalized_suffix(
                         command,
-                        "native/debug/build/libruntime-runtime-test.lib",
+                        "native/debug/build/libruntime.lib",
                     )
             })
             .expect("runtime archive command args should be captured");
         assert!(command_arg_has_normalized_suffix(
             runtime_archive_command,
-            "native/debug/build/libruntime-runtime-test.lib"
+            "native/debug/build/libruntime.lib"
         ));
         assert!(command_arg_has_normalized_suffix(
             runtime_archive_command,

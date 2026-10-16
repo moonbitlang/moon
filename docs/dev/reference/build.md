@@ -292,12 +292,13 @@ node. `BuildRuntimeLib` archives those objects into one static library, which
 is shared by every `MakeExecutable` node in the build plan. Release builds also
 enable and archive supported prebuilt SIMDUTF objects. Toolchains with only the
 legacy `lib/runtime.c` layout remain supported as a one-object archive.
-The static runtime archive path includes a fingerprint of its ordered member
-names and layout version. The fingerprint does not include file contents,
-which remain ordinary n2 inputs. Adding, removing, or renaming a runtime
-translation unit, or changing the selected SIMDUTF members, therefore uses a
-new archive path instead of letting an update-style archiver retain a removed
-member.
+Static archives are always created from their complete member list. An
+update-style archiver runs through `moon tool exec --fresh-output`, which
+deletes the previous archive first, so adding, removing, or renaming a runtime
+translation unit, or changing the selected SIMDUTF members, cannot leave a
+removed member behind. See
+[archive commands](native-c-toolchain-resolution.md#archive) for which archivers this
+applies to.
 
 ### Reading and writing MBTI interfaces
 

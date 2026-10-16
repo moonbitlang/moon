@@ -212,6 +212,15 @@ fn transform_graph(graph: &mut BuildGraphDump, transform: impl Fn(&mut String)) 
         for out_file in n.outputs.iter_mut() {
             transform(out_file)
         }
+        // `normalize_host_archiver` removes the `moon tool exec` wrapper that
+        // only hosts with update-style archivers use. Drop the wrapper's own
+        // executable input too, so host-neutral snapshots agree.
+        if n.command
+            .as_deref()
+            .is_some_and(|cmd| cmd.starts_with("[ARCHIVER] "))
+        {
+            n.inputs.retain(|input| input != "$MOON_HOME/bin/moon");
+        }
     }
 }
 

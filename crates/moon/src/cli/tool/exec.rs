@@ -18,9 +18,13 @@
 
 //! Hidden command runner for build-system generated commands.
 
-use std::{ffi::OsString, path::PathBuf, process::Command};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use clap::Parser;
 
 #[derive(Debug, clap::Parser)]
@@ -36,6 +40,11 @@ pub(crate) struct Exec {
     /// Remove an environment variable.
     #[clap(long = "unset-env", value_name = "KEY")]
     unset_envs: Vec<String>,
+
+    /// Delete this file before executing the command, so the command creates
+    /// it instead of updating it. Relative paths resolve against `--cwd`.
+    #[clap(long = "fresh-output", value_name = "PATH")]
+    fresh_outputs: Vec<PathBuf>,
 
     /// Run a platform shell command string.
     #[clap(long, value_name = "COMMAND")]
@@ -75,6 +84,14 @@ pub(crate) fn prepare(cmd: Exec) -> anyhow::Result<Command> {
         .collect::<anyhow::Result<Vec<_>>>()?;
     let mut command = build_command(cmd.shell, cmd.argv)?;
 
+    for output in &cmd.fresh_outputs {
+        let output = match &cmd.cwd {
+            Some(cwd) => cwd.join(output),
+            None => output.clone(),
+        };
+        remove_stale_output(&output)?;
+    }
+
     if let Some(cwd) = cmd.cwd {
         command.current_dir(cwd);
     }
@@ -86,6 +103,15 @@ pub(crate) fn prepare(cmd: Exec) -> anyhow::Result<Command> {
     }
 
     Ok(command)
+}
+
+fn remove_stale_output(path: &Path) -> anyhow::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("failed to remove stale output {}", path.display()))
+        }
+        _ => Ok(()),
+    }
 }
 
 pub(crate) fn is_tool_exec(raw_args: &[OsString]) -> bool {
@@ -145,6 +171,33 @@ fn build_direct_command(argv: Vec<OsString>) -> anyhow::Result<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::disallowed_methods)] // File writes only set up the stale output.
+    fn fresh_outputs_are_removed_relative_to_cwd() {
+        let dir = tempfile::tempdir().expect("create test directory");
+        std::fs::write(dir.path().join("stale.a"), "stale").expect("write stale output");
+        let exec = parse_from_raw_args(
+            &[
+                "moon",
+                "tool",
+                "exec",
+                "--cwd",
+                &dir.path().display().to_string(),
+                "--fresh-output",
+                "stale.a",
+                "--fresh-output",
+                "missing.a",
+                "--",
+                "ar",
+            ]
+            .map(OsString::from),
+        )
+        .expect("tool exec arguments should parse");
+
+        prepare(exec).expect("missing outputs should not fail preparation");
+        assert!(!dir.path().join("stale.a").exists());
+    }
 
     #[test]
     fn env_assignment_requires_equals() {

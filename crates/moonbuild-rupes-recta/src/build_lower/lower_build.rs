@@ -27,8 +27,7 @@ use moonutil::{
     build_options::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OutputType as CCOutputType,
-        make_archiver_command_resolved, make_cc_command_resolved_for_toolchain,
-        make_linker_command_resolved,
+        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     package::JsFormat,
@@ -981,26 +980,16 @@ impl<'a> LoweringContext<'a> {
             .archive_moonbitrun(false)
             .build()
             .expect("Failed to build archiver configuration");
-        let cc = info.effective_native_toolchain.cc().clone();
-        let commandline = make_archiver_command_resolved(
-            cc,
+        BuildCommand::archive(
+            &info.effective_native_toolchain,
             config,
-            &object_files
-                .iter()
-                .map(|object| object.to_string_lossy())
-                .collect::<Vec<_>>(),
-            &archive.display().to_string(),
+            object_files,
+            &archive,
             self.opt
                 .backend
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
-        );
-
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: commandline.into(),
-        }
-        .with_msvc_env(&info.effective_native_toolchain)
+        )
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]

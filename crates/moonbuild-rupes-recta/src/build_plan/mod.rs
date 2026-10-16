@@ -47,8 +47,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsStr,
-    fmt::Write,
     path::{Path, PathBuf},
 };
 
@@ -61,7 +59,6 @@ use moonutil::{
     target::TargetBackend,
     user_log::UserLog,
 };
-use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use crate::{
@@ -483,10 +480,6 @@ pub struct BuildCStubsInfo {
     /// The current static-archive realization does not consume them.
     #[allow(unused)]
     pub(crate) link_args: Vec<NativeLinkArg>,
-    /// Identity of the ordered static archive member list.
-    ///
-    /// This is only needed for archivers that update an existing archive.
-    pub(crate) static_archive_fingerprint: Option<String>,
 }
 
 #[derive(Debug)]
@@ -517,120 +510,8 @@ pub struct BuildRuntimeInfo {
     pub(crate) source_files: Vec<PathBuf>,
     /// Prebuilt objects selected as additional static archive members.
     pub(crate) simdutf_objects: Vec<PathBuf>,
-    /// Identity of the ordered static archive member list.
-    ///
-    /// Shared-runtime builds do not create a static archive and leave this unset.
-    pub(crate) static_archive_fingerprint: Option<String>,
     /// The allocator selected for compiling the native runtime.
     pub(crate) native_allocator: NativeAllocator,
-}
-
-fn runtime_archive_fingerprint(source_files: &[PathBuf], external_objects: &[PathBuf]) -> String {
-    archive_member_fingerprint(
-        source_files
-            .iter()
-            .map(|source| {
-                (
-                    0,
-                    source
-                        .file_stem()
-                        .expect("runtime source should have a file stem"),
-                )
-            })
-            .chain(external_objects.iter().map(|object| {
-                (
-                    1,
-                    object
-                        .file_name()
-                        .expect("runtime archive member should have a file name"),
-                )
-            })),
-    )
-}
-
-fn c_stub_archive_fingerprint(source_files: &[PathBuf]) -> String {
-    archive_member_fingerprint(source_files.iter().map(|source| {
-        (
-            0,
-            source
-                .file_stem()
-                .expect("C stub source should have a file stem"),
-        )
-    }))
-}
-
-fn archive_member_fingerprint<'a>(members: impl IntoIterator<Item = (u8, &'a OsStr)>) -> String {
-    let mut hash = Sha256::new();
-    for (kind, member) in members {
-        let member = member.as_encoded_bytes();
-        hash.update([kind]);
-        hash.update((member.len() as u64).to_le_bytes());
-        hash.update(member);
-    }
-
-    let digest = hash.finalize();
-    let mut fingerprint = String::with_capacity(16);
-    for byte in &digest[..8] {
-        write!(&mut fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
-    }
-    fingerprint
-}
-
-#[cfg(test)]
-mod runtime_archive_fingerprint_tests {
-    use super::*;
-
-    #[test]
-    fn fingerprint_tracks_ordered_members() {
-        let sources = [PathBuf::from("runtime/a.c"), PathBuf::from("runtime/b.c")];
-        let relocated = [
-            PathBuf::from("other/runtime/a.c"),
-            PathBuf::from("other/runtime/b.c"),
-        ];
-        let simd = [PathBuf::from("lib/simdutf.o")];
-        let fingerprint = runtime_archive_fingerprint(&sources, &simd);
-
-        assert_eq!(fingerprint, runtime_archive_fingerprint(&relocated, &simd));
-        assert_ne!(
-            fingerprint,
-            runtime_archive_fingerprint(&sources[..1], &simd)
-        );
-        assert_ne!(fingerprint, runtime_archive_fingerprint(&sources, &[]));
-        assert_ne!(
-            fingerprint,
-            runtime_archive_fingerprint(&[sources[1].clone(), sources[0].clone()], &simd)
-        );
-        assert_eq!(fingerprint.len(), 16);
-    }
-
-    #[test]
-    fn c_stub_fingerprint_tracks_logical_members() {
-        let sources = [PathBuf::from("src/a.c"), PathBuf::from("src/b.c")];
-        let relocated = [PathBuf::from("other/a.c"), PathBuf::from("other/b.c")];
-        let fingerprint = c_stub_archive_fingerprint(&sources);
-
-        assert_eq!(fingerprint, c_stub_archive_fingerprint(&relocated));
-        assert_ne!(fingerprint, c_stub_archive_fingerprint(&sources[..1]));
-        assert_ne!(
-            fingerprint,
-            c_stub_archive_fingerprint(&[sources[1].clone(), sources[0].clone()])
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn fingerprint_preserves_non_utf8_member_identity() {
-        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
-
-        let first = PathBuf::from("runtime").join(OsString::from_vec(vec![b'a', 0x80, b'.', b'c']));
-        let second =
-            PathBuf::from("runtime").join(OsString::from_vec(vec![b'a', 0x81, b'.', b'c']));
-
-        assert_ne!(
-            runtime_archive_fingerprint(&[first], &[]),
-            runtime_archive_fingerprint(&[second], &[])
-        );
-    }
 }
 
 /// Metadata about bundling the build output of different targets together.
