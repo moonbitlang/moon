@@ -96,6 +96,9 @@ This is a working integration MVP, not a replacement for either full backend:
   completion pipes, host Handles, database values and filesystem policy; plus
   the core executable-path imports. All use the same typed registrations and
   Host Domains as V8 and Wasmtime.
+- The eight legacy string/environment imports used by core error formatting:
+  UTF-16 builders/readers and environment lookup. Values use rooted native
+  externrefs; environment access uses the Runtime's shared Env.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
@@ -107,7 +110,7 @@ introspection. `extern.convert_any` is also excluded because the pinned native
 adapter cannot safely represent every externalized GC value.
 
 Host-imported memory/globals/tables, guest re-entry from a host callback,
-GC values at the host boundary, reference-based Moonrun imports, JS-string
+GC values at the host boundary, other reference-based Moonrun imports, JS-string
 builtins, exception tags, the MoonBit test driver, custom stack limits, and
 debugger access are not exposed yet. Compiler-generated test modules import
 exception tags, so GC and externref support alone do not enable the test driver.

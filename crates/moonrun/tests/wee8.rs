@@ -45,8 +45,18 @@ fn cli_runs_compiler_produced_moonbit() {
                 .arg(directory.join(format!("_build/{target}/{profile}/build/main/main.wasm")))
                 .assert()
                 .success()
-                .stdout_eq("Hello, 世界 🦀\n42\n")
-                .stderr_eq("");
+                // The GC compiler emits spectest.print_char for eprintln too;
+                // the linear backend uses WASI stderr. Preserve that existing ABI.
+                .stdout_eq(if target == "wasm" {
+                    "Hello, 世界 🦀\n42\n"
+                } else {
+                    "Hello, 世界 🦀\n42\nFailure(format probe)\n"
+                })
+                .stderr_eq(if target == "wasm" {
+                    "Failure(format probe)\n"
+                } else {
+                    ""
+                });
         }
     }
 }
@@ -319,5 +329,116 @@ fn unsupported_gc_boundary_types_fail_during_compilation() {
             .compile("boundary.wasm", wat::parse_str(source).unwrap())
             .unwrap_err();
         assert!(format!("{error:#}").contains("C API"), "{error:#}");
+    }
+}
+
+#[test]
+fn core_strings_preserve_utf16_and_snapshot_builder_contents() {
+    let engine = Engine::default();
+    let module = engine.compile("core-strings.wasm", wat::parse_str(r#"(module
+        (import "__moonbit_fs_unstable" "begin_create_string" (func $new (result externref)))
+        (import "__moonbit_fs_unstable" "string_append_char" (func $append (param externref i32)))
+        (import "__moonbit_fs_unstable" "finish_create_string" (func $finish (param externref) (result externref)))
+        (import "__moonbit_fs_unstable" "begin_read_string" (func $reader (param externref) (result externref)))
+        (import "__moonbit_fs_unstable" "string_read_char" (func $read (param externref) (result i32)))
+        (import "__moonbit_fs_unstable" "finish_read_string" (func $done (param externref)))
+        (func (export "_start") (local $b externref) (local $s externref) (local $r externref)
+            call $new local.set $b
+            local.get $b i32.const 0xd800 call $append
+            local.get $b i32.const 0xd83e call $append
+            local.get $b i32.const 0xdd80 call $append
+            local.get $b call $finish local.set $s
+            local.get $b i32.const 65 call $append
+            local.get $s call $reader local.set $r
+            local.get $r call $read i32.const 0xd800 i32.ne if unreachable end
+            local.get $r call $read i32.const 0xd83e i32.ne if unreachable end
+            local.get $r call $read i32.const 0xdd80 i32.ne if unreachable end
+            local.get $r call $read i32.const -1 i32.ne if unreachable end
+            local.get $r call $read i32.const -1 i32.ne if unreachable end
+            local.get $r call $done
+            local.get $s call $reader call $read i32.const 0xd800 i32.ne if unreachable end))"#).unwrap()).unwrap();
+    assert_eq!(
+        engine.run(&module, RunOptions::default()).unwrap(),
+        RunOutcome::Completed
+    );
+}
+
+#[test]
+fn core_environment_reads_runtime_values() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("core-env.wasm");
+    let append_key = "MOONRUN_WEE8_CORE_VALUE"
+        .encode_utf16()
+        .map(|unit| format!("local.get $builder i32.const {unit} call $append"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&file, wat::parse_str(format!(r#"(module
+        (import "__moonbit_fs_unstable" "begin_create_string" (func $new (result externref)))
+        (import "__moonbit_fs_unstable" "string_append_char" (func $append (param externref i32)))
+        (import "__moonbit_fs_unstable" "finish_create_string" (func $finish (param externref) (result externref)))
+        (import "__moonbit_fs_unstable" "get_env_var" (func $get (param externref) (result externref)))
+        (import "__moonbit_fs_unstable" "get_env_var_exists" (func $exists (param externref) (result i32)))
+        (import "__moonbit_fs_unstable" "begin_read_string" (func $reader (param externref) (result externref)))
+        (import "__moonbit_fs_unstable" "string_read_char" (func $read (param externref) (result i32)))
+        (func (export "_start") (local $builder externref) (local $key externref) (local $r externref)
+            call $new local.set $builder
+            {append_key}
+            local.get $builder call $finish local.set $key
+            local.get $key call $exists i32.const 1 i32.ne if unreachable end
+            local.get $key call $get call $reader local.set $r
+            local.get $r call $read i32.const 955 i32.ne if unreachable end
+            local.get $r call $read i32.const 0xd83e i32.ne if unreachable end
+            local.get $r call $read i32.const 0xdd80 i32.ne if unreachable end
+            local.get $r call $read i32.const -1 i32.ne if unreachable end
+            local.get $builder i32.const 88 call $append
+            local.get $builder call $finish local.set $key
+            local.get $key call $exists if unreachable end
+            local.get $key call $get call $reader call $read i32.const -1 i32.ne if unreachable end))"#)).unwrap()).unwrap();
+    snapbox::cmd::Command::new(env!("CARGO_BIN_EXE_moonrun"))
+        .env("MOONRUN_WEE8_CORE_VALUE", "λ🦀")
+        .env_remove("MOONRUN_WEE8_CORE_VALUEX")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+
+    // Provisioned Env must win over the process environment, just as it does
+    // in the other adapters. Do not read std::env directly in this boundary.
+    let policy = directory.path().join("env.toml");
+    std::fs::write(&policy, "[env.set]\nMOONRUN_WEE8_CORE_VALUE = \"λ🦀\"\n").unwrap();
+    snapbox::cmd::Command::new(env!("CARGO_BIN_EXE_moonrun"))
+        .env("MOONRUN_WEE8_CORE_VALUE", "wrong ambient value")
+        .args(["--policy", policy.to_str().unwrap()])
+        .arg(file)
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
+fn core_string_imports_reject_invalid_signatures_and_reference_types() {
+    let engine = Engine::default();
+    for source in [
+        r#"(module (import "__moonbit_fs_unstable" "begin_create_string" (func (result i32))))"#,
+        r#"(module
+            (import "__moonbit_fs_unstable" "begin_read_string" (func $read (param externref) (result externref)))
+            (func (export "_start") ref.null extern call $read drop))"#,
+        r#"(module
+            (import "__moonbit_fs_unstable" "begin_create_string" (func $new (result externref)))
+            (import "__moonbit_fs_unstable" "begin_read_string" (func $read (param externref) (result externref)))
+            (func (export "_start") call $new call $read drop))"#,
+    ] {
+        let module = engine
+            .compile("invalid-core-string.wasm", wat::parse_str(source).unwrap())
+            .unwrap();
+        let error = engine.run(&module, RunOptions::default()).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("incorrect signature")
+                || message.contains("invalid core string reference"),
+            "{message}"
+        );
     }
 }
