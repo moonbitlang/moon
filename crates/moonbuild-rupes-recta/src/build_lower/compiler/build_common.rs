@@ -178,6 +178,7 @@ pub(crate) struct BuildCommonConfig<'a> {
 
     // Package configuration
     pub pkgtype: PackageKind,
+    pub use_async_io: bool,
 
     // Standard library
     /// Pass [None] for no_std
@@ -207,6 +208,7 @@ impl<'a> Default for BuildCommonConfig<'a> {
             deny_warn: false,
             warn_config: WarnAlertConfig::Default,
             pkgtype: PackageKind::Library,
+            use_async_io: false,
             stdlib_core_file: None,
             workspace_root: None,
             check_mi: None,
@@ -248,6 +250,13 @@ impl<'a> BuildCommonConfig<'a> {
     pub(crate) fn add_pkgtype(&self, args: &mut Vec<String>) {
         args.push("-pkg-type".to_string());
         args.push(self.pkgtype.as_str().to_string());
+    }
+
+    /// Enable the compiler's asynchronous I/O mode for this package.
+    pub(crate) fn add_use_async_io(&self, args: &mut Vec<String>) {
+        if self.use_async_io {
+            args.push("-use-async-io".to_string());
+        }
     }
 
     /// Add standard library path arguments
