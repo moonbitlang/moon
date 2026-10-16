@@ -80,7 +80,24 @@ $MOON_HOME/
   prebuilt Wasm artifacts, checksums, and `symbols.zip` use `download`.
   Existing configurations with `registry`, `index`, and optional `symbols`
   remain supported with their original URL layout.
-- `credentials.json` stores Mooncakes login credentials.
+- `credentials.json` stores Mooncakes login credentials (`token`, optional
+  `username`, and optional `registry_api`). Dynamic registry API reads attach
+  the saved token as Bearer authentication only when `registry_api` matches
+  the configured API base URL. Older credentials without this binding apply
+  only to `https://mooncakes.io`; custom registry users must log in again with
+  a client that records the binding. This remains one saved login, not a
+  multiple-registry credential store.
+- Credential matching normalizes URL spelling, including default ports and
+  trailing slashes, but preserves scheme, port, and API base path. Authenticated
+  requests require HTTPS except on loopback addresses. API redirects may stay
+  within the same origin and API base path; redirects outside that boundary
+  are not followed. Git index, symbols, source archive and prebuilt artifact
+  requests do not load or send these API credentials.
+- Missing or empty credentials leave API reads anonymous. Malformed or
+  unreadable credentials produce a local error without including token text.
+  Token validity and public/private access decisions belong to the registry;
+  the client neither validates a token ahead of the request nor retries a
+  rejected authenticated request anonymously.
 
 The layout deliberately records current behavior rather than claiming every
 choice is ideal. In particular, it makes three asymmetries visible for future

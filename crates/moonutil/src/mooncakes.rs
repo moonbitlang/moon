@@ -854,7 +854,7 @@ pub struct PackageSubcommand {
 ///
 /// With `--dry-run`, fetch the module's currently published versions and print
 /// the intended change for each release without modifying the registry.
-/// The preview requires registry access but does not load publishing credentials.
+/// The preview uses optional API-bound credentials for the read-only lookup.
 #[derive(Debug, clap::Parser, Serialize, Deserialize)]
 pub struct DeprecateSubcommand {
     /// Full module name, without a version selector

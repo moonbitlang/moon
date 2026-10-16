@@ -31,11 +31,15 @@ use moonutil::{
     MOON_HOME, MoonHomeLayout,
     dependency::SourceDependencyInfo,
     locks::{lock_directory, lock_file},
-    registry::RegistryConfig,
+    registry::{RegistryConfig, RegistryCredentials, registry_api_url},
     resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
-use reqwest::StatusCode;
+use reqwest::{
+    StatusCode, Url,
+    header::{AUTHORIZATION, HeaderMap, HeaderValue},
+    redirect::Policy,
+};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -63,11 +67,27 @@ struct RegistryEndpoints {
     legacy_asset_urls: bool,
 }
 
-fn registry_http_client() -> anyhow::Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-        .build()
-        .context("failed to create registry HTTP client")
+fn registry_authorization(
+    saved: &RegistryCredentials,
+    api: &Url,
+) -> anyhow::Result<Option<HeaderValue>> {
+    if !saved.matches_registry(api.as_str())? || saved.credentials.token.trim().is_empty() {
+        return Ok(None);
+    }
+    let loopback = api.host_str().is_some_and(|host| {
+        host == "localhost"
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    });
+    if api.scheme() != "https" && !loopback {
+        bail!("registry API credentials require HTTPS except on loopback addresses");
+    }
+    let mut authorization = HeaderValue::from_str(&format!("Bearer {}", saved.credentials.token))
+        .context("invalid registry API token header")?;
+    authorization.set_sensitive(true);
+    Ok(Some(authorization))
 }
 
 impl RegistryEndpoints {
@@ -235,6 +255,38 @@ pub struct RegistryClient {
 }
 
 impl RegistryClient {
+    fn api_http_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
+        let mut builder = reqwest::blocking::Client::builder()
+            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")));
+        if let Some(saved) = RegistryCredentials::load(&self.home.credentials_path())? {
+            let api = registry_api_url(&self.endpoints.api)?;
+            if let Some(authorization) = registry_authorization(&saved, &api)? {
+                let mut headers = HeaderMap::new();
+                headers.insert(AUTHORIZATION, authorization);
+                let api_path = format!("{}/api/", api.path().trim_end_matches('/'));
+                builder =
+                    builder
+                        .default_headers(headers)
+                        .redirect(Policy::custom(move |attempt| {
+                            // Never forward credentials outside this registry's API,
+                            // including same-host CDN paths and HTTPS downgrades.
+                            if attempt.url().origin() != api.origin()
+                                || !attempt.url().path().starts_with(&api_path)
+                            {
+                                attempt.stop()
+                            } else if attempt.previous().len() >= 10 {
+                                attempt.error("too many registry API redirects")
+                            } else {
+                                attempt.follow()
+                            }
+                        }));
+            }
+        }
+        builder
+            .build()
+            .context("failed to create registry HTTP client")
+    }
+
     /// Load registry configuration and use the standard local index and cache.
     pub fn configured() -> Self {
         Self::from_config(RegistryConfig::load())
@@ -270,7 +322,8 @@ impl RegistryClient {
     #[tracing::instrument(skip(self), fields(api = %self.config.api))]
     pub fn search(&self, keyword: &str, limit: u32) -> anyhow::Result<Vec<RegistrySearchResult>> {
         let url = self.endpoints.search(keyword, limit);
-        let response = registry_http_client()?
+        let response = self
+            .api_http_client()?
             .get(&url)
             .send()
             .with_context(|| format!("failed to search registry at {url}"))?
@@ -304,7 +357,8 @@ impl RegistryClient {
             .map(|version| format!("@{version}"))
             .unwrap_or_default();
         let url = format!("{}/api/v0/manifest/{path}{suffix}", self.endpoints.api);
-        let mut manifest: RegistryModuleManifest = registry_http_client()?
+        let mut manifest: RegistryModuleManifest = self
+            .api_http_client()?
             .get(&url)
             .send()
             .with_context(|| format!("failed to fetch module metadata from {url}"))?
@@ -331,8 +385,9 @@ impl RegistryClient {
             encode_path_segment(username)
         );
         // The public profile endpoint returns the complete collection without
-        // search limits or pagination. No publishing token is sent.
-        let mut profile: RegistryUserModules = registry_http_client()?
+        // search limits or pagination. Credentials do not change its visibility.
+        let mut profile: RegistryUserModules = self
+            .api_http_client()?
             .get(&url)
             .send()
             .with_context(|| format!("failed to fetch published modules from {url}"))?
@@ -851,6 +906,384 @@ mod tests {
 
     fn quiet_user_log() -> UserLog {
         UserLog::new(log::LevelFilter::Error)
+    }
+
+    fn api_test_registry(home: &Path, api: &str) -> RegistryClient {
+        RegistryClient::with_home(
+            RegistryConfig {
+                api: api.to_owned(),
+                index: String::new(),
+                download: api.to_owned(),
+                symbols: None,
+                legacy_asset_urls: false,
+            },
+            MoonHomeLayout::new(home.to_owned()),
+        )
+    }
+
+    fn api_test_server<T: AsRef<[u8]> + Send + 'static>(
+        listener: TcpListener,
+        responses: Vec<(u16, String, T)>,
+    ) -> std::thread::JoinHandle<Vec<String>> {
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let mut requests = Vec::new();
+            for (status, headers, body) in responses {
+                let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(std::time::Instant::now() < deadline, "missing API request");
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("API test server failed: {error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = String::new();
+                let mut reader = std::io::BufReader::new(&stream);
+                loop {
+                    let mut line = String::new();
+                    assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    request.push_str(&line);
+                }
+                requests.push(request);
+                let body = body.as_ref();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n", body.len()).unwrap();
+                stream.write_all(body).unwrap();
+            }
+            requests
+        })
+    }
+
+    #[test]
+    fn legacy_credentials_only_authorize_the_official_api() {
+        let saved: RegistryCredentials =
+            serde_json::from_str(r#"{"token":"test-secret","username":"alice"}"#).unwrap();
+        let official = registry_authorization(
+            &saved,
+            &registry_api_url("https://mooncakes.io:443/").unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(official, "Bearer test-secret");
+        assert!(official.is_sensitive());
+        assert!(
+            registry_authorization(
+                &saved,
+                &registry_api_url("https://registry.example").unwrap()
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            registry_authorization(&saved, &registry_api_url("http://mooncakes.io").unwrap())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry_authorization(
+                &saved,
+                &registry_api_url("https://mooncakes.io/other").unwrap()
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn bound_credentials_require_the_exact_api_base_and_secure_transport() {
+        let saved: RegistryCredentials = serde_json::from_value(serde_json::json!({
+            "token": "test-secret", "registry_api": "https://registry.example/base/"
+        }))
+        .unwrap();
+        assert!(
+            registry_authorization(
+                &saved,
+                &registry_api_url("https://registry.example/base").unwrap()
+            )
+            .unwrap()
+            .is_some()
+        );
+        assert!(
+            registry_authorization(
+                &saved,
+                &registry_api_url("https://registry.example/other").unwrap()
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            registry_authorization(
+                &saved,
+                &registry_api_url("https://registry.example:8443/base").unwrap()
+            )
+            .unwrap()
+            .is_none()
+        );
+        let insecure: RegistryCredentials = serde_json::from_value(serde_json::json!({
+            "token": "test-secret", "registry_api": "http://registry.example"
+        }))
+        .unwrap();
+        assert!(
+            registry_authorization(
+                &insecure,
+                &registry_api_url("http://registry.example").unwrap()
+            )
+            .is_err()
+        );
+        for api in [
+            "http://localhost:8001",
+            "http://127.0.0.1:8001",
+            "http://[::1]:8001",
+        ] {
+            let local: RegistryCredentials = serde_json::from_value(serde_json::json!({
+                "token": "test-secret", "registry_api": api
+            }))
+            .unwrap();
+            assert!(
+                registry_authorization(&local, &registry_api_url(api).unwrap())
+                    .unwrap()
+                    .is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn api_reads_send_the_matching_saved_token_without_classifying_modules() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}/registry", listener.local_addr().unwrap());
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            serde_json::json!({
+                "token": "test-secret", "username": "alice", "registry_api": api
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let registry = api_test_registry(sandbox.path(), &api);
+        let server = api_test_server(
+            listener,
+            vec![
+                (200, String::new(), "[]".to_owned()),
+                (
+                    200,
+                    String::new(),
+                    serde_json::json!({
+                        "module":"alice/tools", "version":"0.1.0", "latest_version":"0.1.0",
+                        "metadata":{}, "versions":[], "downloads":null
+                    })
+                    .to_string(),
+                ),
+                (
+                    200,
+                    String::new(),
+                    r#"{"username":"alice","modules":[]}"#.to_owned(),
+                ),
+            ],
+        );
+        assert!(registry.search("tools", 5).unwrap().is_empty());
+        registry
+            .module_manifest(&"alice/tools".into(), None)
+            .unwrap();
+        assert!(registry.user_modules("alice").unwrap().modules.is_empty());
+        let requests = server.join().unwrap();
+        assert!(requests[0].starts_with("GET /registry/api/v0/search?"));
+        assert!(requests[1].starts_with("GET /registry/api/v0/manifest/alice/tools "));
+        assert!(requests[2].starts_with("GET /registry/api/v0/user/alice "));
+        for request in requests {
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer test-secret\r\n")
+            );
+        }
+    }
+
+    #[test]
+    fn missing_empty_and_unmatched_credentials_keep_api_reads_anonymous() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let registry = api_test_registry(sandbox.path(), &api);
+        let server = api_test_server(listener, vec![(200, String::new(), "[]".to_owned()); 3]);
+        registry.search("tools", 5).unwrap();
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            serde_json::json!({
+                "token": "", "registry_api": api
+            })
+            .to_string(),
+        )
+        .unwrap();
+        registry.search("tools", 5).unwrap();
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            r#"{"token":"official-secret"}"#,
+        )
+        .unwrap();
+        registry.search("tools", 5).unwrap();
+        for request in server.join().unwrap() {
+            assert!(!request.to_ascii_lowercase().contains("authorization:"));
+        }
+    }
+
+    #[test]
+    fn credentials_are_not_attached_to_archive_or_asset_download_clients() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let registry = api_test_registry(sandbox.path(), &api);
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            serde_json::json!({
+                "token":"test-secret", "registry_api":api
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let server = api_test_server(listener, vec![(200, String::new(), "artifact".to_owned())]);
+        download_registry_asset(
+            &download::client_with_retry().unwrap(),
+            &format!(
+                "{}/prebuild/alice/tools@0.1.0/main.wasm",
+                registry.endpoints.download
+            ),
+            &quiet_user_log(),
+        )
+        .unwrap();
+        assert!(
+            !server.join().unwrap()[0]
+                .to_ascii_lowercase()
+                .contains("authorization:")
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let (mut registry, name, version) = test_registry(&sandbox);
+        registry.endpoints.download = api.clone();
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            serde_json::json!({
+                "token": "test-secret", "registry_api": api
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let archive = test_archive();
+        let checksum = sha256_hex(&archive);
+        let server = api_test_server(listener, vec![(200, String::new(), archive)]);
+        registry
+            .acquire_source_to(
+                &ModuleSource::from_version(name, version).unwrap(),
+                &checksum,
+                &sandbox.path().join("downloaded-source"),
+                &quiet_user_log(),
+            )
+            .unwrap();
+        assert!(
+            !server.join().unwrap()[0]
+                .to_ascii_lowercase()
+                .contains("authorization:")
+        );
+    }
+
+    #[test]
+    fn authenticated_api_redirects_stay_within_the_bound_api() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let registry = api_test_registry(sandbox.path(), &api);
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            serde_json::json!({
+                "token":"test-secret", "registry_api":api
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let server = api_test_server(
+            listener,
+            vec![
+                (302, "Location: /api/v0/next\r\n".to_owned(), String::new()),
+                (200, String::new(), "ok".to_owned()),
+                (
+                    302,
+                    format!("Location: {api}/prebuild/file.wasm\r\n"),
+                    String::new(),
+                ),
+                (
+                    302,
+                    "Location: http://127.0.0.1:1/api/v0/other\r\n".to_owned(),
+                    String::new(),
+                ),
+            ],
+        );
+        let http = registry.api_http_client().unwrap();
+        assert_eq!(
+            http.get(format!("{api}/api/v0/start"))
+                .send()
+                .unwrap()
+                .status(),
+            200
+        );
+        assert_eq!(
+            http.get(format!("{api}/api/v0/start"))
+                .send()
+                .unwrap()
+                .status(),
+            302
+        );
+        assert_eq!(
+            http.get(format!("{api}/api/v0/start"))
+                .send()
+                .unwrap()
+                .status(),
+            302
+        );
+        for request in server.join().unwrap() {
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer test-secret\r\n")
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_credentials_errors_do_not_include_secrets() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            r#"{"token":"test-secret","username":"alice","registry_api":"secret-invalid-address"}"#,
+        )
+        .unwrap();
+        let registry = api_test_registry(sandbox.path(), "https://mooncakes.io");
+        let error = format!("{:#}", registry.api_http_client().unwrap_err());
+        assert!(!error.contains("test-secret"));
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            serde_json::json!({
+                "token": "test-secret\r\nX-Injected: value", "registry_api": "https://mooncakes.io"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let error = format!("{:#}", registry.api_http_client().unwrap_err());
+        assert!(!error.contains("test-secret"));
+        assert!(!error.contains("X-Injected"));
+        assert!(!error.contains("secret-invalid-address"));
+        std::fs::write(sandbox.path().join("credentials.json"), r#"{"token":"test-secret","username":"alice","registry_api":"https://mooncakes.io","unexpected":"#).unwrap();
+        let error = format!("{:#}", registry.api_http_client().unwrap_err());
+        assert!(!error.contains("test-secret"));
     }
 
     #[test]
