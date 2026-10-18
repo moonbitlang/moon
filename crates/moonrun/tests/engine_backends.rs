@@ -474,6 +474,163 @@ fn wasmtime_authorizes_before_reading_byte_handles() {
 
 #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
 #[test]
+fn wasmtime_appends_syncs_and_renames_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(directory.path()).unwrap();
+    let root = root.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+    let policy = directory.path().join("policy.toml");
+    std::fs::write(
+        &policy,
+        format!("[fs]\nread = [\"{root}\"]\nwrite = [\"{root}\"]\n"),
+    )
+    .unwrap();
+    let append_path = directory.path().join("append.txt");
+    let renamed_path = directory.path().join("renamed.txt");
+    let append = append_path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let renamed = renamed_path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let wasm = directory.path().join("append-sync-rename.wasm");
+    std::fs::write(
+        &wasm,
+        wat::parse_str(format!(
+            r#"(module
+                (import "_" "{append}" (global $append (ref extern)))
+                (import "_" "{renamed}" (global $renamed (ref extern)))
+                (import "__moonbit_fs_unstable" "begin_create_byte_array"
+                    (func $builder (result externref)))
+                (import "__moonbit_fs_unstable" "byte_array_append_byte"
+                    (func $append_byte (param externref i32)))
+                (import "__moonbit_fs_unstable" "finish_create_byte_array"
+                    (func $finish (param externref) (result externref)))
+                (import "__moonbit_fs_unstable" "append_bytes_to_file_new"
+                    (func $append_file (param externref externref) (result i32)))
+                (import "__moonbit_fs_unstable" "sync_file_new"
+                    (func $sync (param externref) (result i32)))
+                (import "__moonbit_fs_unstable" "rename_new"
+                    (func $rename (param externref externref) (result i32)))
+                (func $contents (result externref) (local $builder externref)
+                    call $builder
+                    local.set $builder
+                    local.get $builder
+                    i32.const 104
+                    call $append_byte
+                    local.get $builder
+                    i32.const 105
+                    call $append_byte
+                    local.get $builder
+                    call $finish)
+                (func (export "_start")
+                    global.get $append
+                    call $contents
+                    call $append_file
+                    drop
+                    global.get $append
+                    call $contents
+                    call $append_file
+                    drop
+                    global.get $append
+                    call $sync
+                    drop
+                    global.get $append
+                    global.get $renamed
+                    call $rename
+                    drop))"#,
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm)
+        .arg("--policy")
+        .arg(policy)
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+    assert_eq!(std::fs::read_to_string(&renamed_path).unwrap(), "hihi");
+    assert!(!append_path.exists());
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+#[test]
+fn wasmtime_denies_append_sync_and_rename_under_empty_policy() {
+    let directory = tempfile::tempdir().unwrap();
+    let policy = directory.path().join("policy.toml");
+    std::fs::write(&policy, "").unwrap();
+    let wasm = directory.path().join("denied-fs-operations.wasm");
+    std::fs::write(
+        &wasm,
+        wat::parse_str(
+            r#"(module
+                (import "_" "append.txt" (global $append (ref extern)))
+                (import "_" "sync.txt" (global $sync_target (ref extern)))
+                (import "_" "from.txt" (global $from (ref extern)))
+                (import "_" "to.txt" (global $to (ref extern)))
+                (import "__moonbit_fs_unstable" "begin_create_byte_array"
+                    (func $builder (result externref)))
+                (import "__moonbit_fs_unstable" "finish_create_byte_array"
+                    (func $finish (param externref) (result externref)))
+                (import "__moonbit_fs_unstable" "append_bytes_to_file_new"
+                    (func $append (param externref externref) (result i32)))
+                (import "__moonbit_fs_unstable" "sync_file_new"
+                    (func $sync (param externref) (result i32)))
+                (import "__moonbit_fs_unstable" "rename_new"
+                    (func $rename (param externref externref) (result i32)))
+                (import "__moonbit_fs_unstable" "get_error_message"
+                    (func $get_error_message (result externref)))
+                (import "console" "log" (func $log (param (ref extern))))
+                (func $report (param $status i32)
+                    local.get $status
+                    i32.const -1
+                    i32.ne
+                    if unreachable end
+                    call $get_error_message
+                    ref.as_non_null
+                    call $log)
+                (func (export "_start")
+                    global.get $append
+                    call $builder
+                    call $finish
+                    call $append
+                    call $report
+                    global.get $sync_target
+                    call $sync
+                    call $report
+                    global.get $from
+                    global.get $to
+                    call $rename
+                    call $report))"#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm)
+        .arg("--policy")
+        .arg(policy)
+        .assert()
+        .success()
+        .stdout_eq(
+            "Permission denied: append.txt\n\
+             Permission denied: sync.txt\n\
+             Permission denied: from.txt\n",
+        )
+        .stderr_eq(
+            "Sandbox policy blocked file write: \"append.txt\"\n\
+             Sandbox policy blocked file read: \"sync.txt\"\n\
+             Sandbox policy blocked file write: \"from.txt\"\n",
+        );
+}
+
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+#[test]
 fn wasmtime_preserves_host_adapter_errors_from_exported_calls() {
     let engine = moonrun::Engine::default();
     let cases = [
