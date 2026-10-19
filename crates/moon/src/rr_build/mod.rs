@@ -404,16 +404,6 @@ pub(crate) fn prepare_resolved_build(
     })
 }
 
-/// Plan a build graph from an already resolved project and command intent.
-///
-/// At this boundary, command adapters have already resolved user selectors and
-/// command-specific directives into `CalcUserIntentOutput`. RR consumes those
-/// identities plus precomputed build-context paths from the command adapter.
-/// For actual builds, callers hold the target-directory lock while prebuild
-/// scripts run and their outputs are consumed. Dry-run callers leave locking to
-/// this function: it locks only when the resolved backend and modules require
-/// scripts, and keeps the lock through planning.
-#[instrument(level = Level::DEBUG, skip_all)]
 /// Drop the direct-object candidate when `MOON_CC` targets another machine.
 ///
 /// Direct objects are emitted for the host, so such a compiler cannot link
@@ -445,6 +435,16 @@ fn drop_direct_objects_for_cross_env_cc(cx: &mut CompileConfig, requested: &[Art
     }
 }
 
+/// Plan a build graph from an already resolved project and command intent.
+///
+/// At this boundary, command adapters have already resolved user selectors and
+/// command-specific directives into `CalcUserIntentOutput`. RR consumes those
+/// identities plus precomputed build-context paths from the command adapter.
+/// For actual builds, callers hold the target-directory lock while prebuild
+/// scripts run and their outputs are consumed. Dry-run callers leave locking to
+/// this function: it locks only when the resolved backend and modules require
+/// scripts, and keeps the lock through planning.
+#[instrument(level = Level::DEBUG, skip_all)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_resolved_build_from_intent(
     mut cx: CompileConfig,
