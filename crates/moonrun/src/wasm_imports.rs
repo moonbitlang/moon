@@ -16,17 +16,18 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Shared registration for synchronous host functions with Wasm numeric arguments.
+//! Typed synchronous imports shared by all Wasm adapters.
 //!
-//! WASI, async and SQLite supply their definitions through this interface.
-//! An adapter owns conversion and callback retention. A host operation receives
-//! only borrowed state and memory, so it cannot re-enter Wasm or retain a view
-//! across memory growth. Missing memory is deferred until the operation uses it.
+//! Like Wasmtime's `func_wrap`, Rust parameter and result types determine the
+//! signature. Reference handles use the engine's roots and borrow the invocation;
+//! they are never encoded as integers or retained in a second handle table.
+#[cfg(all(not(feature = "v8"), any(feature = "wee8", feature = "wasmtime")))]
+pub(crate) mod payload;
+pub(crate) mod values;
+pub(crate) use values::{ExternRef, Values};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ImportError {
-    // Not every adapter has an unbound-memory state. Keep this shared error
-    // available independently of which backend is selected.
     #[allow(dead_code)]
     #[error("guest memory is unavailable")]
     MemoryUnavailable,
@@ -36,8 +37,10 @@ pub(crate) enum ImportError {
     Operation(String),
     #[error(transparent)]
     Host(#[from] anyhow::Error),
+    #[cfg(feature = "v8")]
+    #[error(transparent)]
+    V8(#[from] crate::v8::context::ValueImportError),
 }
-
 impl ImportError {
     pub(crate) fn at(self, module: &str, name: &str) -> Self {
         match self {
@@ -49,148 +52,217 @@ impl ImportError {
     }
 }
 
-pub(crate) struct Caller<'a, T> {
+/// A memory borrow contains no engine context, so it cannot allocate references,
+/// re-enter Wasm or retain the view across guest memory growth.
+pub(crate) struct MemoryCaller<'a, T> {
     pub(crate) data: &'a T,
     pub(crate) memory: Result<&'a mut [u8], ImportError>,
     pub(crate) termination: &'a crate::run_termination::TerminationRequest,
 }
 
-/// Numeric Wasm types have signless integer encodings. Floating-point values
-/// cross the adapter as raw bits, preserving signed zero and avoiding integer
-/// conversion through JavaScript numbers.
+/// Adapter implementation of one invocation. Scoped callbacks accommodate wee8's
+/// checked store borrows without exposing a RefCell guard or changing Runtime ownership.
+pub(crate) trait CallContext<'call, T>: Values<'call> {
+    fn with_data(&self, operation: &mut dyn FnMut(&T));
+    fn with_memory(&mut self, operation: &mut dyn FnMut(MemoryCaller<'_, T>));
+    fn terminate(&self, outcome: crate::run_termination::RunTermination);
+}
+
+pub(crate) struct Caller<'context, 'call, T> {
+    pub(crate) context: &'context mut (dyn CallContext<'call, T> + 'context),
+}
+impl<'call, T> Caller<'_, 'call, T> {
+    pub(crate) fn with_data<R>(&self, operation: impl FnOnce(&T) -> R) -> R {
+        let mut operation = Some(operation);
+        let mut result = None;
+        self.context.with_data(&mut |data| {
+            result = Some(operation.take().expect("one host data borrow")(data));
+        });
+        result.expect("adapter invokes the data borrow once")
+    }
+    pub(crate) fn with_memory<R>(self, operation: impl FnOnce(MemoryCaller<'_, T>) -> R) -> R {
+        let mut operation = Some(operation);
+        let mut result = None;
+        self.context.with_memory(&mut |caller| {
+            result = Some(operation.take().expect("one guest memory borrow")(caller));
+        });
+        result.expect("adapter invokes the memory borrow once")
+    }
+    pub(crate) fn values(&mut self) -> &mut dyn Values<'call> {
+        self.context
+    }
+    pub(crate) fn terminate(&self, outcome: crate::run_termination::RunTermination) -> ImportError {
+        self.context.terminate(outcome);
+        ImportError::Terminated
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum WasmType {
     I32,
     I64,
     F32,
     F64,
+    ExternRef,
 }
 
-pub(crate) trait WasmParam: Copy + 'static {
+pub(crate) enum Value<'call> {
+    I32(u32),
+    I64(u64),
+    F32(u32),
+    F64(u64),
+    ExternRef(Option<ExternRef<'call>>),
+}
+
+/// `Value` rebinds the invocation lifetime. The 'static type is only a signature
+/// witness used for Rust inference; no reference is extended to 'static.
+pub(crate) trait WasmParam: 'static {
+    type Value<'call>;
     const TYPE: WasmType;
-    fn from_bits(value: u64) -> Self;
-    fn into_bits(self) -> u64;
+    fn decode(value: Value<'_>) -> Self::Value<'_>;
+    fn encode<'call>(value: Self::Value<'call>) -> Value<'call>;
 }
-
-macro_rules! integer {
-    ($ty:ty, $kind:ident) => {
+macro_rules! scalar {
+    ($ty:ty, $variant:ident, $bits:ty) => {
         impl WasmParam for $ty {
-            const TYPE: WasmType = WasmType::$kind;
-            fn from_bits(value: u64) -> Self {
-                value as Self
+            type Value<'call> = Self;
+            const TYPE: WasmType = WasmType::$variant;
+            fn decode(value: Value<'_>) -> Self {
+                match value {
+                    Value::$variant(value) => value as Self,
+                    _ => unreachable!("adapter validates the declared parameter type"),
+                }
             }
-            fn into_bits(self) -> u64 {
-                self as u64
+            fn encode<'call>(value: Self) -> Value<'call> {
+                Value::$variant(value as $bits)
             }
         }
     };
 }
-integer!(i32, I32);
-integer!(u32, I32);
-integer!(i64, I64);
-integer!(u64, I64);
-
-impl WasmParam for f32 {
-    const TYPE: WasmType = WasmType::F32;
-    fn from_bits(value: u64) -> Self {
-        f32::from_bits(value as u32)
+scalar!(i32, I32, u32);
+scalar!(u32, I32, u32);
+scalar!(i64, I64, u64);
+scalar!(u64, I64, u64);
+macro_rules! float {
+    ($ty:ty, $variant:ident) => {
+        impl WasmParam for $ty {
+            type Value<'call> = Self;
+            const TYPE: WasmType = WasmType::$variant;
+            fn decode(value: Value<'_>) -> Self {
+                match value {
+                    Value::$variant(value) => Self::from_bits(value),
+                    _ => unreachable!("adapter validates the declared parameter type"),
+                }
+            }
+            fn encode<'call>(value: Self) -> Value<'call> {
+                Value::$variant(value.to_bits())
+            }
+        }
+    };
+}
+float!(f32, F32);
+float!(f64, F64);
+impl WasmParam for Option<ExternRef<'static>> {
+    type Value<'call> = Option<ExternRef<'call>>;
+    const TYPE: WasmType = WasmType::ExternRef;
+    fn decode(value: Value<'_>) -> Self::Value<'_> {
+        match value {
+            Value::ExternRef(value) => value,
+            _ => unreachable!("adapter validates the declared reference type"),
+        }
     }
-    fn into_bits(self) -> u64 {
-        u64::from(self.to_bits())
+    fn encode<'call>(value: Self::Value<'call>) -> Value<'call> {
+        Value::ExternRef(value)
     }
 }
 
-impl WasmParam for f64 {
-    const TYPE: WasmType = WasmType::F64;
-    fn from_bits(value: u64) -> Self {
-        f64::from_bits(value)
-    }
-    fn into_bits(self) -> u64 {
-        self.to_bits()
-    }
-}
-
-/// The Rust return type determines the Wasm signature. A host function returns
-/// one numeric value or no value; references and multi-result host calls remain
-/// outside this interface.
 pub(crate) trait WasmResult: 'static {
+    type Value<'call>;
+    // V8 wraps JS callbacks; the other adapters declare a native Wasm signature.
+    #[cfg_attr(
+        not(any(feature = "wee8", all(feature = "wasmtime", not(feature = "v8")))),
+        allow(dead_code)
+    )]
     const TYPE: Option<WasmType>;
-    fn into_bits(self) -> Option<u64>;
+    fn encode<'call>(value: Self::Value<'call>) -> Option<Value<'call>>;
 }
-
 impl<T: WasmParam> WasmResult for T {
+    type Value<'call> = T::Value<'call>;
     const TYPE: Option<WasmType> = Some(T::TYPE);
-    fn into_bits(self) -> Option<u64> {
-        Some(WasmParam::into_bits(self))
+    fn encode<'call>(value: Self::Value<'call>) -> Option<Value<'call>> {
+        Some(T::encode(value))
     }
 }
-
 impl WasmResult for () {
+    type Value<'call> = ();
     const TYPE: Option<WasmType> = None;
-    fn into_bits(self) -> Option<u64> {
+    fn encode<'call>(_: ()) -> Option<Value<'call>> {
         None
     }
 }
 
-/// The internal argument tuple supplies parameter types and order.
-/// The adapter-provided `read` decodes the requested Wasm type: values
-/// retain their numeric bit pattern, including all 64 integer bits.
-/// Decoding finishes before borrowing guest memory and needs no parameter Vec.
-pub(crate) trait WasmParams: Copy + 'static {
+pub(crate) trait WasmParams: 'static {
+    type Value<'call>;
     const TYPES: &'static [WasmType];
-    fn decode<Error>(
-        read: impl FnMut(usize, WasmType) -> Result<u64, Error>,
-    ) -> Result<Self, Error>;
+    fn decode<'call, Error>(
+        read: impl FnMut(usize, WasmType) -> Result<Value<'call>, Error>,
+    ) -> Result<Self::Value<'call>, Error>;
 }
 
-/// Like Wasmtime's `func_wrap`/`IntoFunc`, registration derives the signature
-/// from an ordinary typed Rust callback. The tuple only connects adapter decoding
-/// to invocation; import definitions do not construct or unpack it. Adapters
-/// retain the closure itself, including any captures, for the callback lifetime.
-/// Send + Sync permits registration with Wasmtime's thread-safe Linker; Caller
-/// still borrows each run's state and memory only for this invocation.
-pub(crate) trait HostFunction<T, P, R>: Send + Sync + 'static {
-    fn call(&self, caller: Caller<'_, T>, params: P) -> Result<R, ImportError>;
+pub(crate) trait HostFunction<T, P: WasmParams, R: WasmResult>:
+    Send + Sync + 'static
+{
+    fn call<'call>(
+        &self,
+        caller: Caller<'_, 'call, T>,
+        params: P::Value<'call>,
+    ) -> Result<R::Value<'call>, ImportError>;
 }
+// Scalars have no invocation lifetime. Keeping that identity explicit preserves
+// ordinary closure inference for existing numeric definitions.
+pub(crate) trait Scalar: for<'a> WasmParam<Value<'a> = Self> + Copy {}
+impl Scalar for i32 {}
+impl Scalar for u32 {}
+impl Scalar for i64 {}
+impl Scalar for u64 {}
+impl Scalar for f32 {}
+impl Scalar for f64 {}
+pub(crate) trait ScalarResult: for<'a> WasmResult<Value<'a> = Self> {}
+impl<T: Scalar> ScalarResult for T {}
+impl ScalarResult for () {}
 
 macro_rules! host_function {
-    ($($param:ident: $index:tt),+) => {
-        impl<$($param: WasmParam),+> WasmParams for ($($param,)+) {
-            const TYPES: &'static [WasmType] = &[$($param::TYPE,)+];
-            fn decode<Error>(mut read: impl FnMut(usize, WasmType) -> Result<u64, Error>) -> Result<Self, Error> {
-                Ok(($($param::from_bits(read($index, $param::TYPE)?),)+))
+    ($($param:ident: $index:tt),*) => {
+        impl<$($param: WasmParam),*> WasmParams for ($($param,)*) {
+            type Value<'call> = ($($param::Value<'call>,)*);
+            const TYPES: &'static [WasmType] = &[$($param::TYPE,)*];
+            #[allow(unused_mut, unused_variables)]
+            fn decode<'call, Error>(
+                mut read: impl FnMut(usize, WasmType) -> Result<Value<'call>, Error>,
+            ) -> Result<Self::Value<'call>, Error> {
+                Ok(($($param::decode(read($index, $param::TYPE)?),)*))
             }
         }
-
-        impl<T, Func, R, $($param),+> HostFunction<T, ($($param,)+), R> for Func
+        impl<T: 'static, Func, R: ScalarResult, $($param: Scalar),*>
+            HostFunction<T, ($($param,)*), R> for Func
         where
-            Func: Fn(Caller<'_, T>, $($param),+) -> Result<R, ImportError> + Send + Sync + 'static,
-            $($param: WasmParam,)+
-            R: WasmResult,
+            Func: for<'context, 'call> Fn(
+                    Caller<'context, 'call, T>, $($param),*
+                ) -> Result<R, ImportError>
+                + Send + Sync + 'static,
         {
-            fn call(&self, caller: Caller<'_, T>, params: ($($param,)+)) -> Result<R, ImportError> {
-                self(caller, $(params.$index),+)
+            fn call<'call>(
+                &self,
+                caller: Caller<'_, 'call, T>,
+                params: <($($param,)*) as WasmParams>::Value<'call>,
+            ) -> Result<R, ImportError> {
+                let _ = &params;
+                self(caller, $(params.$index),*)
             }
         }
     };
 }
-
-impl WasmParams for () {
-    const TYPES: &'static [WasmType] = &[];
-    fn decode<Error>(_: impl FnMut(usize, WasmType) -> Result<u64, Error>) -> Result<Self, Error> {
-        Ok(())
-    }
-}
-
-impl<T, Func, R: WasmResult> HostFunction<T, (), R> for Func
-where
-    Func: Fn(Caller<'_, T>) -> Result<R, ImportError> + Send + Sync + 'static,
-{
-    fn call(&self, caller: Caller<'_, T>, (): ()) -> Result<R, ImportError> {
-        self(caller)
-    }
-}
-
+host_function!();
 host_function!(A: 0);
 host_function!(A: 0, B: 1);
 host_function!(A: 0, B: 1, C: 2);
@@ -203,7 +275,51 @@ host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
 host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9);
 host_function!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9, K: 10);
 
-/// Reference values and guest re-entry remain outside this interface.
+// Reference-bearing signatures bind every reference to the engine invocation,
+// independently of the temporary Caller borrow. These cover the legacy host ABI;
+// no unsafe lifetime erasure or unchecked reference-to-integer conversion is used.
+macro_rules! reference_type {
+    ($life:lifetime, reference) => { Option<ExternRef<$life>> };
+    ($life:lifetime, unit) => { () };
+    ($life:lifetime, $ty:ident) => { $ty };
+}
+macro_rules! reference_function {
+    (($($param:ident: $index:tt),*) -> $result:ident) => {
+        impl<T: 'static, Func> HostFunction<
+            T,
+            ($(reference_type!('static, $param),)*),
+            reference_type!('static, $result),
+        > for Func
+        where
+            Func: for<'context, 'call> Fn(
+                    Caller<'context, 'call, T>,
+                    $(reference_type!('call, $param)),*
+                ) -> Result<reference_type!('call, $result), ImportError>
+                + Send + Sync + 'static,
+        {
+            fn call<'call>(
+                &self,
+                caller: Caller<'_, 'call, T>,
+                params: ($(reference_type!('call, $param),)*),
+            ) -> Result<reference_type!('call, $result), ImportError> {
+                let _ = &params;
+                self(caller, $(params.$index),*)
+            }
+        }
+    };
+}
+reference_function!(() -> reference);
+reference_function!((i32: 0) -> reference);
+reference_function!((reference: 0) -> reference);
+reference_function!((reference: 0) -> i32);
+reference_function!((reference: 0) -> f64);
+reference_function!((reference: 0) -> unit);
+reference_function!((reference: 0, i32: 1) -> reference);
+reference_function!((reference: 0, i32: 1) -> i32);
+reference_function!((reference: 0, i32: 1) -> unit);
+reference_function!((reference: 0, reference: 1) -> unit);
+reference_function!((reference: 0, reference: 1) -> i32);
+
 pub(crate) trait ImportRegistry<T> {
     type Error;
     fn func_wrap<P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(

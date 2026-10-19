@@ -57,25 +57,27 @@ macro_rules! return_type {
 macro_rules! register_async_import {
     (fake, $registry:ident, $name:literal, $ret:ident, $module:ident::$callback:ident, ($($arg:ident: $ty:ident),*)) => {
         $registry.func_wrap(MOONBIT_ASYNC_MODULE, $name,
-            |_: Caller<'_, Runtime>, $($arg: $ty),*| -> Result<return_type!($ret), ImportError> {
+            |_: Caller<'_, '_, Runtime>, $($arg: $ty),*| -> Result<return_type!($ret), ImportError> {
                 let _ = ($($arg,)*);
                 Err(anyhow::anyhow!("platform-inactive moonbitlang/async import `{}` was called", $name).into())
             })?;
     };
     ($kind:ident, $registry:ident, $name:literal, $ret:ident, $module:ident::$callback:ident, ($($arg:ident: $ty:ident),*)) => {
         $registry.func_wrap(MOONBIT_ASYNC_MODULE, $name,
-            |caller: Caller<'_, Runtime>, $($arg: $ty),*| -> Result<return_type!($ret), ImportError> {
-                let mut context = ImportContext {
-                    host: caller.data.async_host(),
-                    filesystem: caller.data.filesystem(),
-                    memory: caller.memory.map_err(|_| AsyncHostError::Fault),
-                    termination_request: caller.termination,
-                };
-                let result = $module::$callback(&mut context, $($arg),*).into_async_result();
-                if caller.termination.is_requested() {
-                    return Err(ImportError::Terminated);
-                }
-                result.map_err(|error| ImportError::Operation(format!("{error:?}")))
+            |caller: Caller<'_, '_, Runtime>, $($arg: $ty),*| -> Result<return_type!($ret), ImportError> {
+                caller.with_memory(|caller| {
+                    let mut context = ImportContext {
+                        host: caller.data.async_host(),
+                        filesystem: caller.data.filesystem(),
+                        memory: caller.memory.map_err(|_| AsyncHostError::Fault),
+                        termination_request: caller.termination,
+                    };
+                    let result = $module::$callback(&mut context, $($arg),*).into_async_result();
+                    if caller.termination.is_requested() {
+                        return Err(ImportError::Terminated);
+                    }
+                    result.map_err(|error| ImportError::Operation(format!("{error:?}")))
+                })
             })?;
     };
 }

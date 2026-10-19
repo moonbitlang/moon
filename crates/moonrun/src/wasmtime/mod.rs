@@ -38,14 +38,12 @@ use crate::engine::{
     BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,
     run_test_driver,
 };
-use crate::run_termination::{RunTermination, TerminationRequest};
+use crate::run_termination::TerminationRequest;
 use crate::runtime::{Runtime, Utf16Writer};
 use crate::source_map::SourceMap;
 use crate::wasm_diagnostic::{self, DiagnosticLine};
 
-/// Immutable UTF-16 storage shared by JS-string values and host readers.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct JsString(Arc<[u16]>);
+use crate::wasm_imports::payload::JsString;
 
 pub(crate) struct StoreData {
     runtime: Runtime,
@@ -142,11 +140,11 @@ impl Engine {
                 print: Utf16Writer::default(),
                 exception_tag: None,
                 wasi,
-                host_imports: host_imports::State::new(module_name, args),
+                host_imports: host_imports::State::new(),
                 memory_sanitizer: memory_sanitizer.clone(),
             },
         );
-        let linker = linker_for_module(engine, &mut store, &module.0)
+        let linker = linker_for_module(engine, &mut store, &module.0, module_name, args)
             .map_err(|error| anyhow::anyhow!(error.to_string()))
             .with_context(|| format!("failed to instantiate `{module_name}`"))?;
         let instance = match linker.instantiate(&mut store, &module.0) {
@@ -233,6 +231,8 @@ fn linker_for_module(
     engine: &::wasmtime::Engine,
     store: &mut Store<StoreData>,
     module: &::wasmtime::Module,
+    module_name: &str,
+    args: &[String],
 ) -> wt::Result<Linker<StoreData>> {
     let mut linker = Linker::new(engine);
     wasi::register_imports(&mut linker)?;
@@ -243,9 +243,16 @@ fn linker_for_module(
     crate::async_api::register(&mut registry)?;
     crate::sqlite::wasm::register(&mut registry)?;
     crate::core_api::register(&mut registry)?;
+    crate::host_imports::register(&mut registry, module_name, args)?;
     let mut defined = HashSet::new();
 
     for import in module.imports() {
+        if linker
+            .get(&mut *store, import.module(), import.name())
+            .is_ok()
+        {
+            continue;
+        }
         let key = (import.module().to_owned(), import.name().to_owned());
         if !defined.insert(key) {
             continue;
@@ -322,24 +329,6 @@ fn linker_for_module(
                     let exception = ExnRef::new(&mut caller, &allocator, &tag, &[])?;
                     caller.as_context_mut().throw::<()>(exception)
                 })?;
-            }
-            ("__moonbit_sys_unstable", "is_windows", ExternType::Func(_)) => {
-                linker.func_wrap("__moonbit_sys_unstable", "is_windows", || {
-                    i32::from(cfg!(windows))
-                })?;
-            }
-            ("__moonbit_sys_unstable", "exit", ExternType::Func(_)) => {
-                linker.func_wrap(
-                    "__moonbit_sys_unstable",
-                    "exit",
-                    |caller: Caller<'_, StoreData>, code: i32| -> wt::Result<()> {
-                        caller
-                            .data()
-                            .termination_request
-                            .request(RunTermination::Exit(code));
-                        wt::bail!("run termination requested")
-                    },
-                )?;
             }
             (namespace, name, ty) => {
                 wt::bail!("unsupported Wasmtime import `{namespace}.{name}`: {ty:?}");
@@ -725,6 +714,9 @@ fn js_string_value<'a, T: 'static>(
     let Some(data) = reference.data(store)? else {
         return Ok(JsStringValue::Other);
     };
+    let data = data
+        .downcast_ref::<Box<dyn std::any::Any + Send + Sync>>()
+        .map_or(data, |data| data.as_ref());
     Ok(match data.downcast_ref::<JsString>() {
         Some(string) => JsStringValue::String(string),
         None => JsStringValue::Other,

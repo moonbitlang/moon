@@ -28,6 +28,7 @@ pub(super) fn init_env<'s>(
     wasm_file_name: &str,
     args: &[String],
     run_context: &V8RunContext,
+    values: Rc<super::values::State>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
     wasi::imports::register(&mut super::wasm_imports::Registry {
@@ -41,6 +42,7 @@ pub(super) fn init_env<'s>(
         )),
         memory: Rc::clone(run_context.memory_binding()),
         termination: run_context.termination_request().clone(),
+        values,
         retained: dtors,
     })
     .unwrap();

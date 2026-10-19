@@ -399,3 +399,26 @@ fn compiler_produced_time_and_exit_use_legacy_imports() {
         }
     }
 }
+
+#[test]
+fn guest_gc_references_are_not_host_strings() {
+    let engine = Engine::default();
+    let wasm = wat::parse_str(r#"(module
+        (type $record (struct (field i32)))
+        (import "__moonbit_fs_unstable" "jsvalue_is_string" (func $is_string (param externref) (result i32)))
+        (func (export "_start")
+            i32.const 42 struct.new $record extern.convert_any
+            call $is_string if unreachable end))"#).unwrap();
+    let module = engine.compile("guest-reference.wasm", wasm);
+    #[cfg(feature = "wee8")]
+    {
+        // The upstream validator excludes externalized GC objects. Keep that
+        // boundary instead of expanding the proposal allowlist in this refactor.
+        assert!(format!("{:#}", module.unwrap_err()).contains("extern.convert_any"));
+    }
+    #[cfg(not(feature = "wee8"))]
+    assert_eq!(
+        engine.run(&module.unwrap(), RunOptions::default()).unwrap(),
+        RunOutcome::Completed
+    );
+}

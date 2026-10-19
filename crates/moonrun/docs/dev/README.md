@@ -17,13 +17,14 @@
 ## Shared Wasm import registration
 
 `wasm_imports::ImportRegistry` defines synchronous imports once for V8,
-Wasmtime and wee8. WASIp1, async, SQLite and the core executable-path imports
-supply shared registrations; backend setup supplies per-run state, memory access
-and callback retention.
+Wasmtime and wee8. WASIp1, async, SQLite, core executable paths, and the legacy
+filesystem/environment/value/stdio/random/time/process imports supply shared
+registrations. Backend setup supplies per-run state, memory access, native value
+representation and callback retention.
 
 Registration follows Wasmtime's [`func_wrap`/`IntoFunc` pattern](https://github.com/bytecodealliance/wasmtime/blob/v48.0.1/crates/wasmtime/src/runtime/func.rs):
 ordinary typed Rust callbacks supply the parameter types and order. The Rust
-return type supplies one scalar numeric result or no result. The internal tuple
+return type supplies one numeric or nullable externref result, or no result. The internal tuple
 connects argument decoding to invocation; definitions take individual arguments
 and may capture owned state. `HostFunction` supports zero through eleven arguments,
 including async's process-spawn and TLS signatures. It does not reuse Wasmtime's
@@ -32,11 +33,24 @@ engine-specific host-function representation.
 All adapters decode parameters before borrowing Guest Memory. Integers cross
 as signless bits; floats use their bit representation. V8 converts i64 through
 BigInt, never through a JavaScript Number. This preserves host Handles and
-SQLite integer values outside the exact f64 integer range. References and
-multi-result host calls remain outside this interface.
+SQLite integer values outside the exact f64 integer range. Reference parameters
+and results borrow the current native invocation. V8 uses Local handles,
+Wasmtime uses its host trampoline's root scope, and wee8 uses its store-owned
+native roots; Moonrun adds no integer reference table. Multi-result host calls
+remain outside this interface.
 
-The caller contains borrowed Host Domain state, deferred memory access and a
-run termination request, with no engine handles or guest re-entry. A memory-free
+Reference signatures rebind the call lifetime through the internal type traits.
+Named functions spell that lifetime explicitly; captured reference closures use
+small higher-ranked signature helpers so Rust can infer the relationship. The
+reference signatures cover the current legacy ABI. Adding a different shape
+requires extending that internal signature list, not editing each adapter.
+
+The caller exposes scoped Host Domain state, reference conversion and a run
+termination request. `with_memory` consumes it and passes a `MemoryCaller`
+without engine access. Host code therefore cannot allocate references or re-enter
+the engine while a guest memory view is live. The separate context and reference
+lifetimes allow a result root to outlive the temporary adapter borrow until the
+engine has encoded that result. A memory-free
 operation can run without exported memory, including in a module start section.
 Each domain interprets memory-access failure as before: WASI returns EFAULT for
 unbound V8 memory, async records Fault when its implementation needs memory, and
@@ -79,8 +93,12 @@ rather than exposing Runtime through the async context.
 
 The imports are grouped by their guest ABI:
 
-- `filesystem/v8/values.rs` registers the string/array helpers alongside the
-  other `__moonbit_fs_unstable` imports.
+- `host_imports.rs` registers the legacy host ABI once for all adapters;
+  `v8/values.rs` supplies V8's native string/array/builder/reader representation.
+- `wasm_imports/payload.rs` shares the typed Rust payload representation used by
+  Wasmtime and wee8. Wasmtime's JS-string and `ffi-bytes` adapters recognize the
+  same string/byte payloads. A guest GC object without a Rust payload is a valid
+  externref but is not a host string.
 - `v8/ffi_bytes.rs` implements `ffi-bytes` and owns its memory registration.
 - `v8/exception.rs` implements the exception tag and throw import.
 
@@ -94,7 +112,9 @@ Strings preserve UTF-16 code units, including unpaired surrogates. Builders own
 private V8 ArrayBuffers with geometric growth; readers retain their live source.
 The buffer/source and position are direct GC-traced fields of opaque, branded
 objects. Rust uses temporary typed views and owns no persistent builder/reader
-payload. Finishing a builder creates an independent value. The exception adapter
+payload. Finishing a builder creates an independent value. Opaque RNG and clock values use branded V8 objects with native weak finalizers;
+the weak registrations own cleanup closures without keeping guest objects alive.
+Run teardown also releases payloads that have not yet been collected. The exception adapter
 retains its constructor and tag through strong V8 handles for the duration of a Run.
 Byte slicing preserves relative/clamped indices, copying permits overlapping
 views, and `ffi-bytes.memory` is reacquired after growth. Byte views may only be

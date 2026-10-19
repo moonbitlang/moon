@@ -41,6 +41,7 @@ mod engine;
 mod filesystem;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod guest_memory;
+mod host_imports;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
 #[cfg_attr(feature = "wee8", allow(dead_code))]

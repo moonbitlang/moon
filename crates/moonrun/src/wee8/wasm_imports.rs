@@ -16,39 +16,32 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Resolve shared definitions in the module's import order for the Wasm C API.
-
+//! Bind shared typed definitions in the module's import order.
 use super::{StoreData, api};
 use crate::wasm_imports::{
-    Caller, HostFunction, ImportError, ImportRegistry, WasmParams, WasmResult, WasmType,
+    CallContext, Caller, ExternRef, HostFunction, ImportError, ImportRegistry, MemoryCaller, Value,
+    WasmParams, WasmResult, WasmType, payload::PayloadContext,
 };
-use std::rc::Rc;
+use std::{any::Any, marker::PhantomData, rc::Rc};
 
 pub(super) struct Registry<'s> {
     store: &'s api::Store<StoreData>,
     imports: Vec<api::Import>,
     functions: Vec<Option<api::HostFunc<'s, StoreData>>>,
 }
-
 impl<'s> Registry<'s> {
     pub(super) fn new(
         store: &'s api::Store<StoreData>,
         module: &api::Module<'s, StoreData>,
     ) -> api::Result<Self> {
         let imports = module.imports()?;
-        // Reference-valued imports use the native rooted-value adapter. The
-        // shared func_wrap registry below remains the numeric host interface.
-        let functions = imports
-            .iter()
-            .map(|import| super::host_imports::define(store, import))
-            .collect::<api::Result<Vec<_>>>()?;
+        let functions = (0..imports.len()).map(|_| None).collect();
         Ok(Self {
             store,
             imports,
             functions,
         })
     }
-
     pub(super) fn finish(self) -> api::Result<Vec<api::HostFunc<'s, StoreData>>> {
         self.imports
             .into_iter()
@@ -64,7 +57,65 @@ impl<'s> Registry<'s> {
             .collect()
     }
 }
-
+struct Context<'s, T> {
+    caller: api::Caller<'s, StoreData>,
+    marker: PhantomData<T>,
+}
+impl<'call, T> PayloadContext<'call> for Context<'call, T> {
+    fn new_payload(
+        &mut self,
+        data: Box<dyn Any + Send + Sync>,
+    ) -> Result<Option<ExternRef<'call>>, ImportError> {
+        // Store the trait object itself, not a second nested box/type registry.
+        self.caller
+            .extern_ref(data)
+            .map(|r| Some(ExternRef::Wee8(r)))
+            .map_err(|e| ImportError::Host(e.into()))
+    }
+    fn with_payload(
+        &self,
+        value: &Option<ExternRef<'call>>,
+        operation: &mut dyn FnMut(Option<&dyn Any>),
+    ) -> Result<(), ImportError> {
+        let Some(ExternRef::Wee8(value)) = value else {
+            return Err(ImportError::Operation("invalid host reference".into()));
+        };
+        operation(
+            value
+                .data::<Box<dyn Any + Send + Sync>>()
+                .map(|data| data.as_ref() as &dyn Any),
+        );
+        Ok(())
+    }
+}
+impl<'call, T> CallContext<'call, T> for Context<'call, T>
+where
+    StoreData: AsRef<T>,
+{
+    fn with_data(&self, operation: &mut dyn FnMut(&T)) {
+        self.caller.with_data(|s| operation(s.as_ref()));
+    }
+    fn with_memory(&mut self, operation: &mut dyn FnMut(MemoryCaller<'_, T>)) {
+        if let Err(error) = self.caller.with_memory(|s, memory| {
+            operation(MemoryCaller {
+                data: s.as_ref(),
+                memory: Ok(memory),
+                termination: &s.termination,
+            })
+        }) {
+            self.caller.with_data(|s| {
+                operation(MemoryCaller {
+                    data: s.as_ref(),
+                    memory: Err(ImportError::Host(error.into())),
+                    termination: &s.termination,
+                })
+            });
+        }
+    }
+    fn terminate(&self, outcome: crate::run_termination::RunTermination) {
+        self.caller.with_data(|s| s.termination.request(outcome));
+    }
+}
 impl<T: 'static> ImportRegistry<T> for Registry<'_>
 where
     StoreData: AsRef<T>,
@@ -76,14 +127,13 @@ where
         name: &'static str,
         function: F,
     ) -> api::Result<()> {
-        // A module can import the same definition more than once. All slots
-        // retain the same callback and its captures until their store is dropped.
         let function = Rc::new(function);
         let kind = |kind| match kind {
             WasmType::I32 => api::Kind::I32,
             WasmType::I64 => api::Kind::I64,
             WasmType::F32 => api::Kind::F32,
             WasmType::F64 => api::Kind::F64,
+            WasmType::ExternRef => api::Kind::ExternRef,
         };
         let params: Vec<_> = P::TYPES.iter().copied().map(kind).collect();
         let results: Vec<_> = R::TYPE.map(kind).into_iter().collect();
@@ -100,59 +150,47 @@ where
             *slot = Some(
                 self.store
                     .host_func(&params, &results, move |caller, args| {
-                        let params = P::decode::<std::convert::Infallible>(|index, kind| {
-                            Ok(match (kind, &args[index]) {
-                                (WasmType::I32, api::Value::I32(value)) => *value as u64,
-                                (WasmType::I64, api::Value::I64(value)) => *value as u64,
-                                (WasmType::F32, api::Value::F32(value)) => {
-                                    u64::from(value.to_bits())
+                        let mut context = Context::<T> {
+                            caller,
+                            marker: PhantomData,
+                        };
+                        let params = P::decode::<std::convert::Infallible>(|index, _| {
+                            Ok(match &args[index] {
+                                api::Value::I32(v) => Value::I32(*v as u32),
+                                api::Value::I64(v) => Value::I64(*v as u64),
+                                api::Value::F32(v) => Value::F32(v.to_bits()),
+                                api::Value::F64(v) => Value::F64(v.to_bits()),
+                                api::Value::ExternRef(v) => {
+                                    Value::ExternRef(v.clone().map(ExternRef::Wee8))
                                 }
-                                (WasmType::F64, api::Value::F64(value)) => value.to_bits(),
-                                _ => unreachable!("checked numeric import signature"),
                             })
                         })
                         .unwrap();
-                        // with_memory fails before invoking the operation. Invoke it
-                        // exactly once with deferred failure so memory-free calls such
-                        // as proc_exit still work during module instantiation.
-                        let result = match caller.with_memory(|state, memory| {
-                            function.call(
+                        let value = function
+                            .call(
                                 Caller {
-                                    data: state.as_ref(),
-                                    termination: &state.termination,
-                                    memory: Ok(memory),
+                                    context: &mut context,
                                 },
                                 params,
                             )
-                        }) {
-                            Ok(result) => result,
-                            Err(error) => caller.with_data(|state| {
-                                function.call(
-                                    Caller {
-                                        data: state.as_ref(),
-                                        termination: &state.termination,
-                                        memory: Err(ImportError::Host(error.into())),
-                                    },
-                                    params,
-                                )
-                            }),
-                        };
-                        result
-                            .map(|value| {
-                                R::TYPE
-                                    .zip(value.into_bits())
-                                    .map(|(kind, bits)| match kind {
-                                        WasmType::I32 => api::Value::I32(bits as i32),
-                                        WasmType::I64 => api::Value::I64(bits as i64),
-                                        WasmType::F32 => {
-                                            api::Value::F32(f32::from_bits(bits as u32))
-                                        }
-                                        WasmType::F64 => api::Value::F64(f64::from_bits(bits)),
-                                    })
-                                    .into_iter()
-                                    .collect()
+                            .map_err(|e| api::Error::Host(e.at(module, name).to_string()))?;
+                        Ok(R::encode(value)
+                            .map(|value| match value {
+                                Value::I32(v) => api::Value::I32(v as i32),
+                                Value::I64(v) => api::Value::I64(v as i64),
+                                Value::F32(v) => api::Value::F32(f32::from_bits(v)),
+                                Value::F64(v) => api::Value::F64(f64::from_bits(v)),
+                                Value::ExternRef(None) => api::Value::ExternRef(None),
+                                Value::ExternRef(Some(ExternRef::Wee8(v))) => {
+                                    api::Value::ExternRef(Some(v))
+                                }
+                                #[cfg(feature = "wasmtime")]
+                                Value::ExternRef(Some(_)) => {
+                                    unreachable!("reference from another adapter")
+                                }
                             })
-                            .map_err(|error| api::Error::Host(error.at(module, name).to_string()))
+                            .into_iter()
+                            .collect())
                     })?,
             );
         }

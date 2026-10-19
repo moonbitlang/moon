@@ -82,7 +82,8 @@ This is a working integration MVP, not a replacement for either full backend:
 - Wasm 1.0 execution, bulk-memory, SIMD, multi-value guest code, internal GC
   structs/arrays and typed function references, guest-defined memory/globals/tables,
   and `_start`. The upstream Rust crate supports rooted host `externref` values;
-  Moonrun's shared host registrations still use numeric arguments/results.
+  Moonrun's shared host registrations support numeric and nullable externref
+  arguments/results.
 - Legacy `spectest.print_char` output uses the same per-run UTF-16 writer as V8
   and Wasmtime, including surrogate pairs. This supports ordinary compiler-produced
   `wasm-gc` programs that keep their GC values inside the guest.
@@ -98,9 +99,10 @@ This is a working integration MVP, not a replacement for either full backend:
   Host Domains as V8 and Wasmtime.
 - The legacy string/byte-array builders and readers, string arrays, arguments,
   environment lookup/mutation, synchronous filesystem operations, stdio,
-  seeded random numbers, clocks and process exit. Their adapter follows
-  Wasmtime's value semantics; filesystem policy and I/O, environment and stdio
-  use the Runtime's existing Host Domains. Values use rooted native externrefs,
+  seeded random numbers, clocks and process exit. All three engines use the
+  same typed import definitions. Wasmtime and wee8 share Rust value payloads;
+  V8 retains native values for compatibility with its JS-string/byte APIs.
+  Filesystem policy and I/O, environment and stdio use existing Host Domains. Values use rooted native externrefs,
   with no separate reference table. Filesystem status results belong to one run.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
