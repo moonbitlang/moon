@@ -1043,7 +1043,7 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Performing DFS post-order traversal to collect dependencies");
 
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let (link_core_deps, _, abort_overridden) = self.dfs_link_core_sources(target)?;
+        let (link_core_deps, _, link_stdlib_abort) = self.dfs_link_core_sources(target)?;
 
         // The traversal has already replaced unnecessary dependencies.
         for target in &link_core_deps {
@@ -1060,7 +1060,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
         let link_core_info = LinkCoreInfo {
             linked_order: targets,
-            abort_overridden,
+            link_stdlib_abort,
         };
         self.res
             .backend
@@ -1248,8 +1248,8 @@ impl<'a> BuildPlanConstructor<'a> {
         // package itself and its blackbox test target both being added, which
         // is redundant.
         let mut c_stub_deps: IndexSet<PackageId> = IndexSet::new();
-        // Whether `moonbitlang/core/abort` is overridden
-        let abort_overridden = abort_override_pkg.is_some();
+        // Core versions without abort need no separate default implementation.
+        let link_stdlib_abort = abort.is_some() && abort_override_pkg.is_none();
 
         let graph = &self.input.package_relations.dep_graph;
 
@@ -1380,7 +1380,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        Ok((link_core_deps, c_stub_deps, abort_overridden))
+        Ok((link_core_deps, c_stub_deps, link_stdlib_abort))
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

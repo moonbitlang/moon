@@ -74,6 +74,12 @@ important ones and why they exist.
   should render paths from the supplied resolver; they should not call
   `moonutil::toolchain::core()` or otherwise decide whether prebuilt stdlib
   artifacts are in use.
+- **The prebuilt abort default is optional.** Link planning includes it only
+  when stdlib is injected, discovery found `moonbitlang/core/abort`, and the
+  target does not override it. Lowering uses that decision for both compiler
+  arguments and execution inputs. Core versions without abort do not need its
+  artifact, even if a stale `abort.core` remains on disk. A declared abort
+  package with a missing artifact still fails normally.
 - **`abort_pkg` is discovery-only, not build-mode.** We always record the abort
   package ID if it exists, even when building the stdlib. Build-mode decisions
   (use prebuilt paths vs local artifacts) are gated by whether stdlib is
