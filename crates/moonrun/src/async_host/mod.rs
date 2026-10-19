@@ -4239,9 +4239,17 @@ mod tests {
         host.handles.borrow().resource_count_excluding_reserved()
     }
 
-    fn test_host(mut policy: Policy, environment: Env) -> AsyncHost {
+    fn test_host(policy: Policy, environment: Env) -> AsyncHost {
+        test_host_with_working_directory(policy, environment, WorkingDirectory::Ambient)
+    }
+
+    fn test_host_with_working_directory(
+        mut policy: Policy,
+        environment: Env,
+        working_directory: WorkingDirectory,
+    ) -> AsyncHost {
         let environment = Arc::new(environment);
-        let working_directory = Arc::new(WorkingDirectory::Ambient);
+        let working_directory = Arc::new(working_directory);
         let filesystem = Arc::new(HostFs::new(
             policy.take_filesystem_policy(),
             Arc::clone(&environment),
@@ -6384,25 +6392,52 @@ mod tests {
             .join("../../third_party/moonbitlang_async/test_keys");
         std::fs::copy(fixtures.join("key.pem"), root.join("key.pem")).unwrap();
         std::fs::copy(fixtures.join("cert.pem"), root.join("cert.pem")).unwrap();
-        let mut host = default_host();
-        host.filesystem = Arc::new(HostFs::new(
-            None,
-            Arc::clone(&host.environment),
-            Arc::new(WorkingDirectory::Fixed(root)),
-        ));
-
-        let handle = host.tls_new();
-        let status = host
-            .tls_set_server_files(
-                handle,
-                "key.pem".into(),
-                tls::TlsFileType::Pem,
-                "cert.pem".into(),
-                tls::TlsFileType::Pem,
-            )
-            .unwrap();
-        assert_eq!(status, tls::TLS_SUCCESS_STATUS);
-        host.tls_free(handle).unwrap();
+        for (policy_text, denied_file) in [
+            (None, None),
+            (Some("[fs]\nread = [\".\"]\n"), None),
+            (Some("[fs]\nread = []\n"), Some("private key")),
+            (Some("[fs]\nread = [\"key.pem\"]\n"), Some("certificate")),
+        ] {
+            let (policy, environment) = if let Some(text) = policy_text {
+                let policy_file = root.join("policy.toml");
+                std::fs::write(&policy_file, text).unwrap();
+                let (policy, environment) = policy::load_file(&policy_file).unwrap();
+                (policy, environment.realize().unwrap())
+            } else {
+                (Policy::allow_all(), Env::ambient())
+            };
+            let host = test_host_with_working_directory(
+                policy,
+                environment,
+                WorkingDirectory::Fixed(root.clone()),
+            );
+            let handle = host.tls_new();
+            let status = host
+                .tls_set_server_files(
+                    handle,
+                    "key.pem".into(),
+                    tls::TlsFileType::Pem,
+                    "cert.pem".into(),
+                    tls::TlsFileType::Pem,
+                )
+                .unwrap();
+            if let Some(label) = denied_file {
+                assert_eq!(status, tls::TLS_ERROR_STATUS, "policy: {policy_text:?}");
+                let error = host.tls_take_error(handle).unwrap();
+                host.with_c_buffer(error, |buffer| {
+                    let expected = error_message_buffer(format!(
+                        "failed to access TLS {label} file: PermissionDenied"
+                    ));
+                    assert_eq!(buffer, &*expected);
+                    Ok(())
+                })
+                .unwrap();
+                host.free_c_buffer(error).unwrap();
+            } else {
+                assert_eq!(status, tls::TLS_SUCCESS_STATUS, "policy: {policy_text:?}");
+            }
+            host.tls_free(handle).unwrap();
+        }
     }
 
     #[test]
