@@ -476,7 +476,6 @@ pub(crate) fn build_standalone_wasm(
         verbose,
         trace: false,
         dry_run: false,
-        build_graph: false,
         unstable_feature: ""
             .parse()
             .expect("empty unstable feature set must be valid"),

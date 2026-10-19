@@ -146,9 +146,6 @@ fn run_moon(mut invocation: MoonInvocation) -> i32 {
         };
     invocation.flags.workspace_env = workspace_env;
 
-    for warning in invocation.flags.deprecation_warnings() {
-        output.user_log().warn(warning);
-    }
     if let Some(warning) = workspace_env_deprecation_warning {
         output.user_log().warn(warning);
     }

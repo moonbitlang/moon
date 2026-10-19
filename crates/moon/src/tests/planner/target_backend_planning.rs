@@ -129,7 +129,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -154,7 +153,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -179,7 +177,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -198,7 +195,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -229,7 +225,6 @@ fn all_target_test_planning_selects_every_concrete_backend() {
         "--target",
         "all",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);

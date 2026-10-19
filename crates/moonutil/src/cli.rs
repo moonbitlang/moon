@@ -47,17 +47,12 @@ pub struct UniversalFlags {
     pub verbose: bool,
 
     /// Trace the execution of the program
-    // The module `n2::trace` doesn't suppose parallelism now, so `--trace`
-    // should be used in conjunction with `--serial` and `--no-parallelize`.
     #[clap(long, global = true)]
     pub trace: bool,
 
     /// Do not actually run the command
     #[clap(long, global = true)]
     pub dry_run: bool,
-
-    #[clap(long, global = true, conflicts_with = "dry_run", hide = true)]
-    pub build_graph: bool,
 
     /// Unstable flags to MoonBuild.
     #[clap(long, short = 'Z', default_value = "", env = "MOON_UNSTABLE")]
@@ -67,17 +62,6 @@ pub struct UniversalFlags {
 impl UniversalFlags {
     pub fn user_log_level(&self) -> log::LevelFilter {
         crate::user_log::user_log_level(self.verbose, self.quiet)
-    }
-
-    /// Collect deprecation warnings for deprecated flags.
-    pub fn deprecation_warnings(&self) -> Vec<&'static str> {
-        let mut warnings = Vec::new();
-        if self.build_graph {
-            warnings.push(
-                "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead",
-            );
-        }
-        warnings
     }
 }
 

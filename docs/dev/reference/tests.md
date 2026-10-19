@@ -7,6 +7,8 @@ behavior can change.
 
 ## Build + run pipeline
 
+`moon test` includes ordinary tests, doc tests, and Markdown tests by default.
+
 An explicit `.mbtx` file path selects a standalone script before project discovery.
 It uses the script's imports and does not load the surrounding project. Exactly
 one path is accepted in this mode; package-wide testing does not discover scripts.

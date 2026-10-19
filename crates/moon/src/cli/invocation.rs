@@ -286,10 +286,7 @@ fn early_subcommand(raw_args: &[OsString]) -> Option<EarlySubcommand<'_>> {
                     || arg.starts_with("--unstable-feature=")
                     || (arg.starts_with("-Z") && arg.len() > 2) => {}
             Some("--trace") => explicit_trace = true,
-            Some(
-                "-V" | "--version" | "-q" | "--quiet" | "-v" | "--verbose" | "--dry-run"
-                | "--build-graph",
-            ) => {}
+            Some("-V" | "--version" | "-q" | "--quiet" | "-v" | "--verbose" | "--dry-run") => {}
             Some(arg) if arg.starts_with('-') && !arg.starts_with("--") && arg.len() > 2 => {
                 let mut flags = &arg[1..];
                 while matches!(flags.as_bytes().first().copied(), Some(b'V' | b'q' | b'v')) {

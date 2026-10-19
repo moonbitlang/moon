@@ -6,7 +6,7 @@ mod n2_compaction;
 fn test_many_targets() {
     let dir = TestDir::new("targets/many_targets");
     check(
-        get_stdout(&dir, ["test", "--target", "all", "--serial"]),
+        get_stdout(&dir, ["test", "--target", "all"]),
         expect![[r#"
             Total tests: 2, passed: 2, failed: 0. [wasm]
             Total tests: 2, passed: 2, failed: 0. [wasm-gc]
@@ -16,7 +16,7 @@ fn test_many_targets() {
     );
 
     check(
-        get_stdout(&dir, ["test", "--target", "js,wasm", "--serial"]),
+        get_stdout(&dir, ["test", "--target", "js,wasm"]),
         expect![[r#"
             Total tests: 2, passed: 2, failed: 0. [wasm]
             Total tests: 2, passed: 2, failed: 0. [js]
@@ -125,7 +125,7 @@ fn multi_target_tests_wait_for_every_backend_to_build() {
     let dir = TestDir::new("targets/build_barrier");
 
     snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .args(["test", "--target", "wasm,js", "--serial"])
+        .args(["test", "--target", "wasm,js"])
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .env("MOON_DEP_CACHE", "off")
         .current_dir(&dir)
@@ -305,10 +305,7 @@ fn test_many_targets_auto_update_004() {
 fn test_many_targets_expect_failed() {
     let dir = TestDir::new("targets/expect_failed");
     check(
-        get_err_stdout(
-            &dir,
-            ["test", "--target", "all", "--serial", "--sort-input"],
-        ),
+        get_err_stdout(&dir, ["test", "--target", "all", "--sort-input"]),
         expect![[r#"
             [username/hello] test lib/x.wasm.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
@@ -349,10 +346,7 @@ fn test_many_targets_expect_failed() {
         "#]],
     );
     check(
-        get_err_stdout(
-            &dir,
-            ["test", "--target", "js,wasm", "--sort-input", "--serial"],
-        ),
+        get_err_stdout(&dir, ["test", "--target", "js,wasm", "--sort-input"]),
         expect![[r#"
             [username/hello] test lib/x.wasm.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
@@ -376,16 +370,7 @@ fn test_many_targets_expect_failed() {
     );
 
     check(
-        get_err_stdout(
-            &dir,
-            [
-                "test",
-                "--target",
-                "js,wasm,native",
-                "--sort-input",
-                "--serial",
-            ],
-        ),
+        get_err_stdout(&dir, ["test", "--target", "js,wasm,native", "--sort-input"]),
         expect![[r#"
             [username/hello] test lib/x.wasm.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
