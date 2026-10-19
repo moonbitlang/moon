@@ -3824,6 +3824,10 @@ impl AsyncHost {
         certificate_file: std::path::PathBuf,
         certificate_type: tls::TlsFileType,
     ) -> AsyncHostResult<i32> {
+        let private_key_file =
+            std::path::PathBuf::from(self.filesystem.resolve_path(private_key_file.as_os_str()));
+        let certificate_file =
+            std::path::PathBuf::from(self.filesystem.resolve_path(certificate_file.as_os_str()));
         for (label, path) in [
             ("TLS private key", private_key_file.as_path()),
             ("TLS certificate", certificate_file.as_path()),
@@ -6369,6 +6373,36 @@ mod tests {
         for handle in [pending, configured] {
             assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
         }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn tls_set_server_files_resolves_relative_paths_against_fixed_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(tmp.path()).unwrap();
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../third_party/moonbitlang_async/test_keys");
+        std::fs::copy(fixtures.join("key.pem"), root.join("key.pem")).unwrap();
+        std::fs::copy(fixtures.join("cert.pem"), root.join("cert.pem")).unwrap();
+        let mut host = default_host();
+        host.filesystem = Arc::new(HostFs::new(
+            None,
+            Arc::clone(&host.environment),
+            Arc::new(WorkingDirectory::Fixed(root)),
+        ));
+
+        let handle = host.tls_new();
+        let status = host
+            .tls_set_server_files(
+                handle,
+                "key.pem".into(),
+                tls::TlsFileType::Pem,
+                "cert.pem".into(),
+                tls::TlsFileType::Pem,
+            )
+            .unwrap();
+        assert_eq!(status, tls::TLS_SUCCESS_STATUS);
+        host.tls_free(handle).unwrap();
     }
 
     #[test]
