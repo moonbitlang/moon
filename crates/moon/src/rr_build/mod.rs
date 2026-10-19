@@ -404,6 +404,37 @@ pub(crate) fn prepare_resolved_build(
     })
 }
 
+/// Drop the direct-object candidate when `MOON_CC` targets another machine.
+///
+/// Direct objects are emitted for the host, so such a compiler cannot link
+/// them. The compiler is probed only when planning could select direct objects:
+/// a debug build that requests a native executable. The planner still selects
+/// the final payload form.
+fn drop_direct_objects_for_cross_env_cc(cx: &mut CompileConfig, requested: &[ArtifactKey]) {
+    let BackendConfig::Native {
+        direct_object_candidate,
+        ..
+    } = &mut cx.backend
+    else {
+        return;
+    };
+    if direct_object_candidate.is_none()
+        || cx.opt_level != BuildProfile::Debug
+        || !requested
+            .iter()
+            .any(|artifact| matches!(artifact, ArtifactKey::Executable { .. }))
+    {
+        return;
+    }
+    if compiler_flags::ENV_CC
+        .as_ref()
+        .is_some_and(|cc| !cc.targets_host())
+    {
+        info!("Disabling direct object native output: MOON_CC does not target the host");
+        *direct_object_candidate = None;
+    }
+}
+
 /// Plan a build graph from an already resolved project and command intent.
 ///
 /// At this boundary, command adapters have already resolved user selectors and
@@ -416,7 +447,7 @@ pub(crate) fn prepare_resolved_build(
 #[instrument(level = Level::DEBUG, skip_all)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_resolved_build_from_intent(
-    cx: CompileConfig,
+    mut cx: CompileConfig,
     user_log: &UserLog,
     intent: CalcUserIntentOutput,
     resolved_project: ResolvedProject,
@@ -461,6 +492,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     info!("Expanding user intents to requested artifacts");
     let requested_artifacts =
         intent.requested_artifacts(&resolved_project, user_log, cx.backend.target_backend());
+    drop_direct_objects_for_cross_env_cc(&mut cx, &requested_artifacts);
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
