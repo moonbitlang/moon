@@ -11,6 +11,11 @@
 Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.exe` 或
 `clang-cl.exe`，用于编译运行时、C stub 和链接可执行文件。
 
+## 浮点运算
+
+使用 GCC/Clang 的 Native C 编译默认通过 `-ffp-contract=off` 禁止浮点运算收缩，
+保留乘法、加法等各步运算独立舍入的语义。MSVC 兼容编译器保持默认行为。
+
 ## 内存分配器
 
 `MOONBIT_ALLOCATOR` 用于选择原生运行时构建所使用的内存分配器：

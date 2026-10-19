@@ -1365,6 +1365,56 @@ mod tests {
     }
 
     #[test]
+    fn gcc_like_floating_point_defaults_preserve_separate_rounding() {
+        let paths = CompilerPaths {
+            include_path: "include".into(),
+            lib_path: "lib".into(),
+        };
+        for kind in [
+            CCKind::SystemCC,
+            CCKind::Gcc,
+            CCKind::Clang,
+            CCKind::Msvc,
+            CCKind::Tcc,
+        ] {
+            for opt_level in [
+                OptLevel::None,
+                OptLevel::Debug,
+                OptLevel::Speed,
+                OptLevel::Size,
+            ] {
+                for output_ty in [
+                    OutputType::Object,
+                    OutputType::Executable,
+                    OutputType::SharedLib,
+                ] {
+                    for user_flags in [vec![], vec!["-DUSER_OPTION=1"]] {
+                        let command = make_cc_command_resolved_with_link_args(
+                            fake_cc(kind, None),
+                            CCConfig {
+                                opt_level,
+                                output_ty,
+                                ..executable_cc_config()
+                            },
+                            &user_flags,
+                            &[],
+                            ["main.c"],
+                            "build/main",
+                            Some("build/main/output"),
+                            &paths,
+                        );
+                        assert_eq!(
+                            command.iter().any(|flag| flag == "-ffp-contract=off"),
+                            !matches!(kind, CCKind::Msvc | CCKind::Tcc),
+                            "unexpected floating-point defaults: {command:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn native_allocator_parses_environment_values() {
         assert_eq!(
             NativeAllocator::parse("mimalloc").unwrap(),
