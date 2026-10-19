@@ -30,83 +30,20 @@ pub(super) struct MbtxFrontMatterImports {
     pub(super) imports: Vec<Import>,
 }
 
-#[allow(clippy::disallowed_methods)] // .mbtx parsing needs explicit file reads.
 pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterImports> {
     if file.extension().is_none_or(|x| x != "mbtx") {
         return Ok(MbtxFrontMatterImports::default());
     }
 
-    let content = std::fs::read_to_string(file)
-        .with_context(|| format!("failed to read .mbtx file `{}`", file.display()))?;
+    let header = moonutil::front_matter::MbtxFrontMatter::from_file(file)?;
     let registry = RegistryClient::configured();
-    let Some(import_source) = extract_mbtx_import_source(&content) else {
-        return Ok(MbtxFrontMatterImports::default());
-    };
-
-    let parsed = moonutil::moon_pkg::parse(import_source)
-        .with_context(|| format!("invalid .mbtx import syntax: `{import_source}`"))?;
-    let object: std::collections::HashMap<_, _> = parsed.iter().collect();
-    if object.len() != 1 {
-        anyhow::bail!("invalid .mbtx import syntax: malformed import statement");
-    }
-    if object.contains_key("test-import") || object.contains_key("wbtest-import") {
-        anyhow::bail!(
-            "`test-import` and `wbtest-import` are not supported in .mbtx import prelude"
-        );
-    }
-    let import_values = object
-        .get("import")
-        .and_then(|value| value.as_array())
-        .ok_or_else(|| {
-            anyhow::anyhow!("invalid .mbtx import block entries: `import` must be an array")
-        })?;
 
     let mut deps = IndexMap::new();
     let mut module_versions: IndexMap<String, String> = IndexMap::new();
-    let mut imports = Vec::with_capacity(import_values.len());
+    let mut imports = Vec::with_capacity(header.imports.len());
 
-    for value in import_values {
-        let (import_path, alias, import_all) = if let Some(path) = value.as_str() {
-            (path.to_string(), None, false)
-        } else {
-            let obj = value.as_object().ok_or_else(|| {
-                anyhow::anyhow!("invalid .mbtx import block entry: expected string or object")
-            })?;
-            if obj.contains_key("targets") {
-                anyhow::bail!("Conditional imports are only supported in moon.pkg.");
-            }
-            let path = obj
-                .get("path")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| anyhow::anyhow!("invalid .mbtx import block entry: missing `path`"))?
-                .to_string();
-            let alias = obj
-                .get("alias")
-                .map(|value| {
-                    value
-                        .as_str()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "invalid .mbtx import block entry: `alias` must be a string"
-                            )
-                        })
-                        .map(str::to_string)
-                })
-                .transpose()?;
-            let import_all = obj
-                .get("import-all")
-                .map(|value| {
-                    value.as_bool().ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "invalid .mbtx import block entry: `import-all` must be a boolean"
-                        )
-                    })
-                })
-                .transpose()?
-                .unwrap_or(false);
-            (path, alias, import_all)
-        };
-        let (module, version, package) = split_mbtx_import_path(&import_path, &registry)?;
+    for mut import in header.imports {
+        let (module, version, package) = split_mbtx_import_path(import.get_path(), &registry)?;
 
         match module_versions.entry(module.clone()) {
             indexmap::map::Entry::Occupied(existing) if existing.get() != &version => {
@@ -121,18 +58,10 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
             _ => {}
         }
 
-        let normalized_import = if alias.is_some() || import_all {
-            Import::Alias {
-                path: package,
-                alias,
-                sub_package: false,
-                import_all,
-                targets: None,
-            }
-        } else {
-            Import::Simple(package)
-        };
-        imports.push(normalized_import);
+        match &mut import {
+            Import::Simple(path) | Import::Alias { path, .. } => *path = package,
+        }
+        imports.push(import);
     }
 
     for (module, version) in module_versions {
@@ -144,20 +73,6 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
     }
 
     Ok(MbtxFrontMatterImports { deps, imports })
-}
-
-fn extract_mbtx_import_source(content: &str) -> Option<&str> {
-    static IMPORT_BLOCK_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let import_block_re = IMPORT_BLOCK_RE.get_or_init(|| {
-        regex::Regex::new(
-            r"(?ms)\A(?:(?:[ \t]*//[^\n]*|[ \t]*)\r?\n)*(?P<import>[ \t]*import[ \t]*\{.*?\}[^\n]*(?:\r?\n)?)",
-        )
-        .expect("valid .mbtx import-block regex")
-    });
-    import_block_re
-        .captures(content)
-        .and_then(|captures| captures.name("import"))
-        .map(|import| import.as_str())
 }
 
 fn split_mbtx_import_path(
@@ -198,10 +113,7 @@ if version is omitted, the module path must be resolvable from local registry in
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use super::{
-        MbtxFrontMatterImports, extract_mbtx_import_source, parse_mbtx_imports,
-        split_mbtx_import_path,
-    };
+    use super::{MbtxFrontMatterImports, parse_mbtx_imports, split_mbtx_import_path};
     use mooncake::registry::RegistryClient;
     use moonutil::package::Import;
     use moonutil::resolution::DEFAULT_VERSION;
@@ -215,9 +127,34 @@ mod tests {
             std::process::id()
         ));
         std::fs::write(&path, content)?;
-        let parsed = parse_mbtx_imports(&path)?;
+        let parsed = parse_mbtx_imports(&path);
         let _ = std::fs::remove_file(&path);
-        Ok(parsed)
+        parsed
+    }
+
+    #[test]
+    fn parse_mbtx_imports_from_delimited_front_matter() {
+        let parsed = parse_imports_from_source(
+            r#"---
+import { "example/lib@1.2.3/first" @first }
+permission(env: { "set": { "MODE": "embedded" } })
+import { "example/lib@1.2.3/second" @second * }
+---
+fn main {}
+"#,
+        )
+        .expect("front matter imports should resolve");
+        assert_eq!(parsed.imports.len(), 2);
+        assert_eq!(parsed.imports[0].get_path(), "example/lib/first");
+        assert!(
+            matches!(&parsed.imports[0], Import::Alias { alias: Some(alias), .. } if alias == "first")
+        );
+        assert_eq!(parsed.imports[1].get_path(), "example/lib/second");
+        assert!(
+            matches!(&parsed.imports[1], Import::Alias { alias: Some(alias), import_all: true, .. } if alias == "second")
+        );
+        assert_eq!(parsed.deps.len(), 1);
+        assert!(parsed.deps.contains_key("example/lib"));
     }
 
     #[test]
@@ -228,7 +165,7 @@ mod tests {
         .err()
         .expect("conditional script imports must be rejected");
         assert_eq!(
-            error.to_string(),
+            error.root_cause().to_string(),
             "Conditional imports are only supported in moon.pkg."
         );
     }
@@ -345,63 +282,6 @@ mod tests {
                 ..
             } if alias == "xstack"
         ));
-    }
-
-    #[test]
-    fn extract_mbtx_import_source_returns_none_without_import() {
-        let input = "fn main { println(\"ok\") }\n";
-        assert_eq!(extract_mbtx_import_source(input), None);
-    }
-
-    #[test]
-    fn extract_mbtx_import_source_supports_crlf() {
-        let input = "import {\r\n  \"a/b@0.1.0/c\",\r\n}\r\n\r\nfn main {}\r\n";
-        assert_eq!(
-            extract_mbtx_import_source(input),
-            Some("import {\r\n  \"a/b@0.1.0/c\",\r\n}\r\n")
-        );
-    }
-
-    #[test]
-    fn extract_mbtx_import_source_stops_before_doc_comment_sentinel() {
-        let input = "import {\n  \"a/b@0.1.0/c\",\n}\n///|\nfn main {}\n";
-        assert_eq!(
-            extract_mbtx_import_source(input),
-            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
-        );
-    }
-
-    #[test]
-    fn extract_mbtx_import_source_stops_before_pub_sentinel() {
-        let input = "import {\n  \"a/b@0.1.0/c\",\n}\npub fn main {}\n";
-        assert_eq!(
-            extract_mbtx_import_source(input),
-            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
-        );
-    }
-
-    #[test]
-    fn extract_mbtx_import_source_only_returns_first_import_statement() {
-        let input = r#"import {
-  "a/b@0.1.0/c",
-}
-import {
-  "x/y@1.2.3",
-}
-"#;
-        assert_eq!(
-            extract_mbtx_import_source(input),
-            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
-        );
-    }
-
-    #[test]
-    fn extract_mbtx_import_source_finds_import_after_leading_comment() {
-        let input = "// leading comment\nimport {\n  \"a/b@0.1.0/c\",\n}\nfn main {}\n";
-        assert_eq!(
-            extract_mbtx_import_source(input),
-            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
-        );
     }
 
     #[test]

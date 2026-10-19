@@ -339,6 +339,16 @@ The synthetic `.mbtx` package is always executable. Building, running, and
 testing a script require a user `fn main`; tests execute the generated test
 entrypoint instead of the script's main.
 
+Script declarations use `moon.pkg` grammar in leading `---` front matter:
+`import { ... }` declares dependencies and `permission(...)` declares the
+embedded Moonrun Policy. The shared front matter parser reads import
+structures and untyped permission values; dependency resolution selects module
+versions, and Moonrun validates the effective permission schema. An optional
+first-line shebang is skipped when interpreting either declaration format.
+The legacy import prelude and `// policy:` YAML comments remain supported;
+legacy YAML is decoded only when selected as the effective permission. See
+[`moonx`](moonx.md#standalone-mbtx) for syntax and policy precedence.
+
 `moon fmt` also accepts explicit `.mbtx` paths, including several scripts mixed
 with package selectors. Each script is formatted on its own without loading
 the surrounding project or resolving its dependencies. Scripts use the same

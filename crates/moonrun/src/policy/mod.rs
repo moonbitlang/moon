@@ -285,10 +285,9 @@ mod tests {
         let temporary_source = temporary_source_dir.path().join("stdin.mbtx");
         std::fs::write(
             &temporary_source,
-            r#"// policy:
-//   fs:
-//     read:
-//       - allowed
+            r#"---
+permission(fs: { "read": ["allowed"] })
+---
 
 fn main {}
 "#,
