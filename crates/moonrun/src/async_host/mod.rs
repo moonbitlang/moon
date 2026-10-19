@@ -386,16 +386,9 @@ impl HandleTable {
         handle_from_key(key)
     }
 
+    #[cfg(windows)]
     fn insert(&mut self, kind: HandleKind) -> HandleKey {
         self.keys.borrow_mut().insert(kind)
-    }
-
-    fn poll(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::Poll)
-    }
-
-    fn remove_poll(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::Poll)
     }
 
     #[cfg(windows)]
@@ -426,6 +419,7 @@ impl HandleTable {
             .ok_or(AsyncHostError::Badf)
     }
 
+    #[cfg(windows)]
     fn remove(&mut self, handle: HostHandle, expected: HandleKind) -> AsyncHostResult<HandleKey> {
         let key = self.key(handle, expected)?;
         self.keys
@@ -534,14 +528,14 @@ impl JobTable {
 }
 
 struct PollTable {
-    polls: SecondaryMap<HandleKey, HostPoll>,
+    polls: Handles<HostPoll>,
     current_event_poll: Option<HandleKey>,
 }
 
-impl Default for PollTable {
-    fn default() -> Self {
+impl PollTable {
+    fn new(keys: Rc<RefCell<HostKeys>>) -> Self {
         Self {
-            polls: SecondaryMap::new(),
+            polls: Handles::new(keys, HandleKind::Poll),
             current_event_poll: None,
         }
     }
@@ -1139,7 +1133,7 @@ impl AsyncHost {
             io_results: RefCell::new(IoResultTable::default()),
             jobs: RefCell::new(JobTable::new(keys.clone())),
             workers: InstanceWorkers::new(keys.clone()),
-            polls: RefCell::new(PollTable::default()),
+            polls: RefCell::new(PollTable::new(keys.clone())),
             thread_pool_registration: RefCell::new(None),
             signals,
             #[cfg(unix)]
@@ -1386,31 +1380,24 @@ impl AsyncHost {
 
     pub(crate) fn poll_create(&self) -> AsyncHostResult<u64> {
         let instance = poll::poll_create()?;
-        let key = self.handles.borrow_mut().insert(HandleKind::Poll);
-        self.polls.borrow_mut().polls.insert(
-            key,
-            HostPoll {
-                instance,
-                #[cfg(unix)]
-                registered_fds: HashSet::new(),
-            },
-        );
+        let key = self.polls.borrow_mut().polls.insert(HostPoll {
+            instance,
+            #[cfg(unix)]
+            registered_fds: HashSet::new(),
+        });
         Ok(handle_from_key(key))
     }
 
     pub(crate) fn poll_destroy(&self, handle: u64) -> AsyncHostResult<()> {
-        let poll_key = self.handles.borrow_mut().remove_poll(handle)?;
+        let poll_key = key_from_handle(handle);
         let poll = {
             let mut polls = self.polls.borrow_mut();
-            polls.polls.remove(poll_key).ok_or(AsyncHostError::Badf)?
-        };
-
-        {
-            let mut polls = self.polls.borrow_mut();
+            let poll = polls.polls.remove(poll_key).ok_or(AsyncHostError::Badf)?;
             if polls.current_event_poll == Some(poll_key) {
                 polls.current_event_poll = None;
             }
-        }
+            poll
+        };
 
         let registration = self
             .thread_pool_registration
@@ -1435,7 +1422,7 @@ impl AsyncHost {
         let resource = handles.resource(fd_handle)?;
         #[cfg(unix)]
         let raw_fd = resource.as_file()?.as_raw_fd();
-        let poll_key = handles.poll(poll_handle)?;
+        let poll_key = key_from_handle(poll_handle);
         let mut polls = self.polls.borrow_mut();
         let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
         #[cfg(unix)]
@@ -1470,7 +1457,7 @@ impl AsyncHost {
         let resource = handles.resource(fd_handle)?;
         #[cfg(unix)]
         let raw_fd = resource.as_file()?.as_raw_fd();
-        let poll_key = handles.poll(poll_handle)?;
+        let poll_key = key_from_handle(poll_handle);
         let mut polls = self.polls.borrow_mut();
         let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
         #[cfg(unix)]
@@ -1499,7 +1486,7 @@ impl AsyncHost {
     #[cfg(target_os = "macos")]
     pub(crate) fn poll_register_pid(&self, poll_handle: u64, pid: i32) -> AsyncHostResult<i32> {
         self.with_owned_child_pid(pid, || {
-            let poll_key = self.handles.borrow().poll(poll_handle)?;
+            let poll_key = key_from_handle(poll_handle);
             let polls = self.polls.borrow();
             let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
             poll::poll_register_pid(&poll.instance, pid)
@@ -1507,7 +1494,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn poll_wait(&self, poll_handle: u64, timeout_ms: i32) -> AsyncHostResult<i32> {
-        let poll_key = self.handles.borrow().poll(poll_handle)?;
+        let poll_key = key_from_handle(poll_handle);
         let mut polls = self.polls.borrow_mut();
         let result = {
             let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
@@ -1520,7 +1507,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn poll_get_event(&self, poll_handle: u64, index: u32) -> AsyncHostResult<u64> {
-        let poll_key = self.handles.borrow().poll(poll_handle)?;
+        let poll_key = key_from_handle(poll_handle);
         let polls = self.polls.borrow();
         if polls.current_event_poll != Some(poll_key) {
             return Err(AsyncHostError::Badf);
@@ -1641,7 +1628,9 @@ impl AsyncHost {
     }
 
     pub(crate) fn init_thread_pool(&self, poll_handle: u64) -> AsyncHostResult<HostHandle> {
-        let poll_key = self.handles.borrow().poll(poll_handle)?;
+        let poll_key = key_from_handle(poll_handle);
+        let mut polls = self.polls.borrow_mut();
+        let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
         let mut registration = self.thread_pool_registration.borrow_mut();
         if registration.is_some() {
             return Err(AsyncHostError::Inval);
@@ -1650,8 +1639,6 @@ impl AsyncHost {
         {
             let old_signal_mask = crate::async_sys::signal::init_thread_pool_signal_mask()?;
             let signal_mask_guard = ThreadPoolSignalMaskGuard::new(old_signal_mask);
-            let mut polls = self.polls.borrow_mut();
-            let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
             let (completion_notifier, event_fd) = ThreadPoolCompletionNotifier::new()?;
             let completion_notifier = Arc::new(completion_notifier);
             let source = self
@@ -1687,8 +1674,6 @@ impl AsyncHost {
         }
         #[cfg(windows)]
         {
-            let polls = self.polls.borrow();
-            let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
             let completion_port = poll::CompletionPort::from_poll(&poll.instance);
             *registration = Some(ThreadPoolRegistration {
                 poll: poll_key,
@@ -4248,10 +4233,6 @@ mod tests {
     #[repr(align(2))]
     struct AlignedBytes<const N: usize>([u8; N]);
 
-    fn poll_key(host: &AsyncHost, handle: HostHandle) -> HandleKey {
-        host.handles.borrow().poll(handle).unwrap()
-    }
-
     fn resource_count(host: &AsyncHost) -> usize {
         host.handles.borrow().resource_count_excluding_reserved()
     }
@@ -5278,13 +5259,67 @@ mod tests {
     }
 
     #[test]
+    fn dropping_host_retires_poll_handles() {
+        let host = default_host();
+        let keys = Rc::clone(&host.handles.borrow().keys);
+        let owner = host.poll_create().unwrap();
+        let unrelated = host.poll_create().unwrap();
+        host.init_thread_pool(owner).unwrap();
+        assert_eq!(host.poll_wait(owner, 0), Ok(0));
+
+        for handle in [owner, unrelated] {
+            assert_eq!(
+                keys.borrow().kind(key_from_handle(handle)),
+                Some(HandleKind::Poll)
+            );
+        }
+        drop(host);
+        for handle in [owner, unrelated] {
+            assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
+        }
+    }
+
+    #[test]
+    fn poll_handles_reject_stale_and_other_family_handles() {
+        let host = default_host();
+        let old = host.poll_create().unwrap();
+        host.poll_destroy(old).unwrap();
+        let replacement = host.poll_create().unwrap();
+        assert_ne!(old, replacement);
+        let buffer = host.insert_c_buffer(b"retained".to_vec().into_boxed_slice());
+        host.init_thread_pool(replacement).unwrap();
+        assert_eq!(host.poll_wait(replacement, 0), Ok(0));
+
+        // Polls require a live Handle, including for destruction.
+        for handle in [0, null_handle(), host.invalid_fd(), buffer, old] {
+            assert_eq!(host.poll_destroy(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.poll_wait(handle, 0), Err(AsyncHostError::Badf));
+            assert_eq!(host.poll_get_event(handle, 0), Err(AsyncHostError::Badf));
+            assert_eq!(host.init_thread_pool(handle), Err(AsyncHostError::Badf));
+        }
+        assert_eq!(host.poll_wait(replacement, 0), Ok(0));
+        assert_eq!(
+            host.init_thread_pool(replacement),
+            Err(AsyncHostError::Inval)
+        );
+        host.with_c_buffer(buffer, |bytes| {
+            assert_eq!(bytes, b"retained");
+            Ok(())
+        })
+        .unwrap();
+
+        host.poll_destroy(replacement).unwrap();
+        host.free_c_buffer(buffer).unwrap();
+        assert!(host.leak_summary().is_none());
+    }
+
+    #[test]
     fn closing_unrelated_poll_preserves_thread_pool_registration() {
         let host = default_host();
         let owner = host.poll_create().unwrap();
         let unrelated = host.poll_create().unwrap();
         let source = host.init_thread_pool(owner).unwrap();
         assert_eq!(host.init_thread_pool(unrelated), Err(AsyncHostError::Inval));
-        host.poll_destroy(unrelated).unwrap();
 
         #[cfg(unix)]
         host.thread_pool_notifier().unwrap().notify(17).unwrap();
@@ -5292,13 +5327,16 @@ mod tests {
         poll::post_thread_pool_completion(&host.thread_pool_completion_target().unwrap(), 17)
             .unwrap();
         assert_eq!(host.poll_wait(owner, 1000), Ok(1));
-        assert_eq!(
-            host.poll_event_fd(host.poll_get_event(owner, 0).unwrap()),
-            Ok(source)
-        );
+        let event = host.poll_get_event(owner, 0).unwrap();
+        host.poll_destroy(unrelated).unwrap();
+        assert_eq!(host.poll_get_event(owner, 0), Ok(event));
+        assert_eq!(host.poll_event_fd(event), Ok(source));
 
         host.poll_destroy(owner).unwrap();
+        assert_eq!(host.poll_event_fd(event), Err(AsyncHostError::Badf));
         let replacement = host.poll_create().unwrap();
+        assert_eq!(host.poll_event_fd(event), Err(AsyncHostError::Badf));
+        assert_eq!(host.poll_get_event(owner, 0), Err(AsyncHostError::Badf));
         host.init_thread_pool(replacement).unwrap();
         host.destroy_thread_pool();
         host.poll_destroy(replacement).unwrap();
@@ -5340,7 +5378,7 @@ mod tests {
             .as_raw_fd();
         {
             let polls = host.polls.borrow();
-            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            let poll = polls.polls.get(key_from_handle(poll)).unwrap();
             assert!(poll.registered_fds.contains(&raw_completion_fd));
         }
 
@@ -7658,7 +7696,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_port = {
             let polls = host.polls.borrow();
-            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            let poll = polls.polls.get(key_from_handle(poll)).unwrap();
             poll.instance.raw_fd()
         };
         let result = host.make_file_read_io_result(0, 0).unwrap();
@@ -7705,7 +7743,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_port = {
             let polls = host.polls.borrow();
-            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            let poll = polls.polls.get(key_from_handle(poll)).unwrap();
             poll.instance.raw_fd()
         };
         let completion_key = 0x1234usize;
@@ -7729,7 +7767,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_port = {
             let polls = host.polls.borrow();
-            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            let poll = polls.polls.get(key_from_handle(poll)).unwrap();
             poll.instance.raw_fd()
         };
         let posted =
@@ -7753,7 +7791,7 @@ mod tests {
         host.poll_register(poll, read, true).unwrap();
         let completion_port = {
             let polls = host.polls.borrow();
-            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            let poll = polls.polls.get(key_from_handle(poll)).unwrap();
             poll.instance.raw_fd()
         };
         let posted = unsafe {
