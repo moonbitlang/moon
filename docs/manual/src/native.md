@@ -13,6 +13,13 @@ On Windows, the new native backend requires a cl-compatible MSVC toolchain,
 such as `cl.exe` or `clang-cl.exe`, to compile the runtime and C stubs and link
 the executable.
 
+## Floating-point arithmetic
+
+Native C compilation with GCC/Clang disables floating-point contraction by
+default with `-ffp-contract=off`. This preserves separate rounding of operations
+such as multiplication followed by addition. MSVC-compatible compilers retain
+their default behavior.
+
 ## Allocator
 
 `MOONBIT_ALLOCATOR` selects the allocator used by native runtime builds:

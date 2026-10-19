@@ -148,6 +148,16 @@ information in compiled code. `--strip` suppresses requested program debug
 information; this path does not run a stripping tool or erase the runtime's
 own debug information.
 
+## Floating-point semantics
+
+GCC-compatible drivers receive `-ffp-contract=off` to preserve separate
+floating-point rounding by default. This applies to generated C, runtime C,
+and C stubs, independently of optimization level and unrelated user flags.
+MSVC-compatible drivers and TCC retain their compiler defaults.
+
+This C compiler flag does not configure MoonBit direct-object or LLVM code
+generation.
+
 ## Resolution Layers
 
 Tool resolution starts from `crates/moonutil/src/compiler_flags.rs`.
