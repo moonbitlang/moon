@@ -26,8 +26,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::constants::{
-    BUILD_DIR, DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK,
-    MOON_WORK_ENV,
+    BUILD_DIR, DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK, MOON_WORK_ENV,
 };
 use crate::user_log::UserLog;
 use crate::workspace::{
@@ -111,12 +110,10 @@ impl SourceTargetDirs {
             .context("failed to resolve source directory")
             .map_err(PackageDirsError::from)?;
         let target_dir = resolve_target_dir(self.target_dir.as_deref(), &source_dir)?;
-        let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
         let mooncakes_dir = source_dir.join(DEP_PATH);
         Ok(PackageDirs {
             source_dir,
             target_dir,
-            mooncake_bin_dir,
             mooncakes_dir,
             project_manifest: ProjectManifest::None,
         })
@@ -181,7 +178,6 @@ impl SourceTargetDirs {
         let package_dirs = self.source_root_package_dirs(source_dir)?;
         let target_dir = prepare_target_dir(package_dirs.target_dir.join(file_name))?;
         let package_dirs = PackageDirs {
-            mooncake_bin_dir: target_dir.join(MOON_BIN_DIR),
             mooncakes_dir: target_dir.join(DEP_PATH),
             target_dir,
             ..package_dirs
@@ -313,7 +309,6 @@ impl WorkspaceLayout {
 pub struct PackageDirs {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,
-    pub mooncake_bin_dir: PathBuf,
     pub mooncakes_dir: PathBuf,
     pub project_manifest: ProjectManifest,
 }
@@ -332,7 +327,6 @@ impl SelectedProject {
     pub fn package_dirs(self) -> Result<PackageDirs, PackageDirsError> {
         let source_dir = self.context.root().to_path_buf();
         let target_dir = resolve_target_dir(self.target_dir.as_deref(), &source_dir)?;
-        let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
         let mooncakes_dir = source_dir.join(DEP_PATH);
         let project_manifest = match self.workspace {
             Some(workspace) => ProjectManifest::Workspace(workspace),
@@ -341,7 +335,6 @@ impl SelectedProject {
         Ok(PackageDirs {
             source_dir,
             target_dir,
-            mooncake_bin_dir,
             mooncakes_dir,
             project_manifest,
         })
@@ -806,7 +799,7 @@ mod tests {
         WorkspaceEnv, parse_workspace_env, project_query_from_start_dir,
         resolve_project_context_from_start_dir,
     };
-    use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD};
+    use crate::constants::{DEP_PATH, MOON_MOD};
     use std::{
         ffi::OsString,
         path::{Path, PathBuf},
@@ -883,11 +876,10 @@ version = "0.1.0"
         .source_root_package_dirs(project.path())
         .unwrap();
         assert_eq!(dirs.mooncakes_dir, canonical(project.path()).join(DEP_PATH));
+        // Target roots retain Windows' verbatim prefix for long output paths.
         assert_eq!(
-            dirs.mooncake_bin_dir,
-            std::fs::canonicalize(project.path().join("tmp-target"))
-                .unwrap()
-                .join(MOON_BIN_DIR)
+            dirs.target_dir,
+            std::fs::canonicalize(project.path().join("tmp-target")).unwrap()
         );
     }
 
@@ -948,10 +940,6 @@ version = "0.1.0"
         assert_eq!(
             dirs.package_dirs.target_dir,
             std::fs::canonicalize(project.path().join("target/main.mbt.md")).unwrap()
-        );
-        assert_eq!(
-            dirs.package_dirs.mooncake_bin_dir,
-            dirs.package_dirs.target_dir.join(MOON_BIN_DIR)
         );
         assert_eq!(
             dirs.package_dirs.mooncakes_dir,

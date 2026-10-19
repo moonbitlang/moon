@@ -32,8 +32,8 @@ use moonutil::{
     compiler_flags::{self, CC, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
-        MBTI_USER_WRITTEN, MOD_DIR, MOONCAKE_BIN, PKG_DIR, PackageSourceFileKind, is_moon_mod,
-        is_moon_pkg, package_source_file_kind,
+        MBTI_USER_WRITTEN, MOD_DIR, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
+        package_source_file_kind,
     },
     manifest::{MoonMod, MoonModRule},
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
@@ -46,7 +46,7 @@ use relative_path::{PathExt, RelativePath};
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{BuildBundleInfo, PackagePrebuildPolicy, PrebuildInfo},
+    build_plan::{BuildBundleInfo, PrebuildInfo},
     cond_comp,
     discover::DiscoveredPackage,
     model::{
@@ -211,9 +211,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// prebuild to run. Remote packages should already contain their outputs.
     fn plan_package_prebuild(&mut self, pkg_id: PackageId) -> Result<(), BuildPlanConstructError> {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
-        if self.input_directive.package_prebuild != PackagePrebuildPolicy::Run
-            || !self.input.local_modules().contains(&pkg.module)
-        {
+        if !self.input.local_modules().contains(&pkg.module) {
             return Ok(());
         }
 
@@ -1820,7 +1818,6 @@ impl<'a> BuildPlanConstructor<'a> {
         let command = resolve_prebuild_command(
             &command,
             module,
-            self.mooncake_bin_dir,
             &pkg.root_path,
             &command_input_paths,
             &command_output_paths,
@@ -1874,37 +1871,18 @@ fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
     }
 }
 
-const PREBUILD_PLACEHOLDERS: [&str; 5] = [MOONCAKE_BIN, MOD_DIR, PKG_DIR, "$input", "$output"];
+const PREBUILD_PLACEHOLDERS: [&str; 4] = [MOD_DIR, PKG_DIR, "$input", "$output"];
 
 /// Substitute prebuild command placeholders and resolve a relative shell argv0.
 ///
 /// The `:embed ` discriminator remains intact so lowering can emit that built-in
 /// invocation as structured argv instead of treating it as a shell program.
 ///
-/// # Note about binary dependency artifacts
-///
-/// Currently, `moon` does not have direct support for referencing binary
-/// dependency artifacts. Artifacts built by binary dependencies are placed in
-/// either of these two locations:
-///
-/// - `<project target dir>/__moonbin__/[bin-target-name]`, if the artifact
-///   comes from a regular dependency from the official registry.
-/// - At the root of the corresponding module's source directory, if the
-///   artifact comes from a local dependency.
-///
-/// In prebuild commands, users can reference the former location using
-/// `$mooncake_bin`. For the latter case, users need to manually specify the
-/// relative path from the module source directory. For robustness, the relative
-/// path needs to be resolved against the module source directory itself before
-/// executing.
-///
-/// Windows puts another issue on top of this: binary dependencies are
-/// Powershell scripts appended with `.ps1` extension. Therefore, we need to
-/// resolve `argv[0]` and append a `.ps1` if such file exists.
+/// Relative program paths are resolved against the module root. On Windows,
+/// a matching PowerShell launcher is invoked through PowerShell explicitly.
 fn resolve_prebuild_command(
     command: &str,
     mod_source: &Path,
-    mooncake_bin_dir: &Path,
     pkg_source: &Path,
     input_files: &[String],
     output_files: &[String],
@@ -1934,20 +1912,16 @@ fn resolve_prebuild_command(
 
         // Insert replacement
         match pattern_id {
-            // $mooncake_bin => <project target dir>/__moonbin__
-            0 => {
-                write!(resolved, "{}", mooncake_bin_dir.display()).expect("write can't fail");
-            }
             // $mod_dir => <mod_source>
-            1 => {
+            0 => {
                 write!(resolved, "{}", mod_source.display()).expect("write can't fail");
             }
             // $pkg_dir => <pkg_source>
-            2 => {
+            1 => {
                 write!(resolved, "{}", pkg_source.display()).expect("write can't fail");
             }
             // $input => (existing)<input_1>, <input_2>, ...
-            3 => {
+            2 => {
                 for (i, f) in input_files.iter().enumerate() {
                     if i != 0 {
                         write!(resolved, " ").expect("write can't fail");
@@ -1955,7 +1929,7 @@ fn resolve_prebuild_command(
                     write!(resolved, "{f}").expect("write can't fail");
                 }
             }
-            4 => {
+            3 => {
                 for (i, f) in output_files.iter().enumerate() {
                     if i != 0 {
                         write!(resolved, " ").expect("write can't fail");
@@ -1977,7 +1951,7 @@ fn resolve_prebuild_command(
     // Check if argv[0] looks like a relative path.
     let looks_like_path = argv0.contains(std::path::is_separator);
     let is_relative = looks_like_path && !Path::new(&argv0).is_absolute();
-    // For relative paths, we need to resolve it against the package source
+    // For relative paths, we need to resolve it against the module source
     // directory. Since we cannot easily splice the resolved path back into the
     // command string, we just prepend the source directory to the front of the
     // command.
@@ -2139,7 +2113,6 @@ mod tests {
         let command = resolve_prebuild_command(
             "generate --inputs $input --outputs $output",
             Path::new("module"),
-            Path::new("module/_build/__moonbin__"),
             Path::new("module/src/lib"),
             &prebuild_command_paths(
                 Path::new("module"),
@@ -2166,9 +2139,8 @@ mod tests {
     #[test]
     fn resolve_prebuild_command_replaces_all_placeholders_and_preserves_unknown_ones() {
         let command = resolve_prebuild_command(
-            "tool $mooncake_bin $mod_dir $pkg_dir $input $output $unknown",
+            "tool $mod_dir $pkg_dir $input $output $unknown",
             Path::new("module"),
-            Path::new("bin"),
             Path::new("package"),
             &["input-a".to_owned(), "input-b".to_owned()],
             &["output".to_owned()],
@@ -2176,7 +2148,7 @@ mod tests {
 
         assert_eq!(
             command,
-            "tool bin module package input-a input-b output $unknown"
+            "tool module package input-a input-b output $unknown"
         );
     }
 

@@ -296,11 +296,6 @@ key. The initial shared-source flow should reject a dependency that requires
 `post-add`, rather than execute the hook or silently skip it. A sandboxed,
 explicitly keyed hook model would require a separate design.
 
-`__moonbin__` belongs in the invocation's mutable work directory, initially
-under `_build`. If its producer later becomes cacheable, its outputs may be
-published like other action results, but a cache location must not become the
-command-visible executable path.
-
 Moving `.mooncakes` wholesale into `_build` is not a prerequisite. Acquisition,
 prepared immutable sources, mutable work, and final outputs have different
 ownership and cleanup rules and should remain separate concepts.
@@ -315,7 +310,7 @@ Each stage should be useful and reviewable without requiring the next:
    immutable publication in the dependency cache, no shared `post-add`, and
    private fallback when caching is off. Other command families remain local.
 3. **Private standalone work:** stop sharing mutable `_build` trees between
-   standalone invocations; place `__moonbin__` there.
+   standalone invocations.
 4. **Action model (implemented, not execution-wired):** define and test
    canonical action inputs at the Rupes Recta compiler boundary, including
    resolved interfaces and target facts.

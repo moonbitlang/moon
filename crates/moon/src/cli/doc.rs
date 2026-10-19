@@ -121,7 +121,6 @@ pub(crate) fn run_doc_rr(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = &dirs;
 
@@ -162,7 +161,6 @@ pub(crate) fn run_doc_rr(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,

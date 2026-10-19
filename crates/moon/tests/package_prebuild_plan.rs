@@ -232,21 +232,6 @@ moonc check ./src/main/generated.mbt ./src/main/main.mbt [..]
 }
 
 #[test]
-fn bin_dep_uses_existing_legacy_virtual_contract() {
-    let dir = test_dir("bin_dep_legacy_virtual_contract");
-
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .args(["tool", "build-binary-dep", "main", "--install-path"])
-        .arg(dir.join("bin"))
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
-        .env("MOON_DEP_CACHE", "off")
-        .current_dir(&dir)
-        .assert()
-        .success();
-    assert!(!dir.join("src/virtual/pkg.mbti").exists());
-}
-
-#[test]
 fn generated_mbt_md_warns_for_main_package() {
     let dir = test_dir("generated_main_mbt_md");
 

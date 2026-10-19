@@ -581,12 +581,11 @@ preferred_target = "wasm-gc"
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_bin_dep_unstable_prebuild_config_failure() {
-    let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
-    let dir = top_dir.join("user.in");
+fn test_moon_check_complete_json_reports_removed_bin_deps() {
+    let dir = TestDir::new_empty();
     std::fs::write(
-        top_dir.join("author.in/build.js"),
-        "console.error('BIN_DEP_JSON_SENTINEL')\nprocess.exit(1)\n",
+        dir.join("moon.mod"),
+        "name = \"test/removed\"\noptions(\"bin-deps\": {\"missing/tool\": {\"path\": \"missing-tool\"}})\n",
     )
     .unwrap();
 
@@ -603,59 +602,9 @@ fn test_moon_check_complete_json_captures_bin_dep_unstable_prebuild_config_failu
                     && message["message"]
                         .as_str()
                         .unwrap()
-                        .contains("BIN_DEP_JSON_SENTINEL")
+                        .contains("`bin-deps` is no longer supported in module `test/removed`")
             })
     );
-}
-
-#[test]
-fn test_moon_check_complete_json_runs_bin_dep_unstable_prebuild_config() {
-    let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
-    let dir = top_dir.join("user.in");
-    let generated_stub = top_dir.join("author.in/src/main/generated_stub.c");
-    std::fs::write(
-        top_dir.join("author.in/moon.work"),
-        "members = [\".\"]\npreferred_target = \"wasm-gc\"\n",
-    )
-    .unwrap();
-    assert!(!generated_stub.exists());
-
-    let report = parse_complete_json(
-        moon_cmd(&dir)
-            .args(["check", "--json", "--verbose"])
-            .assert()
-            .success(),
-    );
-
-    assert_eq!(report["status"], "success");
-    assert_eq!(report["summary"]["moon_warnings"], 1);
-    assert!(
-        report["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|message| {
-                message["level"] == "warning"
-                    && message["message"]
-                        .as_str()
-                        .unwrap()
-                        .contains("`bin-deps` is deprecated")
-            })
-    );
-    assert!(
-        report["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|message| {
-                message["level"] == "info"
-                    && message["message"]
-                        .as_str()
-                        .unwrap()
-                        .contains("preferred_target")
-            })
-    );
-    assert!(generated_stub.exists());
 }
 
 #[test]

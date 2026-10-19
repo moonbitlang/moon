@@ -419,7 +419,6 @@ pub(crate) fn plan_resolved_build_from_intent(
     cx: CompileConfig,
     user_log: &UserLog,
     intent: CalcUserIntentOutput,
-    mooncake_bin_dir: &Path,
     resolved_project: ResolvedProject,
     jobs: Option<usize>,
     frozen: bool,
@@ -465,7 +464,6 @@ pub(crate) fn plan_resolved_build_from_intent(
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
-        mooncake_bin_dir,
         &resolved_project,
         &requested_artifacts,
         &intent.directive,

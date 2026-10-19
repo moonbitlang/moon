@@ -89,15 +89,6 @@ impl SourceDependencyInfo {
             _ => None,
         }
     }
-
-    /// Check if the requirement is simple. That is, it only contains a version requirement.
-    fn is_simple(&self) -> bool {
-        matches!(self, SourceDependencyInfo::Simple(_))
-            || matches!(
-                self,
-                SourceDependencyInfo::Registry(SourceRegistryDependencyInfo { version: Some(_) })
-            )
-    }
 }
 
 impl std::fmt::Debug for SourceDependencyInfo {
@@ -137,73 +128,6 @@ impl FromStr for SourceDependencyInfo {
     }
 }
 
-/// The JSON representation of a binary dependency info
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum BinaryDependencyInfoJson {
-    /// A simple version requirement
-    #[schemars(with = "String")]
-    Simple(Version),
-    /// A detailed dependency info
-    Detailed(BinaryDependencyInfo),
-}
-
-/// Information about a specific dependency
-#[derive(Clone, Serialize, Deserialize, Default, Debug, JsonSchema)]
-pub struct BinaryDependencyInfo {
-    #[serde(flatten)]
-    pub common: SourceDependencyInfo,
-
-    /// Binary packages to compile.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "bin-pkg")]
-    pub bin_pkg: Option<Vec<String>>,
-}
-
-impl BinaryDependencyInfo {
-    /// Check if the requirement is simple. That is, it only contains a version requirement
-    fn is_simple(&self) -> bool {
-        self.common.is_simple() && self.bin_pkg.is_none()
-    }
-
-    #[allow(clippy::needless_update)] // More fields will be added later
-    fn from_simple(version: Version) -> Self {
-        Self {
-            common: SourceDependencyInfo::Simple(version),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<BinaryDependencyInfo> for SourceDependencyInfo {
-    fn from(dep: BinaryDependencyInfo) -> Self {
-        dep.common
-    }
-}
-
-impl From<BinaryDependencyInfo> for BinaryDependencyInfoJson {
-    fn from(dep: BinaryDependencyInfo) -> Self {
-        if dep.is_simple() {
-            BinaryDependencyInfoJson::Simple(
-                dep.common
-                    .version()
-                    .cloned()
-                    .expect("simple dependency should always have a version"),
-            )
-        } else {
-            BinaryDependencyInfoJson::Detailed(dep)
-        }
-    }
-}
-
-impl From<BinaryDependencyInfoJson> for BinaryDependencyInfo {
-    fn from(dep: BinaryDependencyInfoJson) -> Self {
-        match dep {
-            BinaryDependencyInfoJson::Simple(v) => BinaryDependencyInfo::from_simple(v),
-            BinaryDependencyInfoJson::Detailed(d) => d,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,31 +144,6 @@ mod tests {
                 serde_json_lenient::from_str::<SourceDependencyInfo>(json).is_err(),
                 "accepted source dependency {json}"
             );
-            assert!(
-                serde_json_lenient::from_str::<BinaryDependencyInfoJson>(json).is_err(),
-                "accepted binary dependency {json}"
-            );
         }
-    }
-
-    #[test]
-    fn binary_dependency_allows_local_source_with_bin_pkg() {
-        let dep: BinaryDependencyInfoJson =
-            serde_json_lenient::from_str(r#"{"path":"../dep","bin_pkg":["main"]}"#).unwrap();
-        let BinaryDependencyInfoJson::Detailed(dep) = dep else {
-            panic!("expected detailed dependency");
-        };
-        assert_eq!(dep.common.path(), Some("../dep"));
-        assert_eq!(dep.bin_pkg, Some(vec!["main".to_string()]));
-    }
-
-    #[test]
-    fn binary_dependency_rejects_git_source_with_bin_pkg() {
-        assert!(
-            serde_json_lenient::from_str::<BinaryDependencyInfoJson>(
-                r#"{"git":"https://example.com/dep.git","branch":"main","bin_pkg":["tool"]}"#,
-            )
-            .is_err()
-        );
     }
 }

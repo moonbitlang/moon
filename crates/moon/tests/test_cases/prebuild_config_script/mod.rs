@@ -668,19 +668,3 @@ fn test_unstable_prebuild_config_uses_preferred_backend() {
             .success();
     }
 }
-
-#[test]
-fn test_unstable_prebuild_config_in_bin_dep_runs_for_check_install() {
-    let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
-    let dir = top_dir.join("user.in");
-    let generated_stub = top_dir.join("author.in/src/main/generated_stub.c");
-    assert!(
-        !generated_stub.exists(),
-        "generated stub should not exist before check"
-    );
-    assert_success(&dir, ["check"]);
-    assert!(
-        generated_stub.exists(),
-        "expected bin-dep prebuild to generate required stub during check install"
-    );
-}

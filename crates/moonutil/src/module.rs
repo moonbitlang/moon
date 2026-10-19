@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::dependency::{BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo};
+use crate::dependency::SourceDependencyInfo;
 use crate::manifest::{MoonModJSONFormatErrorKind, NameError};
 use crate::mooncakes::ModuleName;
 use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
@@ -66,9 +66,6 @@ pub struct MoonMod {
     )]
     pub private: Option<bool>,
     pub deps: IndexMap<String, SourceDependencyInfo>,
-    /// Deprecated third-party binary dependencies. Publish portable Wasm tools
-    /// and run them with `moonx` instead.
-    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfo>>,
     pub readme: Option<String>,
     pub repository: Option<String>,
     pub license: Option<String>,
@@ -162,12 +159,6 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, SourceDependencyInfo>>")]
     pub deps: Option<IndexMap<String, SourceDependencyInfo>>,
-
-    /// Deprecated third-party binary dependencies. Publish portable Wasm tools
-    /// and run them with `moonx` instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<std::collections::HashMap<String, BinaryDependencyInfoJson>>")]
-    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfoJson>>,
 
     /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -291,17 +282,8 @@ impl TryFrom<MoonModJSON> for MoonMod {
             Some(d) => d,
         };
 
-        let bin_deps: Option<IndexMap<String, BinaryDependencyInfo>> = j
-            .bin_deps
-            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect());
-
         ModuleName::from(j.name.as_str()).validate_version(version.as_ref())?;
-        for (name, dep) in deps.iter().chain(
-            bin_deps
-                .iter()
-                .flatten()
-                .map(|(name, dep)| (name, &dep.common)),
-        ) {
+        for (name, dep) in &deps {
             ModuleName::from(name.as_str()).validate_version(dep.version())?;
         }
 
@@ -319,7 +301,6 @@ impl TryFrom<MoonModJSON> for MoonMod {
             version,
             private: j.private,
             deps,
-            bin_deps,
             readme: j.readme,
             repository: j.repository,
             license: j.license,
@@ -353,9 +334,6 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         version: m.version.map(|v| v.to_string()),
         private: m.private,
         deps: Some(m.deps),
-        bin_deps: m
-            .bin_deps
-            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect()),
         readme: m.readme,
         repository: m.repository,
         license: m.license,

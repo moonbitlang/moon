@@ -1,7 +1,0 @@
-pkgtype(kind: "executable")
-
-options(
-  "bin-target": "native",
-  "bin-name": "prebuild-bin-dep-main",
-  "native-stub": ["generated_stub.c"],
-)

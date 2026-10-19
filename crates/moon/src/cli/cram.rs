@@ -136,7 +136,6 @@ fn run_cram_test(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = &dirs;
 
@@ -165,7 +164,6 @@ fn run_cram_test(
         cli,
         &build_cmd,
         target_dir,
-        mooncake_bin_dir,
         &[TargetBackend::Native],
         discovered,
         user_log,

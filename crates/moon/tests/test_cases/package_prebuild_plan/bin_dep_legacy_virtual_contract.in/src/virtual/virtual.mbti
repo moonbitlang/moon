@@ -1,3 +1,0 @@
-package "username/bin_dep_legacy_virtual_contract/virtual"
-
-fn value() -> Int

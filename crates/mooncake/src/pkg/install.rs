@@ -22,25 +22,14 @@ use crate::{
 };
 
 use super::sync::SyncOutputOptions;
-use anyhow::Context;
 use moonutil::{
     cache::CacheRoot,
-    child_process::ManagedChildRunner,
     constants::MOONBITLANG_CORE,
     project::PackageDirs,
-    resolution::{
-        DependencyKind, DirSyncResult, ModuleDependencyGraph, ModuleSourceKind, ResolvedRootModules,
-    },
+    resolution::{DirSyncResult, ModuleDependencyGraph, ResolvedRootModules},
     user_log::UserLog,
 };
-use std::path::{Path, PathBuf};
-
-struct PreparedBinDep {
-    source_dir: PathBuf,
-    target_dir: Option<PathBuf>,
-    install_dir: PathBuf,
-    _temp_dir: Option<tempfile::TempDir>,
-}
+use std::path::PathBuf;
 
 /// Install a binary package globally
 #[derive(Debug, clap::Parser)]
@@ -111,20 +100,6 @@ pub(crate) fn install_impl(
     no_std: bool,
     source_cache: &CacheRoot,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
-    for (_, module) in roots.iter() {
-        let module = module.module_info();
-        if module
-            .bin_deps
-            .as_ref()
-            .is_some_and(|dependencies| !dependencies.is_empty())
-        {
-            user_log.warn(format!(
-                "`bin-deps` is deprecated; publish portable Wasm tools and run them with `moonx` instead (declared by module `{}`)",
-                module.name
-            ));
-        }
-    }
-
     let includes_core = roots
         .iter()
         .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);
@@ -153,195 +128,5 @@ pub(crate) fn install_impl(
     let dependency_paths =
         dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
 
-    let managed_child = ManagedChildRunner::new(output_options.child_output, &dependency_user_log);
-    install_bin_deps(
-        &managed_child,
-        &res,
-        &dependency_paths,
-        &dirs.target_dir,
-        &dirs.mooncake_bin_dir,
-        &dependency_user_log,
-    )?;
-
     Ok((res, dependency_paths))
-}
-
-fn install_bin_deps(
-    child: &ManagedChildRunner,
-    res: &ModuleDependencyGraph,
-    dependency_paths: &DirSyncResult,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    user_log: &UserLog,
-) -> Result<(), anyhow::Error> {
-    let verbose = user_log.is_enabled(log::Level::Info);
-    for &main_module in res.input_module_ids() {
-        let Some(bin_deps) = res.module_info(main_module).bin_deps.as_ref() else {
-            continue;
-        };
-        let moon_path = moonutil::toolchain::BINARIES.moonbuild.to_string_lossy();
-
-        let bin_deps_iter = res
-            .deps_keyed(main_module)
-            .filter(|(_, edge)| edge.kind == DependencyKind::Binary);
-        for (id, edge) in bin_deps_iter {
-            let info = bin_deps
-                .get(&edge.name.to_string()) // inefficient but fine for now
-                .unwrap();
-
-            let path = dependency_paths
-                .get(id)
-                .expect("Failed to get dependency source path");
-            let module_source = res.module_source(id);
-            let prepared =
-                prepare_bin_dep(path, target_dir, mooncake_bin_dir, module_source.source())?;
-            let mut cmd = std::process::Command::new(moon_path.as_ref());
-            cmd.arg("-C");
-            cmd.arg(&prepared.source_dir);
-            if let Some(target_dir) = &prepared.target_dir {
-                cmd.arg("--target-dir");
-                cmd.arg(target_dir);
-            }
-            cmd.args(["tool", "build-binary-dep"]);
-            // pkg_names
-            if let Some(pkgs) = info.bin_pkg.as_ref() {
-                cmd.args(pkgs.iter());
-            } else {
-                cmd.arg("--all-pkgs");
-            }
-            // install path
-            cmd.arg("--install-path");
-            cmd.arg(&prepared.install_dir);
-
-            if !verbose {
-                cmd.arg("--quiet");
-            }
-
-            // Run it
-            if verbose {
-                user_log.info(format!("Installing binary dependency `{}`", edge.name));
-            }
-            let subject = format!("binary dependency `{}`", edge.name);
-            let status = child.run(&mut cmd, &subject).with_context(|| {
-                format!("Failed to run build process for binary dep `{}`", edge.name)
-            })?;
-            if !status.success() {
-                return Err(anyhow::anyhow!(
-                    "Building binary dependency `{}` failed",
-                    edge.name
-                ));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn prepare_bin_dep(
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    source_kind: &ModuleSourceKind,
-) -> anyhow::Result<PreparedBinDep> {
-    match source_kind {
-        ModuleSourceKind::Registry => {
-            std::fs::create_dir_all(target_dir).with_context(|| {
-                format!(
-                    "failed to create project target directory `{}`",
-                    target_dir.display()
-                )
-            })?;
-            let temp_dir = tempfile::Builder::new()
-                .prefix(".bin-dep-")
-                .tempdir_in(target_dir)
-                .with_context(|| {
-                    format!(
-                        "failed to create temporary binary dependency directory in `{}`",
-                        target_dir.display()
-                    )
-                })?;
-            let temp_source_dir = temp_dir.path().join("source");
-            copy_registry_bin_dep_source(source_dir, &temp_source_dir)?;
-            Ok(PreparedBinDep {
-                source_dir: temp_source_dir,
-                target_dir: Some(temp_dir.path().join("target")),
-                install_dir: mooncake_bin_dir.to_path_buf(),
-                _temp_dir: Some(temp_dir),
-            })
-        }
-        _ => {
-            let source_dir = dunce::canonicalize(source_dir).with_context(|| {
-                format!(
-                    "failed to resolve binary dependency source `{}`",
-                    source_dir.display()
-                )
-            })?;
-            Ok(PreparedBinDep {
-                install_dir: source_dir.clone(),
-                source_dir,
-                target_dir: None,
-                _temp_dir: None,
-            })
-        }
-    }
-}
-
-fn copy_registry_bin_dep_source(source_dir: &Path, destination_dir: &Path) -> anyhow::Result<()> {
-    std::fs::create_dir_all(destination_dir).with_context(|| {
-        format!(
-            "failed to create registry binary dependency source directory `{}`",
-            destination_dir.display()
-        )
-    })?;
-
-    // Only root-level build and dependency state are excluded; identically
-    // named package assets below the root remain part of the source copy.
-    for entry in walkdir::WalkDir::new(source_dir)
-        .into_iter()
-        .filter_entry(|entry| {
-            entry.depth() != 1
-                || (entry.file_name() != moonutil::constants::BUILD_DIR
-                    && entry.file_name() != moonutil::constants::DEP_PATH)
-        })
-    {
-        let entry = entry.with_context(|| {
-            format!(
-                "failed to read registry binary dependency source `{}`",
-                source_dir.display()
-            )
-        })?;
-        let relative = entry.path().strip_prefix(source_dir).with_context(|| {
-            format!(
-                "registry binary dependency entry `{}` is outside source `{}`",
-                entry.path().display(),
-                source_dir.display()
-            )
-        })?;
-        let destination = destination_dir.join(relative);
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&destination).with_context(|| {
-                format!(
-                    "failed to create registry binary dependency directory `{}`",
-                    destination.display()
-                )
-            })?;
-        } else {
-            if let Some(parent) = destination.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!(
-                        "failed to create registry binary dependency directory `{}`",
-                        parent.display()
-                    )
-                })?;
-            }
-            std::fs::copy(entry.path(), &destination).with_context(|| {
-                format!(
-                    "failed to copy registry binary dependency file `{}` to `{}`",
-                    entry.path().display(),
-                    destination.display()
-                )
-            })?;
-        }
-    }
-    Ok(())
 }

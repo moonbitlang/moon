@@ -70,8 +70,8 @@ foreach ($command in @(
 }
 Assert-NotContains $ideCompletions '--verbose'
 
-$toolCompletions = Get-MoonCompletions 'moon tool bu'
-Assert-Contains $toolCompletions 'build-binary-dep'
+$toolCompletions = Get-MoonCompletions 'moon tool em'
+Assert-Contains $toolCompletions 'embed'
 
 $buildCompletions = Get-MoonCompletions 'moon build --ver'
 Assert-Contains $buildCompletions '--verbose'

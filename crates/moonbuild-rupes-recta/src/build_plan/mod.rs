@@ -639,19 +639,6 @@ pub struct BuildBundleInfo {
     pub(crate) bundle_targets: Vec<BuildTarget>,
 }
 
-/// How package-level prebuild participates in this plan.
-///
-/// Package-level prebuild includes custom `pre-build` rules, `moonlex`, and
-/// `moonyacc`. Binary dependencies must already contain their generated
-/// outputs, so their internal compatibility build consumes existing outputs
-/// instead of running any of these rules.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum PackagePrebuildPolicy {
-    #[default]
-    Run,
-    ConsumeExistingOutputs,
-}
-
 /// Command-specific directives provided alongside requested artifacts.
 #[derive(Debug)]
 pub struct InputDirective {
@@ -674,9 +661,6 @@ pub struct InputDirective {
 
     /// Use the proof prelude provider from this directory for `moon prove`.
     pub proof_prelude: PathBuf,
-
-    /// Control package-level prebuild for this invocation.
-    pub package_prebuild: PackagePrebuildPolicy,
 }
 
 impl Default for InputDirective {
@@ -687,7 +671,6 @@ impl Default for InputDirective {
             value_tracing: None,
             prove_why3_config: None,
             proof_prelude: moonutil::toolchain::prelude_proof(),
-            package_prebuild: PackagePrebuildPolicy::default(),
         }
     }
 }
@@ -789,7 +772,6 @@ pub(super) fn resolve_native_backend_mode(
 #[instrument(skip_all)]
 pub fn build_plan(
     resolved: &ResolvedProject,
-    mooncake_bin_dir: &Path,
     config: &CompileConfig,
     input: impl Iterator<Item = ArtifactKey>,
     input_directive: &InputDirective,
@@ -803,14 +785,8 @@ pub fn build_plan(
         config.opt_level
     );
 
-    let mut constructor = BuildPlanConstructor::new(
-        resolved,
-        mooncake_bin_dir,
-        config,
-        input_directive,
-        prebuild_config,
-        user_log,
-    );
+    let mut constructor =
+        BuildPlanConstructor::new(resolved, config, input_directive, prebuild_config, user_log);
     let input = input.collect::<Vec<_>>();
     if let BackendConfig::Native {
         direct_object_candidate,

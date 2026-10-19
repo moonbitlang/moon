@@ -275,11 +275,7 @@ pub(crate) fn run_info(
         .query(cli.workspace_env.clone())?
         .select(output.user_log())?
         .package_dirs()?;
-    let PackageDirs {
-        target_dir,
-        mooncake_bin_dir,
-        ..
-    } = &dirs;
+    let PackageDirs { target_dir, .. } = &dirs;
 
     let build_flags = BuildFlags::default();
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
@@ -313,7 +309,6 @@ pub(crate) fn run_info(
                 target,
                 target_kind,
                 target_dir,
-                mooncake_bin_dir,
                 resolved_project.clone(),
                 &selection,
                 &output_plan,
@@ -359,7 +354,6 @@ fn plan_info_rr(
     target: TargetBackend,
     target_kind: imp::TargetKind,
     target_dir: &std::path::Path,
-    mooncake_bin_dir: &std::path::Path,
     resolved_project: ResolvedProject,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
@@ -390,7 +384,6 @@ fn plan_info_rr(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         None,
         cmd.auto_sync_flags.frozen,

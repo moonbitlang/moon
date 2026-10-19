@@ -183,9 +183,6 @@ forward instead of letting later phases infer it again. In particular:
   `moon.work`;
 - the `.mooncakes` directory is computed during project discovery and passed
   into dependency sync;
-- `$mooncake_bin` is resolved by the command adapter to a `mooncake_bin_dir`
-  path before build planning, so RR planning substitutes an already-computed
-  launcher directory instead of deriving it from project layout;
 - the target directory is passed into planning/lowering and used for generated
   build files and n2 state; and
 - package and module directories come from discovery results, not from later
@@ -198,7 +195,7 @@ filename, including its extension. The default is
 source directories, while the complete filename separates differently named
 files within one target root. Callers that reuse an explicit target root for
 files with the same complete filename also reuse their synthetic package
-artifacts, metadata, dependency binaries, lock, and n2 database; they must
+artifacts, metadata, lock, and n2 database; they must
 choose distinct target roots when that isolation is required.
 
 Source directory, `.mooncakes` directory, target directory, and optional project
@@ -228,8 +225,7 @@ Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment
 explicitly and passes it to prebuild execution. Commands that skip prebuild
 configuration, such as `check`, should not capture that environment just to
-construct a build plan. This does not disable package pre-build rules or the
-bin-dependencies that provide their tools.
+construct a build plan. This does not disable package pre-build rules.
 
 Dependency synchronization is explicit in the normal project path. Command
 adapters first call dependency sync, then pass the synced dependency result to
@@ -348,31 +344,20 @@ combined with scripts. Paths on different Windows drives remain absolute.
 
 ## Module dependency management
 
-There are two types of dependencies in a module.
+Module dependencies provide packages that can be imported from code.
 
-- A regular dependency is a dependency that can be accessed from code.
-- A **binary dependency** (bin-dep) is a dependency that is used for its executable.
-  Bin-deps are declared in `moon.mod.json` under `bin-deps`, which is
-  deprecated. New tools should be published as portable Wasm executable
-  packages and run with `moonx` instead.
-  They are resolved only for the input/root modules themselves: bin-deps of regular
-  dependencies are not propagated transitively.
-  After dependency sync, direct bin-deps of each workspace root are built and
-  installed by invoking `moon tool build-binary-dep` inside the dependency module.
-  Registry bin-deps are copied into temporary work directories under the
-  project target directory before that command runs. The child command uses
-  the temporary directory as its target, copies the runnable artifact into
-  private storage under `<project target dir>/__moonbin__`, and then removes
-  the work directory. Compilation and nested dependency state therefore do not
-  modify the registry source under `.mooncakes`. The compatibility build never
-  runs package-level source generation (`pre-build`, `moonlex`, or `moonyacc`);
-  distributed packages must already contain their generated outputs.
-  Experimental module-level prebuild configuration scripts still run so they
-  can provide build configuration such as native link flags. Local bin-deps
-  retain their existing in-place build behavior, subject to the same
-  package-level prebuild prohibition. The child build resolves the bin-dep's
-  regular dependencies but excludes its own bin-deps, preserving the
-  non-transitive bin-dep model.
+Binary dependency execution has been removed. Nonempty `bin-deps` declarations
+in input/root modules are rejected during module resolution, before dependency
+acquisition. Empty declarations are accepted. Old dependency manifests
+may still contain `bin-deps`; these declarations are ignored, preserving the
+previous non-transitive behavior. `moon add --bin`, the internal
+`moon tool build-binary-dep` command, and the `$mooncake_bin` prebuild placeholder
+have also been removed.
+
+Remove `bin-deps` from the root manifest and run portable Wasm tools with
+`moonx` instead. Pin the tool version in the command. Tools without published
+executable assets need to publish them before consumers can migrate. The
+`bin-name` and `bin-target` package metadata fields remain supported.
 
 There are two kinds of sources that dependencies come from:
 

@@ -84,9 +84,6 @@ pub const DOT_MBTP: &str = ".mbtp";
 pub const DOT_MBL: &str = ".mbl";
 pub const DOT_MBY: &str = ".mby";
 
-pub const MOON_BIN_DIR: &str = "__moonbin__";
-
-pub const MOONCAKE_BIN: &str = "$mooncake_bin";
 pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
 

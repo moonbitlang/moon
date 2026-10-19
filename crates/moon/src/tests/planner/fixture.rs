@@ -40,7 +40,6 @@ use crate::cli::{
 pub(super) struct PlanningFixture {
     source_dir: PathBuf,
     target_dir: PathBuf,
-    mooncake_bin_dir: PathBuf,
     discovered: DiscoveredProject,
 }
 
@@ -101,11 +100,9 @@ impl PlanningFixture {
         )?;
         let source_dir = dirs.source_dir;
         let target_dir = dirs.target_dir;
-        let mooncake_bin_dir = dirs.mooncake_bin_dir;
         Ok(Self {
             source_dir,
             target_dir,
-            mooncake_bin_dir,
             discovered,
         })
     }
@@ -157,7 +154,6 @@ impl PlanningFixture {
             cli,
             &borrowed,
             &self.target_dir,
-            &self.mooncake_bin_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
             &UserLog::new(cli.user_log_level()),
@@ -194,7 +190,6 @@ impl PlanningFixture {
             cli,
             &borrowed,
             &self.target_dir,
-            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?.as_slice(),
             self.discovered.clone(),
             &UserLog::new(cli.user_log_level()),
@@ -227,7 +222,6 @@ impl PlanningFixture {
             cli,
             cmd,
             &self.target_dir,
-            &self.mooncake_bin_dir,
             target_backend,
             resolved_project,
             &user_log,
@@ -253,7 +247,6 @@ impl PlanningFixture {
             cli,
             cmd,
             &self.target_dir,
-            &self.mooncake_bin_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
             &UserLog::new(cli.user_log_level()),
@@ -276,7 +269,6 @@ impl PlanningFixture {
             cli,
             cmd,
             &self.target_dir,
-            &self.mooncake_bin_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
             &UserLog::new(cli.user_log_level()),
@@ -318,7 +310,6 @@ impl PlanningFixture {
             cmd,
             &self.source_dir,
             &self.target_dir,
-            &self.mooncake_bin_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
             &UserLog::new(cli.user_log_level()),
@@ -357,7 +348,6 @@ impl PlanningFixture {
             cli,
             &cmd,
             &self.target_dir,
-            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.discovered.clone(),
             &UserLog::new(cli.user_log_level()),

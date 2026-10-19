@@ -35,7 +35,7 @@ use moonutil::{
         MoonWork, WorkspaceEditTarget, WorkspaceLayout, workspace_manifest_path, write_workspace,
     },
     resolution::{
-        DependencyEdge, DependencyKind, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource,
+        DependencyEdge, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource,
         ModuleSourceKind, ResolvedModule, ResolvedRootModules,
     },
     user_log::UserLog,
@@ -244,31 +244,23 @@ fn sync_workspace_manifests(module_graph: &ModuleDependencyGraph) -> anyhow::Res
         ))?;
 
         let mut module = Arc::unwrap_or_clone(Arc::clone(module_graph.module_info(id)));
-        let (regular_deps_changed, bin_deps_changed) =
-            sync_manifest_versions(module_graph, id, &mut module)?;
-        if !regular_deps_changed && !bin_deps_changed {
+        if !sync_manifest_versions(module_graph, id, &mut module)? {
             continue;
         }
 
         let manifest_path = if module_dir.join(MOON_MOD).exists() {
             let manifest_path = module_dir.join(MOON_MOD);
-            if bin_deps_changed {
-                let new_json = convert_module_to_mod_json(module);
-                patch_module_dsl_to_file(module_dir, MoonModPatch::Rewrite(new_json))
-                    .context(format!("failed to write `{}`", manifest_path.display()))?;
-            } else if regular_deps_changed {
-                let versions = module
-                    .deps
-                    .iter()
-                    .filter_map(|(name, dep)| {
-                        dep.version()
-                            .cloned()
-                            .map(|version| (name.clone(), version))
-                    })
-                    .collect::<indexmap::IndexMap<_, _>>();
-                patch_module_dsl_to_file(module_dir, MoonModPatch::UpdateImportItems(versions))
-                    .context(format!("failed to write `{}`", manifest_path.display()))?;
-            }
+            let versions = module
+                .deps
+                .iter()
+                .filter_map(|(name, dep)| {
+                    dep.version()
+                        .cloned()
+                        .map(|version| (name.clone(), version))
+                })
+                .collect::<indexmap::IndexMap<_, _>>();
+            patch_module_dsl_to_file(module_dir, MoonModPatch::UpdateImportItems(versions))
+                .context(format!("failed to write `{}`", manifest_path.display()))?;
             manifest_path
         } else {
             let manifest_path = module_dir.join(MOON_MOD_JSON);
@@ -295,39 +287,25 @@ fn sync_manifest_versions(
     module_graph: &ModuleDependencyGraph,
     id: ModuleId,
     module: &mut MoonMod,
-) -> anyhow::Result<(bool, bool)> {
+) -> anyhow::Result<bool> {
     let mut regular_deps_changed = false;
 
     for (dep_name, dep) in &mut module.deps {
-        regular_deps_changed |=
-            sync_source_dependency(module_graph, id, dep_name, DependencyKind::Regular, dep)?;
+        regular_deps_changed |= sync_source_dependency(module_graph, id, dep_name, dep)?;
     }
 
-    let mut bin_deps_changed = false;
-    for (dep_name, dep) in module.bin_deps.iter_mut().flat_map(|deps| deps.iter_mut()) {
-        bin_deps_changed |= sync_source_dependency(
-            module_graph,
-            id,
-            dep_name,
-            DependencyKind::Binary,
-            &mut dep.common,
-        )?;
-    }
-
-    Ok((regular_deps_changed, bin_deps_changed))
+    Ok(regular_deps_changed)
 }
 
 fn sync_source_dependency(
     module_graph: &ModuleDependencyGraph,
     id: ModuleId,
     dep_name: &str,
-    kind: DependencyKind,
     dep: &mut SourceDependencyInfo,
 ) -> anyhow::Result<bool> {
     let dep_name: ModuleName = dep_name.into();
     let dep_key = DependencyEdge {
         name: dep_name.clone(),
-        kind,
     };
     let dep_id = module_graph.dep_with_key(id, &dep_key).context(format!(
         "resolved workspace graph is missing direct dependency `{}` for `{}`",

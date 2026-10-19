@@ -543,7 +543,6 @@ fn build_package_executable(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = &dirs;
 
@@ -564,7 +563,6 @@ fn build_package_executable(
         cli,
         cmd,
         target_dir,
-        mooncake_bin_dir,
         selected_target_backend,
         discovered,
         user_log,
@@ -592,7 +590,6 @@ pub(crate) fn plan_run_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     discovered: DiscoveredProject,
     user_log: &UserLog,
@@ -622,7 +619,6 @@ pub(crate) fn plan_run_rr_from_discovered(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
@@ -741,7 +737,6 @@ fn build_single_file_executable(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = &dirs;
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
@@ -801,7 +796,6 @@ fn build_single_file_executable(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,

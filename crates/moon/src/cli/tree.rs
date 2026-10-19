@@ -35,7 +35,7 @@ use moonutil::{
     cli_support::UniversalFlags,
     command_output::CommandOutput,
     project::PackageDirs,
-    resolution::{DependencyKind, ModuleDependencyGraph, ModuleId, ModuleSourceKind},
+    resolution::{ModuleDependencyGraph, ModuleId, ModuleSourceKind},
     target::TargetBackend,
     user_log::{UserLog, UserLogCapture, UserLogEntry},
 };
@@ -462,10 +462,7 @@ fn render_graph_json(
                 from: index[source_id],
                 to: index[&dep_id],
                 name: dep_edge.name.to_string(),
-                kind: match dep_edge.kind {
-                    DependencyKind::Regular => "regular",
-                    DependencyKind::Binary => "binary",
-                },
+                kind: "regular",
             });
         }
     }
@@ -851,9 +848,7 @@ mod tests {
     use super::*;
     use expect_test::expect;
     use moonutil::manifest::MoonMod;
-    use moonutil::resolution::{
-        DependencyEdge, DependencyKind, ModuleSource, ModuleSourceKind, ResolvedModule,
-    };
+    use moonutil::resolution::{DependencyEdge, ModuleSource, ModuleSourceKind, ResolvedModule};
     use std::sync::Arc;
 
     fn local_source(name: &str, version: &str, path: &str) -> ModuleSource {
@@ -876,7 +871,6 @@ mod tests {
     fn regular_dep(name: &str) -> DependencyEdge {
         DependencyEdge {
             name: name.parse().unwrap(),
-            kind: DependencyKind::Regular,
         }
     }
 

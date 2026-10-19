@@ -136,7 +136,6 @@ pub(crate) fn run_prove(
     let PackageDirs {
         source_dir: project_root,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = &dirs;
     let build_flags = cmd.to_build_flags();
@@ -193,7 +192,6 @@ pub(crate) fn run_prove(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,

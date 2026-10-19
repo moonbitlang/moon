@@ -1193,7 +1193,6 @@ mod tests {
             version: None,
             private: None,
             deps: Default::default(),
-            bin_deps: None,
             readme: None,
             repository: None,
             license: None,

@@ -1,9 +1,0 @@
-name = "username/prebuild_bin_dep"
-
-version = "0.1.0"
-
-source = "src"
-
-options(
-  "--moonbit-unstable-prebuild": "build.js",
-)

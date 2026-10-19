@@ -542,7 +542,6 @@ struct SelectedPackage {
 
 struct PreparedNativeBuild {
     target_dir: PathBuf,
-    mooncake_bin_dir: PathBuf,
     resolved_project: moonbuild_rupes_recta::resolve::ResolvedProject,
     selected_packages: Vec<SelectedPackage>,
 }
@@ -580,7 +579,6 @@ fn prepare_native_build(
         user_log,
     )?;
     let target_dir = package_dirs.target_dir;
-    let mooncake_bin_dir = package_dirs.mooncake_bin_dir;
 
     let main_module_id = resolved_project
         .local_modules()
@@ -636,7 +634,6 @@ fn prepare_native_build(
 
     Ok(PreparedNativeBuild {
         target_dir,
-        mooncake_bin_dir,
         resolved_project,
         selected_packages,
     })
@@ -674,7 +671,6 @@ fn build_selected_package(
         compile_config,
         user_log,
         intent,
-        &prepared.mooncake_bin_dir,
         prepared.resolved_project.clone(),
         build_flags.jobs,
         false,
