@@ -66,7 +66,8 @@ const ENV_MOON_AR: &str = "MOON_AR";
 const ENV_MOONBIT_ALLOCATOR: &str = "MOONBIT_ALLOCATOR";
 #[derive(Copy, Clone, Debug)]
 pub enum CCKind {
-    Msvc,     // cl-compatible driver, such as cl.exe or clang-cl.exe
+    Msvc,     // cl.exe
+    ClangCl,  // clang-cl.exe: Clang semantics with a cl-compatible CLI
     SystemCC, // cc
     Gcc,      // gcc
     Clang,    // clang
@@ -407,6 +408,7 @@ impl CC {
     pub fn cc_name(&self) -> &'static str {
         match self.cc_kind {
             CCKind::Msvc => "cl.exe",
+            CCKind::ClangCl => "clang-cl.exe",
             CCKind::SystemCC => "cc",
             CCKind::Gcc => "gcc",
             CCKind::Clang => "clang",
@@ -463,7 +465,7 @@ impl CC {
     }
 
     fn probe_target_triple(cc_path: &Path, cc_kind: CCKind) -> Option<String> {
-        if matches!(cc_kind, CCKind::Msvc) {
+        if matches!(cc_kind, CCKind::Msvc | CCKind::ClangCl) {
             return None;
         }
 
@@ -521,7 +523,9 @@ impl CC {
     ) -> anyhow::Result<Self> {
         let target_triple = CC::probe_target_triple(cc_path, cc_kind);
         let (ar_kind, ar_path) = match cc_kind {
-            CCKind::Msvc => (ARKind::MsvcLib, default_librarian(cc_path)),
+            CCKind::Msvc | CCKind::ClangCl => {
+                (ARKind::MsvcLib, default_librarian(cc_path, cc_kind))
+            }
             CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => (
                 CC::classify_gcc_like_archiver(ar_name, target_triple.as_deref()),
                 CC::resolve_tool_path(cc_path, ar_name),
@@ -542,7 +546,9 @@ impl CC {
         let name = CC::parse_compiler_name(&path)?;
         let name_lower = name.to_ascii_lowercase();
         let stem = CC::strip_exe_suffix(&name_lower);
-        if stem.ends_with("cl") {
+        if stem.ends_with("clang-cl") {
+            CC::try_from_cc_path_and_kind(ar, &path, CCKind::ClangCl)
+        } else if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Msvc)
         } else if stem.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Gcc)
@@ -563,7 +569,9 @@ impl CC {
         let stem = CC::strip_exe_suffix(&name_lower);
         let replaced_ar =
             |s: &str| CC::replace_compiler_suffix(&name, s, "ar").unwrap_or_else(|| "ar".into());
-        let cc = if stem.ends_with("cl") {
+        let cc = if stem.ends_with("clang-cl") {
+            CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::ClangCl)
+        } else if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
         } else if stem.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
@@ -594,7 +602,7 @@ impl CC {
         }
 
         let ar_name = match cc_kind {
-            CCKind::Msvc => "lib.exe",
+            CCKind::Msvc | CCKind::ClangCl => "lib.exe",
             CCKind::Tcc => "",
             CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => "ar",
         };
@@ -615,7 +623,7 @@ impl CC {
 
     /// Whether the compiler accepts the cl-compatible CLI, including clang-cl.
     pub fn uses_msvc_cli(&self) -> bool {
-        matches!(self.cc_kind, CCKind::Msvc)
+        matches!(self.cc_kind, CCKind::Msvc | CCKind::ClangCl)
     }
 
     pub fn is_tcc(&self) -> bool {
@@ -1446,6 +1454,7 @@ mod tests {
             CCKind::Gcc,
             CCKind::Clang,
             CCKind::Msvc,
+            CCKind::ClangCl,
             CCKind::Tcc,
         ] {
             for opt_level in [
@@ -1476,7 +1485,7 @@ mod tests {
                         );
                         assert_eq!(
                             command.iter().any(|flag| flag == "-ffp-contract=off"),
-                            !matches!(kind, CCKind::Msvc | CCKind::Tcc),
+                            !matches!(kind, CCKind::Msvc | CCKind::ClangCl | CCKind::Tcc),
                             "unexpected floating-point defaults: {command:?}"
                         );
                     }
@@ -2487,7 +2496,7 @@ mod tests {
             ),
             (
                 "clang-cl.exe",
-                CCKind::Msvc,
+                CCKind::ClangCl,
                 None,
                 [
                     "custom dir/custom.lib",
@@ -2550,9 +2559,9 @@ mod tests {
             lib_path: "moon/lib".to_string(),
         };
 
-        for driver in ["cl.exe", "clang-cl.exe"] {
+        for (driver, kind) in [("cl.exe", CCKind::Msvc), ("clang-cl.exe", CCKind::ClangCl)] {
             for output_ty in [OutputType::Executable, OutputType::SharedLib] {
-                let mut cc = fake_cc(CCKind::Msvc, None);
+                let mut cc = fake_cc(kind, None);
                 cc.cc_path = driver.to_string();
                 let toolchain = Toolchain::from_path_probe(cc);
                 let mut config = executable_cc_config();
@@ -2801,9 +2810,10 @@ mod tests {
     }
 
     #[test]
-    fn try_from_path_recognizes_clang_cl_exe_as_msvc() {
+    fn try_from_path_recognizes_clang_cl_exe() {
         let cc = CC::try_from_path("C:/llvm/bin/clang-cl.exe").expect("parse clang-cl.exe");
-        assert!(matches!(cc.cc_kind, CCKind::Msvc));
+        assert!(matches!(cc.cc_kind, CCKind::ClangCl));
+        assert!(cc.uses_msvc_cli());
     }
 
     fn normalize_path_separators(path: &str) -> String {
