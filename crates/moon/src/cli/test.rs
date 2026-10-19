@@ -539,7 +539,6 @@ fn run_test_in_single_file_rr(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = dirs;
     std::fs::create_dir_all(target_dir)
@@ -615,7 +614,6 @@ fn run_test_in_single_file_rr(
                 compile_config,
                 user_log,
                 intent,
-                mooncake_bin_dir,
                 resolved.clone(),
                 cmd.build_flags.jobs,
                 cmd.auto_sync_flags.frozen,
@@ -727,7 +725,6 @@ pub(crate) fn plan_test_or_bench_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     selected_target_backends: &[TargetBackend],
     discovered: moonbuild_rupes_recta::DiscoveredProject,
     user_log: &UserLog,
@@ -763,7 +760,6 @@ pub(crate) fn plan_test_or_bench_rr_from_discovered(
                 cli,
                 cmd,
                 target_dir,
-                mooncake_bin_dir,
                 target_backend,
                 resolved_project.clone(),
                 intent,
@@ -803,7 +799,6 @@ fn plan_test_or_bench_rr_from_intent(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     intent: CalcUserIntentOutput,
@@ -829,7 +824,6 @@ fn plan_test_or_bench_rr_from_intent(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
@@ -967,7 +961,6 @@ pub(crate) fn run_test_or_bench_from_discovered(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = dirs;
     let lock = if cli.dry_run {
@@ -980,7 +973,6 @@ pub(crate) fn run_test_or_bench_from_discovered(
         cli,
         cmd,
         target_dir,
-        mooncake_bin_dir,
         selected_target_backends,
         discovered,
         user_log,

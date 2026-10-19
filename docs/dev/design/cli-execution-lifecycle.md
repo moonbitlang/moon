@@ -169,9 +169,8 @@ and Moon-managed setup-child output remain separate mechanisms.
 
 ## Moon-managed setup children
 
-Moon-managed setup children currently include legacy `postadd` hooks and the
-nested Moon process used for deprecated binary dependencies. Their output mode
-is selected explicitly at the command seam:
+Moon-managed setup children currently include legacy `postadd` hooks. Their
+output mode is selected explicitly at the command seam:
 
 ```rust
 enum ChildOutputMode {

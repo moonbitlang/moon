@@ -23,7 +23,7 @@ use expect_test::expect_file;
 use super::*;
 use expect_test::expect;
 use moonutil::{
-    constants::{BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_NO_WORKSPACE, MOON_WORK_ENV},
+    constants::{BUILD_DIR, MBTI_GENERATED, MOON_NO_WORKSPACE, MOON_WORK_ENV},
     path::CargoPathExt,
     target::TargetBackend,
     text::StringExt,
@@ -97,6 +97,7 @@ mod prebuild_link_config_self;
 mod query_symbol;
 mod registry_search;
 mod registry_view;
+mod removed_bin_deps;
 mod run_command;
 mod run_doc_test;
 mod run_md_test;

@@ -1,9 +1,0 @@
-import {
-  "username/flash/lib",
-}
-
-pkgtype(kind: "executable")
-
-options(
-  "bin-target": "js",
-)

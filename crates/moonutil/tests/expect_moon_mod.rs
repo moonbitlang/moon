@@ -60,7 +60,7 @@ fn module_manifests_reject_v0_and_v1_suffixes() {
             ("moon.mod.json", format!(r#"{{"name":"a/b/{suffix}"}}"#)),
             (
                 "moon.mod.json",
-                format!(r#"{{"name":"test/app","bin-deps":{{"a/b/{suffix}":"1.0.0"}}}}"#),
+                format!(r#"{{"name":"test/app","deps":{{"a/b/{suffix}":"1.0.0"}}}}"#),
             ),
         ] {
             let dir = temp_dir("invalid-major-suffix");
@@ -84,10 +84,6 @@ fn module_manifests_validate_major_version_suffixes() {
         (
             "moon.mod.json",
             r#"{"name":"test/app","deps":{"a/b/v2":"1.5.0"}}"#,
-        ),
-        (
-            "moon.mod.json",
-            r#"{"name":"test/app","bin-deps":{"a/b/v2":"1.5.0"}}"#,
         ),
     ] {
         let dir = temp_dir("major-version-mismatch");
@@ -128,14 +124,6 @@ fn read_module_from_dsl_basic() {
             "moonbitlang/core": "0.4.8",
             "moonbitlang/x": "0.4.6"
           },
-          "bin-deps": {
-            "tool/cli": {
-              "path": "../bin",
-              "bin_pkg": [
-                "cli"
-              ]
-            }
-          },
           "readme": "README.mbt.md",
           "repository": "https://example.com/repo",
           "license": "Apache-2.0",
@@ -152,6 +140,14 @@ fn read_module_from_dsl_basic() {
             "-lm"
           ],
           "source": "src",
+          "bin-deps": {
+            "tool/cli": {
+              "path": "../bin",
+              "bin-pkg": [
+                "cli"
+              ]
+            }
+          },
           "warn-list": "-unused-deprecated",
           "include": [
             "src/**",
@@ -528,7 +524,6 @@ fn manifest_facade_exposes_moon_mod_json_rules() {
         version: None,
         private: None,
         deps: None,
-        bin_deps: None,
         readme: None,
         repository: None,
         license: None,

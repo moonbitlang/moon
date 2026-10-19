@@ -440,7 +440,6 @@ fn run_check_impl(
     let watch_ignored_subtree = dirs.target_dir.clone();
     if cmd.watch {
         dirs.target_dir = dirs.target_dir.join(WATCH_MODE_DIR);
-        dirs.mooncake_bin_dir = dirs.target_dir.join(moonutil::constants::MOON_BIN_DIR);
     }
 
     let targets = if cmd.build_flags.target.is_empty() {
@@ -528,11 +527,7 @@ fn run_check_for_single_file_rr(
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
-    let PackageDirs {
-        target_dir,
-        mooncake_bin_dir,
-        ..
-    } = dirs;
+    let PackageDirs { target_dir, .. } = dirs;
     if cmd.patch_file.is_some() {
         anyhow::bail!("standalone single-file `moon check` does not support `--patch-file`");
     }
@@ -597,7 +592,6 @@ fn run_check_for_single_file_rr(
                 compile_config,
                 user_log,
                 intent,
-                mooncake_bin_dir,
                 resolved.clone(),
                 cmd.build_flags.jobs,
                 cmd.auto_sync_flags.frozen,
@@ -722,7 +716,6 @@ fn run_check_normal_rr_from_discovered(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = dirs;
     let prebuild_list = if watch {
@@ -738,7 +731,6 @@ fn run_check_normal_rr_from_discovered(
         cmd,
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         selected_target_backends,
         discovered,
         user_log,
@@ -915,7 +907,6 @@ pub(crate) fn plan_check_rr_from_discovered(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     selected_target_backends: &[TargetBackend],
     discovered: moonbuild_rupes_recta::DiscoveredProject,
     user_log: &UserLog,
@@ -935,7 +926,6 @@ pub(crate) fn plan_check_rr_from_discovered(
                 cli,
                 cmd,
                 target_dir,
-                mooncake_bin_dir,
                 selection,
                 resolved_project.clone(),
                 user_log,
@@ -993,7 +983,6 @@ fn plan_check_rr_for_selection(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     selection: TargetPackageGroup,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
@@ -1022,7 +1011,6 @@ fn plan_check_rr_for_selection(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,

@@ -216,9 +216,6 @@ pub(crate) fn add_cli(
     let dirs = project.package_dirs()?;
 
     let path = parse_module_path(&cmd.package_path)?;
-    if cmd.upgrade && cmd.bin {
-        bail!("--bin cannot be used with --upgrade");
-    }
     if path.module == MOD_NAME_STDLIB {
         user_log.warn(format!("no need to add `{MOD_NAME_STDLIB}` as dependency"));
         return Ok(0);
@@ -255,7 +252,7 @@ pub(crate) fn add_cli(
             error
         }
     })?;
-    mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.bin, cmd.upgrade, user_log)
+    mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.upgrade, user_log)
 }
 
 #[cfg(test)]

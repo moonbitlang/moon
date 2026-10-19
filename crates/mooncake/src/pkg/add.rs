@@ -19,7 +19,7 @@
 use anyhow::bail;
 use indexmap::IndexMap;
 use moonutil::constants::MOON_MOD;
-use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
+use moonutil::dependency::SourceDependencyInfo;
 use moonutil::manifest::{
     convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
 };
@@ -39,10 +39,6 @@ pub struct AddSubcommand {
     #[clap(value_name = "MODULE")]
     pub package_path: String,
 
-    /// Add the deprecated binary dependency (prefer portable Wasm with moonx)
-    #[clap(long)]
-    pub bin: bool,
-
     /// Upgrade an existing dependency
     #[clap(short = 'u', long)]
     pub upgrade: bool,
@@ -56,7 +52,6 @@ pub fn add(
     module_dir: &Path,
     dirs: &PackageDirs,
     module: &ModuleSource,
-    bin: bool,
     upgrade: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
@@ -84,15 +79,6 @@ pub fn add(
         }
 
         dep.set_version(Some(version.clone()));
-    } else if bin {
-        let bin_deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
-        bin_deps.insert(
-            pkg_name_str.clone(),
-            BinaryDependencyInfo {
-                common: SourceDependencyInfo::Simple(version.clone()),
-                ..Default::default()
-            },
-        );
     } else {
         if m.deps.contains_key(&pkg_name_str) {
             user_log.warn(format!(
@@ -135,15 +121,13 @@ pub fn add(
     )?;
 
     if module_dir.join(MOON_MOD).exists() {
-        let patch = if bin {
-            MoonModPatch::Rewrite(convert_module_to_mod_json(Arc::unwrap_or_clone(m)))
-        } else {
+        patch_module_dsl_to_file(
+            module_dir,
             MoonModPatch::InsertImportItem {
                 name: pkg_name_str,
                 version: version.clone(),
-            }
-        };
-        patch_module_dsl_to_file(module_dir, patch)?;
+            },
+        )?;
     } else {
         let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
         write_module_json_to_file(&new_j, module_dir)?;

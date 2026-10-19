@@ -43,7 +43,7 @@ use semver::Version;
 pub struct SyncOutputOptions {
     /// Suppress dependency acquisition progress below error level.
     pub quiet: bool,
-    /// Output policy for setup children such as postadd and bin-dep builds.
+    /// Output policy for setup children such as postadd scripts.
     pub child_output: ChildOutputMode,
 }
 
@@ -58,26 +58,14 @@ pub fn auto_sync(
     user_log: &UserLog,
     no_std: bool,
     workspace_env: WorkspaceEnv,
-    include_bin_deps: bool,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
-        return resolve_workspace_sync(
-            dirs,
-            cli,
-            output_options,
-            user_log,
-            no_std,
-            workspace,
-            include_bin_deps,
-        );
+        return resolve_workspace_sync(dirs, cli, output_options, user_log, no_std, workspace);
     }
 
-    let mut module = read_module_desc_file_in_dir(&dirs.source_dir)?;
-    if !include_bin_deps {
-        module.bin_deps = None;
-    }
+    let module = read_module_desc_file_in_dir(&dirs.source_dir)?;
     let module = Arc::new(module);
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(source, module);
@@ -102,14 +90,10 @@ fn resolve_workspace_sync(
     user_log: &UserLog,
     no_std: bool,
     workspace: &WorkspaceLayout,
-    include_bin_deps: bool,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in workspace.members() {
-        let mut module = read_module_desc_file_in_dir(member_dir)?;
-        if !include_bin_deps {
-            module.bin_deps = None;
-        }
+        let module = read_module_desc_file_in_dir(member_dir)?;
         let module = Arc::new(module);
         let source = ModuleSource::from_local_module(&module, member_dir)?;
         roots.insert(ResolvedModule::new(source, module));

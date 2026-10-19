@@ -4,13 +4,9 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
 
 - Scope: Applies only to packages in the input module being built.
   Third-party dependencies are expected to already contain their generated outputs.
-- The deprecated bin-dep compatibility build does not run package-level
-  prebuild, including custom `pre-build`, `moonlex`, and `moonyacc`, even
-  though its child build presents the distributed module as an input module.
-  Published packages must contain their generated outputs.
 - Package-level prebuild tasks are separate from the experimental module-level
-  prebuild configuration script. The latter may still run for a native or LLVM
-  bin-dep build to produce build configuration such as native link flags.
+  prebuild configuration script, which supplies build configuration such as
+  native link flags.
 
 ## Module-Level Prebuild Configuration
 
@@ -125,8 +121,7 @@ Each backend planning pass runs the scripts separately, with `MOON_BACKEND`
 identifying that pass's backend.
 
 `moon check` skips this configuration for the checked project on every backend.
-Dependency installation can still invoke a separate native or LLVM build whose
-configuration script runs. Native and LLVM dry runs also run these scripts,
+Native and LLVM build dry runs run these scripts,
 because their output is needed to construct build commands.
 
 Unlike package-level `pre-build` / `dev_build` code generation, whose outputs
@@ -173,16 +168,14 @@ Notes:
 - `input`/`output` paths are package-relative in config and expand to prebuild-cwd-relative paths inside the command.
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
 - During ordinary input-module builds that plan package prebuild, each planned
-  action's declared outputs are tracked as build outputs. Bin-dep compatibility
-  builds do not create package-level prebuild actions; they consume existing
-  `.mbt` and `.mbt.md` outputs as package sources.
+  action's declared outputs are tracked as build outputs.
 - Outputs of actions in the current `PackagePrebuildPlan` go through the same
   File Interpretation as paths in the Package File Set. `.mbt` becomes a
   conditionally classified MoonBit source, `.mbt.md` becomes a blackbox input,
   `.mbtp` becomes a check/prove proof input, and `.mbl`/`.mby` schedules
   moonlex/moonyacc whose generated `.mbt` is then classified as a source.
   A declaration alone does not make an absent output a plan input when package
-  prebuild policy does not apply, as in bin-dep compatibility builds.
+  prebuild does not apply, such as for third-party dependencies.
 - `MOON_IGNORE_PREBUILD` disables applicable custom actions and does not add
   their declared outputs to File Interpretation. Generated files already
   present in the Package File Set remain ordinary compiler inputs.
@@ -197,13 +190,6 @@ Notes:
 - `input`/`output` are resolved relative to the package directory for build dependency tracking.
 - `$input`/`$output` expand to paths relative to the prebuild command working directory. These substituted paths are lexically normalized and start with `./`, for example `./src/lib/input.txt`.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
-- `$mooncake_bin` expands to `<project target dir>/__moonbin__`.
-  Project discovery computes this `mooncake_bin_dir` with the other
-  authoritative project directories. Command adapters pass it unchanged
-  through dependency sync and build planning; downstream stages do not
-  reconstruct it from another directory. `bin-deps` is deprecated; new tools
-  should be published as portable Wasm executable packages and run with
-  `moonx` instead.
 
 ## Placeholder Substitution
 
@@ -220,11 +206,6 @@ Only the `command` field is substituted. The following placeholders are recogniz
 
 - `$pkg_dir`  
   Expands to the absolute path of the current package directory (the directory containing this `moon.pkg`).
-
-- `$mooncake_bin`  
-  Expands to the absolute path `<project target dir>/__moonbin__`.
-  This refers to launchers installed from the current project's direct
-  `bin-deps`.
 
 Substitution semantics:
 
@@ -260,7 +241,7 @@ Behavior:
 
 - During ordinary input-module builds, each backend-specific Build Plan owns a
   separate `PackagePrebuildPlan` containing the requested custom, moonlex, and
-  moonyacc actions. Bin-dep compatibility builds create none.
+  moonyacc actions.
 - `PackagePrebuildPlan` owns package file-generation actions as a peer of the
   `BackendPlan`; it is not a separate semantic artifact model. Package
   prebuild is therefore never represented as a backend node with an
@@ -374,7 +355,7 @@ Location placeholders:
 ```moonbit
 rule(
   name: "generate",
-  command: "custom-tool --assets \"$pkg_dir/assets\" --bin \"$mooncake_bin\" -i \"$input\" -o \"$output\"",
+  command: "custom-tool --assets \"$pkg_dir/assets\" -i \"$input\" -o \"$output\"",
 )
 dev_build(
   rule: "generate",

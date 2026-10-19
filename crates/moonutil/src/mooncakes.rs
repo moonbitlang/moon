@@ -353,17 +353,9 @@ pub mod result {
 
     use super::{ModuleId, ModuleName, ModuleSource};
 
-    /// The kind of dependency between modules.
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-    pub enum DependencyKind {
-        Regular,
-        Binary,
-    }
-
     #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
     pub struct DependencyEdge {
         pub name: ModuleName,
-        pub kind: DependencyKind,
     }
 
     // Only used in tests
@@ -372,21 +364,13 @@ pub mod result {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let name = s.into();
-            Ok(DependencyEdge {
-                name,
-                kind: DependencyKind::Regular,
-            })
+            Ok(DependencyEdge { name })
         }
     }
 
     impl std::fmt::Display for DependencyEdge {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.name)?;
-            if self.kind == DependencyKind::Binary {
-                write!(f, " (binary)")
-            } else {
-                Ok(())
-            }
+            write!(f, "{}", self.name)
         }
     }
 
@@ -561,7 +545,6 @@ pub mod result {
                     stdlib,
                     DependencyEdge {
                         name: MOD_NAME_STDLIB.clone(),
-                        kind: DependencyKind::Regular,
                     },
                 );
             }
@@ -584,7 +567,6 @@ pub mod result {
                         stdlib,
                         DependencyEdge {
                             name: MOD_NAME_STDLIB.clone(),
-                            kind: DependencyKind::Regular,
                         },
                     );
                 }

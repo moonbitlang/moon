@@ -28,8 +28,7 @@ use moonutil::{
     dependency::SourceDependencyInfo,
     manifest::MoonMod,
     resolution::{
-        DependencyEdge, DependencyKind, ModuleDependencyGraph, ModuleName, ModuleSource,
-        ModuleSourceKind,
+        DependencyEdge, ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind,
     },
     user_log::UserLog,
 };
@@ -262,15 +261,7 @@ fn mvs_resolve(
     // Do a DFS in the graph
     while let Some((source, module)) = working_list.pop() {
         tracing::debug!(module = %source, "visiting module dependencies");
-        let bin_deps = root_sources.contains(&source).then(|| {
-            module
-                .bin_deps
-                .iter()
-                .flat_map(|m| m.iter())
-                .map(|(k, v)| (k, &v.common))
-        });
-        let all_deps = module.deps.iter().chain(bin_deps.into_iter().flatten());
-        for (name, req) in all_deps {
+        for (name, req) in &module.deps {
             let module_name = name.as_str().into();
 
             let (ms, module) = match resolve_module_dependency(
@@ -373,20 +364,7 @@ fn mvs_resolve(
 
         let curr_id = *visited.get(&pkg).unwrap();
 
-        let regular_deps = module
-            .deps
-            .iter()
-            .map(|(k, v)| (k, v, DependencyKind::Regular));
-
-        let bin_deps = root_sources.contains(&pkg).then(|| {
-            module.bin_deps.iter().flat_map(|map| {
-                map.iter()
-                    .map(|(k, v)| (k, &v.common, DependencyKind::Binary))
-            })
-        });
-
-        let all_deps = regular_deps.chain(bin_deps.into_iter().flatten());
-        for (dep_name, req, kind) in all_deps {
+        for (dep_name, req) in &module.deps {
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
 
@@ -434,14 +412,7 @@ fn mvs_resolve(
             );
 
             // Add dependency
-            module_graph.add_dependency(
-                curr_id,
-                id,
-                &DependencyEdge {
-                    name: dep_name,
-                    kind,
-                },
-            );
+            module_graph.add_dependency(curr_id, id, &DependencyEdge { name: dep_name });
         }
     }
 
@@ -642,7 +613,6 @@ mod test {
                 deps: {
                     "dep/two": 0.1.0,
                 },
-                bin_deps: None,
                 readme: None,
                 repository: None,
                 license: None,
@@ -673,7 +643,7 @@ mod test {
 
         let deps_keyed = module_graph.deps_keyed(id).collect::<Vec<_>>();
         expect![[r#"
-            "[(ModuleId(2v1), DependencyEdge { name: dep/two, kind: Regular })]"
+            "[(ModuleId(2v1), DependencyEdge { name: dep/two })]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps_keyed));
 
@@ -865,19 +835,7 @@ mod test {
         registry.add_module_full("dep/bin", "0.1.0", []);
 
         let mut dep = create_mock_module("dep/regular", "0.1.0", []);
-        dep.bin_deps = Some(
-            [(
-                "dep/bin".to_string(),
-                moonutil::dependency::BinaryDependencyInfo {
-                    common: moonutil::dependency::SourceDependencyInfo::Simple(
-                        "0.1.0".parse().unwrap(),
-                    ),
-                    ..Default::default()
-                },
-            )]
-            .into_iter()
-            .collect(),
-        );
+        dep.ext = serde_json_lenient::json!({"bin-deps": {"dep/bin": "0.1.0"}});
         registry.add_module(dep);
 
         let mut context = ModuleResolutionContext::new(&registry);

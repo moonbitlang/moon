@@ -20,7 +20,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use crate::{
@@ -42,7 +42,6 @@ use super::{
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
     pub(super) input: &'a ResolvedProject,
-    pub(super) mooncake_bin_dir: &'a Path,
     pub(super) config: &'a CompileConfig,
     pub(super) input_directive: &'a InputDirective,
     pub(super) prebuild_config: Option<&'a PrebuildOutput>,
@@ -76,7 +75,6 @@ pub(super) struct PackageFileSet {
 impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn new(
         resolved: &'a ResolvedProject,
-        mooncake_bin_dir: &'a Path,
         config: &'a CompileConfig,
         input_directive: &'a InputDirective,
         prebuild_config: Option<&'a PrebuildOutput>,
@@ -84,7 +82,6 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Self {
         Self {
             input: resolved,
-            mooncake_bin_dir,
             config,
             input_directive,
             prebuild_config,

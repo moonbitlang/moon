@@ -53,8 +53,8 @@ for command in peek-def find-references rename hover outline analyze doc; do
 done
 assert_not_contains "$ide_completions" --verbose
 
-tool_completions=$(complete_moon moon tool bu)
-assert_contains "$tool_completions" build-binary-dep
+tool_completions=$(complete_moon moon tool em)
+assert_contains "$tool_completions" embed
 
 build_completions=$(complete_moon moon build --ver)
 assert_contains "$build_completions" --verbose

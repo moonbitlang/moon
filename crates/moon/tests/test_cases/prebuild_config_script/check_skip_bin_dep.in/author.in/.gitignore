@@ -1,5 +1,0 @@
-_build/
-prebuild-bin-dep-main
-prebuild-bin-dep-main.exe
-prebuild-bin-dep-main.ps1
-src/main/generated_stub.c

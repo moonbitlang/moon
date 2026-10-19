@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub(crate) mod build_binary_dep;
 pub(crate) mod demangle;
 pub(crate) mod embed;
 pub(crate) mod exec;
@@ -48,7 +47,6 @@ pub(crate) enum ToolSubcommands {
     #[clap(hide = true)]
     MigrateManifest(MigrateManifestSubcommand),
     Embed(Embed),
-    BuildBinaryDep(build_binary_dep::BuildBinaryDepArgs),
     Demangle(DemangleSubcommand),
 }
 
@@ -65,9 +63,6 @@ pub(crate) fn run_tool(
         }
         ToolSubcommands::MigrateManifest(subcmd) => run_migrate_manifest(subcmd),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
-        ToolSubcommands::BuildBinaryDep(subcmd) => {
-            build_binary_dep::run_build_binary_dep(cli, &subcmd, user_log)
-        }
         ToolSubcommands::Demangle(subcmd) => Ok(run_demangle(subcmd)),
     }
 }

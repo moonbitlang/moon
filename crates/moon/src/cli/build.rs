@@ -154,7 +154,6 @@ fn run_build_for_single_file_rr(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = dirs;
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
@@ -207,7 +206,6 @@ fn run_build_for_single_file_rr(
             compile_config,
             user_log,
             vec![UserIntent::Build(package)].into(),
-            mooncake_bin_dir,
             resolved.clone(),
             cmd.build_flags.jobs,
             cmd.auto_sync_flags.frozen,
@@ -323,7 +321,6 @@ fn run_build_rr_from_discovered(
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
         ..
     } = dirs;
     let prebuild_list = if watch {
@@ -338,7 +335,6 @@ fn run_build_rr_from_discovered(
         cli,
         cmd,
         target_dir,
-        mooncake_bin_dir,
         selected_target_backends,
         discovered,
         user_log,
@@ -384,7 +380,6 @@ pub(crate) fn plan_build_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
@@ -409,7 +404,6 @@ pub(crate) fn plan_build_rr_from_resolved(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
@@ -422,7 +416,6 @@ fn plan_build_rr_from_resolved_with_scope(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     scoped_packages: Vec<PackageId>,
@@ -446,7 +439,6 @@ fn plan_build_rr_from_resolved_with_scope(
         compile_config,
         user_log,
         intent,
-        mooncake_bin_dir,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
@@ -459,7 +451,6 @@ fn plan_build_rr_from_selection(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     selection: ResolvedBuildSelection,
@@ -478,7 +469,6 @@ fn plan_build_rr_from_selection(
         compile_config,
         user_log,
         selection.into_user_intent(),
-        mooncake_bin_dir,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
@@ -492,7 +482,6 @@ pub(crate) fn plan_build_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     selected_target_backends: &[TargetBackend],
     discovered: moonbuild_rupes_recta::DiscoveredProject,
     user_log: &UserLog,
@@ -506,7 +495,6 @@ pub(crate) fn plan_build_rr_from_discovered(
                 cli,
                 cmd,
                 target_dir,
-                mooncake_bin_dir,
                 selection,
                 resolved_project.clone(),
                 user_log,
@@ -548,7 +536,6 @@ fn plan_build_rr_for_selection(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
-    mooncake_bin_dir: &Path,
     selection: BackendPlanSelection,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
@@ -562,19 +549,16 @@ fn plan_build_rr_for_selection(
             cli,
             cmd,
             target_dir,
-            mooncake_bin_dir,
             target_backend,
             resolved_project,
             user_log,
         ),
         // Raw user selector paths/package names have already been resolved
-        // into PackageIds. RR will use those identities plus the
-        // bin-dependency launcher directory captured by the command adapter.
+        // into PackageIds. RR uses those resolved identities.
         Some(packages) if has_explicit_build_selector(cmd) => plan_build_rr_from_selection(
             cli,
             cmd,
             target_dir,
-            mooncake_bin_dir,
             target_backend,
             resolved_project,
             ResolvedBuildSelection { packages },
@@ -584,7 +568,6 @@ fn plan_build_rr_for_selection(
             cli,
             cmd,
             target_dir,
-            mooncake_bin_dir,
             target_backend,
             resolved_project,
             packages,

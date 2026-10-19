@@ -18,7 +18,7 @@
 
 use log::{debug, info};
 use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::instrument;
 
 use crate::{
@@ -87,7 +87,6 @@ pub enum CompileGraphError {
 #[instrument(skip_all)]
 pub fn compile(
     cx: &CompileConfig,
-    mooncake_bin_dir: &Path,
     resolved_project: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],
     input_directive: &InputDirective,
@@ -101,7 +100,6 @@ pub fn compile(
 
     let plan = build_plan::build_plan(
         resolved_project,
-        mooncake_bin_dir,
         cx,
         requested_artifacts.iter().cloned(),
         input_directive,
@@ -172,7 +170,6 @@ mod tests {
             version: None,
             private: None,
             deps: Default::default(),
-            bin_deps: None,
             readme: None,
             repository: None,
             license: None,
@@ -371,7 +368,6 @@ mod tests {
                 };
                 let output = compile(
                     &config,
-                    Path::new(".mooncakes/bin"),
                     &resolved,
                     &[ArtifactKey::Executable {
                         package: main,
@@ -594,7 +590,6 @@ mod tests {
                 };
                 let plan = build_plan(
                     &resolved,
-                    Path::new(".mooncakes/bin"),
                     &config,
                     std::iter::empty(),
                     &InputDirective::default(),
@@ -782,7 +777,6 @@ mod tests {
         let user_log = UserLog::new(log::LevelFilter::Error);
         let output = compile(
             &config,
-            Path::new("."),
             &resolved,
             &requested_artifacts,
             &input_directive,
@@ -892,7 +886,6 @@ mod tests {
 
         let output = compile(
             &config,
-            Path::new("."),
             &resolved,
             &[
                 ArtifactKey::ProofWhyml {

@@ -137,22 +137,6 @@ fn cli_reports_selector_conflicts_before_planning() {
         embed_mode_stderr.contains("cannot be used with"),
         "stderr: {embed_mode_stderr}"
     );
-
-    let build_binary_dep_stderr = get_err_stderr(
-        &dir,
-        [
-            "tool",
-            "build-binary-dep",
-            "hello",
-            "--all-pkgs",
-            "--install-path",
-            "bin",
-        ],
-    );
-    assert!(
-        build_binary_dep_stderr.contains("cannot be used with"),
-        "stderr: {build_binary_dep_stderr}"
-    );
 }
 
 #[test]

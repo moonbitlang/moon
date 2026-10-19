@@ -43,6 +43,10 @@ use self::context::ModuleResolutionContext;
 #[derive(Debug, Error)]
 pub(crate) enum ModuleResolutionError {
     #[error(
+        "`bin-deps` is no longer supported in module `{module}`; remove it and run portable Wasm tools with `moonx` instead"
+    )]
+    RemovedBinaryDependencies { module: String },
+    #[error(
         "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: module was not found in the registry"
     )]
     ModuleMissing {
@@ -255,6 +259,24 @@ pub(crate) fn resolve_modules_with_solver(
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
+    // Historical dependency manifests may still contain bin-deps. Only roots
+    // used to execute them; reject those before any resolution or acquisition.
+    let removed_bin_deps = root
+        .iter()
+        .map(|(_, root)| root.module_info())
+        .filter(|module| {
+            module.ext.get("bin-deps").is_some_and(|value| {
+                !value.is_null() && !value.as_object().is_some_and(|deps| deps.is_empty())
+            })
+        })
+        .map(|module| ModuleResolutionError::RemovedBinaryDependencies {
+            module: module.name.clone(),
+        })
+        .collect::<Vec<_>>();
+    if !removed_bin_deps.is_empty() {
+        return Err(ModuleResolutionErrors(removed_bin_deps));
+    }
+
     let mut context = ModuleResolutionContext::new(config.registry);
     let mut module_graph = ModuleDependencyGraph::from_root_modules(root);
 

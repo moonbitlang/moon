@@ -25,9 +25,8 @@ path is stored with the `BuildVirtual` action, and n2 connects a prebuild
 provider through the matching concrete path when applicable.
 
 This separation keeps Package File Set discovery independent of
-invocation-specific prebuild policy. In particular, bin-dep compatibility
-builds consume an existing contract and never select an absent declaration-only
-output.
+the selected prebuild actions. A declaration alone cannot make an absent
+contract available when no action will generate it.
 
 When Moon injects a prebuilt standard library, its virtual contracts are
 external compiler inputs rather than artifacts produced by the current Build

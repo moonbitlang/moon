@@ -52,16 +52,6 @@
         "null"
       ]
     },
-    "bin-deps": {
-      "description": "Deprecated third-party binary dependencies. Publish portable Wasm tools and run them with `moonx` instead.",
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": {
-        "$ref": "#/definitions/BinaryDependencyInfoJson"
-      }
-    },
     "deps": {
       "description": "third-party dependencies of the module",
       "type": [
@@ -200,50 +190,6 @@
     }
   },
   "definitions": {
-    "BinaryDependencyInfo": {
-      "description": "Information about a specific dependency",
-      "type": "object",
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "$ref": "#/definitions/SourceLocalDependencyInfo"
-        },
-        {
-          "$ref": "#/definitions/SourceRegistryDependencyInfo"
-        }
-      ],
-      "properties": {
-        "bin_pkg": {
-          "description": "Binary packages to compile.",
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "BinaryDependencyInfoJson": {
-      "description": "The JSON representation of a binary dependency info",
-      "anyOf": [
-        {
-          "description": "A simple version requirement",
-          "type": "string"
-        },
-        {
-          "description": "A detailed dependency info",
-          "allOf": [
-            {
-              "$ref": "#/definitions/BinaryDependencyInfo"
-            }
-          ]
-        }
-      ]
-    },
     "MoonModJSONRules": {
       "anyOf": [
         {
