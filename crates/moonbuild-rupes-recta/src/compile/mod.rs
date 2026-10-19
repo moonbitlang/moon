@@ -240,8 +240,6 @@ mod tests {
             supported_targets_decl: SupportedTargetsDeclKind::Omitted,
             effective_supported_targets: TargetBackend::all().iter().copied().collect(),
             source_files: vec![PathBuf::from(path).join(format!("{path}.mbt"))],
-            mbt_lex_files: Vec::new(),
-            mbt_yacc_files: Vec::new(),
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: Vec::new(),

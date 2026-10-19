@@ -410,8 +410,6 @@ fn discover_one_package(
 
     // Discover source files within the package
     let mut source_files = Vec::new();
-    let mut mbt_lex_files = Vec::new();
-    let mut mbt_yacc_files = Vec::new();
     let mut mbt_md_files = Vec::new();
     let mut mbtp_files = Vec::new();
 
@@ -450,12 +448,30 @@ fn discover_one_package(
             .file_name()
             .expect("We are listing a dir, file should have name");
         let filename_str = filename.to_string_lossy();
+        if filename_str.ends_with(".mbl") || filename_str.ends_with(".mby") {
+            // Explicit custom rules may use legacy extensions as ordinary assets.
+            // Only reliance on the removed implicit generators is an error.
+            let declared = pkg_json.pre_build.iter().flatten().any(|rule| {
+                rule.input()
+                    .iter()
+                    .chain(rule.output().iter())
+                    .any(|declared| {
+                        let declared_path = Path::new(declared);
+                        if declared_path.is_absolute() {
+                            declared_path == path
+                        } else {
+                            RelativePath::new(declared).normalize().to_path(abs) == path
+                        }
+                    })
+            });
+            if !declared {
+                return Err(DiscoverError::UnsupportedLegacyGeneratedSource { file: path });
+            }
+        }
         match package_source_file_kind(&filename_str) {
             Some(PackageSourceFileKind::Mbt) => source_files.push(path),
             Some(PackageSourceFileKind::MbtMd) => mbt_md_files.push(path),
             Some(PackageSourceFileKind::Mbtp) => mbtp_files.push(path),
-            Some(PackageSourceFileKind::Mbl) => mbt_lex_files.push(path),
-            Some(PackageSourceFileKind::Mby) => mbt_yacc_files.push(path),
             None => {
                 // File is not one of our expected types, skip
             }
@@ -493,8 +509,6 @@ fn discover_one_package(
     // Sort the source files for repeatable results
     let _sort_guard = tracing::debug_span!("sorting_files").entered();
     source_files.sort();
-    mbt_lex_files.sort();
-    mbt_yacc_files.sort();
     mbt_md_files.sort();
     mbtp_files.sort();
     drop(_sort_guard);
@@ -513,8 +527,6 @@ fn discover_one_package(
         supported_targets_decl,
         effective_supported_targets,
         source_files,
-        mbt_lex_files,
-        mbt_yacc_files,
         mbt_md_files,
         mbtp_files,
         c_stub_files: c_stubs,

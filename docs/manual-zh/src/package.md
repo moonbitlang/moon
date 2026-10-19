@@ -28,3 +28,17 @@
 `Invalid configuration`（`E4192`）；使用这些工具链时，请继续使用旧的
 `options(...)` 形式。格式化和 JSON 到 DSL 的迁移由工具链中的 `moonfmt`
 提供。较旧的格式化工具可能会把直接声明改写成等价的 `options(...)` 形式。
+
+## 词法和语法分析器生成
+
+Moon 不再根据 `.mbl` 或 `.mby` 文件自动运行 `moonlex` 或 `moonyacc`。
+请显式声明生成 `.mbt` 文件的自定义规则。例如，假设 `my-lexer` 命令可用：
+
+```moonbit
+rule(name: "lexer", command: "my-lexer $input -o $output")
+dev_build(rule: "lexer", input: "lexer.mbl", output: "lexer.mbt")
+```
+
+直接位于包目录中的 `.mbl` 或 `.mby` 文件必须声明为自定义规则的输入或输出，
+旧的 `pre-build` 配置也可以使用。否则 Moon 会报告迁移错误。
+发布包时应包含生成的 `.mbt` 文件，因为依赖该包的项目不会运行其包级预构建规则。

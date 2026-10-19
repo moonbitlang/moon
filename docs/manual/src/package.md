@@ -32,3 +32,19 @@ recognize them report `Invalid configuration` (`E4192`); use the legacy
 `options(...)` form with those toolchains. Formatting and JSON-to-DSL migration
 are provided by the toolchain's `moonfmt`. Older formatter versions may rewrite
 direct declarations into their equivalent `options(...)` form.
+
+## Lexer and parser generation
+
+Moon no longer automatically runs `moonlex` or `moonyacc` for `.mbl` or `.mby`
+files. Declare an explicit custom rule that produces `.mbt` files instead. For
+example, if `my-lexer` is available as a command:
+
+```moonbit
+rule(name: "lexer", command: "my-lexer $input -o $output")
+dev_build(rule: "lexer", input: "lexer.mbl", output: "lexer.mbt")
+```
+
+A `.mbl` or `.mby` file directly in a package directory must appear in a custom
+rule's declared inputs or outputs (legacy `pre-build` entries also work).
+Otherwise Moon reports a migration error. Include generated `.mbt` files when
+publishing: dependency consumers do not run package prebuild rules.

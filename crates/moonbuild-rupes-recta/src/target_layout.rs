@@ -1283,8 +1283,6 @@ mod tests {
             supported_targets_decl: SupportedTargetsDeclKind::Omitted,
             effective_supported_targets: supported_targets,
             source_files: Vec::new(),
-            mbt_lex_files: Vec::new(),
-            mbt_yacc_files: Vec::new(),
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("native/stub.c")],

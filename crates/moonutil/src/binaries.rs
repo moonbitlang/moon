@@ -50,8 +50,6 @@ const EXECUTABLE_OVERRIDES: &[&str] = &[
     "MOON_NODE_OVERRIDE",
 ];
 
-const PAYLOAD_OVERRIDES: &[&str] = &["MOONLEX_OVERRIDE", "MOONYACC_OVERRIDE"];
-
 /// Return only explicitly configured binary paths for best-effort display
 /// redaction without initializing the cached binary inventory.
 pub(crate) fn configured_binary_overrides() -> Vec<(&'static str, PathBuf)> {
@@ -62,11 +60,6 @@ pub(crate) fn configured_binary_overrides() -> Vec<(&'static str, PathBuf)> {
                 .filter(|path| !path.is_empty())
                 .map(|path| (env_var, resolve_executable_override(path.as_os_str())))
         })
-        .chain(PAYLOAD_OVERRIDES.iter().filter_map(|&env_var| {
-            std::env::var_os(env_var)
-                .filter(|path| !path.is_empty())
-                .map(|path| (env_var, PathBuf::from(path)))
-        }))
         .collect()
 }
 
@@ -127,29 +120,6 @@ pub fn mooncake_in(current_dir: &std::path::Path) -> PathBuf {
     moon_executable_in("mooncake", "MOONCAKE_OVERRIDE", current_dir)
 }
 
-fn moon_payload(file_name: &str, env_var: &str) -> PathBuf {
-    if let Some(path) = std::env::var_os(env_var) {
-        return PathBuf::from(path);
-    }
-
-    let in_toolchain = crate::moon_dir::bin().join(file_name);
-    if in_toolchain.exists() {
-        return in_toolchain;
-    }
-
-    // Preserve PATH lookup for installations that expose these payloads there,
-    // while keeping override values under ordinary file-path semantics.
-    if let Ok(in_path) = crate::toolchain::resolve_executable(file_name) {
-        return in_path;
-    }
-
-    panic!(
-        "failed to resolve MoonBit tool payload `{file_name}`; looked in `{}` and PATH. \
-         Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
-        in_toolchain.display()
-    )
-}
-
 fn optional_executable(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
     if let Some(custom_path) = std::env::var_os(env_var) {
         return Some(resolve_executable_override(&custom_path));
@@ -186,9 +156,7 @@ pub struct CachedBinaries {
     pub moondoc: LazyLock<PathBuf>,
     pub moonfmt: LazyLock<PathBuf>,
     pub mooninfo: LazyLock<PathBuf>,
-    pub moonlex: LazyLock<PathBuf>,
     pub moonrun: LazyLock<PathBuf>,
-    pub moonyacc: LazyLock<PathBuf>,
     pub moon_cram: LazyLock<PathBuf>,
     pub moon_cove_report: LazyLock<PathBuf>,
     pub node: LazyLock<Option<PathBuf>>,
@@ -219,9 +187,7 @@ pub static BINARIES: CachedBinaries = CachedBinaries {
     moondoc: LazyLock::new(|| moon_executable("moondoc", "MOONDOC_OVERRIDE")),
     moonfmt: LazyLock::new(|| moon_executable("moonfmt", "MOONFMT_OVERRIDE")),
     mooninfo: LazyLock::new(|| moon_executable("mooninfo", "MOONINFO_OVERRIDE")),
-    moonlex: LazyLock::new(|| moon_payload("moonlex.wasm", "MOONLEX_OVERRIDE")),
     moonrun: LazyLock::new(|| moon_executable("moonrun", "MOONRUN_OVERRIDE")),
-    moonyacc: LazyLock::new(|| moon_payload("moonyacc.wasm", "MOONYACC_OVERRIDE")),
     moon_cram: LazyLock::new(|| moon_executable("moon-cram", "MOON_CRAM_OVERRIDE")),
     moon_cove_report: LazyLock::new(|| {
         moon_executable("moon_cove_report", "MOON_COVE_REPORT_OVERRIDE")

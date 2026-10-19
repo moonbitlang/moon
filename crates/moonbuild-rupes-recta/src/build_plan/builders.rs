@@ -215,8 +215,6 @@ impl<'a> BuildPlanConstructor<'a> {
             return Ok(());
         }
 
-        let discovered_moonlex_inputs = pkg.mbt_lex_files.clone();
-        let discovered_moonyacc_inputs = pkg.mbt_yacc_files.clone();
         let custom_rules = pkg.raw.pre_build.as_deref().unwrap_or_default();
 
         if !is_moon_script_ignored(IgnoredMoonScript::Prebuild) {
@@ -224,7 +222,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| {
-                    let key = PackagePrebuildKey::Custom {
+                    let key = PackagePrebuildKey {
                         package: pkg_id,
                         declaration_index: *index as u32,
                     };
@@ -240,54 +238,6 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        // A custom prebuild may itself generate moonlex/moonyacc input. Treat
-        // those paths exactly like files observed during package discovery;
-        // matching input and output paths connect their execution actions.
-        let custom_outputs = self
-            .res
-            .package_prebuild
-            .custom_output_paths(pkg_id)
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut moonlex_inputs = discovered_moonlex_inputs
-            .into_iter()
-            .collect::<IndexSet<_>>();
-        let mut moonyacc_inputs = discovered_moonyacc_inputs
-            .into_iter()
-            .collect::<IndexSet<_>>();
-        for output in custom_outputs {
-            let Some(kind) = output
-                .file_name()
-                .and_then(OsStr::to_str)
-                .and_then(package_source_file_kind)
-            else {
-                continue;
-            };
-            match kind {
-                PackageSourceFileKind::Mbl => {
-                    moonlex_inputs.insert(output);
-                }
-                PackageSourceFileKind::Mby => {
-                    moonyacc_inputs.insert(output);
-                }
-                PackageSourceFileKind::Mbt
-                | PackageSourceFileKind::MbtMd
-                | PackageSourceFileKind::Mbtp => {}
-            }
-        }
-
-        for input in moonlex_inputs {
-            let output = input.with_extension("mbt");
-            self.res
-                .package_prebuild
-                .insert_moonlex(pkg_id, input, output);
-        }
-        for input in moonyacc_inputs {
-            let output = input.with_extension("mbt");
-            self.res
-                .package_prebuild
-                .insert_moonyacc(pkg_id, input, output);
-        }
         Ok(())
     }
 
@@ -680,10 +630,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 PackageSourceFileKind::Mbtp => {
                     mbtp_files.insert(output);
                 }
-                // Inputs for built-in generators have already been interpreted
-                // while planning PackagePrebuildPlan. Their `.mbt` outputs are
-                // present in the same output set and flow through classification.
-                PackageSourceFileKind::Mbl | PackageSourceFileKind::Mby => {}
             }
         }
 

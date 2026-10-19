@@ -323,8 +323,6 @@ mod tests {
             supported_targets_decl: SupportedTargetsDeclKind::Omitted,
             effective_supported_targets: supported_targets,
             source_files: Vec::new(),
-            mbt_lex_files: vec![PathBuf::from("main/lexer.mbl")],
-            mbt_yacc_files: vec![PathBuf::from("main/parser.mby")],
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("main/native/stub.c")],
@@ -373,67 +371,6 @@ mod tests {
             .iter()
             .map(|input| input.path().to_owned())
             .collect()
-    }
-
-    #[test]
-    fn lowered_generator_actions_track_host_and_payload_executables() {
-        let (resolved_project, target) = single_package_resolve_output();
-        let mut plan = BuildPlan::default();
-        plan.test_insert_moonlex_prebuild(
-            target.package,
-            PathBuf::from("main/lexer.mbl"),
-            PathBuf::from("main/lexer.mbt"),
-        );
-        plan.test_insert_moonyacc_prebuild(
-            target.package,
-            PathBuf::from("main/parser.mby"),
-            PathBuf::from("main/parser.mbt"),
-        );
-
-        let artifact_paths = ArtifactPathResolver::new(
-            TargetLayout::new(
-                PathBuf::from("_build"),
-                TargetLayoutMode::Workspace,
-                OptLevel::Debug,
-                RunMode::Check,
-            ),
-            None,
-        );
-        let options = CompileConfig {
-            target_dir: PathBuf::from("_build"),
-            debug_export_build_plan: false,
-            debug_info: Default::default(),
-            warn_list: None,
-            artifact_paths,
-            backend: BackendConfig::WasmGc { use_wat: false },
-            opt_level: OptLevel::Debug,
-            action: RunMode::Check,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
-            info_no_alias: false,
-            stdlib_path: None,
-        };
-
-        let lowered =
-            lower_build_plan(&resolved_project, &plan, &options).expect("lowering should succeed");
-
-        for (payload, source) in [
-            (BINARIES.moonlex.as_path(), Path::new("main/lexer.mbl")),
-            (BINARIES.moonyacc.as_path(), Path::new("main/parser.mby")),
-        ] {
-            let inputs = input_paths_for_command(&lowered, |command| {
-                command.get(1).map(Path::new) == Some(payload)
-            });
-            assert!(
-                inputs
-                    .iter()
-                    .any(|input| input == BINARIES.moonrun.as_path())
-            );
-            assert!(inputs.iter().any(|input| input == payload));
-            assert!(inputs.iter().any(|input| input == source));
-        }
     }
 
     #[test]

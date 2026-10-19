@@ -190,11 +190,8 @@ independent decisions: capture is never inferred from the User Log destination.
 Registry adapters only acquire and verify source. Project-local dependency
 installation invokes the isolated legacy-postadd module after materialization,
 while immutable cached sources reject postadd and never receive process-output
-policy. Package prebuild tasks, including custom `pre-build`, moonlex, and
-moonyacc, remain build-graph work owned by the build executor. An unstable
-module prebuild script run by a nested binary-dependency build is covered by
-the output mode of that nested Moon process as a whole. User programs remain
-Process Passthrough.
+policy. Package prebuild tasks remain build-graph work owned by the build
+executor. User programs remain Process Passthrough.
 
 ## Regression coverage
 

@@ -18,8 +18,6 @@
 
 //! Lowering implementation for auxiliary build steps.
 
-use std::path::Path;
-
 use moonutil::{
     compiler_flags::{
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
@@ -399,43 +397,5 @@ impl<'a> super::LoweringContext<'a> {
             extra_inputs: info.resolved_inputs.clone(),
         }
         .with_cwd(info.cwd.clone()))
-    }
-
-    pub(super) fn lower_moon_lex_prebuild(&self, input: &Path, output: &Path) -> BuildCommand {
-        let input = input.to_path_buf();
-        let output = output.to_path_buf();
-
-        let commandline = vec![
-            BINARIES.moonrun.display().to_string(),
-            BINARIES.moonlex.display().to_string(),
-            "--".into(),
-            input.display().to_string(),
-            "-o".into(),
-            output.display().to_string(),
-        ];
-
-        BuildCommand {
-            commandline: commandline.into(),
-            extra_inputs: vec![input, BINARIES.moonlex.clone()],
-        }
-    }
-
-    pub(super) fn lower_moon_yacc_prebuild(&self, input: &Path, output: &Path) -> BuildCommand {
-        let input = input.to_path_buf();
-        let output = output.to_path_buf();
-
-        let commandline = vec![
-            BINARIES.moonrun.display().to_string(),
-            BINARIES.moonyacc.display().to_string(),
-            "--".into(),
-            input.display().to_string(),
-            "-o".into(),
-            output.display().to_string(),
-        ];
-
-        BuildCommand {
-            commandline: commandline.into(),
-            extra_inputs: vec![input, BINARIES.moonyacc.clone()],
-        }
     }
 }
