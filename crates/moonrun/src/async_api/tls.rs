@@ -112,7 +112,13 @@ pub(super) fn take_error(context: &mut ImportContext<'_>, tls: u64) -> AsyncHost
     context.host.tls_take_error(tls)
 }
 
-#[ported(source = "src/tls/tls.wasm.mbt", original = "tls/error/take_global")]
+#[compat(
+    source = "src/tls/tls.wasm.mbt",
+    original = "tls/error/take_global",
+    upstream_pr = 611,
+    replacement = "errors are owned by the live TLS connection",
+    api_only = true
+)]
 pub(super) fn take_global_error(context: &mut ImportContext<'_>) -> u64 {
     context.host.tls_take_global_error()
 }

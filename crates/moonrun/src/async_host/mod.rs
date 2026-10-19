@@ -2627,6 +2627,10 @@ impl AsyncHost {
         )
     }
 
+    pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
+        self.with_resource(handle, crate::filesystem::stdio_kind)
+    }
+
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         self.with_resource(handle, |file| {
             #[cfg(unix)]
@@ -3337,14 +3341,13 @@ impl AsyncHost {
         use windows_sys::Win32::Networking::WinSock as ws;
 
         self.with_resource_of_class(fd_handle, ResourceClass::TcpSocket, |file| {
-            let yes: u32 = 1;
             if unsafe {
                 ws::setsockopt(
                     file.as_socket()?.as_raw_socket() as usize,
                     ws::SOL_SOCKET,
                     ws::SO_UPDATE_CONNECT_CONTEXT,
-                    (&yes as *const u32).cast(),
-                    std::mem::size_of_val(&yes) as i32,
+                    std::ptr::null(),
+                    0,
                 )
             } == ws::SOCKET_ERROR
             {
@@ -3671,6 +3674,20 @@ impl AsyncHost {
         let job = jobs.visible_job(key)?;
         let filesystem_job = job.filesystem()?;
         filesystem_job.copy_read_result(job.err(), memory, dst, offset, len)
+    }
+
+    pub(crate) fn get_read_console_result(
+        &self,
+        memory: &mut (impl GuestMemory + ?Sized),
+        handle: u64,
+        dst: u32,
+        offset: u32,
+        len: u32,
+    ) -> AsyncHostResult<()> {
+        let jobs = self.jobs.borrow();
+        let job = jobs.visible_job(key_from_handle(handle))?;
+        job.filesystem()?
+            .copy_read_console_result(job.err(), memory, dst, offset, len)
     }
 
     pub(crate) fn get_file_time_result(
