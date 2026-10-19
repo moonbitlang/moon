@@ -436,9 +436,53 @@ fn core_string_imports_reject_invalid_signatures_and_reference_types() {
         let error = engine.run(&module, RunOptions::default()).unwrap_err();
         let message = format!("{error:#}");
         assert!(
-            message.contains("incorrect signature")
-                || message.contains("invalid core string reference"),
+            message.contains("incorrect signature") || message.contains("invalid host reference"),
             "{message}"
         );
+    }
+}
+
+#[test]
+fn legacy_host_imports_reject_bad_signatures_and_payloads() {
+    let engine = Engine::default();
+    for (source, expected) in [
+        (
+            r#"(module (import "__moonbit_time_unstable" "now" (func (result i32))))"#,
+            "incorrect signature",
+        ),
+        (
+            r#"(module
+            (import "__moonbit_fs_unstable" "begin_read_byte_array" (func $read (param externref) (result externref)))
+            (func (export "_start") ref.null extern call $read drop))"#,
+            "invalid host reference",
+        ),
+        (
+            r#"(module
+            (import "__moonbit_fs_unstable" "begin_create_byte_array" (func $new (result externref)))
+            (import "__moonbit_time_unstable" "instant_elapsed_as_secs_f64" (func $elapsed (param externref) (result f64)))
+            (func (export "_start") call $new call $elapsed drop))"#,
+            "invalid host reference",
+        ),
+        (
+            r#"(module
+            (import "__moonbit_fs_unstable" "args_get" (func $args (result externref)))
+            (import "__moonbit_fs_unstable" "array_get" (func $get (param externref i32) (result externref)))
+            (func (export "_start") call $args i32.const -1 call $get drop))"#,
+            "array index out of bounds",
+        ),
+        (
+            r#"(module
+            (import "__moonbit_rand_unstable" "stdrng_seed_from_u64" (func $new (param i32) (result externref)))
+            (import "__moonbit_rand_unstable" "stdrng_gen_range" (func $next (param externref i32) (result i32)))
+            (func (export "_start") i32.const 1 call $new i32.const 0 call $next drop))"#,
+            "random range upper bound must be positive",
+        ),
+    ] {
+        let module = engine
+            .compile("invalid-host-value.wasm", wat::parse_str(source).unwrap())
+            .unwrap();
+        let error = engine.run(&module, RunOptions::default()).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains(expected), "{message}");
     }
 }

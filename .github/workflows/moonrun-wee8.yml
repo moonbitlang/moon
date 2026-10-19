@@ -74,11 +74,11 @@ jobs:
       - name: Check wee8 adapter
         run: |
           cargo fmt --all --check
-          cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 --test wasi_imports --test stdio --test numeric_host_imports -- -D warnings
+          cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports -- -D warnings
       - name: Test shared host definitions and Moonrun integration
         run: |
           cargo test --locked -p moonrun --no-default-features --features wee8 --lib
-          cargo test --locked -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test stdio --test numeric_host_imports
+          cargo test --locked -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports
       - name: Test compiler-produced async and SQLite programs
         run: |
           cargo test --locked -p moonrun --no-default-features --features wee8 --test test test_moon_run_with_async

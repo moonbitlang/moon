@@ -40,7 +40,7 @@ impl<'s> Registry<'s> {
         // shared func_wrap registry below remains the numeric host interface.
         let functions = imports
             .iter()
-            .map(|import| super::core_values::define(store, import))
+            .map(|import| super::host_imports::define(store, import))
             .collect::<api::Result<Vec<_>>>()?;
         Ok(Self {
             store,

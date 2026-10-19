@@ -22,7 +22,7 @@
 //! host services. GC objects remain internal to guest execution.
 
 use ::wee8 as api;
-mod core_values;
+mod host_imports;
 mod wasm_imports;
 
 use crate::engine::{
@@ -45,6 +45,7 @@ pub(crate) type CompiledModule = api::Compiled;
 struct StoreData {
     runtime: Runtime,
     print: Utf16Writer,
+    host_imports: host_imports::State,
     termination: TerminationRequest,
     wasi: crate::wasi::WasiContext,
 }
@@ -109,6 +110,7 @@ impl Engine {
         let store = api::Store::new(StoreData {
             runtime,
             print: Utf16Writer::default(),
+            host_imports: host_imports::State::new(module_name, args),
             termination: termination.clone(),
             wasi,
         })?;
