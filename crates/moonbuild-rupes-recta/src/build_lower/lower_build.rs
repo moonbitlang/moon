@@ -669,22 +669,23 @@ impl<'a> LoweringContext<'a> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
-        let mut core_input_files = Vec::new();
+        let mut stdlib_inputs = Vec::new();
         // Add core for the standard library
         if let Some(stdlib) = &self.opt.stdlib_path {
-            // The two stdlib core files must be linked in the correct order,
-            // in order to get the correct order of initialization.
-            if !info.abort_overridden {
-                core_input_files.push(moonutil::toolchain::abort_core_in(
+            // When present, the abort default must precede core.core to
+            // preserve initialization order.
+            if info.link_stdlib_abort {
+                stdlib_inputs.push(moonutil::toolchain::abort_core_in(
                     stdlib,
                     self.opt.backend.target_backend(),
                 ));
             }
-            core_input_files.push(moonutil::toolchain::core_core_in(
+            stdlib_inputs.push(moonutil::toolchain::core_core_in(
                 stdlib,
                 self.opt.backend.target_backend(),
             ));
         }
+        let mut core_input_files = stdlib_inputs.clone();
         // Linked core targets
         for target in &info.linked_order {
             let core_path = artifacts.single_dependency_path_matching(|artifact| {
@@ -743,19 +744,7 @@ impl<'a> LoweringContext<'a> {
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs
-        let mut extra_inputs = Vec::new();
-        if let Some(stdlib) = &self.opt.stdlib_path {
-            if !info.abort_overridden {
-                extra_inputs.push(moonutil::toolchain::abort_core_in(
-                    stdlib,
-                    self.opt.backend.target_backend(),
-                ));
-            }
-            extra_inputs.push(moonutil::toolchain::core_core_in(
-                stdlib,
-                self.opt.backend.target_backend(),
-            ));
-        }
+        let mut extra_inputs = stdlib_inputs;
         if !package.is_single_file() {
             extra_inputs.push(config_path);
         }
