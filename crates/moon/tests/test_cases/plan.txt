@@ -111,7 +111,6 @@ Package Management
   - mooncake_cli_smoke_test (ignored = "where to download mooncake?")
   - test_moon_check_filter_package
   - test_moon_check_package_with_patch
-  - test_postadd_script
   - test_moonbitlang_x
   - test_third_party
   - test_upgrade

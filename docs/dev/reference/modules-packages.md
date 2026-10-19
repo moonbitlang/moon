@@ -29,6 +29,15 @@ the publishing backend is started. In a workspace, the check applies to the
 selected member. Building, testing, local dependencies, and `moon package` remain
 available. The field alone does not implement registry storage or access control.
 
+The legacy `scripts.postadd` hook is accepted but ignored. Dependency
+synchronization warns for every selected module that declares it, including
+root and local modules and registry sources already on disk. The same behavior
+applies to the shared dependency source cache, `moon fetch`, and binary
+installation. These warnings follow the command's user-log policy: JSON modes
+capture them, and `--quiet` suppresses them. The warning invites users who need
+toolchain setup hooks to open an issue describing their use case.
+`MOON_IGNORE_POSTADD` is no longer needed and has no effect.
+
 A module may contain one or more **package**s,
 which is the unit of compilation in MoonBit.
 A package contains all files (not directories) within its containing directory,

@@ -21,11 +21,7 @@ use mooncake::{
     pkg::legacy_postadd,
     registry::{RegistryClient, path::parse_module_path},
 };
-use moonutil::{
-    child_process::{ChildOutputMode, ManagedChildRunner},
-    project::PackageDirs,
-    user_log::UserLog,
-};
+use moonutil::{manifest::read_module_desc_file_in_dir, project::PackageDirs, user_log::UserLog};
 
 use super::UniversalFlags;
 
@@ -100,25 +96,23 @@ pub(crate) fn fetch_cli(
                 pkg_dir.display()
             );
         }
-        return Ok(0);
+    } else {
+        if !cli.quiet {
+            println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
+        }
+
+        registry.materialize_source_to(&module, &pkg_dir, user_log)?;
+
+        if !cli.quiet {
+            println!(
+                "{}: Successfully fetched {}@{version} to {}",
+                "Success".green().bold(),
+                pkg_name,
+                pkg_dir.display()
+            );
+        }
     }
 
-    if !cli.quiet {
-        println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
-    }
-
-    registry.materialize_source_to(&module, &pkg_dir, user_log)?;
-    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
-    legacy_postadd::run(&pkg_dir, &child)?;
-
-    if !cli.quiet {
-        println!(
-            "{}: Successfully fetched {}@{version} to {}",
-            "Success".green().bold(),
-            pkg_name,
-            pkg_dir.display()
-        );
-    }
-
+    legacy_postadd::warn(&read_module_desc_file_in_dir(&pkg_dir)?, user_log);
     Ok(0)
 }
