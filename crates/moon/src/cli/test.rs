@@ -313,10 +313,6 @@ pub(crate) struct TestSubcommand {
     #[clap(long, requires("package"), conflicts_with = "update")]
     pub patch_file: Option<PathBuf>,
 
-    /// Run doc test
-    #[clap(long = "doc", hide = true)]
-    pub doc_test: bool,
-
     /// Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
     ///
     /// An explicit `.mbtx` path tests only that script, even inside a project.
@@ -374,7 +370,6 @@ fn run_test_impl(
     info!(
         update = cmd.update,
         build_only = cmd.build_only,
-        doc_test = cmd.doc_test,
         package_filters = cmd.package.as_ref().map(|p| p.len()).unwrap_or(0),
         path_filters = cmd.path.len(),
         "starting moon test command"
@@ -419,12 +414,6 @@ fn run_test_impl(
         target = %dirs.target_dir.display(),
         "resolved package directories"
     );
-
-    if cmd.doc_test {
-        user_log.warn(
-            "--doc flag is deprecated and will be removed in the future, please use `moon test` directly",
-        );
-    }
 
     if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");

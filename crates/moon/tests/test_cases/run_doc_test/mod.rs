@@ -4,9 +4,9 @@ use super::*;
 fn test_run_doc_test() {
     let dir = TestDir::new("run_doc_test.in");
 
-    // `moon test --doc` run doc test only
+    // `moon test` runs ordinary tests and doc tests together.
     check(
-        get_err_stdout(&dir, ["test", "--sort-input", "--doc"]),
+        get_err_stdout(&dir, ["test", "--sort-input"]),
         expect![[r#"
             hello from hello_test.mbt
             doc_test 1 from hello.mbt

@@ -120,7 +120,7 @@ test "maximum" {
     }
 
     moon_cmd(&dir)
-        .args(["test", "script.mbtx", "--target", "all", "--serial"])
+        .args(["test", "script.mbtx", "--target", "all"])
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
@@ -132,7 +132,7 @@ Total tests: 2, passed: 2, failed: 0. [native]
 "#]]);
 
     moon_cmd(&dir)
-        .args(["test", "script.mbtx", "--target", "js,wasm", "--serial"])
+        .args(["test", "script.mbtx", "--target", "js,wasm"])
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"

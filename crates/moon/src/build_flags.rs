@@ -56,14 +56,6 @@ pub struct BuildFlags {
     #[clap(long, value_delimiter = ',')]
     pub target: Vec<SurfaceTarget>,
 
-    /// [Deprecated] Handle the selected targets sequentially
-    ///
-    /// This flag is deprecated, because all targets are handled sequentially
-    /// for now, until multi-target compilation is implemented (if any).
-    #[clap(long, requires = "target", hide = true)]
-    #[deprecated]
-    pub serial: bool,
-
     /// Enable coverage instrumentation
     #[clap(long)]
     pub enable_coverage: bool,
@@ -111,7 +103,6 @@ pub struct BuildFlags {
 }
 
 impl Default for BuildFlags {
-    #[allow(deprecated)]
     fn default() -> Self {
         Self {
             std: false,
@@ -121,7 +112,6 @@ impl Default for BuildFlags {
             strip: false,
             no_strip: false,
             target: Vec::new(),
-            serial: false,
             enable_coverage: false,
             sort_input: false,
             output_wat: false,

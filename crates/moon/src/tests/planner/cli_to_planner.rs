@@ -38,7 +38,6 @@ fn command_string_run_parses_as_expected() {
                 verbose: false,
                 trace: false,
                 dry_run: false,
-                build_graph: false,
                 unstable_feature: FeatureGate {
                     rr_export_module_graph: false,
                     rr_export_package_graph: false,
@@ -62,7 +61,6 @@ fn command_string_run_parses_as_expected() {
                     strip: false,
                     no_strip: false,
                     target: [],
-                    serial: false,
                     enable_coverage: false,
                     sort_input: false,
                     output_wat: false,
@@ -145,7 +143,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 verbose: false,
                 trace: false,
                 dry_run: true,
-                build_graph: false,
                 unstable_feature: FeatureGate {
                     rr_export_module_graph: false,
                     rr_export_package_graph: false,
@@ -167,7 +164,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     target: [
                         Native,
                     ],
-                    serial: false,
                     enable_coverage: false,
                     sort_input: true,
                     output_wat: false,
@@ -196,7 +192,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 outline: false,
                 test_failure_json: false,
                 patch_file: None,
-                doc_test: false,
                 path: [],
                 include_skipped: false,
                 filter: None,

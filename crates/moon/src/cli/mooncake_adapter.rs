@@ -35,6 +35,15 @@ use serde::Serialize;
 
 use super::{process, search::sanitize_registry_text};
 
+// TODO: Remove this wrapper once released mooncake versions accept flags
+// without the removed `build_graph` field in their stdin payload.
+#[derive(Serialize)]
+struct MooncakeFlags {
+    #[serde(flatten)]
+    flags: UniversalFlags,
+    build_graph: bool,
+}
+
 pub(crate) fn execute_cli<T: Serialize>(
     cli: UniversalFlags,
     cmd: T,
@@ -52,7 +61,13 @@ pub(crate) fn execute_cli<T: Serialize>(
 
     match child.stdin.take() {
         Some(mut stdin) => {
-            let data = (cli, cmd);
+            let data = (
+                MooncakeFlags {
+                    flags: cli,
+                    build_graph: false,
+                },
+                cmd,
+            );
             serde_json::ser::to_writer(&mut stdin, &data)?;
         }
         _ => {
