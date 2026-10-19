@@ -21,10 +21,6 @@ command directory. This applies to early `moon cram` and `moon help ide`
 delegation. Relative `moon-cram` overrides and relative `PATH` entries are
 resolved from that directory.
 
-`moonlex.wasm` and `moonyacc.wasm` are payload files passed to `moonrun`, not
-executables. Their overrides therefore use file-path semantics instead of
-executable lookup.
-
 The cached entry point is `moonutil::toolchain::BINARIES`. Build engines should
 use it instead of duplicating tool lookup rules.
 

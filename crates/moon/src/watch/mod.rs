@@ -523,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn rerun_triggered_for_moonlex_input() {
+    fn rerun_triggered_when_legacy_moonlex_input_changes() {
         use std::fs;
 
         let temp_dir = tempfile::tempdir().unwrap();
@@ -537,10 +537,19 @@ mod tests {
         let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
+
+        fs::remove_file(&file).unwrap();
+        let removed =
+            notify::Event::new(EventKind::Remove(notify::event::RemoveKind::File)).add_path(file);
+        assert!(check_events(
+            root,
+            &[removed],
+            &AdditionalWatchPaths::default()
+        ));
     }
 
     #[test]
-    fn rerun_triggered_for_moonyacc_input() {
+    fn rerun_triggered_when_legacy_moonyacc_input_changes() {
         use std::fs;
 
         let temp_dir = tempfile::tempdir().unwrap();
@@ -554,6 +563,15 @@ mod tests {
         let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
+
+        fs::remove_file(&file).unwrap();
+        let removed =
+            notify::Event::new(EventKind::Remove(notify::event::RemoveKind::File)).add_path(file);
+        assert!(check_events(
+            root,
+            &[removed],
+            &AdditionalWatchPaths::default()
+        ));
     }
 
     #[test]

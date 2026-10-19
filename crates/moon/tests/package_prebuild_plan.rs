@@ -174,21 +174,32 @@ moonc build-interface ./src/virtual/pkg.mbti [..]
 }
 
 #[test]
-fn generated_moonlex_input_forms_a_prebuild_pipeline() {
-    let dir = test_dir("generated_moonlex_input");
-
-    moon_check(&dir)
-        .arg("--dry-run")
-        .assert()
-        .success()
-        .stdout_eq(snapbox::str![[r#"
-moon tool embed --text -i ./src/main/lexer.txt -o ./src/main/generated.mbl --name ignored
-  cwd: .
-moonrun [..]moonlex[..] -- ./src/main/generated.mbl -o ./src/main/generated.mbt
-moonc check ./src/main/generated.mbt ./src/main/main.mbt [..]
-[..]
-
-"#]]);
+fn legacy_outputs_remain_ordinary_custom_prebuild_outputs() {
+    for (case, extension) in [
+        ("generated_moonlex_input", "mbl"),
+        ("generated_moonyacc_input", "mby"),
+    ] {
+        let dir = test_dir(case);
+        for _ in 0..2 {
+            moon_check(&dir).assert().success();
+            assert!(dir.join(format!("src/main/generated.{extension}")).exists());
+            assert!(!dir.join("src/main/generated.mbt").exists());
+        }
+        // An explicit second rule can consume the output without an implicit generator.
+        let manifest = dir.join("src/main/moon.pkg");
+        let contents = std::fs::read_to_string(&manifest).unwrap();
+        std::fs::write(
+            &manifest,
+            format!(
+                r#"{contents}
+dev_build(rule: "generate", input: "generated.{extension}", output: "generated.mbt")
+"#
+            ),
+        )
+        .unwrap();
+        moon_check(&dir).assert().success();
+        assert!(dir.join("src/main/generated.mbt").exists());
+    }
 }
 
 #[test]
@@ -214,24 +225,6 @@ moonc build-package ./src/lib/generated.mbt.md [..]
 }
 
 #[test]
-fn generated_moonyacc_input_forms_a_prebuild_pipeline() {
-    let dir = test_dir("generated_moonyacc_input");
-
-    moon_check(&dir)
-        .arg("--dry-run")
-        .assert()
-        .success()
-        .stdout_eq(snapbox::str![[r#"
-moon tool embed --text -i ./src/main/parser.txt -o ./src/main/generated.mby --name ignored
-  cwd: .
-moonrun [..]moonyacc[..] -- ./src/main/generated.mby -o ./src/main/generated.mbt
-moonc check ./src/main/generated.mbt ./src/main/main.mbt [..]
-[..]
-
-"#]]);
-}
-
-#[test]
 fn generated_mbt_md_warns_for_main_package() {
     let dir = test_dir("generated_main_mbt_md");
 
@@ -243,4 +236,53 @@ fn generated_mbt_md_warns_for_main_package() {
 [..]Warning: Main package `username/generated_main_mbt_md/main` uses blackbox-only test inputs (`.mbt.md` files) [..]
 
 "#]]);
+}
+
+#[test]
+fn implicit_legacy_generators_report_migration() {
+    for extension in ["mbl", "mby"] {
+        let dir = test_dir("unconsumed_output");
+        std::fs::write(
+            dir.join(format!("src/main/legacy.{extension}")),
+            "legacy input",
+        )
+        .unwrap();
+        moon_check(&dir)
+            .arg("--dry-run")
+            .assert()
+            .failure()
+            .stderr_eq(snapbox::str![[r#"
+...
+[..]Automatic generation from '[..]' is no longer supported. Declare the file in a custom `rule` / `dev_build` (or `pre-build`) task that generates `.mbt` files.
+...
+"#]]);
+    }
+}
+
+#[test]
+fn explicit_legacy_inputs_use_only_custom_prebuild() {
+    for extension in ["mbl", "mby"] {
+        let dir = test_dir("unconsumed_output");
+        std::fs::write(
+            dir.join(format!("src/main/legacy.{extension}")),
+            "custom input",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("src/main/moon.pkg"),
+            format!(
+                r#"
+pkgtype(kind: "executable")
+rule(name: "generate", command: ":embed --text -i $input -o $output --name _legacy_text")
+dev_build(rule: "generate", input: "./legacy.{extension}", output: "generated.mbt")
+"#
+            ),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            moon_check(&dir).assert().success();
+            assert!(dir.join("src/main/generated.mbt").exists());
+            assert!(!dir.join("src/main/legacy.mbt").exists());
+        }
+    }
 }

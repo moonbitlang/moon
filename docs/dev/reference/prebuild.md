@@ -172,8 +172,8 @@ Notes:
 - Outputs of actions in the current `PackagePrebuildPlan` go through the same
   File Interpretation as paths in the Package File Set. `.mbt` becomes a
   conditionally classified MoonBit source, `.mbt.md` becomes a blackbox input,
-  `.mbtp` becomes a check/prove proof input, and `.mbl`/`.mby` schedules
-  moonlex/moonyacc whose generated `.mbt` is then classified as a source.
+  and `.mbtp` becomes a check/prove proof input. Other output extensions,
+  including `.mbl` and `.mby`, remain ordinary tracked files.
   A declaration alone does not make an absent output a plan input when package
   prebuild does not apply, such as for third-party dependencies.
 - `MOON_IGNORE_PREBUILD` disables applicable custom actions and does not add
@@ -184,6 +184,27 @@ Notes:
   contract after package prebuild actions are known. Other output extensions
   remain ordinary tracked files and can be consumed by later prebuild actions
   through matching paths.
+
+## Migrating legacy lexer and parser generation
+
+Moon no longer runs bundled `moonlex` or `moonyacc` automatically. A `.mbl` or
+`.mby` file directly in a package directory must be declared as an input or
+output of a custom `rule` / `dev_build` task (or legacy `pre-build` entry);
+otherwise package discovery reports a migration error. Such declarations treat
+these files as ordinary assets and do not schedule an implicit generator.
+
+Declare the generator command and its `.mbt` output explicitly. This example
+assumes `my-lexer` is available as a command:
+
+```moonbit
+rule(name: "lexer", command: "my-lexer $input -o $output")
+dev_build(rule: "lexer", input: "lexer.mbl", output: "lexer.mbt")
+```
+
+Use the equivalent rule for parser generation. Generated `.mbt` files must be
+included when distributing the package, since consumers do not run its
+package-level prebuild rules. Watch mode still observes `.mbl` and `.mby` changes
+so adding or removing an unhandled file updates the diagnostic.
 
 ## Path Resolution
 
@@ -240,8 +261,7 @@ Behavior:
 ## Ordering and Inclusion
 
 - During ordinary input-module builds, each backend-specific Build Plan owns a
-  separate `PackagePrebuildPlan` containing the requested custom, moonlex, and
-  moonyacc actions.
+  separate `PackagePrebuildPlan` containing the requested custom actions.
 - `PackagePrebuildPlan` owns package file-generation actions as a peer of the
   `BackendPlan`; it is not a separate semantic artifact model. Package
   prebuild is therefore never represented as a backend node with an
@@ -255,7 +275,7 @@ Behavior:
 - All planned package prebuild actions remain part of normal execution.
   Declared outputs that no backend action consumes are leaf outputs of the n2
   graph, so they are still requested and the invocation waits for them.
-- Generated `.mbt`/`.mbt.md`, `.mbtp`, `.mbl`/`.mby`, and the selected virtual
+- Generated `.mbt`/`.mbt.md`, `.mbtp`, and the selected virtual
   `.mbti` path retain the meanings described above. Lowering records them as
   concrete input and output observations; matching paths recover the producer
   relationship without a parallel package-file identity.

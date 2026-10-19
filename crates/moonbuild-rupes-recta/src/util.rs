@@ -21,7 +21,7 @@
 use crate::discover::DiscoverResult;
 use crate::pkg_solve::PackageRelations;
 use crate::{
-    build_plan::{BuildPlan, BuildPlanActionKey, PackagePrebuildKey, package_file_key},
+    build_plan::{BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
     model::BuildPlanNode,
 };
 use moonutil::resolution::ModuleDependencyGraph;
@@ -304,35 +304,20 @@ impl BuildPlanNode {
 }
 
 impl BuildPlanActionKey {
-    fn gen_node_id(&self, packages: &DiscoverResult) -> String {
+    fn gen_node_id(&self) -> String {
         match self {
             Self::Backend(node) => node.gen_node_id(),
-            Self::PackagePrebuild(PackagePrebuildKey::Custom {
+            Self::PackagePrebuild(PackagePrebuildKey {
                 package,
                 declaration_index,
             }) => format!("{package:?}@RunPrebuild_{declaration_index}"),
-            Self::PackagePrebuild(PackagePrebuildKey::MoonLex { package, input }) => {
-                let package_root = &packages.get_package(*package).root_path;
-                let input = package_file_key(package_root, input);
-                format!("{package:?}@RunMoonLexPrebuild_{}", input.display())
-            }
-            Self::PackagePrebuild(PackagePrebuildKey::MoonYacc { package, input }) => {
-                let package_root = &packages.get_package(*package).root_path;
-                let input = package_file_key(package_root, input);
-                format!("{package:?}@RunMoonYaccPrebuild_{}", input.display())
-            }
         }
     }
 
     fn gen_label(&self, module_graph: &ModuleDependencyGraph, packages: &DiscoverResult) -> String {
-        let file_name = |path: &Path| {
-            path.file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string())
-        };
         match self {
             Self::Backend(node) => node.gen_label(module_graph, packages),
-            Self::PackagePrebuild(PackagePrebuildKey::Custom {
+            Self::PackagePrebuild(PackagePrebuildKey {
                 package,
                 declaration_index,
             }) => format!(
@@ -340,29 +325,13 @@ impl BuildPlanActionKey {
                 packages.fqn(*package),
                 declaration_index
             ),
-            Self::PackagePrebuild(PackagePrebuildKey::MoonLex { package, input }) => {
-                format!(
-                    "{}\\nRunMoonLexPrebuild_{}",
-                    packages.fqn(*package),
-                    file_name(input)
-                )
-            }
-            Self::PackagePrebuild(PackagePrebuildKey::MoonYacc { package, input }) => {
-                format!(
-                    "{}\\nRunMoonYaccPrebuild_{}",
-                    packages.fqn(*package),
-                    file_name(input)
-                )
-            }
         }
     }
 
     fn gen_color(&self) -> &'static str {
         match self {
             Self::Backend(node) => node.gen_color(),
-            Self::PackagePrebuild(PackagePrebuildKey::Custom { .. }) => "khaki",
-            Self::PackagePrebuild(PackagePrebuildKey::MoonLex { .. }) => "plum",
-            Self::PackagePrebuild(PackagePrebuildKey::MoonYacc { .. }) => "thistle",
+            Self::PackagePrebuild(PackagePrebuildKey { .. }) => "khaki",
         }
     }
 }
@@ -380,7 +349,7 @@ pub fn print_build_plan_dot(
 
     // Nodes: label both backend and package-prebuild actions.
     for action in build_plan.all_actions() {
-        let node_id = action.gen_node_id(packages);
+        let node_id = action.gen_node_id();
         let label = action.gen_label(module_graph, packages);
         let color = action.gen_color();
 
@@ -394,8 +363,8 @@ pub fn print_build_plan_dot(
     // Edges: artifact requirements between Build Plan actions.
     for action in build_plan.all_actions() {
         for dep in build_plan.dependency_actions(&action) {
-            let node_id = action.gen_node_id(packages);
-            let dep_id = dep.gen_node_id(packages);
+            let node_id = action.gen_node_id();
+            let dep_id = dep.gen_node_id();
             writeln!(writer, "    \"{}\" -> \"{}\";\n", node_id, dep_id)?;
         }
     }

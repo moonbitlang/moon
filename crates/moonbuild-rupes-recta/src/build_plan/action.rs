@@ -101,16 +101,6 @@ pub(crate) enum BuildAction<'a> {
     RunPrebuild {
         info: &'a PrebuildInfo,
     },
-    RunMoonLexPrebuild {
-        package: PackageId,
-        input: &'a Path,
-        output: &'a Path,
-    },
-    RunMoonYaccPrebuild {
-        package: PackageId,
-        input: &'a Path,
-        output: &'a Path,
-    },
 }
 
 impl BackendPlan {

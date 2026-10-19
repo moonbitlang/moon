@@ -30,10 +30,7 @@ use walkdir::WalkDir;
 use super::{CExecutableRealization, LoweringError};
 use crate::{
     CompileConfig, ResolvedProject,
-    build_plan::{
-        ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildAction,
-        PackagePrebuildKey, package_file_key,
-    },
+    build_plan::{ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{
         ActionId, ActionOutputKind, ExecutionAction, ExecutionPlanBuilder, InputObservation,
@@ -276,51 +273,17 @@ impl<'a> LoweringContext<'a> {
         let node = match action {
             BuildPlanActionKey::Backend(node) => *node,
             BuildPlanActionKey::PackagePrebuild(key) => {
-                let action = self
+                let info = self
                     .plan
                     .package_prebuild_action(key)
                     .expect("package prebuild key should name a planned action");
-                return match (key, action) {
-                    (PackagePrebuildKey::Custom { .. }, PackagePrebuildAction::Custom { info }) => {
-                        BuildAction::RunPrebuild { info }
-                    }
-                    (
-                        PackagePrebuildKey::MoonLex {
-                            package,
-                            input: key_input,
-                        },
-                        PackagePrebuildAction::MoonLex { input, output },
-                    ) if key_input == input => BuildAction::RunMoonLexPrebuild {
-                        package: *package,
-                        input,
-                        output,
-                    },
-                    (
-                        PackagePrebuildKey::MoonYacc {
-                            package,
-                            input: key_input,
-                        },
-                        PackagePrebuildAction::MoonYacc { input, output },
-                    ) if key_input == input => BuildAction::RunMoonYaccPrebuild {
-                        package: *package,
-                        input,
-                        output,
-                    },
-                    _ => unreachable!("package prebuild key and action kind must agree"),
-                };
+                return BuildAction::RunPrebuild { info };
             }
         };
         self.plan.backend_plan().action(node)
     }
 
     fn human_desc(&self, action_key: &BuildPlanActionKey, action: BuildAction<'_>) -> String {
-        let generator_desc = |tool: &str, package, input: &Path| {
-            let input_name = input.file_name().map_or_else(
-                || input.display().to_string(),
-                |name| name.to_string_lossy().into(),
-            );
-            format!("run {tool} {} {input_name}", self.packages.fqn(package))
-        };
         let description = match (action_key, action) {
             (BuildPlanActionKey::Backend(node), _) => {
                 return node.human_desc(
@@ -345,16 +308,8 @@ impl<'a> LoweringContext<'a> {
                 } else {
                     outputs.join(", ")
                 };
-                format!("run script {} {outputs}", self.packages.fqn(key.package()))
+                format!("run script {} {outputs}", self.packages.fqn(key.package))
             }
-            (
-                BuildPlanActionKey::PackagePrebuild(_),
-                BuildAction::RunMoonLexPrebuild { package, input, .. },
-            ) => generator_desc("moonlex", package, input),
-            (
-                BuildPlanActionKey::PackagePrebuild(_),
-                BuildAction::RunMoonYaccPrebuild { package, input, .. },
-            ) => generator_desc("moonyacc", package, input),
             _ => unreachable!("Build Plan action kind must agree with its hydrated action"),
         };
         format!("{description} (prebuild)")
@@ -363,7 +318,7 @@ impl<'a> LoweringContext<'a> {
     fn string_id(&self, action: &BuildPlanActionKey) -> String {
         match action {
             BuildPlanActionKey::Backend(node) => node.string_id(self.modules, self.packages),
-            BuildPlanActionKey::PackagePrebuild(PackagePrebuildKey::Custom {
+            BuildPlanActionKey::PackagePrebuild(PackagePrebuildKey {
                 package,
                 declaration_index,
             }) => format!(
@@ -371,19 +326,6 @@ impl<'a> LoweringContext<'a> {
                 self.packages.fqn(*package),
                 declaration_index
             ),
-            BuildPlanActionKey::PackagePrebuild(PackagePrebuildKey::MoonLex { package, input }) => {
-                let package = self.packages.get_package(*package);
-                let input = package_file_key(&package.root_path, input);
-                format!("{}@RunMoonLexPrebuild_{}", package.fqn, input.display())
-            }
-            BuildPlanActionKey::PackagePrebuild(PackagePrebuildKey::MoonYacc {
-                package,
-                input,
-            }) => {
-                let package = self.packages.get_package(*package);
-                let input = package_file_key(&package.root_path, input);
-                format!("{}@RunMoonYaccPrebuild_{}", package.fqn, input.display())
-            }
         }
     }
 
@@ -452,12 +394,6 @@ impl<'a> LoweringContext<'a> {
             }
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info)?,
-            BuildAction::RunMoonLexPrebuild { input, output, .. } => {
-                self.lower_moon_lex_prebuild(input, output)
-            }
-            BuildAction::RunMoonYaccPrebuild { input, output, .. } => {
-                self.lower_moon_yacc_prebuild(input, output)
-            }
         };
 
         let (command, mut inputs) = cmd.into_lowered_parts(
@@ -593,9 +529,7 @@ impl<'a> LoweringContext<'a> {
             | BuildAction::BuildVirtual { .. }
             | BuildAction::Bundle { .. }
             | BuildAction::BuildRuntimeObject { .. }
-            | BuildAction::BuildRuntimeLib { .. }
-            | BuildAction::RunMoonLexPrebuild { .. }
-            | BuildAction::RunMoonYaccPrebuild { .. } => true,
+            | BuildAction::BuildRuntimeLib { .. } => true,
             // These actions still observe filesystem state that is broader
             // than the concrete files represented by the execution action.
             BuildAction::Prove { .. }
@@ -613,8 +547,6 @@ impl<'a> LoweringContext<'a> {
                     ),
             ],
             BuildAction::RunPrebuild { info } => info.resolved_outputs.clone(),
-            BuildAction::RunMoonLexPrebuild { output, .. }
-            | BuildAction::RunMoonYaccPrebuild { output, .. } => vec![output.to_path_buf()],
             _ => Vec::new(),
         };
         let semantic_outputs = action_artifacts
@@ -645,9 +577,7 @@ impl<'a> LoweringContext<'a> {
             | BuildAction::BuildRuntimeObject { .. }
             | BuildAction::BuildRuntimeLib { .. }
             | BuildAction::BuildDocs { .. }
-            | BuildAction::RunPrebuild { .. }
-            | BuildAction::RunMoonLexPrebuild { .. }
-            | BuildAction::RunMoonYaccPrebuild { .. } => ActionOutputKind::Tool,
+            | BuildAction::RunPrebuild { .. } => ActionOutputKind::Tool,
         };
         let execution_action = ExecutionAction::new(
             inputs,

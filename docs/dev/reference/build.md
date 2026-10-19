@@ -319,7 +319,7 @@ MoonBit allows some files in the source directory to be generated at compile tim
 These are called **prebuild tasks**,
 and executed in a form similar to Makefiles.
 Each task may have a list of input and outputs file, and a command line to execute.
-Custom tasks, moonlex, and moonyacc actions are stored in a package prebuild
+Custom tasks are stored in a package prebuild
 subplan rather than the backend dependency graph. They are lowered into the
 same n2 graph, where matching physical input and output paths establish their
 dependencies. See [Prebuild](prebuild.md) for the detailed lifecycle.
@@ -415,10 +415,9 @@ Backend build-plan nodes and package prebuild actions are peer action kinds.
 | `GenerateNodeTestPackageConfig(PackageId)` | `moon tool generate-node-test-package-config` | `package.json` | N/A | Create a type-neutral Node package boundary |
 | `BuildVirtual(PackageId)`       | `moonc build-interface`     | `.mi`                 | `.mbti`                                    | Get interface from `.mbti`                     |
 
-`PackagePrebuildKey` separately identifies custom, moonlex, and moonyacc
-actions. Custom commands use their manifest declaration position because a
-valid command may have no output or the same outputs as another command;
-built-in generators use their input path.
+`PackagePrebuildKey` identifies custom actions by their manifest declaration
+position because a valid command may have no output or the same outputs as
+another command.
 
 ## Solving import loops
 

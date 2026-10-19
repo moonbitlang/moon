@@ -1,1 +1,1 @@
-prebuild output becomes moonlex input
+legacy output is an ordinary prebuild asset

@@ -87,14 +87,6 @@ pub struct DiscoveredPackage {
     /// package. Paths in this and the other file lists below are absolute.
     pub source_files: Vec<PathBuf>,
 
-    /// MoonBit Lex files (`.mbl`) contained by this package.
-    ///
-    /// TODO: Most of these logic are replaced with pre-build tasks, and
-    /// `moonlex`/`moonyacc` bundled with the toolchain is not updated
-    /// frequently. Consider deprecating these fields and related logic.
-    pub mbt_lex_files: Vec<PathBuf>,
-    /// MoonBit Yacc files (`.mby`) contained by this package.
-    pub mbt_yacc_files: Vec<PathBuf>,
     /// Documentation-oriented programming Markdown files (`.mbt.md`) contained
     /// by this package.
     pub mbt_md_files: Vec<PathBuf>,
@@ -354,6 +346,11 @@ pub enum DiscoverError {
         path: PathBuf,
         inner: anyhow::Error,
     },
+
+    #[error(
+        "Automatic generation from '{file}' is no longer supported. Declare the file in a custom `rule` / `dev_build` (or `pre-build`) task that generates `.mbt` files."
+    )]
+    UnsupportedLegacyGeneratedSource { file: PathBuf },
 
     #[error("Module name mismatch when reading '{read}', the name in registry is '{registry}'")]
     ModuleNameMismatch { registry: String, read: String },

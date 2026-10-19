@@ -26,31 +26,10 @@ use crate::model::PackageId;
 ///
 /// Custom commands have no declared name and may intentionally have no output,
 /// so their manifest position is their only lossless declaration coordinate.
-/// Built-in generators are instead identified by their concrete input path.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) enum PackagePrebuildKey {
-    Custom {
-        package: PackageId,
-        declaration_index: u32,
-    },
-    MoonLex {
-        package: PackageId,
-        input: PathBuf,
-    },
-    MoonYacc {
-        package: PackageId,
-        input: PathBuf,
-    },
-}
-
-impl PackagePrebuildKey {
-    pub(crate) fn package(&self) -> PackageId {
-        match self {
-            Self::Custom { package, .. }
-            | Self::MoonLex { package, .. }
-            | Self::MoonYacc { package, .. } => *package,
-        }
-    }
+pub(crate) struct PackagePrebuildKey {
+    pub(crate) package: PackageId,
+    pub(crate) declaration_index: u32,
 }
 
 /// Resolved information about a custom package prebuild command.
@@ -64,24 +43,6 @@ pub struct PrebuildInfo {
     pub(crate) command: String,
 }
 
-#[derive(Debug)]
-pub(crate) enum PackagePrebuildAction {
-    Custom { info: PrebuildInfo },
-    MoonLex { input: PathBuf, output: PathBuf },
-    MoonYacc { input: PathBuf, output: PathBuf },
-}
-
-impl PackagePrebuildAction {
-    pub(crate) fn output_paths(&self) -> &[PathBuf] {
-        match self {
-            Self::Custom { info, .. } => &info.resolved_outputs,
-            Self::MoonLex { output, .. } | Self::MoonYacc { output, .. } => {
-                std::slice::from_ref(output)
-            }
-        }
-    }
-}
-
 /// The backend-independent package-prebuild subplan within one Build Plan.
 ///
 /// Each key names exactly one action. Command data and physical inputs and
@@ -89,7 +50,7 @@ impl PackagePrebuildAction {
 /// to other actions by matching concrete paths.
 #[derive(Default)]
 pub(crate) struct PackagePrebuildPlan {
-    actions: IndexMap<PackagePrebuildKey, PackagePrebuildAction>,
+    actions: IndexMap<PackagePrebuildKey, PrebuildInfo>,
 }
 
 impl PackagePrebuildPlan {
@@ -97,9 +58,7 @@ impl PackagePrebuildPlan {
         self.actions.len()
     }
 
-    pub(crate) fn actions(
-        &self,
-    ) -> impl Iterator<Item = (&PackagePrebuildKey, &PackagePrebuildAction)> {
+    pub(crate) fn actions(&self) -> impl Iterator<Item = (&PackagePrebuildKey, &PrebuildInfo)> {
         self.actions.iter()
     }
 
@@ -107,69 +66,28 @@ impl PackagePrebuildPlan {
         self.actions.contains_key(key)
     }
 
-    pub(crate) fn action(&self, key: &PackagePrebuildKey) -> Option<&PackagePrebuildAction> {
+    pub(crate) fn action(&self, key: &PackagePrebuildKey) -> Option<&PrebuildInfo> {
         self.actions.get(key)
     }
 
     pub(crate) fn insert_custom(&mut self, package: PackageId, index: u32, info: PrebuildInfo) {
-        let key = PackagePrebuildKey::Custom {
+        let key = PackagePrebuildKey {
             package,
             declaration_index: index,
         };
-        let previous = self
-            .actions
-            .insert(key, PackagePrebuildAction::Custom { info });
+        let previous = self.actions.insert(key, info);
         debug_assert!(
             previous.is_none(),
             "custom prebuild should only be planned once"
         );
     }
 
-    pub(crate) fn insert_moonlex(&mut self, package: PackageId, input: PathBuf, output: PathBuf) {
-        let key = PackagePrebuildKey::MoonLex {
-            package,
-            input: input.clone(),
-        };
-        if self.contains_key(&key) {
-            return;
-        }
-        self.actions
-            .insert(key, PackagePrebuildAction::MoonLex { input, output });
-    }
-
-    pub(crate) fn insert_moonyacc(&mut self, package: PackageId, input: PathBuf, output: PathBuf) {
-        let key = PackagePrebuildKey::MoonYacc {
-            package,
-            input: input.clone(),
-        };
-        if self.contains_key(&key) {
-            return;
-        }
-        self.actions
-            .insert(key, PackagePrebuildAction::MoonYacc { input, output });
-    }
-
     /// All concrete outputs produced for one package, in planning order.
     pub(crate) fn output_paths(&self, package: PackageId) -> impl Iterator<Item = &PathBuf> {
         self.actions
             .iter()
-            .filter(move |(key, _)| key.package() == package)
-            .flat_map(|(_, action)| action.output_paths())
-    }
-
-    pub(crate) fn custom_output_paths(&self, package: PackageId) -> impl Iterator<Item = &PathBuf> {
-        self.actions
-            .iter()
-            .flat_map(move |(key, action)| match (key, action) {
-                (
-                    PackagePrebuildKey::Custom {
-                        package: action_package,
-                        ..
-                    },
-                    PackagePrebuildAction::Custom { info },
-                ) if *action_package == package => info.resolved_outputs.as_slice(),
-                _ => &[],
-            })
+            .filter(move |(key, _)| key.package == package)
+            .flat_map(|(_, action)| &action.resolved_outputs)
     }
 }
 
@@ -190,7 +108,7 @@ mod tests {
     fn package_prebuild_action_is_separate_from_backend_plan() {
         let package = package_id(1);
         let backend_node = BuildPlanNode::Check(package.build_target(TargetKind::Source));
-        let prebuild_key = PackagePrebuildKey::Custom {
+        let prebuild_key = PackagePrebuildKey {
             package,
             declaration_index: 0,
         };

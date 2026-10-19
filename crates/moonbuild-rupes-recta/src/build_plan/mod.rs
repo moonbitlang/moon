@@ -83,10 +83,9 @@ mod package_prebuild;
 pub(crate) use action::BuildAction;
 pub use artifact::ArtifactKey;
 use artifact::ArtifactRegistry;
-pub(crate) use artifact::package_file_key;
 use constructor::BuildPlanConstructor;
 pub use package_prebuild::PrebuildInfo;
-pub(crate) use package_prebuild::{PackagePrebuildAction, PackagePrebuildKey, PackagePrebuildPlan};
+pub(crate) use package_prebuild::{PackagePrebuildKey, PackagePrebuildPlan};
 
 /// A qualified reference to one semantic action in a Build Plan.
 ///
@@ -273,7 +272,7 @@ impl BuildPlan {
     pub(crate) fn package_prebuild_action(
         &self,
         key: &PackagePrebuildKey,
-    ) -> Option<&PackagePrebuildAction> {
+    ) -> Option<&PrebuildInfo> {
         self.package_prebuild.action(key)
     }
 
@@ -330,35 +329,6 @@ impl BuildPlan {
         info: BuildTargetInfo,
     ) {
         self.backend.build_target_infos.insert(target, info);
-    }
-
-    pub(crate) fn test_insert_moonlex_prebuild(
-        &mut self,
-        package: PackageId,
-        input: PathBuf,
-        output: PathBuf,
-    ) -> PackagePrebuildKey {
-        let key = PackagePrebuildKey::MoonLex {
-            package,
-            input: input.clone(),
-        };
-        self.package_prebuild.insert_moonlex(package, input, output);
-        key
-    }
-
-    pub(crate) fn test_insert_moonyacc_prebuild(
-        &mut self,
-        package: PackageId,
-        input: PathBuf,
-        output: PathBuf,
-    ) -> PackagePrebuildKey {
-        let key = PackagePrebuildKey::MoonYacc {
-            package,
-            input: input.clone(),
-        };
-        self.package_prebuild
-            .insert_moonyacc(package, input, output);
-        key
     }
 
     pub(crate) fn test_insert_link_core_info(&mut self, target: BuildTarget, info: LinkCoreInfo) {

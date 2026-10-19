@@ -164,7 +164,7 @@ struct BackendPlan {
 }
 
 struct PackagePrebuildPlan {
-    actions: IndexMap<PackagePrebuildKey, PackagePrebuildAction>,
+    actions: IndexMap<PackagePrebuildKey, PrebuildInfo>,
 }
 
 enum BuildPlanActionKey {
@@ -187,10 +187,9 @@ every Artifact Requirement to have a provider.
 `BuildPlanActionKey` is the action union used while lowering the two subplans.
 Backend nodes retain `BuildTarget` and therefore `TargetKind` only where those
 concepts apply. Package prebuild actions are keyed by their declaration
-coordinate: custom commands use the manifest declaration index, while moonlex
-and moonyacc use their concrete input paths. The artifact registry currently
-contains only semantic backend artifacts; concrete package-file relationships
-are resolved after lowering.
+coordinate: commands use the manifest declaration index. The artifact registry
+currently contains only semantic backend artifacts; concrete package-file
+relationships are resolved after lowering.
 
 Builders name only what they consume:
 
@@ -249,8 +248,7 @@ providers and cannot substitute for one another.
 
 Each backend-specific `BuildPlan` composes a `BackendPlan` and a
 `PackagePrebuildPlan`. The package-prebuild subplan owns complete custom
-prebuild, moonlex, and moonyacc actions; it is not a second semantic artifact
-model.
+prebuild actions; it is not a second semantic artifact model.
 
 Package discovery and prebuild declarations contribute concrete paths to the
 package file sets used by Build Target Projection. A path does not gain a
@@ -258,8 +256,7 @@ different identity depending on whether discovery already observed it or a
 prebuild action declares it as an output. Lowering places those paths in the
 consumer's input observations and declares the producing prebuild action's
 outputs. Execution Plan consumers resolve matching input and output paths to
-the same producer relationship, including custom-to-moonlex and
-custom-to-moonyacc pipelines.
+the same producer relationship, including pipelines between custom commands.
 
 Unconsumed package prebuild actions remain planned under the existing
 semantics. Their outputs become n2 start nodes because no later action consumes

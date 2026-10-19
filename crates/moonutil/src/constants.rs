@@ -132,8 +132,6 @@ pub enum PackageSourceFileKind {
     Mbt,
     MbtMd,
     Mbtp,
-    Mbl,
-    Mby,
 }
 
 pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind> {
@@ -143,17 +141,17 @@ pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind>
         Some(PackageSourceFileKind::MbtMd)
     } else if filename.ends_with(DOT_MBTP) {
         Some(PackageSourceFileKind::Mbtp)
-    } else if filename.ends_with(DOT_MBL) {
-        Some(PackageSourceFileKind::Mbl)
-    } else if filename.ends_with(DOT_MBY) {
-        Some(PackageSourceFileKind::Mby)
     } else {
         None
     }
 }
 
 pub fn is_watch_relevant_project_file(filename: &str) -> bool {
+    // Legacy files can cause a discovery error, so creating or removing them
+    // must refresh the watch result even though they are no longer sources.
     package_source_file_kind(filename).is_some()
+        || filename.ends_with(DOT_MBL)
+        || filename.ends_with(DOT_MBY)
         || is_moon_pkg(filename)
         || is_moon_mod(filename)
         || is_moon_work(filename)
@@ -173,14 +171,8 @@ fn package_source_file_kind_detects_supported_package_inputs() {
         package_source_file_kind("proof.mbtp"),
         Some(PackageSourceFileKind::Mbtp)
     );
-    assert_eq!(
-        package_source_file_kind("lexer.mbl"),
-        Some(PackageSourceFileKind::Mbl)
-    );
-    assert_eq!(
-        package_source_file_kind("parser.mby"),
-        Some(PackageSourceFileKind::Mby)
-    );
+    assert_eq!(package_source_file_kind("lexer.mbl"), None);
+    assert_eq!(package_source_file_kind("parser.mby"), None);
     assert_eq!(package_source_file_kind("moon.pkg"), None);
 }
 
@@ -201,5 +193,6 @@ fn watch_relevant_project_file_covers_sources_and_manifests() {
     assert!(is_watch_relevant_project_file("moon.pkg"));
     assert!(is_watch_relevant_project_file("moon.pkg.json"));
     assert!(is_watch_relevant_project_file("lexer.mbl"));
+    assert!(is_watch_relevant_project_file("parser.mby"));
     assert!(!is_watch_relevant_project_file("README.md"));
 }
