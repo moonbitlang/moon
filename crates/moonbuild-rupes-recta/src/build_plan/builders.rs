@@ -2159,8 +2159,13 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn prebuild_paths_use_native_verbatim_joining() {
-        for prefix in [r"\\?\C:", r"\\?\UNC\server\share"] {
-            let root = PathBuf::from(format!(r"{prefix}\project\pkg"));
+        for (input_prefix, prefix) in [
+            (r"C:", r"\\?\C:"),
+            (r"\\?\C:", r"\\?\C:"),
+            (r"\\server\share", r"\\?\UNC\server\share"),
+            (r"\\?\UNC\server\share", r"\\?\UNC\server\share"),
+        ] {
+            let root = PathBuf::from(format!(r"{input_prefix}\project\pkg"));
             for (relative, expected) in [
                 ("../a/b/c", r"\project\a\b\c"),
                 ("../assets/./file", r"\project\assets\file"),
@@ -2182,6 +2187,47 @@ mod tests {
                 )));
             }
         }
+        for (absolute, expected) in [
+            (r"D:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
+            (
+                r"\\server\share\assets\..\generated.mbt",
+                r"\\?\UNC\server\share\generated.mbt",
+            ),
+        ] {
+            assert_eq!(
+                resolve_prebuild_path(Path::new(r"\\?\C:\project\pkg"), absolute).as_os_str(),
+                Path::new(expected).as_os_str(),
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn prebuild_directory_arguments_use_path_components() {
+        let mut snapshot = String::new();
+        for long in [false, true] {
+            let mut module = PathBuf::from(r"\\?\C:\Users\user'quote\project $input with spaces");
+            if long {
+                module.push("segment\\".repeat(40));
+            }
+            let package = module.join("src/app");
+            for command in [
+                r#":embed --text -i "$pkg_dir/../assets 'quoted'/./input.txt" -o "$pkg_dir/../app/generated.mbt""#,
+                r#"tool --assets="$mod_dir/src/app/../assets" "$pkg_dir_extra/keep" "$input" "$output" $unknown"#,
+                r#""$mod_dir/bin/tool.exe" "$pkg_dir\..\assets/../input.txt" "$pkg_dir/""#,
+            ] {
+                let resolved = resolve_prebuild_command(
+                    command,
+                    &module,
+                    &package,
+                    &["./first.txt".to_owned(), "./second.txt".to_owned()],
+                    &["./generated.mbt".to_owned()],
+                );
+                snapshot.push_str(&resolved.replace(&"segment\\".repeat(40), "$LONG\\"));
+                snapshot.push('\n');
+            }
+        }
+        expect_test::expect_file!["snapshots/windows_prebuild_paths.snap"].assert_eq(&snapshot);
     }
 
     #[test]
