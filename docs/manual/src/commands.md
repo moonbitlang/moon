@@ -553,12 +553,16 @@ Install a binary package globally
 
 Examples:
   moon install user/module/pkg
-  moon install user/module/cmd/...
-  moon install ./cmd/tool
-  moon install ./cmd/...
-  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
-  moon install https://github.com/owner/repo.git cmd/tool --branch main
-  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+  moon install user/module/...
+  moon install ./tools/lint
+  moon install ./...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/tools/lint
+  moon install https://github.com/owner/repo.git tools/lint --branch main
+  moon install https://github.com/owner/repo.git tools/... --tag v1.0.0
+
+A bare module root selects every executable package in the module, wherever the
+package directory lives. When several are found, an interactive terminal
+prompts; use --list to inspect them without prompting.
 
 Paste a public GitHub directory permalink containing a full 40-character
 commit SHA to install from its source archive. For branches or tags, use the
@@ -573,6 +577,8 @@ repository URL, PATH_IN_REPO, and --branch or --tag instead.
      2. git URL
      3. registry package path (`user/module/pkg[@version]`)
 
+   A bare module root selects all executable packages in the module.
+
    Use `/...` suffix to install all matching main packages.
 * `<PATH_IN_REPO>` — Filesystem path inside the repository source.
    Used only when SOURCE is a git URL.
@@ -586,6 +592,7 @@ repository URL, PATH_IN_REPO, and --branch or --tag instead.
 * `--rev <REV>` — Git revision to checkout (commit hash, requires git URL)
 * `--branch <BRANCH>` — Git branch to checkout (requires git URL)
 * `--tag <TAG>` — Git tag to checkout (requires git URL)
+* `--list` — List the executables provided by SOURCE instead of installing them
 
 
 

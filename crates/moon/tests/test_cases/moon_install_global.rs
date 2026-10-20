@@ -189,15 +189,107 @@ fn test_moon_install_global_defaults_to_moon_home_bin() {
 }
 
 #[test]
-fn test_moon_install_global_local_path_module_root_is_exact_path() {
+fn test_moon_install_global_module_root_discovers_executable() {
     let dir = TestDir::new("moon_install_global.in");
+    let install_dir = dir.join("test_bin_module_root");
+    std::fs::create_dir_all(&install_dir).unwrap();
 
-    let stderr = get_err_stderr(&dir, ["install", "--path", "."]);
+    let _output = get_stdout(
+        &dir,
+        [
+            "install",
+            "--path",
+            ".",
+            "--bin",
+            install_dir.to_str().unwrap(),
+        ],
+    );
+
+    #[cfg(unix)]
+    let binary_path = install_dir.join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = install_dir.join("main.exe");
+
     assert!(
-        stderr.contains("is not a main package"),
-        "Expected exact local path behavior in stderr, got: {}",
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
+fn test_moon_install_module_root_discovers_non_cmd_executable() {
+    let dir = TestDir::new("moon_install_single_tool.in");
+    let install_dir = dir.join("test_bin");
+    std::fs::create_dir_all(&install_dir).unwrap();
+
+    let _output = get_stdout(
+        &dir,
+        [
+            "install",
+            "--path",
+            ".",
+            "--bin",
+            install_dir.to_str().unwrap(),
+        ],
+    );
+
+    let binary_path = install_dir.join(format!("tool{}", std::env::consts::EXE_SUFFIX));
+    snapbox::cmd::Command::new(binary_path)
+        .assert()
+        .success()
+        .stdout_eq("single tool\n");
+}
+
+#[test]
+fn test_moon_install_module_root_lists_all_main_packages() {
+    let dir = TestDir::new("moon_install_tools.in");
+
+    let stdout = get_stdout(&dir, ["install", "--path", ".", "--list"]);
+    assert_eq!(stdout, "bar\nfoo\nbaz\n");
+}
+
+#[test]
+fn test_moon_install_module_root_reports_multiple_executables() {
+    let dir = TestDir::new("moon_install_tools.in");
+
+    let stderr = get_err_stderr(&dir, ["install", "--path", ".", "--bin", "test_bin"]);
+    assert!(
+        stderr.contains("provides multiple executables"),
+        "Expected multiple-executable guidance in stderr, got: {}",
         stderr
     );
+    for name in ["bar", "foo", "baz"] {
+        assert!(
+            stderr.contains(name),
+            "Expected `{name}` in stderr, got: {}",
+            stderr
+        );
+    }
+}
+
+#[test]
+fn test_moon_install_explicit_non_cmd_executable() {
+    let dir = TestDir::new("moon_install_tools.in");
+    let install_dir = dir.join("test_bin_explicit");
+    std::fs::create_dir_all(&install_dir).unwrap();
+
+    let _output = get_stdout(
+        &dir,
+        [
+            "install",
+            "--path",
+            "src/foo",
+            "--bin",
+            install_dir.to_str().unwrap(),
+        ],
+    );
+
+    let binary_path = install_dir.join(format!("foo{}", std::env::consts::EXE_SUFFIX));
+    snapbox::cmd::Command::new(binary_path)
+        .assert()
+        .success()
+        .stdout_eq("foo\n");
 }
 
 #[test]
@@ -221,6 +313,15 @@ fn test_moon_install_global_local_source_wildcard_from_module_root() {
         "Expected binary at {:?} to exist",
         binary_path
     );
+}
+
+#[test]
+fn test_moon_install_list_reports_selected_executable() {
+    let dir = TestDir::new("moon_install_global.in");
+
+    let stdout = get_stdout(&dir, ["install", "--path", "src/main", "--list"]);
+    assert_eq!(stdout, "main\n");
+    assert!(!dir.join("test_bin").exists());
 }
 
 #[test]

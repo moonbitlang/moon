@@ -230,7 +230,7 @@ fn dispatch(
         GenerateTestDriver(command) => super::generate_test_driver(flags, command).map(Into::into),
         Info(command) => super::run_info(flags, command, output).map(Into::into),
         Explain(command) => super::run_explain(&flags, command).map(Into::into),
-        Install(command) => super::install_cli(flags, command, output.user_log()).map(Into::into),
+        Install(command) => super::install_cli(flags, command, output).map(Into::into),
         Whoami(command) => super::run_whoami(&flags, command).map(Into::into),
         New(command) => super::run_new(&flags, command, output.user_log()).map(Into::into),
         Publish(command) => {

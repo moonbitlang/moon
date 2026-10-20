@@ -32,6 +32,7 @@ use moonutil::{
     build_options::RunMode,
     child_process::{ChildOutputMode, ManagedChildRunner},
     cli_support::UniversalFlags,
+    command_output::CommandOutput,
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::lock_directory,
     project::PackageDirs,
@@ -39,6 +40,7 @@ use moonutil::{
     target::TargetBackend,
     user_log::UserLog,
 };
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
@@ -162,6 +164,37 @@ impl PackageFilter {
     }
 }
 
+/// What a binary-install selector names.
+#[derive(Debug, Clone)]
+enum PackageSelection {
+    /// A specific package or wildcard prefix.
+    Filter(PackageFilter),
+    /// A module root, which stands for every executable package in the module.
+    ModuleExecutables,
+}
+
+impl PackageSelection {
+    fn matches(&self, pkg_root_path: &Path, pkg_path: &str) -> bool {
+        match self {
+            Self::Filter(filter) => filter.matches(pkg_root_path, pkg_path),
+            Self::ModuleExecutables => true,
+        }
+    }
+
+    fn is_module_root(&self) -> bool {
+        matches!(self, Self::ModuleExecutables)
+    }
+
+    fn no_match_error(&self, module_name: &ModuleName, module_dir: &Path) -> anyhow::Error {
+        match self {
+            Self::Filter(filter) => filter.no_match_error(module_name, module_dir),
+            Self::ModuleExecutables => {
+                anyhow::anyhow!("No main packages found in module `{}`", module_name)
+            }
+        }
+    }
+}
+
 const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
 
 /// A GitHub directory permalink resolved to a commit archive and repository path.
@@ -169,6 +202,14 @@ const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "
 pub(super) struct GithubPermalink {
     pub archive_url: url::Url,
     pub path_in_repo: Option<String>,
+}
+
+/// Destination and output settings shared by binary installation entry points.
+#[derive(Clone, Copy)]
+pub(super) struct InstallOptions<'a> {
+    pub install_dir: &'a Path,
+    pub list: bool,
+    pub output: &'a CommandOutput,
 }
 
 /// Returns the non-wildcard prefix for inputs ending with `/...` or `...`.
@@ -242,10 +283,10 @@ pub(super) fn is_local_path(s: &str) -> bool {
 pub(super) fn install_binary(
     cli: &UniversalFlags,
     path: &RegistryPath,
-    install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    options: InstallOptions<'_>,
 ) -> anyhow::Result<i32> {
+    let user_log = options.output.user_log();
     let registry = RegistryClient::configured();
     let had_index = registry.has_cached_index();
 
@@ -273,7 +314,14 @@ pub(super) fn install_binary(
     let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
     legacy_postadd::run(module_dir, &child)?;
 
-    let filter = PackageFilter::package_path(path.package.clone(), install_all);
+    let selection = if install_all || !path.package.is_empty() {
+        PackageSelection::Filter(PackageFilter::package_path(
+            path.package.clone(),
+            install_all,
+        ))
+    } else {
+        PackageSelection::ModuleExecutables
+    };
 
     let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
     build_and_install_packages(
@@ -281,9 +329,8 @@ pub(super) fn install_binary(
         module.name(),
         module_dir,
         package_dirs,
-        install_dir,
-        filter,
-        user_log,
+        selection,
+        options,
     )
 }
 
@@ -291,10 +338,10 @@ pub(super) fn install_binary(
 pub(super) fn install_from_local(
     cli: &UniversalFlags,
     local_path: &Path,
-    install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    options: InstallOptions<'_>,
 ) -> anyhow::Result<i32> {
+    let user_log = options.output.user_log();
     let input_path = dunce::canonicalize(local_path).with_context(|| {
         format!(
             "Path `{}` does not exist or cannot be resolved",
@@ -322,16 +369,19 @@ pub(super) fn install_from_local(
 
     let module = moonutil::manifest::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
-    let filter = PackageFilter::filesystem(input_path, install_all);
+    let selection = if install_all || input_path != canonical_module_root(&module_root) {
+        PackageSelection::Filter(PackageFilter::filesystem(input_path, install_all))
+    } else {
+        PackageSelection::ModuleExecutables
+    };
 
     build_and_install_packages(
         cli,
         &module_name,
         &module_root,
         package_dirs,
-        install_dir,
-        filter,
-        user_log,
+        selection,
+        options,
     )
 }
 
@@ -353,10 +403,10 @@ pub(super) fn install_from_git(
     git_url: &str,
     git_ref: GitRef<'_>,
     path_in_repo: Option<&str>,
-    install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    options: InstallOptions<'_>,
 ) -> anyhow::Result<i32> {
+    let user_log = options.output.user_log();
     user_log.info(format!("Cloning `{}`...", git_url));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
@@ -402,14 +452,7 @@ pub(super) fn install_from_git(
         }
     }
 
-    install_from_repository(
-        cli,
-        clone_dir,
-        path_in_repo,
-        install_dir,
-        install_all,
-        user_log,
-    )
+    install_from_repository(cli, clone_dir, path_in_repo, install_all, options)
 }
 
 /// Install the public archive selected by a GitHub commit permalink.
@@ -417,10 +460,10 @@ pub(super) fn install_from_github_archive(
     cli: &UniversalFlags,
     archive_url: &url::Url,
     path_in_repo: Option<&str>,
-    install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    options: InstallOptions<'_>,
 ) -> anyhow::Result<i32> {
+    let user_log = options.output.user_log();
     user_log.info(format!("Downloading `{archive_url}`..."));
     let client = reqwest::blocking::Client::builder()
         .user_agent(format!("moon/{}", env!("CARGO_PKG_VERSION")))
@@ -437,15 +480,8 @@ pub(super) fn install_from_github_archive(
         )?;
     let temporary = tempfile::tempdir().context("Failed to create temporary directory")?;
     let repository_dir = unpack_github_archive(response, temporary.path())?;
-    install_from_repository(
-        cli,
-        &repository_dir,
-        path_in_repo,
-        install_dir,
-        install_all,
-        user_log,
-    )
-    .context("Failed to install from the GitHub source archive")
+    install_from_repository(cli, &repository_dir, path_in_repo, install_all, options)
+        .context("Failed to install from the GitHub source archive")
 }
 
 fn unpack_github_archive(
@@ -474,9 +510,8 @@ fn install_from_repository(
     cli: &UniversalFlags,
     repository_dir: &Path,
     path_in_repo: Option<&str>,
-    install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    options: InstallOptions<'_>,
 ) -> anyhow::Result<i32> {
     // Select packages by filesystem path in either a checkout or an archive.
     let target_path = if let Some(repo_path) = path_in_repo {
@@ -523,19 +558,30 @@ fn install_from_repository(
 
     let module = moonutil::manifest::read_module_desc_file_in_dir(&module_dirs.module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
-    let filter = PackageFilter::filesystem(target_path, install_all);
+    let selection = if install_all || target_path != canonical_module_root(&module_dirs.module_root)
+    {
+        PackageSelection::Filter(PackageFilter::filesystem(target_path, install_all))
+    } else {
+        PackageSelection::ModuleExecutables
+    };
 
     build_and_install_packages(
         cli,
         &module_name,
         &module_dirs.module_root,
         module_dirs.package_dirs,
-        install_dir,
-        filter,
-        user_log,
+        selection,
+        options,
     )
 }
 
+/// Best-effort canonical form of a module root discovered from an ancestor
+/// search, for comparing against a canonicalized selector path.
+fn canonical_module_root(module_root: &Path) -> PathBuf {
+    dunce::canonicalize(module_root).unwrap_or_else(|_| module_root.to_path_buf())
+}
+
+#[derive(Clone)]
 struct SelectedPackage {
     pkg_id: PackageId,
     full_pkg_name: String,
@@ -554,7 +600,7 @@ fn prepare_native_build(
     module_dir: &Path,
     package_dirs: PackageDirs,
     sync_output: SyncOutputOptions,
-    filter: PackageFilter,
+    selection: &PackageSelection,
     user_log: &UserLog,
 ) -> anyhow::Result<PreparedNativeBuild> {
     let module_dir = dunce::canonicalize(module_dir).with_context(|| {
@@ -614,25 +660,14 @@ fn prepare_native_build(
 
     for (pkg_path, &pkg_id) in all_pkgs {
         let pkg = resolved_project.pkg_dirs.get_package(pkg_id);
-        if !pkg.raw.is_main {
+        if !pkg.raw.is_main || !selection.matches(&pkg.root_path, pkg_path.as_str()) {
             continue;
         }
-
-        let pkg_path_str = pkg_path.to_string();
-
-        let matched = filter.matches(&pkg.root_path, &pkg_path_str);
-
-        if matched {
-            selected_packages.push(SelectedPackage {
-                pkg_id,
-                full_pkg_name: pkg.fqn.to_string(),
-                binary_name: pkg.fqn.short_alias().to_owned(),
-            });
-        }
-    }
-
-    if selected_packages.is_empty() {
-        return Err(filter.no_match_error(module_name, &module_dir));
+        selected_packages.push(SelectedPackage {
+            pkg_id,
+            full_pkg_name: pkg.fqn.to_string(),
+            binary_name: pkg.fqn.short_alias().to_owned(),
+        });
     }
 
     Ok(PreparedNativeBuild {
@@ -714,20 +749,55 @@ fn build_and_install_packages(
     module_name: &ModuleName,
     module_dir: &Path,
     package_dirs: PackageDirs,
-    install_dir: &Path,
-    filter: PackageFilter,
-    user_log: &UserLog,
+    selection: PackageSelection,
+    options: InstallOptions<'_>,
 ) -> anyhow::Result<i32> {
+    let InstallOptions {
+        install_dir,
+        list,
+        output,
+    } = options;
     let quiet = cli.quiet;
-    let prepared = prepare_native_build(
+    let user_log = output.user_log();
+    let mut prepared = prepare_native_build(
         cli,
         module_name,
         module_dir,
         package_dirs,
         SyncOutputOptions::default(),
-        filter,
+        &selection,
         user_log,
     )?;
+
+    if prepared.selected_packages.is_empty() {
+        return Err(selection.no_match_error(module_name, module_dir));
+    }
+
+    if list {
+        output.write_result(|writer| -> std::io::Result<()> {
+            for pkg in &prepared.selected_packages {
+                writeln!(writer, "{}", pkg.binary_name)?;
+            }
+            Ok(())
+        })?;
+        return Ok(0);
+    }
+
+    // A module root stands for all of its executables. Choose one directly when
+    // there is only one, but never guess when several are installable.
+    if selection.is_module_root() && prepared.selected_packages.len() > 1 && !cli.dry_run {
+        if !can_prompt_interactively(cli) {
+            return Err(multiple_module_executables_error(
+                module_name,
+                &prepared.selected_packages,
+            ));
+        }
+        prepared.selected_packages =
+            prompt_module_executables(module_name, &prepared.selected_packages)?;
+        if prepared.selected_packages.is_empty() {
+            bail!("No binaries selected");
+        }
+    }
 
     if cli.dry_run {
         let mut dry_run_count = 0;
@@ -814,6 +884,54 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// Whether this invocation can prompt for an executable selection.
+fn can_prompt_interactively(cli: &UniversalFlags) -> bool {
+    !cli.dry_run && std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
+}
+
+/// Ask the user which executables to install from a module root.
+fn prompt_module_executables(
+    module_name: &ModuleName,
+    executables: &[SelectedPackage],
+) -> anyhow::Result<Vec<SelectedPackage>> {
+    let names = executables
+        .iter()
+        .map(|pkg| pkg.binary_name.clone())
+        .collect::<Vec<_>>();
+    ctrlc::set_handler(moonutil::cli_support::dialoguer_ctrlc_handler)
+        .context("Failed to install the interactive Ctrl-C handler")?;
+    let selected = moonutil::interactive::multi_select(
+        &format!("Select executables from `{module_name}` to install"),
+        &names,
+    )
+    .context("Failed to read the interactive selection")?;
+    let Some(selected) = selected else {
+        bail!("No binaries selected");
+    };
+    Ok(selected
+        .into_iter()
+        .map(|index| executables[index].clone())
+        .collect())
+}
+
+/// Build the error shown when a module root matches several executables and
+/// the caller cannot choose between them.
+fn multiple_module_executables_error(
+    module_name: &ModuleName,
+    executables: &[SelectedPackage],
+) -> anyhow::Error {
+    let names = executables
+        .iter()
+        .map(|pkg| pkg.binary_name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    anyhow::anyhow!(
+        "Module `{}` provides multiple executables ({}); pass an explicit package selector, or use `--list` to inspect them",
+        module_name,
+        names
+    )
 }
 
 /// Copy `src` into `install_dir/dst_name` by writing to a sibling tempfile

@@ -38,12 +38,16 @@ use std::path::PathBuf;
     verbatim_doc_comment,
     after_help = "Examples:
   moon install user/module/pkg
-  moon install user/module/cmd/...
-  moon install ./cmd/tool
-  moon install ./cmd/...
-  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
-  moon install https://github.com/owner/repo.git cmd/tool --branch main
-  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+  moon install user/module/...
+  moon install ./tools/lint
+  moon install ./...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/tools/lint
+  moon install https://github.com/owner/repo.git tools/lint --branch main
+  moon install https://github.com/owner/repo.git tools/... --tag v1.0.0
+
+A bare module root selects every executable package in the module, wherever the
+package directory lives. When several are found, an interactive terminal
+prompts; use --list to inspect them without prompting.
 
 Paste a public GitHub directory permalink containing a full 40-character
 commit SHA to install from its source archive. For branches or tags, use the
@@ -54,7 +58,7 @@ pub struct InstallSubcommand {
         value_name = "SOURCE",
         required_unless_present = "path",
         help = "Package path, local path, or git URL",
-        long_help = "Install source.\n\nInterpretation order:\n  1. local path (`./`, `../`, `/`, Windows drive)\n  2. git URL\n  3. registry package path (`user/module/pkg[@version]`)\n\nUse `/...` suffix to install all matching main packages."
+        long_help = "Install source.\n\nInterpretation order:\n  1. local path (`./`, `../`, `/`, Windows drive)\n  2. git URL\n  3. registry package path (`user/module/pkg[@version]`)\n\nA bare module root selects all executable packages in the module.\n\nUse `/...` suffix to install all matching main packages."
     )]
     pub source: Option<String>,
 
@@ -89,6 +93,10 @@ pub struct InstallSubcommand {
     /// Git tag to checkout (requires git URL)
     #[clap(long, group = "git_ref", requires = "source")]
     pub tag: Option<String>,
+
+    /// List the executables provided by SOURCE instead of installing them
+    #[clap(long)]
+    pub list: bool,
 }
 
 pub(crate) fn install_impl(
