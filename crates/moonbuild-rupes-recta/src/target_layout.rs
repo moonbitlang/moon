@@ -392,10 +392,13 @@ impl TargetLayout {
         }
 
         let package = pkg_list.all_packages(false).find_map(|(_, package)| {
-            // Compiler arguments simplify short Windows paths, while discovery
-            // retains canonical roots. Compare the same spelling on both sides.
-            (dunce::simplified(reported.parent()?) == dunce::simplified(&package.root_path))
-                .then_some(package)
+            // Compiler paths and canonical roots may spell drive/UNC prefixes
+            // differently. Containment in both directions requires the same
+            // directory, without shortening paths used for I/O.
+            let reported_root = reported.parent()?;
+            (moonutil::path::starts_with_equivalent_prefix(reported_root, &package.root_path)
+                && moonutil::path::starts_with_equivalent_prefix(&package.root_path, reported_root))
+            .then_some(package)
         })?;
         Some(self.package_dir(&package.fqn, backend).join(filename))
     }
@@ -1443,6 +1446,8 @@ mod tests {
                     TargetBackend::WasmGC,
                 ),
                 Some(PathBuf::from("_build/wasm-gc/debug/build/ffi").join(filename)),
+                "reported root {reported_root:?}, package root {:?}",
+                packages.get_package(package).root_path,
             );
             assert_eq!(
                 layout.generated_test_driver_diagnostic_path(

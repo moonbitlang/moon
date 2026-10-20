@@ -288,8 +288,11 @@ mod tests {
         use std::os::fd::AsRawFd;
         use std::os::unix::fs::MetadataExt;
 
+        // Exercise a multi-digit descriptor even when this test runs alone.
+        let _occupied_fds: Vec<_> = (0..10).map(|_| tempfile::tempfile().unwrap()).collect();
         let transfer = policy(b"policy");
         let fd = transfer.as_raw_fd();
+        assert!(fd >= 10);
         // Keep the anonymous file alive after the relay closes its descriptor.
         // This makes its identity stable even if another parallel test reuses
         // the descriptor number immediately.
@@ -300,7 +303,9 @@ mod tests {
         assert_ne!(flags & libc::FD_CLOEXEC, 0);
 
         let mut command = Command::new("/bin/sh");
-        command.args(["-c", "cat <&\"$MOONRUN_INHERITED_POLICY\""]);
+        // Shell redirection may reject multi-digit descriptors. Opening /dev/fd
+        // also exercises the inherited descriptor when parallel tests raise it.
+        command.args(["-c", "cat \"/dev/fd/$MOONRUN_INHERITED_POLICY\""]);
         let relay = transfer.into_relay().attach_to(&mut command).unwrap();
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
         assert_ne!(flags, -1);
@@ -308,7 +313,11 @@ mod tests {
         let output = command.output().unwrap();
         relay.finish().unwrap();
 
-        assert!(output.status.success());
+        assert!(
+            output.status.success(),
+            "policy reader failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(output.stdout, b"policy");
         let mut current = unsafe { std::mem::zeroed::<libc::stat>() };
         if unsafe { libc::fstat(fd, &mut current) } == 0 {
