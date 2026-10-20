@@ -110,20 +110,26 @@ impl InstanceWorkers {
     pub(super) fn destroy(&self) -> Vec<WorkerJob> {
         let workers = self.workers.borrow_mut().take_all();
 
-        // Cancellation must fan out before any join: one slow Worker must not
-        // prevent the remaining Workers from receiving their stop request.
-        // FIXME: after the guest stops polling, a cancellation signal arriving
-        // before a blocking syscall may still need a retry to let join finish.
-        // Define cancellation retry ownership for Run teardown outside
-        // native free_worker; neither join nor repeated signals can forcibly
-        // stop noncooperative computation.
-        for worker in &workers {
-            let _ = thread_pool::cancel_worker(worker);
+        let mut pending: Vec<_> = workers.iter().filter_map(Worker::request_stop).collect();
+
+        // The guest no longer polls, so teardown owns cancellation retries.
+        // Fan out each round before waiting: a signal may arrive before a
+        // blocking syscall, and one slow Worker must not delay the others.
+        loop {
+            let mut unfinished = false;
+            for worker in &workers {
+                if !worker.is_finished() {
+                    unfinished = true;
+                    let _ = thread_pool::cancel_worker(worker);
+                }
+            }
+            if !unfinished {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        workers
-            .into_iter()
-            .filter_map(thread_pool::free_worker)
-            .collect()
+        pending.extend(workers.into_iter().filter_map(thread_pool::free_worker));
+        pending
     }
 }
 
@@ -270,6 +276,49 @@ mod tests {
         for _ in 0..2 {
             assert!(results.recv_timeout(timeout).unwrap());
         }
+    }
+
+    #[test]
+    fn destroy_returns_queued_jobs_without_running_them() {
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let workers = InstanceWorkers::new(keys.clone());
+        let active = keys.borrow_mut().insert(HostResourceKind::Job);
+        let queued = keys.borrow_mut().insert(HostResourceKind::Job);
+        let (started, ready) = mpsc::channel();
+        let worker = workers.spawn(
+            job(11, active),
+            move |job| {
+                assert_eq!(
+                    job.job_key, active,
+                    "queued Job must not run during teardown"
+                );
+                started.send(()).unwrap();
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while thread_pool::with_cancellable_region(|| Ok(())).is_ok() {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "Worker was not cancelled"
+                    );
+                    std::thread::yield_now();
+                }
+            },
+            WorkerCompletionDestination::Test(Box::new(|_| {})),
+        );
+        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            thread_pool::wake_worker(
+                workers.workers.borrow().get(worker).unwrap(),
+                job(22, queued),
+            )
+            .is_none()
+        );
+
+        let pending = workers.destroy();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].job_key, queued);
+        assert_eq!(workers.try_recv_completed().unwrap().job_key, active);
+        assert!(workers.try_recv_completed().is_err());
+        assert!(workers.destroy().is_empty());
     }
 
     #[cfg(unix)]

@@ -221,11 +221,14 @@ submission and stopping are separate operations: stopping returns any queued
 Job and permanently closes admission, while the active Job can finish. A later
 submission returns the unaccepted Job to its caller. Joining consumes the Rust
 Worker handle, so there is no usable handle without an owned thread. Pool
-completion publication is independent of guest consumption. Cancellation after
-a Run stops executing its guest event loop remains a correctness FIXME for
-teardown: a signal arriving before a blocking syscall may still require another
-attempt, and no guest remains to request it. `free_worker` has no cancellation
-retry loop and cannot forcibly stop noncooperative computation.
+completion publication is independent of guest consumption. After a Run stops
+executing its guest event loop, Run teardown closes admission on all Workers
+and owns cancellation retries until their threads exit. Each round cancels all
+unfinished Workers before waiting, so a signal arriving before a blocking
+syscall does not leave teardown stuck in join. Queued Jobs remain owned until
+all Workers are joined. The native-shaped `free_worker` retains its termination
+wakeup and join behavior without a cancellation retry loop. Neither teardown
+nor `free_worker` can forcibly stop noncooperative computation.
 
 ## How to Build and Test
 
