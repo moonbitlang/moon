@@ -22,6 +22,7 @@ mod exception;
 pub(crate) mod ffi_bytes;
 mod host_imports;
 mod memory_sanitizer;
+mod values;
 mod wasi;
 mod wasm_imports;
 

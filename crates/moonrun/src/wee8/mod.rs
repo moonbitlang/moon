@@ -22,7 +22,7 @@
 //! host services. GC objects remain internal to guest execution.
 
 use ::wee8 as api;
-mod core_values;
+
 mod wasm_imports;
 
 use crate::engine::{
@@ -119,16 +119,17 @@ impl Engine {
             crate::async_api::register(&mut registry)?;
             crate::sqlite::wasm::register(&mut registry)?;
             crate::core_api::register(&mut registry)?;
+            crate::host_imports::register(&mut registry, module_name, args)?;
             // The GC compiler uses the legacy character ABI. Reuse the same
             // per-run UTF-16 writer as V8 and Wasmtime, including surrogate pairs.
             registry.func_wrap(
                 "spectest",
                 "print_char",
-                |caller: Caller<'_, StoreData>, value: i32| {
+                |caller: Caller<'_, '_, StoreData>, value: i32| {
                     caller
-                        .data
-                        .print
-                        .write_stdout(caller.data.runtime.stdio(), value as u32)
+                        .with_data(|data| {
+                            data.print.write_stdout(data.runtime.stdio(), value as u32)
+                        })
                         .map_err(|error| crate::wasm_imports::ImportError::Host(error.into()))
                 },
             )?;

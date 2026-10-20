@@ -82,7 +82,8 @@ This is a working integration MVP, not a replacement for either full backend:
 - Wasm 1.0 execution, bulk-memory, SIMD, multi-value guest code, internal GC
   structs/arrays and typed function references, guest-defined memory/globals/tables,
   and `_start`. The upstream Rust crate supports rooted host `externref` values;
-  Moonrun's shared host registrations still use numeric arguments/results.
+  Moonrun's shared host registrations support numeric and nullable externref
+  arguments/results.
 - Legacy `spectest.print_char` output uses the same per-run UTF-16 writer as V8
   and Wasmtime, including surrogate pairs. This supports ordinary compiler-produced
   `wasm-gc` programs that keep their GC values inside the guest.
@@ -96,9 +97,13 @@ This is a working integration MVP, not a replacement for either full backend:
   completion pipes, host Handles, database values and filesystem policy; plus
   the core executable-path imports. All use the same typed registrations and
   Host Domains as V8 and Wasmtime.
-- The eight legacy string/environment imports used by core error formatting:
-  UTF-16 builders/readers and environment lookup. Values use rooted native
-  externrefs; environment access uses the Runtime's shared Env.
+- The legacy string/byte-array builders and readers, string arrays, arguments,
+  environment lookup/mutation, synchronous filesystem operations, stdio,
+  seeded random numbers, clocks and process exit. All three engines use the
+  same typed import definitions. Wasmtime and wee8 share Rust value payloads;
+  V8 retains native values for compatibility with its JS-string/byte APIs.
+  Filesystem policy and I/O, environment and stdio use existing Host Domains. Values use rooted native externrefs,
+  with no separate reference table. Filesystem status results belong to one run.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
@@ -110,7 +115,7 @@ introspection. `extern.convert_any` is also excluded because the pinned native
 adapter cannot safely represent every externalized GC value.
 
 Host-imported memory/globals/tables, guest re-entry from a host callback,
-GC values at the host boundary, other reference-based Moonrun imports, JS-string
+GC values at the host boundary, the imported-memory `ffi-bytes` API, JS-string
 builtins, exception tags, the MoonBit test driver, custom stack limits, and
 debugger access are not exposed yet. Compiler-generated test modules import
 exception tags, so GC and externref support alone do not enable the test driver.
@@ -123,13 +128,17 @@ focused wee8 tests instead.
 Run the focused integration checks:
 
 ```sh
-cargo test -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test numeric_host_imports
+cargo test -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test numeric_host_imports --test legacy_host_imports
 cargo test -p moonrun --no-default-features --features wee8 --lib
 ```
 
 The integration tests compile a MoonBit program for `wasm` and `wasm-gc` in both
 debug and release modes and run it through the wee8 CLI, checking Unicode output and
-arithmetic. Async and SQLite CLI fixtures additionally check host services and
+arithmetic. The legacy host-import suite runs the same Wasm modules on all three
+backends and checks environment isolation, filesystem policy and results,
+value/reader ownership, stdio, random numbers and time. It also runs compiler-produced
+clock and exit programs in both targets and profiles. Async and SQLite CLI fixtures
+additionally check host services and
 SQLite i64/f64 round trips. This requires the MoonBit toolchain, as do the other
 Moonrun compiler integration tests. It does not establish support for all MoonBit host
 imports or every `wasm-gc` configuration.

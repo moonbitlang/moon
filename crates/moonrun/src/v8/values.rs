@@ -16,21 +16,25 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Value helpers exposed by `__moonbit_fs_unstable`.
-//!
-//! V8 owns all guest-visible state. Builders contain a private ArrayBuffer and
-//! used-byte count; readers retain their live source and cursor. Rust only owns
-//! temporary copies. Internal fields are traced GC edges, never Rust pointers.
-
-use anyhow::Context;
-use std::cell::Cell;
-use v8::{FunctionCallbackArguments, HandleScope, Local, Value};
-
-use crate::v8::builder::{ObjectExt, ScopeExt};
-use crate::v8::context::{ValueImportError, value_import};
+//! V8-native representation and rooting of shared host values.
+//! Builders and readers retain their payloads in traced internal fields. Only
+//! opaque Rust RNG/clock values need finalizers; weak registrations never root them.
+#[cfg(test)]
+use crate::v8::builder::ObjectExt;
+use crate::v8::builder::ScopeExt;
+use crate::v8::context::ValueImportError;
 use crate::v8::ffi_bytes::new_bytes;
+use crate::wasm_imports::{
+    ExternRef, Values,
+    values::{Ref, Result as ImportResult},
+};
 use ValueImportError::{Range, Type, V8};
-
+use anyhow::Context;
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use std::cell::{Cell, RefCell};
+#[cfg(test)]
+use v8::FunctionCallbackArguments;
+use v8::{HandleScope, Local, Value};
 // The type object retains an allocation template. Each instance retains that
 // type as its unforgeable brand, so an abandoned callback does not invalidate
 // an instance still reachable from Wasm. Payload and position are direct fields.
@@ -53,21 +57,6 @@ impl<'s> HandleType<'s> {
             .context("failed to create a value handle type")?;
         kind.set_internal_field(TYPE_TEMPLATE, instance.into());
         Ok(Self(kind))
-    }
-
-    fn register(
-        &self,
-        scope: &mut HandleScope<'s>,
-        imports: Local<'s, v8::Object>,
-        name: &str,
-        callback: impl v8::MapFnTo<v8::FunctionCallback>,
-    ) -> anyhow::Result<()> {
-        let function = v8::Function::builder(callback)
-            .data(self.0.into())
-            .build(scope)
-            .with_context(|| format!("failed to create Moonrun's {name} import"))?;
-        imports.set_value(scope, name, function.into());
-        Ok(())
     }
 }
 
@@ -270,212 +259,287 @@ impl<'s> Reader<'s> {
     }
 }
 
-fn begin_builder<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let buffer = v8::ArrayBuffer::new(scope, 0);
-        Ok(Handle::new(scope, args.data(), buffer.into())?.0.into())
-    });
+pub(super) struct State {
+    string_builder: v8::Global<v8::Object>,
+    byte_builder: v8::Global<v8::Object>,
+    string_reader: v8::Global<v8::Object>,
+    byte_reader: v8::Global<v8::Object>,
+    array_reader: v8::Global<v8::Object>,
+    rng: v8::Global<v8::Object>,
+    instant: v8::Global<v8::Object>,
+    // Weak handles own finalizer closures, not guest values. Dropping the run
+    // also drops closures for objects that have not yet been collected.
+    finalizers: RefCell<Vec<v8::Weak<v8::Object>>>,
 }
-
-fn string_append_char<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let unit = args.get(1).uint32_value(scope).ok_or(V8)? as u16;
-        let mut builder = Builder::from_value(scope, args.get(0), args.data())?;
-        if builder.used / 2 >= v8::String::MAX_LENGTH {
-            return Err(Range("Invalid string length"));
+impl State {
+    pub(super) fn new(scope: &mut HandleScope) -> anyhow::Result<Self> {
+        let mut brand = || {
+            let kind = HandleType::new(scope)?;
+            Ok::<_, anyhow::Error>(v8::Global::new(scope, kind.0))
+        };
+        Ok(Self {
+            string_builder: brand()?,
+            byte_builder: brand()?,
+            string_reader: brand()?,
+            byte_reader: brand()?,
+            array_reader: brand()?,
+            rng: brand()?,
+            instant: brand()?,
+            finalizers: RefCell::new(Vec::new()),
+        })
+    }
+    fn opaque<'s, T: 'static>(
+        &self,
+        scope: &mut HandleScope<'s>,
+        kind: Local<'s, Value>,
+        payload: T,
+    ) -> ImportResult<Ref<'s>> {
+        let payload = Box::new(payload);
+        let pointer = (&*payload as *const T).cast_mut().cast();
+        let external = v8::External::new(scope, pointer);
+        let handle = Handle::new(scope, kind, external.into())?;
+        let weak =
+            v8::Weak::with_guaranteed_finalizer(scope, handle.0, Box::new(move || drop(payload)));
+        let mut finalizers = self.finalizers.borrow_mut();
+        finalizers.retain(|weak| !weak.is_empty());
+        finalizers.push(weak);
+        Ok(Some(ExternRef::V8(handle.0.into())))
+    }
+}
+fn local<'s>(scope: &mut HandleScope<'s>, value: &Ref<'s>) -> Local<'s, Value> {
+    match value {
+        Some(ExternRef::V8(value)) => *value,
+        None => v8::null(scope).into(),
+    }
+}
+impl<'s, T> Values<'s> for super::wasm_imports::Context<'_, 's, T> {
+    fn string(&mut self, value: &Ref<'s>) -> ImportResult<String> {
+        let value = local(self.scope, value);
+        Ok(value.to_rust_string_lossy(self.scope))
+    }
+    fn new_string(&mut self, value: &str) -> ImportResult<Ref<'s>> {
+        Ok(Some(ExternRef::V8(self.scope.string(value).into())))
+    }
+    fn bytes(&mut self, value: &Ref<'s>) -> ImportResult<Vec<u8>> {
+        let value = Local::<v8::Uint8Array>::try_from(local(self.scope, value))
+            .map_err(|_| Type("Expected a Uint8Array"))?;
+        let mut bytes = vec![0; value.byte_length()];
+        value.copy_contents(&mut bytes);
+        Ok(bytes)
+    }
+    fn new_bytes(&mut self, value: Vec<u8>) -> ImportResult<Ref<'s>> {
+        Ok(Some(ExternRef::V8(new_bytes(self.scope, value)?)))
+    }
+    fn new_strings(&mut self, value: Vec<String>) -> ImportResult<Ref<'s>> {
+        let array = v8::Array::new(self.scope, 0);
+        for (index, value) in value.iter().enumerate() {
+            let value = self.scope.string(value);
+            array
+                .set_index(self.scope, index as u32, value.into())
+                .ok_or(V8)?;
         }
-        builder.append(scope, &unit.to_le_bytes())?;
-        Ok(v8::undefined(scope).into())
-    });
-}
-
-fn finish_create_string<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let builder = Builder::from_value(scope, args.get(0), args.data())?;
+        Ok(Some(ExternRef::V8(array.into())))
+    }
+    fn array_len(&mut self, value: &Ref<'s>) -> ImportResult<i32> {
+        let array = local(self.scope, value).to_object(self.scope).ok_or(V8)?;
+        let key = self.scope.string("length");
+        Ok(array
+            .get(self.scope, key.into())
+            .ok_or(V8)?
+            .int32_value(self.scope)
+            .ok_or(V8)?)
+    }
+    fn array_get(&mut self, value: &Ref<'s>, index: i32) -> ImportResult<Ref<'s>> {
+        let array = local(self.scope, value).to_object(self.scope).ok_or(V8)?;
+        let key = v8::Integer::new(self.scope, index);
+        Ok(Some(ExternRef::V8(
+            array.get(self.scope, key.into()).ok_or(V8)?,
+        )))
+    }
+    fn is_string(&mut self, value: &Ref<'s>) -> ImportResult<i32> {
+        Ok(i32::from(local(self.scope, value).is_string()))
+    }
+    fn string_builder(&mut self) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.string_builder);
+        let buffer = v8::ArrayBuffer::new(self.scope, 0);
+        Ok(Some(ExternRef::V8(
+            Handle::new(self.scope, kind.into(), buffer.into())?
+                .0
+                .into(),
+        )))
+    }
+    fn append_char(&mut self, value: &Ref<'s>, unit: i32) -> ImportResult<()> {
+        let kind = Local::new(self.scope, &self.values.string_builder);
+        let value = local(self.scope, value);
+        let mut builder = Builder::from_value(self.scope, value, kind.into())?;
+        if builder.used / 2 >= v8::String::MAX_LENGTH {
+            return Err(Range("Invalid string length").into());
+        }
+        Ok(builder.append(self.scope, &(unit as u16).to_le_bytes())?)
+    }
+    fn finish_string(&mut self, value: &Ref<'s>) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.string_builder);
+        let value = local(self.scope, value);
+        let builder = Builder::from_value(self.scope, value, kind.into())?;
         let units: Vec<_> = builder.buffer.get_backing_store()[..builder.used]
             .chunks_exact(2)
             .map(|pair| u16::from_le_bytes([pair[0].get(), pair[1].get()]))
             .collect();
-        v8::String::new_from_two_byte(scope, &units, v8::NewStringType::Normal)
-            .map(Into::into)
-            .ok_or(Range("Invalid string length"))
-    });
-}
-
-fn byte_array_append_byte<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let byte = args.get(1).uint32_value(scope).ok_or(V8)? as u8;
-        let mut builder = Builder::from_value(scope, args.get(0), args.data())?;
+        let string = v8::String::new_from_two_byte(self.scope, &units, v8::NewStringType::Normal)
+            .ok_or(Range("Invalid string length"))?;
+        Ok(Some(ExternRef::V8(string.into())))
+    }
+    fn byte_builder(&mut self) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.byte_builder);
+        let buffer = v8::ArrayBuffer::new(self.scope, 0);
+        Ok(Some(ExternRef::V8(
+            Handle::new(self.scope, kind.into(), buffer.into())?
+                .0
+                .into(),
+        )))
+    }
+    fn append_byte(&mut self, value: &Ref<'s>, byte: i32) -> ImportResult<()> {
+        let kind = Local::new(self.scope, &self.values.byte_builder);
+        let value = local(self.scope, value);
+        let mut builder = Builder::from_value(self.scope, value, kind.into())?;
         if builder.used >= u32::MAX as usize {
-            return Err(Range("Invalid array length"));
+            return Err(Range("Invalid array length").into());
         }
-        builder.append(scope, &[byte])?;
-        Ok(v8::undefined(scope).into())
-    });
+        Ok(builder.append(self.scope, &[byte as u8])?)
+    }
+    fn finish_bytes(&mut self, value: &Ref<'s>) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.byte_builder);
+        let value = local(self.scope, value);
+        let builder = Builder::from_value(self.scope, value, kind.into())?;
+        self.new_bytes(builder.snapshot())
+    }
+    fn string_reader(&mut self, value: &Ref<'s>) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.string_reader);
+        let value = local(self.scope, value);
+        Ok(Some(ExternRef::V8(
+            Handle::new(self.scope, kind.into(), value)?.0.into(),
+        )))
+    }
+    fn read_char(&mut self, value: &Ref<'s>) -> ImportResult<i32> {
+        let kind = Local::new(self.scope, &self.values.string_reader);
+        let value = local(self.scope, value);
+        Ok(Reader::from_value(self.scope, value, kind.into())?.read_code_unit(self.scope)?)
+    }
+    fn byte_reader(&mut self, value: &Ref<'s>) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.byte_reader);
+        let value = local(self.scope, value);
+        Ok(Some(ExternRef::V8(
+            Handle::new(self.scope, kind.into(), value)?.0.into(),
+        )))
+    }
+    fn read_byte(&mut self, value: &Ref<'s>) -> ImportResult<i32> {
+        let kind = Local::new(self.scope, &self.values.byte_reader);
+        let value = local(self.scope, value);
+        let mut reader = Reader::from_value(self.scope, value, kind.into())?;
+        let end = v8::Integer::new(self.scope, -1);
+        Ok(reader
+            .read_element(self.scope, end.into())?
+            .int32_value(self.scope)
+            .ok_or(V8)?)
+    }
+    fn array_reader(&mut self, value: &Ref<'s>) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.array_reader);
+        let value = local(self.scope, value);
+        Ok(Some(ExternRef::V8(
+            Handle::new(self.scope, kind.into(), value)?.0.into(),
+        )))
+    }
+    fn read_string(&mut self, value: &Ref<'s>) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.array_reader);
+        let value = local(self.scope, value);
+        let mut reader = Reader::from_value(self.scope, value, kind.into())?;
+        let end = self.scope.string("ffi_end_of_/string_array");
+        Ok(Some(ExternRef::V8(
+            reader.read_element(self.scope, end.into())?,
+        )))
+    }
+    fn new_rng(&mut self, seed: i32) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.rng);
+        self.values.opaque(
+            self.scope,
+            kind.into(),
+            RefCell::new(StdRng::seed_from_u64(seed as u64)),
+        )
+    }
+    fn random(&mut self, value: &Ref<'s>, upper: i32) -> ImportResult<i32> {
+        if upper <= 0 {
+            return Err(Range("random range upper bound must be positive").into());
+        }
+        let kind = Local::new(self.scope, &self.values.rng);
+        let value = local(self.scope, value);
+        let handle = Handle::from_value(self.scope, value, kind.into())?;
+        let payload =
+            Local::<v8::External>::try_from(handle.payload(self.scope)).expect("RNG payload");
+        // Only new_rng creates this private brand. The rooted object keeps the
+        // finalizer-owned allocation alive; no engine calls occur during access.
+        let rng = unsafe { &*payload.value().cast::<RefCell<StdRng>>() };
+        Ok(rng.borrow_mut().gen_range(0..upper))
+    }
+    fn new_instant(&mut self) -> ImportResult<Ref<'s>> {
+        let kind = Local::new(self.scope, &self.values.instant);
+        self.values
+            .opaque(self.scope, kind.into(), std::time::Instant::now())
+    }
+    fn elapsed(&mut self, value: &Ref<'s>) -> ImportResult<f64> {
+        let kind = Local::new(self.scope, &self.values.instant);
+        let value = local(self.scope, value);
+        let handle = Handle::from_value(self.scope, value, kind.into())?;
+        let payload =
+            Local::<v8::External>::try_from(handle.payload(self.scope)).expect("clock payload");
+        // The private clock brand and the rooted object protect this allocation.
+        let instant = unsafe { &*payload.value().cast::<std::time::Instant>() };
+        Ok(instant.elapsed().as_secs_f64())
+    }
 }
-
-fn finish_create_byte_array<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let builder = Builder::from_value(scope, args.get(0), args.data())?;
-        new_bytes(scope, builder.snapshot())
-    });
-}
-
-fn begin_reader<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        Ok(Handle::new(scope, args.data(), args.get(0))?.0.into())
-    });
-}
-
-fn string_read_char<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let mut reader = Reader::from_value(scope, args.get(0), args.data())?;
-        let unit = reader.read_code_unit(scope)?;
-        Ok(v8::Integer::new(scope, unit).into())
-    });
-}
-
-fn byte_array_read_byte<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let mut reader = Reader::from_value(scope, args.get(0), args.data())?;
-        let end = v8::Integer::new(scope, -1);
-        reader.read_element(scope, end.into())
-    });
-}
-
-fn string_array_read_string<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let mut reader = Reader::from_value(scope, args.get(0), args.data())?;
-        let end = scope.string("ffi_end_of_/string_array");
-        reader.read_element(scope, end.into())
-    });
-}
-
-fn finish_read(
-    _scope: &mut HandleScope,
-    _args: FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    // The ABI's finish operations do not invalidate a reader.
-    ret.set_undefined();
-}
-
-fn array_len<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let array = args.get(0).to_object(scope).ok_or(V8)?;
-        let key = scope.string("length");
-        array.get(scope, key.into()).ok_or(V8)
-    });
-}
-
-fn array_get<'s>(
-    scope: &mut HandleScope<'s>,
-    args: FunctionCallbackArguments<'s>,
-    ret: v8::ReturnValue,
-) {
-    value_import(scope, ret, |scope| {
-        let array = args.get(0).to_object(scope).ok_or(V8)?;
-        array.get(scope, args.get(1)).ok_or(V8)
-    });
-}
-
-fn jsvalue_is_string(
-    _scope: &mut HandleScope,
-    args: FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    ret.set_bool(args.get(0).is_string());
-}
-
-pub(super) fn register<'s>(
-    imports: Local<'s, v8::Object>,
-    scope: &mut HandleScope<'s>,
-) -> anyhow::Result<()> {
-    let string_builder = HandleType::new(scope)?;
-    string_builder.register(scope, imports, "begin_create_string", begin_builder)?;
-    string_builder.register(scope, imports, "string_append_char", string_append_char)?;
-    string_builder.register(scope, imports, "finish_create_string", finish_create_string)?;
-    let byte_builder = HandleType::new(scope)?;
-    byte_builder.register(scope, imports, "begin_create_byte_array", begin_builder)?;
-    byte_builder.register(
-        scope,
-        imports,
-        "byte_array_append_byte",
-        byte_array_append_byte,
-    )?;
-    byte_builder.register(
-        scope,
-        imports,
-        "finish_create_byte_array",
-        finish_create_byte_array,
-    )?;
-    let string_reader = HandleType::new(scope)?;
-    string_reader.register(scope, imports, "begin_read_string", begin_reader)?;
-    string_reader.register(scope, imports, "string_read_char", string_read_char)?;
-    let byte_reader = HandleType::new(scope)?;
-    byte_reader.register(scope, imports, "begin_read_byte_array", begin_reader)?;
-    byte_reader.register(scope, imports, "byte_array_read_byte", byte_array_read_byte)?;
-    let string_array_reader = HandleType::new(scope)?;
-    string_array_reader.register(scope, imports, "begin_read_string_array", begin_reader)?;
-    string_array_reader.register(
-        scope,
-        imports,
-        "string_array_read_string",
-        string_array_read_string,
-    )?;
-    imports.set_func(scope, "finish_read_string", finish_read);
-    imports.set_func(scope, "finish_read_byte_array", finish_read);
-    imports.set_func(scope, "finish_read_string_array", finish_read);
-    imports.set_func(scope, "array_len", array_len);
-    imports.set_func(scope, "array_get", array_get);
-    imports.set_func(scope, "jsvalue_is_string", jsvalue_is_string);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::v8::context::wasm_constructor;
+
+    #[test]
+    fn opaque_payloads_are_released_by_gc_and_run_teardown() {
+        struct DropCount(std::rc::Rc<Cell<usize>>);
+        impl Drop for DropCount {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        crate::v8::initialize(&crate::EngineConfig::default()).unwrap();
+        let isolate = &mut v8::Isolate::new(Default::default());
+        let scope = &mut HandleScope::new(isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = State::new(scope).unwrap();
+        let drops = std::rc::Rc::new(Cell::new(0));
+        {
+            let scope = &mut HandleScope::new(scope);
+            let kind = Local::new(scope, &state.rng);
+            state
+                .opaque(scope, kind.into(), DropCount(std::rc::Rc::clone(&drops)))
+                .unwrap();
+        }
+        scope.low_memory_notification();
+        assert_eq!(
+            drops.get(),
+            1,
+            "weak finalizers must not keep abandoned payloads alive"
+        );
+        let kind = Local::new(scope, &state.instant);
+        let live = state
+            .opaque(scope, kind.into(), DropCount(std::rc::Rc::clone(&drops)))
+            .unwrap();
+        assert!(live.is_some());
+        assert_eq!(drops.get(), 1);
+        // Run teardown removes the callbacks along with this state; no guest
+        // operation can subsequently dereference a surviving native object.
+        drop(state);
+        assert_eq!(drops.get(), 2);
+    }
 
     #[test]
     fn builders_and_readers_survive_gc_when_only_wasm_retains_them() {
@@ -485,8 +549,18 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let imports = v8::Object::new(scope);
-        let values = imports.child(scope, "__moonbit_fs_unstable");
-        register(values, scope).unwrap();
+        let values = std::rc::Rc::new(State::new(scope).unwrap());
+        let mut retained = Vec::new();
+        crate::host_imports::register_values(&mut super::super::wasm_imports::Registry {
+            object: imports,
+            scope,
+            data: std::rc::Rc::new(()),
+            memory: std::rc::Rc::new(crate::v8::context::V8MemoryBinding::new()),
+            termination: Default::default(),
+            values,
+            retained: &mut retained,
+        })
+        .unwrap();
         let test = imports.child(scope, "test");
         test.set_func(
             scope,

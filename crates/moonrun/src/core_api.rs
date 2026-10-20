@@ -32,12 +32,12 @@ pub(crate) fn register<R: crate::wasm_imports::ImportRegistry<Runtime>>(
     registry.func_wrap(
         MOONBIT_CORE_MODULE,
         "env/current_exe",
-        |caller: Caller<'_, Runtime>| Ok(current_exe(caller.data)),
+        |caller: Caller<'_, '_, Runtime>| Ok(caller.with_data(current_exe)),
     )?;
     registry.func_wrap(
         MOONBIT_CORE_MODULE,
         "env/current_exe_dir",
-        |caller: Caller<'_, Runtime>| Ok(current_exe_dir(caller.data)),
+        |caller: Caller<'_, '_, Runtime>| Ok(caller.with_data(current_exe_dir)),
     )
 }
 

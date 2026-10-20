@@ -29,9 +29,13 @@ use super::builder::ObjectExt;
 
 /// Failure of a synchronous value import. `V8` preserves an exception or
 /// termination already raised by an engine operation; it must not enter V8 again.
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum ValueImportError {
+    #[error("V8 operation failed")]
     V8,
+    #[error("{0}")]
     Type(&'static str),
+    #[error("{0}")]
     Range(&'static str),
 }
 

@@ -23,7 +23,8 @@ use super::{
     context::{V8MemoryBinding, decode_wasm_u64},
 };
 use crate::wasm_imports::{
-    Caller, HostFunction, ImportError, ImportRegistry, WasmParams, WasmResult, WasmType,
+    CallContext, Caller, ExternRef, HostFunction, ImportError, ImportRegistry, MemoryCaller, Value,
+    WasmParams, WasmResult, WasmType,
 };
 use std::{any::Any, convert::Infallible, rc::Rc};
 
@@ -33,6 +34,7 @@ pub(super) struct Registry<'a, 's, T> {
     pub(super) data: Rc<T>,
     pub(super) memory: Rc<V8MemoryBinding>,
     pub(super) termination: crate::run_termination::TerminationRequest,
+    pub(super) values: Rc<super::values::State>,
     pub(super) retained: &'a mut Vec<Box<dyn Any>>,
 }
 
@@ -40,6 +42,7 @@ struct Binding<T, F> {
     data: Rc<T>,
     memory: Rc<V8MemoryBinding>,
     function: F,
+    values: Rc<super::values::State>,
     termination: crate::run_termination::TerminationRequest,
     module: &'static str,
     name: &'static str,
@@ -65,6 +68,7 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
             data: Rc::clone(&self.data),
             memory: Rc::clone(&self.memory),
             function,
+            values: Rc::clone(&self.values),
             termination: self.termination.clone(),
             module,
             name,
@@ -85,9 +89,33 @@ impl<T: 'static> ImportRegistry<T> for Registry<'_, '_, T> {
     }
 }
 
-fn invoke<T, P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
+pub(super) struct Context<'a, 's, T> {
+    pub(super) scope: &'a mut v8::HandleScope<'s>,
+    pub(super) values: &'a super::values::State,
+    data: &'a T,
+    memory: &'a V8MemoryBinding,
+    termination: &'a crate::run_termination::TerminationRequest,
+}
+impl<'s, T> CallContext<'s, T> for Context<'_, 's, T> {
+    fn with_data(&self, operation: &mut dyn FnMut(&T)) {
+        operation(self.data);
+    }
+    fn with_memory(&mut self, operation: &mut dyn FnMut(MemoryCaller<'_, T>)) {
+        self.memory.with_memory_access(self.scope, |memory| {
+            operation(MemoryCaller {
+                data: self.data,
+                memory: memory.map_err(|_| ImportError::MemoryUnavailable),
+                termination: self.termination,
+            })
+        });
+    }
+    fn terminate(&self, outcome: crate::run_termination::RunTermination) {
+        self.termination.request(outcome);
+    }
+}
+fn invoke<'s, T, P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
+    scope: &mut v8::HandleScope<'s>,
+    args: v8::FunctionCallbackArguments<'s>,
     mut ret: v8::ReturnValue,
 ) {
     let external = v8::Local::<v8::External>::try_from(args.data()).unwrap();
@@ -96,14 +124,20 @@ fn invoke<T, P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
     let Ok(params) = P::decode(|index, kind| {
         let value = args.get(index as i32);
         match kind {
-            WasmType::I32 => value.int32_value(scope).map(|value| value as u64),
-            // Wasm i64 reaches a JS callback as BigInt. Preserve the complete
-            // bit pattern, including unsigned rights/cookies with bit 63 set.
-            WasmType::I64 => decode_wasm_u64(value),
+            WasmType::I32 => value
+                .int32_value(scope)
+                .map(|value| Value::I32(value as u32)),
+            // Preserve the complete i64 bit pattern across V8's BigInt boundary.
+            WasmType::I64 => decode_wasm_u64(value).map(Value::I64),
             WasmType::F32 => value
                 .number_value(scope)
-                .map(|value| u64::from((value as f32).to_bits())),
-            WasmType::F64 => value.number_value(scope).map(f64::to_bits),
+                .map(|value| Value::F32((value as f32).to_bits())),
+            WasmType::F64 => value
+                .number_value(scope)
+                .map(|value| Value::F64(value.to_bits())),
+            WasmType::ExternRef => Some(Value::ExternRef(
+                (!value.is_null()).then_some(ExternRef::V8(value)),
+            )),
         }
         .ok_or(())
     }) else {
@@ -115,30 +149,42 @@ fn invoke<T, P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
         scope.throw_exception(exception);
         return;
     };
-    // All conversions precede the memory borrow. No V8 calls occur within it.
-    let result = binding.memory.with_memory_access(scope, |memory| {
-        binding.function.call(
-            Caller {
-                data: &binding.data,
-                termination: &binding.termination,
-                memory: memory.map_err(|_| ImportError::MemoryUnavailable),
-            },
-            params,
-        )
-    });
+    let mut context = Context {
+        scope,
+        values: &binding.values,
+        data: binding.data.as_ref(),
+        memory: &binding.memory,
+        termination: &binding.termination,
+    };
+    let result = binding.function.call(
+        Caller {
+            context: &mut context,
+        },
+        params,
+    );
     match result.map_err(|error| error.at(binding.module, binding.name)) {
-        Ok(value) => {
-            if let (Some(kind), Some(bits)) = (R::TYPE, value.into_bits()) {
-                match kind {
-                    WasmType::I32 => ret.set_int32(bits as i32),
-                    WasmType::I64 => ret.set(v8::BigInt::new_from_u64(scope, bits).into()),
-                    WasmType::F32 => ret.set_double(f64::from(f32::from_bits(bits as u32))),
-                    WasmType::F64 => ret.set_double(f64::from_bits(bits)),
-                }
-            }
-        }
+        Ok(value) => match R::encode(value) {
+            None => ret.set_undefined(),
+            Some(Value::I32(value)) => ret.set_int32(value as i32),
+            Some(Value::I64(value)) => ret.set(v8::BigInt::new_from_u64(scope, value).into()),
+            Some(Value::F32(value)) => ret.set_double(f32::from_bits(value) as f64),
+            Some(Value::F64(value)) => ret.set_double(f64::from_bits(value)),
+            Some(Value::ExternRef(None)) => ret.set_null(),
+            Some(Value::ExternRef(Some(ExternRef::V8(value)))) => ret.set(value),
+        },
         Err(ImportError::Terminated) => {
             scope.terminate_execution();
+        }
+        Err(ImportError::V8(super::context::ValueImportError::V8)) => {}
+        Err(ImportError::V8(super::context::ValueImportError::Type(message))) => {
+            let message = scope.string(message);
+            let exception = v8::Exception::type_error(scope, message);
+            scope.throw_exception(exception);
+        }
+        Err(ImportError::V8(super::context::ValueImportError::Range(message))) => {
+            let message = scope.string(message);
+            let exception = v8::Exception::range_error(scope, message);
+            scope.throw_exception(exception);
         }
         Err(error) => {
             let message = scope.string(&error.to_string());

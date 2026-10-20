@@ -21,14 +21,10 @@
 use super::builder::{ArgsExt, ObjectExt};
 use super::context;
 use crate::runtime::{Stdio, Utf16Writer};
-use crate::{async_api, core_api, filesystem, run_termination, sqlite, util};
-use rand::Rng;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use crate::{async_api, core_api, run_termination, sqlite};
 use std::any::Any;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
 
 struct PrintEnv {
     writer: Utf16Writer,
@@ -46,60 +42,6 @@ fn run_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s context::V8R
     // SAFETY: install registers these callbacks with the retained
     // V8RunContext pointer.
     unsafe { context::callback_context(args) }
-}
-
-fn now(
-    scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = v8::Array::new(scope, 1);
-
-    let now = std::time::SystemTime::now();
-    let duration = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards");
-
-    let secs = v8::Number::new(scope, duration.as_millis() as f64).into();
-    result.set_index(scope, 0, secs).unwrap();
-
-    ret.set(result.into());
-}
-
-fn instant_now(
-    scope: &mut v8::HandleScope,
-    mut args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let now = Box::new(Instant::now());
-    let ptr = Box::<Instant>::leak(now) as *mut Instant;
-    let weak_rc = std::rc::Rc::new(std::cell::Cell::new(None));
-    let weak = v8::Weak::with_finalizer(
-        unsafe { args.get_isolate() },
-        v8::External::new(scope, ptr as *mut std::ffi::c_void),
-        Box::new({
-            let weak_rc = weak_rc.clone();
-            move |isolate| unsafe {
-                drop(Box::from_raw(ptr));
-                drop(v8::Weak::from_raw(isolate, weak_rc.get()));
-            }
-        }),
-    );
-    let local = weak.to_local(scope).unwrap();
-    weak_rc.set(weak.into_raw());
-    ret.set(local.into());
-}
-
-fn instant_elapsed_as_secs_f64(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let arg = args.get(0);
-    let instant: v8::Local<v8::External> = arg.try_into().unwrap();
-    let instant = unsafe { &*(instant.value() as *mut Instant) };
-    let elapsed = instant.elapsed().as_secs_f64();
-    ret.set(v8::Number::new(scope, elapsed).into());
 }
 
 fn print_char(
@@ -138,143 +80,6 @@ fn console_log(
         .unwrap();
 }
 
-fn read_char(
-    _scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = run_context(&args).runtime().stdio().read_utf8_char();
-    match result {
-        Ok(Some(c)) => {
-            ret.set_int32(c as i32);
-        }
-        _ => ret.set_int32(-1),
-    }
-}
-
-fn read_bytes_from_stdin(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let mut buffer = Vec::new();
-    let size = run_context(&args)
-        .runtime()
-        .stdio()
-        .with_stdin(|stdin| stdin.read_to_end(&mut buffer))
-        .unwrap();
-
-    if size == 0 {
-        let empty_array_buffer = v8::ArrayBuffer::new(scope, 0);
-        let empty_uint8_array = v8::Uint8Array::new(scope, empty_array_buffer, 0, 0).unwrap();
-        ret.set(empty_uint8_array.into());
-    } else {
-        let array_buffer = v8::ArrayBuffer::new(scope, size);
-        let uint8_array = v8::Uint8Array::new(scope, array_buffer, 0, size).unwrap();
-        // SAFETY: V8 owns a writable allocation of `size` bytes for this
-        // ArrayBuffer, and `buffer` contains exactly `size` initialized bytes.
-        unsafe {
-            let array_buffer_ptr: *mut u8 = std::mem::transmute(array_buffer.data());
-            std::ptr::copy(buffer.as_ptr(), array_buffer_ptr, size);
-        }
-        ret.set(uint8_array.into());
-    }
-}
-
-fn write_char(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let fd = args.get(0).int32_value(scope).unwrap();
-    let c = args.get(1).integer_value(scope).unwrap() as u32;
-    let c = std::char::from_u32(c).unwrap();
-    let stdio = run_context(&args).runtime().stdio();
-    match fd {
-        1 => stdio.with_stdout(|stdout| write!(stdout, "{c}")).unwrap(),
-        2 => stdio.with_stderr(|stderr| write!(stderr, "{c}")).unwrap(),
-        _ => {}
-    }
-}
-
-fn flush(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let fd = args.get(0).int32_value(scope).unwrap();
-    let stdio = run_context(&args).runtime().stdio();
-    match fd {
-        1 => stdio.with_stdout(|stdout| stdout.flush()).unwrap(),
-        2 => stdio.with_stderr(|stderr| stderr.flush()).unwrap(),
-        _ => {}
-    }
-}
-
-fn stdrng_seed_from_u64(
-    scope: &mut v8::HandleScope,
-    mut args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let seed = args.get(0).int32_value(scope).unwrap_or(0) as u64;
-    let rng = Box::new(StdRng::seed_from_u64(seed));
-    let ptr = Box::<StdRng>::leak(rng) as *mut StdRng;
-    let weak_rc = std::rc::Rc::new(std::cell::Cell::new(None));
-    let weak = v8::Weak::with_finalizer(
-        unsafe { args.get_isolate() },
-        v8::External::new(scope, ptr as *mut std::ffi::c_void),
-        Box::new({
-            let weak_rc = weak_rc.clone();
-            move |isolate| unsafe {
-                drop(Box::from_raw(ptr));
-                drop(v8::Weak::from_raw(isolate, weak_rc.get()));
-            }
-        }),
-    );
-    let local = weak.to_local(scope).unwrap();
-    weak_rc.set(weak.into_raw());
-    ret.set(local.into());
-}
-
-fn stdrng_gen_range(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let arg = args.get(0);
-    let rng: v8::Local<v8::External> = arg.try_into().unwrap();
-    let rng = unsafe { &mut *(rng.value() as *mut StdRng) };
-
-    let ubound = args.get(1).int32_value(scope).unwrap();
-    let num = rng.gen_range(0..ubound);
-    ret.set_int32(num);
-}
-
-fn exit(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _ret: v8::ReturnValue,
-) {
-    let code = args.get(0).to_int32(scope).unwrap();
-    let termination_request =
-        unsafe { util::get_ref::<run_termination::TerminationRequest>(&args) };
-    termination_request.request(run_termination::RunTermination::Exit(code.value()));
-    scope.terminate_execution();
-}
-
-fn is_windows(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let result = if std::env::consts::OS == "windows" {
-        1
-    } else {
-        0
-    };
-    ret.set_int32(result)
-}
-
 /// Build the complete import object and retain the V8 adapter state required
 /// after instantiation. Callers do not need to know which imports are Rust
 /// callbacks or V8-native values.
@@ -288,8 +93,7 @@ pub(super) fn install<'s>(
     let module_imports = v8::Object::new(scope);
     let mut retained_callback_state = Vec::<Box<dyn Any>>::new();
     let termination_request = run_termination::TerminationRequest::default();
-    let environment = Arc::clone(runtime.environment());
-    let filesystem = Arc::clone(runtime.filesystem());
+    let values = Rc::new(super::values::State::new(scope)?);
     let v8_context = Box::new(context::V8RunContext::new(
         runtime,
         termination_request.clone(),
@@ -309,7 +113,6 @@ pub(super) fn install<'s>(
         .unwrap();
     let spectest = module_imports.child(scope, "spectest");
     spectest.set_value(scope, "print_char", value.into());
-    context::register_func(spectest, scope, "read_char", read_char, v8_context_ptr);
     let moonbit = module_imports.child(scope, "moonbit");
     moonbit.set_value(scope, "string_to_js_string", value.into());
     retained_callback_state.push(print_env_box);
@@ -318,28 +121,19 @@ pub(super) fn install<'s>(
     context::register_func(console, scope, "log", console_log, v8_context_ptr);
 
     {
-        let time = module_imports.child(scope, "__moonbit_time_unstable");
-        time.set_func(scope, "instant_now", instant_now);
-        time.set_func(
-            scope,
-            "instant_elapsed_as_secs_f64",
-            instant_elapsed_as_secs_f64,
-        );
-        time.set_func(scope, "now", now);
-    }
-
-    {
         let mut registry = super::wasm_imports::Registry {
             object: module_imports,
             scope,
             data: Rc::clone(v8_context.runtime()),
             memory: Rc::clone(&memory_binding),
             termination: termination_request.clone(),
+            values: Rc::clone(&values),
             retained: &mut retained_callback_state,
         };
         async_api::register(&mut registry).unwrap();
         core_api::register(&mut registry).unwrap();
         sqlite::wasm::register(&mut registry).unwrap();
+        crate::host_imports::register(&mut registry, wasm_file_name, args).unwrap();
     }
 
     {
@@ -349,6 +143,7 @@ pub(super) fn install<'s>(
             wasm_file_name,
             args,
             &v8_context,
+            values,
             &mut retained_callback_state,
         );
     }
@@ -357,53 +152,6 @@ pub(super) fn install<'s>(
     // retaining this one box in the installed imports covers every pointer
     // registered above.
     retained_callback_state.push(v8_context);
-
-    // API for the fs module
-    {
-        let obj = module_imports.child(scope, "__moonbit_fs_unstable");
-        filesystem::v8::init_env(
-            obj,
-            scope,
-            wasm_file_name,
-            args,
-            environment,
-            filesystem,
-            &mut retained_callback_state,
-        )?;
-    }
-    {
-        let io = module_imports.child(scope, "__moonbit_io_unstable");
-        context::register_func(
-            io,
-            scope,
-            "read_bytes_from_stdin",
-            read_bytes_from_stdin,
-            v8_context_ptr,
-        );
-        context::register_func(io, scope, "read_char", read_char, v8_context_ptr);
-        context::register_func(io, scope, "write_char", write_char, v8_context_ptr);
-        context::register_func(io, scope, "flush", flush, v8_context_ptr);
-    }
-
-    {
-        let rand = module_imports.child(scope, "__moonbit_rand_unstable");
-        rand.set_func(scope, "stdrng_seed_from_u64", stdrng_seed_from_u64);
-        rand.set_func(scope, "stdrng_gen_range", stdrng_gen_range);
-    }
-
-    {
-        let sys = module_imports.child(scope, "__moonbit_sys_unstable");
-        let exit_request = Box::new(termination_request.clone());
-        let exit_request_ptr = &*exit_request as *const run_termination::TerminationRequest;
-        let exit_request_data = v8::External::new(scope, exit_request_ptr as *mut std::ffi::c_void);
-        let exit_function = v8::Function::builder(exit)
-            .data(exit_request_data.into())
-            .build(scope)
-            .unwrap();
-        sys.set_value(scope, "exit", exit_function.into());
-        sys.set_func(scope, "is_windows", is_windows);
-        retained_callback_state.push(exit_request);
-    }
 
     let memory_sanitizer_imports =
         module_imports.child(scope, crate::memory_sanitizer::MEMORY_SANITIZER_MODULE);

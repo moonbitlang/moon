@@ -36,10 +36,12 @@ pub(super) struct ImportContext<'a> {
     memory: &'a mut [u8],
 }
 
-impl<'a> TryFrom<crate::wasm_imports::Caller<'a, crate::runtime::Runtime>> for ImportContext<'a> {
+impl<'a> TryFrom<crate::wasm_imports::MemoryCaller<'a, crate::runtime::Runtime>>
+    for ImportContext<'a>
+{
     type Error = SqliteError;
     fn try_from(
-        caller: crate::wasm_imports::Caller<'a, crate::runtime::Runtime>,
+        caller: crate::wasm_imports::MemoryCaller<'a, crate::runtime::Runtime>,
     ) -> SqliteResult<Self> {
         Ok(Self {
             host: caller.data.sqlite(),
