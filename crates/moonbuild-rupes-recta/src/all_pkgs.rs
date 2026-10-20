@@ -65,9 +65,8 @@ pub fn gen_all_pkgs_json(
             let pkg = resolved_project.pkg_dirs.get_package(id);
             let root = pkg.fqn.module().name().to_string();
             let rel = pkg.fqn.package().to_string();
-            let artifact = metadata_source_mi_path(resolved_project, artifact_paths, id, backend)
-                .to_string_lossy()
-                .into_owned();
+            let artifact = metadata_source_mi_path(resolved_project, artifact_paths, id, backend);
+            let artifact = dunce::simplified(&artifact).to_string_lossy().into_owned();
             PackageArtifactJSON {
                 root,
                 rel,

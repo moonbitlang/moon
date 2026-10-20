@@ -208,9 +208,15 @@ fn check_preserves_long_source_paths_in_response_file() {
     // Mask only variable roots and the repeated package name. In particular,
     // preserve verbatim prefixes and backslashes in the actual on-disk content.
     let toolchain = toolchain_root_for_tests();
+    // Use the filesystem's spelling, as discovery does, rather than the
+    // possibly differently cased or separated path supplied by TEMP.
+    let canonical_root = std::fs::canonicalize(root).unwrap();
     let package = package_rel.to_str().unwrap().trim_end_matches('\\');
     let response = response
-        .replace(dunce::simplified(root).to_str().unwrap(), "$ROOT")
+        .replace(
+            dunce::simplified(&canonical_root).to_str().unwrap(),
+            "$ROOT",
+        )
         .replace(
             dunce::simplified(&toolchain).to_str().unwrap(),
             "$TOOLCHAIN",

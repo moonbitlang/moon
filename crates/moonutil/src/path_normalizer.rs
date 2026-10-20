@@ -96,22 +96,31 @@ impl PathNormalizer {
         paths: impl IntoIterator<Item = &'a Path>,
     ) -> Self {
         let base = std::fs::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
-        self.relative_paths
-            .extend(paths.into_iter().filter_map(|path| {
-                // Paths on different Windows drives cannot be made relative.
-                let relative = path
-                    .relative_to(&base)
-                    .or_else(|_| path.relative_to(dunce::simplified(&base)))
-                    .ok()?
-                    .normalize();
-                let relative = match relative.as_str() {
-                    "" => ".".to_owned(),
-                    ".." => "..".to_owned(),
-                    value if value.starts_with("../") => value.to_owned(),
-                    value => format!("./{value}"),
-                };
-                Some((Self::display_path(path), relative))
-            }));
+        for path in paths {
+            // Paths on different Windows drives cannot be made relative.
+            let Ok(relative) = path
+                .relative_to(&base)
+                .or_else(|_| dunce::simplified(path).relative_to(dunce::simplified(&base)))
+            else {
+                continue;
+            };
+            let relative = relative.normalize();
+            let relative = match relative.as_str() {
+                "" => ".".to_owned(),
+                ".." => "..".to_owned(),
+                value if value.starts_with("../") => value.to_owned(),
+                value => format!("./{value}"),
+            };
+            self.relative_paths
+                .push((Self::display_path(path), relative.clone()));
+            // The execution plan retains canonical outputs, while tool
+            // arguments simplify short paths before dry-run rendering.
+            let simplified = dunce::simplified(path);
+            if simplified != path {
+                self.relative_paths
+                    .push((Self::display_path(simplified), relative));
+            }
+        }
         self
     }
 
@@ -328,6 +337,31 @@ mod tests {
             let expected = format!("{alias}/cache/entry");
             assert_eq!(normalizer.normalize_path(&path), expected);
             assert_eq!(normalizer.normalize_command_arg(&path), expected);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relativizes_simplified_arguments_for_canonical_outputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let base = root.join("work");
+        std::fs::create_dir(&base).unwrap();
+        let output = root.join("_build/format/build.mbtx");
+        let normalizer = PathNormalizer::from_paths(
+            &base,
+            root.join("toolchain"),
+            root.join("home"),
+            vec![],
+            None,
+        )
+        .with_relative_paths(&base, [output.as_path()]);
+
+        for path in [output.as_path(), dunce::simplified(&output)] {
+            assert_eq!(
+                normalizer.normalize_command_arg(&path.to_string_lossy()),
+                "../_build/format/build.mbtx"
+            );
         }
     }
 

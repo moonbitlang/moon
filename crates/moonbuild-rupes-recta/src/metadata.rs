@@ -303,10 +303,7 @@ fn edge_to_alias_json(
     |(_this, dep, edge)| AliasJSON {
         path: ctx.pkg_dirs.get_package(dep.package).fqn.to_string(),
         alias: edge.short_alias.to_string(),
-        fspath: ctx
-            .pkg_dirs
-            .get_package(dep.package)
-            .root_path
+        fspath: dunce::simplified(&ctx.pkg_dirs.get_package(dep.package).root_path)
             .to_string_lossy()
             .into_owned(),
     }
