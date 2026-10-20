@@ -32,6 +32,7 @@ use moonutil::{
     build_options::RunMode,
     child_process::{ChildOutputMode, ManagedChildRunner},
     cli_support::UniversalFlags,
+    command_output::CommandOutput,
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::lock_directory,
     project::PackageDirs,
@@ -39,6 +40,7 @@ use moonutil::{
     target::TargetBackend,
     user_log::UserLog,
 };
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
@@ -46,6 +48,18 @@ use crate::{
     cli::BuildFlags,
     rr_build::{self},
 };
+
+/// How the install selector identifies its packages.
+///
+/// A module-root selector names a whole module and may expand to the module's
+/// `cmd/` executables, while an explicit selector names a package or prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectorScope {
+    /// The selector names a specific package or wildcard prefix.
+    Explicit,
+    /// The selector names a module root without a wildcard.
+    ModuleRoot,
+}
 
 /// How to filter packages for installation.
 #[derive(Debug, Clone, Copy)]
@@ -242,8 +256,10 @@ pub(super) fn install_binary(
     path: &RegistryPath,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    list: bool,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let registry = RegistryClient::configured();
     let had_index = registry.has_cached_index();
 
@@ -272,6 +288,11 @@ pub(super) fn install_binary(
     legacy_postadd::run(module_dir, &child)?;
 
     let filter = PackageFilter::package_path(path.package.clone(), install_all);
+    let scope = if install_all || !path.package.is_empty() {
+        SelectorScope::Explicit
+    } else {
+        SelectorScope::ModuleRoot
+    };
 
     let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
     build_and_install_packages(
@@ -281,7 +302,9 @@ pub(super) fn install_binary(
         package_dirs,
         install_dir,
         filter,
-        user_log,
+        scope,
+        list,
+        output,
     )
 }
 
@@ -291,8 +314,10 @@ pub(super) fn install_from_local(
     local_path: &Path,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    list: bool,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let input_path = dunce::canonicalize(local_path).with_context(|| {
         format!(
             "Path `{}` does not exist or cannot be resolved",
@@ -320,6 +345,11 @@ pub(super) fn install_from_local(
 
     let module = moonutil::manifest::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let scope = if install_all || input_path != canonical_module_root(&module_root) {
+        SelectorScope::Explicit
+    } else {
+        SelectorScope::ModuleRoot
+    };
     let filter = PackageFilter::filesystem(input_path, install_all);
 
     build_and_install_packages(
@@ -329,7 +359,9 @@ pub(super) fn install_from_local(
         package_dirs,
         install_dir,
         filter,
-        user_log,
+        scope,
+        list,
+        output,
     )
 }
 
@@ -353,8 +385,10 @@ pub(super) fn install_from_git(
     path_in_repo: Option<&str>,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    list: bool,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     user_log.info(format!("Cloning `{}`...", git_url));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
@@ -406,7 +440,8 @@ pub(super) fn install_from_git(
         path_in_repo,
         install_dir,
         install_all,
-        user_log,
+        list,
+        output,
     )
 }
 
@@ -417,8 +452,10 @@ pub(super) fn install_from_github_archive(
     path_in_repo: Option<&str>,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    list: bool,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     user_log.info(format!("Downloading `{archive_url}`..."));
     let client = reqwest::blocking::Client::builder()
         .user_agent(format!("moon/{}", env!("CARGO_PKG_VERSION")))
@@ -441,7 +478,8 @@ pub(super) fn install_from_github_archive(
         path_in_repo,
         install_dir,
         install_all,
-        user_log,
+        list,
+        output,
     )
     .context("Failed to install from the GitHub source archive")
 }
@@ -474,7 +512,8 @@ fn install_from_repository(
     path_in_repo: Option<&str>,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    list: bool,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     // Select packages by filesystem path in either a checkout or an archive.
     let target_path = if let Some(repo_path) = path_in_repo {
@@ -521,6 +560,11 @@ fn install_from_repository(
 
     let module = moonutil::manifest::read_module_desc_file_in_dir(&module_dirs.module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let scope = if install_all || target_path != canonical_module_root(&module_dirs.module_root) {
+        SelectorScope::Explicit
+    } else {
+        SelectorScope::ModuleRoot
+    };
     let filter = PackageFilter::filesystem(target_path, install_all);
 
     build_and_install_packages(
@@ -530,10 +574,19 @@ fn install_from_repository(
         module_dirs.package_dirs,
         install_dir,
         filter,
-        user_log,
+        scope,
+        list,
+        output,
     )
 }
 
+/// Best-effort canonical form of a module root discovered from an ancestor
+/// search, for comparing against a canonicalized selector path.
+fn canonical_module_root(module_root: &Path) -> PathBuf {
+    dunce::canonicalize(module_root).unwrap_or_else(|_| module_root.to_path_buf())
+}
+
+#[derive(Clone)]
 struct SelectedPackage {
     pkg_id: PackageId,
     full_pkg_name: String,
@@ -543,7 +596,10 @@ struct SelectedPackage {
 struct PreparedNativeBuild {
     target_dir: PathBuf,
     resolved_project: moonbuild_rupes_recta::resolve::ResolvedProject,
+    /// Packages matched by the explicit selector.
     selected_packages: Vec<SelectedPackage>,
+    /// Executable packages under `cmd/`, the module's conventional tool set.
+    module_tools: Vec<SelectedPackage>,
 }
 
 fn prepare_native_build(
@@ -552,7 +608,7 @@ fn prepare_native_build(
     module_dir: &Path,
     package_dirs: PackageDirs,
     sync_output: SyncOutputOptions,
-    filter: PackageFilter,
+    filter: &PackageFilter,
     user_log: &UserLog,
 ) -> anyhow::Result<PreparedNativeBuild> {
     let module_dir = dunce::canonicalize(module_dir).with_context(|| {
@@ -608,6 +664,7 @@ fn prepare_native_build(
     };
 
     let mut selected_packages: Vec<SelectedPackage> = Vec::new();
+    let mut module_tools: Vec<SelectedPackage> = Vec::new();
 
     for (pkg_path, &pkg_id) in all_pkgs {
         let pkg = resolved_project.pkg_dirs.get_package(pkg_id);
@@ -615,27 +672,25 @@ fn prepare_native_build(
             continue;
         }
 
-        let pkg_path_str = pkg_path.to_string();
+        let selected = SelectedPackage {
+            pkg_id,
+            full_pkg_name: pkg.fqn.to_string(),
+            binary_name: pkg.fqn.short_alias().to_owned(),
+        };
 
-        let matched = filter.matches(&pkg.root_path, &pkg_path_str);
-
-        if matched {
-            selected_packages.push(SelectedPackage {
-                pkg_id,
-                full_pkg_name: pkg.fqn.to_string(),
-                binary_name: pkg.fqn.short_alias().to_owned(),
-            });
+        if filter.matches(&pkg.root_path, pkg_path.as_str()) {
+            selected_packages.push(selected.clone());
         }
-    }
-
-    if selected_packages.is_empty() {
-        return Err(filter.no_match_error(module_name, &module_dir));
+        if pkg_path.segments().next() == Some("cmd") {
+            module_tools.push(selected);
+        }
     }
 
     Ok(PreparedNativeBuild {
         target_dir,
         resolved_project,
         selected_packages,
+        module_tools,
     })
 }
 
@@ -713,18 +768,64 @@ fn build_and_install_packages(
     package_dirs: PackageDirs,
     install_dir: &Path,
     filter: PackageFilter,
-    user_log: &UserLog,
+    scope: SelectorScope,
+    list: bool,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
-    let prepared = prepare_native_build(
+    let user_log = output.user_log();
+    let mut prepared = prepare_native_build(
         cli,
         module_name,
         module_dir,
         package_dirs,
         SyncOutputOptions::default(),
-        filter,
+        &filter,
         user_log,
     )?;
+
+    // A bare module-root selector stands for the module's conventional `cmd/`
+    // tool set. Explicit selectors and wildcards keep their resolved packages.
+    let mut module_tools = if scope == SelectorScope::ModuleRoot {
+        std::mem::take(&mut prepared.module_tools)
+    } else {
+        Vec::new()
+    };
+
+    if list {
+        let listed = if module_tools.is_empty() {
+            &prepared.selected_packages
+        } else {
+            &module_tools
+        };
+        if listed.is_empty() {
+            let error = no_package_error(&filter, module_name, module_dir, &module_tools);
+            return Err(error);
+        }
+        output.write_result(|writer| -> std::io::Result<()> {
+            for pkg in listed {
+                writeln!(writer, "{}", pkg.binary_name)?;
+            }
+            Ok(())
+        })?;
+        return Ok(0);
+    }
+
+    // A single tool is unambiguous, so select it without prompting; several
+    // tools prompt on an interactive terminal.
+    if module_tools.len() == 1 {
+        prepared.selected_packages = std::mem::take(&mut module_tools);
+    } else if !module_tools.is_empty() && is_interactive_install(cli) {
+        prepared.selected_packages = prompt_module_tools(module_name, &module_tools)?;
+        if prepared.selected_packages.is_empty() {
+            bail!("No binaries selected");
+        }
+    }
+
+    if prepared.selected_packages.is_empty() {
+        let error = no_package_error(&filter, module_name, module_dir, &module_tools);
+        return Err(error);
+    }
 
     if cli.dry_run {
         let mut dry_run_count = 0;
@@ -811,6 +912,56 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// Whether this invocation should prompt for a package selection.
+///
+/// Prompting requires both an interactive input and an interactive rendering
+/// stream, and is skipped for `--dry-run` so previews stay scriptable.
+fn is_interactive_install(cli: &UniversalFlags) -> bool {
+    !cli.dry_run && std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
+}
+
+/// Ask the user which of the module's `cmd/` executables to install.
+fn prompt_module_tools(
+    module_name: &ModuleName,
+    module_tools: &[SelectedPackage],
+) -> anyhow::Result<Vec<SelectedPackage>> {
+    let names = module_tools
+        .iter()
+        .map(|pkg| pkg.binary_name.clone())
+        .collect::<Vec<_>>();
+    ctrlc::set_handler(moonutil::cli_support::dialoguer_ctrlc_handler)
+        .context("Failed to install the interactive Ctrl-C handler")?;
+    let selected = moonutil::interactive::checkbox_select(
+        &format!("Select binaries from `{module_name}` to install"),
+        &names,
+    )
+    .context("Failed to read the interactive selection")?;
+    Ok(selected
+        .into_iter()
+        .map(|index| module_tools[index].clone())
+        .collect())
+}
+
+/// Build the "no installable package" error, adding a discovery hint when the
+/// module exposes `cmd/` executables.
+fn no_package_error(
+    filter: &PackageFilter,
+    module_name: &ModuleName,
+    module_dir: &Path,
+    module_tools: &[SelectedPackage],
+) -> anyhow::Error {
+    let error = filter.no_match_error(module_name, module_dir);
+    if module_tools.is_empty() {
+        error
+    } else {
+        error.context(format!(
+            "Module `{}` exposes {} executable(s) under `cmd/`; pass `--list` to list them or select one explicitly",
+            module_name,
+            module_tools.len()
+        ))
+    }
 }
 
 /// Copy `src` into `install_dir/dst_name` by writing to a sibling tempfile

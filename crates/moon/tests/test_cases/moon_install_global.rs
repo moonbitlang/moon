@@ -518,6 +518,84 @@ Error: Tree URLs must contain a full 40-character commit SHA; copy a permalink, 
 "#]]);
 }
 
+#[test]
+fn test_moon_install_global_list_module_root_tools() {
+    // A bare module root lists the module's `cmd/` executables, sorted by
+    // package path, without building or installing anything.
+    let dir = TestDir::new("moon_install_tools.in");
+    check(
+        get_stdout(&dir, ["install", "./", "--list"]),
+        expect![[r#"
+            bar
+            foo
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_install_global_list_path_module_root_tools() {
+    // `--path <module-root>` is the same module-root selector as a positional
+    // local path, so it lists the same `cmd/` executables.
+    let dir = TestDir::new("moon_install_tools.in");
+    check(
+        get_stdout(&dir, ["install", "--path", ".", "--list"]),
+        expect![[r#"
+            bar
+            foo
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_install_global_list_explicit_package() {
+    // An explicit selector keeps exact-package behavior and lists just it.
+    let dir = TestDir::new("moon_install_tools.in");
+    check(
+        get_stdout(&dir, ["install", "./src/cmd/foo", "--list"]),
+        expect![[r#"
+            foo
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_install_global_list_explicit_main_package() {
+    let dir = TestDir::new("moon_install_global.in");
+    check(
+        get_stdout(&dir, ["install", "./src/main", "--list"]),
+        expect![[r#"
+            main
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_install_global_module_root_without_root_main_reports_cmd_tools() {
+    // Non-interactive bare module roots keep exact-package behavior, but the
+    // failure now points at the module's `cmd/` executables.
+    let dir = TestDir::new("moon_install_tools.in");
+    let stderr = get_err_stderr(&dir, ["install", "./"]);
+    assert!(
+        stderr.contains("exposes 2 executable(s) under `cmd/`"),
+        "Expected cmd/ discovery hint in stderr, got: {stderr}",
+    );
+    assert!(
+        stderr.contains("pass `--list` to list them"),
+        "Expected --list guidance in stderr, got: {stderr}",
+    );
+}
+
+#[test]
+fn test_moon_install_global_module_root_single_tool_installs_directly() {
+    // With exactly one `cmd/` tool there is nothing to choose, so the module
+    // root installs it without prompting.
+    let dir = TestDir::new("moon_install_single_tool.in");
+    let install_dir = dir.join("bin");
+    assert_success(&dir, ["install", "./", "--bin", install_dir.to_str().unwrap()]);
+    let binary = install_dir.join(format!("tool{}", std::env::consts::EXE_SUFFIX));
+    assert!(binary.exists(), "Expected {binary:?} to exist");
+}
+
 // TODO: Re-enable these Git install tests when moonbitlang/moon-install-git-test-cases
 // uses moon.mod and moon.pkg instead of JSON manifests.
 /*

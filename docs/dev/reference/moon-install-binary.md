@@ -65,6 +65,27 @@ When matching packages after discovery:
 - registry selectors are matched by **package path**,
 - local/git/archive selectors are matched by **filesystem path** (then converted to discovered packages).
 
+### Module-root tool discovery
+
+A bare module-root selector (registry `user/module`, local `./module` or
+`--path <module-root>`, or a git URL without `PATH_IN_REPO`) names the module's
+conventional tool set: the main packages under `cmd/`. When that set is
+non-empty:
+
+- `--list` prints each tool's binary name to stdout and exits without building
+  or installing anything.
+- If the set has exactly one tool, `moon install` installs it directly; there is
+  nothing to choose.
+- Otherwise, on an interactive terminal (and without `--dry-run`), `moon install`
+  shows a vertical checkbox list of the tools and installs the selected subset.
+  Space toggles the highlighted tool, `a` toggles all tools, and Enter confirms.
+- Otherwise the exact-package behavior above is unchanged. When the module has
+  no main root package, the failure names the `cmd/` executables and suggests
+  `--list`.
+
+Wildcards (`/...`) and explicit package selectors never expand to the tool set;
+they keep the exact or prefix matching described above.
+
 ## Expected behavior by mode
 
 ### Registry mode
@@ -79,6 +100,8 @@ Rules:
 
 - No wildcard: exact package path in the resolved registry module.
 - With wildcard: all executable packages under the wildcard prefix.
+- Bare module root (`user/module`): root package by default, or the `cmd/` tool
+  set described above.
 
 ### Local path mode
 
@@ -93,7 +116,8 @@ Rules:
 - Input selector is a filesystem path.
 - No wildcard: exact package at that filesystem path.
 - If the exact filesystem path is module root, install that module's root package only
-  (root package path is empty string relative to `source` root).
+  (root package path is empty string relative to `source` root), unless the module
+  exposes `cmd/` tools (see Module-root tool discovery).
 - With wildcard suffix: all executable packages under the matched filesystem path prefix.
 
 ### GitHub permalink mode
@@ -145,7 +169,8 @@ Rules:
 - Resolve the selected path and find the nearest ancestor containing `moon.mod`
   or `moon.mod.json` as module root.
 - No wildcard:
-  - no `PATH_IN_REPO`: install root package of detected module.
+  - no `PATH_IN_REPO`: install root package of detected module, unless the module
+    exposes `cmd/` tools (see Module-root tool discovery).
   - with `PATH_IN_REPO`: install exact package at the selected filesystem path.
 - With wildcard in `PATH_IN_REPO`: install all executable packages under that filesystem prefix.
 - Path escape (`..` resolving outside cloned repo) is rejected.
@@ -169,7 +194,10 @@ These rules apply in all binary installer modes:
     `a/b` and `a/b/v2`
 - Reserved Moon toolchain binary names are not overwritten.
 - Name collisions between selected packages are allowed; later installs overwrite earlier files.
-- `--dry-run` does not write binaries; it prints what would be built/installed.
+- `--dry-run` does not write binaries; it prints what would be built/installed, and never prompts.
+- `--list` prints the binary names the selector expands to and exits without
+  building; for a bare module root this is the `cmd/` tool set, otherwise the
+  packages the selector resolves to.
 
 ## Cross-tool structural reference (verified 2026-03-04)
 
@@ -186,7 +214,7 @@ identify source, intent, and target.
 | Build argument surface | Installer does not expose a broad package-manager-level build argument passthrough; it builds/installs selected native executables (with shared command flags like `--dry-run` and verbosity controls). | Accepts shared Go build flags: `go install [build flags] [packages]`. | Rich install/build controls: features (`--features`, `--all-features`, `--no-default-features`), target/profile (`--target`, `--profile`), jobs, lock/offline, etc. |
 | Collision / overwrite behavior | Name collisions between selected packages are allowed; later installs overwrite (reserved Moon tool names are blocked). | Official help does not document a dedicated collision guard in install destination; binaries are installed by command name in one bin directory (inference). | Overwrite protection by default; `--force` is required to overwrite existing crates/binaries. |
 | Dry-run / preview | `--dry-run` prints plan and does not write binaries. | `-n` (shared build flag) prints commands without executing. | `--dry-run` exists but is unstable. |
-| Interactive prompting | No interactive package/binary selection prompt. | No interactive package selection prompt. | No interactive package/binary selection prompt. If source has multiple packages and target is ambiguous, Cargo errors and requires explicit package selection. |
+| Interactive prompting | A bare module-root selector with several `cmd/` executables lists them for checkbox selection on an interactive terminal (a single executable is installed directly); `--list` prints them non-interactively. Explicit selectors and wildcards never prompt. | No interactive package selection prompt. | No interactive package/binary selection prompt. If source has multiple packages and target is ambiguous, Cargo errors and requires explicit package selection. |
 | Install destination | `~/.moon/bin` by default, override with `--bin`. | `GOBIN`, else `$GOPATH/bin` (or `$HOME/go/bin` when `GOPATH` unset). | Install root `bin` directory; precedence: `--root`, `CARGO_INSTALL_ROOT`, config, `CARGO_HOME`, `$HOME/.cargo`. |
 
 References:

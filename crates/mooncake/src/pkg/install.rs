@@ -89,6 +89,10 @@ pub struct InstallSubcommand {
     /// Git tag to checkout (requires git URL)
     #[clap(long, group = "git_ref", requires = "source")]
     pub tag: Option<String>,
+
+    /// List the executables provided by SOURCE instead of installing them
+    #[clap(long)]
+    pub list: bool,
 }
 
 pub(crate) fn install_impl(

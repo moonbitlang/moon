@@ -584,6 +584,7 @@ repository URL, PATH_IN_REPO, and --branch or --tag instead.
 * `--rev <REV>` — Git revision to checkout (commit hash, requires git URL)
 * `--branch <BRANCH>` — Git branch to checkout (requires git URL)
 * `--tag <TAG>` — Git tag to checkout (requires git URL)
+* `--list` — List the executables provided by SOURCE instead of installing them
 
 
 
