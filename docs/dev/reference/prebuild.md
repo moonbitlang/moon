@@ -208,7 +208,7 @@ so adding or removing an unhandled file updates the diagnostic.
 
 ## Path Resolution
 
-- `input`/`output` are resolved relative to the package directory for build dependency tracking.
+- `input`/`output` are resolved relative to the package directory for build dependency tracking. On Windows, native path joining resolves `.` and `..` and converts separators when extending the canonical verbatim package root. The files need not exist yet.
 - `$input`/`$output` expand to paths relative to the prebuild command working directory. These substituted paths are lexically normalized and start with `./`, for example `./src/lib/input.txt`.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
 

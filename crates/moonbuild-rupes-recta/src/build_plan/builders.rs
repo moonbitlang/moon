@@ -1726,26 +1726,12 @@ impl<'a> BuildPlanConstructor<'a> {
         let input_paths = prebuild_cmd
             .input()
             .iter()
-            .map(|path| {
-                let input_path = Path::new(path);
-                if input_path.is_absolute() {
-                    input_path.to_path_buf()
-                } else {
-                    RelativePath::new(path).normalize().to_path(&pkg.root_path)
-                }
-            })
+            .map(|path| resolve_prebuild_path(&pkg.root_path, path))
             .collect::<Vec<_>>();
         let output_paths = prebuild_cmd
             .output()
             .iter()
-            .map(|path| {
-                let output_path = Path::new(path);
-                if output_path.is_absolute() {
-                    output_path.to_path_buf()
-                } else {
-                    RelativePath::new(path).normalize().to_path(&pkg.root_path)
-                }
-            })
+            .map(|path| resolve_prebuild_path(&pkg.root_path, path))
             .collect::<Vec<_>>();
         let command_cwd = module.as_path();
         let command_input_paths = prebuild_command_paths(command_cwd, &input_paths);
@@ -1932,6 +1918,21 @@ fn resolve_prebuild_command(
     resolved
 }
 
+fn resolve_prebuild_path(package_root: &Path, path: &str) -> PathBuf {
+    if Path::new(path).is_absolute() {
+        return path.into();
+    }
+    if cfg!(windows) {
+        // Package roots are canonical. Native joining resolves remaining `..`
+        // and converts separators when extending a Windows verbatim root.
+        // Canonicalizing the completed path would require outputs to exist.
+        package_root.join(path)
+    } else {
+        // Preserve the existing lexical normalization on other platforms.
+        RelativePath::new(path).normalize().to_path(package_root)
+    }
+}
+
 fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
     // Preserve matching canonical roots: a long child may keep its prefix when
     // its short cwd can be simplified. Only reconcile spellings on mismatch.
@@ -2019,6 +2020,34 @@ mod tests {
             true,
             &linux_toolchain
         ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn prebuild_paths_use_native_verbatim_joining() {
+        for prefix in [r"\\?\C:", r"\\?\UNC\server\share"] {
+            let root = PathBuf::from(format!(r"{prefix}\project\pkg"));
+            for (relative, expected) in [
+                ("../a/b/c", r"\project\a\b\c"),
+                ("../assets/./file", r"\project\assets\file"),
+                (r"..\assets\.\file", r"\project\assets\file"),
+                (r"../assets\..\file", r"\project\file"),
+                ("../../../../file", r"\file"),
+                ("../assets/nonexistent", r"\project\assets\nonexistent"),
+            ] {
+                let path = resolve_prebuild_path(&root, relative);
+                assert_eq!(
+                    path.as_os_str(),
+                    Path::new(&format!("{prefix}{expected}")).as_os_str(),
+                    "root={root:?}, relative={relative:?}",
+                );
+                assert!(!path.to_str().unwrap().contains('/'));
+                assert!(!path.components().any(|component| matches!(
+                    component,
+                    std::path::Component::CurDir | std::path::Component::ParentDir
+                )));
+            }
+        }
     }
 
     #[test]

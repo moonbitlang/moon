@@ -484,9 +484,18 @@ fn discover_one_package(
     let mut c_stubs = Vec::new();
     if let Some(stub_list) = &pkg_json.native_stub {
         for stub in stub_list {
-            let rel_path = RelativePath::new(&stub).normalize();
-            // Check if path is valid
-            if rel_path.starts_with("..") {
+            let (stub_path, escapes_package) = if cfg!(windows) {
+                // Native joining handles both slash styles and dot components
+                // against the canonical verbatim package root. Validate the
+                // resolved location using the same semantics.
+                let path = abs.join(stub);
+                let escapes_package = !path.starts_with(abs);
+                (path, escapes_package)
+            } else {
+                let rel_path = RelativePath::new(stub).normalize();
+                (rel_path.to_path(abs), rel_path.starts_with(".."))
+            };
+            if escapes_package {
                 return Err(DiscoverError::InvalidStubPath {
                     module: m.clone(),
                     package: fqn.package().clone(),
@@ -494,7 +503,7 @@ fn discover_one_package(
                     msg: "Path descends into parent directory",
                 });
             }
-            c_stubs.push(rel_path.to_path(abs));
+            c_stubs.push(stub_path);
         }
     };
     let c_stub_headers = if c_stubs.is_empty() {
@@ -618,7 +627,10 @@ mod tests {
     #[cfg(windows)]
     fn native_stub_paths_use_windows_separators_and_stay_in_the_package() -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
-        std::fs::write(dir.path().join("moon.mod"), "name = \"test/native-paths\"\n")?;
+        std::fs::write(
+            dir.path().join("moon.mod"),
+            "name = \"test/native-paths\"\n",
+        )?;
         std::fs::write(dir.path().join("stub.c"), "int stub(void) { return 42; }\n")?;
         let root = std::fs::canonicalize(dir.path())?;
         let module = moonutil::manifest::read_module_desc_file_in_dir(&root)?;
@@ -643,7 +655,9 @@ mod tests {
             let result = discover_packages(&module_graph, &dirs, &log);
             if valid {
                 let discovered = result?;
-                let package = discovered.get_package_id_by_name("test/native-paths").unwrap();
+                let package = discovered
+                    .get_package_id_by_name("test/native-paths")
+                    .unwrap();
                 let files = &discovered.get_package(package).c_stub_files;
                 assert_eq!(files, &[root.join("stub.c")], "{stub:?}");
                 assert!(files[0].is_file(), "{stub:?}");
