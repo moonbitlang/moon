@@ -51,8 +51,11 @@ pub(crate) fn compile_runtime_command(
         "/Z7".to_string(),
         "/O2".to_string(),
         crt.compiler_flag().to_string(),
-        format!("/Fo{}", dest.display()),
-        format!("/I{moon_include_path}"),
+        format!("/Fo{}", dunce::simplified(dest).display()),
+        format!(
+            "/I{}",
+            dunce::simplified(Path::new(moon_include_path)).display()
+        ),
     ];
     command.push(format!(
         "/DMOONBIT_ALLOCATOR={}",
@@ -75,7 +78,7 @@ pub(crate) fn link_executable_command(
     let mut command = vec![
         toolchain.cc_command_path(),
         "/nologo".to_string(),
-        format!("/Fe{dest}"),
+        format!("/Fe{}", dunce::simplified(Path::new(dest)).display()),
     ];
     command.extend(
         sources

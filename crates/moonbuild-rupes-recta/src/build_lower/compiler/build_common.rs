@@ -82,14 +82,17 @@ impl<'a> BuildCommonInput<'a> {
     /// Add MBT source files as arguments
     pub(crate) fn add_mbt_sources(&self, args: &mut Vec<String>) {
         for mbt_file in self.mbt_sources {
-            args.push(mbt_file.display().to_string());
+            args.push(dunce::simplified(mbt_file).display().to_string());
         }
     }
 
     /// Add doctest-only MBT sources as -doctest-only pairs
     pub(crate) fn add_doctest_only_sources(&self, args: &mut Vec<String>) {
         for src in self.doctest_only_sources {
-            args.extend(["-doctest-only".to_string(), src.display().to_string()]);
+            args.extend([
+                "-doctest-only".to_string(),
+                dunce::simplified(src).display().to_string(),
+            ]);
         }
     }
 
@@ -109,7 +112,11 @@ impl<'a> BuildCommonInput<'a> {
     pub(crate) fn add_package_sources(&self, args: &mut Vec<String>) {
         args.extend([
             "-pkg-sources".to_string(),
-            format!("{}:{}", self.package_name, self.package_source.display()),
+            format!(
+                "{}:{}",
+                self.package_name,
+                dunce::simplified(&self.package_source).display()
+            ),
         ]);
     }
 
@@ -159,7 +166,9 @@ impl<'a> BuildCommonInput<'a> {
     pub(crate) fn add_all_pkgs_json(&self, args: &mut Vec<String>) {
         args.extend([
             "-all-pkgs".to_string(),
-            self.all_pkgs_json_path.display().to_string(),
+            dunce::simplified(&self.all_pkgs_json_path)
+                .display()
+                .to_string(),
         ]);
     }
 }
@@ -262,14 +271,20 @@ impl<'a> BuildCommonConfig<'a> {
     /// Add standard library path arguments
     pub(crate) fn add_stdlib_path(&self, args: &mut Vec<String>) {
         if let Some(stdlib_path) = &self.stdlib_core_file {
-            args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
+            args.extend([
+                "-std-path".to_string(),
+                dunce::simplified(stdlib_path).display().to_string(),
+            ]);
         }
     }
 
     /// Add virtual package check arguments
     pub(crate) fn add_virtual_package_check(&self, args: &mut Vec<String>) {
         if let Some(check_mi_path) = &self.check_mi {
-            args.extend(["-check-mi".to_string(), check_mi_path.display().to_string()]);
+            args.extend([
+                "-check-mi".to_string(),
+                dunce::simplified(check_mi_path).display().to_string(),
+            ]);
         }
     }
 
@@ -278,12 +293,14 @@ impl<'a> BuildCommonConfig<'a> {
         if let Some(impl_virtual) = &self.virtual_implementation {
             args.extend([
                 "-check-mi".to_string(),
-                impl_virtual.mi_path.display().to_string(),
+                dunce::simplified(&impl_virtual.mi_path)
+                    .display()
+                    .to_string(),
                 "-pkg-sources".to_string(),
                 format!(
                     "{}:{}",
                     impl_virtual.package_name,
-                    impl_virtual.package_path.display()
+                    dunce::simplified(&impl_virtual.package_path).display()
                 ),
             ]);
         }
@@ -297,13 +314,15 @@ impl<'a> BuildCommonConfig<'a> {
         if let Some(impl_virtual) = &self.virtual_implementation {
             args.extend([
                 "-check-mi".to_string(),
-                impl_virtual.mi_path.display().to_string(),
+                dunce::simplified(&impl_virtual.mi_path)
+                    .display()
+                    .to_string(),
                 "-impl-virtual".to_string(),
                 "-pkg-sources".to_string(),
                 format!(
                     "{}:{}",
                     impl_virtual.package_name,
-                    impl_virtual.package_path.display()
+                    dunce::simplified(&impl_virtual.package_path).display()
                 ),
             ]);
         }
@@ -315,14 +334,20 @@ impl<'a> BuildCommonConfig<'a> {
         // emit link-core must not include it. The specific builders decide whether
         // to add this flag; this common helper is only used by check/build-package.
         if let Some(ws) = &self.workspace_root {
-            args.extend(["-workspace-path".to_string(), ws.display().to_string()]);
+            args.extend([
+                "-workspace-path".to_string(),
+                dunce::simplified(ws).display().to_string(),
+            ]);
         }
     }
 
     /// Emit -patch-file
     pub(crate) fn add_patch_file_moonc(&self, args: &mut Vec<String>) {
         if let Some(patch) = &self.patch_file {
-            args.extend(["-patch-file".to_string(), patch.display().to_string()]);
+            args.extend([
+                "-patch-file".to_string(),
+                dunce::simplified(patch).display().to_string(),
+            ]);
         }
     }
 

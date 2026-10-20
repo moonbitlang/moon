@@ -279,34 +279,7 @@ fn check_paths(
     false
 }
 
-fn watch_path_starts_with(path: &Path, base: &Path) -> bool {
-    use std::path::{Component, Prefix};
-
-    // notify preserves the watched root's spelling, while artifact roots are
-    // verbatim on Windows. Compare disk/UNC prefixes uniformly without changing
-    // paths used for I/O or canonicalizing events for already removed files.
-    let mut components = path.components();
-    base.components()
-        .all(|base| match (components.next(), base) {
-            (Some(Component::Prefix(path)), Component::Prefix(base)) => {
-                match (path.kind(), base.kind()) {
-                    (
-                        Prefix::Disk(path) | Prefix::VerbatimDisk(path),
-                        Prefix::Disk(base) | Prefix::VerbatimDisk(base),
-                    ) => path == base,
-                    (
-                        Prefix::UNC(path_server, path_share)
-                        | Prefix::VerbatimUNC(path_server, path_share),
-                        Prefix::UNC(base_server, base_share)
-                        | Prefix::VerbatimUNC(base_server, base_share),
-                    ) => path_server == base_server && path_share == base_share,
-                    (path, base) => path == base,
-                }
-            }
-            (Some(path), base) => path == base,
-            (None, _) => false,
-        })
-}
+use moonutil::path::starts_with_equivalent_prefix as watch_path_starts_with;
 
 fn path_matches(paths: &HashSet<PathBuf>, path: &Path) -> bool {
     if paths.contains(path) {

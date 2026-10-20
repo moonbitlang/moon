@@ -45,10 +45,10 @@ impl<'a> CmdlineAbstraction for Mooninfo<'a> {
         args.push("-format=text".into());
 
         // 2. input mi path (positional)
-        args.push(self.mi_in.display().to_string());
+        args.push(dunce::simplified(&self.mi_in).display().to_string());
 
         // 3. output as single -o=<path>
-        args.push(format!("-o={}", self.out.display()));
+        args.push(format!("-o={}", dunce::simplified(&self.out).display()));
 
         // 4. optional -no-alias
         if self.no_alias {

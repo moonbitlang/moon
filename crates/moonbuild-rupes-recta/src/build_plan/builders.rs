@@ -1933,7 +1933,12 @@ fn resolve_prebuild_command(
 }
 
 fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
-    match path.relative_to(cwd) {
+    // Preserve matching canonical roots: a long child may keep its prefix when
+    // its short cwd can be simplified. Only reconcile spellings on mismatch.
+    match path
+        .relative_to(cwd)
+        .or_else(|_| dunce::simplified(path).relative_to(dunce::simplified(cwd)))
+    {
         Ok(relative_path) => {
             let normalized = relative_path.normalize();
             if normalized.as_str().is_empty() {
@@ -1942,7 +1947,7 @@ fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
                 format!("./{normalized}")
             }
         }
-        Err(_) => path.display().to_string(),
+        Err(_) => dunce::simplified(path).display().to_string(),
     }
 }
 
@@ -2054,6 +2059,61 @@ mod tests {
                 Path::new("/module/src/lib/../assets/input.txt")
             ),
             "./src/assets/input.txt"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prebuild_command_path_handles_windows_prefix_spellings() {
+        for cwd in [r"C:\project", r"\\?\C:\project"] {
+            for path in [r"C:\project\input.txt", r"\\?\C:\project\input.txt"] {
+                assert_eq!(
+                    prebuild_command_path(Path::new(cwd), Path::new(path)),
+                    "./input.txt",
+                    "cwd={cwd}, path={path}"
+                );
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prebuild_command_path_preserves_matching_roots_when_only_one_path_simplifies() {
+        let cwd = Path::new(r"\\?\C:\project");
+        let path = cwd.join("segment\\".repeat(40)).join("input.txt");
+        assert_ne!(dunce::simplified(cwd), cwd);
+        assert_eq!(dunce::simplified(&path), path);
+        assert_eq!(
+            prebuild_command_path(cwd, &path),
+            format!("./{}input.txt", "segment/".repeat(40))
+        );
+        // Reverse the direction: the cwd is long, but the target is short.
+        assert_eq!(
+            prebuild_command_path(path.parent().unwrap(), &cwd.join("output.txt")),
+            format!("./{}output.txt", "../".repeat(40))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prebuild_command_path_keeps_safe_absolute_fallbacks() {
+        let path = Path::new(r"\\?\C:\project")
+            .join("segment\\".repeat(40))
+            .join("input.txt");
+        // The short ordinary cwd cannot be reconciled by removing the long
+        // path's required prefix. Fall back to the original usable spelling.
+        assert_eq!(
+            prebuild_command_path(Path::new(r"C:\project"), &path),
+            path.display().to_string()
+        );
+        assert_eq!(
+            prebuild_command_path(Path::new(r"C:\project"), Path::new(r"\\?\D:\input.txt")),
+            r"D:\input.txt"
+        );
+        let unc = Path::new(r"\\?\UNC\server\share\project");
+        assert_eq!(
+            prebuild_command_path(unc, &unc.join("input.txt")),
+            "./input.txt"
         );
     }
 

@@ -266,13 +266,17 @@ fn format_moon_mod_dsl(
 ) -> anyhow::Result<()> {
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_mod.to_string_lossy().into_owned(),
+            dunce::simplified(moon_mod).to_string_lossy().into_owned(),
             "--new".into(),
-            target_moon_mod.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_mod)
+                .to_string_lossy()
+                .into_owned(),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -289,11 +293,15 @@ fn format_moon_mod_dsl(
         );
     } else {
         let fmt_cmd = vec![
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            moon_mod.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonfmt)
+                .to_string_lossy()
+                .into_owned(),
+            dunce::simplified(moon_mod).to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
-            target_moon_mod.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_mod)
+                .to_string_lossy()
+                .into_owned(),
         ];
 
         add_format_action(
@@ -324,13 +332,19 @@ fn format_moon_mod_json_migrate(
 
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_mod_json.to_string_lossy().into_owned(),
+            dunce::simplified(moon_mod_json)
+                .to_string_lossy()
+                .into_owned(),
             "--new".into(),
-            target_moon_mod.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_mod)
+                .to_string_lossy()
+                .into_owned(),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -347,13 +361,17 @@ fn format_moon_mod_json_migrate(
         );
     } else {
         let migrate_cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "migrate-manifest".into(),
             "--old".into(),
-            moon_mod_json.to_string_lossy().into_owned(),
+            dunce::simplified(moon_mod_json)
+                .to_string_lossy()
+                .into_owned(),
             "--dest".into(),
-            moon_mod.to_string_lossy().into_owned(),
+            dunce::simplified(moon_mod).to_string_lossy().into_owned(),
         ];
         add_format_action(
             execution,
@@ -446,16 +464,18 @@ fn format_node(
     file: &Path,
     out_file: &Path,
 ) -> anyhow::Result<()> {
-    let out_file = out_file.to_string_lossy().into_owned();
+    let output_arg = dunce::simplified(out_file).to_string_lossy().into_owned();
     let cmd: Vec<String> = if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            file.to_string_lossy().into_owned(),
+            dunce::simplified(file).to_string_lossy().into_owned(),
             "--new".into(),
-            out_file.clone(),
+            output_arg.clone(),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -467,11 +487,13 @@ fn format_node(
         cmd
     } else {
         let mut cmd = vec![
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            file.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonfmt)
+                .to_string_lossy()
+                .into_owned(),
+            dunce::simplified(file).to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
-            out_file.clone(),
+            output_arg.clone(),
         ];
         cmd.extend_from_slice(&cfg.extra_args);
         cmd
@@ -497,13 +519,17 @@ fn format_moon_work_dsl(
 ) -> anyhow::Result<()> {
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "format-workspace".into(),
             "--old".into(),
-            moon_work.to_string_lossy().into_owned(),
+            dunce::simplified(moon_work).to_string_lossy().into_owned(),
             "--new".into(),
-            target_moon_work.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_work)
+                .to_string_lossy()
+                .into_owned(),
             "--check".into(),
         ];
         if cfg.warn_only {
@@ -522,14 +548,18 @@ fn format_moon_work_dsl(
         );
     } else {
         let fmt_cmd: Vec<String> = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "format-workspace".into(),
             "--old".into(),
-            moon_work.to_string_lossy().into_owned(),
+            dunce::simplified(moon_work).to_string_lossy().into_owned(),
             "--write".into(),
             "--new".into(),
-            target_moon_work.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_work)
+                .to_string_lossy()
+                .into_owned(),
         ];
 
         add_format_action(
@@ -615,13 +645,17 @@ fn format_moon_pkg_dsl(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_pkg.to_string_lossy().into_owned(),
+            dunce::simplified(moon_pkg).to_string_lossy().into_owned(),
             "--new".into(),
-            target_moon_pkg.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_pkg)
+                .to_string_lossy()
+                .into_owned(),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -640,11 +674,15 @@ fn format_moon_pkg_dsl(
         // Format moon.pkg - use -w to write back to source and -o to target
         // This is consistent with how .mbt files are formatted
         let fmt_cmd: Vec<String> = vec![
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            moon_pkg.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonfmt)
+                .to_string_lossy()
+                .into_owned(),
+            dunce::simplified(moon_pkg).to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
-            target_moon_pkg.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_pkg)
+                .to_string_lossy()
+                .into_owned(),
         ];
 
         add_format_action(
@@ -687,13 +725,19 @@ fn format_moon_pkg_json_migrate(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_pkg_json.to_string_lossy().into_owned(),
+            dunce::simplified(moon_pkg_json)
+                .to_string_lossy()
+                .into_owned(),
             "--new".into(),
-            target_moon_pkg.to_string_lossy().into_owned(),
+            dunce::simplified(target_moon_pkg)
+                .to_string_lossy()
+                .into_owned(),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -710,13 +754,17 @@ fn format_moon_pkg_json_migrate(
         );
     } else {
         let migrate_cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            dunce::simplified(&BINARIES.moonbuild)
+                .to_string_lossy()
+                .into_owned(),
             "tool".into(),
             "migrate-manifest".into(),
             "--old".into(),
-            moon_pkg_json.to_string_lossy().into_owned(),
+            dunce::simplified(moon_pkg_json)
+                .to_string_lossy()
+                .into_owned(),
             "--dest".into(),
-            moon_pkg.to_string_lossy().into_owned(),
+            dunce::simplified(moon_pkg).to_string_lossy().into_owned(),
         ];
         add_format_action(
             execution,

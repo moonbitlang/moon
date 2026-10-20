@@ -66,7 +66,7 @@ impl<'a> MoondocCommand<'a> {
 impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
     fn to_args(&self, args: &mut Vec<String>) {
         // Source directory (positional argument, first)
-        args.push(self.source_dir.display().to_string());
+        args.push(dunce::simplified(&self.source_dir).display().to_string());
 
         // FIXME: moondoc normalizes its path options as ordinary Windows paths,
         // corrupting verbatim prefixes. Use the compatible spelling until it
@@ -78,7 +78,7 @@ impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
         // Standard library path
         if let Some(std_path) = &self.std_path {
             args.push("-std-path".to_string());
-            args.push(std_path.display().to_string());
+            args.push(dunce::simplified(std_path).display().to_string());
         }
 
         // Packages metadata file

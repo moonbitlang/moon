@@ -392,7 +392,13 @@ impl TargetLayout {
         }
 
         let package = pkg_list.all_packages(false).find_map(|(_, package)| {
-            (reported.parent()? == package.root_path).then_some(package)
+            // Compiler paths and canonical roots may spell drive/UNC prefixes
+            // differently. Containment in both directions requires the same
+            // directory, without shortening paths used for I/O.
+            let reported_root = reported.parent()?;
+            (moonutil::path::starts_with_equivalent_prefix(reported_root, &package.root_path)
+                && moonutil::path::starts_with_equivalent_prefix(&package.root_path, reported_root))
+            .then_some(package)
         })?;
         Some(self.package_dir(&package.fqn, backend).join(filename))
     }
@@ -1405,6 +1411,53 @@ mod tests {
                 "_build/wasm-gc/debug/build/ffi/__generated_driver_for_internal_test.mbt"
             ))
         );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn generated_test_driver_diagnostics_match_windows_path_spellings() {
+        let (mut packages, modules, package) = package_fixture("username/hello", "ffi");
+        let layout = layout(TargetLayoutMode::Mono {
+            main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+        });
+        let filename = "__generated_driver_for_internal_test.mbt";
+        let long_root = PathBuf::from(r"\\?\C:\project").join("segment\\".repeat(40));
+
+        for (root, reported_root) in [
+            (
+                PathBuf::from(r"\\?\C:\project\ffi"),
+                PathBuf::from(r"C:\project\ffi"),
+            ),
+            (
+                PathBuf::from(r"C:\project\ffi"),
+                PathBuf::from(r"\\?\C:\project\ffi"),
+            ),
+            (
+                PathBuf::from(r"\\?\UNC\server\share\ffi"),
+                PathBuf::from(r"\\server\share\ffi"),
+            ),
+            (long_root.clone(), long_root),
+        ] {
+            packages.get_package_mut(package).root_path = root;
+            assert_eq!(
+                layout.generated_test_driver_diagnostic_path(
+                    &packages,
+                    &reported_root.join(filename),
+                    TargetBackend::WasmGC,
+                ),
+                Some(PathBuf::from("_build/wasm-gc/debug/build/ffi").join(filename)),
+                "reported root {reported_root:?}, package root {:?}",
+                packages.get_package(package).root_path,
+            );
+            assert_eq!(
+                layout.generated_test_driver_diagnostic_path(
+                    &packages,
+                    &reported_root.join("other-package").join(filename),
+                    TargetBackend::WasmGC,
+                ),
+                None,
+            );
+        }
     }
 
     #[test]

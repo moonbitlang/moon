@@ -31,7 +31,7 @@ impl CmdlineAbstraction for MoonGenerateNodeTestPackageConfig<'_> {
             "tool".to_string(),
             "generate-node-test-package-config".to_string(),
             "--output".to_string(),
-            self.output.display().to_string(),
+            dunce::simplified(&self.output).display().to_string(),
         ]);
     }
 }

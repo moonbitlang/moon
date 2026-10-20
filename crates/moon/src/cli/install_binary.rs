@@ -104,9 +104,11 @@ impl PackageFilter {
     /// Returns true if a discovered package matches this filter.
     fn matches(&self, pkg_root_path: &Path, pkg_path_str: &str) -> bool {
         match (&self.target, self.kind) {
-            (FilterTarget::FileSystem(path), MatchKind::Exact) => pkg_root_path == *path,
+            (FilterTarget::FileSystem(path), MatchKind::Exact) => {
+                dunce::simplified(pkg_root_path) == dunce::simplified(path)
+            }
             (FilterTarget::FileSystem(prefix_path), MatchKind::Prefix) => {
-                pkg_root_path.starts_with(prefix_path)
+                moonutil::path::starts_with_equivalent_prefix(pkg_root_path, prefix_path)
             }
             (FilterTarget::PackagePath(target), MatchKind::Exact) => pkg_path_str == *target,
             (FilterTarget::PackagePath(prefix), MatchKind::Prefix) => {
@@ -1108,6 +1110,15 @@ mod tests {
             &test_path(&["repo", "examples", "native", "cards"]),
             "native/cards"
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_prefix_filter_matches_long_canonical_descendants() {
+        let filter = PackageFilter::filesystem(PathBuf::from(r"C:\repo"), true);
+        let long = PathBuf::from(r"\\?\C:\repo").join("segment\\".repeat(40));
+        assert!(filter.matches(&long, "unused"));
+        assert!(!filter.matches(Path::new(r"\\?\C:\repository\pkg"), "unused"));
     }
 
     #[test]

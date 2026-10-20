@@ -41,7 +41,7 @@ pub(super) fn lower(
     let mut rsp_path = primary_output.as_os_str().to_owned();
     rsp_path.push(".rsp");
     let rsp_path = PathBuf::from(rsp_path);
-    let rsp_path_arg = rsp_path.to_string_lossy();
+    let rsp_path_arg = dunce::simplified(&rsp_path).to_string_lossy();
     let command = moonutil::shlex::join_native(
         [executable.as_str(), "-rsp-file", rsp_path_arg.as_ref()].into_iter(),
     );

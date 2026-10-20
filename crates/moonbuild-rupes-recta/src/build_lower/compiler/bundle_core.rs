@@ -58,12 +58,12 @@ impl<'a> CmdlineAbstraction for MooncBundleCore<'a> {
 
         // Input core files (in order)
         for core_dep in self.core_deps {
-            args.push(core_dep.display().to_string());
+            args.push(dunce::simplified(core_dep).display().to_string());
         }
 
         // Output file
         args.push("-o".to_string());
-        args.push(self.output_path.display().to_string());
+        args.push(dunce::simplified(&self.output_path).display().to_string());
 
         // Extra arguments
         for arg in self.extra_args {

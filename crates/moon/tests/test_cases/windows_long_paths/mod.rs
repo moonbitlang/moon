@@ -152,6 +152,82 @@ fn build_succeeds_with_an_oversized_compiler_command() {
 }
 
 #[test]
+fn check_handles_a_long_source_path_inline() {
+    let dir = TestDir::new_empty();
+    write_file(&dir.join("moon.mod"), "name = \"test/long-source\"\n");
+    let mut package = dir.as_ref().to_path_buf();
+    while windows_path_len(&package) <= LEGACY_PATH_LIMIT + 40 {
+        package.push("long_source_directory");
+    }
+    write_file(&package.join("moon.pkg"), "");
+    write_file(
+        &package.join("source.mbt"),
+        "pub fn answer() -> Int { 42 }\n",
+    );
+    moon_cmd(&dir)
+        .args(["check", "--target", "wasm-gc"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn check_preserves_long_source_paths_in_response_file() {
+    let dir = TestDir::new_empty();
+    let root = dir.as_ref();
+    assert!(windows_path_len(root) < LEGACY_PATH_LIMIT);
+    write_file(
+        &root.join("moon.mod"),
+        "name = \"test/long-source-paths\"\n",
+    );
+    let package_rel = PathBuf::from("segment\\".repeat(40));
+    let package_dir = root.join(&package_rel);
+    write_file(&package_dir.join("moon.pkg"), "");
+    let total_source_path_len = (0..160)
+        .map(|index| {
+            let source = package_dir.join(format!("source_{index:04}.mbt"));
+            assert!(windows_path_len(&source) > LEGACY_PATH_LIMIT);
+            write_file(&source, "");
+            windows_path_len(&source) + 1
+        })
+        .sum::<usize>();
+    assert!(total_source_path_len > COMMAND_LINE_LIMIT);
+
+    let result = moon_cmd(&dir)
+        .args(["check", "--target", "wasm-gc", "--sort-input"])
+        .assert();
+    let response_path = dir
+        .join("_build/wasm-gc/debug/check")
+        .join(&package_rel)
+        .join("segment.mi.rsp");
+    let response = std::fs::read_to_string(&response_path).unwrap_or_else(|error| {
+        panic!(
+            "failed to read {response_path:?}: {error}; compiler output: {:?}",
+            result.get_output()
+        )
+    });
+    // Mask only variable roots and the repeated package name. In particular,
+    // preserve verbatim prefixes and backslashes in the actual on-disk content.
+    let toolchain = toolchain_root_for_tests();
+    // Use the filesystem's spelling, as discovery does, rather than the
+    // possibly differently cased or separated path supplied by TEMP.
+    let canonical_root = std::fs::canonicalize(root).unwrap();
+    let package = package_rel.to_str().unwrap().trim_end_matches('\\');
+    let response = response
+        .replace(
+            dunce::simplified(&canonical_root).to_str().unwrap(),
+            "$ROOT",
+        )
+        .replace(
+            dunce::simplified(&toolchain).to_str().unwrap(),
+            "$TOOLCHAIN",
+        )
+        .replace(package, "$PACKAGE")
+        .replace(&package.replace('\\', "/"), "$PACKAGE");
+    expect_file!["check_long_sources.rsp.snap"].assert_eq(&response);
+    result.success();
+}
+
+#[test]
 fn fmt_handles_its_long_format_directory() {
     let case = LongPathCase::new();
     moon_cmd(&case.dir).arg("fmt").assert().success();

@@ -16,27 +16,35 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::Path;
+
 use super::{ARKind, ArchiverConfig, CC, CompilerPaths, moonbitrun_object, tcc};
 
 fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
     match cc.ar_kind {
         ARKind::MsvcLib => {
             buf.push("/nologo".to_string());
-            buf.push(format!("/Out:{dest}"));
+            buf.push(format!(
+                "/Out:{}",
+                dunce::simplified(Path::new(dest)).display()
+            ));
         }
         ARKind::AppleLibtool => {
             buf.push("-static".to_string());
             buf.push("-o".to_string());
-            buf.push(dest.to_string());
+            buf.push(dunce::simplified(Path::new(dest)).display().to_string());
         }
         ARKind::GnuAr | ARKind::LlvmAr => {
             buf.push("-r".to_string());
             buf.push("-c".to_string());
             buf.push("-s".to_string());
-            buf.push(dest.to_string());
+            buf.push(dunce::simplified(Path::new(dest)).display().to_string());
         }
         ARKind::TccAr => {
-            tcc::add_archiver_flags(buf, dest);
+            tcc::add_archiver_flags(
+                buf,
+                &dunce::simplified(Path::new(dest)).display().to_string(),
+            );
         }
     }
 }
@@ -53,7 +61,7 @@ fn add_archiver_moonbitrun(
         config.native_allocator,
         &paths.lib_path,
     ) {
-        buf.push(object);
+        buf.push(dunce::simplified(Path::new(&object)).display().to_string());
     }
 }
 
@@ -71,7 +79,11 @@ where
 
     add_archiver_flags(&cc, &mut buf, dest);
     add_archiver_moonbitrun(&cc, &mut buf, &config, paths);
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(src.iter().map(|s| {
+        dunce::simplified(Path::new(s.as_ref()))
+            .display()
+            .to_string()
+    }));
 
     buf
 }

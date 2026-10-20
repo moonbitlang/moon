@@ -116,7 +116,7 @@ fn gen_package_json(
     if pkg.is_mbtx_single_file() {
         for path in &pkg.source_files {
             files.insert(
-                path.to_owned(),
+                dunce::simplified(path).to_owned(),
                 CompileCondition {
                     backend: TargetBackend::all().to_vec(),
                     optlevel: OptLevel::all().to_vec(),
@@ -128,19 +128,21 @@ fn gen_package_json(
             file_metadatas(&pkg.raw, pkg.source_files.iter().map(|x| x.as_path()))
         {
             match test_kind {
-                crate::cond_comp::FileTestKind::NoTest => files.insert(path.to_owned(), cond),
+                crate::cond_comp::FileTestKind::NoTest => {
+                    files.insert(dunce::simplified(path).to_owned(), cond)
+                }
                 crate::cond_comp::FileTestKind::Whitebox => {
-                    wbtest_files.insert(path.to_owned(), cond)
+                    wbtest_files.insert(dunce::simplified(path).to_owned(), cond)
                 }
                 crate::cond_comp::FileTestKind::Blackbox => {
-                    test_files.insert(path.to_owned(), cond)
+                    test_files.insert(dunce::simplified(path).to_owned(), cond)
                 }
             };
         }
     }
     for path in &pkg.mbtp_files {
         files.insert(
-            path.to_owned(),
+            dunce::simplified(path).to_owned(),
             CompileCondition {
                 backend: TargetBackend::all().to_vec(),
                 optlevel: OptLevel::all().to_vec(),
@@ -150,10 +152,9 @@ fn gen_package_json(
     let mbt_md_files = pkg
         .mbt_md_files
         .iter()
-        .cloned()
         .map(|x| {
             (
-                x,
+                dunce::simplified(x).to_owned(),
                 CompileCondition {
                     backend: TargetBackend::all().to_vec(),
                     optlevel: OptLevel::all().to_vec(),
@@ -215,7 +216,9 @@ fn gen_package_json(
     PackageJSON {
         is_main: pkg.raw.is_main,
         is_third_party: !is_in_workspace,
-        root_path: pkg.root_path.to_string_lossy().into_owned(),
+        root_path: dunce::simplified(&pkg.root_path)
+            .to_string_lossy()
+            .into_owned(),
         root: pkg.fqn.module().name().to_string(),
         rel: pkg.fqn.package().to_string(),
         files,
@@ -300,10 +303,7 @@ fn edge_to_alias_json(
     |(_this, dep, edge)| AliasJSON {
         path: ctx.pkg_dirs.get_package(dep.package).fqn.to_string(),
         alias: edge.short_alias.to_string(),
-        fspath: ctx
-            .pkg_dirs
-            .get_package(dep.package)
-            .root_path
+        fspath: dunce::simplified(&ctx.pkg_dirs.get_package(dep.package).root_path)
             .to_string_lossy()
             .into_owned(),
     }

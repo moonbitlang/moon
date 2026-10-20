@@ -173,7 +173,7 @@ dev_build(
             prepare_synced_project(&preparation_config, synced_modules, &user_log).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
-        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+        let root = std::fs::canonicalize(temp_dir.path()).unwrap();
         assert_eq!(
             watch_paths.watched_paths,
             vec![root.join("assets/a.txt"), root.join("assets/b.txt"),]
