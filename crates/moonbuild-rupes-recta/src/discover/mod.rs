@@ -615,6 +615,49 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn native_stub_paths_use_windows_separators_and_stay_in_the_package() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(dir.path().join("moon.mod"), "name = \"test/native-paths\"\n")?;
+        std::fs::write(dir.path().join("stub.c"), "int stub(void) { return 42; }\n")?;
+        let root = std::fs::canonicalize(dir.path())?;
+        let module = moonutil::manifest::read_module_desc_file_in_dir(&root)?;
+        let source = ModuleSource::from_local_module(&module, &root)?;
+        let (module_graph, id) = ModuleDependencyGraph::only_one_module(source, module);
+        let mut dirs = DirSyncResult::default();
+        dirs.insert(id, root.clone());
+        let log = UserLog::new(log::LevelFilter::Error);
+
+        for (stub, valid) in [
+            ("native/../stub.c", true),
+            (r"native\..\stub.c", true),
+            (r"native\nested/../../stub.c", true),
+            ("../outside.c", false),
+            (r"..\outside.c", false),
+            (r"native\../../outside.c", false),
+        ] {
+            std::fs::write(
+                root.join("moon.pkg"),
+                format!("options(\"native-stub\": [{stub:?}])\n"),
+            )?;
+            let result = discover_packages(&module_graph, &dirs, &log);
+            if valid {
+                let discovered = result?;
+                let package = discovered.get_package_id_by_name("test/native-paths").unwrap();
+                let files = &discovered.get_package(package).c_stub_files;
+                assert_eq!(files, &[root.join("stub.c")], "{stub:?}");
+                assert!(files[0].is_file(), "{stub:?}");
+            } else {
+                assert!(
+                    matches!(result, Err(super::DiscoverError::InvalidStubPath { .. })),
+                    "{stub:?}: {result:?}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn discovery_warns_for_packages_named_like_major_version_modules() -> anyhow::Result<()> {
         for (name, version, warning_count) in [
             ("a/b", "0.1.0", 2),
