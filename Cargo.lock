@@ -2050,7 +2050,6 @@ dependencies = [
  "regex",
  "relative-path",
  "serde",
- "sha2",
  "shlex",
  "slotmap",
  "tempfile",

@@ -43,8 +43,6 @@ mod unix_graph {
                 *s = s.replace(".dylib", ".so");
                 if uses_host_archiver {
                     crate::util::normalize_host_archiver(s);
-                } else {
-                    crate::util::normalize_archive_fingerprints(s);
                 }
                 normalize_macos_sdk_path(s);
                 normalize_fake_toolchain_path(s, dir);

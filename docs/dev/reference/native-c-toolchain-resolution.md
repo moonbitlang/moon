@@ -470,12 +470,12 @@ Moon. GNU- and LLVM-style `ar rcs`, and TCC's equivalent archive mode, update an
 and can retain members that are no longer present in the input list. Moon classifies this behavior
 from the resolved `ARKind`, not from the host OS.
 
-For update-style archivers, runtime and package C-stub static archive output paths include a
-fingerprint of the ordered logical member identities. The fingerprint is computed once during
-build planning. File contents are not hashed; they remain ordinary n2 inputs, so content changes
-update the same archive while membership changes select a fresh path. Apple libtool and MSVC-style
-librarians keep stable output paths because they recreate the archive from the complete input
-list. Build lowering invokes the resolved librarian directly in both cases.
+Archive output paths are stable for every archiver. Build lowering invokes Apple libtool and
+MSVC-style librarians directly because they recreate the archive from the complete input list.
+For update-style archivers, lowering runs the resolved archiver through
+`moon tool archive --output <archive> -- <archiver argv>`, which deletes the previous archive
+before the archiver runs. The archive is then always created from exactly the current members.
+Because Moon is that action's executable, lowering records the archiver as an explicit input.
 
 ### Generate macOS debug symbols
 

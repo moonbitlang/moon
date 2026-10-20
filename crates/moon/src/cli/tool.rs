@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+pub(crate) mod archive;
 pub(crate) mod demangle;
 pub(crate) mod embed;
 pub(crate) mod exec;
@@ -24,6 +25,7 @@ pub(crate) mod format_workspace;
 pub(crate) mod generate_node_test_package_config;
 pub(crate) mod migrate_manifest;
 
+use archive::*;
 use demangle::*;
 use embed::*;
 use format_and_diff::*;
@@ -40,6 +42,8 @@ pub(crate) struct ToolSubcommand {
 
 #[derive(Debug, clap::Parser)]
 pub(crate) enum ToolSubcommands {
+    #[clap(hide = true)]
+    Archive(ArchiveSubcommand),
     FormatAndDiff(FormatAndDiffSubcommand),
     FormatWorkspace(FormatWorkspaceSubcommand),
     #[clap(hide = true)]
@@ -56,6 +60,7 @@ pub(crate) fn run_tool(
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     match cmd.subcommand {
+        ToolSubcommands::Archive(subcmd) => run_archive(cli, subcmd),
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
         ToolSubcommands::FormatWorkspace(subcmd) => run_format_workspace(subcmd, user_log),
         ToolSubcommands::GenerateNodeTestPackageConfig(subcmd) => {
