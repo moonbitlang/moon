@@ -111,8 +111,8 @@ pub fn greet5() -> String {
 /// ```mbt check
 /// test {
 /// let buf = @buffer.new(size_hint=100)
-/// buf.write_string("Tes")
-/// buf.write_char('t')
+/// buf.write_string_utf16le("Tes")
+/// buf.write_char_utf16le('t')
 /// inspect(buf.contents(), content="")
 /// inspect(buf.contents())
 /// 

@@ -49,7 +49,7 @@ fn test_query_in_project() {
         output,
         expect![[r#"
             package "username/proj" // username/proj@0.1.0
-            pub fn fib(Int) -> Int64
+            pub fn fib(Int32) -> Int64
         "#]],
     );
 }

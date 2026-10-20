@@ -39,10 +39,10 @@ fn test_bench_driver_build_js() {
 #[cfg(not(windows))]
 fn test_bench_driver_build_native() {
     let dir = TestDir::new("moon_bench");
-    check_build_only_stderr(get_stderr(
-        &dir,
-        ["bench", "--build-only", "--target", "native"],
-    ));
+    moon_cmd(&dir)
+        .args(["bench", "--build-only", "--target", "native"])
+        .assert()
+        .success();
 }
 
 #[test]
