@@ -30,7 +30,9 @@ pub struct PathNormalizer {
     current_program_alias: Option<(String, String)>,
     show_toolchain_root: bool,
     toolchain_root: String,
+    simplified_toolchain_root: String,
     moon_home: String,
+    simplified_moon_home: String,
 }
 
 impl PathNormalizer {
@@ -79,7 +81,9 @@ impl PathNormalizer {
             current_program_alias,
             show_toolchain_root,
             toolchain_root: Self::display_path(&toolchain_root),
+            simplified_toolchain_root: Self::display_path(dunce::simplified(&toolchain_root)),
             moon_home: Self::display_path(&moon_home),
+            simplified_moon_home: Self::display_path(dunce::simplified(&moon_home)),
         }
     }
 
@@ -212,10 +216,17 @@ impl PathNormalizer {
     }
 
     fn mask_roots(&self, mut value: String) -> String {
-        if self.show_toolchain_root {
-            value = Self::replace_path_prefix(value, &self.toolchain_root, "$MOON_TOOLCHAIN_ROOT");
-        }
+        let toolchain_alias = if self.show_toolchain_root {
+            "$MOON_TOOLCHAIN_ROOT"
+        } else {
+            "$MOON_HOME"
+        };
+        // Graph inputs retain the canonical prefix; tool arguments may use the
+        // simplified spelling. Mask both, matching the canonical spelling first.
+        value = Self::replace_path_prefix(value, &self.toolchain_root, toolchain_alias);
+        value = Self::replace_path_prefix(value, &self.simplified_toolchain_root, toolchain_alias);
         value = Self::replace_path_prefix(value, &self.moon_home, "$MOON_HOME");
+        value = Self::replace_path_prefix(value, &self.simplified_moon_home, "$MOON_HOME");
 
         // Executable suffixes under the toolchain bin directory are host
         // details; native build outputs such as `main.exe` remain unchanged.
@@ -277,6 +288,48 @@ impl PathNormalizer {
 mod tests {
     use super::PathNormalizer;
     use std::path::{Path, PathBuf};
+
+    #[cfg(windows)]
+    #[test]
+    fn masks_canonical_and_simplified_toolchain_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(home.path()).unwrap();
+        let normalizer = PathNormalizer::from_paths(
+            Path::new("."),
+            root.clone(),
+            dunce::simplified(&root).to_path_buf(),
+            vec![],
+            None,
+        );
+        for root in [root.as_path(), dunce::simplified(&root)] {
+            let input = root.join("lib/core/abort.core");
+            assert_eq!(
+                normalizer.normalize_path(&input.to_string_lossy()),
+                "$MOON_HOME/lib/core/abort.core"
+            );
+            assert_eq!(
+                normalizer.normalize_command_arg(&input.to_string_lossy()),
+                "$MOON_HOME/lib/core/abort.core"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn masks_separate_canonical_and_simplified_home_paths() {
+        let normalizer = normalizer(r"\\?\C:\toolchain", r"\\?\C:\home", vec![], None);
+        for (root, alias) in [
+            (r"\\?\C:\toolchain", "$MOON_TOOLCHAIN_ROOT"),
+            (r"C:\toolchain", "$MOON_TOOLCHAIN_ROOT"),
+            (r"\\?\C:\home", "$MOON_HOME"),
+            (r"C:\home", "$MOON_HOME"),
+        ] {
+            let path = format!(r"{root}\cache\entry");
+            let expected = format!("{alias}/cache/entry");
+            assert_eq!(normalizer.normalize_path(&path), expected);
+            assert_eq!(normalizer.normalize_command_arg(&path), expected);
+        }
+    }
 
     #[cfg(windows)]
     #[test]

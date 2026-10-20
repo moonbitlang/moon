@@ -122,9 +122,9 @@ impl<'a> super::LoweringContext<'a> {
 
         // The generated driver embeds moon's private test-driver protocol, so
         // cached driver artifacts must invalidate when the moon binary changes.
+        // Common command lowering records the executable as an input.
         let mut extra_inputs = files_vec;
         extra_inputs.extend_from_slice(&info.doctest_files);
-        extra_inputs.push(BINARIES.moonbuild.clone());
         if let Some(patch_file) = &info.patch_file {
             extra_inputs.push(patch_file.clone());
         }
@@ -373,7 +373,7 @@ impl<'a> super::LoweringContext<'a> {
 
         let commandline = if let Some(embed_args) = info.command.strip_prefix(":embed ") {
             let mut commandline = vec![
-                BINARIES.moonbuild.display().to_string(),
+                dunce::simplified(&BINARIES.moonbuild).display().to_string(),
                 "tool".to_string(),
                 "embed".to_string(),
             ];
@@ -384,7 +384,7 @@ impl<'a> super::LoweringContext<'a> {
             commandline
         } else {
             vec![
-                BINARIES.moonbuild.display().to_string(),
+                dunce::simplified(&BINARIES.moonbuild).display().to_string(),
                 "tool".to_string(),
                 "exec".to_string(),
                 "--shell".to_string(),

@@ -84,26 +84,34 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
         // Output files
         args.extend([
             "--output-driver".to_string(),
-            self.output_driver.display().to_string(),
+            dunce::simplified(&self.output_driver).display().to_string(),
         ]);
         args.extend([
             "--output-metadata".to_string(),
-            self.output_metadata.display().to_string(),
+            dunce::simplified(&self.output_metadata)
+                .display()
+                .to_string(),
         ]);
 
         // Input files
         for file in self.files {
-            args.push(file.display().to_string());
+            args.push(dunce::simplified(file).display().to_string());
         }
 
         // Doctest-only files
         for file in self.doctest_only_files {
-            args.extend(["--doctest-only".to_string(), file.display().to_string()]);
+            args.extend([
+                "--doctest-only".to_string(),
+                dunce::simplified(file).display().to_string(),
+            ]);
         }
 
         // Patch file
         if let Some(patch_file) = &self.patch_file {
-            args.extend(["--patch-file".to_string(), patch_file.display().to_string()]);
+            args.extend([
+                "--patch-file".to_string(),
+                dunce::simplified(patch_file).display().to_string(),
+            ]);
         }
 
         // Configuration

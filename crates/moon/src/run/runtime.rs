@@ -82,14 +82,14 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
 ) -> Command {
     match mode {
         ExecutionMode::MoonRun => {
-            let mut cmd = Command::new(&*moonutil::toolchain::BINARIES.moonrun);
+            let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
             }
             if let Some(policy) = moonrun_policy {
                 cmd.arg("--policy");
-                cmd.arg(policy);
+                cmd.arg(dunce::simplified(policy));
             }
             if let Some(source_dir) = policy_source_dir {
                 debug_assert!(moonrun_policy.is_some());
@@ -110,7 +110,7 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
             cmd
         }
         ExecutionMode::Native => {
-            let mut cmd = Command::new(mbt_executable);
+            let mut cmd = Command::new(dunce::simplified(mbt_executable));
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }

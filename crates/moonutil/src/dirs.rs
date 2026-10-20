@@ -152,7 +152,7 @@ impl SourceTargetDirs {
             .map_err(PackageDirsError::from)?;
         // Resolve directory aliases, but retain the invoked filename: its suffix
         // determines the source format even when the file itself is a symlink.
-        let input_path = dunce::canonicalize(
+        let input_path = std::fs::canonicalize(
             input_path
                 .parent()
                 .context("file path must have a parent directory")?,
@@ -965,7 +965,9 @@ version = "0.1.0"
 
         assert_eq!(
             dirs.input_path,
-            canonical(project.path()).join("alias.mbtx")
+            std::fs::canonicalize(project.path())
+                .unwrap()
+                .join("alias.mbtx")
         );
         assert_eq!(dirs.file_path, canonical(&source));
         assert_eq!(

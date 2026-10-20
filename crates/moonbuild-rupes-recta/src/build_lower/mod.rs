@@ -746,7 +746,7 @@ mod tests {
         assert_eq!(
             moonc_inputs
                 .iter()
-                .filter(|input| input.as_path() == BINARIES.moonc.as_path())
+                .filter(|input| input.as_path() == dunce::simplified(&BINARIES.moonc))
                 .count(),
             1
         );

@@ -50,9 +50,16 @@ impl ProveDriver<'_> {
     /// The leading arguments that invoke the prover.
     fn program_args(self) -> Vec<String> {
         match self {
-            Self::Standalone(moonc_prove) => vec![moonc_prove.to_string_lossy().into_owned()],
+            Self::Standalone(moonc_prove) => vec![
+                dunce::simplified(moonc_prove)
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
             Self::MooncSubcommand(moonc) => {
-                vec![moonc.to_string_lossy().into_owned(), "prove".to_string()]
+                vec![
+                    dunce::simplified(moonc).to_string_lossy().into_owned(),
+                    "prove".to_string(),
+                ]
             }
         }
     }
@@ -90,22 +97,25 @@ impl<'a> MooncProve<'a> {
         self.defaults.add_warning_options(args);
         args.extend([
             "-whyml-output-path".to_string(),
-            self.whyml_out.display().to_string(),
+            dunce::simplified(&self.whyml_out).display().to_string(),
         ]);
         if let Some(proof_report_out) = &self.proof_report_out {
             args.extend([
                 "-proof-report-output-path".to_string(),
-                proof_report_out.display().to_string(),
+                dunce::simplified(proof_report_out).display().to_string(),
             ]);
         }
         if let Some(why3_config) = &self.why3_config {
             args.extend([
                 "-why3-config".to_string(),
-                why3_config.display().to_string(),
+                dunce::simplified(why3_config).display().to_string(),
             ]);
         }
         for loadpath in &self.why3_loadpaths {
-            args.extend(["-why3-loadpath".to_string(), loadpath.display().to_string()]);
+            args.extend([
+                "-why3-loadpath".to_string(),
+                dunce::simplified(loadpath).display().to_string(),
+            ]);
         }
         for dep_proof in &self.dep_proofs {
             args.extend(["-dep-proof".to_string(), dep_proof.to_arg()]);

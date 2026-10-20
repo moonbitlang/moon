@@ -80,7 +80,10 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         self.defaults.add_warning_options(args);
 
         // Output
-        args.extend(["-o".to_string(), self.core_out.display().to_string()]);
+        args.extend([
+            "-o".to_string(),
+            dunce::simplified(&self.core_out).display().to_string(),
+        ]);
 
         // Package configuration
         self.required.add_package_config(args);

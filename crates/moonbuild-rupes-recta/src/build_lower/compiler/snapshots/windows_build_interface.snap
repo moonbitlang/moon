@@ -1,14 +1,14 @@
 inline:
-moonc build-interface \\?\C:\Users\user'quote\project\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\pkg.mbti -o \\?\C:\Users\user'quote\project\_build\abort.mi -pkg test/paths -pkg-sources test/paths:C:\Users\user'quote\project -virtual -error-format json
+moonc build-interface \\?\C:\Users\user'quote\project\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\pkg.mbti -o C:\Users\user'quote\project\_build\abort.mi -pkg test/paths -pkg-sources test/paths:C:\Users\user'quote\project -virtual -error-format json
 
 response command:
-moonc -rsp-file \\?\C:\Users\user'quote\project\_build\abort.mi.rsp
+moonc -rsp-file C:\Users\user'quote\project\_build\abort.mi.rsp
 
 response arguments:
 build-interface
 \\?\C:\Users\user'quote\project\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\segment\pkg.mbti
 -o
-\\?\C:\Users\user'quote\project\_build\abort.mi
+C:\Users\user'quote\project\_build\abort.mi
 -pkg
 test/paths
 -pkg-sources

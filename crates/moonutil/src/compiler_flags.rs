@@ -909,13 +909,16 @@ fn add_linker_output_flags(
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
                 // /F(executable)
-                buf.push(format!("/Fe{dest}"));
+                buf.push(format!(
+                    "/Fe{}",
+                    dunce::simplified(Path::new(dest)).display()
+                ));
             }
             _ => panic!("Linker only supports shared lib, executable and static lib"),
         }
     } else if cc.is_gcc_like() {
         buf.push("-o".to_string());
-        buf.push(dest.to_string());
+        buf.push(dunce::simplified(Path::new(dest)).display().to_string());
     }
 }
 
@@ -927,7 +930,10 @@ fn add_linker_library_paths<P: AsRef<Path>>(
 ) {
     if cc.is_tcc() {
         add_tcc_macos_sdk_library_path(buf);
-        buf.push(format!("-L{lpath}"));
+        buf.push(format!(
+            "-L{}",
+            dunce::simplified(Path::new(lpath)).display()
+        ));
     }
     if cc.is_gcc_like()
         && let Some(dyn_lib_path) = config.link_shared_runtime.as_ref()
@@ -970,7 +976,7 @@ fn add_linker_moonbitrun(
     if let Some(object) =
         moonbitrun_object(cc, config.link_moonbitrun, config.native_allocator, lpath)
     {
-        buf.push(object);
+        buf.push(dunce::simplified(Path::new(&object)).display().to_string());
     }
 }
 
@@ -1023,7 +1029,7 @@ fn add_libbacktrace(cc: &CC, buf: &mut Vec<String>, lib_path: &str) {
     }
     let libbacktrace_path = Path::new(lib_path).join("libbacktrace.a");
     if libbacktrace_path.exists() {
-        buf.push(libbacktrace_path.display().to_string());
+        buf.push(dunce::simplified(&libbacktrace_path).display().to_string());
     }
 }
 
@@ -1035,27 +1041,45 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
     if cc.uses_msvc_cli() {
         match config.output_ty {
             OutputType::Object => {
-                buf.push(format!("/Fo{dest}"));
+                buf.push(format!(
+                    "/Fo{}",
+                    dunce::simplified(Path::new(dest)).display()
+                ));
             }
             OutputType::SharedLib | OutputType::Executable => {
-                buf.push(format!("/Fe{dest}"));
+                buf.push(format!(
+                    "/Fe{}",
+                    dunce::simplified(Path::new(dest)).display()
+                ));
             }
         }
     } else if cc.is_gcc_like() {
         buf.push("-o".to_string());
-        buf.push(dest.to_string());
+        buf.push(dunce::simplified(Path::new(dest)).display().to_string());
     }
 }
 
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
     if cc.uses_msvc_cli() {
-        buf.push(format!("/I{ipath}"));
+        buf.push(format!(
+            "/I{}",
+            dunce::simplified(Path::new(ipath)).display()
+        ));
     } else if cc.is_tcc() {
-        buf.push(format!("-I{ipath}"));
+        buf.push(format!(
+            "-I{}",
+            dunce::simplified(Path::new(ipath)).display()
+        ));
         add_tcc_macos_sdk_library_path(buf);
-        buf.push(format!("-L{lpath}"));
+        buf.push(format!(
+            "-L{}",
+            dunce::simplified(Path::new(lpath)).display()
+        ));
     } else if cc.is_gcc_like() {
-        buf.push(format!("-I{ipath}"));
+        buf.push(format!(
+            "-I{}",
+            dunce::simplified(Path::new(ipath)).display()
+        ));
     }
 }
 
@@ -1206,7 +1230,7 @@ fn add_cc_moonbitrun(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, paths: &
         config.native_allocator.unwrap_or_default(),
         &paths.lib_path,
     ) {
-        buf.push(object);
+        buf.push(dunce::simplified(Path::new(&object)).display().to_string());
     }
 }
 
@@ -2642,6 +2666,7 @@ mod tests {
         assert!(!command.iter().any(|arg| arg == short_source));
         assert!(command.contains(&long_source));
         assert!(command.contains(&format!("/Fo{output_dir}\\")));
+        assert!(command.contains(&r"/FeC:\build\main.exe".to_owned()));
     }
 
     #[test]

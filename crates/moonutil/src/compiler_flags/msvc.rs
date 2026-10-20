@@ -215,9 +215,7 @@ pub(super) fn add_linker_runtime<P: AsRef<Path>>(
     if cc.uses_msvc_cli() {
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push(
-                dyn_lib_path
-                    .as_ref()
-                    .join("libruntime.lib")
+                dunce::simplified(&dyn_lib_path.as_ref().join("libruntime.lib"))
                     .display()
                     .to_string(),
             );

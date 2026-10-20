@@ -238,7 +238,9 @@ pub(crate) fn discover_packages_for_mod(
     let source_dir_name = m.source.clone().unwrap_or_default();
     let scan_source_root = {
         let p = dir.join(&source_dir_name);
-        dunce::canonicalize(p).map_err(|e| DiscoverError::CantReadModulePackages {
+        // Preserve the canonical prefix before descendants grow beyond MAX_PATH.
+        // Complete file arguments are simplified only at the consumer boundary.
+        std::fs::canonicalize(p).map_err(|e| DiscoverError::CantReadModulePackages {
             module: module_source.clone(),
             inner: e.into(),
         })?

@@ -82,7 +82,10 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
 
         // Output
         if !self.defaults.no_mi {
-            args.extend(["-o".to_string(), self.mi_out.display().to_string()]);
+            args.extend([
+                "-o".to_string(),
+                dunce::simplified(&self.mi_out).display().to_string(),
+            ]);
         }
 
         // Package configuration

@@ -212,17 +212,20 @@ fn resolve_moon_home() -> PathBuf {
 }
 
 fn resolve_toolchain_root() -> PathBuf {
-    if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
-        return PathBuf::from(path);
-    }
-
-    if let Ok(current_exe) = std::env::current_exe()
+    let root = if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
+        PathBuf::from(path)
+    } else if let Ok(current_exe) = std::env::current_exe()
         && let Some(root) = infer_toolchain_root_from_exe(&current_exe)
     {
-        return root;
-    }
+        root
+    } else {
+        MOON_HOME.root().to_path_buf()
+    };
 
-    MOON_HOME.root().to_path_buf()
+    // Descendants become external tool arguments, so retain the canonical
+    // prefix until each complete argument is simplified. Leave missing or invalid
+    // installations to be diagnosed by the command that needs the toolchain.
+    std::fs::canonicalize(&root).unwrap_or(root)
 }
 
 pub fn toolchain_root() -> PathBuf {

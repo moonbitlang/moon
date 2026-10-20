@@ -901,7 +901,9 @@ mod tests {
         )
         .expect("the default directive should select the toolchain proof prelude");
 
-        let proof_prelude = moonutil::toolchain::prelude_proof().display().to_string();
+        let proof_prelude = dunce::simplified(&moonutil::toolchain::prelude_proof())
+            .display()
+            .to_string();
         assert!(output.execution_plan.action_ids().any(|id| {
             let args = output.execution_plan.action(id).command().args();
             args.windows(2)

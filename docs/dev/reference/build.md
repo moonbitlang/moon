@@ -50,18 +50,30 @@ so standalone commands do not install dependencies beside the source file.
 ### Windows artifact paths
 
 Moon creates the selected build root and resolves it with
-`std::fs::canonicalize` before assigning artifact locations. On Windows this
-establishes an extended-length path (`\\?\`) even when the root is short.
-`TargetLayout` preserves that prefix while appending backend, package, and file
-components. The generated files do not need to exist, and their paths have the
-same spelling in clean and incremental builds.
+`std::fs::canonicalize` before assigning artifact locations. Source discovery
+also preserves the canonical prefix on its existing scan root, and standalone
+inputs preserve it on their parent directory. Existing toolchain roots are
+canonicalized before appending toolchain paths. On Windows this establishes
+extended-length syntax (`\\?\`) even when the root is short.
 
-Do not simplify an intermediate artifact directory: a consumer can append
-enough components to exceed the ordinary Windows path limit. Complete file
-arguments may be simplified for consumer compatibility when safe. The execution
-graph uses the original artifact paths for both registration and lookup; display
-normalization accepts both spellings. Source discovery and toolchain-root
-canonicalization are independent of this artifact-root invariant.
+Keep that prefix throughout internal path construction: a short root can grow
+into a long descendant, including an output that does not exist yet. Internal
+artifact paths retain the same identity in clean and incremental builds.
+
+At tool boundaries, apply `dunce::simplified` to the complete path argument.
+This removes an unnecessary prefix when safe and preserves long or otherwise
+verbatim-only paths. Use the same rule for compiler sources, dependencies,
+outputs, runtime entrypoints, native inputs/outputs, and documentation files.
+Compiler arguments are rendered before selecting inline or response-file
+transport; the response-file argument follows the same rule. No filesystem
+canonicalization or absolute-path resolution takes place in argument builders.
+Opaque user flags are passed through without trying to interpret embedded paths.
+
+Keep intermediate native output directories prefixed when the driver will
+append object filenames. Other consumer directory options retain their explicit
+boundary handling; support for long descendants ultimately requires support in
+the receiving tool. The execution graph registers and looks up original paths,
+while user package selectors compare compatible spellings.
 
 Watcher containment checks treat ordinary and verbatim drive/UNC prefixes as
 equivalent. This comparison does not alter artifact paths or require event paths

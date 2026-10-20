@@ -190,7 +190,7 @@ pub(crate) fn filter_pkg_by_dir(
     all_local_packages
         .find(|&pkg_id| {
             let pkg = discovered.pkg_dirs.get_package(pkg_id);
-            pkg.root_path == dir
+            dunce::simplified(&pkg.root_path) == dunce::simplified(dir)
         })
         .ok_or_else(|| {
             report_package_not_found(
@@ -570,7 +570,7 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
         })
         .find(|&pkg_id| {
             let pkg = resolved.pkg_dirs.get_package(pkg_id);
-            pkg.root_path == dir
+            dunce::simplified(&pkg.root_path) == dunce::simplified(dir)
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
@@ -752,7 +752,7 @@ pkgtype(kind: "executable")
         assert_eq!(selected.len(), 1);
         assert_eq!(
             discovered.pkg_dirs.get_package(selected[0]).root_path,
-            external_pkg
+            std::fs::canonicalize(external_pkg).unwrap()
         );
     }
 }
