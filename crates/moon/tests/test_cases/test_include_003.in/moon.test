@@ -2,7 +2,7 @@
   
   Running moon check ...
   Warning: `include` and `exclude` in `[WORK_DIR]/moon.mod` are deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.
-  Finished. moon: ran 6 tasks, now up to date
+  Finished. moon: ran 4 tasks, now up to date
   Check passed
   moon.mod
   src/lib/hello.mbt

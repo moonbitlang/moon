@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-09-18.
+// Snapshot generated from `moonc check -warn-help` on 2026-10-20.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -470,6 +470,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "unknown_constr_pat_on_exhaustive_type",
         description: "using `TypeName::..` pattern on a type not marked with `#non_exhaustive`",
         id: 93,
+    },
+    WarningEntry {
+        mnemonic: "unknown_intrinsic",
+        description: "`#intrinsic` attribute names an unknown intrinsic.",
+        id: 94,
     },
 ];
 

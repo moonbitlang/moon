@@ -5,7 +5,7 @@ pub fn hello() -> String {
 test "basic" {
   let buf = @buffer.new()
   let n = 123
-  buf.write_string(n.to_string())
+  buf.write_string_utf16le(n.to_string())
   inspect(buf)
 }
 
@@ -13,7 +13,7 @@ test "indent" {
   let _ = {
     let buf = @buffer.new()
     let s = "haha"
-    buf.write_string(s)
+    buf.write_string_utf16le(s)
     inspect(buf)
   }
   ()
@@ -22,17 +22,17 @@ test "indent" {
 test "auto_reset" {
   let buf = @buffer.new()
   let s = "haha"
-  buf.write_string(s)
+  buf.write_string_utf16le(s)
   inspect(buf)
   let s = "123"
-  buf.write_string(s)
+  buf.write_string_utf16le(s)
   inspect(buf, content="123")
 }
 
 test "multiline-string" {
   let buf = @buffer.new()
   let s = "1\n2\n3\n"
-  buf.write_string(s)
+  buf.write_string_utf16le(s)
   inspect(buf)
 }
 
@@ -41,7 +41,7 @@ test "multiline-string-2" {
   let s =
     #|abc
     #|def
-  buf.write_string(s)
+  buf.write_string_utf16le(s)
   inspect(buf,
     content=
       #|bcd
@@ -52,7 +52,7 @@ test "multiline-string-2" {
 
 test "not-empty-expect" {
   let buf = @buffer.new()
-  buf.write_string("123")
+  buf.write_string_utf16le("123")
   inspect(buf, content="1")
 }
 
@@ -129,13 +129,13 @@ test {
 
 test {
   let buf = @buffer.new()
-  buf.write_string("just\ntest")
+  buf.write_string_utf16le("just\ntest")
   inspect(buf)
 }
 
 test "hello" {
   let buf = @buffer.new()
-  buf.write_string("just\ntest")
+  buf.write_string_utf16le("just\ntest")
   inspect(buf, content="")
 }
 

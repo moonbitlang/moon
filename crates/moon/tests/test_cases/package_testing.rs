@@ -484,13 +484,13 @@ fn test_render_diagnostic_in_patch_file() {
                │       
                │       ```moonbit
                │       ///|
-               │       let p : Int = {
+               │       let p : Int32 = {
                │         side_effect.val = 42
                │         42
                │       }
                │       
                │       ///|
-               │       let side_effect : Ref[Int] = { val: 0 }
+               │       let side_effect : Ref[Int32] = { val: 0 }
                │       
                │       ///|
                │       test {
@@ -519,7 +519,7 @@ fn test_render_diagnostic_in_patch_file() {
                │         ```moonbit
                │       
                │         ///|
-               │         let side_effect : Ref[Int] = { val: 0 }
+               │         let side_effect : Ref[Int32] = { val: 0 }
                │       
                │         ///|
                │         fn init {
@@ -534,7 +534,7 @@ fn test_render_diagnostic_in_patch_file() {
                │       ```moonbit
                │       
                │       ///|
-               │       let p_unused : Int = 42
+               │       let p_unused : Int32 = 42
                │       
                │       ///|
                │       test {

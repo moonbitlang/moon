@@ -2,7 +2,7 @@
   
   Running moon check ...
   Warning: `exclude` in `[WORK_DIR]/moon.mod` is deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.
-  Finished. moon: ran 6 tasks, now up to date
+  Finished. moon: ran 4 tasks, now up to date
   Check passed
   README.md
   moon.mod
@@ -10,10 +10,8 @@
   src/lib/hello.mbt
   src/lib/hello_test.mbt
   src/lib/moon.pkg
-  src/lib/pkg.generated.mbti
   src/main/main.mbt
   src/main/moon.pkg
-  src/main/pkg.generated.mbti
   test/c/c.md
   Package to [WORK_DIR]/_build/publish/username-hello-0.1.0.zip
   
