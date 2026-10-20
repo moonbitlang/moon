@@ -1,6 +1,4 @@
-:embed --text -i "C:\Users\user'quote\project $input with spaces\src\assets 'quoted'\input.txt" -o "C:\Users\user'quote\project $input with spaces\src\app\generated.mbt"
-tool "--assets=C:\Users\user'quote\project $input with spaces\src\assets" "$pkg_dir_extra/keep" "./first.txt ./second.txt" "./generated.mbt" $unknown
-"C:\Users\user'quote\project $input with spaces\bin\tool.exe" "C:\Users\user'quote\project $input with spaces\src\input.txt" "C:\Users\user'quote\project $input with spaces\src\app"
-:embed --text -i "\\?\C:\Users\user'quote\project $input with spaces\$LONG\src\assets 'quoted'\input.txt" -o "\\?\C:\Users\user'quote\project $input with spaces\$LONG\src\app\generated.mbt"
-tool "--assets=\\?\C:\Users\user'quote\project $input with spaces\$LONG\src\assets" "$pkg_dir_extra/keep" "./first.txt ./second.txt" "./generated.mbt" $unknown
-"\\?\C:\Users\user'quote\project $input with spaces\$LONG\bin\tool.exe" "\\?\C:\Users\user'quote\project $input with spaces\$LONG\src\input.txt" "\\?\C:\Users\user'quote\project $input with spaces\$LONG\src\app"
+:embed --text -i "C:\Users\user'quote\project $input with spaces\src\app/../assets 'quoted'/./input.txt" -o "C:\Users\user'quote\project $input with spaces\src\app/../app/generated.mbt"
+tool --assets="C:\Users\user'quote\project $input with spaces/src/app/../assets" "C:\Users\user'quote\project $input with spaces\src\app_extra/keep" "./first.txt ./second.txt" "./generated.mbt" $unknown
+"C:\Users\user'quote\project $input with spaces/bin/tool.exe" "C:\Users\user'quote\project $input with spaces\src\app\..\assets/../input.txt" "C:\Users\user'quote\project $input with spaces\src\app/"
+tool "-IC:\Users\user'quote\project $input with spaces\src\app/include" "/IC:\Users\user'quote\project $input with spaces\src\app/include" --mapping="C:\Users\user'quote\project $input with spaces\src\app/include,public" "C:\Users\user'quote\project $input with spaces\src\app/./generated.mbt"

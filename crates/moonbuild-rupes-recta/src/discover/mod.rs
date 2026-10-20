@@ -657,7 +657,7 @@ mod tests {
                 let discovered = result?;
                 let package = discovered
                     .get_package_id_by_name("test/native-paths")
-                    .unwrap();
+                    .expect("test package was discovered");
                 let files = &discovered.get_package(package).c_stub_files;
                 assert_eq!(files, &[root.join("stub.c")], "{stub:?}");
                 assert!(files[0].is_file(), "{stub:?}");

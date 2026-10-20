@@ -208,7 +208,7 @@ so adding or removing an unhandled file updates the diagnostic.
 
 ## Path Resolution
 
-- `input`/`output` are resolved relative to the package directory for build dependency tracking. On Windows, native path joining resolves `.` and `..` and converts separators when extending the canonical verbatim package root. The files need not exist yet.
+- Declared `input`/`output` paths are constructed from the canonical package root before entering the build plan, using the same representation as discovered package files. Dot components are resolved lexically across the complete path, including parent components that leave and reenter the package. Absolute declarations are external path inputs; on Windows their drive/UNC prefixes are converted to that same representation. Files need not exist yet, and later dependency matching does not need to reconcile different spellings of a generated file.
 - `$input`/`$output` expand to paths relative to the prebuild command working directory. These substituted paths are lexically normalized and start with `./`, for example `./src/lib/input.txt`.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
 
@@ -230,11 +230,12 @@ Only the `command` field is substituted. The following placeholders are recogniz
 
 Substitution semantics:
 
-- Pure textual replacement over the `command` string; unknown tokens are left as-is.
-- `$input` and `$output` expand to `./...` paths relative to the prebuild command working directory; no quotes are added by substitution.
-- Directory placeholders expand to absolute, platform-native strings.
+- Substitution is textual on every platform. Moon does not interpret command options or embedded script languages, so attached forms such as `-I$pkg_dir/include` retain their meaning.
+- `$input` and `$output` expand to `./...` paths relative to the prebuild command working directory; substitution does not add quotes.
+- Directory placeholders expand to absolute, platform-native strings. On Windows, short directory paths use their ordinary spelling without an unnecessary `\\?\` prefix, allowing commands to append their own separators and `..` components.
   - If paths may contain spaces or shell-special characters, quote or escape them in the command template.
 - For array `input`/`output`, items are joined by a single space in insertion order.
+- Replacement text is not scanned for further placeholders. Unknown tokens are left as-is.
 
 ## :embed Shorthand
 
@@ -316,7 +317,8 @@ output remains literal tool output, without compiler filtering or rewriting.
 ## Compatibility and Caveats
 
 - `:embed` detection is prefix-based and requires the literal prefix `:embed `.
-- Substitution does not add quoting. Quote `$input`, `$output`, or directories inside `command` if paths may contain spaces.
+- Substitution does not add quoting. Quote or escape placeholders inside `command` as required by the receiving program or shell.
+- Ordinary Windows paths are supported. Long paths in user-defined prebuild commands are not guaranteed: use a shallow checkout, or tools with suitable long-path support. Enabling the Windows long-path setting alone does not make every generator compatible. This limitation does not change Moon's responsibility to construct valid declared dependency paths and build artifact paths.
 - Using arrays for `output` expands to a space-separated list; ensure your tool’s CLI accepts the intended arity.
 - On Unix-like platforms, custom prebuild command strings are executed through `sh -c`.
 - On Windows, custom prebuild command strings are passed directly to `CreateProcessW`.
