@@ -272,6 +272,76 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn destroy_retries_cancellation_before_a_blocking_syscall() {
+        use std::os::fd::AsRawFd;
+
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let workers = InstanceWorkers::new(keys.clone());
+        let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+        let (reader, writer) = std::io::pipe().unwrap();
+        let (entered, ready) = mpsc::channel();
+        let (finished, completion) = mpsc::channel();
+        workers.spawn(
+            job(11, job_key),
+            move |job| {
+                let ret = thread_pool::with_cancellable_region(|| {
+                    // Consume the first cancellation after the cancellation
+                    // check but before read, making the lost wakeup deterministic.
+                    let mut mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                    let mut previous = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                    unsafe {
+                        libc::sigemptyset(&mut mask);
+                        libc::sigaddset(&mut mask, libc::SIGUSR2);
+                        assert_eq!(
+                            libc::pthread_sigmask(libc::SIG_BLOCK, &mask, &mut previous),
+                            0
+                        );
+                    }
+                    entered.send(()).unwrap();
+                    let mut signal = 0;
+                    assert_eq!(unsafe { libc::sigwait(&mask, &mut signal) }, 0);
+                    assert_eq!(signal, libc::SIGUSR2);
+                    assert_eq!(
+                        unsafe {
+                            libc::pthread_sigmask(
+                                libc::SIG_SETMASK,
+                                &previous,
+                                std::ptr::null_mut(),
+                            )
+                        },
+                        0
+                    );
+                    let mut byte = 0u8;
+                    let ret = unsafe { libc::read(reader.as_raw_fd(), (&raw mut byte).cast(), 1) };
+                    Ok(if ret < 0 {
+                        -i64::from(std::io::Error::last_os_error().raw_os_error().unwrap())
+                    } else {
+                        ret as i64
+                    })
+                })
+                .unwrap();
+                job.job.set_ret(ret);
+                let _ = finished.send(());
+            },
+            WorkerCompletionDestination::Test(Box::new(|_| {})),
+        );
+        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Closing the writer rescues a broken implementation without hanging
+        // the test process. A successful cancellation must return EINTR, not EOF.
+        let rescue = std::thread::spawn(move || {
+            let _ = completion.recv_timeout(Duration::from_secs(5));
+            drop(writer);
+        });
+        assert!(workers.destroy().is_empty());
+        rescue.join().unwrap();
+        assert_eq!(
+            workers.try_recv_completed().unwrap().job.ret(),
+            -i64::from(libc::EINTR)
+        );
+    }
+
     #[test]
     fn worker_handles_are_scoped_to_one_instance() {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
