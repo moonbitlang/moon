@@ -99,6 +99,8 @@ struct WorkerState {
     #[cfg(unix)]
     running: bool,
     terminating: bool,
+    #[cfg(unix)]
+    exited: bool,
 }
 
 // A Worker chooses exactly one completion destination at spawn and retains it
@@ -121,6 +123,24 @@ struct WorkerShared {
     cancellation: WorkerCancellation,
     state: Mutex<WorkerState>,
     wakeup: Condvar,
+}
+
+// Publish after Job execution and completion delivery, including unwinding.
+// Registration and exit use the same lock so neither can miss the other.
+#[cfg(unix)]
+struct WorkerExit<'a>(&'a WorkerShared);
+
+#[cfg(unix)]
+impl Drop for WorkerExit<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.exited = true;
+        self.0.cancellation.notify_teardown();
+    }
 }
 
 // MoonBit owns the pool scheduler. Each Worker owns one long-lived
@@ -177,6 +197,8 @@ impl Worker {
                 #[cfg(unix)]
                 running: false,
                 terminating: false,
+                #[cfg(unix)]
+                exited: false,
             }),
             wakeup: Condvar::new(),
         });
@@ -184,6 +206,8 @@ impl Worker {
         #[cfg(unix)]
         let parent_signal_mask = crate::async_sys::signal::block_worker_thread_signals().ok();
         let thread = std::thread::spawn(move || {
+            #[cfg(unix)]
+            let _exit = WorkerExit(&worker_shared);
             #[cfg(unix)]
             {
                 let _ = crate::async_sys::signal::unblock_worker_cancellation_signal();
@@ -425,9 +449,26 @@ impl Worker {
         }
     }
 
-    /// Whether the thread has exited, including completion delivery.
-    pub(crate) fn is_finished(&self) -> bool {
-        self.thread.is_finished()
+    #[cfg(unix)]
+    pub(crate) fn bind_teardown(&self, source: &Arc<ThreadPoolCompletionNotifier>, id: i32) {
+        let state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        self.shared.cancellation.bind_teardown(source, id);
+        if state.exited {
+            self.shared.cancellation.notify_teardown();
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn has_exited(&self) -> bool {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .exited
     }
 
     pub(crate) fn join(self) -> Option<WorkerJob> {

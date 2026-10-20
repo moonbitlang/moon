@@ -221,14 +221,21 @@ submission and stopping are separate operations: stopping returns any queued
 Job and permanently closes admission, while the active Job can finish. A later
 submission returns the unaccepted Job to its caller. Joining consumes the Rust
 Worker handle, so there is no usable handle without an owned thread. Pool
-completion publication is independent of guest consumption. After a Run stops
-executing its guest event loop, Run teardown closes admission on all Workers
-and owns cancellation retries until their threads exit. Each round cancels all
-unfinished Workers before waiting, so a signal arriving before a blocking
-syscall does not leave teardown stuck in join. Queued Jobs remain owned until
-all Workers are joined. The native-shaped `free_worker` retains its termination
-wakeup and join behavior without a cancellation retry loop. Neither teardown
-nor `free_worker` can forcibly stop noncooperative computation.
+completion publication is independent of guest consumption. On Unix, Run
+teardown closes admission on all Workers, binds a private notification source,
+and fans out cancellation before waiting. Cancellation signal handlers publish
+retry notifications to this source; a scope guard publishes Worker exit after
+Job execution and completion delivery, including unwinding. Exit registration
+and publication share the Worker state lock so an already exited Worker cannot
+lose its notification. Teardown blocks on the source without a timer and only
+retries or joins the Worker identified by an event. Notifications reuse the
+signal-safe coalesced retry slots, independent of guest consumption and custom
+completion pipes. The source is reserved before spawning the first Worker and
+before consuming its guest Job, so teardown does not allocate file descriptors.
+Queued Jobs remain owned until all Workers are joined. Windows retains the
+cancel-all then join behavior. The native-shaped `free_worker` retains its
+termination wakeup and join behavior without a cancellation retry loop. Neither
+teardown nor `free_worker` can forcibly stop noncooperative computation.
 
 ## How to Build and Test
 

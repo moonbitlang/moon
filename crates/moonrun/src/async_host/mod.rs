@@ -3536,6 +3536,7 @@ impl AsyncHost {
         #[cfg(windows)]
         let completion_port = self.thread_pool_completion_target()?;
 
+        self.workers.prepare_spawn()?;
         let first_job = self.take_worker_job(completion_id, job_key)?;
         #[cfg(unix)]
         let completion = WorkerCompletionDestination::Pool(completion_notifier);
@@ -3555,6 +3556,7 @@ impl AsyncHost {
         let notifier = crate::async_sys::internal::event_loop::PipeCompletionNotifier::new(
             self.acquire_resource(writer_handle)?,
         )?;
+        self.workers.prepare_spawn()?;
         let first_job =
             self.take_worker_job(WorkerCompletionId::from_abi(completion_id), job_key)?;
         Ok(self.spawn_worker_thread(first_job, WorkerCompletionDestination::Pipe(notifier)))
@@ -6639,6 +6641,7 @@ mod tests {
         let key = key_from_handle(job);
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
+        host.workers.prepare_spawn().unwrap();
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(42), key)
                 .unwrap(),
@@ -6901,6 +6904,7 @@ mod tests {
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
         let (finish_tx, finish_rx) = std::sync::mpsc::channel();
         let (completed_tx, completed_rx) = std::sync::mpsc::channel();
+        host.workers.prepare_spawn().unwrap();
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(42), key)
                 .unwrap(),
@@ -6955,6 +6959,7 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+        host.workers.prepare_spawn().unwrap();
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),
@@ -7002,6 +7007,7 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+        host.workers.prepare_spawn().unwrap();
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),

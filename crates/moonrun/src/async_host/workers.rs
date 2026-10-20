@@ -22,9 +22,16 @@
 //! owns the corresponding host Worker registry, completed Jobs, and teardown;
 //! `async_sys` retains only the native-shaped single-Worker primitives.
 
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
+#[cfg(unix)]
+use std::{
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
+    sync::Arc,
+};
 
 use super::{AsyncHostError, AsyncHostResult, HandleKey};
 use crate::async_sys::internal::event_loop::thread_pool::{
@@ -36,6 +43,8 @@ pub(super) struct InstanceWorkers {
     pub(super) workers: RefCell<Handles<Worker>>,
     completed_sender: mpsc::Sender<CompletedJob>,
     completed: mpsc::Receiver<CompletedJob>,
+    #[cfg(unix)]
+    teardown: RefCell<Option<(Arc<ThreadPoolCompletionNotifier>, OwnedFd)>>,
 }
 
 impl std::fmt::Debug for InstanceWorkers {
@@ -53,7 +62,21 @@ impl InstanceWorkers {
             workers: RefCell::new(Handles::new(keys, HostResourceKind::Worker)),
             completed_sender,
             completed,
+            #[cfg(unix)]
+            teardown: RefCell::new(None),
         }
+    }
+
+    // Reserve the notification source before consuming a guest Job or starting
+    // any Worker. Teardown must not need file descriptors when resources are exhausted.
+    pub(super) fn prepare_spawn(&self) -> AsyncHostResult<()> {
+        #[cfg(unix)]
+        if self.teardown.borrow().is_none() {
+            let (source, reader) = ThreadPoolCompletionNotifier::new()?;
+            *self.teardown.borrow_mut() =
+                Some((Arc::new(source), unsafe { OwnedFd::from_raw_fd(reader) }));
+        }
+        Ok(())
     }
 
     pub(super) fn spawn(
@@ -112,23 +135,59 @@ impl InstanceWorkers {
 
         let mut pending: Vec<_> = workers.iter().filter_map(Worker::request_stop).collect();
 
-        // The guest no longer polls, so teardown owns cancellation retries.
-        // Fan out each round before waiting: a signal may arrive before a
-        // blocking syscall, and one slow Worker must not delay the others.
-        loop {
-            let mut unfinished = false;
+        #[cfg(unix)]
+        if !workers.is_empty() {
+            let teardown = self.teardown.borrow();
+            let (source, reader) = teardown.as_ref().expect("reserve before spawning Workers");
+            for (id, worker) in workers.iter().enumerate() {
+                worker.bind_teardown(source, i32::try_from(id).expect("too many Workers"));
+            }
+            // Fan out cancellation before waiting for any individual Worker.
             for worker in &workers {
-                if !worker.is_finished() {
-                    unfinished = true;
-                    let _ = thread_pool::cancel_worker(worker);
+                let _ = thread_pool::cancel_worker(worker);
+            }
+            let mut remaining = workers.len();
+            let mut workers: Vec<_> = workers.into_iter().map(Some).collect();
+            while remaining != 0 {
+                let mut poll = libc::pollfd {
+                    fd: reader.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let result = unsafe { libc::poll(&mut poll, 1, -1) };
+                if result < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
+                {
+                    continue;
+                }
+                assert!(
+                    result > 0 && poll.revents & libc::POLLIN != 0,
+                    "Worker teardown notification failed"
+                );
+                let mut events = [0; 256];
+                let count = source
+                    .fetch(&mut events)
+                    .expect("read owned teardown source");
+                for event in events[..count].chunks_exact(4) {
+                    let id = i32::from_ne_bytes(event.try_into().unwrap()) as usize;
+                    let Some(worker) = workers[id].as_ref() else {
+                        continue;
+                    };
+                    if worker.has_exited() {
+                        pending.extend(thread_pool::free_worker(workers[id].take().unwrap()));
+                        remaining -= 1;
+                    } else {
+                        let _ = thread_pool::cancel_worker(worker);
+                    }
                 }
             }
-            if !unfinished {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        pending.extend(workers.into_iter().filter_map(thread_pool::free_worker));
+        #[cfg(windows)]
+        {
+            for worker in &workers {
+                let _ = thread_pool::cancel_worker(worker);
+            }
+            pending.extend(workers.into_iter().filter_map(thread_pool::free_worker));
+        }
         pending
     }
 }
@@ -158,6 +217,7 @@ mod tests {
         for destroy_explicitly in [true, false] {
             let keys = Rc::new(RefCell::new(HostKeys::default()));
             let workers = InstanceWorkers::new(keys.clone());
+            workers.prepare_spawn().unwrap();
             let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
             let worker = workers.spawn(
                 job(11, job_key),
@@ -182,6 +242,7 @@ mod tests {
 
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let workers = InstanceWorkers::new(keys.clone());
+        workers.prepare_spawn().unwrap();
         let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
         let (_sender, receiver) = crate::signal_channel();
         let (notifier, notifier_fd): (_, RawFd) =
@@ -236,6 +297,7 @@ mod tests {
 
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let workers = InstanceWorkers::new(keys.clone());
+        workers.prepare_spawn().unwrap();
         let (first_cancelled, wait_for_first) = mpsc::channel();
         let (second_cancelled, wait_for_second) = mpsc::channel();
         let (started, wait_for_start) = mpsc::channel();
@@ -282,6 +344,7 @@ mod tests {
     fn destroy_returns_queued_jobs_without_running_them() {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let workers = InstanceWorkers::new(keys.clone());
+        workers.prepare_spawn().unwrap();
         let active = keys.borrow_mut().insert(HostResourceKind::Job);
         let queued = keys.borrow_mut().insert(HostResourceKind::Job);
         let (started, ready) = mpsc::channel();
@@ -326,76 +389,126 @@ mod tests {
     fn destroy_retries_cancellation_before_a_blocking_syscall() {
         use std::os::fd::AsRawFd;
 
-        let keys = Rc::new(RefCell::new(HostKeys::default()));
-        let workers = InstanceWorkers::new(keys.clone());
-        let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
-        let (reader, writer) = std::io::pipe().unwrap();
-        let (entered, ready) = mpsc::channel();
-        let (finished, completion) = mpsc::channel();
-        workers.spawn(
-            job(11, job_key),
-            move |job| {
-                let ret = thread_pool::with_cancellable_region(|| {
-                    // Consume the first cancellation after the cancellation
-                    // check but before read, making the lost wakeup deterministic.
-                    let mut mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-                    let mut previous = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-                    unsafe {
-                        libc::sigemptyset(&mut mask);
-                        libc::sigaddset(&mut mask, libc::SIGUSR2);
+        for full_source in [false, true] {
+            let keys = Rc::new(RefCell::new(HostKeys::default()));
+            let workers = InstanceWorkers::new(keys.clone());
+            workers.prepare_spawn().unwrap();
+            let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+            let (reader, writer) = std::io::pipe().unwrap();
+            let (entered, ready) = mpsc::channel();
+            let (finished, completion) = mpsc::channel();
+            workers.spawn(
+                job(11, job_key),
+                move |job| {
+                    let ret = thread_pool::with_cancellable_region(|| {
+                        // Consume the first cancellation after the cancellation
+                        // check but before read, making the lost wakeup deterministic.
+                        let mut mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                        let mut previous = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                        unsafe {
+                            libc::sigemptyset(&mut mask);
+                            libc::sigaddset(&mut mask, libc::SIGUSR2);
+                            assert_eq!(
+                                libc::pthread_sigmask(libc::SIG_BLOCK, &mask, &mut previous),
+                                0
+                            );
+                        }
+                        entered.send(()).unwrap();
+                        let mut signal = 0;
+                        assert_eq!(unsafe { libc::sigwait(&mask, &mut signal) }, 0);
+                        assert_eq!(signal, libc::SIGUSR2);
                         assert_eq!(
-                            libc::pthread_sigmask(libc::SIG_BLOCK, &mask, &mut previous),
+                            unsafe {
+                                libc::pthread_sigmask(
+                                    libc::SIG_SETMASK,
+                                    &previous,
+                                    std::ptr::null_mut(),
+                                )
+                            },
                             0
                         );
-                    }
-                    entered.send(()).unwrap();
-                    let mut signal = 0;
-                    assert_eq!(unsafe { libc::sigwait(&mask, &mut signal) }, 0);
-                    assert_eq!(signal, libc::SIGUSR2);
-                    assert_eq!(
-                        unsafe {
-                            libc::pthread_sigmask(
-                                libc::SIG_SETMASK,
-                                &previous,
-                                std::ptr::null_mut(),
-                            )
-                        },
-                        0
-                    );
-                    let mut byte = 0u8;
-                    let ret = unsafe { libc::read(reader.as_raw_fd(), (&raw mut byte).cast(), 1) };
-                    Ok(if ret < 0 {
-                        -i64::from(std::io::Error::last_os_error().raw_os_error().unwrap())
-                    } else {
-                        ret as i64
+                        // Deliver the consumed signal through the real handler before
+                        // read, so teardown must act on its retry notification.
+                        assert_eq!(unsafe { libc::raise(libc::SIGUSR2) }, 0);
+                        let mut byte = 0u8;
+                        let ret =
+                            unsafe { libc::read(reader.as_raw_fd(), (&raw mut byte).cast(), 1) };
+                        Ok(if ret < 0 {
+                            -i64::from(std::io::Error::last_os_error().raw_os_error().unwrap())
+                        } else {
+                            ret as i64
+                        })
                     })
-                })
-                .unwrap();
-                job.job.set_ret(ret);
-                let _ = finished.send(());
-            },
-            WorkerCompletionDestination::Test(Box::new(|_| {})),
-        );
-        ready.recv_timeout(Duration::from_secs(5)).unwrap();
-        // Closing the writer rescues a broken implementation without hanging
-        // the test process. A successful cancellation must return EINTR, not EOF.
-        let rescue = std::thread::spawn(move || {
-            let _ = completion.recv_timeout(Duration::from_secs(5));
-            drop(writer);
-        });
-        assert!(workers.destroy().is_empty());
-        rescue.join().unwrap();
-        assert_eq!(
-            workers.try_recv_completed().unwrap().job.ret(),
-            -i64::from(libc::EINTR)
-        );
+                    .unwrap();
+                    job.job.set_ret(ret);
+                    let _ = finished.send(());
+                },
+                WorkerCompletionDestination::Test(Box::new(|_| {})),
+            );
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            if full_source {
+                workers
+                    .teardown
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .fill_with_completions(0);
+            }
+            // Closing the writer rescues a broken implementation without hanging
+            // the test process. A successful cancellation must return EINTR, not EOF.
+            let rescue = std::thread::spawn(move || {
+                let _ = completion.recv_timeout(Duration::from_secs(5));
+                drop(writer);
+            });
+            assert!(workers.destroy().is_empty());
+            rescue.join().unwrap();
+            assert_eq!(
+                workers.try_recv_completed().unwrap().job.ret(),
+                -i64::from(libc::EINTR)
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destroy_observes_workers_that_exited_before_registration() {
+        for panic in [false, true] {
+            let keys = Rc::new(RefCell::new(HostKeys::default()));
+            let workers = InstanceWorkers::new(keys.clone());
+            workers.prepare_spawn().unwrap();
+            let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+            let (started, ready) = mpsc::channel();
+            let worker = workers.spawn(
+                job(11, job_key),
+                move |_| {
+                    started.send(()).unwrap();
+                    assert!(!panic, "exercise Worker unwinding");
+                },
+                WorkerCompletionDestination::Test(Box::new(|_| {})),
+            );
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            {
+                let handles = workers.workers.borrow();
+                let worker = handles.get(worker).unwrap();
+                worker.request_stop();
+                while !worker.has_exited() {
+                    assert!(std::time::Instant::now() < deadline);
+                    std::thread::yield_now();
+                }
+            }
+            assert!(workers.destroy().is_empty());
+        }
     }
 
     #[test]
     fn worker_handles_are_scoped_to_one_instance() {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let first = InstanceWorkers::new(keys.clone());
+        first.prepare_spawn().unwrap();
         let second = InstanceWorkers::new(keys.clone());
+        second.prepare_spawn().unwrap();
         let first_job = keys.borrow_mut().insert(HostResourceKind::Job);
         let second_job = keys.borrow_mut().insert(HostResourceKind::Job);
         let (first_sender, first_receiver) = mpsc::channel();
