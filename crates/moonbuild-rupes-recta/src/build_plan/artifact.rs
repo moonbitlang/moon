@@ -96,9 +96,20 @@ pub enum ArtifactKey {
         package: PackageId,
         target_kind: TargetKind,
     },
+    /// The native object compiled from generated-C `LinkedCore` output.
+    GeneratedCObject {
+        package: PackageId,
+        target_kind: TargetKind,
+    },
     Executable {
         package: PackageId,
         target_kind: TargetKind,
+    },
+    /// The standalone library a foreign-library package produces for a foreign
+    /// host, realized as a static archive on Native and LLVM. Only those
+    /// backends request it so far; see the FIXME in `UserIntent::append_artifacts`.
+    ForeignLibrary {
+        package: PackageId,
     },
     GeneratedTestDriver {
         package: PackageId,
@@ -137,7 +148,8 @@ impl ArtifactKey {
             Self::VirtualContractMi { package }
             | Self::NodeTestPackageConfig { package }
             | Self::CStubObject { package, .. }
-            | Self::CStubLibrary { package } => Some(*package),
+            | Self::CStubLibrary { package }
+            | Self::ForeignLibrary { package } => Some(*package),
             _ => self.package_target().map(|target| target.package),
         }
     }
@@ -175,6 +187,10 @@ impl ArtifactKey {
                 package,
                 target_kind,
             }
+            | Self::GeneratedCObject {
+                package,
+                target_kind,
+            }
             | Self::Executable {
                 package,
                 target_kind,
@@ -195,6 +211,7 @@ impl ArtifactKey {
             | Self::NodeTestPackageConfig { .. }
             | Self::CStubObject { .. }
             | Self::CStubLibrary { .. }
+            | Self::ForeignLibrary { .. }
             | Self::BundleResult { .. }
             | Self::RuntimeObject { .. }
             | Self::RuntimeLibrary

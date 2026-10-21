@@ -1,0 +1,9 @@
+import {
+  "username/foreign/dep",
+}
+
+pkgtype(kind: "foreign_library")
+
+options(
+  "native-stub": [ "stub.c" ],
+)

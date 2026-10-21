@@ -325,6 +325,17 @@ pub enum BuildPlanNode {
     /// executable artifact directly.
     MakeExecutable(BuildTarget),
 
+    /// Compile generated-C `LinkCore` output into a native object.
+    ///
+    /// This action exists only when the Native backend emits generated C and
+    /// a consumer needs the payload as an object instead of compiling it as
+    /// part of an executable link.
+    CompileGeneratedC(BuildTarget),
+
+    /// Archive a foreign-library package's payload, the C stubs it links, and
+    /// the native runtime into one static library for a foreign host.
+    ArchiveForeignLibrary(PackageId),
+
     /// Generate the macOS dSYM bundle for a linked executable.
     GenerateDsym(BuildTarget),
 
@@ -371,12 +382,14 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::CompileGeneratedC(target)
             | BuildPlanNode::GenerateDsym(target)
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
             | BuildPlanNode::BuildRuntimeObject(_)
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
+            | BuildPlanNode::ArchiveForeignLibrary(_)
             | BuildPlanNode::GenerateNodeTestPackageConfig(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
@@ -441,6 +454,17 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("make executable {}{}", fqn, qualifier(build_target.kind))
+            }
+            BuildPlanNode::CompileGeneratedC(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "compile generated C {}{}",
+                    fqn,
+                    qualifier(build_target.kind)
+                )
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package_id) => {
+                format!("archive foreign library {}", packages.fqn(*package_id))
             }
             BuildPlanNode::GenerateDsym(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -527,6 +551,14 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@MakeExecutable", fqn, t.kind)
+            }
+            BuildPlanNode::CompileGeneratedC(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@CompileGeneratedC", fqn, t.kind)
+            }
+            BuildPlanNode::ArchiveForeignLibrary(pkg) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@ArchiveForeignLibrary", fqn)
             }
             BuildPlanNode::GenerateDsym(t) => {
                 let fqn = packages.fqn(t.package);

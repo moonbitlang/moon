@@ -139,6 +139,12 @@ pub(crate) struct BackendPlan {
     /// The map of build target to the information needed to make it executable
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
 
+    /// The map of build target to the settings for compiling its generated C
+    compile_generated_c_info: HashMap<BuildTarget, CompileGeneratedCInfo>,
+
+    /// The map of foreign-library package to its static archive settings
+    foreign_library_info: HashMap<PackageId, ForeignLibraryInfo>,
+
     /// The resolved dsymutil executable, when the plan generates dSYM bundles.
     dsymutil: Option<PathBuf>,
 
@@ -336,6 +342,14 @@ impl BuildPlan {
         self.backend.c_stubs_info.insert(package, info);
     }
 
+    pub(crate) fn test_insert_foreign_library_info(
+        &mut self,
+        package: PackageId,
+        info: ForeignLibraryInfo,
+    ) {
+        self.backend.foreign_library_info.insert(package, info);
+    }
+
     pub(crate) fn test_insert_make_executable_info(
         &mut self,
         target: BuildTarget,
@@ -468,6 +482,28 @@ pub struct MakeExecutableInfo {
 }
 
 #[derive(Debug)]
+pub struct CompileGeneratedCInfo {
+    /// The effective native toolchain for compiling the generated C
+    pub(crate) effective_native_toolchain: Toolchain,
+    pub(crate) c_debug_info: bool,
+    pub(crate) c_opt_level: CCOptLevel,
+    /// The package's `link.native.cc-flags`
+    pub(crate) c_flags: Vec<String>,
+    /// The allocator the generated C is compiled against.
+    pub(crate) native_allocator: NativeAllocator,
+}
+
+#[derive(Debug)]
+pub struct ForeignLibraryInfo {
+    /// The toolchain whose archiver creates the library.
+    pub(crate) effective_native_toolchain: Toolchain,
+    /// The packages whose C stub objects become members, in link order.
+    pub(crate) c_stub_packages: Vec<PackageId>,
+    /// The allocator that selects the bundled allocator object, if any.
+    pub(crate) native_allocator: NativeAllocator,
+}
+
+#[derive(Debug)]
 pub struct BuildRuntimeInfo {
     /// The effective native toolchain for compiling the runtime library.
     pub(crate) effective_native_toolchain: Toolchain,
@@ -596,7 +632,9 @@ pub(super) fn resolve_native_backend_mode(
         return NativeBackendMode::GeneratedC;
     };
     let needs_c_compiler = requested_artifacts.iter().any(|artifact| {
-        let ArtifactKey::Executable { package, .. } = artifact else {
+        let (ArtifactKey::Executable { package, .. } | ArtifactKey::ForeignLibrary { package }) =
+            artifact
+        else {
             return false;
         };
         resolved

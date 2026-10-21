@@ -363,10 +363,16 @@ impl<'a> LoweringContext<'a> {
             BuildAction::LinkCore {
                 target,
                 info,
-                make_executable_info,
-            } => self.lower_link_core(&action_artifacts, target, info, make_executable_info)?,
+                native_toolchain,
+            } => self.lower_link_core(&action_artifacts, target, info, native_toolchain)?,
             BuildAction::MakeExecutable { target, info } => {
                 self.lower_make_exe(&action_artifacts, target, info)
+            }
+            BuildAction::CompileGeneratedC { target, info } => {
+                self.lower_compile_generated_c(&action_artifacts, target, info)
+            }
+            BuildAction::ArchiveForeignLibrary { info, runtime } => {
+                self.lower_archive_foreign_library(&action_artifacts, info, runtime)
             }
             BuildAction::GenerateDsym { target, dsymutil } => {
                 self.lower_generate_dsym(&action_artifacts, target, dsymutil)
@@ -418,7 +424,9 @@ impl<'a> LoweringContext<'a> {
 
         let observes_toolchain_headers = matches!(
             action,
-            BuildAction::BuildCStub { .. } | BuildAction::BuildRuntimeObject { .. }
+            BuildAction::BuildCStub { .. }
+                | BuildAction::BuildRuntimeObject { .. }
+                | BuildAction::CompileGeneratedC { .. }
         ) || matches!(
             action,
             BuildAction::MakeExecutable { .. }
@@ -522,7 +530,9 @@ impl<'a> LoweringContext<'a> {
                     unreachable!("non-native plans do not contain MakeExecutable actions")
                 }
             },
-            BuildAction::GenerateDsym { .. }
+            BuildAction::CompileGeneratedC { info, .. } => info.c_flags.is_empty(),
+            BuildAction::ArchiveForeignLibrary { .. }
+            | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateNodeTestPackageConfig { .. }
             | BuildAction::GenerateMbti { .. }
@@ -570,6 +580,8 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildCStub { .. }
             | BuildAction::ArchiveOrLinkCStubs { .. }
             | BuildAction::MakeExecutable { .. }
+            | BuildAction::CompileGeneratedC { .. }
+            | BuildAction::ArchiveForeignLibrary { .. }
             | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateNodeTestPackageConfig { .. }

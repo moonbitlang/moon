@@ -76,7 +76,16 @@ impl UserIntent {
                     // Pure virtual package: compile its interface instead of building code
                     out.push(ArtifactKey::VirtualContractMi { package: pkg });
                 } else {
-                    if is_linkable(pkg_info) {
+                    // FIXME: Wasm and JS still request `Executable` for a
+                    // foreign library, which their `LinkCore` provides. Request
+                    // `ForeignLibrary` on every backend, with `LinkCore` as its
+                    // Wasm and JS provider, so a foreign library has one
+                    // artifact identity on all backends.
+                    if is_foreign_library(pkg_info) && target_backend.is_native() {
+                        // Native and LLVM hosts link a foreign library as a
+                        // static archive instead of running an executable.
+                        out.push(ArtifactKey::ForeignLibrary { package: pkg });
+                    } else if is_linkable(pkg_info) {
                         out.push(ArtifactKey::Executable {
                             package: pkg,
                             target_kind: TargetKind::Source,
@@ -246,6 +255,13 @@ impl UserIntent {
             }
         }
     }
+}
+
+/// Whether the package is declared with `pkgtype(kind: "foreign_library")`,
+/// or the legacy `link: true`, without also being a main package.
+#[inline]
+fn is_foreign_library(pkg: &DiscoveredPackage) -> bool {
+    pkg.raw.force_link && !pkg.raw.is_main
 }
 
 #[inline]

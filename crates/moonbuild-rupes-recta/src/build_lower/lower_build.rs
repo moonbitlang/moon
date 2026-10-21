@@ -27,7 +27,7 @@ use moonutil::{
     build_options::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OutputType as CCOutputType,
-        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
+        Toolchain, make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     package::JsFormat,
@@ -46,7 +46,10 @@ use crate::{
             MiDependency, PackageSource, WasmConfig,
         },
     },
-    build_plan::{ArtifactKey, BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
+    build_plan::{
+        ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
+        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
+    },
     discover::DiscoveredPackage,
     model::{BackendConfig, BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
@@ -660,10 +663,10 @@ impl<'a> LoweringContext<'a> {
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &LinkCoreInfo,
-        make_executable_info: Option<&MakeExecutableInfo>,
+        native_toolchain: Option<&Toolchain>,
     ) -> Result<BuildCommand, LoweringError> {
         #[cfg(not(target_os = "windows"))]
-        let _ = make_executable_info;
+        let _ = native_toolchain;
 
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
@@ -738,8 +741,8 @@ impl<'a> LoweringContext<'a> {
             exports: package.exported_functions(self.opt.backend.target_backend()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
-            native_toolchain_is_msvc: make_executable_info
-                .is_some_and(|info| info.effective_native_toolchain.uses_msvc_abi()),
+            native_toolchain_is_msvc: native_toolchain
+                .is_some_and(|toolchain| toolchain.uses_msvc_abi()),
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs
@@ -1032,6 +1035,142 @@ impl<'a> LoweringContext<'a> {
             }
             BackendConfig::Llvm { .. } => self.lower_build_exe_regular(artifacts, target, info),
         }
+    }
+
+    /// Compile a foreign library's generated C into its payload object, e.g.
+    /// for package `lib` in a release build with a GCC-like compiler:
+    ///
+    /// ```text
+    /// cc -o _build/native/release/build/lib/__moonbit_link_core__/lib.o \
+    ///    -I$MOON_HOME/include -c -fwrapv -fno-strict-aliasing -O2 \
+    ///    -DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC \
+    ///    _build/native/release/build/lib/lib.c
+    /// ```
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
+    pub(super) fn lower_compile_generated_c(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        target: BuildTarget,
+        info: &CompileGeneratedCInfo,
+    ) -> BuildCommand {
+        let source = artifacts.single_dependency_path_matching(|artifact| {
+            matches!(
+                artifact,
+                ArtifactKey::LinkedCore { package, target_kind }
+                    if *package == target.package && *target_kind == target.kind
+            )
+        });
+        let output = artifacts.single_output_path();
+
+        // Compile with the settings an executable link would use for the
+        // same generated C, so the object matches the runtime it links with.
+        let config = CCConfigBuilder::default()
+            .no_sys_header(true)
+            .output_ty(CCOutputType::Object)
+            .opt_level(info.c_opt_level)
+            .debug_info(info.c_debug_info)
+            .link_moonbitrun(true)
+            .define_use_shared_runtime_macro(false)
+            .native_allocator(info.native_allocator)
+            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
+            .build()
+            .expect("Failed to build CC configuration for linked core object");
+
+        let pkg_dir = self
+            .artifact_paths
+            .target_layout()
+            .package_dir(
+                &self.get_package(target).fqn,
+                self.opt.backend.target_backend(),
+            )
+            .display()
+            .to_string();
+
+        let cc_cmd = make_cc_command_resolved_for_toolchain(
+            &info.effective_native_toolchain,
+            config,
+            &info.c_flags,
+            &[],
+            [source.display().to_string()],
+            &pkg_dir,
+            Some(&output.display().to_string()),
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
+        );
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cc_cmd.into(),
+        }
+        .with_msvc_env(&info.effective_native_toolchain)
+    }
+
+    /// Archive a foreign library's payload, C stub, and runtime objects, e.g.
+    /// for package `lib` importing `dep`, with GNU `ar` in a release build:
+    ///
+    /// ```text
+    /// moon tool archive --output _build/native/release/build/lib/lib.a -- \
+    ///   ar -r -c -s _build/native/release/build/lib/lib.a \
+    ///    $MOON_HOME/lib/libmoonbitrun.o \
+    ///    _build/native/release/build/lib/__moonbit_link_core__/lib.o \
+    ///    _build/native/release/build/lib/lib_stub.o \
+    ///    _build/native/release/build/dep/dep_stub.o \
+    ///    _build/native/release/build/runtime-runtime.o ... \
+    ///    $MOON_HOME/lib/simdutf.o
+    /// ```
+    ///
+    /// Archivers that recreate the archive run directly with the same members,
+    /// such as `libtool -static -o .../lib.a` on macOS or
+    /// `lib /nologo /Out:...\lib.lib` with MSVC. Windows ships no
+    /// `libmoonbitrun.o`.
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info, runtime))]
+    pub(super) fn lower_archive_foreign_library(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        info: &ForeignLibraryInfo,
+        runtime: &BuildRuntimeInfo,
+    ) -> BuildCommand {
+        let archive = artifacts.single_output_path();
+
+        // The MoonBit payload comes first, followed by the C stubs that may
+        // reference runtime symbols, and then the runtime itself.
+        let mut members = artifacts.dependency_paths_matching(|artifact| {
+            matches!(
+                artifact,
+                ArtifactKey::LinkedCore { .. } | ArtifactKey::GeneratedCObject { .. }
+            )
+        });
+        for package in &info.c_stub_packages {
+            members.extend(artifacts.dependency_paths_matching(|artifact| {
+                matches!(artifact, ArtifactKey::CStubObject { package: actual, .. } if actual == package)
+            }));
+        }
+        members.extend(artifacts.dependency_paths_matching(|artifact| {
+            matches!(artifact, ArtifactKey::RuntimeObject { .. })
+        }));
+        members.extend(runtime.simdutf_objects.iter().cloned());
+
+        let config = ArchiverConfigBuilder::default()
+            .archive_moonbitrun(true)
+            .native_allocator(info.native_allocator)
+            .build()
+            .expect("Failed to build archiver configuration");
+        let mut command = BuildCommand::archive(
+            &info.effective_native_toolchain,
+            config,
+            &members,
+            &archive,
+            self.opt
+                .backend
+                .compiler_paths()
+                .expect("native lowering requires compiler paths"),
+        );
+        command
+            .extra_inputs
+            .extend(runtime.simdutf_objects.iter().cloned());
+        command
     }
 
     pub(super) fn lower_generate_dsym(

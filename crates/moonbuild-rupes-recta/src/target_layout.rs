@@ -325,7 +325,7 @@ impl TargetLayout {
         let backend = linked_core.target_backend();
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. }) {
-            base_dir.push("__moonbit_link_core__");
+            base_dir.push(LINKED_CORE_OBJECT_DIR);
         }
         base_dir.push(format!(
             "{}{}",
@@ -347,6 +347,53 @@ impl TargetLayout {
             "{}{}",
             artifact(pkg_fqn, target.kind),
             executable.extension(),
+        ));
+        base_dir
+    }
+
+    /// Returns the object compiled from a target's generated C. The extension
+    /// is `.o` on Linux and macOS, and `.obj` on Windows.
+    ///
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/__moonbit_link_core__/{artifact}.{o,obj}`
+    pub fn generated_c_object_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(LINKED_CORE_OBJECT_DIR);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            object_file_ext(os)
+        ));
+        base_dir
+    }
+
+    /// Returns the static library a foreign-library package produces.
+    ///
+    /// It shares its stem with the package's executable rather than the
+    /// `lib{package_name}` stem of the package's C stub archive. The extension
+    /// is the target OS's static library extension: `.a` on Linux and macOS,
+    /// and `.lib` on Windows.
+    ///
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{artifact}.{a,lib}`
+    pub fn foreign_library_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, TargetKind::Source),
+            static_library_ext(os)
         ));
         base_dir
     }
@@ -829,6 +876,15 @@ impl ArtifactPathResolver {
                     options.linked_core,
                 )]
             }
+            ArtifactKey::GeneratedCObject {
+                package,
+                target_kind,
+            } => vec![self.target_layout.generated_c_object_of_build_target(
+                packages,
+                &package.build_target(*target_kind),
+                options.target_backend(),
+                options.os,
+            )],
             ArtifactKey::Executable {
                 package,
                 target_kind,
@@ -838,6 +894,14 @@ impl ArtifactPathResolver {
                     packages,
                     &target,
                     options.executable,
+                )]
+            }
+            ArtifactKey::ForeignLibrary { package } => {
+                vec![self.target_layout.foreign_library_path(
+                    packages,
+                    *package,
+                    options.target_backend(),
+                    options.os,
                 )]
             }
             ArtifactKey::GeneratedTestDriver {
@@ -975,6 +1039,9 @@ struct PackageArtifactName<'a> {
     pub fqn: &'a PackageFQN,
     pub kind: TargetKind,
 }
+
+/// The package-relative directory holding object-form linked Core payloads.
+const LINKED_CORE_OBJECT_DIR: &str = "__moonbit_link_core__";
 
 fn artifact(fqn: &'_ PackageFQN, kind: TargetKind) -> PackageArtifactName<'_> {
     PackageArtifactName { fqn, kind }
