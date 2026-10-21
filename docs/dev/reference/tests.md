@@ -212,6 +212,12 @@ must be available in `builtin`, even though the template qualifies them through
 cannot be used unconditionally. Core blackbox tests receive an injected prelude
 import; that injection does not extend to whitebox or inline tests.
 
+For async tests, lowering selects the runtime package passed to the private
+test-driver generator from the current test target's effective imports. A
+package that imports `moonbitlang/async` (or is that package itself) keeps the
+legacy runtime; otherwise the generated driver uses
+`moonbitlang/core/async_io`.
+
 ## Commands per backend (and how to specify test cases)
 
 `command_for` (in `runtime.rs`) hides the differences between target backends. The

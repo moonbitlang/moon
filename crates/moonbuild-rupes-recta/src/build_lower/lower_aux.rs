@@ -37,6 +37,22 @@ use crate::{
 
 use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts, moonc_command};
 
+const LEGACY_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/async";
+const CORE_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/core/async_io";
+
+fn select_async_runtime_package<'a>(
+    package_name: &str,
+    mut imports: impl Iterator<Item = &'a str>,
+) -> &'static str {
+    if package_name == LEGACY_ASYNC_RUNTIME_PACKAGE
+        || imports.any(|import| import == LEGACY_ASYNC_RUNTIME_PACKAGE)
+    {
+        LEGACY_ASYNC_RUNTIME_PACKAGE
+    } else {
+        CORE_ASYNC_RUNTIME_PACKAGE
+    }
+}
+
 impl<'a> super::LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]
     pub(super) fn lower_generate_node_test_package_config(
@@ -100,6 +116,22 @@ impl<'a> super::LoweringContext<'a> {
         };
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
 
+        let target_specific_imports = match target.kind {
+            TargetKind::WhiteboxTest => package.raw.wbtest_imports.as_slice(),
+            TargetKind::BlackboxTest => package.raw.test_imports.as_slice(),
+            TargetKind::InlineTest => &[],
+            TargetKind::Source | TargetKind::SubPackage => unreachable!(),
+        };
+        let async_runtime_package = select_async_runtime_package(
+            &pkg_full_name,
+            package
+                .raw
+                .imports
+                .iter()
+                .chain(target_specific_imports)
+                .map(|import| import.get_path()),
+        );
+
         let (enable_coverage, self_coverage) =
             self.get_coverage_flags(target, package, &package.fqn, false);
 
@@ -116,6 +148,7 @@ impl<'a> super::LoweringContext<'a> {
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,
+            async_runtime_package,
         };
 
         let commandline = cmd.build_command(&*BINARIES.moonbuild);
@@ -391,5 +424,31 @@ impl<'a> super::LoweringContext<'a> {
             extra_inputs: info.resolved_inputs.clone(),
         }
         .with_cwd(info.cwd.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CORE_ASYNC_RUNTIME_PACKAGE, LEGACY_ASYNC_RUNTIME_PACKAGE, select_async_runtime_package,
+    };
+
+    #[test]
+    fn selects_async_runtime_package_from_imports() {
+        assert_eq!(
+            select_async_runtime_package("example/pkg", [LEGACY_ASYNC_RUNTIME_PACKAGE].into_iter()),
+            LEGACY_ASYNC_RUNTIME_PACKAGE
+        );
+        assert_eq!(
+            select_async_runtime_package(LEGACY_ASYNC_RUNTIME_PACKAGE, [].into_iter()),
+            LEGACY_ASYNC_RUNTIME_PACKAGE
+        );
+        assert_eq!(
+            select_async_runtime_package(
+                "example/pkg",
+                ["moonbitlang/async/internal/event_loop"].into_iter(),
+            ),
+            CORE_ASYNC_RUNTIME_PACKAGE
+        );
     }
 }
