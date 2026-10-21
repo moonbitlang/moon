@@ -30,6 +30,7 @@ mod model;
 pub mod special_case;
 pub mod synth;
 
+pub(crate) use model::resolve_prebuild_path;
 pub use model::{
     DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage, SingleFileSourceKind,
 };
@@ -457,14 +458,7 @@ fn discover_one_package(
                 rule.input()
                     .iter()
                     .chain(rule.output().iter())
-                    .any(|declared| {
-                        let declared_path = Path::new(declared);
-                        if declared_path.is_absolute() {
-                            declared_path == path
-                        } else {
-                            RelativePath::new(declared).normalize().to_path(abs) == path
-                        }
-                    })
+                    .any(|declared| resolve_prebuild_path(abs, declared) == path)
             });
             if !declared {
                 return Err(DiscoverError::UnsupportedLegacyGeneratedSource { file: path });

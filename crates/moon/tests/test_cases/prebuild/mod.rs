@@ -92,20 +92,40 @@ dev_build(rule: "embed", input: "input.txt", output: "generated.mbt")
 
 #[test]
 fn test_pre_build_equivalent_output_paths() {
-    for absolute in [false, true] {
+    for spelling in [
+        "relative",
+        "absolute",
+        #[cfg(windows)]
+        "verbatim_lowercase_drive",
+    ] {
         let dir = TestDir::new_empty();
         let package = dir.join("app");
         std::fs::create_dir_all(&package).unwrap();
         std::fs::write(dir.join("moon.mod"), "name = \"test/output-identity\"\n").unwrap();
-        let output = if absolute {
-            dunce::canonicalize(&package)
+        let output = match spelling {
+            "absolute" => dunce::canonicalize(&package)
                 .unwrap()
                 .join("generated.mbt")
                 .to_str()
                 .unwrap()
-                .to_owned()
-        } else {
-            "../app/generated.mbt".to_owned()
+                .to_owned(),
+            #[cfg(windows)]
+            "verbatim_lowercase_drive" => {
+                let path = std::fs::canonicalize(&package)
+                    .unwrap()
+                    .join("generated.mbt");
+                assert!(matches!(
+                    path.components().next(),
+                    Some(std::path::Component::Prefix(prefix))
+                        if matches!(prefix.kind(), std::path::Prefix::VerbatimDisk(_))
+                ));
+                // Path equality ignores drive casing, but n2 interns the raw
+                // spelling. Rediscovery must not disconnect the producer.
+                let mut path = path.to_str().unwrap().to_owned();
+                path[4..5].make_ascii_lowercase();
+                path
+            }
+            _ => "../app/generated.mbt".to_owned(),
         };
         std::fs::write(
             package.join("moon.pkg"),

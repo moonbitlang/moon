@@ -44,7 +44,9 @@ use moonutil::{
 };
 
 use crate::{
-    discover::{DiscoveredLocalProject, DiscoveredPackage, discover_local_project},
+    discover::{
+        DiscoveredLocalProject, DiscoveredPackage, discover_local_project, resolve_prebuild_path,
+    },
     execution_plan::{
         ExecutionAction, ExecutionPlan, ExecutionPlanBuilder, InputObservation, LoweredCommand,
     },
@@ -413,13 +415,10 @@ fn build_for_package(
     let prebuild_outputs = pkg
         .raw
         .pre_build
-        .as_ref()
         .iter()
-        .flat_map(|prebuild_plans| {
-            prebuild_plans
-                .iter()
-                .flat_map(|plan| plan.output().iter().map(|path| path.as_str()))
-        })
+        .flatten()
+        .flat_map(|plan| plan.output().iter())
+        .map(|path| resolve_prebuild_path(&pkg.root_path, path))
         .collect::<HashSet<_>>();
 
     let mut add_fmt_for_file = |file: &Path| -> anyhow::Result<()> {
@@ -431,7 +430,7 @@ fn build_for_package(
             );
             return Ok(());
         }
-        if name.is_some_and(|name| prebuild_outputs.contains(name)) {
+        if prebuild_outputs.contains(file) {
             debug!(
                 "Skipping formatter input {} due to pre-build output",
                 file.display()

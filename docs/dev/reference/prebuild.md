@@ -208,7 +208,7 @@ so adding or removing an unhandled file updates the diagnostic.
 
 ## Path Resolution
 
-- Declared `input`/`output` paths are constructed from the canonical package root before entering the build plan, using the same representation as discovered package files. Dot components are resolved lexically across the complete path, including parent components that leave and reenter the package. Absolute declarations are external path inputs; on Windows their drive/UNC prefixes are converted to that same representation. Files need not exist yet, and later dependency matching does not need to reconcile different spellings of a generated file.
+- Discovery, formatting, and build planning use one constructor for declared `input`/`output` paths, resolving them against the canonical package root in the same representation as discovered package files. Dot components are resolved lexically across the complete path, including parent components that leave and reenter the package. Absolute declarations are external path inputs; on Windows their drive/UNC prefixes are converted to that same representation. Files need not exist yet. Drive letters use their parsed uppercase spelling even for already-verbatim inputs: n2 interns raw strings, so Rust path equality alone does not establish graph identity. Consumers compare complete constructed paths, so equivalent declarations also receive the same discovery checks and generated-file formatting exclusion.
 - `$input`/`$output` expand to paths relative to the prebuild command working directory. These substituted paths are lexically normalized and start with `./`, for example `./src/lib/input.txt`.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
 
