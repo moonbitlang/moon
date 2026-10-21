@@ -5,5 +5,5 @@ import {
 pkgtype(kind: "foreign_library")
 
 options(
-  "native-stub": [ "lib_stub.c" ],
+  "native-stub": [ "stub.c" ],
 )

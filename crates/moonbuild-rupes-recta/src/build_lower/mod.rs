@@ -70,19 +70,6 @@ pub enum LoweringError {
         path: PathBuf,
         source: walkdir::Error,
     },
-
-    #[error(
-        "cannot archive both {} and {} into {}: the archiver keeps only one member named `{member}`; rename one of their sources",
-        first.display(),
-        second.display(),
-        archive.display()
-    )]
-    SameNamedArchiveMembers {
-        archive: PathBuf,
-        member: String,
-        first: PathBuf,
-        second: PathBuf,
-    },
 }
 
 /// Lower a normalized action plan into an executor-neutral Execution Plan.

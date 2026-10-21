@@ -19,7 +19,7 @@
 //! Lowering implementation for build actions.
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -1131,7 +1131,7 @@ impl<'a> LoweringContext<'a> {
         artifacts: &ActionArtifacts,
         info: &ForeignLibraryInfo,
         runtime: &BuildRuntimeInfo,
-    ) -> Result<BuildCommand, LoweringError> {
+    ) -> BuildCommand {
         let archive = artifacts.single_output_path();
 
         // The MoonBit payload comes first, followed by the C stubs that may
@@ -1152,13 +1152,6 @@ impl<'a> LoweringContext<'a> {
         }));
         members.extend(runtime.simdutf_objects.iter().cloned());
 
-        let cc = info.effective_native_toolchain.cc().clone();
-        if cc.archiver_merges_same_named_members() {
-            // FIXME: Give archive members unique file names instead, so
-            // packages whose C stubs share a file name can be archived together.
-            ensure_distinct_member_names(&archive, &members)?;
-        }
-
         let config = ArchiverConfigBuilder::default()
             .archive_moonbitrun(true)
             .native_allocator(info.native_allocator)
@@ -1177,7 +1170,7 @@ impl<'a> LoweringContext<'a> {
         command
             .extra_inputs
             .extend(runtime.simdutf_objects.iter().cloned());
-        Ok(command)
+        command
     }
 
     pub(super) fn lower_generate_dsym(
@@ -1458,59 +1451,5 @@ impl<'a> LoweringContext<'a> {
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
         deps
-    }
-}
-
-/// Reject archive inputs that share a file name, for archivers that would
-/// silently keep only one of them. For example, GNU `ar` names members by file
-/// name and inserts them with replacement, so this keeps only `dep/stub.o`:
-///
-/// ```text
-/// ar -r -c -s lib.a lib/stub.o dep/stub.o
-/// ```
-fn ensure_distinct_member_names(archive: &Path, members: &[PathBuf]) -> Result<(), LoweringError> {
-    let mut seen = HashMap::new();
-    for member in members {
-        let name = member
-            .file_name()
-            .expect("archive member should have a file name");
-        if let Some(first) = seen.insert(name, member) {
-            return Err(LoweringError::SameNamedArchiveMembers {
-                archive: archive.to_path_buf(),
-                member: name.to_string_lossy().into_owned(),
-                first: first.clone(),
-                second: member.clone(),
-            });
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn same_named_archive_members_are_rejected() {
-        let archive = Path::new("_build/lib/lib.a");
-        let distinct = [
-            PathBuf::from("_build/lib/__moonbit_link_core__/lib.o"),
-            PathBuf::from("_build/lib/stub.o"),
-        ];
-        assert!(ensure_distinct_member_names(archive, &distinct).is_ok());
-
-        let clashing = [
-            PathBuf::from("_build/lib/stub.o"),
-            PathBuf::from("_build/dep/stub.o"),
-        ];
-        let error = ensure_distinct_member_names(archive, &clashing)
-            .expect_err("same-named members should be rejected")
-            .to_string()
-            .replace('\\', "/");
-        assert_eq!(
-            error,
-            "cannot archive both _build/lib/stub.o and _build/dep/stub.o into _build/lib/lib.a: \
-             the archiver keeps only one member named `stub.o`; rename one of their sources"
-        );
     }
 }

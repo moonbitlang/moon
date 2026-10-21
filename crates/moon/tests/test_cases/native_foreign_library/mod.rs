@@ -1,6 +1,9 @@
 //! A foreign-library package builds into a static archive on the Native
 //! backend. A C host links that archive and only calls `moonbit_init` before
 //! using the exports.
+//!
+//! The package and its dependency both name their C stub `stub.c`, so the
+//! archive holds two `stub.o` members that every archiver must keep.
 
 use std::path::Path;
 use std::process::Command;

@@ -338,9 +338,9 @@ The archive shares its stem with the package's executable, such as
 `lib.a` or `lib.lib` for package `lib`, so it never collides with the
 package's `lib{package}` C stub archive. Like the runtime archive, it is
 created from exactly its current members, with update-style archivers run
-through `moon tool archive`. GNU and TCC `ar` also keep only one of several
-members with the same file name, so lowering rejects such a member list instead
-of producing an incomplete library.
+through `moon tool archive`. Objects from different packages may share a file
+name, such as two `stub.o`. Each supported archiver keeps every input of a
+newly created archive, so both become members.
 
 The archive cannot carry link flags. `link.native.cc-link-flags`, prebuild
 link arguments, system libraries, and, for builds with runtime backtraces,

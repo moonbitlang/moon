@@ -372,7 +372,7 @@ impl<'a> LoweringContext<'a> {
                 self.lower_compile_generated_c(&action_artifacts, target, info)
             }
             BuildAction::ArchiveForeignLibrary { info, runtime } => {
-                self.lower_archive_foreign_library(&action_artifacts, info, runtime)?
+                self.lower_archive_foreign_library(&action_artifacts, info, runtime)
             }
             BuildAction::GenerateDsym { target, dsymutil } => {
                 self.lower_generate_dsym(&action_artifacts, target, dsymutil)
