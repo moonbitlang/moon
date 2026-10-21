@@ -43,14 +43,12 @@ use moonutil::{
 };
 use regex::Regex;
 use relative_path::PathExt;
-#[cfg(not(windows))]
-use relative_path::RelativePath;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     build_plan::{BuildBundleInfo, PrebuildInfo},
     cond_comp,
-    discover::DiscoveredPackage,
+    discover::{DiscoveredPackage, resolve_prebuild_path},
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
         NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind,
@@ -2024,52 +2022,6 @@ fn resolve_prebuild_command(
     resolved
 }
 
-fn resolve_prebuild_path(package_root: &Path, path: &str) -> PathBuf {
-    // Construct declared paths in the same form as discovered package files,
-    // before they enter the plan. Outputs may not exist yet, so resolve their
-    // components lexically against the canonical package root.
-    #[cfg(windows)]
-    {
-        use std::path::{Component, Prefix};
-
-        let path = package_root.join(path);
-        let mut components = path.components();
-        let Some(Component::Prefix(prefix)) = components.next() else {
-            return path.components().collect();
-        };
-        let root = match prefix.kind() {
-            Prefix::Disk(drive) if path.is_absolute() => {
-                PathBuf::from(format!(r"\\?\{}:", char::from(drive)))
-            }
-            Prefix::UNC(server, share) => {
-                // A UNC prefix must be complete before native joining parses it.
-                let mut root = std::ffi::OsString::from(r"\\?\UNC\");
-                root.push(server);
-                root.push(r"\");
-                root.push(share);
-                PathBuf::from(root)
-            }
-            _ => PathBuf::from(prefix.as_os_str()),
-        };
-        // An absolute declaration may have replaced the package root with an
-        // ordinary drive/UNC root. Restore its verbatim spelling, then let
-        // native joining resolve separators and parent components.
-        root.join(components.as_path())
-    }
-    #[cfg(not(windows))]
-    {
-        let root = if Path::new(path).is_absolute() {
-            Path::new("/")
-        } else {
-            package_root
-        };
-        RelativePath::new(path)
-            .to_logical_path(root)
-            .components()
-            .collect()
-    }
-}
-
 fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
     // Preserve matching canonical roots: a long child may keep its prefix when
     // its short cwd can be simplified. Only reconcile spellings on mismatch.
@@ -2157,78 +2109,6 @@ mod tests {
             true,
             &linux_toolchain
         ));
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn prebuild_paths_use_native_verbatim_joining() {
-        for (input_prefix, prefix) in [
-            (r"C:", r"\\?\C:"),
-            (r"\\?\C:", r"\\?\C:"),
-            (r"\\server\share", r"\\?\UNC\server\share"),
-            (r"\\?\UNC\server\share", r"\\?\UNC\server\share"),
-        ] {
-            let root = PathBuf::from(format!(r"{input_prefix}\project\pkg"));
-            for (relative, expected) in [
-                ("../a/b/c", r"\project\a\b\c"),
-                ("../assets/./file", r"\project\assets\file"),
-                (r"..\assets\.\file", r"\project\assets\file"),
-                (r"../assets\..\file", r"\project\file"),
-                ("../../../../file", r"\file"),
-                ("../assets/nonexistent", r"\project\assets\nonexistent"),
-            ] {
-                let path = resolve_prebuild_path(&root, relative);
-                assert_eq!(
-                    path.as_os_str(),
-                    Path::new(&format!("{prefix}{expected}")).as_os_str(),
-                    "root={root:?}, relative={relative:?}",
-                );
-                assert!(!path.to_str().expect("test path is UTF-8").contains('/'));
-                assert!(!path.components().any(|component| matches!(
-                    component,
-                    std::path::Component::CurDir | std::path::Component::ParentDir
-                )));
-            }
-        }
-        for (absolute, expected) in [
-            (r"D:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
-            (
-                r"\\server\share\assets\..\generated.mbt",
-                r"\\?\UNC\server\share\generated.mbt",
-            ),
-        ] {
-            assert_eq!(
-                resolve_prebuild_path(Path::new(r"\\?\C:\project\pkg"), absolute).as_os_str(),
-                Path::new(expected).as_os_str(),
-            );
-        }
-    }
-
-    #[test]
-    fn prebuild_declarations_construct_the_package_file_spelling() {
-        let package = if cfg!(windows) {
-            Path::new(r"\\?\C:\project\pkg")
-        } else {
-            Path::new("/project/pkg")
-        };
-        // Discovery derives file paths from this same package root. No file
-        // needs to exist, and no later comparison needs to reconcile spellings.
-        let discovered = package.join("generated.mbt");
-        let absolute = dunce::simplified(&discovered)
-            .to_str()
-            .expect("test path is UTF-8");
-        for declared in [
-            "generated.mbt",
-            "./generated.mbt",
-            "../pkg/generated.mbt",
-            absolute,
-        ] {
-            assert_eq!(
-                resolve_prebuild_path(package, declared).as_os_str(),
-                discovered.as_os_str(),
-                "declaration={declared:?}",
-            );
-        }
     }
 
     #[test]
