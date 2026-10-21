@@ -39,14 +39,23 @@ pub(crate) struct VersionSubcommand {
 }
 
 fn replace_home_with_tilde(p: &Path) -> anyhow::Result<String> {
-    let h = home::home_dir().context("failed to get home directory")?;
-    Ok(if p.starts_with(&h) {
-        p.display()
-            .to_string()
-            .replacen(&h.display().to_string(), "~", 1)
+    let home = home::home_dir().context("failed to get home directory")?;
+    Ok(display_path_relative_to_home(p, &home))
+}
+
+fn display_path_relative_to_home(path: &Path, home: &Path) -> String {
+    // Toolchain paths may be canonical while the OS home path is ordinary.
+    // Match their components before formatting; simplifying only short paths
+    // would still miss a long executable beneath a short home directory.
+    if let Some(relative) = moonutil::path::strip_equivalent_prefix(path, home) {
+        if relative.as_os_str().is_empty() {
+            "~".to_owned()
+        } else {
+            Path::new("~").join(relative).display().to_string()
+        }
     } else {
-        p.display().to_string()
-    })
+        dunce::simplified(path).display().to_string()
+    }
 }
 
 fn get_moon_path() -> anyhow::Result<String> {
@@ -165,4 +174,43 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
         }
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_abbreviation_matches_ordinary_and_canonical_paths() {
+        let (home, canonical_home) = if cfg!(windows) {
+            (Path::new(r"C:\Users\test"), Path::new(r"\\?\C:\Users\test"))
+        } else {
+            (Path::new("/home/test"), Path::new("/home/test"))
+        };
+        // The long child need not exist. Simplifying the complete path alone
+        // cannot reconcile its retained Windows prefix with a short home root.
+        for relative in [
+            Path::new(".moon").join("bin").join("moonc.exe"),
+            std::iter::repeat_n("segment", 40)
+                .chain(["moonc.exe"])
+                .collect(),
+        ] {
+            let expected = Path::new("~").join(&relative).display().to_string();
+            for root in [home, canonical_home] {
+                assert_eq!(
+                    display_path_relative_to_home(&root.join(&relative), home),
+                    expected
+                );
+            }
+        }
+        for root in [home, canonical_home] {
+            assert_eq!(display_path_relative_to_home(root, home), "~");
+            let mut sibling = root.to_path_buf();
+            sibling.as_mut_os_string().push("-other");
+            assert_eq!(
+                display_path_relative_to_home(&sibling, home),
+                dunce::simplified(&sibling).display().to_string(),
+            );
+        }
+    }
 }
