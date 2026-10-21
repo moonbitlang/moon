@@ -169,7 +169,7 @@ pub(crate) fn run_prove(
         &proof_prelude,
         user_log,
     )?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(target_dir, user_log)?;

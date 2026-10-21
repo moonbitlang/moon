@@ -1,0 +1,31 @@
+supported_targets = "all"
+
+#cfg(target = "native")
+import {
+  "example/conditional/native" @platform,
+}
+
+#cfg(not(target = "native"))
+import {
+  "example/conditional/portable" @platform,
+}
+
+#cfg(target = "native")
+import {
+  "example/conditional/native_test" @helper,
+} for "test"
+
+#cfg(not(target = "native"))
+import {
+  "example/conditional/portable_test" @helper,
+} for "test"
+
+#cfg(target = "native")
+import {
+  "example/conditional/native_test" @helper,
+} for "wbtest"
+
+#cfg(not(target = "native"))
+import {
+  "example/conditional/portable_test" @helper,
+} for "wbtest"

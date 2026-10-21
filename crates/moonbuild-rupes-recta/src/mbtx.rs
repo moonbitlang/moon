@@ -127,6 +127,7 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
                 alias,
                 sub_package: false,
                 import_all,
+                targets: None,
             }
         } else {
             Import::Simple(package)

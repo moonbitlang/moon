@@ -69,16 +69,19 @@ Moon alone does not make it usable with older compilers. Direct declarations
 require companion compiler support and formatter support to preserve their
 spelling through `moon fmt`; see the [package configuration manual](../../manual/src/package.md).
 
-In `moon.pkg`, multiple unconditional import blocks are combined in source order,
+In `moon.pkg`, multiple import blocks are combined in source order,
 separately for regular, test, and whitebox-test imports. Legacy import fields in
 `options(...)` replace all corresponding blocks, including when the replacement
 is empty. Both
 `test-import`/`test_import` and `wbtest-import`/`wbtest_import`
 spellings are accepted; specifying both spellings of the same option is an error.
-After these overrides, importing the same package more than once emits one
-warning per package and import kind. Duplicate items, aliases, and import-all
-flags are retained in source order, preserving existing dependency ordering and
-alias precedence. Different import kinds do not produce duplicate warnings.
+After these overrides, importing the same package more than once is allowed. It
+emits one warning per package and import kind when the repeated declarations are
+active for a common backend; unconditional declarations always overlap, and
+declarations with disjoint [import conditions](cond-comp.md) do not warn.
+Duplicate items, aliases, and import-all flags are retained in source order,
+preserving existing dependency ordering and alias precedence. Different import
+kinds do not produce duplicate warnings.
 These manifest warnings are suppressed for dependency manifests in `.mooncakes`.
 
 Named import aliases must be unique within each build target's dependencies.
@@ -256,8 +259,9 @@ structured commands capture them with their other logs.
 Rupes Recta represents discovered modules and packages as `DiscoveredProject`,
 which contains the `ModuleDependencyGraph`, module directories, and the package-level
 `DiscoverResult`. Package-selection helpers use this data without needing a
-solved package graph. `DiscoveredProject::resolve_packages` validates imports and adds
-`PackageRelations` to produce `ResolvedProject`, using the coverage
+solved package graph. `DiscoveredProject::resolve_packages` validates imports for
+the requested backends and adds one `PackageRelations` per backend to produce
+`ResolvedProject`, using the coverage
 setting captured during discovery. `ResolvedProject` pairs those validated
 package relationships with the declarations and selected module dependencies
 used to resolve them.
@@ -271,16 +275,17 @@ relationships.
 The outer workflow uses `ProjectPreparationConfig` and `ProjectPreparationError`
 because it covers module sync, package discovery, and package resolution.
 `sync_module_dependencies` resolves and synchronizes modules;
-`prepare_synced_project` discovers packages and resolves their relationships.
-`discover_single_file_project` synchronizes and discovers a script's synthesized
-project. The CLI's `sync_and_discover_project` and its command-specific
-preparation helpers also stop after discovery and return `DiscoveredProject`.
-Commands using these discovery helpers run discover, select, resolve, and plan
-in that order: they select packages and Target Backends from the
-`DiscoveredProject`, call
-`resolve_packages` once, and plan each selected backend from the shared
-`ResolvedProject`. Selection uses only declared package data, so a selector
-error is reported before a package resolution error.
+`prepare_synced_project` discovers packages and resolves their relationships for
+an explicit backend set. `discover_single_file_project` synchronizes and discovers
+a script's synthesized project. The CLI's `sync_and_discover_project` and its
+command-specific preparation helpers also stop after discovery and return
+`DiscoveredProject`. Commands using these discovery helpers run discover, select,
+resolve, and plan in that order: they select packages and Target Backends from the
+`DiscoveredProject`, call `resolve_packages` once with those backends, and plan
+each selected backend from the shared `ResolvedProject`. Selection uses only
+declared package data, so a selector error is reported before a package resolution
+error. Every backend selected for the current invocation or watch pass must
+resolve successfully before its build planning begins.
 `rr_build::prepare_resolved_build` receives the already selected backend and
 does not choose one itself.
 

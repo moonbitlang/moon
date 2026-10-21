@@ -1,0 +1,8 @@
+pkgtype(kind: "executable")
+
+supported_targets = "all"
+
+#cfg(true)
+import {
+  "example/conditional/app",
+}

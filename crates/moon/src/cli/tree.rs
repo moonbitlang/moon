@@ -24,6 +24,7 @@ use anyhow::Context;
 use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
+    pkg_solve::DepEdge,
     resolve::{
         DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
         sync_module_dependencies,
@@ -91,6 +92,13 @@ struct ResolvedPackageTree {
     target: TargetBackend,
 }
 
+impl ResolvedPackageTree {
+    /// The selected backend's package graph; other backends are not resolved.
+    fn dep_graph(&self) -> &petgraph::graphmap::DiGraphMap<BuildTarget, DepEdge> {
+        &self.project.package_relations[&self.target].dep_graph
+    }
+}
+
 pub(crate) fn tree_cli(
     cli: UniversalFlags,
     cmd: TreeSubcommand,
@@ -104,7 +112,7 @@ pub(crate) fn tree_cli(
             output.user_log(),
             ChildOutputMode::Inherit,
         )?;
-        render_package_tree(&tree.project, tree.selected_module, dedupe)
+        render_package_tree(&tree, dedupe)
     } else {
         let resolved = resolve_selected_tree(&cli, output.user_log())?;
         let workspace_members =
@@ -171,7 +179,7 @@ fn resolve_selected_package_graph(
     let target = target
         .or(discovered.module_info(selected_module).preferred_target)
         .unwrap_or_default();
-    let project = discovered.resolve_packages(user_log)?;
+    let project = discovered.resolve_packages(&[target], user_log)?;
     Ok(ResolvedPackageTree {
         project,
         selected_module,
@@ -479,7 +487,7 @@ fn render_package_json_report(
     status: &'static str,
     logs: Vec<UserLogEntry>,
 ) -> PackageJsonReport {
-    let graph = render_package_graph_json(&tree.project, tree.selected_module);
+    let graph = render_package_graph_json(tree);
     PackageJsonReport {
         version: PACKAGE_TREE_JSON_VERSION,
         status,
@@ -497,12 +505,11 @@ fn render_package_json_report(
 /// Standard-library packages are excluded from both nodes and edges, so the
 /// output focuses on the project and its external dependencies, mirroring the
 /// module-level view (`moon tree --json`).
-fn render_package_graph_json(
-    resolved_project: &ResolvedProject,
-    selected_module: ModuleId,
-) -> PackageGraphJSON {
+fn render_package_graph_json(tree: &ResolvedPackageTree) -> PackageGraphJSON {
+    let resolved_project = &tree.project;
+    let selected_module = tree.selected_module;
     let pkg_dirs = &resolved_project.pkg_dirs;
-    let dep_graph = &resolved_project.package_relations.dep_graph;
+    let dep_graph = tree.dep_graph();
 
     // Package nodes are deduplicated by PackageId. Build the set from discovered
     // packages so packages with no non-stdlib edges remain visible as isolated nodes.
@@ -594,14 +601,10 @@ fn target_kind_str(kind: TargetKind) -> &'static str {
 ///
 /// Source targets form the roots; expansion follows all non-stdlib dependency
 /// edges, mirroring the module-level text tree's treatment of stdlib modules.
-fn render_package_tree(
-    resolved_project: &ResolvedProject,
-    selected_module: ModuleId,
-    dedupe: bool,
-) -> String {
-    let pkg_dirs = &resolved_project.pkg_dirs;
-    let source_packages = selected_source_packages(resolved_project, selected_module);
-    let sorted_children = |source| sorted_package_tree_children(resolved_project, source);
+fn render_package_tree(tree: &ResolvedPackageTree, dedupe: bool) -> String {
+    let pkg_dirs = &tree.project.pkg_dirs;
+    let source_packages = selected_source_packages(&tree.project, tree.selected_module);
+    let sorted_children = |source| sorted_package_tree_children(tree, source);
 
     let mut out = String::new();
     for (root_idx, package_id) in source_packages.iter().enumerate() {
@@ -642,11 +645,11 @@ fn selected_source_packages(discovered: &DiscoveredProject, module: ModuleId) ->
 }
 
 fn sorted_package_tree_children(
-    resolved_project: &ResolvedProject,
+    tree: &ResolvedPackageTree,
     source: BuildTarget,
 ) -> Vec<TreeChild<BuildTarget>> {
-    let pkg_dirs = &resolved_project.pkg_dirs;
-    let dep_graph = &resolved_project.package_relations.dep_graph;
+    let pkg_dirs = &tree.project.pkg_dirs;
+    let dep_graph = tree.dep_graph();
 
     let mut deps = dep_graph
         .edges_directed(source, petgraph::Direction::Outgoing)

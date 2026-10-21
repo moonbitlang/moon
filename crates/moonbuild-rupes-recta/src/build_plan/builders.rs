@@ -263,8 +263,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         let dependency_realizable = self
-            .input
-            .package_relations
+            .rel
             .realizable_supported_targets
             .get(&dep)
             .expect("realizable backend support should be available for every dependency node");
@@ -435,7 +434,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // If the given target implements a virtual package, we need to build
         // the virtual package's interface first, unless that contract comes
         // from the injected stdlib.
-        if let Some(vpkg_id) = self.input.package_relations.virt_impl.get(target.package)
+        if let Some(vpkg_id) = self.rel.virt_impl.get(target.package)
             && !(self.config.stdlib_path.is_some()
                 && self.input.pkg_dirs.is_stdlib_package(*vpkg_id))
         {
@@ -458,8 +457,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.need_node(node);
         for dep in self
-            .input
-            .package_relations
+            .rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
@@ -493,8 +491,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
         for dep in self
-            .input
-            .package_relations
+            .rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
@@ -531,8 +528,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // changes in dependencies dirty downstream build-package actions.
         self.need_node(node);
         for dep in self
-            .input
-            .package_relations
+            .rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
@@ -836,9 +832,7 @@ impl<'a> BuildPlanConstructor<'a> {
                         "A virtual package without default implementation should not have a build target info, thus should not reach here"
                     );
                 }
-            } else if let Some(implement) =
-                self.input.package_relations.virt_impl.get(target.package)
-            {
+            } else if let Some(implement) = self.rel.virt_impl.get(target.package) {
                 Some(implement.build_target(TargetKind::Source))
             } else {
                 None
@@ -1161,11 +1155,7 @@ impl<'a> BuildPlanConstructor<'a> {
         target: BuildTarget,
     ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>, bool), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let vp_info = self
-            .input
-            .package_relations
-            .virtual_users
-            .get(target.package);
+        let vp_info = self.rel.virtual_users.get(target.package);
 
         let abort = if self.config.stdlib_path.is_some() {
             self.input.pkg_dirs.abort_pkg()
@@ -1189,7 +1179,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Core versions without abort need no separate default implementation.
         let link_stdlib_abort = abort.is_some() && abort_override_pkg.is_none();
 
-        let graph = &self.input.package_relations.dep_graph;
+        let graph = &self.rel.dep_graph;
 
         // Topo sort via DFS postorder
         let mut visited: HashSet<BuildTarget> = HashSet::new(); // pre-order visited
@@ -1407,7 +1397,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let mut seeds: Vec<_> = pkg_map.values().copied().collect();
         seeds.sort_by(cmp_by_fqn);
 
-        let graph = &self.input.package_relations.dep_graph;
+        let graph = &self.rel.dep_graph;
         let mut ordered = Vec::new();
         let mut visited = HashSet::new();
         let mut stack = Vec::new();
@@ -1605,7 +1595,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .virtual_contract_inputs
             .insert(target, selected);
 
-        for dep in self.input.package_relations.dep_graph.neighbors_directed(
+        for dep in self.rel.dep_graph.neighbors_directed(
             target.build_target(TargetKind::Source),
             petgraph::Direction::Outgoing,
         ) {

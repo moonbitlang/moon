@@ -567,7 +567,7 @@ pub enum BuildPlanConstructError {
 
     #[error(
         "Selected backend '{backend}' is incompatible with the dependency graph. \
-         '{importer}' requires '{dependency}' which supports {supported_backends}. \
+         '{importer}' requires '{dependency}' whose active dependency graph supports {supported_backends}. \
          Dependency path: {path}"
     )]
     BackendIncompatibleDependency {

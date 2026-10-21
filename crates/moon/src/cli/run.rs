@@ -605,7 +605,7 @@ pub(crate) fn plan_run_rr_from_discovered(
         &discovered,
         cmd.build_flags.enable_value_tracing,
     )?;
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
     let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
@@ -767,7 +767,7 @@ fn build_single_file_executable(
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
-    let resolved = discovered.resolve_packages(user_log)?;
+    let resolved = discovered.resolve_packages(&[selected_target_backend], user_log)?;
 
     let lock = if cli.dry_run {
         None

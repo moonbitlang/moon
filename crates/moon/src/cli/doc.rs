@@ -144,7 +144,7 @@ pub(crate) fn run_doc_rr(
         .module_info(module_id)
         .preferred_target
         .unwrap_or_default();
-    let resolved_project = discovered.resolve_packages(user_log)?;
+    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
 
     let mut compile_config = rr_build::prepare_resolved_build(
         &cli,

@@ -42,6 +42,7 @@ use super::{
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
     pub(super) input: &'a ResolvedProject,
+    pub(super) rel: &'a crate::pkg_solve::PackageRelations,
     pub(super) config: &'a CompileConfig,
     pub(super) input_directive: &'a InputDirective,
     pub(super) prebuild_config: Option<&'a PrebuildOutput>,
@@ -82,6 +83,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Self {
         Self {
             input: resolved,
+            rel: &resolved.package_relations[&config.backend.target_backend()],
             config,
             input_directive,
             prebuild_config,
