@@ -28,3 +28,11 @@ Binary resolution is demand-driven. The cache must not expose an aggregate
 inventory API: code for display, diagnostics, or tests must never enumerate all
 entries or otherwise force resolution of the complete executable inventory.
 An unavailable unused executable must not make an operation fail.
+
+Version output uses the selected executable paths. For display, paths under
+the user's home directory are abbreviated with `~` by comparing whole path
+components. Ordinary and verbatim Windows drive/UNC prefixes match, including
+when a long executable path retains its prefix beneath a short home directory.
+Paths outside home are simplified only when that preserves their meaning. This
+formatting applies to both text and JSON output and does not change the paths
+used to execute tools.
