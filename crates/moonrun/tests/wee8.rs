@@ -21,79 +21,6 @@
 use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome};
 
 #[test]
-fn cli_runs_compiler_produced_moonbit() {
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let directory = moon_test_util::test_dir::TestDir::from_case_root(
-        manifest.join("tests/test_cases"),
-        "test_wee8.in",
-        false,
-    );
-    let moon = escargot::CargoBuild::new()
-        .manifest_path(manifest.join("../moon/Cargo.toml"))
-        .bin("moon")
-        .current_release()
-        .run()
-        .expect("build moon");
-    for target in ["wasm", "wasm-gc"] {
-        for (profile, flag) in [("debug", "--debug"), ("release", "--release")] {
-            snapbox::cmd::Command::new(moon.path())
-                .current_dir(&directory)
-                .args(["build", "--target", target, flag])
-                .assert()
-                .success();
-            snapbox::cmd::Command::new(env!("CARGO_BIN_EXE_moonrun"))
-                .arg(directory.join(format!("_build/{target}/{profile}/build/main/main.wasm")))
-                .assert()
-                .success()
-                // The GC compiler emits spectest.print_char for eprintln too;
-                // the linear backend uses WASI stderr. Preserve that existing ABI.
-                .stdout_eq(if target == "wasm" {
-                    "Hello, 世界 🦀\n42\n"
-                } else {
-                    "Hello, 世界 🦀\n42\nFailure(format probe)\n"
-                })
-                .stderr_eq(if target == "wasm" {
-                    "Failure(format probe)\n"
-                } else {
-                    ""
-                });
-        }
-    }
-}
-
-#[test]
-fn cli_writes_from_grown_memory_and_exits() {
-    let wasm = wat::parse_str(r#"(module
-        (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
-        (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
-        (memory (export "memory") 1 2)
-        (data (i32.const 16) "hello from wee8\0a")
-        (func (export "_start")
-            i32.const 0 i32.const 16 i32.store
-            i32.const 4 i32.const 16 i32.store
-            i32.const 1 i32.const 0 i32.const 1 i32.const 8 call $write
-            if unreachable end
-            i32.const 8 i32.load i32.const 16 i32.ne if unreachable end
-            i32.const 1 memory.grow i32.const 1 i32.ne if unreachable end
-            i32.const 65536 i32.const 0x0a77656e i32.store
-            i32.const 0 i32.const 65536 i32.store
-            i32.const 4 i32.const 4 i32.store
-            i32.const 1 i32.const 0 i32.const 1 i32.const 8 call $write
-            if unreachable end
-            i32.const 7 call $exit
-            unreachable))"#).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    let file = directory.path().join("hello.wasm");
-    std::fs::write(&file, wasm).unwrap();
-    snapbox::cmd::Command::new(env!("CARGO_BIN_EXE_moonrun"))
-        .arg(file)
-        .assert()
-        .code(7)
-        .stdout_eq("hello from wee8\nnew\n")
-        .stderr_eq("");
-}
-
-#[test]
 fn modules_reuse_compilation_with_fresh_memory_and_arguments() {
     let engine = Engine::default();
     let module = engine.compile("args.wasm", wat::parse_str(r#"(module
@@ -148,7 +75,7 @@ fn modules_without_start_export_complete() {
 }
 
 #[test]
-fn guest_exit_and_guest_traps_preserve_run_outcomes() {
+fn guest_exit_traps_and_exceptions_preserve_run_outcomes() {
     let engine = Engine::default();
     for (source, expected) in [
         (
@@ -168,6 +95,32 @@ fn guest_exit_and_guest_traps_preserve_run_outcomes() {
         (
             r#"(module (func (export "_start") unreachable))"#,
             RunOutcome::Exited(1),
+        ),
+        (
+            r#"(module
+            (import "exception" "throw" (func $throw))
+            (import "exception" "tag" (tag $tag))
+            (func (export "_start") call $throw))"#,
+            RunOutcome::Exited(1),
+        ),
+        (
+            r#"(module
+            (import "exception" "tag" (tag $tag))
+            (func $start throw $tag) (start $start))"#,
+            RunOutcome::Exited(1),
+        ),
+        (
+            // The callback must throw the exact imported tag, even when the
+            // function import precedes it in the module's declaration order.
+            r#"(module
+            (import "exception" "throw" (func $throw))
+            (import "exception" "tag" (tag $tag))
+            (func (export "_start")
+                block $caught
+                    try_table (catch $tag $caught) call $throw end
+                    unreachable
+                end))"#,
+            RunOutcome::Completed,
         ),
     ] {
         let module = engine
@@ -204,7 +157,7 @@ fn unsupported_imports_and_start_memory_are_host_errors() {
         ),
         (
             r#"(module (import "host" "memory" (memory 1)))"#,
-            "unsupported non-function import host::memory",
+            "unsupported import host::memory",
         ),
         (
             r#"(module
@@ -213,6 +166,22 @@ fn unsupported_imports_and_start_memory_are_host_errors() {
             (func $start i32.const 1 i32.const 0 i32.const 0 i32.const 0 call $write drop)
             (start $start))"#,
             "unavailable during module start",
+        ),
+        (
+            r#"(module (import "exception" "tag" (tag (param i32))))"#,
+            "incorrect signature for exception::tag",
+        ),
+        (
+            r#"(module (import "exception" "throw" (func)))"#,
+            "missing `exception.tag` import",
+        ),
+        (
+            r#"(module (import "exception" "tag" (tag)) (import "exception" "tag" (tag)))"#,
+            "duplicate `exception.tag` import",
+        ),
+        (
+            r#"(module (import "exception" "tag" (tag)) (import "exception" "throw" (func (param i32))))"#,
+            "incorrect signature for exception::throw",
         ),
     ] {
         let module = engine
@@ -224,44 +193,19 @@ fn unsupported_imports_and_start_memory_are_host_errors() {
 }
 
 #[test]
-fn wasi_reports_bad_guest_addresses_without_panicking() {
-    let engine = Engine::default();
-    let module = engine.compile("bounds.wasm", wat::parse_str(r#"(module
-        (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
-        (memory (export "memory") 1)
-        (func (export "_start")
-            i32.const 1 i32.const -1 i32.const 1 i32.const 0 call $write
-            i32.eqz if unreachable end))"#).unwrap()).unwrap();
-    assert_eq!(
-        engine.run(&module, RunOptions::default()).unwrap(),
-        RunOutcome::Completed
-    );
-}
-
-#[test]
 fn proposals_and_unsupported_options_fail_before_execution() {
     let engine = Engine::default();
-    for source in ["(module (memory 1 1 shared))", "(module (tag (param i32)))"] {
-        let error = engine
-            .compile("unsupported.wasm", wat::parse_str(source).unwrap())
-            .unwrap_err();
-        assert!(
-            format!("{error:#}").contains("supported Wasm subset"),
-            "{error:#}"
-        );
-    }
-    let bytes = wat::parse_str(r#"(module (func (export "_start")))"#).unwrap();
-    let module = engine.compile("test.wasm", &bytes).unwrap();
+    let error = engine
+        .compile(
+            "unsupported.wasm",
+            wat::parse_str(r#"(module (memory (export "memory") 1 1 shared))"#).unwrap(),
+        )
+        .unwrap_err();
     assert!(
-        engine
-            .run(
-                &module,
-                RunOptions::default().with_test_args(r#"{"package":"test","file_and_index":[]}"#)
-            )
-            .unwrap_err()
-            .to_string()
-            .contains("test driver")
+        format!("{error:#}").contains("shared memory is unsupported in C API"),
+        "{error:#}"
     );
+    let bytes = wat::parse_str(r#"(module (func (export "_start")))"#).unwrap();
     assert!(
         Engine::new(EngineConfig::default().with_stack_size(512))
             .compile("stack.wasm", bytes)

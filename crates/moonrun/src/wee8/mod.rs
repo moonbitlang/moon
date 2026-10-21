@@ -27,11 +27,12 @@ mod wasm_imports;
 
 use crate::engine::{
     BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,
+    run_test_driver,
 };
 use crate::run_termination::TerminationRequest;
 use crate::runtime::{Runtime, Utf16Writer};
 use crate::source_map::SourceMap;
-use crate::wasm_imports::{Caller, ImportRegistry};
+use crate::wasm_imports::{Caller, ImportRegistry, payload::JsString};
 use anyhow::Context;
 use std::sync::Arc;
 
@@ -99,10 +100,6 @@ impl Engine {
         self.initialization
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
-        anyhow::ensure!(
-            test_args.is_none(),
-            "wee8 does not support the MoonBit test driver yet"
-        );
         let termination = TerminationRequest::default();
         let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
         let stdio = Arc::clone(runtime.stdio());
@@ -113,8 +110,9 @@ impl Engine {
             wasi,
         })?;
         let module = store.module(compiled)?;
-        let imports = (|| -> api::Result<_> {
+        let registry = (|| -> api::Result<_> {
             let mut registry = wasm_imports::Registry::new(&store, &module)?;
+            registry.register_exceptions()?;
             crate::wasi::imports::register(&mut registry)?;
             crate::async_api::register(&mut registry)?;
             crate::sqlite::wasm::register(&mut registry)?;
@@ -133,30 +131,97 @@ impl Engine {
                         .map_err(|error| crate::wasm_imports::ImportError::Host(error.into()))
                 },
             )?;
-            registry.finish()
+            Ok(registry)
         })()
         .with_context(|| format!("failed to instantiate `{module_name}`"))?;
-        let result = module
-            .instantiate(&imports.iter().collect::<Vec<_>>())
-            .and_then(|mut instance| {
-                // Instantiation already executes any Wasm start section. The
-                // conventional `_start` export is optional, as in other backends.
-                if instance.has_export("_start") {
-                    instance.call("_start", &[])
-                } else {
-                    Ok(Vec::new())
-                }
-            });
-        let outcome = if let Some(termination) = termination.take() {
-            BackendCallOutcome::Terminated(termination)
-        } else {
-            match result {
-                Ok(values) if values.is_empty() => BackendCallOutcome::Completed,
-                Ok(_) => anyhow::bail!("wee8 requires `_start` to return no values"),
-                Err(api::Error::Trap(message)) => BackendCallOutcome::GuestFailure(message),
-                Err(error) => return Err(error.into()),
+        let imports = registry
+            .finish()
+            .with_context(|| format!("failed to instantiate `{module_name}`"))?;
+        let mut instance = match module.instantiate_with_imports(&imports) {
+            Ok(instance) => instance,
+            Err(error) => {
+                return complete_run_call(
+                    call_outcome(&store, &termination, Err(error))
+                        .with_context(|| format!("failed to instantiate `{module_name}`"))?,
+                    &stdio,
+                );
             }
         };
-        complete_run_call(outcome, &stdio)
+        if let Some(termination) = termination.take() {
+            return Ok(BackendRunOutcome::Terminated(termination));
+        }
+
+        if let Some(test_args) = test_args {
+            for export in [
+                "moonbit_test_driver_internal_execute",
+                "moonbit_test_driver_finish",
+            ] {
+                anyhow::ensure!(
+                    instance.has_export(export),
+                    "test module does not export `{export}`"
+                );
+            }
+            run_test_driver(
+                &mut instance,
+                test_args,
+                &stdio,
+                |instance, file, index| {
+                    // Use the same UTF-16 payload representation as shared host
+                    // string imports; the root lives through this guest call.
+                    let payload: Box<dyn std::any::Any + Send + Sync> =
+                        Box::new(JsString(file.encode_utf16().collect()));
+                    let file = store.extern_ref(payload)?;
+                    call_outcome(
+                        &store,
+                        &termination,
+                        instance.call(
+                            "moonbit_test_driver_internal_execute",
+                            &[
+                                api::Value::ExternRef(Some(file)),
+                                api::Value::I32(index as i32),
+                            ],
+                        ),
+                    )
+                    .context("failed to execute a MoonBit test")
+                },
+                |instance| {
+                    call_outcome(
+                        &store,
+                        &termination,
+                        instance.call("moonbit_test_driver_finish", &[]),
+                    )
+                    .context("failed to finish the MoonBit test driver")
+                },
+            )
+        } else if instance.has_export("_start") {
+            // Instantiation already executes the Wasm start section. `_start`
+            // is optional, as in the other backends.
+            complete_run_call(
+                call_outcome(&store, &termination, instance.call("_start", &[]))?,
+                &stdio,
+            )
+        } else {
+            Ok(BackendRunOutcome::Completed)
+        }
     }
+}
+
+fn call_outcome(
+    store: &api::Store<StoreData>,
+    termination: &TerminationRequest,
+    result: api::Result<Vec<api::Value<'_>>>,
+) -> anyhow::Result<BackendCallOutcome> {
+    // Release an uncaught exception's native root before executing another test,
+    // including when a host exit takes precedence over the guest exception.
+    drop(store.take_exception());
+    if let Some(termination) = termination.take() {
+        return Ok(BackendCallOutcome::Terminated(termination));
+    }
+    Ok(match result {
+        Ok(values) if values.is_empty() => BackendCallOutcome::Completed,
+        Ok(_) => anyhow::bail!("wee8 entry point must return no values"),
+        Err(api::Error::Trap(message)) => BackendCallOutcome::GuestFailure(message),
+        Err(api::Error::ThrownException) => BackendCallOutcome::GuestFailure("Error".into()),
+        Err(error) => return Err(error.into()),
+    })
 }
