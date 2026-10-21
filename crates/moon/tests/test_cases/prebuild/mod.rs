@@ -134,6 +134,12 @@ dev_build(rule: "embed", input: "input.txt", output: {output:?})
             moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run"]),
             expect_file!["equivalent_output_paths.snap"],
         );
+        // Formatting must recognize the same generated file, even when the
+        // generator's output does not follow moonfmt's formatting conventions.
+        let generated = "let generated:Int=1\n";
+        std::fs::write(package.join("generated.mbt"), generated).unwrap();
+        moon_cmd(&dir).arg("fmt").assert().success();
+        assert_eq!(read(package.join("generated.mbt")), generated);
     }
 }
 

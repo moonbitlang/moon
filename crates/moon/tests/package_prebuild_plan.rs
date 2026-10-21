@@ -268,21 +268,29 @@ fn explicit_legacy_inputs_use_only_custom_prebuild() {
             "custom input",
         )
         .unwrap();
-        std::fs::write(
-            dir.join("src/main/moon.pkg"),
-            format!(
-                r#"
+        let input = dir.join(format!("src/main/legacy.{extension}"));
+        let absolute = dunce::canonicalize(input).unwrap();
+        for declared in [
+            format!("./legacy.{extension}"),
+            format!("../main/legacy.{extension}"),
+            absolute.to_str().unwrap().to_owned(),
+        ] {
+            std::fs::write(
+                dir.join("src/main/moon.pkg"),
+                format!(
+                    r#"
 pkgtype(kind: "executable")
 rule(name: "generate", command: ":embed --text -i $input -o $output --name _legacy_text")
-dev_build(rule: "generate", input: "./legacy.{extension}", output: "generated.mbt")
+dev_build(rule: "generate", input: {declared:?}, output: "generated.mbt")
 "#
-            ),
-        )
-        .unwrap();
-        for _ in 0..2 {
-            moon_check(&dir).assert().success();
-            assert!(dir.join("src/main/generated.mbt").exists());
-            assert!(!dir.join("src/main/legacy.mbt").exists());
+                ),
+            )
+            .unwrap();
+            for _ in 0..2 {
+                moon_check(&dir).assert().success();
+                assert!(dir.join("src/main/generated.mbt").exists());
+                assert!(!dir.join("src/main/legacy.mbt").exists());
+            }
         }
     }
 }
