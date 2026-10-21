@@ -20,7 +20,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -34,6 +34,58 @@ use crate::{
     model::PackageId,
     pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
 };
+
+/// Construct a declared prebuild file path in the package file identity.
+///
+/// Discovery, formatting, and build planning share this constructor so that
+/// each compares complete paths without reconciling different spellings.
+pub(crate) fn resolve_prebuild_path(package_root: &Path, path: &str) -> PathBuf {
+    // Construct declared paths in the same form as discovered package files,
+    // before they enter the plan. Outputs may not exist yet, so resolve their
+    // components lexically against the canonical package root.
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+
+        let path = package_root.join(path);
+        let mut components = path.components();
+        let Some(Component::Prefix(prefix)) = components.next() else {
+            return path.components().collect();
+        };
+        let root = match prefix.kind() {
+            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) if path.is_absolute() => {
+                // Rust parses drive letters uppercase. Rebuild verbatim drives
+                // too: n2 compares raw strings, unlike PathBuf's drive equality.
+                PathBuf::from(format!(r"\\?\{}:", char::from(drive)))
+            }
+            Prefix::UNC(server, share) => {
+                // A UNC prefix must be complete before native joining parses it.
+                let mut root = std::ffi::OsString::from(r"\\?\UNC\");
+                root.push(server);
+                root.push(r"\");
+                root.push(share);
+                PathBuf::from(root)
+            }
+            _ => PathBuf::from(prefix.as_os_str()),
+        };
+        // An absolute declaration may have replaced the package root with an
+        // ordinary drive/UNC root. Restore its verbatim spelling, then let
+        // native joining resolve separators and parent components.
+        root.join(components.as_path())
+    }
+    #[cfg(not(windows))]
+    {
+        let root = if Path::new(path).is_absolute() {
+            Path::new("/")
+        } else {
+            package_root
+        };
+        relative_path::RelativePath::new(path)
+            .to_logical_path(root)
+            .components()
+            .collect()
+    }
+}
 
 /// The source format of a synthetic single-file package.
 ///
@@ -412,4 +464,87 @@ pub enum DiscoverError {
         "Front matter import '{import}' could not be resolved. Make sure its module is listed in moonbit.deps."
     )]
     SingleFileImportNotFound { import: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    #[cfg(windows)]
+    use std::path::PathBuf;
+
+    use super::resolve_prebuild_path;
+
+    #[test]
+    #[cfg(windows)]
+    fn prebuild_paths_use_native_verbatim_joining() {
+        for (input_prefix, prefix) in [
+            (r"C:", r"\\?\C:"),
+            (r"\\?\C:", r"\\?\C:"),
+            (r"\\server\share", r"\\?\UNC\server\share"),
+            (r"\\?\UNC\server\share", r"\\?\UNC\server\share"),
+        ] {
+            let root = PathBuf::from(format!(r"{input_prefix}\project\pkg"));
+            for (relative, expected) in [
+                ("../a/b/c", r"\project\a\b\c"),
+                ("../assets/./file", r"\project\assets\file"),
+                (r"..\assets\.\file", r"\project\assets\file"),
+                (r"../assets\..\file", r"\project\file"),
+                ("../../../../file", r"\file"),
+                ("../assets/nonexistent", r"\project\assets\nonexistent"),
+            ] {
+                let path = resolve_prebuild_path(&root, relative);
+                assert_eq!(
+                    path.as_os_str(),
+                    Path::new(&format!("{prefix}{expected}")).as_os_str(),
+                    "root={root:?}, relative={relative:?}",
+                );
+                assert!(!path.to_str().expect("test path is UTF-8").contains('/'));
+                assert!(!path.components().any(|component| matches!(
+                    component,
+                    std::path::Component::CurDir | std::path::Component::ParentDir
+                )));
+            }
+        }
+        for (absolute, expected) in [
+            (r"D:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
+            (r"d:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
+            (r"\\?\d:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
+            (
+                r"\\server\share\assets\..\generated.mbt",
+                r"\\?\UNC\server\share\generated.mbt",
+            ),
+        ] {
+            assert_eq!(
+                resolve_prebuild_path(Path::new(r"\\?\C:\project\pkg"), absolute).as_os_str(),
+                Path::new(expected).as_os_str(),
+            );
+        }
+    }
+
+    #[test]
+    fn prebuild_declarations_construct_the_package_file_spelling() {
+        let package = if cfg!(windows) {
+            Path::new(r"\\?\C:\project\pkg")
+        } else {
+            Path::new("/project/pkg")
+        };
+        // Discovery derives file paths from this same package root. No file
+        // needs to exist, and no later comparison needs to reconcile spellings.
+        let discovered = package.join("generated.mbt");
+        let absolute = dunce::simplified(&discovered)
+            .to_str()
+            .expect("test path is UTF-8");
+        for declared in [
+            "generated.mbt",
+            "./generated.mbt",
+            "../pkg/generated.mbt",
+            absolute,
+        ] {
+            assert_eq!(
+                resolve_prebuild_path(package, declared).as_os_str(),
+                discovered.as_os_str(),
+                "declaration={declared:?}",
+            );
+        }
+    }
 }

@@ -42,13 +42,13 @@ use moonutil::{
     toolchain,
 };
 use regex::Regex;
-use relative_path::{PathExt, RelativePath};
+use relative_path::PathExt;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     build_plan::{BuildBundleInfo, PrebuildInfo},
     cond_comp,
-    discover::DiscoveredPackage,
+    discover::{DiscoveredPackage, resolve_prebuild_path},
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
         NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind,
@@ -1823,40 +1823,8 @@ impl<'a> BuildPlanConstructor<'a> {
         let pkg = self.input.pkg_dirs.get_package(package);
         let module = &self.input.module_dirs[pkg.module];
 
-        // Warn about suspicious outputs
-        for output in prebuild_cmd.output().iter() {
-            let output: &Path = output.as_ref();
-            let Some(filename) = output.file_name().and_then(OsStr::to_str) else {
-                continue;
-            };
-
-            // If the output is a moonbit source and it does not live in the current dir
-            if (filename.ends_with(".mbt") || filename.ends_with(".mbt.md"))
-                && output.parent() != Some("".as_ref())
-            {
-                self.user_log.warn(format!(
-                    "Prebuild output '{}' is not in the package directory of package {}. \
-                     Such behavior is not supported. \
-                     The build system will not add it to the list of MoonBit files to compile. \
-                     If you really intend to generate files for another package, \
-                     please move the prebuild command to that package instead.",
-                    output.display(),
-                    pkg.fqn
-                ));
-            }
-            // If the file looks like a package manifest
-            if is_moon_mod(filename) || is_moon_pkg(filename) {
-                self.user_log.warn(format!(
-                    "Prebuild output '{}' of package {} looks like a package manifest file. \
-                     Overwriting package manifests is not supported and may lead to unexpected behavior.",
-                    output.display(),
-                    pkg.fqn
-                ));
-            }
-        }
-
-        // Resolve declared paths once; the same outputs drive package-file
-        // interpretation and lowering.
+        // Resolve declared paths once; both graph tracking and file
+        // interpretation must use the same spelling as source discovery.
         let input_paths = prebuild_cmd
             .input()
             .iter()
@@ -1867,6 +1835,37 @@ impl<'a> BuildPlanConstructor<'a> {
             .iter()
             .map(|path| resolve_prebuild_path(&pkg.root_path, path))
             .collect::<Vec<_>>();
+
+        // Warn about suspicious outputs
+        for (declared, output) in prebuild_cmd.output().iter().zip(&output_paths) {
+            let Some(filename) = output.file_name().and_then(OsStr::to_str) else {
+                continue;
+            };
+
+            // If the output is a moonbit source and it does not live in the current dir
+            if (filename.ends_with(".mbt") || filename.ends_with(".mbt.md"))
+                && output.parent() != Some(pkg.root_path.as_path())
+            {
+                self.user_log.warn(format!(
+                    "Prebuild output '{}' is not in the package directory of package {}. \
+                     Such behavior is not supported. \
+                     The build system will not add it to the list of MoonBit files to compile. \
+                     If you really intend to generate files for another package, \
+                     please move the prebuild command to that package instead.",
+                    declared, pkg.fqn
+                ));
+            }
+            // If the file looks like a package manifest
+            if is_moon_mod(filename) || is_moon_pkg(filename) {
+                self.user_log.warn(format!(
+                    "Prebuild output '{}' of package {} looks like a package manifest file. \
+                     Overwriting package manifests is not supported and may lead to unexpected behavior.",
+                    declared,
+                    pkg.fqn
+                ));
+            }
+        }
+
         let command_cwd = module.as_path();
         let command_input_paths = prebuild_command_paths(command_cwd, &input_paths);
         let command_output_paths = prebuild_command_paths(command_cwd, &output_paths);
@@ -1940,8 +1939,6 @@ fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
     }
 }
 
-const PREBUILD_PLACEHOLDERS: [&str; 4] = [MOD_DIR, PKG_DIR, "$input", "$output"];
-
 /// Substitute prebuild command placeholders and resolve a relative shell argv0.
 ///
 /// The `:embed ` discriminator remains intact so lowering can emit that built-in
@@ -1956,64 +1953,37 @@ fn resolve_prebuild_command(
     input_files: &[String],
     output_files: &[String],
 ) -> String {
-    use std::fmt::Write;
-
+    // Command templates are arbitrary text. Simplify short Windows roots before
+    // users append their own path syntax, but do not interpret that syntax here.
+    let mod_dir = dunce::simplified(mod_source).to_string_lossy();
+    let pkg_dir = dunce::simplified(pkg_source).to_string_lossy();
+    let inputs = input_files.join(" ");
+    let outputs = output_files.join(" ");
+    let replacements = [
+        (MOD_DIR, mod_dir.as_ref()),
+        (PKG_DIR, pkg_dir.as_ref()),
+        ("$input", inputs.as_str()),
+        ("$output", outputs.as_str()),
+    ];
     let mut resolved = String::new();
-
-    // Perform replacements in one pass while preserving unrecognized `$` sequences.
-    let mut last_end = 0usize;
+    let mut last_end = 0;
+    // Expand only the original template: directory names may contain literal
+    // placeholder text, which must not be expanded a second time.
     while let Some(next_dollar) = command[last_end..].find('$') {
         let start = last_end + next_dollar;
-        let Some((pattern_id, pattern)) = PREBUILD_PLACEHOLDERS
+        let Some((pattern, replacement)) = replacements
             .iter()
-            .enumerate()
-            .find(|(_, pattern)| command[start..].starts_with(**pattern))
+            .find(|(pattern, _)| command[start..].starts_with(pattern))
         else {
             resolved.push_str(&command[last_end..=start]);
             last_end = start + 1;
             continue;
         };
-
-        // Commit previous segment
-        if start > last_end {
-            resolved.push_str(&command[last_end..start]);
-        }
-
-        // Insert replacement
-        match pattern_id {
-            // $mod_dir => <mod_source>
-            0 => {
-                write!(resolved, "{}", mod_source.display()).expect("write can't fail");
-            }
-            // $pkg_dir => <pkg_source>
-            1 => {
-                write!(resolved, "{}", pkg_source.display()).expect("write can't fail");
-            }
-            // $input => (existing)<input_1>, <input_2>, ...
-            2 => {
-                for (i, f) in input_files.iter().enumerate() {
-                    if i != 0 {
-                        write!(resolved, " ").expect("write can't fail");
-                    }
-                    write!(resolved, "{f}").expect("write can't fail");
-                }
-            }
-            3 => {
-                for (i, f) in output_files.iter().enumerate() {
-                    if i != 0 {
-                        write!(resolved, " ").expect("write can't fail");
-                    }
-                    write!(resolved, "{f}").expect("write can't fail");
-                }
-            }
-            _ => unreachable!("Unexpected prebuild placeholder index"),
-        }
+        resolved.push_str(&command[last_end..start]);
+        resolved.push_str(replacement);
         last_end = start + pattern.len();
     }
-
-    if last_end < command.len() {
-        resolved.push_str(&command[last_end..]);
-    }
+    resolved.push_str(&command[last_end..]);
 
     // Resolve argv[0]
     let argv0 = moonutil::shlex::get_argv0_native(&resolved);
@@ -2050,21 +2020,6 @@ fn resolve_prebuild_command(
     }
 
     resolved
-}
-
-fn resolve_prebuild_path(package_root: &Path, path: &str) -> PathBuf {
-    if Path::new(path).is_absolute() {
-        return path.into();
-    }
-    if cfg!(windows) {
-        // Package roots are canonical. Native joining resolves remaining `..`
-        // and converts separators when extending a Windows verbatim root.
-        // Canonicalizing the completed path would require outputs to exist.
-        package_root.join(path)
-    } else {
-        // Preserve the existing lexical normalization on other platforms.
-        RelativePath::new(path).normalize().to_path(package_root)
-    }
 }
 
 fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
@@ -2158,30 +2113,27 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn prebuild_paths_use_native_verbatim_joining() {
-        for prefix in [r"\\?\C:", r"\\?\UNC\server\share"] {
-            let root = PathBuf::from(format!(r"{prefix}\project\pkg"));
-            for (relative, expected) in [
-                ("../a/b/c", r"\project\a\b\c"),
-                ("../assets/./file", r"\project\assets\file"),
-                (r"..\assets\.\file", r"\project\assets\file"),
-                (r"../assets\..\file", r"\project\file"),
-                ("../../../../file", r"\file"),
-                ("../assets/nonexistent", r"\project\assets\nonexistent"),
-            ] {
-                let path = resolve_prebuild_path(&root, relative);
-                assert_eq!(
-                    path.as_os_str(),
-                    Path::new(&format!("{prefix}{expected}")).as_os_str(),
-                    "root={root:?}, relative={relative:?}",
-                );
-                assert!(!path.to_str().unwrap().contains('/'));
-                assert!(!path.components().any(|component| matches!(
-                    component,
-                    std::path::Component::CurDir | std::path::Component::ParentDir
-                )));
-            }
+    fn prebuild_command_keeps_textual_windows_paths() {
+        let module = Path::new(r"\\?\C:\Users\user'quote\project $input with spaces");
+        let package = module.join("src/app");
+        let mut snapshot = String::new();
+        for command in [
+            r#":embed --text -i "$pkg_dir/../assets 'quoted'/./input.txt" -o "$pkg_dir/../app/generated.mbt""#,
+            r#"tool --assets="$mod_dir/src/app/../assets" "$pkg_dir_extra/keep" "$input" "$output" $unknown"#,
+            r#""$mod_dir/bin/tool.exe" "$pkg_dir\..\assets/../input.txt" "$pkg_dir/""#,
+            r#"tool "-I$pkg_dir/include" "/I$pkg_dir/include" --mapping="$pkg_dir/include,public" "$pkg_dir/$output""#,
+        ] {
+            let resolved = resolve_prebuild_command(
+                command,
+                module,
+                &package,
+                &["./first.txt".to_owned(), "./second.txt".to_owned()],
+                &["./generated.mbt".to_owned()],
+            );
+            snapshot.push_str(&resolved);
+            snapshot.push('\n');
         }
+        expect_test::expect_file!["snapshots/windows_prebuild_paths.snap"].assert_eq(&snapshot);
     }
 
     #[test]
@@ -2252,7 +2204,10 @@ mod tests {
         );
         // Reverse the direction: the cwd is long, but the target is short.
         assert_eq!(
-            prebuild_command_path(path.parent().unwrap(), &cwd.join("output.txt")),
+            prebuild_command_path(
+                path.parent().expect("test file has a parent"),
+                &cwd.join("output.txt"),
+            ),
             format!("./{}output.txt", "../".repeat(40))
         );
     }
@@ -2306,6 +2261,19 @@ mod tests {
             command,
             "generate --inputs ./src/lib/input.txt ./src/assets/second.txt --outputs ./src/lib/generated.mbt ./src/lib/generated_2.mbt"
         );
+    }
+
+    #[test]
+    fn resolve_prebuild_command_preserves_attached_placeholders() {
+        let command = resolve_prebuild_command(
+            r#"tool "-I$pkg_dir/include" "/I$pkg_dir/include" --mapping="$pkg_dir/include,public" "$pkg_dir-suffix" $unknown"#,
+            Path::new("module"),
+            Path::new("module/pkg"),
+            &[],
+            &[],
+        );
+        expect_test::expect![[r#"tool "-Imodule/pkg/include" "/Imodule/pkg/include" --mapping="module/pkg/include,public" "module/pkg-suffix" $unknown"#]]
+            .assert_eq(&command);
     }
 
     #[test]
