@@ -688,6 +688,10 @@ fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
 
 #[test]
 fn test_fetch_and_binary_install_ignore_postadd() {
+    use crate::support::http::{Response, serve};
+
+    // Initialize the test toolchain before starting the HTTP fixture's timeout.
+    let _ = moonrun_bin();
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new().expect("failed to create temporary MOON_HOME");
     let registry = tempfile::TempDir::new().expect("failed to create temporary registry");
@@ -789,11 +793,23 @@ pkgtype(kind: "executable")
         "failed to publish local registry index:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    // Legacy registry configurations otherwise download symbols from the public
+    // service even when their registry index points to a local fixture.
+    let symbols = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()))
+        .finish()
+        .unwrap()
+        .into_inner();
+    let (symbols_url, symbols_server) = serve(vec![Response {
+        status: "200 OK",
+        location: None,
+        body: symbols,
+    }]);
     std::fs::write(
         moon_home.path().join("config.json"),
         serde_json::json!({
             "registry": "https://registry.invalid",
             "index": registry_index,
+            "symbols": format!("{symbols_url}/symbols.zip"),
         })
         .to_string(),
     )
@@ -819,9 +835,13 @@ Warning: `scripts.postadd` in module `testuser/postadd` is deprecated and ignore
     }
 
     let bin_dir = dir.join("bin");
+    // Native compiler/linker output between the warning and completion varies
+    // by platform and toolchain; the hook warning and install result are stable.
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("PATH", &moon_path)
+        .env("NO_PROXY", "127.0.0.1")
+        .env("no_proxy", "127.0.0.1")
         .args(["install", "testuser/postadd/tool@1.0.0", "--bin"])
         .arg(&bin_dir)
         .assert()
@@ -829,12 +849,17 @@ Warning: `scripts.postadd` in module `testuser/postadd` is deprecated and ignore
         .stderr_eq(snapbox::str![[r#"
 ...
 Registry index updated successfully
+Symbols updated successfully
 Using cached testuser/postadd@1.0.0
 Warning: `scripts.postadd` in module `testuser/postadd` is deprecated and ignored. Please open an issue at https://github.com/moonbitlang/moon/issues if you need toolchain setup hooks.
+...
 Finished. moon: ran [..] tasks, now up to date
 Success: Installed `tool` to `[..]/bin/tool[..]`
 
 "#]]);
+    let requests = symbols_server.join().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].starts_with("GET /symbols.zip HTTP/1.1\r\n"));
     #[cfg(unix)]
     assert!(bin_dir.join("tool").is_file());
     #[cfg(windows)]

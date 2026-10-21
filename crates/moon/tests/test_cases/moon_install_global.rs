@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::*;
+use crate::support::http::{Response, serve};
 
 #[test]
 fn test_moon_install_major_version_root_uses_base_name() {
@@ -240,67 +241,6 @@ fn test_moon_install_global_local_path_wildcard_with_path_flag_warns() {
     );
 }
 
-struct ArchiveResponse {
-    status: &'static str,
-    location: Option<&'static str>,
-    body: Vec<u8>,
-}
-
-fn serve_github_archive(
-    responses: Vec<ArchiveResponse>,
-) -> (String, std::thread::JoinHandle<Vec<String>>) {
-    use std::io::Read;
-    use std::time::{Duration, Instant};
-
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let proxy = format!("http://{}", listener.local_addr().unwrap());
-    let server = std::thread::spawn(move || {
-        let mut requests = Vec::new();
-        for response in responses {
-            let deadline = Instant::now() + Duration::from_secs(10);
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        if Instant::now() >= deadline {
-                            return requests;
-                        }
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(error) => panic!("archive server failed: {error}"),
-                }
-            };
-            stream.set_nonblocking(false).unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(10)))
-                .unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0; 1024];
-            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                let read = stream.read(&mut buffer).unwrap();
-                assert_ne!(read, 0, "request ended before its headers");
-                request.extend_from_slice(&buffer[..read]);
-            }
-            requests.push(String::from_utf8(request).unwrap());
-            write!(
-                stream,
-                "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n",
-                response.status,
-                response.body.len()
-            )
-            .unwrap();
-            if let Some(location) = response.location {
-                write!(stream, "Location: {location}\r\n").unwrap();
-            }
-            stream.write_all(b"\r\n").unwrap();
-            stream.write_all(&response.body).unwrap();
-        }
-        requests
-    });
-    (proxy, server)
-}
-
 fn github_source_archive() -> Vec<u8> {
     let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     let mut archive = tar::Builder::new(gzip);
@@ -333,15 +273,15 @@ fn github_source_archive() -> Vec<u8> {
 
 #[test]
 fn test_moon_install_global_hosted_permalink_downloads_pinned_archive_without_git() {
-    let (proxy, server) = serve_github_archive(vec![
-        ArchiveResponse {
+    let (proxy, server) = serve(vec![
+        Response {
             status: "302 Found",
             location: Some(
                 "http://codeload.github.com/owner/repo/tar.gz/0123456789abcdef0123456789abcdef01234567",
             ),
             body: Vec::new(),
         },
-        ArchiveResponse {
+        Response {
             status: "200 OK",
             location: None,
             body: github_source_archive(),
@@ -431,7 +371,7 @@ Caused by:
 "#]],
         ),
     ] {
-        let (proxy, server) = serve_github_archive(vec![ArchiveResponse {
+        let (proxy, server) = serve(vec![Response {
             status,
             location: None,
             body,
