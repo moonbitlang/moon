@@ -342,6 +342,14 @@ impl BuildPlan {
         self.backend.c_stubs_info.insert(package, info);
     }
 
+    pub(crate) fn test_insert_foreign_library_info(
+        &mut self,
+        package: PackageId,
+        info: ForeignLibraryInfo,
+    ) {
+        self.backend.foreign_library_info.insert(package, info);
+    }
+
     pub(crate) fn test_insert_make_executable_info(
         &mut self,
         target: BuildTarget,

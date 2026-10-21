@@ -363,8 +363,8 @@ impl<'a> LoweringContext<'a> {
             BuildAction::LinkCore {
                 target,
                 info,
-                make_executable_info,
-            } => self.lower_link_core(&action_artifacts, target, info, make_executable_info)?,
+                native_toolchain,
+            } => self.lower_link_core(&action_artifacts, target, info, native_toolchain)?,
             BuildAction::MakeExecutable { target, info } => {
                 self.lower_make_exe(&action_artifacts, target, info)
             }

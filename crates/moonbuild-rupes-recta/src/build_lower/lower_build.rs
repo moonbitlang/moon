@@ -27,7 +27,7 @@ use moonutil::{
     build_options::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OutputType as CCOutputType,
-        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
+        Toolchain, make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     package::JsFormat,
@@ -663,10 +663,10 @@ impl<'a> LoweringContext<'a> {
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &LinkCoreInfo,
-        make_executable_info: Option<&MakeExecutableInfo>,
+        native_toolchain: Option<&Toolchain>,
     ) -> Result<BuildCommand, LoweringError> {
         #[cfg(not(target_os = "windows"))]
-        let _ = make_executable_info;
+        let _ = native_toolchain;
 
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
@@ -741,8 +741,8 @@ impl<'a> LoweringContext<'a> {
             exports: package.exported_functions(self.opt.backend.target_backend()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
-            native_toolchain_is_msvc: make_executable_info
-                .is_some_and(|info| info.effective_native_toolchain.uses_msvc_abi()),
+            native_toolchain_is_msvc: native_toolchain
+                .is_some_and(|toolchain| toolchain.uses_msvc_abi()),
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs

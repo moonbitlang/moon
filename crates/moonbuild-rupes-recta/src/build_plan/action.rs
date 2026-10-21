@@ -18,13 +18,13 @@
 
 use std::path::Path;
 
-use moonutil::resolution::ModuleId;
+use moonutil::{compiler_flags::Toolchain, resolution::ModuleId};
 
 use super::{
     BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
     ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo,
 };
-use crate::model::{BuildPlanNode, BuildTarget, PackageId};
+use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind};
 
 /// A semantic Build Plan action hydrated with the metadata needed by lowering.
 ///
@@ -60,7 +60,9 @@ pub(crate) enum BuildAction<'a> {
     LinkCore {
         target: BuildTarget,
         info: &'a LinkCoreInfo,
-        make_executable_info: Option<&'a MakeExecutableInfo>,
+        /// The native toolchain of the action that consumes the linked core,
+        /// if any. Its ABI selects the LLVM target.
+        native_toolchain: Option<&'a Toolchain>,
     },
     MakeExecutable {
         target: BuildTarget,
@@ -112,6 +114,21 @@ pub(crate) enum BuildAction<'a> {
 }
 
 impl BackendPlan {
+    /// The native toolchain of the action that consumes `target`'s linked
+    /// core: its executable, or, for a foreign library's source target, its
+    /// archive. Both resolve the toolchain from the same package settings.
+    fn linked_core_consumer_toolchain(&self, target: BuildTarget) -> Option<&Toolchain> {
+        self.make_executable_info
+            .get(&target)
+            .map(|info| &info.effective_native_toolchain)
+            .or_else(|| {
+                (target.kind == TargetKind::Source)
+                    .then(|| self.foreign_library_info.get(&target.package))
+                    .flatten()
+                    .map(|info| &info.effective_native_toolchain)
+            })
+    }
+
     /// Hydrate a backend action from its owning plan's metadata.
     pub(crate) fn action(&self, node: BuildPlanNode) -> BuildAction<'_> {
         match node {
@@ -164,7 +181,7 @@ impl BackendPlan {
                     .link_core_info
                     .get(&target)
                     .expect("Link core info should be present for LinkCore nodes"),
-                make_executable_info: self.make_executable_info.get(&target),
+                native_toolchain: self.linked_core_consumer_toolchain(target),
             },
             BuildPlanNode::MakeExecutable(target) => BuildAction::MakeExecutable {
                 target,
@@ -239,5 +256,56 @@ impl BackendPlan {
             },
             BuildPlanNode::BuildDocs(module) => BuildAction::BuildDocs { module },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use moonutil::compiler_flags::{ARKind, CC, CCKind, NativeAllocator};
+    use slotmap::SlotMap;
+
+    use super::*;
+    use crate::build_plan::BuildPlan;
+
+    #[test]
+    fn foreign_library_link_core_uses_the_archive_toolchain() {
+        let mut packages = SlotMap::<PackageId, ()>::with_key();
+        let package = packages.insert(());
+        let target = package.build_target(TargetKind::Source);
+        let msvc = Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Msvc,
+            cc_path: "cl.exe".to_string(),
+            ar_kind: ARKind::MsvcLib,
+            ar_path: "lib.exe".to_string(),
+            target_triple: None,
+            is_env_override: false,
+        });
+
+        let mut plan = BuildPlan::default();
+        plan.test_insert_link_core_info(
+            target,
+            LinkCoreInfo {
+                linked_order: vec![target],
+                link_stdlib_abort: false,
+            },
+        );
+        plan.test_insert_foreign_library_info(
+            package,
+            ForeignLibraryInfo {
+                effective_native_toolchain: msvc,
+                c_stub_packages: Vec::new(),
+                native_allocator: NativeAllocator::Default,
+            },
+        );
+
+        // No executable consumes the linked core, so the LLVM target ABI must
+        // come from the foreign library's archive toolchain.
+        let BuildAction::LinkCore {
+            native_toolchain, ..
+        } = plan.backend_plan().action(BuildPlanNode::LinkCore(target))
+        else {
+            panic!("LinkCore nodes should hydrate to LinkCore actions");
+        };
+        assert!(native_toolchain.is_some_and(Toolchain::uses_msvc_abi));
     }
 }
