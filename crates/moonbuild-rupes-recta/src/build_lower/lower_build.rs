@@ -47,7 +47,7 @@ use crate::{
         },
     },
     build_plan::{
-        ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileLinkedCoreInfo,
+        ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
         ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
     },
     discover::DiscoveredPackage,
@@ -1047,11 +1047,11 @@ impl<'a> LoweringContext<'a> {
     ///    _build/native/release/build/lib/lib.c
     /// ```
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
-    pub(super) fn lower_compile_linked_core(
+    pub(super) fn lower_compile_generated_c(
         &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
-        info: &CompileLinkedCoreInfo,
+        info: &CompileGeneratedCInfo,
     ) -> BuildCommand {
         let source = artifacts.single_dependency_path_matching(|artifact| {
             matches!(
@@ -1139,7 +1139,7 @@ impl<'a> LoweringContext<'a> {
         let mut members = artifacts.dependency_paths_matching(|artifact| {
             matches!(
                 artifact,
-                ArtifactKey::LinkedCore { .. } | ArtifactKey::LinkedCoreObject { .. }
+                ArtifactKey::LinkedCore { .. } | ArtifactKey::GeneratedCObject { .. }
             )
         });
         for package in &info.c_stub_packages {

@@ -58,7 +58,7 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo,
-    CompileLinkedCoreInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
+    CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
     PackagePrebuildKey,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
     constructor::{BuildPlanConstructor, PackageFileSet},
@@ -1198,7 +1198,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Plan the native compiler action that turns generated-C linked Core
     /// output into an object.
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_compile_linked_core(
+    pub(super) fn build_compile_generated_c(
         &mut self,
         node: BuildPlanNode,
         target: BuildTarget,
@@ -1223,9 +1223,9 @@ impl<'a> BuildPlanConstructor<'a> {
             c_opt_level,
             native_allocator,
         } = self.resolve_package_native_compile(target.package)?;
-        self.res.backend.compile_linked_core_info.insert(
+        self.res.backend.compile_generated_c_info.insert(
             target,
-            CompileLinkedCoreInfo {
+            CompileGeneratedCInfo {
                 effective_native_toolchain,
                 c_debug_info,
                 c_opt_level,
@@ -1260,7 +1260,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 NativeBackendMode::GeneratedC
             );
         let payload = if generated_c {
-            ArtifactKey::LinkedCoreObject {
+            ArtifactKey::GeneratedCObject {
                 package,
                 target_kind: target.kind,
             }

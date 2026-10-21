@@ -326,7 +326,7 @@ and plans no executable link.
 because static archives do not nest:
 
 1. the MoonBit payload: the `LinkCore` object for direct-object Native and
-   LLVM, or for generated-C Native the object a `CompileLinkedCore` action
+   LLVM, or for generated-C Native the object a `CompileGeneratedC` action
    compiles from the generated C with the package's `cc-flags`;
 2. the C stub objects of every package the payload links, in link order;
 3. the native runtime objects and, in release builds, the selected SIMDUTF
@@ -452,7 +452,7 @@ Backend build-plan nodes and package prebuild actions are peer action kinds.
 | `LinkCore(BuildTarget)`         | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
 | `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs, runtime       | Compiles/links the final executable (optional) |
 | `GenerateDsym(BuildTarget)`     | `dsymutil`                  | `.dSYM` bundle        | executable                                 | Generates macOS debug symbols (optional)       |
-| `CompileLinkedCore(BuildTarget)` | C compiler                 | object file           | generated-C `LinkCore` output              | Compiles a foreign library's payload           |
+| `CompileGeneratedC(BuildTarget)` | C compiler                 | object file           | generated-C `LinkCore` output              | Compiles a foreign library's payload           |
 | `ArchiveForeignLibrary(PackageId)` | archiver                 | static library        | payload, C stub and runtime objects        | Builds a native foreign library                |
 | `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |

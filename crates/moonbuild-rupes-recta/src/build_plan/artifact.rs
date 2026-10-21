@@ -97,7 +97,7 @@ pub enum ArtifactKey {
         target_kind: TargetKind,
     },
     /// The native object compiled from generated-C `LinkedCore` output.
-    LinkedCoreObject {
+    GeneratedCObject {
         package: PackageId,
         target_kind: TargetKind,
     },
@@ -187,7 +187,7 @@ impl ArtifactKey {
                 package,
                 target_kind,
             }
-            | Self::LinkedCoreObject {
+            | Self::GeneratedCObject {
                 package,
                 target_kind,
             }

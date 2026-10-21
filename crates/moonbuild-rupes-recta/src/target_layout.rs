@@ -351,10 +351,11 @@ impl TargetLayout {
         base_dir
     }
 
-    /// Returns the object compiled from a target's generated-C linked core.
+    /// Returns the object compiled from a target's generated C. The extension
+    /// is `.o` on Linux and macOS, and `.obj` on Windows.
     ///
-    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/__moonbit_link_core__/{artifact}.o`
-    pub fn linked_core_object_of_build_target(
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/__moonbit_link_core__/{artifact}.{o,obj}`
+    pub fn generated_c_object_of_build_target(
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
@@ -375,9 +376,11 @@ impl TargetLayout {
     /// Returns the static library a foreign-library package produces.
     ///
     /// It shares its stem with the package's executable rather than the
-    /// `lib{package_name}` stem of the package's C stub archive.
+    /// `lib{package_name}` stem of the package's C stub archive. The extension
+    /// is the target OS's static library extension: `.a` on Linux and macOS,
+    /// and `.lib` on Windows.
     ///
-    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{artifact}.a`
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{artifact}.{a,lib}`
     pub fn foreign_library_path(
         &self,
         pkg_list: &DiscoverResult,
@@ -873,10 +876,10 @@ impl ArtifactPathResolver {
                     options.linked_core,
                 )]
             }
-            ArtifactKey::LinkedCoreObject {
+            ArtifactKey::GeneratedCObject {
                 package,
                 target_kind,
-            } => vec![self.target_layout.linked_core_object_of_build_target(
+            } => vec![self.target_layout.generated_c_object_of_build_target(
                 packages,
                 &package.build_target(*target_kind),
                 options.target_backend(),

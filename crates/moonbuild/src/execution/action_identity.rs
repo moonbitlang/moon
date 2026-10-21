@@ -280,8 +280,8 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::LinkedCore { target_kind, .. } => {
                 (b"linked-core".as_slice(), Some(*target_kind), None)
             }
-            ArtifactKey::LinkedCoreObject { target_kind, .. } => {
-                (b"linked-core-object".as_slice(), Some(*target_kind), None)
+            ArtifactKey::GeneratedCObject { target_kind, .. } => {
+                (b"generated-c-object".as_slice(), Some(*target_kind), None)
             }
             ArtifactKey::Executable { target_kind, .. } => {
                 (b"executable".as_slice(), Some(*target_kind), None)

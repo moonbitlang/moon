@@ -368,8 +368,8 @@ impl<'a> LoweringContext<'a> {
             BuildAction::MakeExecutable { target, info } => {
                 self.lower_make_exe(&action_artifacts, target, info)
             }
-            BuildAction::CompileLinkedCore { target, info } => {
-                self.lower_compile_linked_core(&action_artifacts, target, info)
+            BuildAction::CompileGeneratedC { target, info } => {
+                self.lower_compile_generated_c(&action_artifacts, target, info)
             }
             BuildAction::ArchiveForeignLibrary { info, runtime } => {
                 self.lower_archive_foreign_library(&action_artifacts, info, runtime)?
@@ -426,7 +426,7 @@ impl<'a> LoweringContext<'a> {
             action,
             BuildAction::BuildCStub { .. }
                 | BuildAction::BuildRuntimeObject { .. }
-                | BuildAction::CompileLinkedCore { .. }
+                | BuildAction::CompileGeneratedC { .. }
         ) || matches!(
             action,
             BuildAction::MakeExecutable { .. }
@@ -530,7 +530,7 @@ impl<'a> LoweringContext<'a> {
                     unreachable!("non-native plans do not contain MakeExecutable actions")
                 }
             },
-            BuildAction::CompileLinkedCore { info, .. } => info.c_flags.is_empty(),
+            BuildAction::CompileGeneratedC { info, .. } => info.c_flags.is_empty(),
             BuildAction::ArchiveForeignLibrary { .. }
             | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
@@ -580,7 +580,7 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildCStub { .. }
             | BuildAction::ArchiveOrLinkCStubs { .. }
             | BuildAction::MakeExecutable { .. }
-            | BuildAction::CompileLinkedCore { .. }
+            | BuildAction::CompileGeneratedC { .. }
             | BuildAction::ArchiveForeignLibrary { .. }
             | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }

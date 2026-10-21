@@ -103,7 +103,7 @@ pub enum ArtifactKey {
     RuntimeLibrary,
     GeneratedTestDriver { package: PackageId, target_kind: TargetKind },
     LinkedCore { package: PackageId, target_kind: TargetKind },
-    LinkedCoreObject { package: PackageId, target_kind: TargetKind },
+    GeneratedCObject { package: PackageId, target_kind: TargetKind },
     Executable { package: PackageId, target_kind: TargetKind },
     ForeignLibrary { package: PackageId },
 
@@ -461,7 +461,7 @@ real `MakeExecutable` provider.
 A foreign-library package requests `ForeignLibrary` instead of `Executable` on
 Native and LLVM; `ArchiveForeignLibrary` provides it. Its payload member is the
 `LinkedCore` object, except for generated-C Native, where the
-`CompileLinkedCore` provider of `LinkedCoreObject` first compiles the generated
+`CompileGeneratedC` provider of `GeneratedCObject` first compiles the generated
 C. Native payload-form selection treats a requested `ForeignLibrary` like an
 `Executable`, so package `cc-flags` select generated C for both.
 

@@ -195,8 +195,8 @@ impl BuildPlanNode {
             BuildPlanNode::ArchiveOrLinkCStubs(target) => format!("{:?}@ArchiveCStubs", target),
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
-            BuildPlanNode::CompileLinkedCore(target) => {
-                format!("{:?}@CompileLinkedCore", target)
+            BuildPlanNode::CompileGeneratedC(target) => {
+                format!("{:?}@CompileGeneratedC", target)
             }
             BuildPlanNode::ArchiveForeignLibrary(package) => {
                 format!("{:?}@ArchiveForeignLibrary", package)
@@ -251,9 +251,9 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nMakeExecutable", fqn)
             }
-            BuildPlanNode::CompileLinkedCore(target) => {
+            BuildPlanNode::CompileGeneratedC(target) => {
                 let fqn = packages.fqn(target.package);
-                format!("{}\\nCompileLinkedCore", fqn)
+                format!("{}\\nCompileGeneratedC", fqn)
             }
             BuildPlanNode::ArchiveForeignLibrary(package) => {
                 let fqn = packages.fqn(*package);
@@ -304,7 +304,7 @@ impl BuildPlanNode {
             BuildPlanNode::ArchiveOrLinkCStubs(_) => "lightyellow",
             BuildPlanNode::LinkCore(_) => "lightcoral",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
-            BuildPlanNode::CompileLinkedCore(_) => "lightcoral",
+            BuildPlanNode::CompileGeneratedC(_) => "lightcoral",
             BuildPlanNode::ArchiveForeignLibrary(_) => "lightpink",
             BuildPlanNode::GenerateDsym(_) => "pink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",

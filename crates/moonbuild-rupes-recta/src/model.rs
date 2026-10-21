@@ -330,7 +330,7 @@ pub enum BuildPlanNode {
     /// This action exists only when the Native backend emits generated C and
     /// a consumer needs the payload as an object instead of compiling it as
     /// part of an executable link.
-    CompileLinkedCore(BuildTarget),
+    CompileGeneratedC(BuildTarget),
 
     /// Archive a foreign-library package's payload, the C stubs it links, and
     /// the native runtime into one static library for a foreign host.
@@ -382,7 +382,7 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
-            | BuildPlanNode::CompileLinkedCore(target)
+            | BuildPlanNode::CompileGeneratedC(target)
             | BuildPlanNode::GenerateDsym(target)
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
@@ -455,10 +455,10 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(build_target.package);
                 format!("make executable {}{}", fqn, qualifier(build_target.kind))
             }
-            BuildPlanNode::CompileLinkedCore(build_target) => {
+            BuildPlanNode::CompileGeneratedC(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!(
-                    "compile linked core {}{}",
+                    "compile generated C {}{}",
                     fqn,
                     qualifier(build_target.kind)
                 )
@@ -552,9 +552,9 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@MakeExecutable", fqn, t.kind)
             }
-            BuildPlanNode::CompileLinkedCore(t) => {
+            BuildPlanNode::CompileGeneratedC(t) => {
                 let fqn = packages.fqn(t.package);
-                format!("{}@{:?}@CompileLinkedCore", fqn, t.kind)
+                format!("{}@{:?}@CompileGeneratedC", fqn, t.kind)
             }
             BuildPlanNode::ArchiveForeignLibrary(pkg) => {
                 let fqn = packages.fqn(*pkg);

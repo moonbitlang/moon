@@ -140,7 +140,7 @@ pub(crate) struct BackendPlan {
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
 
     /// The map of build target to the settings for compiling its generated C
-    compile_linked_core_info: HashMap<BuildTarget, CompileLinkedCoreInfo>,
+    compile_generated_c_info: HashMap<BuildTarget, CompileGeneratedCInfo>,
 
     /// The map of foreign-library package to its static archive settings
     foreign_library_info: HashMap<PackageId, ForeignLibraryInfo>,
@@ -474,7 +474,7 @@ pub struct MakeExecutableInfo {
 }
 
 #[derive(Debug)]
-pub struct CompileLinkedCoreInfo {
+pub struct CompileGeneratedCInfo {
     /// The effective native toolchain for compiling the generated C
     pub(crate) effective_native_toolchain: Toolchain,
     pub(crate) c_debug_info: bool,

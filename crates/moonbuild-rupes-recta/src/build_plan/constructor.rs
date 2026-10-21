@@ -333,10 +333,10 @@ impl<'a> BuildPlanConstructor<'a> {
                     },
                 );
             }
-            BuildPlanNode::CompileLinkedCore(target) => {
+            BuildPlanNode::CompileGeneratedC(target) => {
                 self.res.artifacts.provide(
                     node,
-                    ArtifactKey::LinkedCoreObject {
+                    ArtifactKey::GeneratedCObject {
                         package: target.package,
                         target_kind: target.kind,
                     },
@@ -473,10 +473,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 package,
                 target_kind,
             } => BuildPlanNode::LinkCore(package.build_target(*target_kind)),
-            ArtifactKey::LinkedCoreObject {
+            ArtifactKey::GeneratedCObject {
                 package,
                 target_kind,
-            } => BuildPlanNode::CompileLinkedCore(package.build_target(*target_kind)),
+            } => BuildPlanNode::CompileGeneratedC(package.build_target(*target_kind)),
             ArtifactKey::ForeignLibrary { package } => {
                 assert!(
                     self.config.backend.target_backend().is_native(),
@@ -589,13 +589,13 @@ impl<'a> BuildPlanConstructor<'a> {
                     );
                 }
             }
-            BuildPlanNode::CompileLinkedCore(build_target) => {
+            BuildPlanNode::CompileGeneratedC(build_target) => {
                 assert!(
                     self.res
                         .backend
-                        .compile_linked_core_info
+                        .compile_generated_c_info
                         .contains_key(&build_target),
-                    "Compile linked core info for {:?} should be present when resolving node {:?}",
+                    "Compile generated C info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
                 );
@@ -696,8 +696,8 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::LinkCore(target) => self.build_link_core(node, target),
             BuildPlanNode::MakeExecutable(target) => self.build_native_executable(node, target),
-            BuildPlanNode::CompileLinkedCore(target) => {
-                self.build_compile_linked_core(node, target)
+            BuildPlanNode::CompileGeneratedC(target) => {
+                self.build_compile_generated_c(node, target)
             }
             BuildPlanNode::ArchiveForeignLibrary(package) => {
                 self.build_foreign_library(node, package)

@@ -21,7 +21,7 @@ use std::path::Path;
 use moonutil::resolution::ModuleId;
 
 use super::{
-    BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileLinkedCoreInfo,
+    BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
     ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo,
 };
 use crate::model::{BuildPlanNode, BuildTarget, PackageId};
@@ -66,9 +66,9 @@ pub(crate) enum BuildAction<'a> {
         target: BuildTarget,
         info: &'a MakeExecutableInfo,
     },
-    CompileLinkedCore {
+    CompileGeneratedC {
         target: BuildTarget,
-        info: &'a CompileLinkedCoreInfo,
+        info: &'a CompileGeneratedCInfo,
     },
     ArchiveForeignLibrary {
         info: &'a ForeignLibraryInfo,
@@ -173,12 +173,12 @@ impl BackendPlan {
                     .get(&target)
                     .expect("MakeExecutable nodes should contain native linking info"),
             },
-            BuildPlanNode::CompileLinkedCore(target) => BuildAction::CompileLinkedCore {
+            BuildPlanNode::CompileGeneratedC(target) => BuildAction::CompileGeneratedC {
                 target,
                 info: self
-                    .compile_linked_core_info
+                    .compile_generated_c_info
                     .get(&target)
-                    .expect("CompileLinkedCore nodes should contain native compile info"),
+                    .expect("CompileGeneratedC nodes should contain native compile info"),
             },
             BuildPlanNode::ArchiveForeignLibrary(package) => BuildAction::ArchiveForeignLibrary {
                 info: self
