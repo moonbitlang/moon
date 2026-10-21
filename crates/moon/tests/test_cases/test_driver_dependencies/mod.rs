@@ -147,6 +147,7 @@ fn try_gen_output(dir: &Path, file: &Path, bench: bool) -> (String, MooncGenTest
             file_driver_output.as_os_str(),
             "--target=wasm-gc".as_ref(),
             "--pkg-name=test".as_ref(),
+            "--async-runtime-package=moonbitlang/core/async_io".as_ref(),
             "--driver-kind=blackbox".as_ref(),
             file.as_os_str(),
         ]

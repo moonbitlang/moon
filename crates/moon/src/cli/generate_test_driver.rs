@@ -82,6 +82,10 @@ pub(crate) struct GenerateTestDriverSubcommand {
     /// Max concurrent tests for `async test`
     #[clap(long)]
     max_concurrent_tests: Option<u32>,
+
+    /// Package that provides the async test runtime
+    #[clap(long)]
+    async_runtime_package: String,
 }
 
 fn moonc_gen_test_info(
@@ -200,6 +204,7 @@ pub(crate) fn generate_test_driver(
         cmd.bench,
         cmd.coverage_package_override.as_deref(),
         cmd.max_concurrent_tests,
+        &cmd.async_runtime_package,
     );
     std::fs::write(&cmd.output_driver, generated_content)?;
 
@@ -283,6 +288,7 @@ fn generate_driver(
     enable_bench: bool,
     coverage_package_override: Option<&str>,
     max_concurrent_tests: Option<u32>,
+    async_runtime_package: &str,
 ) -> String {
     // Driver selection : determine which templates to include
     let has_no_args = data.no_args_tests.values().any(|v| !v.is_empty());
@@ -321,8 +327,12 @@ fn generate_driver(
             ));
         }
         if has_any_async {
+            let async_runtime_template = adapt_async_runtime_references(
+                TEMPLATE_ASYNC_RUNTIME.to_string(),
+                async_runtime_package,
+            );
             template.push_str(&replace_template_initializer(
-                TEMPLATE_ASYNC_RUNTIME,
+                &async_runtime_template,
                 "moonbit_test_driver_internal_max_concurrent_tests",
                 &max_concurrent_tests.unwrap_or(10).to_string(),
             ));
@@ -370,6 +380,10 @@ fn generate_driver(
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
     adapt_core_references_for_package(template, pkgname)
+}
+
+fn adapt_async_runtime_references(template: String, async_runtime_package: &str) -> String {
+    template.replace("@moonbitlang/async.", &format!("@{async_runtime_package}."))
 }
 
 fn adapt_core_references_for_package(template: String, pkgname: &str) -> String {
@@ -444,7 +458,15 @@ fn empty_test_sections_are_not_rendered() {
         async_tests_with_args: empty,
     };
 
-    let generated = generate_driver(&data, "username/test", false, false, None, None);
+    let generated = generate_driver(
+        &data,
+        "username/test",
+        false,
+        false,
+        None,
+        None,
+        "moonbitlang/core/async_io",
+    );
     assert!(!generated.contains("REPLACE ME:"));
 }
 
@@ -504,5 +526,15 @@ fn test_driver_default_reference_is_adapted_for_core_packages() {
     assert_eq!(
         adapt_core_references_for_package(INITIALIZER.into(), MOONBITLANG_CORE_BUILTIN),
         "MoonBitTestDriverInternalTestMap(Default::default())"
+    );
+}
+
+#[test]
+fn async_runtime_references_use_selected_package() {
+    let template = "@moonbitlang/async.run_async_main(() => ())".to_string();
+
+    assert_eq!(
+        adapt_async_runtime_references(template, "moonbitlang/core/async_io"),
+        "@moonbitlang/core/async_io.run_async_main(() => ())"
     );
 }

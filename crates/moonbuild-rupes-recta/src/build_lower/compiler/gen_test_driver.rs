@@ -75,6 +75,9 @@ pub(crate) struct MoonGenTestDriver<'a> {
 
     /// Max concurrent test limit for `async test`
     pub max_concurrent_tests: Option<u32>,
+
+    /// Package that provides the async test runtime.
+    pub async_runtime_package: &'a str,
 }
 
 impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
@@ -120,6 +123,10 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
             self.target_backend.to_flag().to_string(),
         ]);
         args.extend(["--pkg-name".to_string(), self.pkg_name.to_string()]);
+        args.extend([
+            "--async-runtime-package".to_string(),
+            self.async_runtime_package.to_string(),
+        ]);
 
         // Bench mode
         if self.bench {
