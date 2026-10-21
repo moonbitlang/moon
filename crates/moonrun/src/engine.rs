@@ -443,32 +443,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_driver_lifecycle_is_backend_neutral() {
-        // The shared lifecycle remains usable even when a partial adapter does
-        // not register the guest imports needed by MoonBit's test driver yet.
-        let options = RunOptions::default().with_test_args(
-            r#"{"package":"test","file_and_index":[["main.mbt",[{"start":2,"end":4}]]]}"#,
-        );
-        let mut calls = Vec::new();
-        let outcome = run_test_driver(
-            &mut calls,
-            options.parsed_test_args().unwrap().unwrap(),
-            &Stdio::Ambient,
-            |calls, file, index| {
-                calls.push(format!("{file}:{index}"));
-                Ok(BackendCallOutcome::Completed)
-            },
-            |calls| {
-                calls.push("finish".into());
-                Ok(BackendCallOutcome::Completed)
-            },
-        )
-        .unwrap();
-        assert!(matches!(outcome, BackendRunOutcome::Completed));
-        assert_eq!(calls, ["main.mbt:2", "main.mbt:3", "finish"]);
-    }
-
-    #[test]
     fn run_options_default_to_ambient_working_directory() {
         assert_eq!(
             RunOptions::default().working_directory,

@@ -71,6 +71,23 @@ fn test_moonrun_against_upstream_async() {
     )
     .expect("failed to put the test moon binary on PATH");
 
+    // The process and file-lock tests assert subsecond child-output ordering.
+    // Build their native helpers before starting the async tests; a first lazy
+    // compilation can otherwise overlap those deadlines and strand a pipe reader.
+    moon_cmd()
+        .current_dir(&async_dir)
+        .args([
+            "build",
+            "test_programs",
+            "--debug",
+            "--target",
+            "native",
+            "--target-dir",
+            "_build/test_programs",
+        ])
+        .assert()
+        .success();
+
     moon_cmd()
         .current_dir(&async_dir)
         .env("MOON_OVERRIDE", moon)
@@ -534,6 +551,50 @@ fn moonrun_library_compiles_modules_when_loading() {
         .unwrap_err();
 
     assert!(format!("{error:#}").contains("failed to compile"));
+}
+
+#[test]
+fn engine_backends_run_compiler_generated_tests() {
+    let dir = TestDir::new("test_driver.in");
+    for target in ["wasm", "wasm-gc"] {
+        for profile in ["debug", "release"] {
+            moon_cmd()
+                .current_dir(&dir)
+                .args(["test", "--target", target, "--build-only"])
+                .arg(format!("--{profile}"))
+                .assert()
+                .success();
+
+            snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+                .args(["--no-stack-trace", "--test-args"])
+                .arg(r#"{"package":"moon/test_driver","file_and_index":[["driver_test.mbt",[{"start":0,"end":3}]]]}"#)
+                .arg(dir.join(&format!("_build/{target}/{profile}/test/test_driver.blackbox_test.wasm")))
+                .assert()
+                .success()
+                .stdout_eq(snapbox::str![[r#"
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"driver_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"driver_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"driver_test.mbt","index":1}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"driver_test.mbt","index":1,"message":"Error"}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"driver_test.mbt","index":2}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"driver_test.mbt","index":2,"message":""}
+----- END MOON TEST RESULT -----
+
+"#]])
+                .stderr_eq("");
+        }
+    }
 }
 
 #[test]

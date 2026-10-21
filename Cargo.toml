@@ -32,7 +32,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "26b15b3ac9c859d544bbfd9b4c66fe8fe289eaf3" }
-wee8 = { git = "https://github.com/moonbitlang/v8-custom-builds.git", rev = "2780c7546a63d25acc09c45735aabd2cdab9ede0" }
+wee8 = { git = "https://github.com/moonbitlang/v8-custom-builds.git", rev = "0a5131f3290429f0bc63f086cbf9c2b606f2da4a" }
 arcstr = "1.2"
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 moonbuild-rupes-recta = { path = "./crates/moonbuild-rupes-recta", version = "*" }

@@ -16,15 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-///|
-fn main {
-  println("Hello, 世界 🦀")
-  let values = [20, 22]
-  let mut sum = 0
-  for value in values {
-    sum += value
-  }
-  println(sum)
-  let error : Error = Failure("format probe")
-  eprintln(error.to_string())
+test "before failure" {
+  inspect("before", content="before")
+}
+
+test "guest failure" {
+  abort("expected test failure")
+}
+
+test "after failure" {
+  inspect("after", content="after")
 }
