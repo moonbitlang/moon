@@ -62,6 +62,46 @@ struct Context<'s, T> {
     marker: PhantomData<T>,
 }
 impl<'call, T> PayloadContext<'call> for Context<'call, T> {
+    fn string_units(&self, value: &Option<ExternRef<'call>>) -> Result<Vec<u16>, ImportError> {
+        let Some(ExternRef::Wee8(value)) = value else {
+            return Err(ImportError::Operation(
+                "externref is not a JS string".into(),
+            ));
+        };
+        api::StringRef::try_from(value.clone())
+            .map(|string| string.to_utf16())
+            .map_err(|_| ImportError::Operation("externref is not a JS string".into()))
+    }
+    fn new_string_units(&mut self, units: &[u16]) -> Result<Option<ExternRef<'call>>, ImportError> {
+        api::StringRef::from_utf16(self.caller.as_context(), units)
+            .map(|string| Some(ExternRef::Wee8(string.into_extern_ref())))
+            .map_err(|e| ImportError::Host(e.into()))
+    }
+    fn new_string_utf8(&mut self, text: &str) -> Result<Option<ExternRef<'call>>, ImportError> {
+        api::StringRef::from_utf8(self.caller.as_context(), text)
+            .map(|string| Some(ExternRef::Wee8(string.into_extern_ref())))
+            .map_err(|e| ImportError::Host(e.into()))
+    }
+    fn string_utf8_lossy(&self, value: &Option<ExternRef<'call>>) -> Result<String, ImportError> {
+        let Some(ExternRef::Wee8(value)) = value else {
+            return Err(ImportError::Operation(
+                "externref is not a JS string".into(),
+            ));
+        };
+        api::StringRef::try_from(value.clone())
+            .map(|string| string.to_string_lossy())
+            .map_err(|_| ImportError::Operation("externref is not a JS string".into()))
+    }
+    fn is_string_value(&self, value: &Option<ExternRef<'call>>) -> Result<bool, ImportError> {
+        match value {
+            None => Ok(false),
+            Some(ExternRef::Wee8(value)) => Ok(value.is_string()),
+            #[cfg(feature = "wasmtime")]
+            _ => Err(ImportError::Operation(
+                "reference from another engine".into(),
+            )),
+        }
+    }
     fn new_payload(
         &mut self,
         data: Box<dyn Any + Send + Sync>,

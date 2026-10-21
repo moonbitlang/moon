@@ -27,6 +27,7 @@ mod wasm_imports;
 
 use crate::engine::{
     BackendCallOutcome, BackendRunOutcome, EngineConfig, TestArgs, complete_run_call,
+    run_test_driver,
 };
 use crate::run_termination::TerminationRequest;
 use crate::runtime::{Runtime, Utf16Writer};
@@ -81,7 +82,13 @@ impl Engine {
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
         let store = api::Store::new(())?;
-        let module = store.compile(bytes)?;
+        let module = store.compile_with_options(
+            bytes,
+            &api::CompileOptions {
+                js_string_builtins: true,
+                imported_string_constants: Some("_".into()),
+            },
+        )?;
         Ok(module.serialize())
     }
 
@@ -99,10 +106,6 @@ impl Engine {
         self.initialization
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
-        anyhow::ensure!(
-            test_args.is_none(),
-            "wee8 does not support the MoonBit test driver yet"
-        );
         let termination = TerminationRequest::default();
         let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
         let stdio = Arc::clone(runtime.stdio());
@@ -136,27 +139,77 @@ impl Engine {
             registry.finish()
         })()
         .with_context(|| format!("failed to instantiate `{module_name}`"))?;
-        let result = module
-            .instantiate(&imports.iter().collect::<Vec<_>>())
-            .and_then(|mut instance| {
-                // Instantiation already executes any Wasm start section. The
-                // conventional `_start` export is optional, as in other backends.
-                if instance.has_export("_start") {
-                    instance.call("_start", &[])
-                } else {
-                    Ok(Vec::new())
-                }
-            });
-        let outcome = if let Some(termination) = termination.take() {
-            BackendCallOutcome::Terminated(termination)
-        } else {
-            match result {
-                Ok(values) if values.is_empty() => BackendCallOutcome::Completed,
-                Ok(_) => anyhow::bail!("wee8 requires `_start` to return no values"),
-                Err(api::Error::Trap(message)) => BackendCallOutcome::GuestFailure(message),
-                Err(error) => return Err(error.into()),
+        let mut instance = match module.instantiate(&imports.iter().collect::<Vec<_>>()) {
+            Ok(instance) => instance,
+            Err(error) => {
+                return complete_run_call(call_outcome(Err(error), &termination)?, &stdio);
             }
         };
-        complete_run_call(outcome, &stdio)
+        if let Some(test_args) = test_args {
+            for name in [
+                "moonbit_test_driver_internal_execute",
+                "moonbit_test_driver_finish",
+            ] {
+                anyhow::ensure!(
+                    instance.has_export(name),
+                    "test module does not export `{name}`"
+                );
+            }
+            run_test_driver(
+                &mut instance,
+                test_args,
+                &stdio,
+                |instance, file, index| {
+                    let file = api::StringRef::from_utf8(store.as_context(), file)?;
+                    call_outcome(
+                        instance.call(
+                            "moonbit_test_driver_internal_execute",
+                            &[
+                                api::Value::ExternRef(Some(file.into_extern_ref())),
+                                api::Value::I32(index as i32),
+                            ],
+                        ),
+                        &termination,
+                    )
+                    .context("failed to execute a MoonBit test")
+                },
+                |instance| {
+                    call_outcome(
+                        instance.call("moonbit_test_driver_finish", &[]),
+                        &termination,
+                    )
+                    .context("failed to finish the MoonBit test driver")
+                },
+            )
+        } else {
+            // Instantiation already executes any Wasm start section. The
+            // conventional `_start` export is optional, as in other backends.
+            let result = if instance.has_export("_start") {
+                instance.call("_start", &[])
+            } else {
+                Ok(Vec::new())
+            };
+            complete_run_call(call_outcome(result, &termination)?, &stdio)
+        }
+    }
+}
+
+// All entry paths preserve explicit termination and distinguish guest failures
+// from host service errors, including the two test-driver exports.
+fn call_outcome(
+    result: api::Result<Vec<api::Value<'_>>>,
+    termination: &TerminationRequest,
+) -> anyhow::Result<BackendCallOutcome> {
+    if let Some(termination) = termination.take() {
+        return Ok(BackendCallOutcome::Terminated(termination));
+    }
+    match result {
+        Ok(values) if values.is_empty() => Ok(BackendCallOutcome::Completed),
+        Ok(_) => anyhow::bail!("wee8 entry points must return no values"),
+        Err(api::Error::Trap(message)) => Ok(BackendCallOutcome::GuestFailure(message)),
+        Err(api::Error::ThrownException) => Ok(BackendCallOutcome::GuestFailure(
+            "uncaught Wasm exception".into(),
+        )),
+        Err(error) => Err(error.into()),
     }
 }

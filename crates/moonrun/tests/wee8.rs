@@ -204,7 +204,7 @@ fn unsupported_imports_and_start_memory_are_host_errors() {
         ),
         (
             r#"(module (import "host" "memory" (memory 1)))"#,
-            "unsupported non-function import host::memory",
+            "unsupported import host::memory",
         ),
         (
             r#"(module
@@ -241,7 +241,7 @@ fn wasi_reports_bad_guest_addresses_without_panicking() {
 #[test]
 fn proposals_and_unsupported_options_fail_before_execution() {
     let engine = Engine::default();
-    for source in ["(module (memory 1 1 shared))", "(module (tag (param i32)))"] {
+    for source in ["(module (memory 1 1 shared))", "(module (memory i64 1))"] {
         let error = engine
             .compile("unsupported.wasm", wat::parse_str(source).unwrap())
             .unwrap_err();
@@ -260,7 +260,7 @@ fn proposals_and_unsupported_options_fail_before_execution() {
             )
             .unwrap_err()
             .to_string()
-            .contains("test driver")
+            .contains("moonbit_test_driver_internal_execute")
     );
     assert!(
         Engine::new(EngineConfig::default().with_stack_size(512))
@@ -436,7 +436,8 @@ fn core_string_imports_reject_invalid_signatures_and_reference_types() {
         let error = engine.run(&module, RunOptions::default()).unwrap_err();
         let message = format!("{error:#}");
         assert!(
-            message.contains("incorrect signature") || message.contains("invalid host reference"),
+            message.contains("incorrect signature")
+                || message.contains("externref is not a JS string"),
             "{message}"
         );
     }

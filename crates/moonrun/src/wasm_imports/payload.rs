@@ -17,7 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Host-data representations used by Wasmtime and wee8. V8 keeps its native
-//! strings, arrays and GC-traced builders/readers instead.
+//! strings, arrays and GC-traced builders/readers instead. wee8 overrides string
+//! conversion so guest builtins and host services share native V8 strings.
 use super::{
     ImportError, Values,
     values::{Ref, Result},
@@ -61,8 +62,35 @@ impl<T: Clone> Reader<T> {
 }
 struct Random(Mutex<StdRng>);
 
-pub(crate) trait PayloadContext<'call> {
+pub(crate) trait PayloadContext<'call>: Sized {
     fn new_payload(&mut self, data: Box<dyn Any + Send + Sync>) -> Result<Ref<'call>>;
+    // Wasmtime stores UTF-16 in a host payload. Engines with native strings
+    // override these operations explicitly, keeping generic Any payloads opaque.
+    fn string_units(&self, value: &Ref<'call>) -> Result<Vec<u16>> {
+        read(self, value, |value: &JsString| value.0.to_vec())
+    }
+    fn new_string_units(&mut self, units: &[u16]) -> Result<Ref<'call>> {
+        self.new_payload(Box::new(JsString(units.into())))
+    }
+    fn new_string_utf8(&mut self, text: &str) -> Result<Ref<'call>> {
+        self.new_payload(Box::new(JsString(text.encode_utf16().collect())))
+    }
+    fn string_utf8_lossy(&self, value: &Ref<'call>) -> Result<String> {
+        read(self, value, |value: &JsString| {
+            String::from_utf16_lossy(&value.0)
+        })
+    }
+    fn is_string_value(&self, value: &Ref<'call>) -> Result<bool> {
+        if value.is_none() {
+            return Ok(false);
+        }
+        let mut result = false;
+        self.with_payload(value, &mut |value| {
+            result = value.is_some_and(|value| value.is::<JsString>())
+        })?;
+        Ok(result)
+    }
+
     // Guest GC objects may be externrefs without any host payload. That is a
     // valid value for type tests; typed operations reject it after inspection.
     fn with_payload(
@@ -89,12 +117,11 @@ fn read<'call, T: 'static, R>(
 }
 impl<'call, C: PayloadContext<'call>> Values<'call> for C {
     fn string(&mut self, value: &Ref<'call>) -> Result<String> {
-        read(self, value, |value: &JsString| {
-            String::from_utf16_lossy(&value.0)
-        })
+        // Preserve the existing replacement policy for UTF-8 host services.
+        self.string_utf8_lossy(value)
     }
     fn new_string(&mut self, value: &str) -> Result<Ref<'call>> {
-        self.new_payload(Box::new(JsString(value.encode_utf16().collect())))
+        self.new_string_utf8(value)
     }
     fn bytes(&mut self, value: &Ref<'call>) -> Result<Vec<u8>> {
         read(self, value, |value: &JsBytes| {
@@ -118,17 +145,10 @@ impl<'call, C: PayloadContext<'call>> Values<'call> for C {
             value.0.get(index as u32 as usize).cloned()
         })?
         .ok_or_else(|| ImportError::Operation("array index out of bounds".into()))?;
-        self.new_payload(Box::new(JsString(units.into())))
+        self.new_string_units(&units)
     }
     fn is_string(&mut self, value: &Ref<'call>) -> Result<i32> {
-        if value.is_none() {
-            return Ok(0);
-        }
-        let mut result = false;
-        self.with_payload(value, &mut |value| {
-            result = value.is_some_and(|value| value.is::<JsString>())
-        })?;
-        Ok(i32::from(result))
+        self.is_string_value(value).map(i32::from)
     }
     fn string_builder(&mut self) -> Result<Ref<'call>> {
         self.new_payload(Box::new(StringBuilder(Mutex::new(Vec::new()))))
@@ -146,7 +166,7 @@ impl<'call, C: PayloadContext<'call>> Values<'call> for C {
         let units = read(self, value, |value: &StringBuilder| {
             value.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
         })?;
-        self.new_payload(Box::new(JsString(units.into())))
+        self.new_string_units(&units)
     }
     fn byte_builder(&mut self) -> Result<Ref<'call>> {
         self.new_payload(Box::new(ByteBuilder(Mutex::new(Vec::new()))))
@@ -167,7 +187,7 @@ impl<'call, C: PayloadContext<'call>> Values<'call> for C {
         self.new_bytes(bytes)
     }
     fn string_reader(&mut self, value: &Ref<'call>) -> Result<Ref<'call>> {
-        let units = read(self, value, |value: &JsString| value.0.to_vec())?;
+        let units = self.string_units(value)?;
         self.new_payload(Box::new(Reader::new(units)))
     }
     fn read_char(&mut self, value: &Ref<'call>) -> Result<i32> {
@@ -191,7 +211,7 @@ impl<'call, C: PayloadContext<'call>> Values<'call> for C {
     fn read_string(&mut self, value: &Ref<'call>) -> Result<Ref<'call>> {
         let units = read(self, value, |value: &Reader<Vec<u16>>| value.read())?
             .unwrap_or_else(|| "ffi_end_of_/string_array".encode_utf16().collect());
-        self.new_payload(Box::new(JsString(units.into())))
+        self.new_string_units(&units)
     }
     fn new_rng(&mut self, seed: i32) -> Result<Ref<'call>> {
         self.new_payload(Box::new(Random(Mutex::new(StdRng::seed_from_u64(

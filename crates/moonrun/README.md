@@ -50,7 +50,7 @@ cargo build -p moonrun --no-default-features --features wee8
 ```
 
 The upstream crate's build script downloads the target's archive and matching header from the
-pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.1),
+pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.4),
 checks SHA-256 before extraction, and caches the downloads in Cargo's build
 output directory. It uses Cargo's target, including for cross-compilation.
 Only the five published Linux/macOS/Windows targets have automatic downloads.
@@ -80,7 +80,8 @@ its native Rust API and does not introduce another V8 archive.
 This is a working integration MVP, not a replacement for either full backend:
 
 - Wasm 1.0 execution, bulk-memory, SIMD, multi-value guest code, internal GC
-  structs/arrays and typed function references, guest-defined memory/globals/tables,
+  structs/arrays and typed function references, guest-internal standardized
+  exceptions, guest-defined memory/globals/tables,
   and `_start`. The upstream Rust crate supports rooted host `externref` values;
   Moonrun's shared host registrations support numeric and nullable externref
   arguments/results.
@@ -100,10 +101,18 @@ This is a working integration MVP, not a replacement for either full backend:
 - The legacy string/byte-array builders and readers, string arrays, arguments,
   environment lookup/mutation, synchronous filesystem operations, stdio,
   seeded random numbers, clocks and process exit. All three engines use the
-  same typed import definitions. Wasmtime and wee8 share Rust value payloads;
-  V8 retains native values for compatibility with its JS-string/byte APIs.
+  same typed import definitions. wee8 uses native V8 strings, while Wasmtime
+  retains its UTF-16 host strings. Other wee8/Wasmtime values remain Rust
+  payloads; V8 retains its native values.
   Filesystem policy and I/O, environment and stdio use existing Host Domains. Values use rooted native externrefs,
   with no separate reference table. Filesystem status results belong to one run.
+- All 13 JS-string builtins and `_` imported string constants use V8 directly.
+  Host services create/copy strings through the wee8 string API, preserving
+  UTF-16 code units at string-builder/reader boundaries. UTF-8 host services
+  retain their existing replacement policy for lone surrogates.
+- The test-driver execute/finish entry points accept native string filenames.
+  Compiler-generated test modules still require the separate MoonBit exception
+  import integration described below.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
@@ -111,14 +120,16 @@ This is a working integration MVP, not a replacement for either full backend:
 
 SIMD and GC values remain internal to guest code. Unsupported imported/exported
 function, global and table types are rejected by the upstream crate before C API
-introspection. `extern.convert_any` is also excluded because the pinned native
+introspection. V8-validated native builtin imports are resolved inside the engine
+and do not cross the host interface. `extern.convert_any` is also excluded because the pinned native
 adapter cannot safely represent every externalized GC value.
 
 Host-imported memory/globals/tables, guest re-entry from a host callback,
-GC values at the host boundary, the imported-memory `ffi-bytes` API, JS-string
-builtins, exception tags, the MoonBit test driver, custom stack limits, and
-debugger access are not exposed yet. Compiler-generated test modules import
-exception tags, so GC and externref support alone do not enable the test driver.
+GC values at the host boundary, the imported-memory `ffi-bytes` API, custom
+stack limits and debugger access are not exposed yet. The wee8 crate supports
+Wasm tags and exceptions, but Moonrun does not yet register the MoonBit exception
+imports used by compiler-generated test modules. Native string transport and
+the test-driver entry points alone do not complete that integration.
 Memory-dependent imports from
 a Wasm start function are rejected because this C API provides no caller-instance
 lookup before instantiation returns. V8 still uses JS machinery internally.
@@ -128,7 +139,7 @@ focused wee8 tests instead.
 Run the focused integration checks:
 
 ```sh
-cargo test -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test numeric_host_imports --test legacy_host_imports
+cargo test -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test numeric_host_imports --test legacy_host_imports --test engine_backends --test string_interop
 cargo test -p moonrun --no-default-features --features wee8 --lib
 ```
 

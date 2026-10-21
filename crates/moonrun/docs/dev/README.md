@@ -96,9 +96,13 @@ The imports are grouped by their guest ABI:
 - `host_imports.rs` registers the legacy host ABI once for all adapters;
   `v8/values.rs` supplies V8's native string/array/builder/reader representation.
 - `wasm_imports/payload.rs` shares the typed Rust payload representation used by
-  Wasmtime and wee8. Wasmtime's JS-string and `ffi-bytes` adapters recognize the
-  same string/byte payloads. A guest GC object without a Rust payload is a valid
-  externref but is not a host string.
+  Wasmtime and wee8 for buffers, builders, readers and other host state.
+  Explicit string operations in `PayloadContext` let wee8 use native V8 strings;
+  Wasmtime retains its `Arc<[u16]>` payloads. Do not convert strings implicitly
+  inside generic `Any` payload transport. The wee8 adapter enables V8's native
+  string builtins and `_` literals at module compilation, and passes only the
+  remaining host imports to the shared registry. Builders/readers copy UTF-16
+  losslessly; UTF-8 services retain their existing surrogate-replacement policy.
 - `v8/ffi_bytes.rs` implements `ffi-bytes` and owns its memory registration.
 - `v8/exception.rs` implements the exception tag and throw import.
 

@@ -4137,7 +4137,7 @@ dependencies = [
 [[package]]
 name = "wee8"
 version = "0.1.0"
-source = "git+https://github.com/moonbitlang/v8-custom-builds.git?rev=2780c7546a63d25acc09c45735aabd2cdab9ede0#2780c7546a63d25acc09c45735aabd2cdab9ede0"
+source = "git+https://github.com/moonbitlang/v8-custom-builds.git?rev=9afea601070d8f898927a3304389f539d7fbaa0d#9afea601070d8f898927a3304389f539d7fbaa0d"
 dependencies = [
  "bindgen 0.72.1",
  "dunce",
