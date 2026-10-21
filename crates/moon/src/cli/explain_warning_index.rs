@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-10-20.
+// Snapshot generated from `moonc check -warn-help` on 2026-10-21.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -475,6 +475,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "unknown_intrinsic",
         description: "`#intrinsic` attribute names an unknown intrinsic.",
         id: 94,
+    },
+    WarningEntry {
+        mnemonic: "nan_pattern",
+        description: "Pattern on a NaN constant, which never matches.",
+        id: 95,
     },
 ];
 
