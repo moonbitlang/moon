@@ -76,6 +76,11 @@ impl UserIntent {
                     // Pure virtual package: compile its interface instead of building code
                     out.push(ArtifactKey::VirtualContractMi { package: pkg });
                 } else {
+                    // FIXME: Wasm and JS still request `Executable` for a
+                    // foreign library, which their `LinkCore` provides. Request
+                    // `ForeignLibrary` on every backend, with `LinkCore` as its
+                    // Wasm and JS provider, so a foreign library has one
+                    // artifact identity on all backends.
                     if is_foreign_library(pkg_info) && target_backend.is_native() {
                         // Native and LLVM hosts link a foreign library as a
                         // static archive instead of running an executable.

@@ -44,7 +44,8 @@ fn native_backends_build_foreign_libraries_as_libraries() {
         );
     }
 
-    // Wasm and JS realize a foreign library as their linked output.
+    // Wasm and JS still request `Executable` for a foreign library; see the
+    // FIXME in `UserIntent::append_artifacts`.
     assert_eq!(
         requested_build_artifacts(
             &fixture,

@@ -106,8 +106,8 @@ pub enum ArtifactKey {
         target_kind: TargetKind,
     },
     /// The standalone library a foreign-library package produces for a foreign
-    /// host on Native and LLVM, realized as a static archive. Wasm and JS
-    /// realize a foreign library as their `Executable` instead.
+    /// host, realized as a static archive on Native and LLVM. Only those
+    /// backends request it so far; see the FIXME in `UserIntent::append_artifacts`.
     ForeignLibrary {
         package: PackageId,
     },

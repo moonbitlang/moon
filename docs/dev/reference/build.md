@@ -317,10 +317,11 @@ applies to.
 ### Foreign libraries on native backends
 
 A package declared with `pkgtype(kind: "foreign_library")` (or the legacy
-`link: true`) and no `main` is built for a foreign host. On Wasm and JS its
-`LinkCore` output is that library. On Native and LLVM, `moon build` instead
-requests a `ForeignLibrary` artifact, provided by `ArchiveForeignLibrary`,
-and plans no executable link.
+`link: true`) and no `main` is built for a foreign host. On Native and LLVM,
+`moon build` requests a `ForeignLibrary` artifact, provided by
+`ArchiveForeignLibrary`, and plans no executable link. Wasm and JS still
+request the package's `Executable`, which their `LinkCore` provides; moving
+them to `ForeignLibrary` is a pending change marked in the intent code.
 
 `ArchiveForeignLibrary` creates one static archive whose members are objects,
 because static archives do not nest:
