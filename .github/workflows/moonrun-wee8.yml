@@ -75,9 +75,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cargo fmt --all --check
-          cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test -- -D warnings
+          cargo clippy --locked -p moonrun --lib --bins --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test -- -D warnings
       - name: Test shared host definitions and all Moonrun integration cases
-        run: cargo test --locked -p moonrun --no-default-features --features wee8 --lib --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test
+        run: cargo test --locked -p moonrun --lib --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test
       - name: Build Moon and bundle core (Unix)
         if: runner.os != 'Windows'
         run: cargo run --locked --bin moon -- -C "$HOME/.moon/lib/core" bundle --all
@@ -86,7 +86,7 @@ jobs:
         shell: pwsh
         run: cargo run --locked --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
       - name: Test all upstream async conformance cases
-        run: cargo test --locked -p moonrun --no-default-features --features wee8 --test test test_moonrun_against_upstream_async -- --ignored --exact
+        run: cargo test --locked -p moonrun --test test test_moonrun_against_upstream_async -- --ignored --exact
       # Check feature selection once; all platforms link and execute wee8 above.
       - name: Check compatible engine features
         if: runner.os == 'Linux'

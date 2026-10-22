@@ -19,6 +19,13 @@
 name: CD
 
 on:
+  workflow_call:
+    inputs:
+      glibc-version:
+        description: Minimum glibc version for Linux x86_64 binaries
+        required: false
+        default: "2.23"
+        type: string
   workflow_dispatch:
     inputs:
       glibc-version:
@@ -30,11 +37,16 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-22.04-arm, windows-latest]
+        # Intel macOS is checked before merging without adding a new S3 target.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["macos-latest", "macos-15-intel", "ubuntu-22.04-arm", "windows-latest"]' || '["macos-latest", "ubuntu-22.04-arm", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - name: Configure git
@@ -54,8 +66,26 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Install MoonBit for release smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Install MoonBit for release smoke tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:MOONBIT_INSTALL_VERSION="nightly"
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Test release Moonrun through Moon
+        run: python .github/scripts/test-release-moonrun.py target/release "${{ runner.temp }}/moonrun-release-smoke"
+
       - name: Upload(Unix)
-        if: ${{ runner.os != 'Windows' }}
+        if: ${{ github.event_name != 'pull_request' && runner.os != 'Windows' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -66,7 +96,7 @@ jobs:
           aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
 
       - name: Upload(Windows)
-        if: ${{ runner.os == 'Windows' }}
+        if: ${{ github.event_name != 'pull_request' && runner.os == 'Windows' }}
         shell: pwsh
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -105,7 +135,30 @@ jobs:
       - name: Build
         run: cargo zigbuild --release --target "${LINUX_TARGET}.${LINUX_GLIBC_VERSION}"
 
+      - name: Install MoonBit for release smoke tests
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Test release Moonrun through Moon
+        run: python .github/scripts/test-release-moonrun.py "target/$LINUX_TARGET/release" "${{ runner.temp }}/moonrun-release-smoke"
+
+      - name: Check final Moonrun on glibc 2.23
+        if: env.LINUX_GLIBC_VERSION == '2.23'
+        run: |
+          docker run --rm --network none \
+            -v "$PWD/target/$LINUX_TARGET/release:/binaries:ro" \
+            -v "${{ runner.temp }}/moonrun-release-smoke:/guest:ro" \
+            ubuntu:16.04 sh -ec '
+              /binaries/moonrun --version
+              for target in wasm wasm-gc; do
+                actual=$(/binaries/moonrun "/guest/_build/$target/release/build/js_string/js_string.wasm")
+                expected=$(printf "hello from imported constants\n11\nfalse")
+                test "$actual" = "$expected"
+              done'
+
       - name: Upload
+        if: github.event_name != 'pull_request'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
