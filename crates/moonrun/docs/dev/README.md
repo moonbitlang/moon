@@ -126,6 +126,16 @@ growth and collection with builders/readers retained only by Wasm locals/globals
 Removing the old JS throw helper
 also leaves one more slot for guest frames in V8's default stack-trace limit.
 
+## Wasm diagnostics
+
+V8 and Wasmtime send guest frames through `wasm_diagnostic::render`. The renderer
+preserves the runtime location independently of optional source-map lookup:
+V8 retains its parenthesized location (including host locations), and Wasmtime
+retains its module byte offset. A mapped source file and line are appended to
+that location. Missing or malformed source maps therefore do not erase the
+runtime information needed to investigate a failure. `--no-stack-trace` still
+suppresses all frames.
+
 ## Worker cancellation
 
 The cancellation protocol follows upstream async #595. Workers acknowledge a

@@ -27,6 +27,7 @@ pub(crate) enum DiagnosticLine {
     Frame {
         indentation: String,
         function: String,
+        location: Option<String>,
         module_offset: Option<usize>,
     },
 }
@@ -49,10 +50,18 @@ pub(crate) fn render(
             DiagnosticLine::Frame {
                 indentation,
                 function,
+                location,
                 module_offset,
             } => {
                 let function = moonutil::demangle::demangle_mangled_function_name(&function);
                 write!(result, "{indentation}at {function}").unwrap();
+                // Runtime locations and source positions are complementary: keep the
+                // original function index and offset even when a source map is available.
+                if let Some(location) = location {
+                    write!(result, " ({location})").unwrap();
+                } else if let Some(offset) = module_offset {
+                    write!(result, " (0x{offset:x})").unwrap();
+                }
                 if let (Some(source_map), Some(offset)) = (source_map, module_offset)
                     && let Some(position) = source_map.position(offset)
                 {
@@ -76,6 +85,7 @@ mod tests {
                 DiagnosticLine::Frame {
                     indentation: "    ".to_owned(),
                     function: "_M0FP13pkg3foo".to_owned(),
+                    location: None,
                     module_offset: None,
                 },
             ],
@@ -86,6 +96,47 @@ mod tests {
     }
 
     #[test]
+    fn retains_offsets_without_source_maps() {
+        let diagnostic = render(
+            [DiagnosticLine::Frame {
+                indentation: "    ".to_owned(),
+                function: "wasm-function[42]".to_owned(),
+                location: None,
+                module_offset: Some(0x1234),
+            }],
+            None,
+            false,
+        );
+        assert_eq!(diagnostic, "    at wasm-function[42] (0x1234)");
+    }
+
+    #[test]
+    fn retains_runtime_locations_alongside_source_positions() {
+        let directory = tempfile::tempdir().unwrap();
+        let wasm = directory.path().join("module.wasm");
+        std::fs::write(
+            directory.path().join("module.wasm.map"),
+            r#"{"sources":["main.mbt"],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+        let source_map = crate::source_map::load(&wasm, b"").unwrap();
+        let diagnostic = render(
+            [DiagnosticLine::Frame {
+                indentation: "    ".to_owned(),
+                function: "_M0FP13pkg3foo".to_owned(),
+                location: Some("wasm://module:wasm-function[42]:0x1234".to_owned()),
+                module_offset: Some(0x1234),
+            }],
+            Some(&source_map),
+            false,
+        );
+        assert_eq!(
+            diagnostic,
+            "    at @pkg.foo (wasm://module:wasm-function[42]:0x1234) main.mbt:1"
+        );
+    }
+
+    #[test]
     fn hides_frames_when_stack_traces_are_disabled() {
         let diagnostic = render(
             [
@@ -93,6 +144,7 @@ mod tests {
                 DiagnosticLine::Frame {
                     indentation: "    ".to_owned(),
                     function: "throw".to_owned(),
+                    location: Some("module:wasm-function[0]:0x12".to_owned()),
                     module_offset: None,
                 },
             ],

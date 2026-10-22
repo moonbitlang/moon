@@ -637,6 +637,7 @@ fn append_wasm_backtrace(lines: &mut Vec<DiagnosticLine>, error: &wasmtime::Erro
             lines.push(DiagnosticLine::Frame {
                 indentation: "    ".to_owned(),
                 function: raw_name,
+                location: None,
                 module_offset: frame.module_offset(),
             });
         }

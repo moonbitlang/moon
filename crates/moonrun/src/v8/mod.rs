@@ -118,6 +118,7 @@ fn parse_stack_line(line: &str) -> DiagnosticLine {
         return DiagnosticLine::Frame {
             indentation: indentation.to_owned(),
             function: function.to_owned(),
+            location: Some(location.to_owned()),
             module_offset,
         };
     }
@@ -127,6 +128,7 @@ fn parse_stack_line(line: &str) -> DiagnosticLine {
         return DiagnosticLine::Frame {
             indentation: indentation.to_owned(),
             function: function.to_owned(),
+            location: None,
             module_offset: None,
         };
     }
@@ -436,4 +438,18 @@ pub(crate) fn run(
         memory_sanitizer.check_for_leaks()?;
     }
     Ok(outcome)
+}
+
+#[cfg(test)]
+mod stack_trace_tests {
+    use super::*;
+
+    #[test]
+    fn preserves_parenthesized_locations_without_source_maps() {
+        let stack = "RangeError: Maximum call stack size exceeded\n    at openseek (wasm://wasm/openseek:wasm-function[42]:0x1234)\n    at callback (host.js:12:3)";
+        assert_eq!(
+            wasm_diagnostic::render(stack.lines().map(parse_stack_line), None, false),
+            stack
+        );
+    }
 }
