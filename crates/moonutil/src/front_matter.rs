@@ -144,8 +144,8 @@ impl MbtxFrontMatter {
     }
 }
 
-/// Delimiters occupy their own lines. Keep the body as a borrowed slice so the
-/// legacy import prelude can still be interpreted after the closing delimiter.
+/// Compiler front matter fences contain at least three hyphens; the opening
+/// and closing lengths need not match. Keep the body borrowed for legacy imports.
 fn extract_mbtx_front_matter(content: &str) -> anyhow::Result<(&str, &str)> {
     let content = content.strip_prefix('\u{feff}').unwrap_or(content);
     // A shebang belongs on the first line. Strip it before looking for either
@@ -157,13 +157,17 @@ fn extract_mbtx_front_matter(content: &str) -> anyhow::Result<(&str, &str)> {
     };
     let trimmed = content.trim_start();
     let mut lines = trimmed.split_inclusive('\n');
-    let Some(first) = lines.next().filter(|line| line.trim() == "---") else {
+    let Some(first) = lines.next().filter(|line| {
+        let delimiter = line.trim();
+        delimiter.len() >= 3 && delimiter.bytes().all(|byte| byte == b'-')
+    }) else {
         return Ok(("", content));
     };
     let start = first.len();
     let mut end = start;
     for line in lines {
-        if line.trim() == "---" {
+        let delimiter = line.trim();
+        if delimiter.len() >= 3 && delimiter.bytes().all(|byte| byte == b'-') {
             return Ok((&trimmed[start..end], &trimmed[end + line.len()..]));
         }
         end += line.len();

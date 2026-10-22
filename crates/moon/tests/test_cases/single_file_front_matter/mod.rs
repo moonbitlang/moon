@@ -81,15 +81,15 @@ fn test_single_file_mbtx_run_uses_embedded_permission() {
 }
 
 #[test]
-fn test_moonrun_reads_mbtx_permission_after_shebang() {
+fn test_moonrun_policy_reader_accepts_mbtx_shebang() {
     let dir = TestDir::new("moon_test_single_file.in");
     moon_cmd(&dir)
         .args(["build", "front_matter_permission.mbtx", "--target", "wasm"])
         .assert()
         .success();
 
-    // Moonrun can read a shebang-prefixed policy source even though the compiler
-    // does not yet accept shebangs in scripts passed through unchanged.
+    // Add the shebang only for policy loading. Compilation uses the original
+    // fixture so this test makes no assumptions about compiler shebang support.
     let source = fs::read_to_string(dir.join("front_matter_permission.mbtx")).unwrap();
     fs::write(
         dir.join("front_matter_permission.mbtx"),

@@ -79,12 +79,12 @@ Program arguments are forwarded to the final
 Wasm artifact.
 
 A script may declare imports and an embedded Moonrun Policy in front matter
-between two lines containing `---`. The front matter uses the `moon.pkg`
-grammar, with `import { ... }` blocks and a single `permission(...)` declaration:
+between two lines containing at least three hyphens, such as `----`. The front
+matter uses the `moon.pkg` grammar, with `import { ... }` blocks and a single
+`permission(...)` declaration:
 
 ```moonbit
-#!/usr/bin/env moonx
----
+----
 import {
   "moonbitlang/core/env",
 }
@@ -92,19 +92,20 @@ permission(
   env: { "from_host": ["PATH"] },
   fs: { "read": ["."] },
 )
----
+----
 
 fn main {
   // ...
 }
 ```
 
-An optional shebang, such as `#!/usr/bin/env moonx`, may occupy the first line
-before front matter or a legacy import prelude. Moon's header parser also
+Moon's header parser accepts an optional shebang, such as `#!/usr/bin/env moonx`,
+on the first line before front matter or a legacy import prelude. It also
 accepts a leading UTF-8 BOM and blank lines after the shebang. Without a
 shebang, front matter starts at the beginning of the file, optionally after a
-BOM and whitespace. The closing delimiter is required. Imports retain versioned
-paths, named aliases, and `*` import-all syntax. Multiple import blocks are
+BOM and whitespace. The closing delimiter is required; its hyphen count need
+not match the opening delimiter. Imports retain versioned paths, named aliases,
+and `*` import-all syntax. Multiple import blocks are
 combined in source order. The old `import { ... }` prelude outside front matter
 remains supported, including after a permission header; these imports follow
 any front matter imports. Conditional and test-only imports remain unsupported.
@@ -113,10 +114,11 @@ The legacy `// policy:` YAML comment format remains supported for compatibility.
 The format is detected from the source; no compatibility flag is required.
 A script must not declare both `permission(...)` and a legacy `// policy:` block.
 
-Moon passes the original script to compiler tools. Compiling scripts with `---`
-front matter or a shebang therefore requires compiler support for that syntax.
-Legacy import preludes and YAML comments without a shebang remain compatible
-with older compilers.
+Shebang handling here applies only to Moon's header parsing and Moonrun's
+policy loading. Moon passes the original script unchanged to compiler tools;
+accepting a header does not guarantee that the compiler accepts the script.
+The compiler warns about legacy imports outside front matter with
+`unfenced_import` (warning 96).
 
 The `.mbtx` path itself is passed to Moonrun as the policy source, so relative
 filesystem roots are resolved from the script's directory. For `moon run -`

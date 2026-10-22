@@ -369,26 +369,25 @@ Allowing a shell, interpreter, package runner, or extensible tool can permit muc
 more than the visible argument prefix suggests.
 
 Standalone `.mbtx` scripts can carry the same policy in a `permission(...)`
-declaration inside `---` front matter. The header uses the `moon.pkg` grammar
-and can also contain imports:
+declaration inside front matter fenced by three or more hyphens, such as `----`.
+The header uses the `moon.pkg` grammar and can also contain imports:
 
 ```moonbit
-#!/usr/bin/env moonx
----
+----
 import { "moonbitlang/core/env" }
 permission(
   env: { "from_host": ["PATH"] },
   fs: { "read": ["."] },
 )
----
+----
 
 fn main {
   println(@env.get_env_var("PATH"))
 }
 ```
 
-An optional first-line shebang may precede front matter. Legacy `// policy:`
-YAML comments and old import preludes remain supported without a compatibility
+The policy reader accepts an optional first-line shebang before front matter.
+Legacy `// policy:` YAML comments and old import preludes remain supported without a compatibility
 flag. A script cannot declare permissions in both formats. `moon run` and
 `moonx` detect either form and use the script itself as the policy source. Explicit command-line policy paths
 override the embedded policy; inherited policies cannot be replaced by either.
@@ -396,9 +395,8 @@ Front matter must have valid syntax, but the permission schema is validated
 only when it is the effective policy for Wasm execution. Overridden, non-Wasm,
 and build-only paths do not validate permission fields. Legacy YAML is parsed
 only when selected, preserving overrides of malformed legacy policies.
-Moon passes scripts unchanged to compiler tools, so compiling the new syntax
-requires compiler support for `---` and shebangs. Older compilers can continue
-to use legacy imports and YAML comments without a shebang.
+Shebang acceptance is limited to header parsing and policy loading. Moon passes
+scripts unchanged to compiler tools, so this does not guarantee compiler support.
 For `moon run -` and `moon run -e`, relative filesystem roots resolve from the
 directory where Moon was invoked rather than the temporary source directory.
 
