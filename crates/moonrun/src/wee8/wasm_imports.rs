@@ -116,8 +116,8 @@ impl<'s> Registry<'s> {
         &mut self,
         module: &str,
         name: &str,
-        params: &[api::Kind],
-        results: &[api::Kind],
+        params: &[api::ValType],
+        results: &[api::ValType],
         callback: impl for<'a> Fn(
             api::Caller<'a, StoreData>,
             &[api::Value<'a>],
@@ -137,13 +137,13 @@ impl<'s> Registry<'s> {
                 return Err(format!("incorrect type for {module}::{name}").into());
             };
             // Shared Rust callbacks use Option<ExternRef> for both signatures.
-            // Retain the guest's exact nullability in V8; wee8 checks non-null
-            // results before returning them, rather than weakening the import.
-            let represented = |actual: &[api::Kind], declared: &[api::Kind]| {
+            // Check that guest types fit that representation, not that the
+            // callback's declared signature is a function subtype. Keep the
+            // guest's exact signature in V8; wee8 checks non-null results before
+            // returning them, rather than weakening the import.
+            let represented = |actual: &[api::ValType], declared: &[api::ValType]| {
                 actual.len() == declared.len()
-                    && actual.iter().zip(declared).all(|(a, d)| {
-                        a == d || (*a == api::Kind::NonNullExternRef && *d == api::Kind::ExternRef)
-                    })
+                    && actual.iter().zip(declared).all(|(a, d)| a.matches(d))
             };
             if !represented(actual_params, params) || !represented(actual_results, results) {
                 return Err(format!("incorrect signature for {module}::{name}").into());
@@ -269,15 +269,15 @@ where
         name: &'static str,
         function: F,
     ) -> api::Result<()> {
-        let kind = |kind| match kind {
-            WasmType::I32 => api::Kind::I32,
-            WasmType::I64 => api::Kind::I64,
-            WasmType::F32 => api::Kind::F32,
-            WasmType::F64 => api::Kind::F64,
-            WasmType::ExternRef => api::Kind::ExternRef,
+        let val_type = |ty| match ty {
+            WasmType::I32 => api::ValType::I32,
+            WasmType::I64 => api::ValType::I64,
+            WasmType::F32 => api::ValType::F32,
+            WasmType::F64 => api::ValType::F64,
+            WasmType::ExternRef => api::ValType::EXTERNREF,
         };
-        let params: Vec<_> = P::TYPES.iter().copied().map(kind).collect();
-        let results: Vec<_> = R::TYPE.map(kind).into_iter().collect();
+        let params: Vec<_> = P::TYPES.iter().copied().map(val_type).collect();
+        let results: Vec<_> = R::TYPE.map(val_type).into_iter().collect();
         self.define_func(module, name, &params, &results, move |caller, args| {
             let mut context = Context::<T> {
                 caller,

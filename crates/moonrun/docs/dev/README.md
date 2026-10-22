@@ -149,8 +149,9 @@ Rust host registry sees only non-builtin imports. Runtime compatibility imports
 separately from shared Host Domain registrations. Byte memory is store-owned;
 its closure borrows cannot overlap growth or guest execution.
 
-Shared callbacks still use `Option<ExternRef>`. The adapter checks the declared
-value kinds, constructs each host function with the guest's exact nullability,
+Shared callbacks still use `Option<ExternRef>`. The adapter checks that guest
+`ValType`s fit the declared Rust value representation, constructs each host
+function with the guest's exact nullability,
 and relies on the upstream safe API to reject null non-null results. It does
 not change shared host definitions or relax V8 import matching. String helpers
 construct native V8 strings, including test-driver filenames.

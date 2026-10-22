@@ -24,7 +24,7 @@ use crate::wasm_imports::payload::JsBytes;
 use std::{any::Any, sync::Mutex};
 
 pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
-    use api::Kind::{ExternRef, I32};
+    use api::ValType;
     use api::Value::{ExternRef as Ref, I32 as Int};
     let memory = if registry.needs_import("ffi-bytes", "memory") {
         let memory = api::Memory::new(
@@ -42,8 +42,8 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
     registry.define_func(
         "ffi-bytes",
         "from_memory",
-        &[I32, I32],
-        &[ExternRef],
+        &[ValType::I32, ValType::I32],
+        &[ValType::EXTERNREF],
         move |caller, args| {
             let [Int(offset), Int(length)] = args else {
                 unreachable!()
@@ -60,25 +60,37 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
             Ok(vec![new_bytes(&caller, bytes)?])
         },
     )?;
-    registry.define_func("ffi-bytes", "new", &[I32], &[ExternRef], |caller, args| {
-        let [Int(length)] = args else { unreachable!() };
-        let length = usize::try_from(*length).map_err(|_| "negative byte length")?;
-        Ok(vec![new_bytes(&caller, vec![0; length])?])
-    })?;
-    registry.define_func("ffi-bytes", "get", &[ExternRef, I32], &[I32], |_, args| {
-        let [Ref(value), Int(index)] = args else {
-            unreachable!()
-        };
-        let bytes = bytes(value)?.0.lock().unwrap_or_else(|e| e.into_inner());
-        let byte = bytes
-            .get(*index as u32 as usize)
-            .ok_or("ffi-bytes index out of bounds")?;
-        Ok(vec![Int(i32::from(*byte))])
-    })?;
+    registry.define_func(
+        "ffi-bytes",
+        "new",
+        &[ValType::I32],
+        &[ValType::EXTERNREF],
+        |caller, args| {
+            let [Int(length)] = args else { unreachable!() };
+            let length = usize::try_from(*length).map_err(|_| "negative byte length")?;
+            Ok(vec![new_bytes(&caller, vec![0; length])?])
+        },
+    )?;
+    registry.define_func(
+        "ffi-bytes",
+        "get",
+        &[ValType::EXTERNREF, ValType::I32],
+        &[ValType::I32],
+        |_, args| {
+            let [Ref(value), Int(index)] = args else {
+                unreachable!()
+            };
+            let bytes = bytes(value)?.0.lock().unwrap_or_else(|e| e.into_inner());
+            let byte = bytes
+                .get(*index as u32 as usize)
+                .ok_or("ffi-bytes index out of bounds")?;
+            Ok(vec![Int(i32::from(*byte))])
+        },
+    )?;
     registry.define_func(
         "ffi-bytes",
         "set",
-        &[ExternRef, I32, I32],
+        &[ValType::EXTERNREF, ValType::I32, ValType::I32],
         &[],
         |_, args| {
             let [Ref(value), Int(index), Int(byte)] = args else {
@@ -94,7 +106,13 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
     registry.define_func(
         "ffi-bytes",
         "copy",
-        &[ExternRef, I32, ExternRef, I32, I32],
+        &[
+            ValType::EXTERNREF,
+            ValType::I32,
+            ValType::EXTERNREF,
+            ValType::I32,
+            ValType::I32,
+        ],
         &[],
         |_, args| {
             let [
@@ -129,7 +147,7 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
     registry.define_func(
         "ffi-bytes",
         "fill",
-        &[ExternRef, I32, I32, I32],
+        &[ValType::EXTERNREF, ValType::I32, ValType::I32, ValType::I32],
         &[],
         |_, args| {
             let [Ref(value), Int(start), Int(byte), Int(length)] = args else {
@@ -145,22 +163,28 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
             Ok(vec![])
         },
     )?;
-    registry.define_func("ffi-bytes", "length", &[ExternRef], &[I32], |_, args| {
-        let [Ref(value)] = args else { unreachable!() };
-        let length = bytes(value)?
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .len();
-        Ok(vec![Int(
-            i32::try_from(length).map_err(|_| "byte length exceeds i32")?
-        )])
-    })?;
+    registry.define_func(
+        "ffi-bytes",
+        "length",
+        &[ValType::EXTERNREF],
+        &[ValType::I32],
+        |_, args| {
+            let [Ref(value)] = args else { unreachable!() };
+            let length = bytes(value)?
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
+            Ok(vec![Int(
+                i32::try_from(length).map_err(|_| "byte length exceeds i32")?
+            )])
+        },
+    )?;
     registry.define_func(
         "ffi-bytes",
         "equals",
-        &[ExternRef, ExternRef],
-        &[I32],
+        &[ValType::EXTERNREF, ValType::EXTERNREF],
+        &[ValType::I32],
         |_, args| {
             let [Ref(left), Ref(right)] = args else {
                 unreachable!()
@@ -177,8 +201,8 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
     registry.define_func(
         "ffi-bytes",
         "asString",
-        &[ExternRef, I32, I32],
-        &[ExternRef],
+        &[ValType::EXTERNREF, ValType::I32, ValType::I32],
+        &[ValType::EXTERNREF],
         |caller, args| {
             let [Ref(value), Int(start), Int(length)] = args else {
                 unreachable!()
@@ -196,22 +220,29 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
             Ok(vec![Ref(Some(string.into_extern_ref()))])
         },
     )?;
-    registry.define_func("console", "log", &[ExternRef], &[], |caller, args| {
-        let [Ref(value)] = args else { unreachable!() };
-        let string = api::StringRef::try_from(value.clone().ok_or("console.log received null")?)?;
-        caller
-            .with_data(|data| {
-                data.runtime
-                    .stdio()
-                    .with_stdout(|out| writeln!(out, "{}", string.to_string_lossy()))
-            })
-            .map_err(|error| api::Error::Host(error.to_string().into()))?;
-        Ok(vec![])
-    })?;
+    registry.define_func(
+        "console",
+        "log",
+        &[ValType::EXTERNREF],
+        &[],
+        |caller, args| {
+            let [Ref(value)] = args else { unreachable!() };
+            let string =
+                api::StringRef::try_from(value.clone().ok_or("console.log received null")?)?;
+            caller
+                .with_data(|data| {
+                    data.runtime
+                        .stdio()
+                        .with_stdout(|out| writeln!(out, "{}", string.to_string_lossy()))
+                })
+                .map_err(|error| api::Error::Host(error.to_string().into()))?;
+            Ok(vec![])
+        },
+    )?;
     registry.define_func(
         MEMORY_SANITIZER_MODULE,
         "register-object-alloc",
-        &[I32, I32],
+        &[ValType::I32, ValType::I32],
         &[],
         |caller, args| {
             let [Int(size), Int(address)] = args else {
@@ -250,7 +281,7 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
     registry.define_func(
         MEMORY_SANITIZER_MODULE,
         "register-object-free",
-        &[I32],
+        &[ValType::I32],
         &[],
         |caller, args| {
             let [Int(address)] = args else { unreachable!() };
@@ -268,8 +299,8 @@ pub(super) fn register(registry: &mut Registry<'_>) -> api::Result<()> {
     registry.define_func(
         MEMORY_SANITIZER_MODULE,
         "object-is-valid",
-        &[I32],
-        &[I32],
+        &[ValType::I32],
+        &[ValType::I32],
         |caller, args| {
             let [Int(address)] = args else { unreachable!() };
             Ok(vec![Int(i32::from(caller.with_data(|data| {
