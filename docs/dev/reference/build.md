@@ -202,14 +202,24 @@ macOS debug builds that emit native object code add one post-link step:
    bundle. The linker and `dsymutil` remain separate structured commands, so
    n2 can schedule and track each tool invocation independently.
 
-After a successful build, `moon build` writes the absolute path of each
-requested `Executable` and `ForeignLibrary` artifact to stdout, one per line,
-in the order of the selected target backends. This is a Command Result, so
-`--quiet` does not hide it. With `--output-json`, each path is a JSON line
-next to the compiler's `diagnostic` messages:
+After a successful build, `moon build` lists each requested `Executable` and
+`ForeignLibrary` artifact on stdout, in the order of the selected target
+backends. Each row shows the package, the target backend and the absolute
+path, last so it is easy to copy:
+
+```text
+Artifacts:
+  username/demo/cmd/main  wasm-gc  /p/_build/wasm-gc/debug/build/cmd/main/main.wasm
+  username/foreign/lib    native   /p/_build/native/release/build/lib/lib.a
+```
+
+The list is a Command Result, so `--quiet` does not hide it. It reads the same
+whether or not stdout is a terminal; programs use `--output-json`, which
+writes each artifact as a JSON line next to the compiler's `diagnostic`
+messages:
 
 ```json
-{"$message_type":"artifact","target_backend":"native","path":"/p/_build/native/release/build/lib/lib.a"}
+{"$message_type":"artifact","package":"username/foreign/lib","target_backend":"native","path":"/p/_build/native/release/build/lib/lib.a"}
 ```
 
 Other requested artifacts, such as a library package's CoreIR, are build

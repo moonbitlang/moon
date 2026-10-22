@@ -2,7 +2,7 @@
 //! backend. A C host links that archive and only calls `moonbit_init` before
 //! using the exports.
 //!
-//! `moon build` prints the archive path.
+//! `moon build` lists the archive among its artifacts.
 //!
 //! The package and its dependency both name their C stub `stub.c`, so the
 //! archive holds two `stub.o` members that every archiver must keep.
@@ -75,7 +75,7 @@ fn test_native_foreign_library_links_into_c_host() {
     // Release builds compile generated C into the payload object; debug builds
     // use direct object output where the host supports it.
     for (profile, profile_args) in [("release", &["--release"][..]), ("debug", &[])] {
-        // `--quiet` hides the build summary but not the built paths.
+        // `--quiet` hides the build summary but not the artifact list.
         let stdout = get_stdout(
             &dir,
             ["build", "--target", "native", "--quiet"]
@@ -84,8 +84,11 @@ fn test_native_foreign_library_links_into_c_host() {
         );
         assert_eq!(
             stdout.replace('\\', "/"),
-            format!("$ROOT/_build/native/{profile}/build/lib/lib{ARCHIVE_EXTENSION}\n"),
-            "moon build should print the archive path"
+            format!(
+                "Artifacts:\n  username/foreign/lib  native  \
+                 $ROOT/_build/native/{profile}/build/lib/lib{ARCHIVE_EXTENSION}\n"
+            ),
+            "moon build should list the archive"
         );
 
         let package_dir = dir.join(format!("_build/native/{profile}/build/lib"));

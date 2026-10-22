@@ -16,7 +16,7 @@ fn test_moon_build_json_output() {
             {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"11:7-11:9","message":"Warning (unused_value): Unused variable '中文'","context":"10 |  // 🤣😭🤣😭🤣😭🤣😭🤣😭/n11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n"}
             {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"12:7-12:12","message":"Warning (unused_value): Unused variable '🤣😭🤣😭🤣'","context":"11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n13 |  alert_1();/n"}
             {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/main/main.mbt","loc":"2:7-2:8","message":"Warning (unused_value): Unused variable 'a'","context":"1 |fn main {/n2 |  let a = 0/n3 |  @lib.hello()/n"}
-            {"$message_type":"artifact","target_backend":"wasm","path":"$ROOT/_build/wasm/debug/build/main/main.wasm"}
+            {"$message_type":"artifact","package":"username/hello/main","target_backend":"wasm","path":"$ROOT/_build/wasm/debug/build/main/main.wasm"}
         "#]],
     );
 }
@@ -71,7 +71,8 @@ fn test_moon_build_raw_output() {
             $ROOT/lib/hello.mbt:11:7-11:9 [E0002] Warning (unused_value): Unused variable '中文'
             $ROOT/lib/hello.mbt:12:7-12:12 [E0002] Warning (unused_value): Unused variable '🤣😭🤣😭🤣'
             $ROOT/main/main.mbt:2:7-2:8 [E0002] Warning (unused_value): Unused variable 'a'
-            $ROOT/_build/wasm/debug/build/main/main.wasm
+            Artifacts:
+              username/hello/main  wasm  $ROOT/_build/wasm/debug/build/main/main.wasm
         "#]],
     );
 }
