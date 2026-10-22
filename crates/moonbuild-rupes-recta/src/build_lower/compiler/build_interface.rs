@@ -124,8 +124,8 @@ mod tests {
     #[test]
     fn windows_file_arguments_are_normalized_before_transport() {
         let fqn = crate::pkg_name::PackageFQN::new(
-            "test/paths@0.1.0".parse().unwrap(),
-            "".parse().unwrap(),
+            "test/paths@0.1.0".parse().expect("valid module name"),
+            "".parse().expect("valid root package path"),
         );
         let source_root = Path::new(r"C:\Users\user'quote\project");
         let output = Path::new(r"\\?\C:\Users\user'quote\project\_build\abort.mi");
@@ -140,14 +140,14 @@ mod tests {
             source_root,
         );
         let args = command.build_command("moonc");
-        let inline = moonc_command::lower(args.clone(), output).unwrap();
+        let inline = moonc_command::lower(args.clone(), output).expect("valid inline command");
         assert!(matches!(
             inline.execution(),
             LoweredCommandExecution::Inline(_)
         ));
         let mut large = args.clone();
         large.extend(["-w".to_owned(), "a".repeat(16 * 1024)]);
-        let response = moonc_command::lower(large, output).unwrap();
+        let response = moonc_command::lower(large, output).expect("valid response-file command");
         let LoweredCommandExecution::ResponseFile { command, file } = response.execution() else {
             panic!("expected response-file transport");
         };
@@ -178,7 +178,7 @@ mod tests {
         );
         assert_eq!(args[4], r"C:\Users\user'quote\project\_build\abort.mi");
         assert_eq!(
-            output.to_str().unwrap(),
+            output.to_str().expect("UTF-8 fixture path"),
             r"\\?\C:\Users\user'quote\project\_build\abort.mi"
         );
         let transport = moonutil::shlex::split_native(command);
