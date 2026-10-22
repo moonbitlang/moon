@@ -70,7 +70,7 @@ fn test_single_file_mbtx_run() {
 }
 
 #[test]
-fn test_single_file_mbtx_run_uses_embedded_yaml_policy() {
+fn test_single_file_mbtx_run_uses_embedded_permission() {
     let dir = TestDir::new("moon_test_single_file.in");
 
     moon_cmd(&dir)
@@ -81,29 +81,92 @@ fn test_single_file_mbtx_run_uses_embedded_yaml_policy() {
 }
 
 #[test]
-fn test_single_file_mbtx_dry_run_forwards_embedded_policy() {
+fn test_moonrun_policy_reader_accepts_mbtx_shebang() {
     let dir = TestDir::new("moon_test_single_file.in");
-    let stdout = get_stdout(
-        &dir,
-        [
-            "run",
-            "embedded_policy.mbtx",
-            "--target",
-            "wasm",
-            "--dry-run",
-        ],
-    );
+    moon_cmd(&dir)
+        .args(["build", "front_matter_permission.mbtx", "--target", "wasm"])
+        .assert()
+        .success();
 
-    assert!(
-        stdout.lines().last().is_some_and(|line| {
-            line.contains("--policy") && line.contains("embedded_policy.mbtx")
-        }),
-        "expected the script itself to be forwarded as the policy source:\n{stdout}"
-    );
+    // Add the shebang only for policy loading. Compilation uses the original
+    // fixture so this test makes no assumptions about compiler shebang support.
+    let source = fs::read_to_string(dir.join("front_matter_permission.mbtx")).unwrap();
+    fs::write(
+        dir.join("front_matter_permission.mbtx"),
+        format!("#!/usr/bin/env moonx\n{source}"),
+    )
+    .unwrap();
+
+    snapbox::cmd::Command::new(moonrun_bin())
+        .current_dir(&dir)
+        .args(["--policy", "front_matter_permission.mbtx"])
+        .arg(
+            standalone_target_dir(&dir, "front_matter_permission.mbtx")
+                .join("wasm/debug/build/single/single.wasm"),
+        )
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
 }
 
 #[test]
-fn test_stdin_mbtx_uses_embedded_yaml_policy() {
+fn test_single_file_mbtx_front_matter_compiles_and_runs() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    for command in ["check", "test"] {
+        moon_cmd(&dir)
+            .args([command, "front_matter_permission.mbtx", "--target", "wasm"])
+            .assert()
+            .success();
+    }
+    for target in ["wasm", "wasm-gc"] {
+        moon_cmd(&dir)
+            .args(["run", "front_matter_permission.mbtx", "--target", target])
+            .assert()
+            .success()
+            .stdout_eq("embedded\n");
+    }
+
+    let source = fs::read_to_string(dir.join("front_matter_permission.mbtx")).unwrap();
+    moon_cmd(&dir)
+        .args(["run", "-", "--target", "wasm"])
+        .stdin(source)
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
+}
+
+#[test]
+fn test_single_file_mbtx_dry_run_reads_front_matter() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    for command in ["build", "check", "test", "run"] {
+        let stdout = get_stdout(
+            &dir,
+            [
+                command,
+                "front_matter_permission.mbtx",
+                "--target",
+                "wasm",
+                "--dry-run",
+            ],
+        );
+
+        assert!(
+            stdout.contains("env.mi:env"),
+            "front matter import missing from {command}:\n{stdout}"
+        );
+        if command == "run" {
+            assert!(
+                stdout.lines().last().is_some_and(|line| {
+                    line.contains("--policy") && line.contains("front_matter_permission.mbtx")
+                }),
+                "expected the script itself to be forwarded as the policy source:\n{stdout}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_stdin_mbtx_uses_embedded_permission() {
     let fixture_dir = TestDir::new("moon_test_single_file.in");
     let dir = TestDir::new_empty();
     let source = fs::read_to_string(fixture_dir.join("embedded_policy.mbtx")).unwrap();

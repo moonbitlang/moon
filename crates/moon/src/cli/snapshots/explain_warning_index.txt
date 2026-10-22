@@ -86,3 +86,4 @@
 0093	unknown_constr_pat_on_exhaustive_type	using `TypeName::..` pattern on a type not marked with `#non_exhaustive`
 0094	unknown_intrinsic	`#intrinsic` attribute names an unknown intrinsic.
 0095	nan_pattern	Pattern on a NaN constant, which never matches.
+0096	unfenced_import	Deprecated import declarations outside frontmatter.

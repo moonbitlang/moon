@@ -85,12 +85,17 @@ impl PolicyConfig {
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("mbtx"))
         {
-            return moonutil::front_matter::parse_mbtx_policy(path)?.with_context(|| {
-                format!(
-                    ".mbtx policy source {} has no `// policy:` front matter",
-                    path.display()
-                )
-            });
+            let permission = moonutil::front_matter::MbtxFrontMatter::from_file(path)?
+                .permission
+                .with_context(|| {
+                    format!(
+                        ".mbtx policy source {} has no `permission` front matter",
+                        path.display()
+                    )
+                })?;
+            return permission
+                .deserialize()
+                .with_context(|| format!("invalid .mbtx permission in `{}`", path.display()));
         }
 
         let contents = std::fs::read_to_string(path)
@@ -180,15 +185,21 @@ spawn = true
     }
 
     #[test]
-    fn parses_yaml_policy_from_mbtx_front_matter() {
+    fn parses_permission_from_mbtx_front_matter() {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("script.mbtx");
         std::fs::write(
             &policy_file,
-            r#"// policy:
-//   env:
-//     set:
-//       APP_ENV: embedded
+            r#"#!/usr/bin/env moonx
+---
+import { "moonbitlang/core/env" }
+permission(
+  env: { "set": { "APP_ENV": "embedded" } },
+  fs: { "read": ["."], "write": ["scratch"] },
+  net: { "connect": ["example.com:443"] },
+  process: { "allow": [{ "program": "git", "args_prefix": ["status"] }] },
+)
+---
 
 fn main {}
 "#,
@@ -201,6 +212,60 @@ fn main {}
             config.env.unwrap().set.get("APP_ENV").map(String::as_str),
             Some("embedded")
         );
+        let fs = config.fs.unwrap();
+        assert_eq!(fs.read, [PathBuf::from(".")]);
+        assert_eq!(fs.write, [PathBuf::from("scratch")]);
+        assert_eq!(config.net.unwrap().connect, ["example.com:443"]);
+        let process = config.process.unwrap();
+        assert!(!process.spawn);
+        assert_eq!(process.allow[0].program, "git");
+        assert_eq!(process.allow[0].args_prefix, ["status"]);
+    }
+
+    #[test]
+    fn parses_legacy_policy_with_a_shebang() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("script.mbtx");
+        std::fs::write(
+            &policy_file,
+            r#"#!/usr/bin/env moonx
+// policy:
+//   env:
+//     set:
+//       APP_ENV: legacy
+
+import { "moonbitlang/core/env" }
+fn main {}
+"#,
+        )
+        .unwrap();
+        let config = PolicyConfig::from_file(&policy_file).unwrap();
+        assert_eq!(
+            config.env.unwrap().set.get("APP_ENV").map(String::as_str),
+            Some("legacy")
+        );
+    }
+
+    #[test]
+    fn rejects_missing_or_invalid_mbtx_permission() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("script.mbtx");
+        for declaration in [
+            "",
+            "permission(env: true)",
+            "permission(unknown: true)",
+            "permission(fs: { \"read\": true })",
+        ] {
+            std::fs::write(
+                &policy_file,
+                format!("---\n{declaration}\n---\nfn main {{}}\n"),
+            )
+            .unwrap();
+            assert!(
+                PolicyConfig::from_file(&policy_file).is_err(),
+                "{declaration}"
+            );
+        }
     }
 
     #[test]

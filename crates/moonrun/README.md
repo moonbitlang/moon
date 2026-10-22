@@ -368,14 +368,35 @@ MoonBit appends `.exe` unless the requested program already ends in `.exe` or
 Allowing a shell, interpreter, package runner, or extensible tool can permit much
 more than the visible argument prefix suggests.
 
-As an experimental feature, standalone `.mbtx` scripts can carry the same
-policy inline as YAML; this format may change. Put a leading `// policy:` block
-at the start of the script and prefix every YAML line with `//`, without `---`
-delimiters. `moon run` and `moonx` detect this block and use the script itself
-as the policy source. Explicit command-line policy paths override the embedded
-policy; inherited policies cannot be replaced by either. An embedded block is
-parsed only when it is the effective policy for Wasm execution; overridden,
-non-Wasm, and build-only paths do not validate its YAML.
+Standalone `.mbtx` scripts can carry the same policy in a `permission(...)`
+declaration inside front matter fenced by three or more hyphens, such as `----`.
+The header uses the `moon.pkg` grammar and can also contain imports:
+
+```moonbit
+----
+import { "moonbitlang/core/env" }
+permission(
+  env: { "from_host": ["PATH"] },
+  fs: { "read": ["."] },
+)
+----
+
+fn main {
+  println(@env.get_env_var("PATH"))
+}
+```
+
+The policy reader accepts an optional first-line shebang before front matter.
+Legacy `// policy:` YAML comments and old import preludes remain supported without a compatibility
+flag. A script cannot declare permissions in both formats. `moon run` and
+`moonx` detect either form and use the script itself as the policy source. Explicit command-line policy paths
+override the embedded policy; inherited policies cannot be replaced by either.
+Front matter must have valid syntax, but the permission schema is validated
+only when it is the effective policy for Wasm execution. Overridden, non-Wasm,
+and build-only paths do not validate permission fields. Legacy YAML is parsed
+only when selected, preserving overrides of malformed legacy policies.
+Shebang acceptance is limited to header parsing and policy loading. Moon passes
+scripts unchanged to compiler tools, so this does not guarantee compiler support.
 For `moon run -` and `moon run -e`, relative filesystem roots resolve from the
 directory where Moon was invoked rather than the temporary source directory.
 

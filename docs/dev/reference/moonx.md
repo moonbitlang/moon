@@ -68,41 +68,69 @@ both registry packages and standalone `.mbtx` files.
 An input whose extension is `.mbtx` is treated as a persistent standalone
 script path. Moonx reuses the same synthesized-package dependency resolution,
 build planning, and incremental target directory as a standalone linear-memory
-Wasm build through `moon run`. Imports declared by the `.mbtx` prelude are
-resolved and built before the synthesized script package. The resulting Wasm
-artifact then uses the same moonx execution path as a registry Wasm artifact.
+Wasm build through `moon run`. Imports declared by `.mbtx` front matter or the
+legacy prelude are resolved and built before the synthesized script package.
+The resulting Wasm artifact then uses the same moonx execution path as a
+registry Wasm artifact.
 
 Standalone `.mbtx` execution uses the linear-memory Wasm backend.
 Program arguments are forwarded to the final
 `moonrun`, and `--experimental-policy` has the same meaning as for a registry
 Wasm artifact.
 
-As an experimental feature, a script may embed its Moonrun Policy as YAML in a
-leading line-comment front matter block. This format may change. The block
-starts with `// policy:` and ends at the first non-comment, MoonBit doc-comment,
-or unindented comment line. Each `//` prefix and one following space are removed
-before parsing. For example:
+A script may declare imports and an embedded Moonrun Policy in front matter
+between two lines containing at least three hyphens, such as `----`. The front
+matter uses the `moon.pkg` grammar, with `import { ... }` blocks and a single
+`permission(...)` declaration:
 
 ```moonbit
-// policy:
-//   env:
-//     from_host: [PATH]
-//   fs:
-//     read: [.]
+----
+import {
+  "moonbitlang/core/env",
+}
+permission(
+  env: { "from_host": ["PATH"] },
+  fs: { "read": ["."] },
+)
+----
 
 fn main {
   // ...
 }
 ```
 
+Moon's header parser accepts an optional shebang, such as `#!/usr/bin/env moonx`,
+on the first line before front matter or a legacy import prelude. It also
+accepts a leading UTF-8 BOM and blank lines after the shebang. Without a
+shebang, front matter starts at the beginning of the file, optionally after a
+BOM and whitespace. The closing delimiter is required; its hyphen count need
+not match the opening delimiter. Imports retain versioned paths, named aliases,
+and `*` import-all syntax. Multiple import blocks are
+combined in source order. The old `import { ... }` prelude outside front matter
+remains supported, including after a permission header; these imports follow
+any front matter imports. Conditional and test-only imports remain unsupported.
+Unknown declarations and duplicate `permission` declarations are errors.
+The legacy `// policy:` YAML comment format remains supported for compatibility.
+The format is detected from the source; no compatibility flag is required.
+A script must not declare both `permission(...)` and a legacy `// policy:` block.
+
+Shebang handling here applies only to Moon's header parsing and Moonrun's
+policy loading. Moon passes the original script unchanged to compiler tools;
+accepting a header does not guarantee that the compiler accepts the script.
+The compiler warns about legacy imports outside front matter with
+`unfenced_import` (warning 96).
+
 The `.mbtx` path itself is passed to Moonrun as the policy source, so relative
 filesystem roots are resolved from the script's directory. For `moon run -`
 and `moon run -e`, Moon writes the source to a temporary `.mbtx` but retains the
 invocation directory as the logical policy source directory. An explicit
 `--experimental-policy` takes precedence over embedded policy. An inherited
-policy remains host-owned and takes precedence over both. An embedded block is
-parsed only when it is the effective policy for Wasm execution; overridden,
-non-Wasm, and build-only paths do not validate its YAML.
+policy remains host-owned and takes precedence over both. Front matter syntax is
+validated during dependency resolution. Permission fields are decoded only when
+the declaration is the effective policy for Wasm execution; overridden,
+non-Wasm, and build-only paths do not validate the permission schema. Legacy
+YAML is also parsed only when selected, so an explicit or inherited policy can
+override malformed legacy YAML.
 
 Moonx consumes an inherited policy handle before resolving `.mbtx`
 dependencies and relays it only to the final `moonrun` process. Registry and

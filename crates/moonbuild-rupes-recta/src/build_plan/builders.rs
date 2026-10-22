@@ -2175,7 +2175,7 @@ mod tests {
                     Path::new(&format!("{prefix}{expected}")).as_os_str(),
                     "root={root:?}, relative={relative:?}",
                 );
-                assert!(!path.to_str().unwrap().contains('/'));
+                assert!(!path.to_str().expect("UTF-8 fixture path").contains('/'));
                 assert!(!path.components().any(|component| matches!(
                     component,
                     std::path::Component::CurDir | std::path::Component::ParentDir
@@ -2252,7 +2252,10 @@ mod tests {
         );
         // Reverse the direction: the cwd is long, but the target is short.
         assert_eq!(
-            prebuild_command_path(path.parent().unwrap(), &cwd.join("output.txt")),
+            prebuild_command_path(
+                path.parent().expect("fixture file has a parent directory"),
+                &cwd.join("output.txt"),
+            ),
             format!("./{}output.txt", "../".repeat(40))
         );
     }

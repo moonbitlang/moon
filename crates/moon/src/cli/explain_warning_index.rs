@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-10-21.
+// Snapshot generated from `moonc check -warn-help` on 2026-10-22.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -480,6 +480,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "nan_pattern",
         description: "Pattern on a NaN constant, which never matches.",
         id: 95,
+    },
+    WarningEntry {
+        mnemonic: "unfenced_import",
+        description: "Deprecated import declarations outside frontmatter.",
+        id: 96,
     },
 ];
 
