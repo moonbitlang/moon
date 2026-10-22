@@ -280,6 +280,15 @@ fn main {}
     }
 
     #[test]
+    fn supports_compiler_front_matter_fences() {
+        for (opening, closing) in [("---", "---"), ("----", "----"), ("-----", "---")] {
+            let source = format!("{opening}\npermission()\n{closing}\nfn main {{}}\n");
+            let header = MbtxFrontMatter::parse(&source).unwrap();
+            assert!(header.permission.is_some(), "header: {source}");
+        }
+    }
+
+    #[test]
     fn supports_crlf_bom_empty_and_permission_only_headers() {
         let header =
             MbtxFrontMatter::parse("\u{feff}\r\n---\r\npermission()\r\n---\r\nfn main {}\r\n")

@@ -83,20 +83,53 @@ fn test_single_file_mbtx_run_uses_embedded_permission() {
 #[test]
 fn test_moonrun_reads_mbtx_permission_after_shebang() {
     let dir = TestDir::new("moon_test_single_file.in");
-    // Compile the compatibility source so runtime header handling can be tested
-    // independently of compiler support for shebangs and delimited front matter.
     moon_cmd(&dir)
-        .args(["build", "embedded_policy.mbtx", "--target", "wasm"])
+        .args(["build", "front_matter_permission.mbtx", "--target", "wasm"])
         .assert()
         .success();
+
+    // Moonrun can read a shebang-prefixed policy source even though the compiler
+    // does not yet accept shebangs in scripts passed through unchanged.
+    let source = fs::read_to_string(dir.join("front_matter_permission.mbtx")).unwrap();
+    fs::write(
+        dir.join("front_matter_permission.mbtx"),
+        format!("#!/usr/bin/env moonx\n{source}"),
+    )
+    .unwrap();
 
     snapbox::cmd::Command::new(moonrun_bin())
         .current_dir(&dir)
         .args(["--policy", "front_matter_permission.mbtx"])
         .arg(
-            standalone_target_dir(&dir, "embedded_policy.mbtx")
+            standalone_target_dir(&dir, "front_matter_permission.mbtx")
                 .join("wasm/debug/build/single/single.wasm"),
         )
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
+}
+
+#[test]
+fn test_single_file_mbtx_front_matter_compiles_and_runs() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    for command in ["check", "test"] {
+        moon_cmd(&dir)
+            .args([command, "front_matter_permission.mbtx", "--target", "wasm"])
+            .assert()
+            .success();
+    }
+    for target in ["wasm", "wasm-gc"] {
+        moon_cmd(&dir)
+            .args(["run", "front_matter_permission.mbtx", "--target", target])
+            .assert()
+            .success()
+            .stdout_eq("embedded\n");
+    }
+
+    let source = fs::read_to_string(dir.join("front_matter_permission.mbtx")).unwrap();
+    moon_cmd(&dir)
+        .args(["run", "-", "--target", "wasm"])
+        .stdin(source)
         .assert()
         .success()
         .stdout_eq("embedded\n");
