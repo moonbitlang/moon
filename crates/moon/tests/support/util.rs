@@ -113,8 +113,10 @@ pub(crate) fn normalize_host_archiver(s: &mut String) {
         redactions
             .insert(
                 "[CREATE_ARGS]",
-                Regex::new(r"\[ARCHIVER\] (?<redacted>-static -o|-r -c -s)")
-                    .expect("valid archive create arguments regex"),
+                Regex::new(
+                    r"\[ARCHIVER\] (?<redacted>-static -no_warning_for_no_symbols -o|-r -c -s)",
+                )
+                .expect("valid archive create arguments regex"),
             )
             .expect("valid archive create arguments redaction");
         redactions
@@ -477,7 +479,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn normalize_host_archiver_keeps_platform_choices_visible() {
-        let mut apple_command = "/usr/bin/libtool -static -o output.a input.o".to_string();
+        let mut apple_command =
+            "/usr/bin/libtool -static -no_warning_for_no_symbols -o output.a input.o".to_string();
         super::normalize_host_archiver(&mut apple_command);
         assert_eq!(apple_command, "[ARCHIVER] [CREATE_ARGS] output.a input.o");
 
@@ -489,7 +492,9 @@ mod tests {
         super::normalize_host_archiver(&mut custom_archiver);
         assert_eq!(custom_archiver, "stubar -r -c -s output.a input.o");
 
-        let mut multiline = "previous command\nlibtool -static -o output.a input.o".to_string();
+        let mut multiline =
+            "previous command\nlibtool -static -no_warning_for_no_symbols -o output.a input.o"
+                .to_string();
         super::normalize_host_archiver(&mut multiline);
         assert_eq!(
             multiline,

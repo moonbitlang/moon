@@ -2096,7 +2096,15 @@ mod tests {
                 "runtime.a",
                 &paths,
             ),
-            ["libtool", "-static", "-o", "runtime.a", "runtime.o"].map(str::to_string)
+            [
+                "libtool",
+                "-static",
+                "-no_warning_for_no_symbols",
+                "-o",
+                "runtime.a",
+                "runtime.o"
+            ]
+            .map(str::to_string)
         );
 
         let mut clang_msvc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));

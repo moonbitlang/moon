@@ -231,6 +231,8 @@ pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_fla
     }
 
     buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
+    // Large generated C files can exceed the default COFF section limit.
+    buf.push("/bigobj".to_string());
 
     if !has_user_flags {
         buf.push("/utf-8".to_string());
