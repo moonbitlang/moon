@@ -213,32 +213,7 @@ fn run_build_for_single_file_rr(
         )?);
     }
 
-    let ok = if cli.dry_run {
-        output.write_result(|writer| {
-            let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(writer, &build_input, source_dir)?;
-            Ok::<_, std::io::Error>(())
-        })?;
-        true
-    } else {
-        for (build_meta, _) in &planned_runs {
-            rr_build::generate_all_pkgs_json(build_meta)?;
-        }
-        let build_input = BuildInput::compose(
-            planned_runs
-                .into_iter()
-                .map(|(_, build_input)| build_input)
-                .collect(),
-        )?;
-        let config = cmd
-            .build_flags
-            .execution_config(&cli.unstable_feature, cli.verbose);
-        let result =
-            moonbuild::execution::execute_build(&config, build_input, target_dir, user_log)?;
-        result.print_info(cli.quiet, "building")?;
-        result.successful()
-    };
+    let ok = execute_planned_builds(cli, cmd, planned_runs, source_dir, target_dir, output)?;
     Ok(if ok { 0 } else { 1 })
 }
 
@@ -348,32 +323,44 @@ fn run_build_rr_from_discovered(
         });
     }
 
-    let ok = if cli.dry_run {
-        output.write_result(|writer| {
-            let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(writer, &build_input, source_dir)?;
-            Ok::<_, std::io::Error>(())
-        })?;
-        true
-    } else {
-        let cfg = cmd
-            .build_flags
-            .execution_config(&cli.unstable_feature, cli.verbose);
-        for (build_meta, _) in &planned_runs {
-            rr_build::generate_all_pkgs_json(build_meta)?;
-        }
-        let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
-        let build_input = BuildInput::compose(build_inputs)?;
-        let result = moonbuild::execution::execute_build(&cfg, build_input, target_dir, user_log)?;
-        result.print_info(cli.quiet, "building")?;
-        result.successful()
-    };
+    let ok = execute_planned_builds(cli, cmd, planned_runs, source_dir, target_dir, output)?;
     Ok(WatchOutput {
         ok,
         additional_ignored_paths: prebuild_list.ignored_paths,
         additional_watched_paths: prebuild_list.watched_paths,
     })
+}
+
+/// Run the planned builds, or print their commands in a dry run.
+fn execute_planned_builds(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    planned_runs: Vec<(BuildMeta, BuildInput)>,
+    source_dir: &Path,
+    target_dir: &Path,
+    output: &CommandOutput,
+) -> anyhow::Result<bool> {
+    let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
+    if cli.dry_run {
+        output.write_result(|writer| {
+            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
+            rr_build::write_dry_run(writer, &build_input, source_dir)?;
+            Ok::<_, std::io::Error>(())
+        })?;
+        return Ok(true);
+    }
+
+    for build_meta in &build_metas {
+        rr_build::generate_all_pkgs_json(build_meta)?;
+    }
+    let build_input = BuildInput::compose(build_inputs)?;
+    let config = cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose);
+    let result =
+        moonbuild::execution::execute_build(&config, build_input, target_dir, output.user_log())?;
+    result.print_info(cli.quiet, "building")?;
+    Ok(result.successful())
 }
 
 pub(crate) fn plan_build_rr_from_resolved(
