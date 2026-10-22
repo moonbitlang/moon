@@ -251,7 +251,8 @@ jobs:
 
       - name: Install Why3 1.7.2 via opam
         run: |
-          opam install -y why3.1.7.2
+          # Why3 1.7.2's C helpers are incompatible with GCC 15's default C23 mode.
+          CC="cc -std=gnu17" opam install -y why3.1.7.2
           echo "WHY3DATA=$(opam exec -- why3 --print-datadir)" >> $GITHUB_ENV
           echo "WHY3LIB=$(opam exec -- why3 --print-libdir)" >> $GITHUB_ENV
 
