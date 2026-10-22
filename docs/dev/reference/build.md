@@ -202,6 +202,30 @@ macOS debug builds that emit native object code add one post-link step:
    bundle. The linker and `dsymutil` remain separate structured commands, so
    n2 can schedule and track each tool invocation independently.
 
+After a successful build, `moon build` lists each requested `Executable` and
+`ForeignLibrary` artifact on stdout, in the order of the selected target
+backends. Each row shows the package, the target backend and the absolute
+path, last so it is easy to copy:
+
+```text
+Artifacts:
+  username/demo/cmd/main  wasm-gc  /p/_build/wasm-gc/debug/build/cmd/main/main.wasm
+  username/foreign/lib    native   /p/_build/native/release/build/lib/lib.a
+```
+
+The list is a Command Result, so `--quiet` does not hide it. It reads the same
+whether or not stdout is a terminal; programs use `--output-json`, which
+writes each artifact as a JSON line next to the compiler's `diagnostic`
+messages:
+
+```json
+{"$message_type":"artifact","package":"username/foreign/lib","target_backend":"native","path":"/p/_build/native/release/build/lib/lib.a"}
+```
+
+Other requested artifacts, such as a library package's CoreIR, are build
+intermediates and are not listed. A dry run lists commands instead, and a
+failed build lists nothing.
+
 A package needs all its transitive dependencies' interface files to be built
 before running `BuildPackage` for any of its build targets.
 In the build plan, this means each `BuildPackage` node depends only on:

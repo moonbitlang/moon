@@ -108,6 +108,8 @@ Create a new MoonBit module
 
 Build the current package
 
+A successful build also lists each executable and foreign library it built on stdout, with its package, target backend and absolute path. `--quiet` does not hide the list. With `--output-json`, each one is an `artifact` JSON message instead.
+
 **Usage:** `moon build [OPTIONS] [PATH]...`
 
 ###### **Arguments:**

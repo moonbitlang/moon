@@ -19,8 +19,10 @@
 use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
+use moonbuild_rupes_recta::pkg_name::PackageFQN;
 use moonutil::build_options::RunMode;
 use moonutil::cache::{CacheKind, resolve_cache_root};
 use moonutil::cli_support::AutoSyncFlags;
@@ -30,6 +32,8 @@ use moonutil::project::PackageDirs;
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
 use moonutil::user_log::UserLog;
+use serde::Serialize;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
@@ -62,6 +66,11 @@ impl ResolvedBuildSelection {
 }
 
 /// Build the current package
+///
+/// A successful build also lists each executable and foreign library it built
+/// on stdout, with its package, target backend and absolute path. `--quiet`
+/// does not hide the list. With `--output-json`, each one is an `artifact`
+/// JSON message instead.
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct BuildSubcommand {
     /// Paths to the packages that should be built, or one standalone `.mbtx` file.
@@ -332,6 +341,8 @@ fn run_build_rr_from_discovered(
 }
 
 /// Run the planned builds, or print their commands in a dry run.
+///
+/// A successful build then reports its outputs; see [`built_outputs`].
 fn execute_planned_builds(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -360,7 +371,115 @@ fn execute_planned_builds(
     let result =
         moonbuild::execution::execute_build(&config, build_input, target_dir, output.user_log())?;
     result.print_info(cli.quiet, "building")?;
+    let outputs = built_outputs(&build_metas);
+    output.write_result(|writer| {
+        if cmd.build_flags.output_json {
+            write_built_outputs_json(writer, &outputs)
+        } else {
+            write_built_outputs_table(writer, &outputs)
+        }
+    })?;
     Ok(result.successful())
+}
+
+/// An executable or foreign library that a build produced.
+struct BuiltOutput<'a> {
+    package: &'a PackageFQN,
+    target_backend: TargetBackend,
+    path: &'a Path,
+}
+
+/// The executables and foreign libraries the builds produced, in the order of
+/// the selected target backends.
+///
+/// These are the outputs users consume outside moon. Other requested
+/// artifacts, such as a library package's `.core` file, are build
+/// intermediates and are not listed.
+fn built_outputs(build_metas: &[BuildMeta]) -> Vec<BuiltOutput<'_>> {
+    let mut outputs = Vec::new();
+    for build_meta in build_metas {
+        let target_backend = build_meta.target_backend();
+        for (artifact, paths) in &build_meta.artifacts {
+            let (ArtifactKey::Executable { package, .. } | ArtifactKey::ForeignLibrary { package }) =
+                artifact
+            else {
+                continue;
+            };
+            let package = &build_meta
+                .resolved_project
+                .pkg_dirs
+                .get_package(*package)
+                .fqn;
+            outputs.extend(paths.iter().map(|path| BuiltOutput {
+                package,
+                target_backend,
+                path: dunce::simplified(path),
+            }));
+        }
+    }
+    outputs
+}
+
+/// Write the built outputs as a table of package, target backend and path,
+/// with the path last so it is easy to copy:
+///
+/// ```text
+/// Artifacts:
+///   username/foreign/lib  native  /p/_build/native/release/build/lib/lib.a
+/// ```
+fn write_built_outputs_table(
+    writer: &mut dyn Write,
+    outputs: &[BuiltOutput<'_>],
+) -> std::io::Result<()> {
+    if outputs.is_empty() {
+        return Ok(());
+    }
+    let packages: Vec<String> = outputs.iter().map(|o| o.package.to_string()).collect();
+    let package_width = packages.iter().map(String::len).max().unwrap_or_default();
+    let backend_width = outputs
+        .iter()
+        .map(|o| o.target_backend.to_flag().len())
+        .max()
+        .unwrap_or_default();
+    writeln!(writer, "Artifacts:")?;
+    for (output, package) in outputs.iter().zip(&packages) {
+        writeln!(
+            writer,
+            "  {package:<package_width$}  {:<backend_width$}  {}",
+            output.target_backend.to_flag(),
+            output.path.display()
+        )?;
+    }
+    Ok(())
+}
+
+/// One built output in the `--output-json` stream, next to the compiler's
+/// `diagnostic` messages.
+#[derive(Serialize)]
+struct BuiltOutputMessage<'a> {
+    #[serde(rename = "$message_type")]
+    message_type: &'static str,
+    package: String,
+    target_backend: &'static str,
+    path: &'a Path,
+}
+
+/// Write each built output as an `artifact` JSON message on its own line.
+fn write_built_outputs_json(
+    writer: &mut dyn Write,
+    outputs: &[BuiltOutput<'_>],
+) -> std::io::Result<()> {
+    for output in outputs {
+        let message = BuiltOutputMessage {
+            message_type: "artifact",
+            package: output.package.to_string(),
+            target_backend: output.target_backend.to_flag(),
+            path: output.path,
+        };
+        serde_json::to_writer(&mut *writer, &message)?;
+        writeln!(writer)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn plan_build_rr_from_resolved(
