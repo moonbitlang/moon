@@ -45,8 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Intel macOS is checked before merging without adding a new S3 target.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["macos-latest", "macos-15-intel", "ubuntu-22.04-arm", "windows-latest"]' || '["macos-latest", "ubuntu-22.04-arm", "windows-latest"]') }}
+        os: [macos-latest, ubuntu-22.04-arm, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Configure git
@@ -156,6 +155,19 @@ jobs:
                 expected=$(printf "hello from imported constants\n11\nfalse")
                 test "$actual" = "$expected"
               done'
+
+      - name: Share compiler-produced guests with Intel macOS validation
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonrun-release-guests
+          path: |
+            ${{ runner.temp }}/moonrun-release-smoke/_build/wasm/release/build/js_string/js_string.wasm
+            ${{ runner.temp }}/moonrun-release-smoke/_build/wasm/release/build/ffi_bytes/ffi_bytes.wasm
+            ${{ runner.temp }}/moonrun-release-smoke/_build/wasm-gc/release/build/js_string/js_string.wasm
+            ${{ runner.temp }}/moonrun-release-smoke/_build/wasm-gc/release/build/ffi_bytes/ffi_bytes.wasm
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Upload
         if: github.event_name != 'pull_request'
