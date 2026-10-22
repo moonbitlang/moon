@@ -27,6 +27,10 @@ pub(crate) enum DiagnosticLine {
     Frame {
         indentation: String,
         function: String,
+        /// V8's full display location, including the offset for Wasm frames.
+        #[cfg(feature = "v8")]
+        runtime_location: Option<String>,
+        /// Numeric Wasm byte offset used by both backends for source-map lookup.
         module_offset: Option<usize>,
     },
 }
@@ -49,6 +53,8 @@ pub(crate) fn render(
             DiagnosticLine::Frame {
                 indentation,
                 function,
+                #[cfg(feature = "v8")]
+                runtime_location,
                 module_offset,
             } => {
                 let function = moonutil::demangle::demangle_mangled_function_name(&function);
@@ -57,6 +63,14 @@ pub(crate) fn render(
                     && let Some(position) = source_map.position(offset)
                 {
                     write!(result, " {}:{}", position.file, position.line).unwrap();
+                }
+                #[cfg(feature = "v8")]
+                if let Some(location) = runtime_location {
+                    write!(result, " ({location})").unwrap();
+                }
+                #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+                if let Some(offset) = module_offset {
+                    write!(result, " (0x{offset:x})").unwrap();
                 }
             }
         }
@@ -76,6 +90,8 @@ mod tests {
                 DiagnosticLine::Frame {
                     indentation: "    ".to_owned(),
                     function: "_M0FP13pkg3foo".to_owned(),
+                    #[cfg(feature = "v8")]
+                    runtime_location: None,
                     module_offset: None,
                 },
             ],
@@ -86,6 +102,52 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+    fn retains_offsets_without_source_maps() {
+        let diagnostic = render(
+            [DiagnosticLine::Frame {
+                indentation: "    ".to_owned(),
+                function: "wasm-function[42]".to_owned(),
+                module_offset: Some(0x1234),
+            }],
+            None,
+            false,
+        );
+        assert_eq!(diagnostic, "    at wasm-function[42] (0x1234)");
+    }
+
+    #[test]
+    #[cfg(any(feature = "v8", feature = "wasmtime"))]
+    fn retains_runtime_locations_alongside_source_positions() {
+        let directory = tempfile::tempdir().unwrap();
+        let wasm = directory.path().join("module.wasm");
+        std::fs::write(
+            directory.path().join("module.wasm.map"),
+            r#"{"sources":["main.mbt"],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+        let source_map = crate::source_map::load(&wasm, b"").unwrap();
+        let diagnostic = render(
+            [DiagnosticLine::Frame {
+                indentation: "    ".to_owned(),
+                function: "_M0FP13pkg3foo".to_owned(),
+                #[cfg(feature = "v8")]
+                runtime_location: Some("wasm://module:wasm-function[42]:0x1234".to_owned()),
+                module_offset: Some(0x1234),
+            }],
+            Some(&source_map),
+            false,
+        );
+        #[cfg(feature = "v8")]
+        assert_eq!(
+            diagnostic,
+            "    at @pkg.foo main.mbt:1 (wasm://module:wasm-function[42]:0x1234)"
+        );
+        #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+        assert_eq!(diagnostic, "    at @pkg.foo main.mbt:1 (0x1234)");
+    }
+
+    #[test]
     fn hides_frames_when_stack_traces_are_disabled() {
         let diagnostic = render(
             [
@@ -93,6 +155,8 @@ mod tests {
                 DiagnosticLine::Frame {
                     indentation: "    ".to_owned(),
                     function: "throw".to_owned(),
+                    #[cfg(feature = "v8")]
+                    runtime_location: Some("module:wasm-function[0]:0x12".to_owned()),
                     module_offset: None,
                 },
             ],

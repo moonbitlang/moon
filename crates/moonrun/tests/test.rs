@@ -140,6 +140,54 @@ fn test_moonrun_version() {
 }
 
 #[test]
+fn test_moonrun_stack_trace_preserves_wasm_location() {
+    let dir = tempfile::tempdir().unwrap();
+    let wasm_path = dir.path().join("trap.wasm");
+    let wasm = wat::parse_str(r#"(module (func $crash (export "_start") unreachable))"#).unwrap();
+    std::fs::write(&wasm_path, wasm).unwrap();
+
+    for source_map in [None, Some("invalid source map")] {
+        if let Some(source_map) = source_map {
+            std::fs::write(dir.path().join("trap.wasm.map"), source_map).unwrap();
+        }
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .arg(&wasm_path)
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+RuntimeError: unreachable
+    at crash ([..]0x[..])
+
+"#]]);
+    }
+
+    std::fs::write(
+        dir.path().join("trap.wasm.map"),
+        r#"{"sources":["main.mbt"],"mappings":"AAAA"}"#,
+    )
+    .unwrap();
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_path)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+RuntimeError: unreachable
+    at crash main.mbt:1 ([..]0x[..])
+
+"#]]);
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_path)
+        .arg("--no-stack-trace")
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("RuntimeError: unreachable\n");
+}
+
+#[test]
 fn test_moonrun_wasm_stack_trace() {
     let dir = TestDir::new("test_stack_trace.in");
 
@@ -173,10 +221,10 @@ fn test_moonrun_wasm_stack_trace() {
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Unit] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER]
-    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @moonbitlang/core/abort.abort[Unit] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -185,9 +233,9 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER]
-    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -196,9 +244,9 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[(Int, String)] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER]
-    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @moonbitlang/core/abort.abort[(Int, String)] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -207,9 +255,9 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[UInt] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
-    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @moonbitlang/core/abort.abort[UInt] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -218,10 +266,10 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
-    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -230,8 +278,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @username/hello/main.panic_with_result [..]/main/main.mbt[LINE_NUMBER]
-    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.panic_with_result [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -295,16 +343,16 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall
-    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute.wrapper [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute.wrapper [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
 Total tests: 1, passed: 0, failed: 1.
 
 "#]]);
@@ -315,15 +363,15 @@ Total tests: 1, passed: 0, failed: 1.
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort method") failed: Error
-    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall
-    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute.wrapper [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute.wrapper [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
 Total tests: 1, passed: 0, failed: 1.
 
 "#]]);
@@ -1370,10 +1418,10 @@ fn test_moon_run_memory_sanitizer_reports_double_free() {
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
 Error: moonbit:ffi/memory-sanitizer.register-object-free failed: invalid object 4096
-    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_free
-    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_free
-    at @moonbit/ffi-memory-sanitizer-test/double_free.free_twice
-    at __moonbit_main
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_free ([..]0x[..])
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_free ([..]0x[..])
+    at @moonbit/ffi-memory-sanitizer-test/double_free.free_twice ([..]0x[..])
+    at __moonbit_main ([..]0x[..])
 ...
 "#]]);
 }

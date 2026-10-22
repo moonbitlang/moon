@@ -19,7 +19,7 @@
 use std::path::Path;
 
 fn stack_trace_line_number_regex() -> regex::Regex {
-    regex::Regex::new(r"(?<redacted>:[0-9]+)(?:[ \t]+(?:at|by)|\n|$)")
+    regex::Regex::new(r"(?<redacted>:[0-9]+)(?:[ \t]+(?:at|by|\((?:wasm://|0x))|\n|$)")
         .expect("valid stack trace line number regex")
 }
 
