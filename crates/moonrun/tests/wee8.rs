@@ -61,6 +61,8 @@ fn modules_without_start_export_complete() {
     let engine = Engine::default();
     for source in [
         "(module)",
+        // Optional debug metadata must not invalidate executable Wasm.
+        r#"(module (@custom "name" "\ff"))"#,
         r#"(module (func (export "answer") (result i32) i32.const 42))"#,
         "(module (func $initialize) (start $initialize))",
     ] {
@@ -157,7 +159,7 @@ fn unsupported_imports_and_start_memory_are_host_errors() {
         ),
         (
             r#"(module (import "host" "memory" (memory 1)))"#,
-            "unsupported import host::memory",
+            "unsupported wee8 import host::memory",
         ),
         (
             r#"(module
@@ -204,12 +206,6 @@ fn proposals_and_unsupported_options_fail_before_execution() {
     assert!(
         format!("{error:#}").contains("shared memory is unsupported in C API"),
         "{error:#}"
-    );
-    let bytes = wat::parse_str(r#"(module (func (export "_start")))"#).unwrap();
-    assert!(
-        Engine::new(EngineConfig::default().with_stack_size(512))
-            .compile("stack.wasm", bytes)
-            .is_err()
     );
 }
 
@@ -267,7 +263,6 @@ fn unsupported_gc_boundary_types_fail_during_compilation() {
     for source in [
         r#"(module (type $s (struct)) (func (export "f") (result (ref $s)) struct.new $s))"#,
         r#"(module (type $a (array i32)) (global (export "g") (ref null $a) (ref.null $a)))"#,
-        r#"(module (func (export "f") (result externref) i32.const 1 ref.i31 extern.convert_any))"#,
     ] {
         let error = engine
             .compile("boundary.wasm", wat::parse_str(source).unwrap())
@@ -428,5 +423,33 @@ fn legacy_host_imports_reject_bad_signatures_and_payloads() {
         let error = engine.run(&module, RunOptions::default()).unwrap_err();
         let message = format!("{error:#}");
         assert!(message.contains(expected), "{message}");
+    }
+}
+
+#[test]
+fn custom_stack_size_is_enforced_without_enlarging_the_native_stack() {
+    let engine = Engine::new(EngineConfig::default().with_stack_size(128));
+    let module = engine
+        .compile(
+            "recursive.wasm",
+            wat::parse_str(
+                r#"(module
+        (func $recurse (param i32) (result i32)
+            local.get 0 i32.const 1 i32.add call $recurse i32.const 1 i32.add)
+        (func (export "_start") i32.const 0 call $recurse drop))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Exited(1)
+    );
+    for size in [0, usize::MAX] {
+        let engine = Engine::new(EngineConfig::default().with_stack_size(size));
+        let module = engine
+            .compile("empty.wasm", wat::parse_str("(module)").unwrap())
+            .unwrap();
+        assert!(engine.run(&module, RunOptions::default()).is_err());
     }
 }

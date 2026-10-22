@@ -76,12 +76,8 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test -- -D warnings
-      - name: Test shared host definitions and Moonrun integration
-        run: cargo test --locked -p moonrun --no-default-features --features wee8 --lib --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports
-      - name: Test compiler-produced test driver and SQLite programs
-        run: |
-          cargo test --locked -p moonrun --no-default-features --features wee8 --test test engine_backends_run_compiler_generated_tests -- --exact
-          cargo test --locked -p moonrun --no-default-features --features wee8 --test test test_moon_run_with_sqlite_ffi_imports
+      - name: Test shared host definitions and all Moonrun integration cases
+        run: cargo test --locked -p moonrun --no-default-features --features wee8 --lib --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test
       - name: Build Moon and bundle core (Unix)
         if: runner.os != 'Windows'
         run: cargo run --locked --bin moon -- -C "$HOME/.moon/lib/core" bundle --all

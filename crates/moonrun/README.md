@@ -49,8 +49,8 @@ Build it directly with Cargo:
 cargo build -p moonrun --no-default-features --features wee8
 ```
 
-The upstream crate's build script downloads the target's archive and matching header from the
-pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.3),
+The upstream crate's build script downloads the target's archive and paired headers from the
+pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.5),
 checks SHA-256 before extraction, and caches the downloads in Cargo's build
 output directory. It uses Cargo's target, including for cross-compilation.
 Only the five published Linux/macOS/Windows targets have automatic downloads.
@@ -66,12 +66,12 @@ and provide both its decompressed archive and matching header explicitly to
 bypass downloading:
 
 ```sh
-WEE8_ARCHIVE=/path/to/libwee8.a WEE8_HEADER=/path/to/wasm_c_api_<target>.h \
+WEE8_ARCHIVE=/path/to/libwee8.a WEE8_HEADER=/path/to/wee8.h \
   cargo build -p moonrun --no-default-features --features wee8
 ```
 
-Decompress the target's archive first (`wee8.lib` on Windows). The header is
-checked against the supported revision; stock V8's older same-named functions
+Decompress the target's archive first (`wee8.lib` on Windows). Place its
+`wasm.h` alongside `wee8.h`; both headers are checked against the supported revision; stock V8's older same-named functions
 have an incompatible ABI. The supplied archive must come from the matching
 recipe. This backend cannot be linked alongside rusty_v8 in the same binary.
 Enabling both `wee8` and `wasmtime` is allowed and selects wee8; Wasmtime uses
@@ -81,11 +81,12 @@ This is a working integration MVP, not a replacement for either full backend:
 
 - The core Wasm proposals enabled in the released V8: Wasm 2.0, tail calls,
   extended constants, relaxed SIMD, multiple memories, internal shared-memory
-  atomics, GC, typed function references, and legacy/standardized exceptions.
+  atomics, GC, typed function references, and standardized exceptions.
   Guest-defined memory/globals/tables and `_start` are supported.
   The upstream Rust crate supports rooted host `externref` values;
-  Moonrun's shared host registrations support numeric and nullable externref
-  arguments/results.
+  Moonrun's shared host registrations support numeric and externref
+  arguments/results. The adapter preserves the guest's nullable/non-null
+  signature and rejects null results at a non-null boundary.
 - Legacy `spectest.print_char` output uses the same per-run UTF-16 writer as V8
   and Wasmtime, including surrogate pairs. This supports ordinary compiler-produced
   `wasm-gc` programs that keep their GC values inside the guest.
@@ -102,42 +103,48 @@ This is a working integration MVP, not a replacement for either full backend:
 - The legacy string/byte-array builders and readers, string arrays, arguments,
   environment lookup/mutation, synchronous filesystem operations, stdio,
   seeded random numbers, clocks and process exit. All three engines use the
-  same typed import definitions. Wasmtime and wee8 share Rust value payloads;
-  V8 retains native values for compatibility with its JS-string/byte APIs.
+  same typed import definitions. wee8 uses native V8 strings so values from
+  host services work directly with V8's JS-string builtins. Wasmtime keeps its
+  UTF-16 string payloads; byte/builders/readers retain shared Rust behavior.
   Filesystem policy and I/O, environment and stdio use existing Host Domains. Values use rooted native externrefs,
   with no separate reference table. Filesystem status results belong to one run.
 - Native exception tags and the MoonBit test driver. The adapter supplies the
   compiler's `exception.tag` and catchable `exception.throw` imports, then uses
   the shared execute/finish loop and test-result protocol. Guest failures allow
   later tests to run; host errors and process exits retain their existing semantics.
+- Native V8 JS-string builtins and imported string constants. These are engine
+  operations, not host FFIs. Runtime compatibility imports supply `ffi-bytes`
+  with its imported memory, console output and memory-sanitizer instrumentation.
+- Guest and host failure diagnostics preserve Wasm function names, offsets and
+  source-map positions. `--no-stack-trace` suppresses frames. A custom stack
+  limit must fit the current native thread stack; it cannot enlarge that stack.
 - Reusable modules and fresh state per run. Compiled modules cross stores using
   V8's private serialization; this is not a persistent, portable AOT artifact.
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
   host call, using its current allocation after any guest memory growth.
 
-SIMD and GC values remain internal to guest code. Unsupported imported/exported
-function, global and table types are rejected by the upstream crate before C API
-introspection. Shared memories cannot cross the host boundary because host calls
-borrow exclusive, non-atomic memory slices. `extern.convert_any` is also excluded because the pinned native
-adapter cannot safely represent every externalized GC value.
+SIMD values and directly GC-typed references remain internal to guest code.
+Externalized GC references, including i31 values, can cross the host boundary
+through rooted externrefs. Unsupported imported/exported function, global and
+table types are rejected by the upstream crate before C API introspection.
+Shared memories cannot cross the host boundary because host calls borrow
+exclusive, non-atomic memory slices.
 
-Host-imported memory/globals/tables, guest re-entry from a host callback,
-GC values at the host boundary, the imported-memory `ffi-bytes` API, JS-string
-builtins, custom stack limits, and debugger access are not exposed yet.
-Stack traces and source locations are not formatted by this adapter yet.
-Memory-dependent imports from
-a Wasm start function are rejected because this C API provides no caller-instance
-lookup before instantiation returns. V8 still uses JS machinery internally.
-CI runs the shared host tests, compiler-generated test-driver cases, and all
-587 upstream async conformance tests with descriptor-leak checking. This does
-not establish support for the remaining backend-specific features listed above.
+Arbitrary host memory/global/table imports, callable funcref values, guest
+re-entry from host callbacks and debugger access remain outside this adapter.
+The runtime supplies `ffi-bytes.memory`, but memory-dependent shared imports
+still cannot look up an instance's exported memory during its Wasm start
+function. V8 still uses JS machinery internally.
+
+CI runs the shared host tests, the full Moonrun integration suite and all 587
+upstream async conformance tests with descriptor-leak checking on three OSes.
 
 Run the focused integration checks:
 
 ```sh
 cargo test -p moonrun --no-default-features --features wee8 --test wee8 --test wasi_imports --test numeric_host_imports --test legacy_host_imports
 cargo test -p moonrun --no-default-features --features wee8 --lib
-cargo test -p moonrun --no-default-features --features wee8 --test test engine_backends_run_compiler_generated_tests -- --exact
+cargo test -p moonrun --no-default-features --features wee8 --test test
 cargo test -p moonrun --no-default-features --features wee8 --test test test_moonrun_against_upstream_async -- --ignored --exact
 ```
 

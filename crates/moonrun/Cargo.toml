@@ -28,7 +28,7 @@ rust-version.workspace = true
 default = ["v8"]
 v8 = ["dep:v8"]
 wasmtime = ["dep:wasmtime"]
-wee8 = ["dep:wee8"]
+wee8 = ["dep:wee8", "dep:wasmparser"]
 
 [dependencies]
 anyhow.workspace = true
@@ -47,6 +47,7 @@ rand.workspace = true
 v8 = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 wee8 = { workspace = true, optional = true }
+wasmparser = { version = "=0.258.0", default-features = false, features = ["std"], optional = true }
 
 [target."cfg(not(windows))".dependencies]
 openssl.workspace = true

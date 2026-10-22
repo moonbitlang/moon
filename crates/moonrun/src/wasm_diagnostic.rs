@@ -30,7 +30,7 @@ pub(crate) enum DiagnosticLine {
         /// V8's full display location, including the offset for Wasm frames.
         #[cfg(feature = "v8")]
         runtime_location: Option<String>,
-        /// Numeric Wasm byte offset used by both backends for source-map lookup.
+        /// Numeric Wasm byte offset used by all adapters for source-map lookup.
         module_offset: Option<usize>,
     },
 }
@@ -68,7 +68,7 @@ pub(crate) fn render(
                 if let Some(location) = runtime_location {
                     write!(result, " ({location})").unwrap();
                 }
-                #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+                #[cfg(all(any(feature = "wasmtime", feature = "wee8"), not(feature = "v8")))]
                 if let Some(offset) = module_offset {
                     write!(result, " (0x{offset:x})").unwrap();
                 }
@@ -102,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+    #[cfg(all(any(feature = "wasmtime", feature = "wee8"), not(feature = "v8")))]
     fn retains_offsets_without_source_maps() {
         let diagnostic = render(
             [DiagnosticLine::Frame {
@@ -117,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(feature = "v8", feature = "wasmtime"))]
+    #[cfg(any(feature = "v8", feature = "wasmtime", feature = "wee8"))]
     fn retains_runtime_locations_alongside_source_positions() {
         let directory = tempfile::tempdir().unwrap();
         let wasm = directory.path().join("module.wasm");
@@ -143,7 +143,7 @@ mod tests {
             diagnostic,
             "    at @pkg.foo main.mbt:1 (wasm://module:wasm-function[42]:0x1234)"
         );
-        #[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+        #[cfg(all(any(feature = "wasmtime", feature = "wee8"), not(feature = "v8")))]
         assert_eq!(diagnostic, "    at @pkg.foo main.mbt:1 (0x1234)");
     }
 

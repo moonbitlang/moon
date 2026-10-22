@@ -33,6 +33,22 @@ struct Context<'a, T> {
     data: fn(&StoreData) -> &T,
 }
 impl<'call, T> PayloadContext<'call> for Context<'_, T> {
+    fn string_units(&self, value: &Option<ExternRef<'call>>) -> Result<Vec<u16>, ImportError> {
+        crate::wasm_imports::payload::read(self, value, |value: &super::JsString| value.0.to_vec())
+    }
+    fn new_string_units(
+        &mut self,
+        units: Vec<u16>,
+    ) -> Result<Option<ExternRef<'call>>, ImportError> {
+        self.new_payload(Box::new(super::JsString(units.into())))
+    }
+    fn is_string_value(&self, value: &Option<ExternRef<'call>>) -> Result<bool, ImportError> {
+        let mut result = false;
+        self.with_payload(value, &mut |value| {
+            result = value.is_some_and(|value| value.is::<super::JsString>())
+        })?;
+        Ok(result)
+    }
     fn new_payload(
         &mut self,
         data: Box<dyn Any + Send + Sync>,

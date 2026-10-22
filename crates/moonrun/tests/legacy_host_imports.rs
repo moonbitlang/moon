@@ -410,13 +410,6 @@ fn guest_gc_references_are_not_host_strings() {
             i32.const 42 struct.new $record extern.convert_any
             call $is_string if unreachable end))"#).unwrap();
     let module = engine.compile("guest-reference.wasm", wasm);
-    #[cfg(feature = "wee8")]
-    {
-        // The upstream validator excludes externalized GC objects. Keep that
-        // boundary instead of expanding the proposal allowlist in this refactor.
-        assert!(format!("{:#}", module.unwrap_err()).contains("extern.convert_any"));
-    }
-    #[cfg(not(feature = "wee8"))]
     assert_eq!(
         engine.run(&module.unwrap(), RunOptions::default()).unwrap(),
         RunOutcome::Completed
