@@ -118,7 +118,7 @@ fn parse_stack_line(line: &str) -> DiagnosticLine {
         return DiagnosticLine::Frame {
             indentation: indentation.to_owned(),
             function: function.to_owned(),
-            location: Some(location.to_owned()),
+            runtime_location: Some(location.to_owned()),
             module_offset,
         };
     }
@@ -128,7 +128,7 @@ fn parse_stack_line(line: &str) -> DiagnosticLine {
         return DiagnosticLine::Frame {
             indentation: indentation.to_owned(),
             function: function.to_owned(),
-            location: None,
+            runtime_location: None,
             module_offset: None,
         };
     }
