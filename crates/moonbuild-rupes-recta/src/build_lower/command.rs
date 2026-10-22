@@ -201,6 +201,7 @@ mod tests {
             [
                 "/toolchain/bin/libtool",
                 "-static",
+                "-no_warning_for_no_symbols",
                 "-o",
                 "lib.a",
                 "a.o",

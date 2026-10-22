@@ -45,6 +45,7 @@ pub(crate) fn compile_runtime_command(
         toolchain.cc_command_path(),
         "/nologo".to_string(),
         WINDOWS_MSVC_C_STANDARD_FLAG.to_string(),
+        "/bigobj".to_string(),
         "/utf-8".to_string(),
         "/wd4819".to_string(),
         "/c".to_string(),

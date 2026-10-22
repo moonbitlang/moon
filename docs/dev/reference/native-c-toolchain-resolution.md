@@ -435,7 +435,9 @@ the script's responsibility and must match the selected driver.
 ### Compile
 
 `make_cc_command*` uses `cc_path` for compile steps (`-c` or `/c`) and backend-specific flags.
-MSVC-style compile commands pass `/std:c11`.
+MSVC-style compile commands pass `/std:c11` and `/bigobj`. The latter raises the
+object-file section limit for large generated C files. Both flags apply to
+generated C, C stubs, and runtime C, including when user compiler flags are set.
 For TCC on macOS, Moon also passes the active SDK `usr/lib` path reported by
 `xcrun --sdk macosx --show-sdk-path` when it resolves to an existing directory.
 If `xcrun` is missing or returns an unusable path, Moon omits the extra `-L` flag instead of
@@ -464,6 +466,9 @@ triple does not contain `msvc`.
 - `libtool -static` for Apple Darwin targets on macOS
 - `ar` or `llvm-ar` for remaining gcc-like toolchains
 - `tcc -ar` for TCC
+
+Apple `libtool` receives `-no_warning_for_no_symbols` so object files without
+symbols, such as conditionally empty C stubs, do not produce warnings.
 
 `libtool`, `lib.exe`, and `llvm-lib` create an archive from the complete member list passed by
 Moon. GNU- and LLVM-style `ar rcs`, and TCC's equivalent archive mode, update an existing archive

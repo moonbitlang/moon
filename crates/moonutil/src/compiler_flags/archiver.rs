@@ -31,6 +31,8 @@ fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
         }
         ARKind::AppleLibtool => {
             buf.push("-static".to_string());
+            // Conditional compilation can leave C stubs without any symbols.
+            buf.push("-no_warning_for_no_symbols".to_string());
             buf.push("-o".to_string());
             buf.push(dunce::simplified(Path::new(dest)).display().to_string());
         }
