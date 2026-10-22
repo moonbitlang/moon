@@ -140,6 +140,33 @@ fn test_moonrun_version() {
 }
 
 #[test]
+fn test_moonrun_stack_trace_preserves_wasm_location() {
+    let dir = tempfile::tempdir().unwrap();
+    let wasm_path = dir.path().join("trap.wasm");
+    let wasm = wat::parse_str(r#"(module (func $crash (export "_start") unreachable))"#).unwrap();
+    std::fs::write(&wasm_path, wasm).unwrap();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_path)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+RuntimeError: unreachable
+    at crash ([..]0x[..])
+
+"#]]);
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_path)
+        .arg("--no-stack-trace")
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("RuntimeError: unreachable\n");
+}
+
+#[test]
 fn test_moonrun_wasm_stack_trace() {
     let dir = TestDir::new("test_stack_trace.in");
 
