@@ -25,13 +25,14 @@ use crate::wasm_imports::{
 use std::{any::Any, marker::PhantomData, rc::Rc};
 
 pub(super) struct Registry<'s> {
-    store: &'s api::Store<StoreData>,
+    pub(super) store: &'s api::Store<StoreData>,
     imports: Vec<api::ImportType>,
     definitions: Vec<Option<Definition<'s>>>,
 }
 enum Definition<'s> {
     Func(api::HostFunc<'s, StoreData>),
     Tag(api::Tag),
+    Memory(api::Memory),
 }
 
 impl<'s> Registry<'s> {
@@ -88,6 +89,75 @@ impl<'s> Registry<'s> {
         Ok(())
     }
 
+    pub(super) fn define_memory(
+        &mut self,
+        module: &str,
+        name: &str,
+        memory: api::Memory,
+    ) -> api::Result<()> {
+        for (import, slot) in self.imports.iter().zip(&mut self.definitions) {
+            if import.module == module && import.name == name {
+                if !matches!(import.ty, api::ExternType::Memory(_)) {
+                    return Err(format!("incorrect type for {module}::{name}").into());
+                }
+                *slot = Some(Definition::Memory(memory));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn needs_import(&self, module: &str, name: &str) -> bool {
+        self.imports
+            .iter()
+            .any(|import| import.module == module && import.name == name)
+    }
+
+    pub(super) fn define_func(
+        &mut self,
+        module: &str,
+        name: &str,
+        params: &[api::ValType],
+        results: &[api::ValType],
+        callback: impl for<'a> Fn(
+            api::Caller<'a, StoreData>,
+            &[api::Value<'a>],
+        ) -> api::Result<Vec<api::Value<'a>>>
+        + 'static,
+    ) -> api::Result<()> {
+        let callback = Rc::new(callback);
+        for (import, slot) in self.imports.iter().zip(&mut self.definitions) {
+            if import.module != module || import.name != name {
+                continue;
+            }
+            let api::ExternType::Func {
+                params: actual_params,
+                results: actual_results,
+            } = &import.ty
+            else {
+                return Err(format!("incorrect type for {module}::{name}").into());
+            };
+            // Shared Rust callbacks use Option<ExternRef> for both signatures.
+            // Check that guest types fit that representation, not that the
+            // callback's declared signature is a function subtype. Keep the
+            // guest's exact signature in V8; wee8 checks non-null results before
+            // returning them, rather than weakening the import.
+            let represented = |actual: &[api::ValType], declared: &[api::ValType]| {
+                actual.len() == declared.len()
+                    && actual.iter().zip(declared).all(|(a, d)| a.matches(d))
+            };
+            if !represented(actual_params, params) || !represented(actual_results, results) {
+                return Err(format!("incorrect signature for {module}::{name}").into());
+            }
+            let callback = callback.clone();
+            *slot = Some(Definition::Func(self.store.host_func(
+                actual_params,
+                actual_results,
+                move |caller, args| callback(caller, args),
+            )?));
+        }
+        Ok(())
+    }
+
     pub(super) fn finish(&self) -> api::Result<Vec<api::Extern<'_, StoreData>>> {
         self.imports
             .iter()
@@ -95,6 +165,7 @@ impl<'s> Registry<'s> {
             .map(|(import, definition)| match definition {
                 Some(Definition::Func(function)) => Ok(api::Extern::Func(function)),
                 Some(Definition::Tag(tag)) => Ok(api::Extern::Tag(*tag)),
+                Some(Definition::Memory(memory)) => Ok(api::Extern::Memory(*memory)),
                 None => Err(api::Error::Interface(format!(
                     "unsupported wee8 import {}::{}",
                     import.module, import.name
@@ -108,6 +179,31 @@ struct Context<'s, T> {
     marker: PhantomData<T>,
 }
 impl<'call, T> PayloadContext<'call> for Context<'call, T> {
+    fn string_units(&self, value: &Option<ExternRef<'call>>) -> Result<Vec<u16>, ImportError> {
+        let Some(ExternRef::Wee8(value)) = value else {
+            return Err(ImportError::Operation(
+                "invalid host reference: expected native string".into(),
+            ));
+        };
+        api::StringRef::try_from(value.clone())
+            .map(|string| string.to_utf16())
+            .map_err(|_| {
+                ImportError::Operation("invalid host reference: expected native string".into())
+            })
+    }
+    fn new_string_units(
+        &mut self,
+        units: Vec<u16>,
+    ) -> Result<Option<ExternRef<'call>>, ImportError> {
+        api::StringRef::from_utf16(self.caller.as_context(), &units)
+            .map(|string| Some(ExternRef::Wee8(string.into_extern_ref())))
+            .map_err(|error| ImportError::Host(error.into()))
+    }
+    fn is_string_value(&self, value: &Option<ExternRef<'call>>) -> Result<bool, ImportError> {
+        Ok(
+            matches!(value, Some(ExternRef::Wee8(value)) if api::StringRef::try_from(value.clone()).is_ok()),
+        )
+    }
     fn new_payload(
         &mut self,
         data: Box<dyn Any + Send + Sync>,
@@ -173,76 +269,53 @@ where
         name: &'static str,
         function: F,
     ) -> api::Result<()> {
-        let function = Rc::new(function);
-        let kind = |kind| match kind {
-            WasmType::I32 => api::Kind::I32,
-            WasmType::I64 => api::Kind::I64,
-            WasmType::F32 => api::Kind::F32,
-            WasmType::F64 => api::Kind::F64,
-            WasmType::ExternRef => api::Kind::ExternRef,
+        let val_type = |ty| match ty {
+            WasmType::I32 => api::ValType::I32,
+            WasmType::I64 => api::ValType::I64,
+            WasmType::F32 => api::ValType::F32,
+            WasmType::F64 => api::ValType::F64,
+            WasmType::ExternRef => api::ValType::EXTERNREF,
         };
-        let params: Vec<_> = P::TYPES.iter().copied().map(kind).collect();
-        let results: Vec<_> = R::TYPE.map(kind).into_iter().collect();
-        for (import, slot) in self.imports.iter().zip(&mut self.definitions) {
-            if import.module != module || import.name != name {
-                continue;
-            }
-            if !matches!(&import.ty, api::ExternType::Func { params: expected_params, results: expected_results }
-                if *expected_params == params && *expected_results == results)
-            {
-                return Err(api::Error::Interface(format!(
-                    "incorrect signature for {module}::{name}"
-                )));
-            }
-            let function = Rc::clone(&function);
-            *slot = Some(Definition::Func(self.store.host_func(
-                &params,
-                &results,
-                move |caller, args| {
-                    let mut context = Context::<T> {
-                        caller,
-                        marker: PhantomData,
-                    };
-                    let params = P::decode::<std::convert::Infallible>(|index, _| {
-                        Ok(match &args[index] {
-                            api::Value::I32(v) => Value::I32(*v as u32),
-                            api::Value::I64(v) => Value::I64(*v as u64),
-                            api::Value::F32(v) => Value::F32(v.to_bits()),
-                            api::Value::F64(v) => Value::F64(v.to_bits()),
-                            api::Value::ExternRef(v) => {
-                                Value::ExternRef(v.clone().map(ExternRef::Wee8))
-                            }
-                        })
-                    })
-                    .unwrap();
-                    let value = function
-                        .call(
-                            Caller {
-                                context: &mut context,
-                            },
-                            params,
-                        )
-                        .map_err(|e| api::Error::Host(e.at(module, name).to_string()))?;
-                    Ok(R::encode(value)
-                        .map(|value| match value {
-                            Value::I32(v) => api::Value::I32(v as i32),
-                            Value::I64(v) => api::Value::I64(v as i64),
-                            Value::F32(v) => api::Value::F32(f32::from_bits(v)),
-                            Value::F64(v) => api::Value::F64(f64::from_bits(v)),
-                            Value::ExternRef(None) => api::Value::ExternRef(None),
-                            Value::ExternRef(Some(ExternRef::Wee8(v))) => {
-                                api::Value::ExternRef(Some(v))
-                            }
-                            #[cfg(feature = "wasmtime")]
-                            Value::ExternRef(Some(_)) => {
-                                unreachable!("reference from another adapter")
-                            }
-                        })
-                        .into_iter()
-                        .collect())
-                },
-            )?));
-        }
-        Ok(())
+        let params: Vec<_> = P::TYPES.iter().copied().map(val_type).collect();
+        let results: Vec<_> = R::TYPE.map(val_type).into_iter().collect();
+        self.define_func(module, name, &params, &results, move |caller, args| {
+            let mut context = Context::<T> {
+                caller,
+                marker: PhantomData,
+            };
+            let params = P::decode::<std::convert::Infallible>(|index, _| {
+                Ok(match &args[index] {
+                    api::Value::I32(v) => Value::I32(*v as u32),
+                    api::Value::I64(v) => Value::I64(*v as u64),
+                    api::Value::F32(v) => Value::F32(v.to_bits()),
+                    api::Value::F64(v) => Value::F64(v.to_bits()),
+                    api::Value::ExternRef(v) => Value::ExternRef(v.clone().map(ExternRef::Wee8)),
+                })
+            })
+            .unwrap();
+            let value = function
+                .call(
+                    Caller {
+                        context: &mut context,
+                    },
+                    params,
+                )
+                .map_err(|e| api::Error::Host(e.at(module, name).to_string().into()))?;
+            Ok(R::encode(value)
+                .map(|value| match value {
+                    Value::I32(v) => api::Value::I32(v as i32),
+                    Value::I64(v) => api::Value::I64(v as i64),
+                    Value::F32(v) => api::Value::F32(f32::from_bits(v)),
+                    Value::F64(v) => api::Value::F64(f64::from_bits(v)),
+                    Value::ExternRef(None) => api::Value::ExternRef(None),
+                    Value::ExternRef(Some(ExternRef::Wee8(v))) => api::Value::ExternRef(Some(v)),
+                    #[cfg(feature = "wasmtime")]
+                    Value::ExternRef(Some(_)) => {
+                        unreachable!("reference from another adapter")
+                    }
+                })
+                .into_iter()
+                .collect())
+        })
     }
 }

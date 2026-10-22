@@ -23,6 +23,8 @@
 
 use ::wee8 as api;
 
+mod runtime_imports;
+mod stack;
 mod wasm_imports;
 
 use crate::engine::{
@@ -32,22 +34,29 @@ use crate::engine::{
 use crate::run_termination::TerminationRequest;
 use crate::runtime::{Runtime, Utf16Writer};
 use crate::source_map::SourceMap;
-use crate::wasm_imports::{Caller, ImportRegistry, payload::JsString};
+use crate::wasm_imports::{Caller, ImportRegistry};
 use anyhow::Context;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct Engine {
     initialization: Result<(), String>,
+    stack_size: Option<usize>,
 }
 
-pub(crate) type CompiledModule = api::Compiled;
+#[derive(Debug)]
+pub(crate) struct CompiledModule {
+    code: api::Compiled,
+    functions: Arc<std::collections::BTreeMap<u32, String>>,
+}
 
 struct StoreData {
     runtime: Runtime,
     print: Utf16Writer,
     termination: TerminationRequest,
     wasi: crate::wasi::WasiContext,
+    functions: Arc<std::collections::BTreeMap<u32, String>>,
+    memory_sanitizer: crate::memory_sanitizer::MemorySanitizer,
 }
 
 impl AsRef<StoreData> for StoreData {
@@ -69,12 +78,10 @@ impl AsRef<crate::wasi::WasiContext> for StoreData {
 
 impl Engine {
     pub(crate) fn new(config: EngineConfig) -> Self {
-        let initialization = if config.stack_size.is_some() {
-            Err("wee8 does not support a custom stack size yet".into())
-        } else {
-            api::initialize().map_err(|error| error.to_string())
-        };
-        Self { initialization }
+        Self {
+            initialization: api::initialize().map_err(|error| error.to_string()),
+            stack_size: config.stack_size,
+        }
     }
 
     pub(crate) fn compile(&self, bytes: &[u8]) -> anyhow::Result<CompiledModule> {
@@ -82,8 +89,33 @@ impl Engine {
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
         let store = api::Store::new(())?;
-        let module = store.compile(bytes)?;
-        Ok(module.serialize())
+        let module = store.compile_with_options(
+            bytes,
+            &api::CompileOptions {
+                js_string_builtins: true,
+                imported_string_constants: Some("_".into()),
+            },
+        )?;
+        let mut functions = std::collections::BTreeMap::new();
+        for payload in wasmparser::Parser::new(0).parse_all(bytes) {
+            if let wasmparser::Payload::CustomSection(section) = payload?
+                && let wasmparser::KnownCustom::Name(names) = section.as_known()
+            {
+                // Names are optional debug metadata. Ignore malformed entries
+                // rather than rejecting code already validated by V8.
+                for name in names.into_iter().flatten() {
+                    if let wasmparser::Name::Function(names) = name {
+                        for name in names.into_iter().flatten() {
+                            functions.insert(name.index, name.name.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(CompiledModule {
+            code: module.serialize(),
+            functions: Arc::new(functions),
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -91,10 +123,10 @@ impl Engine {
         &self,
         module_name: &str,
         compiled: &CompiledModule,
-        _source_map: Option<&SourceMap>,
+        source_map: Option<&SourceMap>,
         args: &[String],
         test_args: Option<TestArgs>,
-        _no_stack_trace: bool,
+        no_stack_trace: bool,
         runtime: Runtime,
     ) -> anyhow::Result<BackendRunOutcome> {
         self.initialization
@@ -103,16 +135,21 @@ impl Engine {
         let termination = TerminationRequest::default();
         let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
         let stdio = Arc::clone(runtime.stdio());
+        let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
         let store = api::Store::new(StoreData {
             runtime,
             print: Utf16Writer::default(),
             termination: termination.clone(),
             wasi,
+            functions: Arc::clone(&compiled.functions),
+            memory_sanitizer: memory_sanitizer.clone(),
         })?;
-        let module = store.module(compiled)?;
+        let stack_limit = stack::Limit::new(&store, self.stack_size)?;
+        let module = store.module(&compiled.code)?;
         let registry = (|| -> api::Result<_> {
             let mut registry = wasm_imports::Registry::new(&store, &module)?;
             registry.register_exceptions()?;
+            runtime_imports::register(&mut registry)?;
             crate::wasi::imports::register(&mut registry)?;
             crate::async_api::register(&mut registry)?;
             crate::sqlite::wasm::register(&mut registry)?;
@@ -141,7 +178,7 @@ impl Engine {
             Ok(instance) => instance,
             Err(error) => {
                 return complete_run_call(
-                    call_outcome(&store, &termination, Err(error))
+                    call_outcome(&store, &termination, source_map, no_stack_trace, Err(error))
                         .with_context(|| format!("failed to instantiate `{module_name}`"))?,
                     &stdio,
                 );
@@ -151,7 +188,7 @@ impl Engine {
             return Ok(BackendRunOutcome::Terminated(termination));
         }
 
-        if let Some(test_args) = test_args {
+        let result = if let Some(test_args) = test_args {
             for export in [
                 "moonbit_test_driver_internal_execute",
                 "moonbit_test_driver_finish",
@@ -166,14 +203,13 @@ impl Engine {
                 test_args,
                 &stdio,
                 |instance, file, index| {
-                    // Use the same UTF-16 payload representation as shared host
-                    // string imports; the root lives through this guest call.
-                    let payload: Box<dyn std::any::Any + Send + Sync> =
-                        Box::new(JsString(file.encode_utf16().collect()));
-                    let file = store.extern_ref(payload)?;
+                    let file =
+                        api::StringRef::from_utf8(store.as_context(), file)?.into_extern_ref();
                     call_outcome(
                         &store,
                         &termination,
+                        source_map,
+                        no_stack_trace,
                         instance.call(
                             "moonbit_test_driver_internal_execute",
                             &[
@@ -188,6 +224,8 @@ impl Engine {
                     call_outcome(
                         &store,
                         &termination,
+                        source_map,
+                        no_stack_trace,
                         instance.call("moonbit_test_driver_finish", &[]),
                     )
                     .context("failed to finish the MoonBit test driver")
@@ -197,31 +235,101 @@ impl Engine {
             // Instantiation already executes the Wasm start section. `_start`
             // is optional, as in the other backends.
             complete_run_call(
-                call_outcome(&store, &termination, instance.call("_start", &[]))?,
+                call_outcome(
+                    &store,
+                    &termination,
+                    source_map,
+                    no_stack_trace,
+                    instance.call("_start", &[]),
+                )?,
                 &stdio,
             )
         } else {
             Ok(BackendRunOutcome::Completed)
+        };
+        drop(instance);
+        drop(imports);
+        drop(registry);
+        drop(module);
+        drop(stack_limit);
+        drop(store);
+        let outcome = result?;
+        if matches!(outcome, BackendRunOutcome::Completed) {
+            memory_sanitizer.check_for_leaks()?;
         }
+        Ok(outcome)
     }
 }
 
 fn call_outcome(
     store: &api::Store<StoreData>,
     termination: &TerminationRequest,
+    source_map: Option<&SourceMap>,
+    no_stack_trace: bool,
     result: api::Result<Vec<api::Value<'_>>>,
 ) -> anyhow::Result<BackendCallOutcome> {
     // Release an uncaught exception's native root before executing another test,
     // including when a host exit takes precedence over the guest exception.
-    drop(store.take_exception());
+    let exception = store.take_exception();
     if let Some(termination) = termination.take() {
         return Ok(BackendCallOutcome::Terminated(termination));
     }
     Ok(match result {
         Ok(values) if values.is_empty() => BackendCallOutcome::Completed,
         Ok(_) => anyhow::bail!("wee8 entry point must return no values"),
-        Err(api::Error::Trap(message)) => BackendCallOutcome::GuestFailure(message),
-        Err(api::Error::ThrownException) => BackendCallOutcome::GuestFailure("Error".into()),
+        Err(api::Error::Trap(trap)) => BackendCallOutcome::GuestFailure(render_failure(
+            store,
+            trap.message.trim_start_matches("Uncaught ").to_owned(),
+            &trap.frames,
+            source_map,
+            no_stack_trace,
+        )),
+        Err(api::Error::ThrownException) => BackendCallOutcome::GuestFailure(render_failure(
+            store,
+            "Error".into(),
+            &exception
+                .map(|exception| exception.trace())
+                .unwrap_or_default(),
+            source_map,
+            no_stack_trace,
+        )),
+        Err(api::Error::Host(error)) => {
+            return Err(anyhow::anyhow!(render_failure(
+                store,
+                error.message,
+                &error.frames,
+                source_map,
+                no_stack_trace,
+            )));
+        }
         Err(error) => return Err(error.into()),
     })
+}
+
+fn render_failure(
+    store: &api::Store<StoreData>,
+    message: String,
+    frames: &[api::StackFrame],
+    source_map: Option<&SourceMap>,
+    no_stack_trace: bool,
+) -> String {
+    use crate::wasm_diagnostic::DiagnosticLine;
+    let lines = std::iter::once(DiagnosticLine::Text(message)).chain(frames.iter().map(|frame| {
+        DiagnosticLine::Frame {
+            indentation: "    ".into(),
+            function: store
+                .as_context()
+                .with_data(|data| data.function_name(frame.function_index)),
+            module_offset: Some(frame.module_offset),
+        }
+    }));
+    crate::wasm_diagnostic::render(lines, source_map, no_stack_trace)
+}
+impl StoreData {
+    fn function_name(&self, index: u32) -> String {
+        self.functions
+            .get(&index)
+            .cloned()
+            .unwrap_or_else(|| format!("wasm-function[{index}]"))
+    }
 }

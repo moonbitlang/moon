@@ -96,8 +96,9 @@ The imports are grouped by their guest ABI:
 - `host_imports.rs` registers the legacy host ABI once for all adapters;
   `v8/values.rs` supplies V8's native string/array/builder/reader representation.
 - `wasm_imports/payload.rs` shares the typed Rust payload representation used by
-  Wasmtime and wee8. Wasmtime's JS-string and `ffi-bytes` adapters recognize the
-  same string/byte payloads. A guest GC object without a Rust payload is a valid
+  Wasmtime and wee8. String conversion belongs to each adapter: Wasmtime uses
+  UTF-16 payloads, while wee8 uses native V8 strings. Both share byte/helper
+  payloads. A guest GC object without a Rust payload is a valid
   externref but is not a host string.
 - `v8/ffi_bytes.rs` implements `ffi-bytes` and owns its memory registration.
 - `v8/exception.rs` implements the exception tag and throw import.
@@ -128,16 +129,37 @@ also leaves one more slot for guest frames in V8's default stack-trace limit.
 
 ## Wasm diagnostics
 
-V8 and Wasmtime send guest frames through `wasm_diagnostic::render`. Both
-backends use the numeric module offset for source-map lookup. V8 also supplies
+V8, Wasmtime and wee8 send guest frames through `wasm_diagnostic::render`. All
+adapters use the numeric module offset for source-map lookup. V8 also supplies
 its original runtime location, which includes the offset for Wasm frames and
 may instead name a host location. Feature guards select V8's full location or
-Wasmtime's numeric offset for display.
+Wasmtime/wee8's numeric offset for display.
 
 Each frame shows the mapped source file and line first, followed by the runtime
 location in parentheses. Missing or malformed source maps do not erase the
 runtime information needed to investigate a failure. `--no-stack-trace` still
 suppresses all frames.
+
+## wee8 runtime integration
+
+wee8 enables native JS-string builtins and imported string constants during
+compilation. The module retains that configuration through serialization; the
+Rust host registry sees only non-builtin imports. Runtime compatibility imports
+(`ffi-bytes`, console and memory sanitizer) live in `wee8/runtime_imports.rs`,
+separately from shared Host Domain registrations. Byte memory is store-owned;
+its closure borrows cannot overlap growth or guest execution.
+
+Shared callbacks still use `Option<ExternRef>`. The adapter checks that guest
+`ValType`s fit the declared Rust value representation, constructs each host
+function with the guest's exact nullability,
+and relies on the upstream safe API to reject null non-null results. It does
+not change shared host definitions or relax V8 import matching. String helpers
+construct native V8 strings, including test-driver filenames.
+
+Native frame snapshots are rendered through the shared Wasm diagnostic module,
+using retained Wasm function names and the existing source map. A stack-limit
+guard checks the owning thread's actual stack bounds and restores the previous
+limit before store teardown. It does not allocate a replacement thread stack.
 
 ## Worker cancellation
 
