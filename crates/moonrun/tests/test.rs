@@ -88,7 +88,21 @@ fn test_moonrun_against_upstream_async() {
         .assert()
         .success();
 
+    // Upstream tests build native helpers through child `moon build` commands.
+    // Their artifact tables inherit stdout. Normalize only those leading tables;
+    // unexpected output, the exact test totals and unsuccessful exits still fail.
+    let mut redactions = snapbox::Redactions::new();
+    redactions
+        .insert(
+            "[HELPER_BUILD_OUTPUT]",
+            regex::Regex::new(
+                r"\A(?:Artifacts:\n(?:  moonbitlang/async_test_programs/[a-z_]+  native  [^\n]+\n)+)+",
+            )
+            .expect("valid native helper artifact pattern"),
+        )
+        .expect("valid native helper artifact redaction");
     moon_cmd()
+        .with_assert(snapbox::Assert::new().redact_with(redactions))
         .current_dir(&async_dir)
         .env("MOON_OVERRIDE", moon)
         .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
@@ -100,7 +114,7 @@ fn test_moonrun_against_upstream_async() {
         .args(["test", "--target", "wasm", "--no-parallelize"])
         .assert()
         .success()
-        .stdout_eq("Total tests: 587, passed: 587, failed: 0.\n");
+        .stdout_eq("[HELPER_BUILD_OUTPUT]Total tests: 587, passed: 587, failed: 0.\n");
 }
 
 struct TestDir(moon_test_util::test_dir::TestDir);

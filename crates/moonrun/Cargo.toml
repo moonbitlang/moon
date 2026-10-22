@@ -90,6 +90,7 @@ chrono.workspace = true
 dunce.workspace = true
 escargot.workspace = true
 moon-test-util.workspace = true
+regex.workspace = true
 snapbox = { workspace = true, features = ["cmd"] }
 tokio = { workspace = true, features = ["io-util", "net", "time"] }
 wat.workspace = true
