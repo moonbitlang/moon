@@ -465,7 +465,7 @@ fn empty_test_sections_are_not_rendered() {
         false,
         None,
         None,
-        "moonbitlang/core/async_io",
+        "moonbitlang/core/async",
     );
     assert!(!generated.contains("REPLACE ME:"));
 }
@@ -534,7 +534,7 @@ fn async_runtime_references_use_selected_package() {
     let template = "@moonbitlang/async.run_async_main(() => ())".to_string();
 
     assert_eq!(
-        adapt_async_runtime_references(template, "moonbitlang/core/async_io"),
-        "@moonbitlang/core/async_io.run_async_main(() => ())"
+        adapt_async_runtime_references(template, "moonbitlang/core/async"),
+        "@moonbitlang/core/async.run_async_main(() => ())"
     );
 }
