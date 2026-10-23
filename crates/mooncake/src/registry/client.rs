@@ -49,6 +49,8 @@ use crate::{
     zip_util::extract_zip_to_dir,
 };
 
+mod private_download;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 struct RegistryIndexEntry {
@@ -1299,7 +1301,13 @@ impl RegistryClient {
         }
         user_log.status(format!("Downloading {name}@{version}"));
         if private {
-            bail!("Authenticated source delivery is not supported yet for {name}@{version}");
+            return private_download::download_archive(
+                self,
+                name,
+                version,
+                expected_checksum,
+                &cache_file,
+            );
         }
         let url = self.endpoints.package_archive(name, version);
         let mut response = download::client_with_retry()?
@@ -2019,17 +2027,20 @@ mod tests {
     }
 
     #[test]
-    fn private_source_delivery_fails_closed_until_cdn_support_is_enabled() {
+    fn private_source_delivery_denial_does_not_fall_back_to_public_downloads() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
         let server = api_test_server(
             listener,
-            vec![(
-                200,
-                String::new(),
-                resolver_response("alice/secret", "PRIVATE", "0.1.0"),
-            )],
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+                ),
+                (404, String::new(), "{}".to_owned()),
+            ],
         );
         save_test_login(home.path(), &api, "alice", "test-alice");
         let registry = api_test_registry(home.path(), &api);
@@ -2038,12 +2049,8 @@ mod tests {
         let error = registry
             .materialize_source_to(&module, &home.path().join("source"), &quiet_user_log())
             .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("Authenticated source delivery is not supported yet")
-        );
-        assert_eq!(server.join().unwrap().len(), 1);
+        assert!(error.to_string().contains("not found or access denied"));
+        assert_eq!(server.join().unwrap().len(), 2);
         assert!(
             !registry
                 .home

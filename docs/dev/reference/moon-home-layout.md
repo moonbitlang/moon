@@ -95,12 +95,18 @@ $MOON_HOME/
   from shared or publicly exported CI caches. Authentication, transport and
   validation failures propagate rather than retrying anonymously or guessing
   from the public index. A denied request does not reveal module visibility.
-- Private source archives are reserved beneath
+- Verified private source archives are stored beneath
   `registry/private/<api-hash>/<identity-hash>/<module-hash>.archives/<version>.zip`;
   immutable private source trees use
   `cache/deps/v1/private/<api-hash>/<identity-hash>/sources/<username>/<encoded-module>/<version>/`.
-  This layer does not download private sources or prebuilt artifacts: cache
-  misses fail closed without public download fallback.
+  A cache miss requests a download capability from the authenticated registry
+  API. Its signed URL is used only in memory, by a separate anonymous client,
+  without redirects. HTTPS is required except for a loopback development
+  registry and loopback download URL. The client validates release identity,
+  checksum and a lifetime of at most 15 minutes, renews once after CDN HTTP 403,
+  and verifies SHA-256 before atomically publishing the archive. Failures never
+  use public download URLs. Cached archives work offline without renewing a
+  capability. Private prebuilt artifacts remain unsupported.
 - `registry/symbols` is the symbols archive materialized by registry sync.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent
