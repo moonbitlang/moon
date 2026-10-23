@@ -51,6 +51,8 @@ pub(super) struct WorkerCancellation {
     retry_enabled: AtomicBool,
     #[cfg(unix)]
     notifier: OnceLock<CancellationRetryNotifier>,
+    #[cfg(unix)]
+    teardown: OnceLock<(CancellationRetryNotifier, i32)>,
 }
 
 impl WorkerCancellation {
@@ -61,6 +63,23 @@ impl WorkerCancellation {
             retry_enabled: AtomicBool::new(false),
             #[cfg(unix)]
             notifier: OnceLock::new(),
+            #[cfg(unix)]
+            teardown: OnceLock::new(),
+        }
+    }
+
+    #[cfg(unix)]
+    pub(super) fn bind_teardown(&self, source: &Arc<ThreadPoolCompletionNotifier>, id: i32) {
+        self.teardown
+            .set((source.cancellation_retry(), id))
+            .unwrap();
+        self.disable_retry();
+    }
+
+    #[cfg(unix)]
+    pub(super) fn notify_teardown(&self) {
+        if let Some((notifier, id)) = self.teardown.get() {
+            notifier.notify_from_signal(*id);
         }
     }
 
@@ -280,13 +299,16 @@ pub(super) extern "C" fn cancellation_signal_handler(_: i32) {
     if let Some(job) = unsafe { job.as_ref() }
         && job.cancellation.state.load(Ordering::SeqCst) == CANCELLING
         && job.inside.load(Ordering::SeqCst)
-        && job.cancellation.retry_enabled()
-        && let Some(notifier) = job.cancellation.notifier.get()
     {
-        // The signal may arrive before the syscall begins. Record a retry in
-        // this Worker's preallocated slot; publication never locks or waits
-        // for the guest to drain the notification source.
-        notifier.notify_from_signal(job.completion_id.as_i32());
+        // Teardown owns a separate source: guest completion consumption and
+        // guest retry enablement cannot steal or suppress its wakeups.
+        if job.cancellation.teardown.get().is_some() {
+            job.cancellation.notify_teardown();
+        } else if job.cancellation.retry_enabled()
+            && let Some(notifier) = job.cancellation.notifier.get()
+        {
+            notifier.notify_from_signal(job.completion_id.as_i32());
+        }
     }
     unsafe {
         *errno = saved_errno;
