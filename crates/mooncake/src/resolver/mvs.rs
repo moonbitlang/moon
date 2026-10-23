@@ -525,14 +525,16 @@ fn resolve_module_dependency(
 
 #[cfg(test)]
 mod test {
+    use std::{cell::Cell, collections::BTreeMap};
+
     use expect_test::expect;
     use moonutil::resolution::ModuleId;
     use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
 
     use super::*;
-    use crate::registry::Registry;
     use crate::registry::mock::{MockRegistry, create_mock_module};
+    use crate::registry::{Registry, RegistryVersionInfo};
     use crate::resolver::ModuleResolutionErrors;
     use crate::resolver::context::ModuleResolutionContext;
 
@@ -934,19 +936,128 @@ mod test {
     }
 
     #[test]
-    fn test_pre_v2_req_uses_lower_bound_semantics() {
+    fn test_missing_requested_registry_version_is_not_substituted() {
+        for (dependency, required, available) in [
+            ("dep/one", "0.1.1", "0.2.0"),
+            ("dep/one", "1.2.5", "1.3.0"),
+            ("dep/one/v2", "2.1.0", "2.2.0"),
+            ("dep/one", "1.2.0-rc.1", "1.2.0"),
+        ] {
+            let mut registry = MockRegistry::new();
+            registry.add_module_full(dependency, available, []);
+
+            let mut context = ModuleResolutionContext::new(&registry);
+            let mut resolver = MvsSolver;
+            let root = create_mock_module("root/module", "0.1.0", [(dependency, required)]);
+            let roots = create_mock_root(root);
+            let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+            let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
+            assert!(
+                !status,
+                "missing {dependency}@{required} must not select {available}"
+            );
+
+            let errors = context.into_errors();
+            assert_eq!(errors.len(), 1);
+            assert_eq!(
+                errors[0].to_string(),
+                format!(
+                    "Failed to resolve registry dependency `{dependency}` for module `root/module`: version `{required}` was not found in the registry"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn test_missing_transitive_version_is_not_hidden_by_a_higher_requirement() {
         let mut registry = MockRegistry::new();
-        registry.add_module_full("dep/one", "0.2.0", []);
+        registry
+            .add_module_full("dep/one", "1.3.0", [])
+            .add_module_full("dep/two", "1.0.0", [("dep/one", "1.2.5")]);
 
         let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
-        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/one", "1.3.0"), ("dep/two", "1.0.0")],
+        );
         let roots = create_mock_root(root);
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
         let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
-        assert!(status, "Resolve failed");
+        assert!(
+            !status,
+            "dep/two's missing requirement must still be checked"
+        );
 
-        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.2.0");
+        let errors = context.into_errors();
+        assert_eq!(errors.len(), 1);
+        expect![[r#"Failed to resolve registry dependency `dep/one` for module `dep/two`: version `1.2.5` was not found in the registry"#]]
+            .assert_eq(&errors[0].to_string());
+    }
+
+    #[test]
+    fn test_registry_read_failure_preserves_its_cause() {
+        struct UnreadableRegistry;
+
+        impl Registry for UnreadableRegistry {
+            fn all_versions_of(
+                &self,
+                _name: &ModuleName,
+            ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
+                Err(anyhow::Error::new(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "permission denied by registry fixture",
+                ))
+                .context("could not read registry metadata"))
+            }
+        }
+
+        let mut context = ModuleResolutionContext::new(&UnreadableRegistry);
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
+        assert!(!resolve_silently(
+            &mut MvsSolver,
+            &mut context,
+            &mut module_graph
+        ));
+
+        let errors = context.into_errors();
+        assert_eq!(errors.len(), 1);
+        expect![[r#"Failed to read registry dependency `dep/one@1.2.3` for module `root/module`: could not read registry metadata: permission denied by registry fixture"#]]
+            .assert_eq(&errors[0].to_string());
+        let source =
+            std::error::Error::source(&errors[0]).expect("registry error must retain its cause");
+        assert_eq!(source.to_string(), "could not read registry metadata");
+    }
+
+    #[test]
+    fn test_graph_construction_reuses_loaded_metadata() {
+        struct SingleReadRegistry(Cell<bool>);
+
+        impl Registry for SingleReadRegistry {
+            fn all_versions_of(
+                &self,
+                _name: &ModuleName,
+            ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
+                anyhow::ensure!(!self.0.replace(true), "registry metadata was read again");
+                Ok(Arc::new(BTreeMap::from([(
+                    Version::new(1, 2, 3),
+                    RegistryVersionInfo::default(),
+                )])))
+            }
+        }
+
+        let registry = SingleReadRegistry(Cell::new(false));
+        let mut context = ModuleResolutionContext::new(&registry);
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
+        assert!(resolve_silently(
+            &mut MvsSolver,
+            &mut context,
+            &mut module_graph
+        ));
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@1.2.3");
     }
 
     #[test]
