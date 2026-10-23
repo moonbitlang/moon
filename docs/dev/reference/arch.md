@@ -441,9 +441,11 @@ Current registry configuration behavior today is:
   same optional, registry-bound Bearer authentication as other API reads.
   Public API mode requires a server supporting public resolver metadata;
   private metadata is served only to authorized owners.
-  Release records are isolated by registry and account. Missing private sources
-  currently fail closed: CDN delivery is a separate layer, with no public URL
-  fallback.
+  Release records are isolated by registry and account. Private source downloads
+  request a short-lived capability from the authenticated API, then use a
+  separate anonymous client for the signed CDN URL. Verified archives and source
+  trees retain the same account isolation; failures never fall back to public
+  download URLs. Private prebuilt artifacts are not supported.
   See [Moon home layout](./moon-home-layout.md) for caching and offline behavior.
 
 [semver]: https://semver.org/
