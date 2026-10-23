@@ -38,7 +38,7 @@ use crate::{
 use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts, moonc_command};
 
 const LEGACY_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/async";
-const CORE_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/core/async_io";
+const CORE_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/core/async";
 
 fn select_async_runtime_package<'a>(
     package_name: &str,
