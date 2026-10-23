@@ -25,6 +25,7 @@ use mooncake::{
     },
 };
 use moonutil::{
+    command_output::CommandOutput,
     constants::MOD_NAME_STDLIB,
     project::{PackageDirs, ProjectContext},
     user_log::UserLog,
@@ -48,8 +49,8 @@ pub(crate) fn require_selected_module(
         })
 }
 use super::install_binary::{
-    GitRef, install_binary, install_from_git, install_from_github_archive, install_from_local,
-    is_git_url, is_local_path, parse_github_permalink, strip_wildcard_suffix,
+    GitRef, InstallOptions, install_binary, install_from_git, install_from_github_archive,
+    install_from_local, is_git_url, is_local_path, parse_github_permalink, strip_wildcard_suffix,
 };
 
 /// Returns the local filesystem path used for wildcard local install.
@@ -72,8 +73,9 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
 pub(crate) fn install_cli(
     cli: UniversalFlags,
     cmd: InstallSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let install_dir = cmd.bin.unwrap_or_else(|| moonutil::MOON_HOME.bin_dir());
     let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 
@@ -90,7 +92,16 @@ pub(crate) fn install_cli(
                 local_path_str
             );
         }
-        return install_from_local(&cli, &local_path, &install_dir, false, user_log);
+        return install_from_local(
+            &cli,
+            &local_path,
+            false,
+            InstallOptions {
+                install_dir: &install_dir,
+                list: cmd.list,
+                output,
+            },
+        );
     }
 
     let source = cmd.source.ok_or_else(|| {
@@ -112,9 +123,12 @@ pub(crate) fn install_cli(
         return install_from_local(
             &cli,
             Path::new(&local_path),
-            &install_dir,
             install_all,
-            user_log,
+            InstallOptions {
+                install_dir: &install_dir,
+                list: cmd.list,
+                output,
+            },
         );
     }
 
@@ -140,9 +154,12 @@ pub(crate) fn install_cli(
             &cli,
             &permalink.archive_url,
             path_in_repo,
-            &install_dir,
             install_all,
-            user_log,
+            InstallOptions {
+                install_dir: &install_dir,
+                list: cmd.list,
+                output,
+            },
         );
     }
 
@@ -165,9 +182,12 @@ pub(crate) fn install_cli(
             &source,
             git_ref,
             cmd.path_in_repo.as_deref(),
-            &install_dir,
             install_all,
-            user_log,
+            InstallOptions {
+                install_dir: &install_dir,
+                list: cmd.list,
+                output,
+            },
         );
     }
 
@@ -180,7 +200,16 @@ pub(crate) fn install_cli(
     }
     let (path, install_all) = parse_install_package_path(&source)
         .with_context(|| format!("Invalid package path `{source}`"))?;
-    install_binary(&cli, &path, &install_dir, install_all, user_log)
+    install_binary(
+        &cli,
+        &path,
+        install_all,
+        InstallOptions {
+            install_dir: &install_dir,
+            list: cmd.list,
+            output,
+        },
+    )
 }
 
 pub(crate) fn remove_cli(

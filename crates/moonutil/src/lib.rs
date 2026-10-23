@@ -39,6 +39,7 @@ pub mod fuzzy_match;
 pub mod git;
 pub mod glob;
 pub mod graph;
+pub mod interactive;
 pub mod locks;
 pub mod manifest;
 mod module;

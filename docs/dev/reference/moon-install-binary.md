@@ -65,6 +65,31 @@ When matching packages after discovery:
 - registry selectors are matched by **package path**,
 - local/git/archive selectors are matched by **filesystem path** (then converted to discovered packages).
 
+### Module-root executable discovery
+
+A selector that resolves exactly to a module root (registry `user/module`,
+local `./` or `--path <module-root>`, or a git/archive path without a package
+component) stands for every executable package in that module. Executability is
+a package declaration property (`is_main: true`, including
+`pkgtype(kind: "executable")`), not a directory convention: executable packages
+may live anywhere in the module, including nested paths.
+
+When a module-root selector matches executables:
+
+- `--list` prints each executable's binary name to stdout and exits without
+  building or installing anything.
+- With exactly one executable, `moon install` installs it directly; there is
+  nothing to choose.
+- With several executables, an interactive terminal (and no `--dry-run`) shows a
+  vertical checkbox list. Space toggles the highlighted executable, `a` toggles
+  all executables, Enter confirms, and Escape cancels.
+- Without an interactive terminal, `moon install` does not guess: it fails with
+  the executable names and asks for an explicit package selector.
+- `--dry-run` never prompts; it previews every candidate executable.
+
+Wildcards (`/...`) and explicit package selectors never expand to the module's
+executable set; they keep the exact or prefix matching described above.
+
 ## Expected behavior by mode
 
 ### Registry mode
@@ -77,8 +102,11 @@ Input form:
 
 Rules:
 
-- No wildcard: exact package path in the resolved registry module.
+- No wildcard: exact package path in the resolved registry module, unless the
+  selector is a bare module root.
 - With wildcard: all executable packages under the wildcard prefix.
+- Bare module root (`user/module`): all executable packages in the module (see
+  Module-root executable discovery).
 
 ### Local path mode
 
@@ -91,9 +119,10 @@ Input form:
 Rules:
 
 - Input selector is a filesystem path.
-- No wildcard: exact package at that filesystem path.
-- If the exact filesystem path is module root, install that module's root package only
-  (root package path is empty string relative to `source` root).
+- No wildcard: exact package at that filesystem path, unless the path is the
+  module root.
+- If the path is the module root, select every executable package in the module
+  (see Module-root executable discovery).
 - With wildcard suffix: all executable packages under the matched filesystem path prefix.
 
 ### GitHub permalink mode
@@ -145,8 +174,9 @@ Rules:
 - Resolve the selected path and find the nearest ancestor containing `moon.mod`
   or `moon.mod.json` as module root.
 - No wildcard:
-  - no `PATH_IN_REPO`: install root package of detected module.
-  - with `PATH_IN_REPO`: install exact package at the selected filesystem path.
+  - if the selected path is the detected module root: select every executable
+    package in the module (see Module-root executable discovery);
+  - otherwise: install the exact package at the selected filesystem path.
 - With wildcard in `PATH_IN_REPO`: install all executable packages under that filesystem prefix.
 - Path escape (`..` resolving outside cloned repo) is rejected.
 
@@ -160,7 +190,7 @@ Practical caveat:
 
 These rules apply in all binary installer modes:
 
-- Only executable packages (`pkgtype(kind: "executable")`) are installable.
+- Only executable packages (`is_main: true`, including `pkgtype(kind: "executable")`) are installable, wherever they live in the module.
 - Build target is native executable in release mode.
 - Output directory defaults to `~/.moon/bin` and can be overridden by `--bin`.
 - Binary name:
@@ -169,7 +199,11 @@ These rules apply in all binary installer modes:
     `a/b` and `a/b/v2`
 - Reserved Moon toolchain binary names are not overwritten.
 - Name collisions between selected packages are allowed; later installs overwrite earlier files.
-- `--dry-run` does not write binaries; it prints what would be built/installed.
+- `--dry-run` does not write binaries; it prints what would be built/installed,
+  and never prompts.
+- `--list` prints the binary names the selector expands to and exits without
+  building. For a module root this is every executable package in the module,
+  discovered from package declarations rather than a directory name.
 
 ## Cross-tool structural reference (verified 2026-03-04)
 
@@ -186,7 +220,7 @@ identify source, intent, and target.
 | Build argument surface | Installer does not expose a broad package-manager-level build argument passthrough; it builds/installs selected native executables (with shared command flags like `--dry-run` and verbosity controls). | Accepts shared Go build flags: `go install [build flags] [packages]`. | Rich install/build controls: features (`--features`, `--all-features`, `--no-default-features`), target/profile (`--target`, `--profile`), jobs, lock/offline, etc. |
 | Collision / overwrite behavior | Name collisions between selected packages are allowed; later installs overwrite (reserved Moon tool names are blocked). | Official help does not document a dedicated collision guard in install destination; binaries are installed by command name in one bin directory (inference). | Overwrite protection by default; `--force` is required to overwrite existing crates/binaries. |
 | Dry-run / preview | `--dry-run` prints plan and does not write binaries. | `-n` (shared build flag) prints commands without executing. | `--dry-run` exists but is unstable. |
-| Interactive prompting | No interactive package/binary selection prompt. | No interactive package selection prompt. | No interactive package/binary selection prompt. If source has multiple packages and target is ambiguous, Cargo errors and requires explicit package selection. |
+| Interactive prompting | A module-root selector with several executable packages lists them for checkbox selection on an interactive terminal (a single executable is installed directly); `--list` prints them non-interactively. Executables are discovered from `is_main: true` declarations, not a `cmd/` convention. Explicit selectors and wildcards never prompt. | No interactive package selection prompt. | No interactive package/binary selection prompt. If source has multiple packages and target is ambiguous, Cargo errors and requires explicit package selection. |
 | Install destination | `~/.moon/bin` by default, override with `--bin`. | `GOBIN`, else `$GOPATH/bin` (or `$HOME/go/bin` when `GOPATH` unset). | Install root `bin` directory; precedence: `--root`, `CARGO_INSTALL_ROOT`, config, `CARGO_HOME`, `$HOME/.cargo`. |
 
 References:
@@ -199,7 +233,7 @@ References:
 
 The implementation previously had several surprising behaviors that caused confusion:
 
-1. Selecting a module root in local/git mode could install all main packages implicitly.
+1. Selecting a module root in local/git mode could install all main packages implicitly, without asking which ones.
 2. Git path selection used string-based matching and could select the wrong package in nested-module repos.
 3. `moon install --dry-run` still performed real build/install side effects.
 
