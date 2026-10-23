@@ -37,7 +37,7 @@ pub struct RegistryPath {
 /// The current registry index has no version for the requested module.
 #[derive(Debug, thiserror::Error)]
 #[error("Module `{0}` not found in registry")]
-pub struct ModuleNotFound(ModuleName);
+pub struct ModuleNotFound(pub(crate) ModuleName);
 
 impl RegistryPath {
     /// Resolve an explicit version to its checked module source.
@@ -62,7 +62,14 @@ impl RegistryPath {
             Some(module) => Ok(module),
             None => {
                 let version = registry
-                    .get_latest_version(&self.module)
+                    .latest_version(&self.module)
+                    .map_err(|error| {
+                        if error.is::<super::RegistryModuleNotFound>() {
+                            anyhow::Error::new(ModuleNotFound(self.module.clone()))
+                        } else {
+                            error
+                        }
+                    })?
                     .ok_or_else(|| ModuleNotFound(self.module.clone()))?;
                 Ok(ModuleSource::from_version(self.module.clone(), version)?)
             }
@@ -256,6 +263,13 @@ pub fn resolve_unversioned_registry_path(
     path: &str,
     mut latest_version_of: impl FnMut(&ModuleName) -> Option<String>,
 ) -> anyhow::Result<(ModuleName, String, String)> {
+    resolve_unversioned_registry_path_with(path, |name| Ok(latest_version_of(name)))
+}
+
+pub(crate) fn resolve_unversioned_registry_path_with(
+    path: &str,
+    mut latest_version_of: impl FnMut(&ModuleName) -> anyhow::Result<Option<String>>,
+) -> anyhow::Result<(ModuleName, String, String)> {
     if path.contains('@') {
         anyhow::bail!("explicit versions are not allowed in this registry path");
     }
@@ -269,7 +283,7 @@ pub fn resolve_unversioned_registry_path(
         ));
     }
 
-    let latest_version = latest_version_of(&parsed.module)
+    let latest_version = latest_version_of(&parsed.module)?
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", parsed.module))?;
     if parsed.module.major_version_suffix()?.is_some() {
         ModuleSource::from_version(parsed.module.clone(), latest_version.parse()?)?;

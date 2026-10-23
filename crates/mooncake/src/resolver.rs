@@ -335,13 +335,10 @@ fn warn_deprecated_dependencies(
             continue;
         }
         // RegistryClient reuses the index metadata already read by resolution.
-        let Ok(versions) = registry.all_versions_of(source.name()) else {
+        let Ok(Some(release)) = registry.version_info(source.name(), source.version()) else {
             continue;
         };
-        let Some(release) = versions
-            .get(source.version())
-            .filter(|release| release.yanked)
-        else {
+        if !release.yanked {
             continue;
         };
         // Registry-authored reasons may contain terminal control sequences.
