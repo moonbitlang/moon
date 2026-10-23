@@ -44,6 +44,106 @@ const SEARCH_RESULTS: &[u8] = br#"[
     {"name": "example/no-description", "version": "0.4.0"}
 ]"#;
 
+#[test]
+fn test_registry_metadata_resolves_transitive_dependencies_and_reuses_offline_cache() {
+    let _ = moonrun_bin();
+    let home = tempfile::tempdir().unwrap();
+    let project = TestDir::new_empty();
+    std::fs::write(
+        project.join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/secret@0.1.0\" }\n",
+    )
+    .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let api = format!("http://{}", listener.local_addr().unwrap());
+    std::fs::write(
+        home.path().join("credentials.json"),
+        serde_json::json!({
+            "token": "test-cli-owner", "username": "alice", "registry_api": api,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let server = std::thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        for (name, deps) in [
+            (
+                "alice/secret",
+                serde_json::json!({"alice/internal": "0.1.0"}),
+            ),
+            ("alice/internal", serde_json::json!({})),
+        ] {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "missing resolver request"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let mut buffer = [0; 1024];
+                let read = stream.read(&mut buffer).unwrap();
+                assert_ne!(read, 0);
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let request = String::from_utf8(request).unwrap();
+            assert!(request.starts_with(&format!(
+                "GET /api/v0/registry/modules/{name}?version=0.1.0 HTTP/1.1\r\n"
+            )));
+            assert!(
+                request
+                    .to_lowercase()
+                    .contains("authorization: bearer test-cli-owner\r\n")
+            );
+            let body = serde_json::json!({
+                "module": name, "visibility": "PRIVATE",
+                "version": "0.1.0", "deps": deps, "checksum": "c".repeat(64),
+            })
+            .to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        }
+    });
+    let run = || {
+        moon_cmd(&project)
+            .env("MOON_HOME", home.path())
+            .env("MOONCAKES_REGISTRY", &api)
+            .env("NO_PROXY", "*")
+            .args(["tree"])
+    };
+    run().assert().success().stdout_eq(snapbox::str![[r#"
+test/app@0.0.0 (local [..]):
+└─ alice/secret -> alice/secret@0.1.0
+   └─ alice/internal -> alice/internal@0.1.0
+
+"#]]);
+    server.join().unwrap();
+    // A second process resolves the whole graph without either Git or HTTP.
+    run().assert().success().stdout_eq(snapbox::str![[r#"
+test/app@0.0.0 (local [..]):
+└─ alice/secret -> alice/secret@0.1.0
+   └─ alice/internal -> alice/internal@0.1.0
+
+"#]]);
+    assert!(!home.path().join("registry/index").exists());
+}
+
 fn moon_search(
     args: &[&str],
     response_status: &'static str,

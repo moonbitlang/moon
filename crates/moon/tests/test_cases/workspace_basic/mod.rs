@@ -18,7 +18,7 @@ fn assert_requires_target_module(stderr: &str, command: &str) {
 fn assert_registry_resolution_failure(stderr: &str) {
     assert!(
         stderr
-            .contains("Failed to resolve registry dependency `alice/liba` for module `alice/app`"),
+            .contains("Module `alice/liba` not found or access denied; check your registry login"),
         "expected registry dependency resolution failure, got:\n{stderr}"
     );
 }

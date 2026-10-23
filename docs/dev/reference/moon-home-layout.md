@@ -35,7 +35,7 @@ $MOON_HOME/
       ...
     symbols/
       ...
-    metadata/<api-hash>/<module-hash>.metadata-v4/
+    private/<api-hash>/<identity-hash>/<module-hash>.metadata-v4/
       releases/<version-hash>.json
       latest.json
     cache/
@@ -68,15 +68,17 @@ $MOON_HOME/
   `registry/index/user/<username>/<module>.index`.
 - `MOON_REGISTRY_API=1` opts all resolver metadata queries into the configured
   HTTP API, even when a local Git entry exists. Otherwise the Git index remains
-  authoritative. This initial adapter reads public metadata anonymously; it
-  requires a server supporting public resolver metadata. Existing API commands
-  such as search retain their separate optional authentication.
+  authoritative for known public modules. Modules absent from the public index
+  use the metadata API even without this switch. All resolver API reads share
+  optional, registry-bound authentication with existing commands such as search.
+  The global API switch requires a server supporting public resolver metadata.
 - API resolution requests `GET /api/v0/registry/modules/<owner>/<module>?version=<exact>`
   for every declared version. Unversioned commands may omit the query to ask for
   latest. Neither operation lists version history or performs a range lookup.
   Exact version identity, dependencies and SHA-256 are validated before caching.
-- API release records are keyed by normalized API URL, module and exact version
-  beneath `registry/metadata`. The optional `latest.json` contains only a version
+- API release records are keyed by normalized API URL, identity, module and exact
+  version beneath `registry/private`. Identity is the saved username, a token
+  hash for older unnamed credentials, or anonymous. The optional `latest.json` contains only a version
   pointer. Exact requests share release records directly; no generation or
   range-selection cache is needed. Online latest lookups refresh across client
   instances and after `moon update`; locally-known-latest executable selectors
@@ -88,6 +90,17 @@ $MOON_HOME/
 - Metadata is atomically written through owner-only temporary files; Unix
   directories are owner-only. Cached deprecation state is advisory and can be
   stale: refreshing latest does not invalidate immutable release records.
+- Switching registry or account cannot read another namespace's cached records.
+  Tokens are never written into metadata. Exclude private metadata and sources
+  from shared or publicly exported CI caches. Authentication, transport and
+  validation failures propagate rather than retrying anonymously or guessing
+  from the public index. A denied request does not reveal module visibility.
+- Private source archives are reserved beneath
+  `registry/private/<api-hash>/<identity-hash>/<module-hash>.archives/<version>.zip`;
+  immutable private source trees use
+  `cache/deps/v1/private/<api-hash>/<identity-hash>/sources/<username>/<encoded-module>/<version>/`.
+  This layer does not download private sources or prebuilt artifacts: cache
+  misses fail closed without public download fallback.
 - `registry/symbols` is the symbols archive materialized by registry sync.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent
