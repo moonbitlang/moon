@@ -686,34 +686,12 @@ fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
     Ok(())
 }
 
-// TODO: Re-enable when a published lijunchen/test_postadd version uses
-// moon.mod and moon.pkg instead of JSON manifests.
-/*
 #[test]
-fn test_postadd_script() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    let dir = TestDir::new("test_postadd_script.in");
-    let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
-    assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
+fn test_fetch_and_binary_install_ignore_postadd() {
+    use crate::support::http::{Response, serve};
 
-    let _ = get_stdout(&dir, ["remove", "lijunchen/test_postadd"]);
-
-    let out = moon_process_cmd(&dir)
-        .env("MOON_IGNORE_POSTADD", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .args(["add", "lijunchen/test_postadd"])
-        .output()
-        .unwrap();
-    let out = String::from_utf8(out.stderr).unwrap();
-    assert!(!out.contains(".mooncakes/lijunchen/test_postadd"));
-}
-*/
-
-#[test]
-fn test_fetch_and_binary_install_run_legacy_postadd() {
+    // Initialize the test toolchain before starting the HTTP fixture's timeout.
+    let _ = moonrun_bin();
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new().expect("failed to create temporary MOON_HOME");
     let registry = tempfile::TempDir::new().expect("failed to create temporary registry");
@@ -758,7 +736,7 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
     let manifest = br#"name = "testuser/postadd"
 version = "1.0.0"
 source = "src"
-options(scripts: { "postadd": "moon tool embed --text -i src/tool/generated.txt -o src/tool/generated.mbt --name generated" })
+options(scripts: { "postadd": "moon tool embed --text -i src/tool/generated.txt -o src/tool/postadd-ran.mbt --name generated" })
 "#.to_vec();
     cache_registry_package(
         moon_home.path(),
@@ -774,6 +752,7 @@ pkgtype(kind: "executable")
                 .to_vec(),
             ),
             ("src/tool/generated.txt", b"42".to_vec()),
+            ("src/tool/generated.mbt", b"let generated = 42".to_vec()),
             (
                 "src/tool/main.mbt",
                 br#"fn main { println(generated) }"#.to_vec(),
@@ -814,42 +793,131 @@ pkgtype(kind: "executable")
         "failed to publish local registry index:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    // Legacy registry configurations otherwise download symbols from the public
+    // service even when their registry index points to a local fixture.
+    let symbols = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()))
+        .finish()
+        .unwrap()
+        .into_inner();
+    let (symbols_url, symbols_server) = serve(vec![Response {
+        status: "200 OK",
+        location: None,
+        body: symbols,
+    }]);
     std::fs::write(
         moon_home.path().join("config.json"),
         serde_json::json!({
             "registry": "https://registry.invalid",
             "index": registry_index,
+            "symbols": format!("{symbols_url}/symbols.zip"),
         })
         .to_string(),
     )
     .unwrap();
 
+    // The second fetch reuses the downloaded source and must still warn.
+    for _ in 0..2 {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .env("PATH", &moon_path)
+            .args(["fetch", "--no-update", "testuser/postadd@1.0.0"])
+            .assert()
+            .success()
+            .stderr_eq(snapbox::str![[r#"
+...
+Warning: `scripts.postadd` in module `testuser/postadd` is deprecated and ignored. Please open an issue at https://github.com/moonbitlang/moon/issues if you need toolchain setup hooks.
+
+"#]]);
+        assert!(
+            !dir.join(".repos/testuser/postadd/1.0.0/src/tool/postadd-ran.mbt")
+                .exists()
+        );
+    }
+
+    let bin_dir = dir.join("bin");
+    // Native compiler/linker output between the warning and completion varies
+    // by platform and toolchain; the hook warning and install result are stable.
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("PATH", &moon_path)
-        .args(["fetch", "--no-update", "testuser/postadd@1.0.0"])
-        .assert()
-        .success();
-    assert!(
-        dir.join(".repos/testuser/postadd/1.0.0/src/tool/generated.mbt")
-            .is_file()
-    );
-
-    let bin_dir = dir.join("bin");
-    let install = moon_cmd(&dir)
-        .env("MOON_HOME", moon_home.path())
-        .env("PATH", &moon_path)
+        .env("NO_PROXY", "127.0.0.1")
+        .env("no_proxy", "127.0.0.1")
         .args(["install", "testuser/postadd/tool@1.0.0", "--bin"])
         .arg(&bin_dir)
         .assert()
-        .success();
-    let stderr = String::from_utf8_lossy(&install.get_output().stderr);
-    assert!(
-        stderr.contains("Registry index updated successfully"),
-        "local registry update did not succeed:\n{stderr}"
-    );
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+...
+Registry index updated successfully
+Symbols updated successfully
+Using cached testuser/postadd@1.0.0
+Warning: `scripts.postadd` in module `testuser/postadd` is deprecated and ignored. Please open an issue at https://github.com/moonbitlang/moon/issues if you need toolchain setup hooks.
+...
+Finished. moon: ran [..] tasks, now up to date
+Success: Installed `tool` to `[..]/bin/tool[..]`
+
+"#]]);
+    let requests = symbols_server.join().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].starts_with("GET /symbols.zip HTTP/1.1\r\n"));
     #[cfg(unix)]
     assert!(bin_dir.join("tool").is_file());
     #[cfg(windows)]
     assert!(bin_dir.join("tool.exe").is_file());
+}
+
+#[test]
+fn test_dependency_sync_warns_for_ignored_postadd_on_each_use() {
+    for shared_cache in [false, true] {
+        let dir = TestDir::new_empty();
+        let moon_home = tempfile::TempDir::new().unwrap();
+        let cache = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            dir.join("moon.mod"),
+            r#"name = "test/root"
+import { "testuser/postadd@1.0.0" }
+options(scripts: { "postadd": "must-not-run" })
+"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("moon.pkg"), "").unwrap();
+        std::fs::write(dir.join("lib.mbt"), "pub fn answer() -> Int { 42 }").unwrap();
+        cache_registry_package(
+            moon_home.path(),
+            "testuser/postadd",
+            "1.0.0",
+            &[(
+                "moon.mod",
+                br#"name = "testuser/postadd"
+version = "1.0.0"
+options(scripts: { "postadd": "must-not-run" })
+"#
+                .to_vec(),
+            )],
+        );
+        // Warn on a fresh download, reuse, and frozen reuse in both source stores.
+        for frozen in [false, false, true] {
+            let mut command = moon_cmd(&dir)
+                .env("MOON_HOME", moon_home.path())
+                .env(
+                    "MOON_DEP_CACHE",
+                    if shared_cache {
+                        cache.path()
+                    } else {
+                        std::path::Path::new("off")
+                    },
+                )
+                .args(["check"]);
+            if frozen {
+                command = command.arg("--frozen");
+            }
+            command.assert().success().stderr_eq(snapbox::str![[r#"
+...
+Warning: `scripts.postadd` in module `test/root` is deprecated and ignored. Please open an issue at https://github.com/moonbitlang/moon/issues if you need toolchain setup hooks.
+Warning: `scripts.postadd` in module `testuser/postadd` is deprecated and ignored. Please open an issue at https://github.com/moonbitlang/moon/issues if you need toolchain setup hooks.
+Finished. moon: [..]
+
+"#]]);
+        }
+    }
 }

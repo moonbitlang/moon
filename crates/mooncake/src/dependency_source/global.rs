@@ -220,16 +220,5 @@ fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<()
             module.version()
         );
     }
-    if manifest
-        .scripts
-        .as_ref()
-        .is_some_and(|scripts| scripts.contains_key("postadd"))
-    {
-        anyhow::bail!(
-            "cannot prepare {}@{} in the shared dependency source cache because it declares scripts.postadd",
-            module.name(),
-            module.version()
-        );
-    }
     Ok(())
 }

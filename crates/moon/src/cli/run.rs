@@ -30,7 +30,6 @@ use moonbuild_rupes_recta::{
     model::{BackendConfig, PackageId},
 };
 use mooncake::pkg::sync::SyncOutputOptions;
-use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{
@@ -136,7 +135,6 @@ impl RunOutputVerbosity {
     fn sync_output(self) -> SyncOutputOptions {
         SyncOutputOptions {
             quiet: !self.verbose,
-            child_output: ChildOutputMode::Inherit,
         }
     }
 

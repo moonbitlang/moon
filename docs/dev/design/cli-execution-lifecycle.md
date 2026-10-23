@@ -164,43 +164,30 @@ tracing would require an explicit propagation and collection protocol.
 
 This lifecycle does not merge the communication categories defined by
 [ADR 0004](../../adr/0004-separate-command-results-from-user-logs.md).
-Command Results, User Logs, Process Passthrough, Progress Displays, tracing,
-and Moon-managed setup-child output remain separate mechanisms.
+Command Results, User Logs, Process Passthrough, Progress Displays, and tracing
+remain separate mechanisms.
 
-## Moon-managed setup children
+## Dependency synchronization
 
-Moon-managed setup children currently include legacy `postadd` hooks. Their
-output mode is selected explicitly at the command seam:
+Registry adapters only acquire and verify source. `scripts.postadd` is accepted
+but never executed, in either the project-local dependency directory or the
+shared immutable source cache. After synchronization, Moon checks the selected
+modules and emits a deprecation warning through the User Log. Registry index
+metadata omits scripts, so this check reads the materialized manifest even when
+reusing an installed source. `moon fetch` also warns when acquiring or reusing a
+module. Binary installation uses the same synchronization path as builds.
 
-```rust
-enum ChildOutputMode {
-    Inherit,
-    Capture,
-}
-```
-
-Human commands inherit the child's stdout and stderr. Machine-readable command
-modes that synchronize dependencies, currently `check --json` and
-`tree --package --json`, capture both channels, close the child's stdin, and
-wait for completion before producing the Command Result. Non-empty output from
-a successful child becomes an informational User Log entry; output from a
-failed child becomes an error. User Log filtering and child-output mode remain
-independent decisions: capture is never inferred from the User Log destination.
-
-Registry adapters only acquire and verify source. Project-local dependency
-installation invokes the isolated legacy-postadd module after materialization,
-while immutable cached sources reject postadd and never receive process-output
-policy. Package prebuild tasks remain build-graph work owned by the build
-executor. User programs remain Process Passthrough.
+The warning identifies the module and invites users who need toolchain setup
+hooks to open an issue. It follows the command's User Log policy, including
+JSON capture and `--quiet`, independently of acquisition progress verbosity.
+Package prebuild tasks remain build-graph work owned by the build executor.
+User programs remain Process Passthrough.
 
 ## Regression coverage
 
 Selection tests use raw argument vectors and cover ordinary commands, JSON
 selection, executable-name dispatch, tool exec, IDE help, cram ownership, and
 trace placement.
-
-Managed-child runner tests cover inherited and captured output on both output
-channels, stdin EOF, and success/failure classification.
 
 Public CLI tests cover:
 
@@ -211,7 +198,7 @@ Public CLI tests cover:
 - complete JSON stdout and trace files for successful and failed JSON checks;
 - complete JSON stdout with empty stderr for successful and failed registry
   searches;
-- JSON tree capture for successful and failed module and package trees, plus
-  JSON check capture for successful and failed legacy postadd hooks and nested
-  binary-dependency builds; and
+- JSON tree capture for successful and failed module and package trees;
+- ignored `postadd` declarations, warnings, and quiet filtering during dependency
+  synchronization, fetch, and binary installation; and
 - existing `moon run` trace and temporary-project cleanup invariants.

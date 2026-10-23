@@ -26,7 +26,6 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    child_process::{ChildOutputMode, ManagedChildRunner},
     constants::MOONBITLANG_CORE,
     locks::lock_directory,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
@@ -35,7 +34,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::{pkg::legacy_postadd, registry::RegistrySource};
+use crate::registry::RegistrySource;
 
 use super::DependencySource;
 
@@ -54,15 +53,11 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
 pub(super) struct ProjectDependencySource {
     path: PathBuf,
-    postadd_output: ChildOutputMode,
 }
 
 impl ProjectDependencySource {
-    pub(super) fn new(path: impl Into<PathBuf>, postadd_output: ChildOutputMode) -> Self {
-        Self {
-            path: path.into(),
-            postadd_output,
-        }
+    pub(super) fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
     }
 
     fn path(&self) -> &Path {
@@ -110,9 +105,7 @@ impl DependencySource for ProjectDependencySource {
         frozen: bool,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {
-        let postadd_runner = ManagedChildRunner::new(self.postadd_output, user_log);
-        sync(self, registry, resolved, frozen, &postadd_runner, user_log)
-            .context("When installing packages")?;
+        sync(self, registry, resolved, frozen, user_log).context("When installing packages")?;
         resolve_paths(self, resolved)
     }
 }
@@ -220,7 +213,6 @@ fn sync(
     registry: &dyn RegistrySource,
     pkg_list: &ModuleDependencyGraph,
     frozen: bool,
-    postadd_runner: &ManagedChildRunner,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
     // If nothing needs to be installed, don't bother
@@ -284,7 +276,6 @@ fn sync(
                 unreachable!()
             };
             registry.materialize_source_to(version, &pkg_path, user_log)?;
-            legacy_postadd::run(&pkg_path, postadd_runner)?;
             // TODO: parallelize this
         }
     }

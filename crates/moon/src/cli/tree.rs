@@ -30,9 +30,8 @@ use moonbuild_rupes_recta::{
         sync_module_dependencies,
     },
 };
-use mooncake::pkg::{sync::SyncOutputOptions, tree::ResolvedTree};
+use mooncake::pkg::tree::ResolvedTree;
 use moonutil::{
-    child_process::ChildOutputMode,
     cli_support::UniversalFlags,
     command_output::CommandOutput,
     project::PackageDirs,
@@ -106,12 +105,7 @@ pub(crate) fn tree_cli(
 ) -> anyhow::Result<i32> {
     let dedupe = !cmd.no_dedupe;
     let rendered = if cmd.package {
-        let tree = resolve_selected_package_graph(
-            &cli,
-            cmd.target,
-            output.user_log(),
-            ChildOutputMode::Inherit,
-        )?;
+        let tree = resolve_selected_package_graph(&cli, cmd.target, output.user_log())?;
         render_package_tree(&tree, dedupe)
     } else {
         let resolved = resolve_selected_tree(&cli, output.user_log())?;
@@ -150,7 +144,6 @@ fn resolve_selected_package_graph(
     cli: &UniversalFlags,
     target: Option<TargetBackend>,
     user_log: &UserLog,
-    child_output: ChildOutputMode,
 ) -> anyhow::Result<ResolvedPackageTree> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
@@ -158,11 +151,7 @@ fn resolve_selected_package_graph(
         false,
         false,
         cli.workspace_env.clone(),
-    )
-    .with_sync_output(SyncOutputOptions {
-        quiet: false,
-        child_output,
-    });
+    );
     let synced = sync_module_dependencies(&preparation_config, &dirs, user_log)?;
     let discovered = discover_synced_project(&preparation_config, synced, user_log)?;
     let selected_module = discovered
@@ -195,7 +184,7 @@ fn run_tree_json(
     let user_log = output.user_log();
     if cmd.package {
         TreeJsonOutcome::package(
-            resolve_selected_package_graph(cli, cmd.target, user_log, ChildOutputMode::Capture)
+            resolve_selected_package_graph(cli, cmd.target, user_log)
                 .map(Box::new)
                 .map_err(|error| format!("{error:#}")),
             cmd.target,

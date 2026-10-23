@@ -23,7 +23,6 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use moonutil::{
     cache::CacheRoot,
-    child_process::ChildOutputMode,
     cli_support::AutoSyncFlags,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
@@ -35,16 +34,10 @@ use moonutil::{
 use semver::Version;
 
 /// User-visible output policy while synchronizing dependencies.
-///
-/// Dependency progress and Moon-managed setup children are independent: a
-/// quiet human command may still let a child inherit the terminal, while a
-/// structured command captures child output without hiding sync warnings.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOutputOptions {
     /// Suppress dependency acquisition progress below error level.
     pub quiet: bool,
-    /// Output policy for setup children such as postadd scripts.
-    pub child_output: ChildOutputMode,
 }
 
 /// Given the specified source directory, resolve the module dependency relation

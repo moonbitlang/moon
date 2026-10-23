@@ -22,7 +22,6 @@ mod binaries;
 pub mod build_options;
 pub mod build_script;
 pub mod cache;
-pub mod child_process;
 mod cli;
 pub mod cli_support;
 pub mod command_output;

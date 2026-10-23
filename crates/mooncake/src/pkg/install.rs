@@ -21,12 +21,13 @@ use crate::{
     resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
-use super::sync::SyncOutputOptions;
+use super::{legacy_postadd, sync::SyncOutputOptions};
 use moonutil::{
     cache::CacheRoot,
     constants::MOONBITLANG_CORE,
+    manifest::read_module_desc_file_in_dir,
     project::PackageDirs,
-    resolution::{DirSyncResult, ModuleDependencyGraph, ResolvedRootModules},
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSourceKind, ResolvedRootModules},
     user_log::UserLog,
 };
 use std::path::PathBuf;
@@ -119,14 +120,20 @@ pub(crate) fn install_impl(
     } else {
         user_log.clone()
     };
-    let dependency_source = dependency_source::select(
-        &dirs.mooncakes_dir,
-        source_cache,
-        &res,
-        output_options.child_output,
-    )?;
+    let dependency_source = dependency_source::select(&dirs.mooncakes_dir, source_cache, &res)?;
     let dependency_paths =
         dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
+
+    for (id, source) in res.all_modules_and_id() {
+        // Registry resolution uses index metadata, which omits scripts. Inspect
+        // the materialized manifest, including when reusing an installed source.
+        if matches!(source.source(), ModuleSourceKind::Registry) && !source.is_core() {
+            let module = read_module_desc_file_in_dir(&dependency_paths[id])?;
+            legacy_postadd::warn(&module, user_log);
+        } else {
+            legacy_postadd::warn(res.module_info(id), user_log);
+        }
+    }
 
     Ok((res, dependency_paths))
 }

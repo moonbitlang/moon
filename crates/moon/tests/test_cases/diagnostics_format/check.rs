@@ -476,51 +476,37 @@ import {
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_postadd_output() {
+fn test_moon_check_complete_json_ignores_postadd() {
     let report = parse_complete_json(
-        json_command_with_postadd(&["check", "--json"], "moon --version").success(),
+        json_command_with_postadd(&["check", "--json"], "moon check --not-a-real-option").success(),
     );
 
     assert_eq!(report["status"], "success");
-    assert!(
-        report["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|message| {
-                message["level"] == "info"
-                    && message["message"]
-                        .as_str()
-                        .unwrap()
-                        .contains("postadd script wrote to stdout")
-            })
+    let warnings = report["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message["level"] == "warning")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(
+        warnings[0]["message"],
+        "`scripts.postadd` in module `testuser/postadd` is deprecated and ignored. Please open an issue at https://github.com/moonbitlang/moon/issues if you need toolchain setup hooks."
     );
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_postadd_failure() {
+fn test_moon_check_complete_json_quiet_suppresses_postadd_warning() {
     let report = parse_complete_json(
-        json_command_with_postadd(&["check", "--json"], "moon check --not-a-real-option").failure(),
+        json_command_with_postadd(
+            &["check", "--json", "--quiet"],
+            "moon check --not-a-real-option",
+        )
+        .success(),
     );
 
-    assert_eq!(report["status"], "failure");
-    assert!(
-        report["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|message| {
-                message["level"] == "error"
-                    && message["message"]
-                        .as_str()
-                        .unwrap()
-                        .contains("postadd script wrote to stderr")
-                    && message["message"]
-                        .as_str()
-                        .unwrap()
-                        .contains("--not-a-real-option")
-            })
-    );
+    assert_eq!(report["status"], "success");
+    assert_eq!(report["messages"], serde_json::json!([]));
 }
 
 #[test]
