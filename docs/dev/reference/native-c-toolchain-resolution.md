@@ -138,6 +138,22 @@ This is why Moon needs both a compiler driver and an archiver.
 
 ## Debug information and optimization
 
+Generated C relies on wrapping signed integer addition, subtraction, and
+multiplication. Moon passes `-fwrapv` to GCC, Clang, and the system `cc`, and
+`/clang:-fwrapv` to clang-cl, including when package C flags are present.
+clang-cl is resolved as a distinct compiler kind while sharing the MSVC CLI,
+ABI, and CRT policy. User C flags remain opaque and follow these defaults;
+an explicit conflicting flag can override them.
+
+MSVC `cl` still has a known release-mode limitation: it can simplify
+`(x * 2) / 2` into `x` even when multiplication overflows. Its undocumented
+`/d2UndefIntOverflow-` switch is not a general wrapping contract, so Moon does
+not pass it. The ignored MSVC release regression records this limitation;
+fixing it requires the C emitted by `moonc` to express wrapping arithmetic
+explicitly instead of relying on signed overflow.
+See [Microsoft's optimizer description](https://devblogs.microsoft.com/cppblog/new-code-optimizer/)
+and [the limitations discussed with its author](https://bugzilla.mozilla.org/show_bug.cgi?id=1377550#c7).
+
 Moon's CLI profile and debug-information policy are described in
 [Default CLI profiles](build.md#default-cli-profiles). Compiler options with the
 same spelling are not interchangeable across the build stages:
