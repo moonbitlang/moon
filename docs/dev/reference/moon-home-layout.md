@@ -35,6 +35,9 @@ $MOON_HOME/
       ...
     symbols/
       ...
+    metadata/<api-hash>/<module-hash>.metadata-v4/
+      releases/<version-hash>.json
+      latest.json
     cache/
       <username>/<module>/<version>.zip
       <username>/<module>/<version>.zip.lock
@@ -63,6 +66,28 @@ $MOON_HOME/
   fetched commit; previously stored objects are not immediately removed.
 - Module metadata is read from
   `registry/index/user/<username>/<module>.index`.
+- `MOON_REGISTRY_API=1` opts all resolver metadata queries into the configured
+  HTTP API, even when a local Git entry exists. Otherwise the Git index remains
+  authoritative. This initial adapter reads public metadata anonymously; it
+  requires a server supporting public resolver metadata. Existing API commands
+  such as search retain their separate optional authentication.
+- API resolution requests `GET /api/v0/registry/modules/<owner>/<module>?version=<exact>`
+  for every declared version. Unversioned commands may omit the query to ask for
+  latest. Neither operation lists version history or performs a range lookup.
+  Exact version identity, dependencies and SHA-256 are validated before caching.
+- API release records are keyed by normalized API URL, module and exact version
+  beneath `registry/metadata`. The optional `latest.json` contains only a version
+  pointer. Exact requests share release records directly; no generation or
+  range-selection cache is needed. Online latest lookups refresh across client
+  instances and after `moon update`; locally-known-latest executable selectors
+  deliberately prefer a cached latest pointer.
+- In API mode, `moon update` clears the in-memory latest selections without
+  fetching Git or symbols. Exact release records remain usable. Frozen module
+  synchronization reads only cached metadata and verified sources; a missing
+  exact release or source fails without HTTP or guessing another version.
+- Metadata is atomically written through owner-only temporary files; Unix
+  directories are owner-only. Cached deprecation state is advisory and can be
+  stale: refreshing latest does not invalidate immutable release records.
 - `registry/symbols` is the symbols archive materialized by registry sync.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent
