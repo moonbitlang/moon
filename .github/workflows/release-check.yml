@@ -1,0 +1,84 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2026 International Digital Economy Academy
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Release validation
+
+on:
+  pull_request:
+    paths:
+      - 'crates/moonrun/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/cd.yml'
+      - '.github/workflows/release-check.yml'
+      - '.github/scripts/test-release-moonrun.py'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/cd.yml
+
+  intel-macos:
+    # MoonBit no longer ships an Intel macOS compiler. Execute the same portable
+    # guests built and checked by the Linux release job, without publishing.
+    needs: build
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: 1.95.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo build --release --locked
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: moonrun-release-guests
+          path: ${{ runner.temp }}/moonrun-release-guests
+
+      - name: Execute compiler-produced Wasm and WasmGC
+        env:
+          GUEST_DIR: ${{ runner.temp }}/moonrun-release-guests
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+
+          subprocess.run(["target/release/moonrun", "--version"], check=True)
+          for target in ("wasm", "wasm-gc"):
+              for package, expected in (
+                  ("js_string", b"hello from imported constants\n11\nfalse\n"),
+                  ("ffi_bytes", b"A\n"),
+              ):
+                  guest = Path(os.environ["GUEST_DIR"]) / f"{target}/release/build/{package}/{package}.wasm"
+                  result = subprocess.run(
+                      ["target/release/moonrun", str(guest)],
+                      capture_output=True, check=True,
+                  )
+                  assert result.stdout == expected, result
+                  assert result.stderr == b"", result
+              print(f"{target}: release strings and bytes passed", flush=True)
+          PY

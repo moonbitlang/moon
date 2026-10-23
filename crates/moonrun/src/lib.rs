@@ -24,9 +24,7 @@
 #[cfg(not(any(feature = "v8", feature = "wasmtime", feature = "wee8")))]
 compile_error!("moonrun requires an engine feature: `v8`, `wasmtime`, or `wee8`");
 #[cfg(all(feature = "wee8", feature = "v8"))]
-compile_error!(
-    "select wee8 with --no-default-features; wee8 and v8 link incompatible copies of V8"
-);
+compile_error!("select v8 with --no-default-features; wee8 and v8 link incompatible copies of V8");
 
 // Shared host definitions remain available to every backend. The numeric wee8
 // adapter registers only a subset; unused definitions are intentional until its

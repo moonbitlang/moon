@@ -25,7 +25,7 @@ readme = "README.md"
 rust-version.workspace = true
 
 [features]
-default = ["v8"]
+default = ["wee8"]
 v8 = ["dep:v8"]
 wasmtime = ["dep:wasmtime"]
 wee8 = ["dep:wee8", "dep:wasmparser"]
