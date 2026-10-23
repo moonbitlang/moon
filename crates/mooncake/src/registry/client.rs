@@ -49,9 +49,10 @@ use crate::{
     zip_util::extract_zip_to_dir,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 struct RegistryIndexEntry {
+    #[serde(default)]
     version: Option<String>,
     deps: Option<IndexMap<String, SourceDependencyInfo>>,
     checksum: Option<String>,
@@ -60,6 +61,52 @@ struct RegistryIndexEntry {
     #[serde(rename = "yanked_reason")]
     yanked_reason: Option<String>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+enum RegistryVisibility {
+    #[serde(rename = "PUBLIC")]
+    Public,
+    #[serde(rename = "PRIVATE")]
+    Private,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct RegistryMetadata {
+    module: String,
+    visibility: RegistryVisibility,
+    #[serde(flatten)]
+    release: RegistryIndexEntry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MetadataSelector {
+    Latest,
+    Exact(Version),
+}
+
+impl MetadataSelector {
+    fn query(&self) -> String {
+        let mut query = form_urlencoded::Serializer::new(String::new());
+        match self {
+            Self::Latest => {}
+            Self::Exact(version) => {
+                query.append_pair("version", &version.to_string());
+            }
+        }
+        query.finish()
+    }
+
+    fn matches(&self, version: &Version) -> bool {
+        match self {
+            Self::Latest => true,
+            Self::Exact(expected) => version == expected,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Module `{0}` not found or access denied; check your registry login")]
+pub(crate) struct RegistryMetadataDenied(ModuleName);
 
 struct RegistryEndpoints {
     api: String,
@@ -252,9 +299,290 @@ pub struct RegistryClient {
     home: MoonHomeLayout,
     endpoints: RegistryEndpoints,
     cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
+    metadata: RefCell<HashMap<std::path::PathBuf, RegistryMetadata>>,
+    selections: RefCell<HashMap<std::path::PathBuf, Version>>,
+    offline: bool,
+    api_metadata: bool,
+    metadata_http: RefCell<Option<reqwest::blocking::Client>>,
 }
 
 impl RegistryClient {
+    fn uses_index(&self, _name: &ModuleName) -> bool {
+        !self.api_metadata
+    }
+
+    fn metadata_path(&self, name: &ModuleName) -> anyhow::Result<std::path::PathBuf> {
+        Ok(self
+            .home
+            .registry_dir()
+            .join("metadata")
+            .join(sha256_hex(
+                registry_api_url(&self.endpoints.api)?.as_str().as_bytes(),
+            ))
+            .join(format!("{}.json", sha256_hex(name.to_string().as_bytes()))))
+    }
+
+    fn metadata_query_path(
+        &self,
+        name: &ModuleName,
+        _: &MetadataSelector,
+    ) -> anyhow::Result<std::path::PathBuf> {
+        Ok(self
+            .metadata_path(name)?
+            .with_extension("metadata-v4")
+            .join("latest.json"))
+    }
+
+    fn metadata_release_path(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<std::path::PathBuf> {
+        Ok(self
+            .metadata_path(name)?
+            .with_extension("metadata-v4")
+            .join("releases")
+            .join(format!(
+                "{}.json",
+                sha256_hex(version.to_string().as_bytes())
+            )))
+    }
+
+    fn cached_release(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryMetadata>> {
+        let path = self.metadata_release_path(name, version)?;
+        let memory = self.metadata.borrow().get(&path).cloned();
+        let cached = match memory {
+            Some(cached) => cached,
+            None => match std::fs::read(&path) {
+                Ok(bytes) => serde_json::from_slice::<RegistryMetadata>(&bytes)
+                    .context("failed to parse cached registry release")?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => return Err(error).context("failed to read cached registry release"),
+            },
+        };
+        Self::validate_metadata(name, &MetadataSelector::Exact(version.clone()), &cached)?;
+        self.metadata.borrow_mut().insert(path, cached.clone());
+        Ok(Some(cached))
+    }
+
+    fn cached_selection(
+        &self,
+        name: &ModuleName,
+        selector: &MetadataSelector,
+    ) -> anyhow::Result<Option<Version>> {
+        let path = self.metadata_query_path(name, selector)?;
+        let memory = self.selections.borrow().get(&path).cloned();
+        let cached = match memory {
+            Some(cached) => cached,
+            None => match std::fs::read(&path) {
+                Ok(bytes) => serde_json::from_slice::<Version>(&bytes)
+                    .context("failed to parse cached registry selection")?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => {
+                    return Err(error).context("failed to read cached registry selection");
+                }
+            },
+        };
+        if !selector.matches(&cached) {
+            bail!("cached registry selection is outside the requested selector for {name}");
+        }
+        self.selections.borrow_mut().insert(path, cached.clone());
+        Ok(Some(cached))
+    }
+
+    fn write_metadata_cache<T: Serialize>(&self, path: &Path, value: &T) -> anyhow::Result<()> {
+        let root = self.home.registry_dir().join("metadata");
+        let parent = path.parent().expect("metadata file has a parent");
+        let mut directories = Vec::new();
+        let mut current = parent;
+        while current.starts_with(&root) {
+            directories.push(current);
+            if current == root {
+                break;
+            }
+            current = current.parent().expect("private metadata path is rooted");
+        }
+        for directory in directories.into_iter().rev() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(directory)?;
+            }
+            #[cfg(not(unix))]
+            std::fs::create_dir_all(directory)?;
+        }
+        let (mut staged, path) = stage_registry_cache_file(path)?;
+        serde_json::to_writer(staged.as_file_mut(), value)?;
+        staged.as_file_mut().sync_all()?;
+        staged.persist(path).map_err(|error| error.error)?;
+        Ok(())
+    }
+
+    fn validate_metadata(
+        name: &ModuleName,
+        selector: &MetadataSelector,
+        metadata: &RegistryMetadata,
+    ) -> anyhow::Result<()> {
+        if metadata.module != name.to_string() || metadata.visibility != RegistryVisibility::Public
+        {
+            bail!("invalid registry metadata identity for {name}");
+        }
+        let entry = &metadata.release;
+        let version = Version::parse(
+            entry
+                .version
+                .as_deref()
+                .context("registry metadata has no version")?,
+        )?;
+        ModuleSource::from_version(name.clone(), version.clone())?;
+        if !selector.matches(&version) {
+            bail!("registry returned a version outside the requested selector for {name}");
+        }
+        let checksum = entry
+            .checksum
+            .as_deref()
+            .context("registry metadata has no checksum")?;
+        if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            bail!("registry metadata has an invalid SHA-256 checksum for {name}");
+        }
+        for (dependency, requirement) in entry.deps.iter().flatten() {
+            if super::path::parse_module_path(dependency)?
+                .version
+                .is_some()
+            {
+                bail!("registry dependency names must not include a version for {name}");
+            }
+            if requirement.path().is_some() || requirement.version().is_none() {
+                bail!("registry metadata contains a non-registry dependency for {name}");
+            }
+        }
+        Ok(())
+    }
+
+    fn resolver_metadata(
+        &self,
+        name: &ModuleName,
+        selector: &MetadataSelector,
+    ) -> anyhow::Result<RegistryMetadata> {
+        super::path::parse_module_path(&name.to_string())?;
+        if let MetadataSelector::Exact(version) = selector {
+            if let Some(metadata) = self.cached_release(name, version)? {
+                return Ok(metadata);
+            }
+        } else {
+            let version = if self.offline {
+                self.cached_selection(name, selector)?
+            } else {
+                self.selections
+                    .borrow()
+                    .get(&self.metadata_query_path(name, selector)?)
+                    .cloned()
+            };
+            if let Some(version) = version
+                && let Some(metadata) = self.cached_release(name, &version)?
+            {
+                return Ok(metadata);
+            }
+        }
+        if self.offline {
+            bail!("missing cached registry metadata for {name}; frozen mode cannot fetch it");
+        }
+        let module_path = name
+            .segments()
+            .map(encode_path_segment)
+            .collect::<Vec<_>>()
+            .join("/");
+        let mut url = format!(
+            "{}/api/v0/registry/modules/{module_path}",
+            self.endpoints.api
+        );
+        let query = selector.query();
+        if !query.is_empty() {
+            url.push('?');
+            url.push_str(&query);
+        }
+        let response = self
+            .anonymous_metadata_client()?
+            .get(&url)
+            .send()
+            .with_context(|| format!("failed to fetch registry metadata for {name}"))?;
+        if matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ) {
+            return Err(RegistryMetadataDenied(name.clone()).into());
+        }
+        let metadata: RegistryMetadata = response
+            .error_for_status()
+            .with_context(|| format!("registry metadata request failed for {name}"))?
+            .json()
+            .with_context(|| format!("invalid registry metadata response for {name}"))?;
+        Self::validate_metadata(name, selector, &metadata)?;
+        let version = Version::parse(
+            metadata
+                .release
+                .version
+                .as_deref()
+                .context("missing registry version")?,
+        )?;
+        let path = self.metadata_release_path(name, &version)?;
+        self.write_metadata_cache(&path, &metadata)?;
+        self.metadata.borrow_mut().insert(path, metadata.clone());
+        if matches!(selector, MetadataSelector::Latest) {
+            let path = self.metadata_query_path(name, selector)?;
+            self.write_metadata_cache(&path, &version)?;
+            self.selections.borrow_mut().insert(path, version);
+        }
+        Ok(metadata)
+    }
+
+    fn release_info(metadata: &RegistryMetadata) -> RegistryVersionInfo {
+        RegistryVersionInfo {
+            deps: metadata.release.deps.clone().unwrap_or_default(),
+            yanked: metadata.release.yanked,
+            yanked_reason: metadata.release.yanked_reason.clone(),
+        }
+    }
+
+    pub(super) fn cached_latest_version(
+        &self,
+        name: &ModuleName,
+    ) -> anyhow::Result<Option<Version>> {
+        use super::Registry;
+
+        if self.uses_index(name) {
+            return Ok(self
+                .all_versions_of(name)?
+                .last_key_value()
+                .map(|(version, _)| version.clone()));
+        }
+        if let Some(version) = self.cached_selection(name, &MetadataSelector::Latest)?
+            && self.cached_release(name, &version)?.is_some()
+        {
+            return Ok(Some(version));
+        }
+        Ok(None)
+    }
+
+    fn anonymous_metadata_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
+        if let Some(client) = self.metadata_http.borrow().as_ref() {
+            return Ok(client.clone());
+        }
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .context("failed to create metadata HTTP client")?;
+        *self.metadata_http.borrow_mut() = Some(client.clone());
+        Ok(client)
+    }
+
     fn api_http_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
         let mut builder = reqwest::blocking::Client::builder()
             .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")));
@@ -302,6 +630,11 @@ impl RegistryClient {
             config,
             home,
             cache: RefCell::new(HashMap::new()),
+            metadata: RefCell::new(HashMap::new()),
+            selections: RefCell::new(HashMap::new()),
+            offline: false,
+            api_metadata: std::env::var("MOON_REGISTRY_API").is_ok_and(|value| value == "1"),
+            metadata_http: RefCell::new(None),
         }
     }
 
@@ -310,10 +643,22 @@ impl RegistryClient {
         self.home.registry_index_dir().exists()
     }
 
+    /// Use only existing metadata while resolving frozen dependencies.
+    pub fn offline(mut self) -> Self {
+        self.offline = true;
+        self
+    }
+
     /// Synchronize the Git index and symbols archive with the configured registry.
     pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
+        if self.api_metadata {
+            self.selections.borrow_mut().clear();
+            return Ok(());
+        }
         let outcome = crate::update::sync(&self.home, &self.config, user_log)?;
         self.cache.borrow_mut().clear();
+        self.metadata.borrow_mut().clear();
+        self.selections.borrow_mut().clear();
         log_sync_outcome(outcome, user_log);
         Ok(())
     }
@@ -416,9 +761,18 @@ impl RegistryClient {
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
-        let http = download::client_with_retry()?;
+        let mut http = None;
         self.acquire_wasm_asset_with(module, package_path, user_log, |url| {
-            download_registry_asset(&http, url, user_log)
+            // Already materialized artifacts remain usable offline. Only a
+            // cache miss needs to choose an authenticated or public transport.
+            if http.is_none() {
+                http = Some(download::client_with_retry()?);
+            }
+            download_registry_asset(
+                http.as_ref().expect("download client initialized"),
+                url,
+                user_log,
+            )
         })
     }
 
@@ -659,6 +1013,35 @@ impl super::Registry for RegistryClient {
 
         Ok(res)
     }
+
+    fn version_info(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        if self.uses_index(name) {
+            return Ok(self.all_versions_of(name)?.get(version).cloned());
+        }
+        let metadata = self.resolver_metadata(name, &MetadataSelector::Exact(version.clone()))?;
+        Ok(Some(Self::release_info(&metadata)))
+    }
+
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        if self.uses_index(name) {
+            return Ok(self
+                .all_versions_of(name)?
+                .last_key_value()
+                .map(|(version, _)| version.clone()));
+        }
+        let metadata = self.resolver_metadata(name, &MetadataSelector::Latest)?;
+        Ok(Some(Version::parse(
+            metadata
+                .release
+                .version
+                .as_deref()
+                .context("missing version")?,
+        )?))
+    }
 }
 
 impl super::RegistrySource for RegistryClient {
@@ -748,6 +1131,23 @@ fn copy_archive_and_verify_checksum(
     Ok(())
 }
 
+fn stage_registry_cache_file(
+    path: &Path,
+) -> anyhow::Result<(tempfile::NamedTempFile, std::path::PathBuf)> {
+    let parent = path.parent().context("registry cache file has no parent")?;
+    // Keep Windows' extended-length prefix for tempfile's direct Win32 calls.
+    // Canonicalize the existing parent because the destination may not exist yet.
+    let parent =
+        std::fs::canonicalize(parent).context("failed to canonicalize registry cache directory")?;
+    let path = parent.join(
+        path.file_name()
+            .context("registry cache file has no name")?,
+    );
+    let staged =
+        tempfile::NamedTempFile::new_in(&parent).context("failed to stage registry cache file")?;
+    Ok((staged, path))
+}
+
 fn persist_verified_archive(
     source: &mut impl Read,
     cache_file: &Path,
@@ -759,7 +1159,7 @@ fn persist_verified_archive(
         .parent()
         .expect("registry cache file has a parent");
     std::fs::create_dir_all(parent)?;
-    let mut archive = tempfile::NamedTempFile::new_in(parent)?;
+    let (mut archive, cache_file) = stage_registry_cache_file(cache_file)?;
     copy_archive_and_verify_checksum(source, &mut archive, name, version, expected_checksum)?;
     archive.flush()?;
     archive.as_file_mut().sync_all()?;
@@ -773,9 +1173,13 @@ impl RegistryClient {
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<Option<String>> {
         let p = self.home.registry_index_file(name);
-        let file = std::fs::File::open(&p)?;
+        let file = match std::fs::File::open(&p) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
         let reader = std::io::BufReader::new(file);
 
         let lines = reader.lines().collect::<std::io::Result<Vec<String>>>()?;
@@ -784,7 +1188,7 @@ impl RegistryClient {
             let entry = serde_json_lenient::from_str::<RegistryIndexEntry>(line)?;
             if entry.version.as_deref() == Some(version_str.as_str()) {
                 if let Some(checksum) = entry.checksum {
-                    return Ok(checksum);
+                    return Ok(Some(checksum));
                 } else {
                     bail!(
                         "No checksum found for version {} in index file {:?}",
@@ -794,11 +1198,7 @@ impl RegistryClient {
                 }
             }
         }
-        bail!(
-            "No description found for version {} in index file {:?}",
-            version,
-            p,
-        );
+        Ok(None)
     }
 
     fn download_or_use_cache(
@@ -809,14 +1209,20 @@ impl RegistryClient {
         user_log: &UserLog,
     ) -> anyhow::Result<File> {
         validate_registry_module_name(name)?;
-        let pkg_index = self.home.registry_index_file(name);
-        if !pkg_index.exists() {
-            anyhow::bail!("Module {}@{} not found", name, version);
+        if self.uses_index(name) {
+            if !self.home.registry_index_file(name).exists() {
+                bail!("Module {name}@{version} not found");
+            }
+        } else {
+            self.resolver_metadata(name, &MetadataSelector::Exact(version.clone()))?;
         }
         let cache_file = self.home.registry_source_archive_path(name, version);
         if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
             user_log.status(format!("Using cached {name}@{version}"));
             return Ok(archive);
+        }
+        if self.offline {
+            bail!("Source for {name}@{version} is not cached in frozen mode");
         }
 
         let cache_dir = cache_file
@@ -845,7 +1251,27 @@ impl RegistryClient {
 
     /// Return the registry index's SHA-256 checksum for a published source archive.
     pub fn source_archive_checksum(&self, module: &ModuleSource) -> anyhow::Result<String> {
-        self.read_checksum_from_index_file(module.name(), module.version())
+        if self.uses_index(module.name()) {
+            if let Some(checksum) =
+                self.read_checksum_from_index_file(module.name(), module.version())?
+            {
+                return Ok(checksum);
+            }
+            bail!(
+                "Version {} of {} is not in the public index; run `moon update`",
+                module.version(),
+                module.name()
+            );
+        }
+        let metadata = self.resolver_metadata(
+            module.name(),
+            &MetadataSelector::Exact(module.version().clone()),
+        )?;
+        metadata
+            .release
+            .checksum
+            .map(|checksum| checksum.to_ascii_lowercase())
+            .context("registry metadata does not contain the requested version or checksum")
     }
 
     /// Materialize verified published source without executing package hooks.
@@ -914,7 +1340,7 @@ mod tests {
         UserLog::new(log::LevelFilter::Error)
     }
 
-    fn api_test_registry(home: &Path, api: &str) -> RegistryClient {
+    pub(super) fn api_test_registry(home: &Path, api: &str) -> RegistryClient {
         RegistryClient::with_home(
             RegistryConfig {
                 api: api.to_owned(),
@@ -927,7 +1353,7 @@ mod tests {
         )
     }
 
-    fn api_test_server<T: AsRef<[u8]> + Send + 'static>(
+    pub(super) fn api_test_server<T: AsRef<[u8]> + Send + 'static>(
         listener: TcpListener,
         responses: Vec<(u16, String, T)>,
     ) -> std::thread::JoinHandle<Vec<String>> {
@@ -968,6 +1394,409 @@ mod tests {
             }
             requests
         })
+    }
+
+    pub(super) fn resolver_response(name: &str, visibility: &str, version: &str) -> String {
+        serde_json::json!({
+            "module": name, "visibility": visibility,
+            "version": version, "deps": {"alice/public": "0.1.0"},
+            "checksum": "b".repeat(64), "yanked": false, "yanked_reason": null
+        })
+        .to_string()
+    }
+
+    pub(super) fn save_test_login(home: &Path, api: &str, username: &str, token: &str) {
+        RegistryCredentials::save(
+            &home.join("credentials.json"),
+            moonutil::registry::Credentials {
+                username: Some(username.to_owned()),
+                token: token.to_owned(),
+            },
+            api,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn registry_metadata_cache_supports_long_paths() {
+        let sandbox = tempfile::tempdir().unwrap();
+        let home = sandbox.path().join("private-cache-home/".repeat(18));
+        assert!(home.to_string_lossy().len() > 260);
+        std::fs::create_dir_all(&home).unwrap();
+        let api = "https://example.com";
+        let registry = api_test_registry(&home, api);
+        let name: ModuleName = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        let selector = MetadataSelector::Latest;
+        let release_path = registry.metadata_release_path(&name, &version).unwrap();
+        let query_path = registry.metadata_query_path(&name, &selector).unwrap();
+        let metadata: RegistryMetadata =
+            serde_json::from_str(&resolver_response("alice/secret", "PUBLIC", "0.1.0")).unwrap();
+        // Repeat each write to cover replacing an existing cache entry as well.
+        for _ in 0..2 {
+            registry
+                .write_metadata_cache(&release_path, &metadata)
+                .unwrap();
+            registry
+                .write_metadata_cache(&query_path, &version)
+                .unwrap();
+            let fresh = api_test_registry(&home, api).offline();
+            assert!(fresh.cached_release(&name, &version).unwrap().is_some());
+            assert_eq!(
+                fresh.cached_selection(&name, &selector).unwrap(),
+                Some(version.clone())
+            );
+        }
+        registry.metadata.borrow_mut().clear();
+        registry.selections.borrow_mut().clear();
+
+        let archive_path = registry
+            .metadata_path(&name)
+            .unwrap()
+            .with_extension("archives")
+            .join("0.1.0.zip");
+        let bytes = test_archive();
+        let checksum = sha256_hex(&bytes);
+        for _ in 0..2 {
+            let mut archive = persist_verified_archive(
+                &mut Cursor::new(&bytes),
+                &archive_path,
+                &name,
+                &version,
+                &checksum,
+            )
+            .unwrap();
+            let mut contents = Vec::new();
+            archive.read_to_end(&mut contents).unwrap();
+            assert_eq!(contents, bytes);
+            assert!(
+                open_cached_archive(&archive_path, &checksum)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn exact_metadata_is_shared_by_resolution_and_checksum_without_selectors() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/secret", "PUBLIC", "0.1.0"),
+            )],
+        );
+
+        let mut registry = api_test_registry(home.path(), &api);
+        registry.api_metadata = true;
+        let name: ModuleName = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
+        assert_eq!(
+            registry.source_archive_checksum(&source).unwrap(),
+            "b".repeat(64)
+        );
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0].starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 ")
+        );
+        let mut cached = api_test_registry(home.path(), &api).offline();
+        cached.api_metadata = true;
+        assert!(cached.version_info(&name, &version).unwrap().is_some());
+        assert!(cached.version_info(&name, &Version::new(0, 1, 1)).is_err());
+        assert!(cached.latest_version(&name).is_err());
+        assert!(cached.all_versions_of(&name).is_err());
+        let path = cached.metadata_release_path(&name, &version).unwrap();
+        let release: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(release["version"], "0.1.0");
+        assert!(release.get("generation").is_none());
+    }
+
+    #[test]
+    fn resolver_exact_requests_encode_build_metadata_and_validate_the_selector() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PUBLIC", "0.1.0+01"),
+                ),
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PUBLIC", "0.2.0"),
+                ),
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PUBLIC", "2.0.0-alpha"),
+                ),
+            ],
+        );
+        let name: ModuleName = "alice/secret".into();
+        let mut registry = api_test_registry(home.path(), &api);
+        registry.api_metadata = true;
+        assert!(
+            registry
+                .version_info(&name, &"0.1.0+01".parse().unwrap())
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 1, 0))
+                .unwrap_err()
+                .to_string()
+                .contains("outside the requested selector")
+        );
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 1, 0))
+                .unwrap_err()
+                .to_string()
+                .contains("outside the requested selector")
+        );
+        let requests = server.join().unwrap();
+        assert!(
+            requests[0]
+                .starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0%2B01 ")
+        );
+        assert!(
+            registry
+                .offline()
+                .version_info(&name, &Version::new(0, 1, 0))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn public_index_queries_do_not_use_the_private_metadata_api() {
+        let home = tempfile::tempdir().unwrap();
+        let registry = api_test_registry(home.path(), "http://127.0.0.1:1");
+        let name: ModuleName = "alice/public".into();
+        let path = registry.home.registry_index_file(&name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "{\"version\":\"0.1.0\",\"checksum\":\"".to_owned() + &"a".repeat(64) + "\"}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            registry.latest_version(&name).unwrap(),
+            Some(Version::new(0, 1, 0))
+        );
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 1, 0))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 2, 0))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 2, 0))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            registry
+                .source_archive_checksum(
+                    &ModuleSource::from_version(name, Version::new(0, 1, 0)).unwrap()
+                )
+                .unwrap(),
+            "a".repeat(64)
+        );
+        assert!(!home.path().join("registry/private").exists());
+    }
+
+    #[test]
+    fn api_mode_resolves_public_releases_without_git_or_download_credentials() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "not-sent-by-public-metadata");
+        let mut registry = api_test_registry(home.path(), &api);
+        registry.api_metadata = true;
+        let name: ModuleName = "alice/public".into();
+        let version = Version::new(0, 1, 0);
+        let index = registry.home.registry_index_file(&name);
+        std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+        std::fs::write(&index, "not valid registry metadata").unwrap();
+        let archive = test_archive();
+        let checksum = sha256_hex(&archive);
+        let metadata = serde_json::json!({
+            "module": "alice/public", "visibility": "PUBLIC", "version": "0.1.0",
+            "deps": {}, "checksum": checksum,
+        });
+        let server = api_test_server(
+            listener,
+            vec![
+                (200, String::new(), metadata.to_string().into_bytes()),
+                (200, String::new(), archive),
+            ],
+        );
+        registry.sync(&quiet_user_log()).unwrap();
+        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        let module = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
+        assert_eq!(registry.source_archive_checksum(&module).unwrap(), checksum);
+        registry
+            .materialize_source_to(&module, &home.path().join("source"), &quiet_user_log())
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[0].starts_with("GET /api/v0/registry/modules/alice/public?version=0.1.0 ")
+        );
+        assert!(requests[1].starts_with("GET /user/alice/public/0.1.0.zip "));
+        assert!(
+            requests
+                .iter()
+                .all(|request| !request.to_lowercase().contains("authorization:"))
+        );
+        assert!(
+            registry
+                .home
+                .registry_source_archive_path(&name, &version)
+                .is_file()
+        );
+        assert_eq!(
+            std::fs::read_to_string(index).unwrap(),
+            "not valid registry metadata"
+        );
+        assert!(!registry.home.registry_dir().join("symbols").exists());
+    }
+
+    #[test]
+    fn latest_refresh_does_not_invalidate_exact_release_metadata() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/public", "PUBLIC", "0.1.0"),
+                ),
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/public", "PUBLIC", "0.1.1"),
+                ),
+            ],
+        );
+        let name: ModuleName = "alice/public".into();
+        let mut registry = api_test_registry(home.path(), &api);
+        registry.api_metadata = true;
+        assert_eq!(
+            registry.latest_version(&name).unwrap(),
+            Some(Version::new(0, 1, 0))
+        );
+        assert_eq!(
+            registry.latest_version(&name).unwrap(),
+            Some(Version::new(0, 1, 0))
+        );
+        registry.sync(&quiet_user_log()).unwrap();
+        assert_eq!(
+            registry.latest_version(&name).unwrap(),
+            Some(Version::new(0, 1, 1))
+        );
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 1, 0))
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+        let mut cached = api_test_registry(home.path(), &api).offline();
+        cached.api_metadata = true;
+        assert_eq!(
+            cached.latest_version(&name).unwrap(),
+            Some(Version::new(0, 1, 1))
+        );
+        assert!(
+            cached
+                .version_info(&name, &Version::new(0, 1, 0))
+                .unwrap()
+                .is_some()
+        );
+        assert!(cached.version_info(&name, &Version::new(0, 1, 2)).is_err());
+    }
+
+    #[test]
+    fn resolver_refresh_denial_does_not_reuse_a_previous_success() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PUBLIC", "0.1.0"),
+                ),
+                (404, String::new(), "{}".to_owned()),
+            ],
+        );
+
+        let name: ModuleName = "alice/secret".into();
+        let mut registry = api_test_registry(home.path(), &api);
+        registry.api_metadata = true;
+        registry.latest_version(&name).unwrap();
+        let mut current = api_test_registry(home.path(), &api);
+        current.api_metadata = true;
+        let error = current.latest_version(&name).unwrap_err();
+        assert!(error.to_string().contains("not found or access denied"));
+        assert!(!error.to_string().contains("PUBLIC"));
+        assert_eq!(server.join().unwrap().len(), 2);
+        let mut offline = api_test_registry(home.path(), &api).offline();
+        offline.api_metadata = true;
+        assert!(offline.latest_version(&name).is_ok());
+    }
+
+    #[test]
+    fn resolver_rejects_invalid_authoritative_metadata_without_caching_it() {
+        for body in [
+            resolver_response("alice/wrong", "PUBLIC", "0.1.0"),
+            resolver_response("alice/secret", "UNKNOWN", "0.1.0"),
+            resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+            resolver_response("alice/secret", "PUBLIC", "invalid"),
+            resolver_response("alice/secret", "PUBLIC", "0.1.0").replace(&"b".repeat(64), "bad"),
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let api = format!("http://{}", listener.local_addr().unwrap());
+            let server = api_test_server(listener, vec![(200, String::new(), body)]);
+            let mut registry = api_test_registry(home.path(), &api);
+            registry.api_metadata = true;
+            let name: ModuleName = "alice/secret".into();
+            assert!(registry.latest_version(&name).is_err());
+            assert!(
+                !registry
+                    .metadata_query_path(&name, &MetadataSelector::Latest)
+                    .unwrap()
+                    .exists()
+            );
+            server.join().unwrap();
+        }
     }
 
     #[test]
@@ -1898,7 +2727,7 @@ mod tests {
         )
     }
 
-    fn test_archive() -> Vec<u8> {
+    pub(super) fn test_archive() -> Vec<u8> {
         let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
         archive
             .start_file("moon.mod", zip::write::FileOptions::default())
@@ -2206,7 +3035,7 @@ mod tests {
                     &version,
                 )
                 .unwrap(),
-            "abc123"
+            Some("abc123".to_owned())
         );
 
         let _ = std::fs::remove_dir_all(home.root());

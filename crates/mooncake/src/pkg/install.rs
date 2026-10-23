@@ -107,7 +107,11 @@ pub(crate) fn install_impl(
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }
 
-    let registry = registry::default_registry();
+    let registry = if dont_sync {
+        registry::default_registry().offline()
+    } else {
+        registry::default_registry()
+    };
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: !includes_core && !no_std,

@@ -117,8 +117,14 @@ impl RegistryClient {
             user_log,
             self.has_cached_index(),
             policy,
-            || latest_version_from_registry(self, module_name),
+            || {
+                Ok(self
+                    .cached_latest_version(module_name)?
+                    .map(LatestVersionLookup::Found)
+                    .unwrap_or(LatestVersionLookup::NotFound))
+            },
             || self.sync(user_log),
+            || latest_version_from_registry(self, module_name),
         )
     }
 }
@@ -126,15 +132,15 @@ impl RegistryClient {
 fn latest_version_from_registry(
     registry: &impl Registry,
     module_name: &ModuleName,
-) -> LatestVersionLookup {
-    let versions = match registry.all_versions_of(module_name) {
-        Ok(versions) => versions,
-        Err(_) => return LatestVersionLookup::NotFound,
-    };
-    versions
-        .last_key_value()
-        .map(|(version, _)| LatestVersionLookup::Found(version.clone()))
-        .unwrap_or(LatestVersionLookup::NoVersionInformation)
+) -> anyhow::Result<LatestVersionLookup> {
+    match registry.latest_version(module_name) {
+        Ok(Some(version)) => Ok(LatestVersionLookup::Found(version)),
+        Ok(None) => Ok(LatestVersionLookup::NoVersionInformation),
+        Err(error) if error.is::<super::RegistryModuleNotFound>() => {
+            Ok(LatestVersionLookup::NotFound)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn resolve_latest_module_with(
@@ -142,11 +148,12 @@ fn resolve_latest_module_with(
     user_log: &UserLog,
     had_index: bool,
     policy: LatestVersionResolutionPolicy,
-    mut lookup_latest_version: impl FnMut() -> LatestVersionLookup,
+    mut lookup_cached_version: impl FnMut() -> anyhow::Result<LatestVersionLookup>,
     mut update_registry: impl FnMut() -> anyhow::Result<()>,
+    mut lookup_latest_version: impl FnMut() -> anyhow::Result<LatestVersionLookup>,
 ) -> anyhow::Result<ModuleSource> {
     if policy == LatestVersionResolutionPolicy::PreferLocal
-        && let LatestVersionLookup::Found(version) = lookup_latest_version()
+        && let LatestVersionLookup::Found(version) = lookup_cached_version()?
     {
         let module = ModuleSource::from_version(module_name.clone(), version)?;
         user_log.info(format!(
@@ -172,7 +179,7 @@ fn resolve_latest_module_with(
         }
     }
 
-    let version = match lookup_latest_version() {
+    let version = match lookup_latest_version()? {
         LatestVersionLookup::Found(version) => version,
         LatestVersionLookup::NoVersionInformation => {
             bail!("Module `{module_name}` has no version information")
@@ -285,8 +292,9 @@ mod tests {
                 &UserLog::new(log::LevelFilter::Error),
                 true,
                 policy,
-                || LatestVersionLookup::Found(Version::new(1, 5, 0)),
+                || Ok(LatestVersionLookup::Found(Version::new(1, 5, 0))),
                 || Ok(()),
+                || Ok(LatestVersionLookup::Found(Version::new(1, 5, 0))),
             )
             .unwrap_err();
             assert_eq!(
@@ -352,11 +360,12 @@ mod tests {
             &UserLog::new(log::LevelFilter::Warn),
             true,
             LatestVersionResolutionPolicy::PreferLocal,
-            || LatestVersionLookup::Found("0.3.3".parse().unwrap()),
+            || Ok(LatestVersionLookup::Found("0.3.3".parse().unwrap())),
             || {
                 update_called = true;
                 Ok(())
             },
+            || panic!("a cached hit must not trigger an online lookup"),
         )
         .unwrap();
 
@@ -367,7 +376,7 @@ mod tests {
     #[test]
     fn latest_resolution_updates_after_local_registry_miss() {
         let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let mut lookup_count = 0;
+        let lookup_count = Cell::new(0);
         let mut update_called = false;
 
         let version = resolve_latest_module_with(
@@ -376,22 +385,22 @@ mod tests {
             true,
             LatestVersionResolutionPolicy::PreferLocal,
             || {
-                lookup_count += 1;
-                if lookup_count > 1 {
-                    LatestVersionLookup::Found("0.3.3".parse().unwrap())
-                } else {
-                    LatestVersionLookup::NotFound
-                }
+                lookup_count.set(lookup_count.get() + 1);
+                Ok(LatestVersionLookup::NotFound)
             },
             || {
                 update_called = true;
                 Ok(())
             },
+            || {
+                lookup_count.set(lookup_count.get() + 1);
+                Ok(LatestVersionLookup::Found("0.3.3".parse().unwrap()))
+            },
         )
         .unwrap();
 
         assert_eq!(version.version().to_string(), "0.3.3");
-        assert_eq!(lookup_count, 2);
+        assert_eq!(lookup_count.get(), 2);
         assert!(update_called);
     }
 
@@ -406,9 +415,14 @@ mod tests {
             &UserLog::new(log::LevelFilter::Warn),
             true,
             LatestVersionResolutionPolicy::Refresh,
+            || panic!("explicit latest must not use cached metadata"),
+            || {
+                registry_updated.set(true);
+                Ok(())
+            },
             || {
                 lookup_count.set(lookup_count.get() + 1);
-                LatestVersionLookup::Found(
+                Ok(LatestVersionLookup::Found(
                     if registry_updated.get() {
                         "0.4.0"
                     } else {
@@ -416,11 +430,7 @@ mod tests {
                     }
                     .parse()
                     .unwrap(),
-                )
-            },
-            || {
-                registry_updated.set(true);
-                Ok(())
+                ))
             },
         )
         .unwrap();
@@ -440,11 +450,12 @@ mod tests {
             &UserLog::new(log::LevelFilter::Warn),
             true,
             LatestVersionResolutionPolicy::Refresh,
+            || panic!("explicit latest must not use cached metadata"),
+            || Err(anyhow::anyhow!("offline")),
             || {
                 lookup_called.set(true);
-                LatestVersionLookup::Found("0.3.3".parse().unwrap())
+                Ok(LatestVersionLookup::Found("0.3.3".parse().unwrap()))
             },
-            || Err(anyhow::anyhow!("offline")),
         )
         .unwrap_err();
 
@@ -463,11 +474,12 @@ mod tests {
             &UserLog::new(log::LevelFilter::Warn),
             true,
             LatestVersionResolutionPolicy::PreferLocal,
-            || LatestVersionLookup::NoVersionInformation,
+            || Ok(LatestVersionLookup::NoVersionInformation),
             || {
                 update_called = true;
                 Ok(())
             },
+            || Ok(LatestVersionLookup::NoVersionInformation),
         )
         .unwrap_err();
 
@@ -476,6 +488,30 @@ mod tests {
             "Module `moonbitlang/parser` has no version information"
         );
         assert!(update_called);
+    }
+
+    #[test]
+    fn latest_resolution_preserves_online_denials_after_public_index_refresh() {
+        let updated = Cell::new(false);
+        let error = resolve_latest_module_with(
+            &"alice/secret".into(),
+            &UserLog::new(log::LevelFilter::Warn),
+            true,
+            LatestVersionResolutionPolicy::PreferLocal,
+            || Ok(LatestVersionLookup::NotFound),
+            || {
+                updated.set(true);
+                Ok(())
+            },
+            || {
+                assert!(updated.get());
+                Err(anyhow::anyhow!(
+                    "Module `alice/secret` not found or access denied"
+                ))
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("not found or access denied"));
     }
 
     #[test]

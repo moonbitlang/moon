@@ -59,6 +59,22 @@ pub trait Registry {
         name: &ModuleName,
     ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>>;
 
+    /// Read one exact published version without loading the complete history.
+    fn version_info(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        Ok(self.all_versions_of(name)?.get(version).cloned())
+    }
+
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        Ok(self
+            .all_versions_of(name)?
+            .last_key_value()
+            .map(|(version, _)| version.clone()))
+    }
+
     /// Resolve an unversioned import-style path into:
     /// - module path
     /// - the latest version of the resolved module
@@ -72,20 +88,15 @@ pub trait Registry {
     /// Returns an error if the path is malformed, contains an explicit version,
     /// or no module can be resolved from registry metadata.
     fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {
-        path::resolve_unversioned_registry_path(path, |module| {
-            self.all_versions_of(module).ok().and_then(|versions| {
-                versions
-                    .last_key_value()
-                    .map(|(latest_version, _)| latest_version.to_string())
-            })
+        path::resolve_unversioned_registry_path_with(path, |module| {
+            Ok(self
+                .latest_version(module)?
+                .map(|version| version.to_string()))
         })
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
-        let all_versions = self.all_versions_of(name).ok()?;
-        all_versions
-            .last_key_value()
-            .map(|(version, _)| version.clone())
+        self.latest_version(name).ok().flatten()
     }
 }
 
@@ -135,6 +146,18 @@ where
         (**self).get_latest_version(name)
     }
 
+    fn version_info(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        (**self).version_info(name, version)
+    }
+
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        (**self).latest_version(name)
+    }
+
     fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {
         (**self).resolve_unversioned_path(path)
     }
@@ -153,6 +176,18 @@ where
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
         (**self).get_latest_version(name)
+    }
+
+    fn version_info(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        (**self).version_info(name, version)
+    }
+
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        (**self).latest_version(name)
     }
 
     fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {

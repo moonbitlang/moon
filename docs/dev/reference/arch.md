@@ -432,8 +432,14 @@ Current registry configuration behavior today is:
 - Existing `registry`-format configurations and `MOONCAKES_REGISTRY` retain
   their former combined endpoint layout while users migrate to the split
   configuration.
-- MVS itself resolves against the local on-disk index and does not consume
-  `RegistryConfig` directly.
+- MVS requests every declared dependency's exact version through
+  `Registry::version_info`, without constructing transport URLs or enumerating
+  version histories. The default adapter still reads the local Git index.
+  `MOON_REGISTRY_API=1` enables the experimental HTTP metadata adapter globally,
+  including modules already present in that index. The initial API adapter
+  accepts public metadata only and sends no login credentials for resolver
+  requests. The configured server must support public metadata.
+  See [Moon home layout](./moon-home-layout.md) for caching and offline behavior.
 
 [semver]: https://semver.org/
 [mvs]: https://go.dev/ref/mod#minimal-version-selection
