@@ -217,6 +217,9 @@ dependency edges in `ModuleDependencyGraph`. `ModuleResolutionConfig` supplies
 registry and standard-library policy to the `ModuleResolver`; its working
 registry access, manifest caches, and diagnostics belong to
 `ModuleResolutionContext`. Failures are reported as `ModuleResolutionError`.
+Registry read failures preserve their causes and are distinguished from missing
+modules or versions. Final graph construction reuses the metadata loaded during
+traversal rather than querying the registry again.
 Package imports are resolved separately after package discovery.
 
 Modules are versioned using [SemVer][] (Semantic Versioning),
@@ -226,15 +229,23 @@ Dependencies are currently resolved using the [MVS][] algorithm.
 The nature of MVS only allows version ranges with `>=` semantics
 (higher versions must be compatible with lower versions).
 
-Dependencies currently accept only caret version syntax in manifests.
-During MVS selection, caret requirements are interpreted as lower bounds with
-Go-style compatibility buckets:
+Registry dependencies name concrete versions. The resolver reads each declared
+version's dependencies and recursively follows those declarations. A missing
+module or declared version is an error, even if a higher compatible version is
+available or required elsewhere in the graph; it is not silently substituted.
+This keeps publishing an unrelated release from changing an existing dependency
+graph, provided published versions and their metadata remain immutable.
+
+Manifests specify full version numbers, not version ranges. After traversal,
+MVS selects the highest version actually required in each compatibility bucket:
 
 - For versions below `2.0.0`, all versions below `2.0.0` are treated as compatible.
 - For versions `>= 2.0.0`, compatibility is split by major version.
 
-As a result, a requirement like `^0.1.3` can resolve to `0.2.0` if that is the
-selected version for the module.
+As a result, a declaration like `0.1.3` first requires `0.1.3` to exist, but can
+resolve to `0.2.0` if another dependency in the graph requires that version.
+Local-path dependencies and workspace overrides keep their existing rules;
+they do not require a corresponding registry release.
 
 Additionally, due to limitations of the MoonBit compiler,
 only one module with a specific name may be present in the resolved dependency graph.
