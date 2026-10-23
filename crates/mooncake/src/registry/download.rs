@@ -19,6 +19,12 @@
 use anyhow::Context;
 
 pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::blocking::Client> {
+    client_builder_with_retry()
+        .build()
+        .context("failed to create HTTP client")
+}
+
+pub(super) fn client_builder_with_retry() -> reqwest::blocking::ClientBuilder {
     // Retry across redirects to other hosts.
     // Reqwest has no public all-hosts retry scope, so use this wrapper.
     struct AnyHost;
@@ -45,8 +51,6 @@ pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
         .retry(retry)
-        .build()
-        .context("failed to create HTTP client")
 }
 
 #[cfg(test)]
