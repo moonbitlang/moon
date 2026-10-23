@@ -174,6 +174,9 @@ acquisition and execution path as registry-backed `moon runwasm`:
 3. On a cache miss, download and verify the asset under a per-artifact lock.
 4. Publish it atomically and execute it with `moonrun`.
 
+In addition to HTTP request retries, response-body read failures restart the
+checksum or Wasm download up to three times, discarding each incomplete body.
+
 A missing published Wasm asset is an error. Version 1 does not fall back to
 downloading source and building Wasm locally.
 
