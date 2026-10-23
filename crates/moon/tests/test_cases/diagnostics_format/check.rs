@@ -454,25 +454,15 @@ import {
             .unwrap()
             .iter()
             .any(|message| {
-                message["level"] == "warning"
-                    && message["message"].as_str().unwrap().contains("moon update")
-            })
-    );
-    assert!(
-        report["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|message| {
                 message["level"] == "error"
                     && message["message"]
                         .as_str()
                         .unwrap()
-                        .contains("module was not found in the registry")
+                        .contains("not found or access denied; check your registry login")
             })
     );
     assert_eq!(report["summary"]["moon_errors"], 1);
-    assert_eq!(report["summary"]["moon_warnings"], 1);
+    assert_eq!(report["summary"]["moon_warnings"], 0);
 }
 
 #[test]

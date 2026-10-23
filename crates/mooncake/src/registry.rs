@@ -101,6 +101,15 @@ pub trait Registry {
 }
 
 pub(crate) trait RegistrySource {
+    /// Isolate private source trees by registry and account in the shared cache.
+    /// Public registries retain the existing unqualified layout.
+    fn source_cache_namespace(
+        &self,
+        _module: &ModuleSource,
+    ) -> anyhow::Result<Option<std::path::PathBuf>> {
+        Ok(None)
+    }
+
     /// Materialize verified published source without executing package hooks.
     fn materialize_source_to(
         &self,

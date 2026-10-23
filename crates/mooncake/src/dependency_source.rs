@@ -74,7 +74,7 @@ pub(crate) fn select<'a>(
 #[cfg(test)]
 mod tests {
     use std::{
-        path::Path,
+        path::{Path, PathBuf},
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -106,6 +106,7 @@ mod tests {
         checksum_reads: AtomicUsize,
         postadd: bool,
         installations: AtomicUsize,
+        namespace: Option<PathBuf>,
     }
 
     impl TestRegistry {
@@ -116,6 +117,7 @@ mod tests {
                 checksum_reads: AtomicUsize::new(0),
                 postadd,
                 installations: AtomicUsize::new(0),
+                namespace: None,
             }
         }
 
@@ -156,6 +158,13 @@ options(
     }
 
     impl RegistrySource for TestRegistry {
+        fn source_cache_namespace(
+            &self,
+            _module: &ModuleSource,
+        ) -> anyhow::Result<Option<PathBuf>> {
+            Ok(self.namespace.clone())
+        }
+
         fn acquire_source_to(
             &self,
             module: &ModuleSource,
@@ -218,7 +227,7 @@ options(
         let (resolved, module) = test_env();
 
         assert_eq!(
-            store.source_dir(resolved.module_source(module)),
+            store.source_dir(resolved.module_source(module), None),
             cache.path().join("v1/sources/test/module/1.2.3")
         );
     }
@@ -256,6 +265,53 @@ options(
     }
 
     #[test]
+    fn private_source_namespaces_do_not_reuse_public_or_other_accounts() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let cache = global_cache(&sandbox.path().join("cache"));
+        let (resolved, module) = test_env();
+        let source = select(
+            sandbox.path().join(".mooncakes"),
+            &cache,
+            &resolved,
+            ChildOutputMode::Inherit,
+        )
+        .unwrap();
+        let public = TestRegistry::new(false);
+        let mut alice = TestRegistry::new(false);
+        alice.namespace = Some("registry/alice".into());
+        let mut bob = TestRegistry::new(false);
+        bob.namespace = Some("registry/bob".into());
+        let public_dirs = source
+            .ensure(&public, &resolved, false, &user_log())
+            .unwrap();
+        let alice_dirs = source
+            .ensure(&alice, &resolved, false, &user_log())
+            .unwrap();
+        let bob_dirs = source.ensure(&bob, &resolved, false, &user_log()).unwrap();
+        assert_ne!(alice_dirs[module], public_dirs[module]);
+        assert_ne!(alice_dirs[module], bob_dirs[module]);
+        assert!(
+            alice_dirs[module].ends_with("v1/private/registry/alice/sources/test/module/1.2.3")
+        );
+        source.ensure(&alice, &resolved, true, &user_log()).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(sandbox.path().join("cache/v1/private"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o077,
+                0
+            );
+        }
+        assert_eq!(alice.installations.load(Ordering::SeqCst), 1);
+        assert_eq!(bob.installations.load(Ordering::SeqCst), 1);
+        assert_eq!(public.installations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn postadd_is_rejected_before_publication() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let cache_dir = sandbox.path().join("cache");
@@ -269,8 +325,8 @@ options(
             ChildOutputMode::Inherit,
         )
         .unwrap();
-        let directory =
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
+        let directory = ImmutableDependencySource::new(&cache_dir)
+            .source_dir(resolved.module_source(module), None);
 
         let error = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -401,7 +457,8 @@ options(
 
         assert_eq!(
             paths[module],
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module))
+            ImmutableDependencySource::new(&cache_dir)
+                .source_dir(resolved.module_source(module), None)
         );
         assert_eq!(
             std::fs::read_to_string(paths[module].join("acquired-archive-checksum")).unwrap(),
@@ -428,8 +485,8 @@ options(
             ChildOutputMode::Inherit,
         )
         .unwrap();
-        let directory =
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
+        let directory = ImmutableDependencySource::new(&cache_dir)
+            .source_dir(resolved.module_source(module), None);
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
             directory.join("moon.mod"),

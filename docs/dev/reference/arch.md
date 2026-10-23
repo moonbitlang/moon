@@ -427,8 +427,9 @@ Current registry configuration behavior today is:
 - Dynamic registry API reads share optional Bearer authentication from the
   saved login bound to that API base URL, regardless of module visibility.
   Download clients remain anonymous. See [Moon home layout](./moon-home-layout.md)
-  for credential compatibility and redirect boundaries. This does not add
-  authenticated metadata fallback to the local-index resolver.
+  for credential compatibility and redirect boundaries. Modules missing from
+  the public index use the owner-only metadata endpoint; known public modules
+  never fall back to it just because an exact version is missing.
 - Existing `registry`-format configurations and `MOONCAKES_REGISTRY` retain
   their former combined endpoint layout while users migrate to the split
   configuration.
@@ -436,9 +437,13 @@ Current registry configuration behavior today is:
   `Registry::version_info`, without constructing transport URLs or enumerating
   version histories. The default adapter still reads the local Git index.
   `MOON_REGISTRY_API=1` enables the experimental HTTP metadata adapter globally,
-  including modules already present in that index. The initial API adapter
-  accepts public metadata only and sends no login credentials for resolver
-  requests. The configured server must support public metadata.
+  including modules already present in that index. Resolver requests use the
+  same optional, registry-bound Bearer authentication as other API reads.
+  Public API mode requires a server supporting public resolver metadata;
+  private metadata is served only to authorized owners.
+  Release records are isolated by registry and account. Missing private sources
+  currently fail closed: CDN delivery is a separate layer, with no public URL
+  fallback.
   See [Moon home layout](./moon-home-layout.md) for caching and offline behavior.
 
 [semver]: https://semver.org/

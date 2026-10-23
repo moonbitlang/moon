@@ -50,10 +50,13 @@ impl<'a> ImmutableDependencySource<'a> {
         Self { root }
     }
 
-    pub(super) fn source_dir(&self, module: &ModuleSource) -> PathBuf {
-        self.root
-            .join(LAYOUT_VERSION)
-            .join(SOURCES_DIRECTORY)
+    pub(super) fn source_dir(&self, module: &ModuleSource, namespace: Option<&Path>) -> PathBuf {
+        let root = self.root.join(LAYOUT_VERSION);
+        let root = match namespace {
+            Some(namespace) => root.join("private").join(namespace),
+            None => root,
+        };
+        root.join(SOURCES_DIRECTORY)
             .join(module.name().username.as_str())
             .join(module.name().unqual.replace('/', "+"))
             .join(module.version().to_string())
@@ -152,7 +155,16 @@ impl DependencySource for ImmutableDependencySource<'_> {
                             module.version()
                         );
                     }
-                    let directory = self.source_dir(module);
+                    let namespace = registry.source_cache_namespace(module)?;
+                    #[cfg(unix)]
+                    if namespace.is_some() {
+                        use std::os::unix::fs::DirBuilderExt;
+                        std::fs::DirBuilder::new()
+                            .recursive(true)
+                            .mode(0o700)
+                            .create(self.root.join(LAYOUT_VERSION).join("private"))?;
+                    }
+                    let directory = self.source_dir(module, namespace.as_deref());
                     self.prepare_source(registry, module, &checksum, &directory, frozen, user_log)?;
                     directory
                 }

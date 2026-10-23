@@ -303,22 +303,53 @@ pub struct RegistryClient {
     selections: RefCell<HashMap<std::path::PathBuf, Version>>,
     offline: bool,
     api_metadata: bool,
-    metadata_http: RefCell<Option<reqwest::blocking::Client>>,
+    metadata_http: RefCell<Option<(Option<HeaderValue>, reqwest::blocking::Client)>>,
 }
 
 impl RegistryClient {
-    fn uses_index(&self, _name: &ModuleName) -> bool {
-        !self.api_metadata
+    fn uses_index(&self, name: &ModuleName) -> bool {
+        !self.api_metadata && self.home.registry_index_file(name).exists()
+    }
+
+    fn is_private_release(&self, name: &ModuleName, version: &Version) -> anyhow::Result<bool> {
+        if self.uses_index(name) {
+            return Ok(false);
+        }
+        Ok(self
+            .resolver_metadata(name, &MetadataSelector::Exact(version.clone()))?
+            .visibility
+            == RegistryVisibility::Private)
+    }
+
+    fn private_cache_namespace(&self) -> anyhow::Result<std::path::PathBuf> {
+        let api = registry_api_url(&self.endpoints.api)?;
+        let identity = match RegistryCredentials::load(&self.home.credentials_path())? {
+            Some(saved)
+                if saved.matches_registry(&self.endpoints.api)?
+                    && !saved.credentials.token.trim().is_empty() =>
+            {
+                saved
+                    .credentials
+                    .username
+                    .map(|username| format!("user:{username}"))
+                    .unwrap_or_else(|| {
+                        format!("token:{}", sha256_hex(saved.credentials.token.as_bytes()))
+                    })
+            }
+            _ => "anonymous".to_owned(),
+        };
+        Ok(
+            std::path::PathBuf::from(sha256_hex(api.as_str().as_bytes()))
+                .join(sha256_hex(identity.as_bytes())),
+        )
     }
 
     fn metadata_path(&self, name: &ModuleName) -> anyhow::Result<std::path::PathBuf> {
         Ok(self
             .home
             .registry_dir()
-            .join("metadata")
-            .join(sha256_hex(
-                registry_api_url(&self.endpoints.api)?.as_str().as_bytes(),
-            ))
+            .join("private")
+            .join(self.private_cache_namespace()?)
             .join(format!("{}.json", sha256_hex(name.to_string().as_bytes()))))
     }
 
@@ -395,7 +426,7 @@ impl RegistryClient {
     }
 
     fn write_metadata_cache<T: Serialize>(&self, path: &Path, value: &T) -> anyhow::Result<()> {
-        let root = self.home.registry_dir().join("metadata");
+        let root = self.home.registry_dir().join("private");
         let parent = path.parent().expect("metadata file has a parent");
         let mut directories = Vec::new();
         let mut current = parent;
@@ -430,8 +461,7 @@ impl RegistryClient {
         selector: &MetadataSelector,
         metadata: &RegistryMetadata,
     ) -> anyhow::Result<()> {
-        if metadata.module != name.to_string() || metadata.visibility != RegistryVisibility::Public
-        {
+        if metadata.module != name.to_string() {
             bail!("invalid registry metadata identity for {name}");
         }
         let entry = &metadata.release;
@@ -509,7 +539,7 @@ impl RegistryClient {
             url.push_str(&query);
         }
         let response = self
-            .anonymous_metadata_client()?
+            .metadata_http_client()?
             .get(&url)
             .send()
             .with_context(|| format!("failed to fetch registry metadata for {name}"))?;
@@ -575,15 +605,18 @@ impl RegistryClient {
         Ok(None)
     }
 
-    fn anonymous_metadata_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
-        if let Some(client) = self.metadata_http.borrow().as_ref() {
+    fn metadata_http_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
+        let authorization = RegistryCredentials::load(&self.home.credentials_path())?
+            .map(|saved| registry_authorization(&saved, &registry_api_url(&self.endpoints.api)?))
+            .transpose()?
+            .flatten();
+        if let Some((identity, client)) = self.metadata_http.borrow().as_ref()
+            && identity == &authorization
+        {
             return Ok(client.clone());
         }
-        let client = reqwest::blocking::Client::builder()
-            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-            .build()
-            .context("failed to create metadata HTTP client")?;
-        *self.metadata_http.borrow_mut() = Some(client.clone());
+        let client = self.api_http_client()?;
+        *self.metadata_http.borrow_mut() = Some((authorization, client.clone()));
         Ok(client)
     }
 
@@ -769,6 +802,9 @@ impl RegistryClient {
         self.acquire_wasm_asset_with(module, package_path, user_log, |url| {
             // Already materialized artifacts remain usable offline. Only a
             // cache miss needs to choose an authenticated or public transport.
+            if self.is_private_release(module.name(), module.version())? {
+                bail!("Authenticated prebuilt artifact delivery is not supported yet");
+            }
             if http.is_none() {
                 http = Some(download::client_with_retry()?);
             }
@@ -1049,6 +1085,17 @@ impl super::Registry for RegistryClient {
 }
 
 impl super::RegistrySource for RegistryClient {
+    fn source_cache_namespace(
+        &self,
+        module: &ModuleSource,
+    ) -> anyhow::Result<Option<std::path::PathBuf>> {
+        if !self.is_private_release(module.name(), module.version())? {
+            Ok(None)
+        } else {
+            Ok(Some(self.private_cache_namespace()?))
+        }
+    }
+
     fn acquire_source_to(
         &self,
         module: &ModuleSource,
@@ -1213,14 +1260,14 @@ impl RegistryClient {
         user_log: &UserLog,
     ) -> anyhow::Result<File> {
         validate_registry_module_name(name)?;
-        if self.uses_index(name) {
-            if !self.home.registry_index_file(name).exists() {
-                bail!("Module {name}@{version} not found");
-            }
+        let private = self.is_private_release(name, version)?;
+        let cache_file = if private {
+            self.metadata_path(name)?
+                .with_extension("archives")
+                .join(format!("{version}.zip"))
         } else {
-            self.resolver_metadata(name, &MetadataSelector::Exact(version.clone()))?;
-        }
-        let cache_file = self.home.registry_source_archive_path(name, version);
+            self.home.registry_source_archive_path(name, version)
+        };
         if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
             user_log.status(format!("Using cached {name}@{version}"));
             return Ok(archive);
@@ -1232,6 +1279,17 @@ impl RegistryClient {
         let cache_dir = cache_file
             .parent()
             .expect("registry cache file has a parent");
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(cache_dir)?;
+        } else {
+            std::fs::create_dir_all(cache_dir)?;
+        }
+        #[cfg(not(unix))]
         std::fs::create_dir_all(cache_dir)?;
         let _cache_lock = lock_file(&cache_file, user_log).with_context(|| {
             format!(
@@ -1244,6 +1302,9 @@ impl RegistryClient {
             return Ok(archive);
         }
         user_log.status(format!("Downloading {name}@{version}"));
+        if private {
+            bail!("Authenticated source delivery is not supported yet for {name}@{version}");
+        }
         let url = self.endpoints.package_archive(name, version);
         let mut response = download::client_with_retry()?
             .get(url)
@@ -1422,7 +1483,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_metadata_cache_supports_long_paths() {
+    fn private_registry_cache_supports_long_paths() {
         let sandbox = tempfile::tempdir().unwrap();
         let home = sandbox.path().join("private-cache-home/".repeat(18));
         assert!(home.to_string_lossy().len() > 260);
@@ -1435,7 +1496,7 @@ mod tests {
         let release_path = registry.metadata_release_path(&name, &version).unwrap();
         let query_path = registry.metadata_query_path(&name, &selector).unwrap();
         let metadata: RegistryMetadata =
-            serde_json::from_str(&resolver_response("alice/secret", "PUBLIC", "0.1.0")).unwrap();
+            serde_json::from_str(&resolver_response("alice/secret", "PRIVATE", "0.1.0")).unwrap();
         // Repeat each write to cover replacing an existing cache entry as well.
         for _ in 0..2 {
             registry
@@ -1482,6 +1543,175 @@ mod tests {
     }
 
     #[test]
+    fn resolver_metadata_authenticates_and_caches_outside_the_public_index() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/secret/nested", "PRIVATE", "0.1.0"),
+            )],
+        );
+        save_test_login(home.path(), &api, "alice", "test-alice");
+        let registry = api_test_registry(home.path(), &api);
+        let name: ModuleName = "alice/secret/nested".into();
+        assert_eq!(registry.cached_latest_version(&name).unwrap(), None);
+        assert_eq!(
+            registry.latest_version(&name).unwrap(),
+            Some(Version::new(0, 1, 0))
+        );
+        let module = ModuleSource::from_version(name.clone(), Version::new(0, 1, 0)).unwrap();
+        assert_eq!(
+            registry.source_archive_checksum(&module).unwrap(),
+            "b".repeat(64)
+        );
+        let request = &server.join().unwrap()[0];
+        assert!(request.starts_with("GET /api/v0/registry/modules/alice/secret/nested "));
+        assert!(
+            request
+                .to_lowercase()
+                .contains("authorization: bearer test-alice")
+        );
+        assert!(!registry.home.registry_index_dir().exists());
+        let cache = registry
+            .metadata_query_path(&name, &MetadataSelector::Latest)
+            .unwrap();
+        assert!(
+            !std::fs::read_to_string(&cache)
+                .unwrap()
+                .contains("test-alice")
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(cache.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o077,
+                0
+            );
+            assert_eq!(
+                std::fs::metadata(cache).unwrap().permissions().mode() & 0o077,
+                0
+            );
+        }
+        let cached = api_test_registry(home.path(), &api).offline();
+        assert_eq!(
+            cached.cached_latest_version(&name).unwrap(),
+            Some(Version::new(0, 1, 0))
+        );
+        assert!(
+            cached
+                .latest_version(&name)
+                .unwrap()
+                .is_some_and(|version| version == Version::new(0, 1, 0))
+        );
+        let error = api_test_registry(home.path(), &api)
+            .offline()
+            .materialize_source_to(&module, &home.path().join("source"), &quiet_user_log())
+            .unwrap_err();
+        assert!(error.to_string().contains("not cached in frozen mode"));
+        assert!(
+            !cached
+                .home
+                .registry_source_archive_path(&name, module.version())
+                .exists()
+        );
+    }
+
+    #[test]
+    fn resolver_metadata_cache_is_bound_to_the_api_and_account() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+            )],
+        );
+        save_test_login(home.path(), &api, "alice", "test-alice");
+        let name: ModuleName = "alice/secret".into();
+        api_test_registry(home.path(), &api)
+            .latest_version(&name)
+            .unwrap();
+        server.join().unwrap();
+        save_test_login(home.path(), &api, "bob", "test-bob");
+        assert!(
+            api_test_registry(home.path(), &api)
+                .offline()
+                .latest_version(&name)
+                .unwrap_err()
+                .to_string()
+                .contains("missing cached")
+        );
+        save_test_login(home.path(), &api, "alice", "test-alice");
+        assert!(
+            api_test_registry(home.path(), &format!("{api}/other"))
+                .offline()
+                .latest_version(&name)
+                .is_err()
+        );
+        std::fs::remove_file(home.path().join("credentials.json")).unwrap();
+        assert!(
+            api_test_registry(home.path(), &api)
+                .offline()
+                .latest_version(&name)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn metadata_connection_pool_tracks_token_rotation_for_the_same_account() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+                ),
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.1"),
+                ),
+            ],
+        );
+        let registry = api_test_registry(home.path(), &api);
+        let name: ModuleName = "alice/secret".into();
+        save_test_login(home.path(), &api, "alice", "before-rotation");
+        registry
+            .version_info(&name, &Version::new(0, 1, 0))
+            .unwrap();
+        save_test_login(home.path(), &api, "alice", "after-rotation");
+        registry
+            .version_info(&name, &Version::new(0, 1, 1))
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert!(
+            requests[0]
+                .to_lowercase()
+                .contains("authorization: bearer before-rotation")
+        );
+        assert!(
+            requests[1]
+                .to_lowercase()
+                .contains("authorization: bearer after-rotation")
+        );
+    }
+
+    #[test]
     fn exact_metadata_is_shared_by_resolution_and_checksum_without_selectors() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1491,12 +1721,11 @@ mod tests {
             vec![(
                 200,
                 String::new(),
-                resolver_response("alice/secret", "PUBLIC", "0.1.0"),
+                resolver_response("alice/secret", "PRIVATE", "0.1.0"),
             )],
         );
-
-        let mut registry = api_test_registry(home.path(), &api);
-        registry.api_metadata = true;
+        save_test_login(home.path(), &api, "alice", "test-alice");
+        let registry = api_test_registry(home.path(), &api);
         let name: ModuleName = "alice/secret".into();
         let version = Version::new(0, 1, 0);
         assert!(registry.version_info(&name, &version).unwrap().is_some());
@@ -1510,8 +1739,7 @@ mod tests {
         assert!(
             requests[0].starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 ")
         );
-        let mut cached = api_test_registry(home.path(), &api).offline();
-        cached.api_metadata = true;
+        let cached = api_test_registry(home.path(), &api).offline();
         assert!(cached.version_info(&name, &version).unwrap().is_some());
         assert!(cached.version_info(&name, &Version::new(0, 1, 1)).is_err());
         assert!(cached.latest_version(&name).is_err());
@@ -1534,23 +1762,22 @@ mod tests {
                 (
                     200,
                     String::new(),
-                    resolver_response("alice/secret", "PUBLIC", "0.1.0+01"),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.0+01"),
                 ),
                 (
                     200,
                     String::new(),
-                    resolver_response("alice/secret", "PUBLIC", "0.2.0"),
+                    resolver_response("alice/secret", "PRIVATE", "0.2.0"),
                 ),
                 (
                     200,
                     String::new(),
-                    resolver_response("alice/secret", "PUBLIC", "2.0.0-alpha"),
+                    resolver_response("alice/secret", "PRIVATE", "2.0.0-alpha"),
                 ),
             ],
         );
         let name: ModuleName = "alice/secret".into();
-        let mut registry = api_test_registry(home.path(), &api);
-        registry.api_metadata = true;
+        let registry = api_test_registry(home.path(), &api);
         assert!(
             registry
                 .version_info(&name, &"0.1.0+01".parse().unwrap())
@@ -1634,7 +1861,6 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
-        save_test_login(home.path(), &api, "alice", "not-sent-by-public-metadata");
         let mut registry = api_test_registry(home.path(), &api);
         registry.api_metadata = true;
         let name: ModuleName = "alice/public".into();
@@ -1755,42 +1981,94 @@ mod tests {
                 (
                     200,
                     String::new(),
-                    resolver_response("alice/secret", "PUBLIC", "0.1.0"),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.0"),
                 ),
                 (404, String::new(), "{}".to_owned()),
             ],
         );
-
+        save_test_login(home.path(), &api, "alice", "test-alice");
         let name: ModuleName = "alice/secret".into();
-        let mut registry = api_test_registry(home.path(), &api);
-        registry.api_metadata = true;
+        let registry = api_test_registry(home.path(), &api);
         registry.latest_version(&name).unwrap();
-        let mut current = api_test_registry(home.path(), &api);
-        current.api_metadata = true;
+        let current = api_test_registry(home.path(), &api);
         let error = current.latest_version(&name).unwrap_err();
         assert!(error.to_string().contains("not found or access denied"));
-        assert!(!error.to_string().contains("PUBLIC"));
+        assert!(!error.to_string().contains("PRIVATE"));
         assert_eq!(server.join().unwrap().len(), 2);
-        let mut offline = api_test_registry(home.path(), &api).offline();
-        offline.api_metadata = true;
+        let offline = api_test_registry(home.path(), &api).offline();
         assert!(offline.latest_version(&name).is_ok());
+    }
+
+    #[test]
+    fn metadata_denials_do_not_disclose_module_visibility() {
+        for status in [401, 403, 404] {
+            let home = tempfile::tempdir().unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let api = format!("http://{}", listener.local_addr().unwrap());
+            let server = api_test_server(
+                listener,
+                vec![(status, String::new(), "{\"detail\":\"PRIVATE\"}".to_owned())],
+            );
+            let registry = api_test_registry(home.path(), &api);
+            let error = registry
+                .version_info(&"alice/secret".into(), &Version::new(0, 1, 0))
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "Module `alice/secret` not found or access denied; check your registry login"
+            );
+            assert!(!format!("{error:#}").contains("PRIVATE"));
+            assert_eq!(server.join().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn private_source_delivery_fails_closed_until_cdn_support_is_enabled() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+            )],
+        );
+        save_test_login(home.path(), &api, "alice", "test-alice");
+        let registry = api_test_registry(home.path(), &api);
+        let module =
+            ModuleSource::from_version("alice/secret".into(), Version::new(0, 1, 0)).unwrap();
+        let error = registry
+            .materialize_source_to(&module, &home.path().join("source"), &quiet_user_log())
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Authenticated source delivery is not supported yet")
+        );
+        assert_eq!(server.join().unwrap().len(), 1);
+        assert!(
+            !registry
+                .home
+                .registry_source_archive_path(module.name(), module.version())
+                .exists()
+        );
     }
 
     #[test]
     fn resolver_rejects_invalid_authoritative_metadata_without_caching_it() {
         for body in [
-            resolver_response("alice/wrong", "PUBLIC", "0.1.0"),
+            resolver_response("alice/wrong", "PRIVATE", "0.1.0"),
             resolver_response("alice/secret", "UNKNOWN", "0.1.0"),
-            resolver_response("alice/secret", "PRIVATE", "0.1.0"),
-            resolver_response("alice/secret", "PUBLIC", "invalid"),
-            resolver_response("alice/secret", "PUBLIC", "0.1.0").replace(&"b".repeat(64), "bad"),
+            resolver_response("alice/secret", "PRIVATE", "invalid"),
+            resolver_response("alice/secret", "PRIVATE", "0.1.0").replace(&"b".repeat(64), "bad"),
         ] {
             let home = tempfile::tempdir().unwrap();
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let api = format!("http://{}", listener.local_addr().unwrap());
             let server = api_test_server(listener, vec![(200, String::new(), body)]);
-            let mut registry = api_test_registry(home.path(), &api);
-            registry.api_metadata = true;
+            let registry = api_test_registry(home.path(), &api);
             let name: ModuleName = "alice/secret".into();
             assert!(registry.latest_version(&name).is_err());
             assert!(

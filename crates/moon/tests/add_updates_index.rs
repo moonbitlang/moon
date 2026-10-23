@@ -143,17 +143,55 @@ fn test_moon_add_updates_registry_index_by_default() {
 }
 
 #[test]
-fn test_moon_add_no_update_suggests_update_on_failure() {
+fn test_moon_add_no_update_preserves_authoritative_metadata_denial() {
     // Setup: isolated Moon project + empty MOON_HOME.
     let project = tempfile::tempdir().unwrap();
     write_minimal_moon_mod(project.path());
 
     let moon_home = tempfile::tempdir().unwrap();
 
-    // Execute: `--no-update` with a non-existent package.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let registry = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(std::time::Instant::now() < deadline);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(error) => panic!("{error}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let mut request = Vec::new();
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let mut buffer = [0; 1024];
+            let read = stream.read(&mut buffer).unwrap();
+            assert_ne!(read, 0);
+            request.extend_from_slice(&buffer[..read]);
+        }
+        assert!(request.starts_with(
+            b"GET /api/v0/registry/modules/this_user_should_not_exist/this_pkg_should_not_exist "
+        ));
+        stream
+            .write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+            )
+            .unwrap();
+    });
+    // --no-update skips Git, but a missing module still gets an API lookup.
     let out = Command::new(moon_bin())
         .current_dir(project.path())
         .env("MOON_HOME", moon_home.path())
+        .env("MOONCAKES_REGISTRY", registry)
+        .env("NO_PROXY", "*")
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -171,9 +209,11 @@ fn test_moon_add_no_update_suggests_update_on_failure() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // Assert: error message SHOULD suggest `moon update` because update was skipped.
+    server.join().unwrap();
+    // The API already answered; do not replace its denial with stale-index advice.
     assert!(
-        combined.contains("Please consider running `moon update`"),
-        "error message should suggest update when skipped:\n{combined}"
+        combined.contains("not found or access denied"),
+        "error message should preserve the API denial:\n{combined}"
     );
+    assert!(!combined.contains("Please consider running `moon update`"));
 }
