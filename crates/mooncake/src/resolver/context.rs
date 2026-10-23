@@ -17,18 +17,18 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use moonutil::{
     manifest::{MoonMod, read_module_desc_file_in_dir},
-    resolution::{ModuleName, ModuleSource, ModuleSourceKind},
+    resolution::ModuleName,
 };
 use semver::Version;
 
-use crate::registry::{Registry, RegistryVersionInfo};
+use crate::registry::{Registry, RegistryModuleNotFound};
 
 use super::ModuleResolutionError;
 
@@ -37,7 +37,6 @@ pub(crate) struct ModuleResolutionContext<'a> {
     registry: &'a dyn Registry,
     errors: Vec<super::ModuleResolutionError>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
-    stdlib: Option<Arc<MoonMod>>,
 }
 
 impl<'a> ModuleResolutionContext<'a> {
@@ -46,7 +45,6 @@ impl<'a> ModuleResolutionContext<'a> {
             registry,
             errors: Vec::new(),
             local_module_cache: HashMap::new(),
-            stdlib: None,
         }
     }
 
@@ -62,32 +60,41 @@ impl<'a> ModuleResolutionContext<'a> {
         !self.errors.is_empty()
     }
 
-    pub(crate) fn all_versions_of(
-        &mut self,
+    /// Read one exact registry version, attaching dependency context to failures.
+    pub(crate) fn get_registry_module(
+        &self,
         name: &ModuleName,
-    ) -> Option<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
-        self.registry.all_versions_of(name).ok()
-    }
-
-    pub(crate) fn get(&mut self, ms: &ModuleSource) -> Option<Arc<MoonMod>> {
-        match ms.source() {
-            ModuleSourceKind::Registry => {
-                let version_info = self.registry.all_versions_of(ms.name()).ok()?;
-                let deps = version_info.get(ms.version())?.deps.clone();
-                Some(Arc::new(MoonMod {
-                    name: ms.name().to_string(),
-                    version: Some(ms.version().clone()),
-                    deps,
-                    ..Default::default()
-                }))
+        version: &Version,
+        dependant: &ModuleName,
+    ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
+        let versions = self.registry.all_versions_of(name).map_err(|error| {
+            if error.is::<RegistryModuleNotFound>() {
+                ModuleResolutionError::ModuleMissing {
+                    dependency: name.clone(),
+                    dependant: dependant.clone(),
+                }
+            } else {
+                ModuleResolutionError::RegistryReadFailed {
+                    dependency: name.clone(),
+                    dependant: dependant.clone(),
+                    required: version.clone(),
+                    source: error,
+                }
             }
-            ModuleSourceKind::Local(path) => self.resolve_local_module(path).ok(),
-            ModuleSourceKind::Stdlib(_) => self.stdlib.clone(),
-            ModuleSourceKind::SingleFile(path) => panic!(
-                "Single file module source should already be manually resolved: {}",
-                path.display()
-            ),
-        }
+        })?;
+        let info = versions
+            .get(version)
+            .ok_or_else(|| ModuleResolutionError::VersionMissing {
+                dependency: name.clone(),
+                dependant: dependant.clone(),
+                required: version.clone(),
+            })?;
+        Ok(Arc::new(MoonMod {
+            name: name.to_string(),
+            version: Some(version.clone()),
+            deps: info.deps.clone(),
+            ..Default::default()
+        }))
     }
 
     /// Resolve a local module from its **canonical** path.

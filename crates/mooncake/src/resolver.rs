@@ -54,6 +54,24 @@ pub(crate) enum ModuleResolutionError {
         dependant: ModuleName,
     },
     #[error(
+        "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: version `{required}` was not found in the registry"
+    )]
+    VersionMissing {
+        dependency: ModuleName,
+        dependant: ModuleName,
+        required: Version,
+    },
+    #[error(
+        "Failed to read registry dependency `{dependency}@{required}` for module `{dependant}`: {source:#}"
+    )]
+    RegistryReadFailed {
+        dependency: ModuleName,
+        dependant: ModuleName,
+        required: Version,
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error(
         "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: no version satisfies requirement `{required}`"
     )]
     NoSatisfiedVersion {

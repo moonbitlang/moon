@@ -619,7 +619,13 @@ impl super::Registry for RegistryClient {
 
         let index_file = self.home.registry_index_file(name);
         log::debug!("Reading versions of {} from {}", name, index_file.display());
-        let file = std::fs::File::open(index_file)?;
+        let file = std::fs::File::open(index_file).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                anyhow::Error::new(super::RegistryModuleNotFound(name.clone()))
+            } else {
+                error.into()
+            }
+        })?;
         let reader = std::io::BufReader::new(file);
 
         let lines = reader.lines();
@@ -2140,6 +2146,22 @@ mod tests {
             "mooncake-registry-index-test-{}-{nanos}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn all_versions_distinguishes_missing_modules_from_invalid_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = api_test_registry(dir.path(), "https://registry.example.test");
+        let module: ModuleName = "test/module".into();
+        let error = registry.all_versions_of(&module).unwrap_err();
+        assert!(error.is::<crate::registry::RegistryModuleNotFound>());
+
+        let index_file = registry.home.registry_index_file(&module);
+        std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
+        std::fs::write(index_file, r#"{"version":"invalid"}"#).unwrap();
+        let error = registry.all_versions_of(&module).unwrap_err();
+        assert!(!error.is::<crate::registry::RegistryModuleNotFound>());
+        assert!(error.is::<semver::Error>());
     }
 
     #[test]

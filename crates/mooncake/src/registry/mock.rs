@@ -167,7 +167,7 @@ impl Registry for MockRegistry {
                     })
                     .collect()
             })
-            .ok_or_else(|| anyhow::anyhow!("module not found in mock registry"))
+            .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))
             .map(Arc::new)
     }
 }

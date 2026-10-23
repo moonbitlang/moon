@@ -389,17 +389,19 @@ There are two kinds of sources that dependencies come from:
   `$MOON_HOME/registry/index`, which is typically populated from
   `mooncakes.io` by `moon update`. See the
   [Moon home layout](./moon-home-layout.md) for its physical structure.
-  It is declared with a version range (written as a version number)
-  and later resolved to a concrete version.
+  It is declared with a concrete version whose dependency metadata must exist
+  in the index. MVS may later raise the selected version to satisfy another
+  dependency's requirement.
 - A **local dependency** is fetched from a local path.
   It is declared with a relative path from the module's root directory.
 
 Module dependencies in `moon` are resolved using the [MVS][] algorithm,
-the same algorithm that Go used.
-MVS resolves each module dependency to the lowest version that satisfies all requirements.
-Since MoonBit packages follows [SemVer][],
-only caret version syntax is supported when specifying version requirements.
-The resolver interprets caret requirements with Go-style compatibility buckets:
+the same algorithm that Go uses.
+The resolver traverses the exact declared versions and then selects the highest
+required version in each compatible set. Missing declared versions are errors;
+the resolver does not search for a higher available release to replace them.
+Manifests specify full [SemVer][] version numbers, not version ranges.
+The resolver uses Go-style compatibility buckets:
 versions below `2.0.0` are treated as one compatible set, and versions `>= 2.0.0`
 are split by major version.
 See details in [Modules and packages][mod-pkg].

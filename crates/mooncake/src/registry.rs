@@ -44,8 +44,16 @@ pub struct RegistryVersionInfo {
     pub yanked_reason: Option<String>,
 }
 
+/// A registry has no entry for the requested module.
+#[derive(Debug, thiserror::Error)]
+#[error("module `{0}` was not found in the registry")]
+pub struct RegistryModuleNotFound(pub ModuleName);
+
 pub trait Registry {
     /// Get all versions of a module.
+    ///
+    /// Return [`RegistryModuleNotFound`] if the module has no registry entry.
+    /// Preserve other errors so callers can distinguish absence from a failed read.
     fn all_versions_of(
         &self,
         name: &ModuleName,

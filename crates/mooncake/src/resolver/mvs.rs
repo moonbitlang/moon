@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap, hash_map::Entry},
     path::PathBuf,
     sync::Arc,
 };
@@ -69,13 +69,13 @@ fn same_mvs_compatibility_set(lhs: &Version, rhs: &Version) -> bool {
     (lhs.major < 2 && rhs.major < 2) || lhs.major == rhs.major
 }
 
-fn select_min_version_satisfying<'a>(
+fn resolve_registry_module(
+    context: &mut ModuleResolutionContext,
     dependency: &ModuleName,
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
-    versions: impl Iterator<Item = &'a Version> + 'a,
     user_log: &UserLog,
-) -> Result<Version, ModuleResolutionError> {
+) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
     let required = req.version().ok_or_else(|| {
         ModuleResolutionError::Other(anyhow!(
             "Registry dependency `{}` for module `{}` must specify a version",
@@ -84,53 +84,22 @@ fn select_min_version_satisfying<'a>(
         ))
     })?;
 
-    // From lowest to highest version, find the first version that satisfies the requirement.
-    for version in versions {
-        if mvs_requirement_matches(required, version) {
-            return Ok(version.clone());
-        }
-    }
-
-    user_log.warn("you may need to run `moon update` to update the registry");
-    Err(ModuleResolutionError::NoSatisfiedVersion {
-        dependency: dependency.clone(),
-        dependant: dependant.clone(),
-        required: required.clone(),
-    })
-}
-
-fn resolve_registry_module(
-    context: &mut ModuleResolutionContext,
-    dependency: &ModuleName,
-    dependant: &ModuleName,
-    req: &SourceDependencyInfo,
-    user_log: &UserLog,
-) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
-    let all_versions = context.all_versions_of(dependency).ok_or_else(|| {
-        user_log.warn("you may need to run `moon update` to update the registry");
-        ModuleResolutionError::ModuleMissing {
-            dependency: dependency.clone(),
-            dependant: dependant.clone(),
-        }
-    })?;
-
-    let min_version_satisfying =
-        select_min_version_satisfying(dependency, dependant, req, all_versions.keys(), user_log);
-    match min_version_satisfying {
-        Ok(version) => {
-            let source = ModuleSource::from_version(dependency.clone(), version)
-                .map_err(|err| ModuleResolutionError::Other(err.into()))?;
-            let module =
-                context
-                    .get(&source)
-                    .ok_or_else(|| ModuleResolutionError::ModuleMissing {
-                        dependency: dependency.clone(),
-                        dependant: dependant.clone(),
-                    })?;
-            Ok((source, module))
-        }
-        Err(err) => Err(err),
-    }
+    // Traverse the declared version's dependencies before merging MVS requirements.
+    // Substituting a later release here would let registry changes alter the graph.
+    let source = ModuleSource::from_version(dependency.clone(), required.clone())
+        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
+    let module = context
+        .get_registry_module(dependency, required, dependant)
+        .inspect_err(|error| {
+            if matches!(
+                error,
+                ModuleResolutionError::ModuleMissing { .. }
+                    | ModuleResolutionError::VersionMissing { .. }
+            ) {
+                user_log.warn("you may need to run `moon update` to update the registry");
+            }
+        })?;
+    Ok((source, module))
 }
 
 /// Checks whether resolving local dependency is allowed for the dependant package
@@ -231,27 +200,23 @@ fn mvs_resolve(
             )
         })
         .collect::<WorkspaceRoots>();
-    let root_sources = module_graph
-        .input_module_ids()
-        .iter()
-        .map(|&id| module_graph.module_source(id).clone())
-        .collect::<HashSet<_>>();
-
     // Ordered set used to ensure they are iterated in order later.
     let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
 
     // Collect all version constraints for each dependency.
-    let mut working_list = vec![];
-    // Roots are scheduled below, so mark them visited before traversal to prevent
-    // dependency edges back to a root from scheduling it a second time.
-    let mut visited = root_sources.clone();
-
-    working_list.extend(module_graph.input_module_ids().iter().map(|&id| {
-        (
-            module_graph.module_source(id).clone(),
-            Arc::clone(module_graph.module_info(id)),
-        )
-    }));
+    let mut working_list = module_graph
+        .input_module_ids()
+        .iter()
+        .map(|&id| {
+            (
+                module_graph.module_source(id).clone(),
+                Arc::clone(module_graph.module_info(id)),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Mark roots visited before traversal, and retain each visited manifest so
+    // final graph construction uses the same metadata without further lookups.
+    let mut loaded_modules = working_list.iter().cloned().collect::<HashMap<_, _>>();
     if tracing::enabled!(tracing::Level::DEBUG) {
         for &id in module_graph.input_module_ids() {
             tracing::debug!(module = %module_graph.module_source(id), "registered root module");
@@ -280,7 +245,8 @@ fn mvs_resolve(
             };
 
             // Add module to working list
-            if visited.insert(ms.clone()) {
+            if let Entry::Vacant(entry) = loaded_modules.entry(ms.clone()) {
+                entry.insert(Arc::clone(&module));
                 working_list.push((ms.clone(), module));
             }
 
@@ -397,7 +363,11 @@ fn mvs_resolve(
             let id = if let Some(id) = visited.get(resolved) {
                 *id
             } else {
-                let dep_module = context.get(resolved).unwrap();
+                let dep_module = Arc::clone(
+                    loaded_modules
+                        .get(resolved)
+                        .expect("selected modules were loaded during traversal"),
+                );
                 let id = module_graph.add_module(resolved.clone(), Arc::clone(&dep_module));
                 tracing::debug!(module = %resolved, module_id = ?id, "inserted resolved module");
                 visited.insert(resolved.clone(), id);
@@ -525,14 +495,16 @@ fn resolve_module_dependency(
 
 #[cfg(test)]
 mod test {
+    use std::{cell::Cell, collections::BTreeMap};
+
     use expect_test::expect;
     use moonutil::resolution::ModuleId;
     use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
 
     use super::*;
-    use crate::registry::Registry;
     use crate::registry::mock::{MockRegistry, create_mock_module};
+    use crate::registry::{Registry, RegistryVersionInfo};
     use crate::resolver::ModuleResolutionErrors;
     use crate::resolver::context::ModuleResolutionContext;
 
@@ -934,19 +906,128 @@ mod test {
     }
 
     #[test]
-    fn test_pre_v2_req_uses_lower_bound_semantics() {
+    fn test_missing_requested_registry_version_is_not_substituted() {
+        for (dependency, required, available) in [
+            ("dep/one", "0.1.1", "0.2.0"),
+            ("dep/one", "1.2.5", "1.3.0"),
+            ("dep/one/v2", "2.1.0", "2.2.0"),
+            ("dep/one", "1.2.0-rc.1", "1.2.0"),
+        ] {
+            let mut registry = MockRegistry::new();
+            registry.add_module_full(dependency, available, []);
+
+            let mut context = ModuleResolutionContext::new(&registry);
+            let mut resolver = MvsSolver;
+            let root = create_mock_module("root/module", "0.1.0", [(dependency, required)]);
+            let roots = create_mock_root(root);
+            let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+            let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
+            assert!(
+                !status,
+                "missing {dependency}@{required} must not select {available}"
+            );
+
+            let errors = context.into_errors();
+            assert_eq!(errors.len(), 1);
+            assert_eq!(
+                errors[0].to_string(),
+                format!(
+                    "Failed to resolve registry dependency `{dependency}` for module `root/module`: version `{required}` was not found in the registry"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn test_missing_transitive_version_is_not_hidden_by_a_higher_requirement() {
         let mut registry = MockRegistry::new();
-        registry.add_module_full("dep/one", "0.2.0", []);
+        registry
+            .add_module_full("dep/one", "1.3.0", [])
+            .add_module_full("dep/two", "1.0.0", [("dep/one", "1.2.5")]);
 
         let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
-        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/one", "1.3.0"), ("dep/two", "1.0.0")],
+        );
         let roots = create_mock_root(root);
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
         let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
-        assert!(status, "Resolve failed");
+        assert!(
+            !status,
+            "dep/two's missing requirement must still be checked"
+        );
 
-        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.2.0");
+        let errors = context.into_errors();
+        assert_eq!(errors.len(), 1);
+        expect![[r#"Failed to resolve registry dependency `dep/one` for module `dep/two`: version `1.2.5` was not found in the registry"#]]
+            .assert_eq(&errors[0].to_string());
+    }
+
+    #[test]
+    fn test_registry_read_failure_preserves_its_cause() {
+        struct UnreadableRegistry;
+
+        impl Registry for UnreadableRegistry {
+            fn all_versions_of(
+                &self,
+                _name: &ModuleName,
+            ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
+                Err(anyhow::Error::new(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "permission denied by registry fixture",
+                ))
+                .context("could not read registry metadata"))
+            }
+        }
+
+        let mut context = ModuleResolutionContext::new(&UnreadableRegistry);
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
+        assert!(!resolve_silently(
+            &mut MvsSolver,
+            &mut context,
+            &mut module_graph
+        ));
+
+        let errors = context.into_errors();
+        assert_eq!(errors.len(), 1);
+        expect![[r#"Failed to read registry dependency `dep/one@1.2.3` for module `root/module`: could not read registry metadata: permission denied by registry fixture"#]]
+            .assert_eq(&errors[0].to_string());
+        let source =
+            std::error::Error::source(&errors[0]).expect("registry error must retain its cause");
+        assert_eq!(source.to_string(), "could not read registry metadata");
+    }
+
+    #[test]
+    fn test_graph_construction_reuses_loaded_metadata() {
+        struct SingleReadRegistry(Cell<bool>);
+
+        impl Registry for SingleReadRegistry {
+            fn all_versions_of(
+                &self,
+                _name: &ModuleName,
+            ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
+                anyhow::ensure!(!self.0.replace(true), "registry metadata was read again");
+                Ok(Arc::new(BTreeMap::from([(
+                    Version::new(1, 2, 3),
+                    RegistryVersionInfo::default(),
+                )])))
+            }
+        }
+
+        let registry = SingleReadRegistry(Cell::new(false));
+        let mut context = ModuleResolutionContext::new(&registry);
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
+        assert!(resolve_silently(
+            &mut MvsSolver,
+            &mut context,
+            &mut module_graph
+        ));
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@1.2.3");
     }
 
     #[test]
