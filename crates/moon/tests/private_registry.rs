@@ -20,7 +20,7 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Cursor, Read, Write},
     net::{TcpListener, TcpStream},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -75,6 +75,10 @@ struct RegistryServer {
 
 impl RegistryServer {
     fn new() -> Self {
+        Self::with_login_switch(None)
+    }
+
+    fn with_login_switch(mut credentials_path: Option<PathBuf>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -171,6 +175,17 @@ impl RegistryServer {
                     (404, Vec::new())
                 };
                 recorded.lock().unwrap().push(request);
+                if let Some(credentials_path) = credentials_path.take() {
+                    moonutil::registry::RegistryCredentials::save(
+                        &credentials_path,
+                        moonutil::registry::Credentials {
+                            username: Some("bob".into()),
+                            token: "test-other-user".into(),
+                        },
+                        &base,
+                    )
+                    .unwrap();
+                }
                 write!(
                     stream,
                     "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -249,7 +264,8 @@ fn private_dependencies_add_build_run_and_reuse_offline_caches() {
         let project = tempfile::tempdir().unwrap();
         let cache = tempfile::tempdir().unwrap();
         let cache = shared_cache.then_some(cache.path());
-        let mut server = RegistryServer::new();
+        let mut server =
+            RegistryServer::with_login_switch(Some(home.path().join("credentials.json")));
         let public_index = home.path().join("registry/index/user/alice/public.index");
         std::fs::create_dir_all(public_index.parent().unwrap()).unwrap();
         std::fs::write(
@@ -296,6 +312,20 @@ fn private_dependencies_add_build_run_and_reuse_offline_caches() {
             .args(["add", "--no-update", "alice/secret@0.1.0"])
             .assert()
             .success();
+        let saved =
+            moonutil::registry::RegistryCredentials::load(&home.path().join("credentials.json"))
+                .unwrap()
+                .unwrap();
+        assert_eq!(saved.credentials.username.as_deref(), Some("bob"));
+        moonutil::registry::RegistryCredentials::save(
+            &home.path().join("credentials.json"),
+            moonutil::registry::Credentials {
+                username: Some("alice".into()),
+                token: "test-cli-owner".into(),
+            },
+            &server.api,
+        )
+        .unwrap();
         moon(project.path(), home.path(), cache, api_metadata)
             .args(["build", "--target", "js"])
             .assert()
@@ -419,7 +449,7 @@ Artifacts:
 Error: [..]
 
 Caused by:
-    Failed to read registry dependency `alice/secret@0.1.0` for module `test/app`: missing cached registry metadata for alice/secret; frozen mode cannot fetch it
+    Failed to read registry dependency `alice/secret@0.1.0` for module `test/app`: Module `alice/secret` not found or access denied; check your registry login or run `moon login` again
 
 "#]]);
     }

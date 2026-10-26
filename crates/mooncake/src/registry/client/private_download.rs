@@ -539,32 +539,29 @@ mod tests {
     }
 
     #[test]
-    fn private_source_cache_namespace_tracks_registry_and_account() {
+    fn private_source_cache_is_registry_scoped_and_owner_checked() {
         use crate::registry::RegistrySource;
 
         let fixture = Fixture::new();
         let server = api_test_server(
             fixture.api_listener.try_clone().unwrap(),
-            vec![
-                (200, String::new(), fixture.metadata()),
-                (200, String::new(), fixture.metadata()),
-            ],
+            vec![(200, String::new(), fixture.metadata())],
         );
         let alice = fixture
             .registry()
             .source_cache_namespace(&fixture.module)
             .unwrap();
         save_test_login(fixture.home.path(), &fixture.api, "bob", "bob-token");
-        let bob = fixture
+        let error = fixture
             .registry()
             .source_cache_namespace(&fixture.module)
-            .unwrap();
-        assert_ne!(alice, bob);
+            .unwrap_err();
+        assert!(error.downcast_ref::<RegistryMetadataDenied>().is_some());
         server.join().unwrap();
         let other = api_test_registry(fixture.home.path(), "https://example.com")
             .private_cache_namespace()
             .unwrap();
-        assert!(other.is_none());
+        assert_ne!(alice, Some(other));
         let index = fixture
             .registry()
             .home
@@ -577,6 +574,92 @@ mod tests {
                 .source_cache_namespace(&fixture.module)
                 .unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn capability_renewal_keeps_the_original_identity_after_login_switch() {
+        use std::io::{BufRead, Write};
+
+        let fixture = Fixture::new();
+        let registry = fixture.registry();
+        let server = api_test_server(
+            fixture.api_listener.try_clone().unwrap(),
+            vec![
+                (200, String::new(), fixture.metadata()),
+                (
+                    200,
+                    String::new(),
+                    fixture.capability("first").to_string().into_bytes(),
+                ),
+                (
+                    200,
+                    String::new(),
+                    fixture.capability("second").to_string().into_bytes(),
+                ),
+            ],
+        );
+        let cdn_listener = fixture.cdn_listener.try_clone().unwrap();
+        let home = fixture.home.path().to_owned();
+        let api = fixture.api.clone();
+        let archive = fixture.archive.clone();
+        let cdn = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for status in [403, 200] {
+                let (mut stream, _) = cdn_listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = std::io::BufReader::new(&stream);
+                let mut request = String::new();
+                loop {
+                    let mut line = String::new();
+                    assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    request.push_str(&line);
+                }
+                requests.push(request);
+                if status == 403 {
+                    save_test_login(&home, &api, "bob", "bob-token");
+                }
+                let body = if status == 200 {
+                    archive.as_slice()
+                } else {
+                    &[]
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+            }
+            requests
+        });
+        fixture.materialize(&registry, "source").unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(requests.iter().all(|request| {
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer test-private-token")
+        }));
+        assert!(
+            cdn.join()
+                .unwrap()
+                .iter()
+                .all(|request| !request.to_ascii_lowercase().contains("authorization:"))
+        );
+        assert!(fixture.archive_path().is_file());
+        assert!(
+            fixture
+                .materialize(&fixture.registry().offline(), "bob")
+                .unwrap_err()
+                .downcast_ref::<RegistryMetadataDenied>()
+                .is_some()
         );
     }
 }
