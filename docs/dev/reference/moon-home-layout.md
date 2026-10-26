@@ -35,7 +35,7 @@ $MOON_HOME/
       ...
     symbols/
       ...
-    private/<api-hash>/<identity-hash>/<module-hash>.metadata-v4/
+    private/<api-hash>/content-v1/<module-hash>.metadata-v4/
       releases/<version-hash>.json
       latest.json
     cache/
@@ -76,14 +76,12 @@ $MOON_HOME/
   for every declared version. Unversioned commands may omit the query to ask for
   latest. Neither operation lists version history or performs a range lookup.
   Exact version identity, dependencies and SHA-256 are validated before caching.
-- API release records are keyed by normalized API URL, identity, module and exact
-  version beneath `registry/private`. Identity is the saved username, a token
-  hash for older unnamed credentials, or anonymous for public records only.
-  Private records are read and written only in a non-anonymous namespace selected
-  by nonempty credentials bound to this registry. This does not require an online
-  token check when reusing an account's existing cache. The optional `latest.json`
-  contains only a version pointer. Exact requests share release records directly;
-  no generation or range-selection cache is needed. Online latest lookups refresh across client
+- API release records are keyed by normalized API URL, module and exact version
+  beneath `registry/private`. They have no account or token partition. The
+  `content-v1` layout does not discover entries in the earlier experimental
+  account-partitioned layout. The optional `latest.json` contains only a version
+  pointer. Exact requests share release records directly; no generation or
+  range-selection cache is needed. Online latest lookups refresh across client
   instances; locally-known-latest executable selectors
   deliberately prefer a cached latest pointer.
 - In API mode, `moon update` reports that registry metadata refresh is not yet
@@ -93,15 +91,21 @@ $MOON_HOME/
 - Metadata is atomically written through owner-only temporary files; Unix
   directories are owner-only. Cached deprecation state is advisory and can be
   stale: refreshing latest does not invalidate immutable release records.
-- Switching registry or account cannot read another namespace's cached records.
+- Every private metadata result passes an owner check in the resolver-facing
+  registry client, including memory and disk hits. The captured login must have
+  a nonempty token, a confirmed username matching the module owner, and an explicit
+  matching registry binding. Incomplete legacy logins require `moon login` again
+  for private dependencies; public reads retain their compatibility behavior.
+  This local check does not validate expiry or revocation online and is not a
+  filesystem security boundary. Registry switching selects different content.
   Tokens are never written into metadata. Exclude private metadata and sources
   from shared or publicly exported CI caches. Authentication, transport and
   validation failures propagate rather than retrying anonymously or guessing
   from the public index. A denied request does not reveal module visibility.
 - Private source archives are reserved beneath
-  `registry/private/<api-hash>/<identity-hash>/<module-hash>.archives/<version>.zip`;
+  `registry/private/<api-hash>/content-v1/<module-hash>.archives/<version>.zip`;
   immutable private source trees use
-  `cache/deps/v1/private/<api-hash>/<identity-hash>/sources/<username>/<encoded-module>/<version>/`.
+  `cache/deps/v1/private/<api-hash>/sources/<username>/<encoded-module>/<version>/`.
   This layer does not download private sources or prebuilt artifacts: cache
   misses fail closed without public download fallback.
 - `registry/symbols` is the symbols archive materialized by registry sync.
@@ -128,6 +132,14 @@ $MOON_HOME/
   only to `https://mooncakes.io`; custom registry users must log in again with
   a client that records the binding. This remains one saved login, not a
   multiple-registry credential store.
+- The login producer verifies the token and its corresponding username with the
+  registry before saving the complete token/username/registry tuple. The consumer
+  reads one snapshot when the operation first needs authentication or resolver
+  metadata and retains it for the RegistryClient lifetime, including cache hits,
+  HTTP retries, response processing and capability renewal. Changes to the file
+  affect subsequent operations, never the in-progress request or its response.
+  Account switches and logout deny private dependency use during resolution even
+  when the shared content exists; same-owner token rotation reuses content.
 - Credential matching normalizes URL spelling, including default ports and
   trailing slashes, but preserves scheme, port, and API base path. Authenticated
   requests require HTTPS except on loopback addresses. API redirects may stay

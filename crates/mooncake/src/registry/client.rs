@@ -22,7 +22,7 @@ use std::{
     fs::File,
     io::{BufRead, Read, Seek, Write},
     path::Path,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::{Context, bail};
@@ -78,10 +78,8 @@ struct RegistryMetadata {
     release: RegistryIndexEntry,
 }
 
-/// Keep cache eligibility tied to the namespace chosen for this cache access.
 struct RegistryMetadataCache {
     path: std::path::PathBuf,
-    has_credentials: bool,
 }
 
 impl RegistryMetadataCache {
@@ -98,18 +96,21 @@ impl RegistryMetadataCache {
     fn latest_path(&self) -> std::path::PathBuf {
         self.path.with_extension("metadata-v4").join("latest.json")
     }
-
-    fn validate_visibility(
-        &self,
-        name: &ModuleName,
-        visibility: &RegistryVisibility,
-    ) -> anyhow::Result<()> {
-        if *visibility == RegistryVisibility::Private && !self.has_credentials {
-            return Err(RegistryMetadataDenied(name.clone()).into());
-        }
-        Ok(())
-    }
 }
+
+/// One credential snapshot, retained across requests, cache hits and renewals.
+struct RegistryAuthentication {
+    credentials: Option<RegistryCredentials>,
+}
+
+/// A moon CLI process executes one top-level command, possibly in several phases.
+/// Configured clients in those phases must share configuration and authentication.
+struct ConfiguredRegistry {
+    config: RegistryConfig,
+    authentication: Arc<OnceLock<Result<RegistryAuthentication, String>>>,
+}
+
+static CONFIGURED_REGISTRY: OnceLock<ConfiguredRegistry> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MetadataSelector {
@@ -336,7 +337,8 @@ pub struct RegistryClient {
     selections: RefCell<HashMap<std::path::PathBuf, Version>>,
     offline: bool,
     api_metadata: bool,
-    metadata_http: RefCell<Option<(Option<HeaderValue>, reqwest::blocking::Client)>>,
+    authentication: Arc<OnceLock<Result<RegistryAuthentication, String>>>,
+    metadata_http: RefCell<Option<reqwest::blocking::Client>>,
 }
 
 impl RegistryClient {
@@ -354,47 +356,58 @@ impl RegistryClient {
             == RegistryVisibility::Private)
     }
 
-    fn private_cache_namespace(&self) -> anyhow::Result<Option<std::path::PathBuf>> {
-        let api = registry_api_url(&self.endpoints.api)?;
-        let identity = match RegistryCredentials::load(&self.home.credentials_path())? {
-            Some(saved)
-                if saved.matches_registry(&self.endpoints.api)?
-                    && !saved.credentials.token.trim().is_empty() =>
-            {
-                saved
-                    .credentials
-                    .username
-                    .map(|username| format!("user:{username}"))
-                    .unwrap_or_else(|| {
-                        format!("token:{}", sha256_hex(saved.credentials.token.as_bytes()))
-                    })
-            }
-            _ => return Ok(None),
-        };
-        Ok(Some(
-            std::path::PathBuf::from(sha256_hex(api.as_str().as_bytes()))
-                .join(sha256_hex(identity.as_bytes())),
-        ))
+    fn authentication(&self) -> anyhow::Result<&RegistryAuthentication> {
+        self.authentication
+            .get_or_init(|| {
+                RegistryCredentials::load(&self.home.credentials_path())
+                    .map(|credentials| RegistryAuthentication { credentials })
+                    .map_err(|error| error.to_string())
+            })
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    fn check_private_access(
+        &self,
+        name: &ModuleName,
+        visibility: &RegistryVisibility,
+    ) -> anyhow::Result<()> {
+        if *visibility == RegistryVisibility::Public {
+            return Ok(());
+        }
+        let denied = || RegistryMetadataDenied(name.clone());
+        let saved = self
+            .authentication()?
+            .credentials
+            .as_ref()
+            .ok_or_else(denied)?;
+        if !saved.matches_registry(&self.endpoints.api)?
+            || saved.credentials.token.trim().is_empty()
+        {
+            return Err(denied().into());
+        }
+        let username = saved.confirmed_username(&self.endpoints.api)?;
+        if username != name.username {
+            return Err(denied().into());
+        }
+        Ok(())
+    }
+
+    fn private_cache_namespace(&self) -> anyhow::Result<std::path::PathBuf> {
+        Ok(std::path::PathBuf::from(sha256_hex(
+            registry_api_url(&self.endpoints.api)?.as_str().as_bytes(),
+        )))
     }
 
     fn metadata_cache(&self, name: &ModuleName) -> anyhow::Result<RegistryMetadataCache> {
-        let namespace = self.private_cache_namespace()?;
-        let has_credentials = namespace.is_some();
-        let namespace = match namespace {
-            Some(namespace) => namespace,
-            None => std::path::PathBuf::from(sha256_hex(
-                registry_api_url(&self.endpoints.api)?.as_str().as_bytes(),
-            ))
-            .join(sha256_hex(b"anonymous")),
-        };
         Ok(RegistryMetadataCache {
             path: self
                 .home
                 .registry_dir()
                 .join("private")
-                .join(namespace)
+                .join(self.private_cache_namespace()?)
+                .join("content-v1")
                 .join(format!("{}.json", sha256_hex(name.to_string().as_bytes()))),
-            has_credentials,
         })
     }
 
@@ -416,7 +429,7 @@ impl RegistryClient {
             },
         };
         Self::validate_metadata(name, &MetadataSelector::Exact(version.clone()), &cached)?;
-        cache.validate_visibility(name, &cached.visibility)?;
+        self.check_private_access(name, &cached.visibility)?;
         self.metadata.borrow_mut().insert(path, cached.clone());
         Ok(Some(cached))
     }
@@ -523,6 +536,7 @@ impl RegistryClient {
         selector: &MetadataSelector,
     ) -> anyhow::Result<RegistryMetadata> {
         super::path::parse_module_path(&name.to_string())?;
+        self.authentication()?;
         if let MetadataSelector::Exact(version) = selector {
             if let Some(metadata) = self.cached_release(name, version)? {
                 return Ok(metadata);
@@ -584,7 +598,7 @@ impl RegistryClient {
                 .context("missing registry version")?,
         )?;
         let cache = self.metadata_cache(name)?;
-        cache.validate_visibility(name, &metadata.visibility)?;
+        self.check_private_access(name, &metadata.visibility)?;
         let path = cache.release_path(&version);
         self.write_metadata_cache(&path, &metadata)?;
         self.metadata.borrow_mut().insert(path, metadata.clone());
@@ -629,26 +643,20 @@ impl RegistryClient {
     }
 
     fn metadata_http_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
-        let authorization = RegistryCredentials::load(&self.home.credentials_path())?
-            .map(|saved| registry_authorization(&saved, &registry_api_url(&self.endpoints.api)?))
-            .transpose()?
-            .flatten();
-        if let Some((identity, client)) = self.metadata_http.borrow().as_ref()
-            && identity == &authorization
-        {
+        if let Some(client) = self.metadata_http.borrow().as_ref() {
             return Ok(client.clone());
         }
         let client = self.api_http_client()?;
-        *self.metadata_http.borrow_mut() = Some((authorization, client.clone()));
+        *self.metadata_http.borrow_mut() = Some(client.clone());
         Ok(client)
     }
 
     fn api_http_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
         let mut builder = reqwest::blocking::Client::builder()
             .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")));
-        if let Some(saved) = RegistryCredentials::load(&self.home.credentials_path())? {
+        if let Some(saved) = self.authentication()?.credentials.as_ref() {
             let api = registry_api_url(&self.endpoints.api)?;
-            if let Some(authorization) = registry_authorization(&saved, &api)? {
+            if let Some(authorization) = registry_authorization(saved, &api)? {
                 let mut headers = HeaderMap::new();
                 headers.insert(AUTHORIZATION, authorization);
                 let api_path = format!("{}/api/", api.path().trim_end_matches('/'));
@@ -677,7 +685,13 @@ impl RegistryClient {
 
     /// Load registry configuration and use the standard local index and cache.
     pub fn configured() -> Self {
-        Self::from_config(RegistryConfig::load())
+        let configured = CONFIGURED_REGISTRY.get_or_init(|| ConfiguredRegistry {
+            config: RegistryConfig::load(),
+            authentication: Arc::new(OnceLock::new()),
+        });
+        let mut client = Self::from_config(configured.config.clone());
+        client.authentication = Arc::clone(&configured.authentication);
+        client
     }
 
     fn from_config(config: RegistryConfig) -> Self {
@@ -694,6 +708,7 @@ impl RegistryClient {
             selections: RefCell::new(HashMap::new()),
             offline: false,
             api_metadata: std::env::var("MOON_REGISTRY_API").is_ok_and(|value| value == "1"),
+            authentication: Arc::new(OnceLock::new()),
             metadata_http: RefCell::new(None),
         }
     }
@@ -1115,10 +1130,7 @@ impl super::RegistrySource for RegistryClient {
         if !self.is_private_release(module.name(), module.version())? {
             Ok(None)
         } else {
-            let namespace = self
-                .private_cache_namespace()?
-                .ok_or_else(|| RegistryMetadataDenied(module.name().clone()))?;
-            Ok(Some(namespace))
+            Ok(Some(self.private_cache_namespace()?))
         }
     }
 
@@ -1289,7 +1301,6 @@ impl RegistryClient {
         let private = self.is_private_release(name, version)?;
         let cache_file = if private {
             let cache = self.metadata_cache(name)?;
-            cache.validate_visibility(name, &RegistryVisibility::Private)?;
             cache
                 .path
                 .with_extension("archives")
@@ -1512,20 +1523,24 @@ mod tests {
     }
 
     #[test]
-    fn private_cache_namespace_requires_registry_bound_nonempty_credentials() {
+    fn private_content_cache_is_registry_scoped_not_account_scoped() {
         let home = tempfile::tempdir().unwrap();
         let api = "https://example.com";
         let registry = api_test_registry(home.path(), api);
-        assert_eq!(registry.private_cache_namespace().unwrap(), None);
+        let namespace = registry.private_cache_namespace().unwrap();
 
         save_test_login(home.path(), api, "alice", "test-alice");
-        assert!(registry.private_cache_namespace().unwrap().is_some());
+        assert_eq!(registry.private_cache_namespace().unwrap(), namespace);
 
-        save_test_login(home.path(), api, "alice", " ");
-        assert_eq!(registry.private_cache_namespace().unwrap(), None);
+        save_test_login(home.path(), api, "bob", "test-bob");
+        assert_eq!(registry.private_cache_namespace().unwrap(), namespace);
 
-        save_test_login(home.path(), "https://other.example", "alice", "test-alice");
-        assert_eq!(registry.private_cache_namespace().unwrap(), None);
+        assert_ne!(
+            api_test_registry(home.path(), "https://other.example")
+                .private_cache_namespace()
+                .unwrap(),
+            namespace
+        );
     }
 
     #[test]
@@ -1572,7 +1587,7 @@ mod tests {
         let cache = registry.metadata_cache(&name).unwrap();
         let metadata: RegistryMetadata =
             serde_json::from_str(&resolver_response("alice/secret", "PRIVATE", "0.1.0")).unwrap();
-        // Simulate private entries left in the anonymous namespace by an older client.
+        // Shared content must still pass owner checks on every resolution.
         registry
             .write_metadata_cache(&cache.release_path(&version), &metadata)
             .unwrap();
@@ -1760,7 +1775,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_metadata_cache_is_bound_to_the_api_and_account() {
+    fn shared_private_metadata_checks_owner_even_when_cached() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -1785,7 +1800,7 @@ mod tests {
                 .latest_version(&name)
                 .unwrap_err()
                 .to_string()
-                .contains("missing cached")
+                .contains("not found or access denied")
         );
         save_test_login(home.path(), &api, "alice", "test-alice");
         assert!(
@@ -1825,11 +1840,11 @@ mod tests {
             Some(version.clone())
         );
         assert_eq!(server.join().unwrap().len(), 1);
-        let namespace = registry.private_cache_namespace().unwrap().unwrap();
+        let namespace = registry.private_cache_namespace().unwrap();
 
         save_test_login(home.path(), &api, "alice", "after-rotation");
         let offline = api_test_registry(home.path(), &api).offline();
-        assert_eq!(offline.private_cache_namespace().unwrap(), Some(namespace));
+        assert_eq!(offline.private_cache_namespace().unwrap(), namespace);
         assert_eq!(
             offline.latest_version(&name).unwrap(),
             Some(version.clone())
@@ -1838,7 +1853,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_connection_pool_tracks_token_rotation_for_the_same_account() {
+    fn metadata_requests_keep_the_original_account_after_credentials_change() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -1863,7 +1878,7 @@ mod tests {
         registry
             .version_info(&name, &Version::new(0, 1, 0))
             .unwrap();
-        save_test_login(home.path(), &api, "alice", "after-rotation");
+        save_test_login(home.path(), &api, "bob", "bob-token");
         registry
             .version_info(&name, &Version::new(0, 1, 1))
             .unwrap();
@@ -1876,8 +1891,115 @@ mod tests {
         assert!(
             requests[1]
                 .to_lowercase()
-                .contains("authorization: bearer after-rotation")
+                .contains("authorization: bearer before-rotation")
         );
+    }
+
+    #[test]
+    fn response_processing_keeps_the_request_identity() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "alice-token");
+        let registry = api_test_registry(home.path(), &api);
+        let credentials_home = home.path().to_owned();
+        let server_api = api.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = String::new();
+            let mut reader = std::io::BufReader::new(&stream);
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                request.push_str(&line);
+            }
+            save_test_login(&credentials_home, &server_api, "bob", "bob-token");
+            let body = resolver_response("alice/secret", "PRIVATE", "0.1.0");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+            request
+        });
+        let name: ModuleName = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        assert!(
+            server
+                .join()
+                .unwrap()
+                .to_ascii_lowercase()
+                .contains("authorization: bearer alice-token")
+        );
+        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        let bob = api_test_registry(home.path(), &api).offline();
+        assert!(
+            bob.version_info(&name, &version)
+                .unwrap_err()
+                .downcast_ref::<RegistryMetadataDenied>()
+                .is_some()
+        );
+        assert_eq!(
+            registry.metadata_cache(&name).unwrap().path,
+            bob.metadata_cache(&name).unwrap().path
+        );
+    }
+
+    #[test]
+    fn incomplete_private_credentials_require_login_without_blocking_public_cache() {
+        let home = tempfile::tempdir().unwrap();
+        let api = "https://example.com";
+        let name: ModuleName = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        let public: ModuleName = "alice/public".into();
+        let registry = api_test_registry(home.path(), api);
+        let private_metadata: RegistryMetadata =
+            serde_json::from_str(&resolver_response("alice/secret", "PRIVATE", "0.1.0")).unwrap();
+        let public_metadata: RegistryMetadata =
+            serde_json::from_str(&resolver_response("alice/public", "PUBLIC", "0.1.0")).unwrap();
+        registry
+            .write_metadata_cache(
+                &registry
+                    .metadata_cache(&name)
+                    .unwrap()
+                    .release_path(&version),
+                &private_metadata,
+            )
+            .unwrap();
+        registry
+            .write_metadata_cache(
+                &registry
+                    .metadata_cache(&public)
+                    .unwrap()
+                    .release_path(&version),
+                &public_metadata,
+            )
+            .unwrap();
+        for username in [None, Some(""), Some(" ")] {
+            RegistryCredentials::save(
+                &home.path().join("credentials.json"),
+                moonutil::registry::Credentials {
+                    token: "legacy-token".into(),
+                    username: username.map(String::from),
+                },
+                api,
+            )
+            .unwrap();
+            let offline = api_test_registry(home.path(), api).offline();
+            assert!(offline.version_info(&public, &version).unwrap().is_some());
+            let error = offline.version_info(&name, &version).unwrap_err();
+            assert!(error.to_string().contains("moon login"));
+            assert!(!error.to_string().contains("legacy-token"));
+        }
     }
 
     #[test]

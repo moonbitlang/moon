@@ -265,7 +265,7 @@ options(
     }
 
     #[test]
-    fn private_source_namespaces_do_not_reuse_public_or_other_accounts() {
+    fn private_source_namespaces_are_shared_by_accounts_but_separate_registries() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let cache = global_cache(&sandbox.path().join("cache"));
         let (resolved, module) = test_env();
@@ -278,9 +278,11 @@ options(
         .unwrap();
         let public = TestRegistry::new(false);
         let mut alice = TestRegistry::new(false);
-        alice.namespace = Some("registry/alice".into());
+        alice.namespace = Some("registry-one".into());
         let mut bob = TestRegistry::new(false);
-        bob.namespace = Some("registry/bob".into());
+        bob.namespace = Some("registry-one".into());
+        let mut other_registry = TestRegistry::new(false);
+        other_registry.namespace = Some("registry-two".into());
         let public_dirs = source
             .ensure(&public, &resolved, false, &user_log())
             .unwrap();
@@ -289,10 +291,12 @@ options(
             .unwrap();
         let bob_dirs = source.ensure(&bob, &resolved, false, &user_log()).unwrap();
         assert_ne!(alice_dirs[module], public_dirs[module]);
-        assert_ne!(alice_dirs[module], bob_dirs[module]);
-        assert!(
-            alice_dirs[module].ends_with("v1/private/registry/alice/sources/test/module/1.2.3")
-        );
+        assert_eq!(alice_dirs[module], bob_dirs[module]);
+        let other_dirs = source
+            .ensure(&other_registry, &resolved, false, &user_log())
+            .unwrap();
+        assert_ne!(alice_dirs[module], other_dirs[module]);
+        assert!(alice_dirs[module].ends_with("v1/private/registry-one/sources/test/module/1.2.3"));
         source.ensure(&alice, &resolved, true, &user_log()).unwrap();
         #[cfg(unix)]
         {
@@ -307,7 +311,8 @@ options(
             );
         }
         assert_eq!(alice.installations.load(Ordering::SeqCst), 1);
-        assert_eq!(bob.installations.load(Ordering::SeqCst), 1);
+        assert_eq!(bob.installations.load(Ordering::SeqCst), 0);
+        assert_eq!(other_registry.installations.load(Ordering::SeqCst), 1);
         assert_eq!(public.installations.load(Ordering::SeqCst), 1);
     }
 

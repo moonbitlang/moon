@@ -613,7 +613,7 @@ pub struct Credentials {
     pub username: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegistryConfig {
     pub api: String,
     pub index: String,

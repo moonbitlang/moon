@@ -101,7 +101,7 @@ pub trait Registry {
 }
 
 pub(crate) trait RegistrySource {
-    /// Isolate private source trees by registry and account in the shared cache.
+    /// Isolate private source trees by registry, independently of login identity.
     /// Public registries retain the existing unqualified layout.
     fn source_cache_namespace(
         &self,

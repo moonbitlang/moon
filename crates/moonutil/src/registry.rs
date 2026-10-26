@@ -54,6 +54,23 @@ pub fn registry_api_url(api: &str) -> anyhow::Result<Url> {
 }
 
 impl RegistryCredentials {
+    /// Consume the complete identity contract written by a registry login client.
+    /// This is local validation, not a request to validate the token online.
+    pub fn confirmed_username(&self, api: &str) -> anyhow::Result<&str> {
+        let username = self
+            .credentials
+            .username
+            .as_deref()
+            .filter(|name| !name.trim().is_empty());
+        if self.registry_api.is_none() || username.is_none() {
+            bail!("Saved registry credentials are incomplete; run `moon login` again");
+        }
+        if !self.matches_registry(api)? || self.credentials.token.trim().is_empty() {
+            bail!("Saved registry credentials do not match this registry; run `moon login` again");
+        }
+        Ok(username.expect("checked above"))
+    }
+
     /// Read a saved login, returning `None` only when the file does not exist.
     pub fn load(path: &Path) -> anyhow::Result<Option<Self>> {
         let file = match File::open(path) {
@@ -103,6 +120,33 @@ mod tests {
         Credentials {
             token: "test-only-token".into(),
             username: Some("alice".into()),
+        }
+    }
+
+    #[test]
+    fn private_identity_requires_the_complete_saved_login() {
+        let complete: RegistryCredentials = serde_json_lenient::from_str(
+            r#"{"token":"test-token","username":"alice","registry_api":"https://example.com"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            complete.confirmed_username("https://example.com/").unwrap(),
+            "alice"
+        );
+        assert!(
+            complete
+                .confirmed_username("https://other.example")
+                .is_err()
+        );
+        for json in [
+            r#"{"token":"test-token","registry_api":"https://example.com"}"#,
+            r#"{"token":"test-token","username":"alice"}"#,
+            r#"{"token":"test-token","username":" ","registry_api":"https://example.com"}"#,
+        ] {
+            let saved: RegistryCredentials = serde_json_lenient::from_str(json).unwrap();
+            let error = saved.confirmed_username("https://example.com").unwrap_err();
+            assert!(error.to_string().contains("moon login"));
+            assert!(!error.to_string().contains("test-token"));
         }
     }
 
