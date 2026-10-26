@@ -3827,7 +3827,12 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         self.with_tls_handle_mut(handle, |handle| match handle {
             tls::TlsHandle::Empty(pending) => {
-                match tls::TlsConnection::client(&host, sni, pending.client_config(trust)) {
+                let config = pending.client_config(
+                    trust,
+                    #[cfg(target_os = "macos")]
+                    self.network.allows_unrestricted_connect(),
+                );
+                match tls::TlsConnection::client(&host, sni, config) {
                     Ok(connection) => {
                         *handle = tls::TlsHandle::Connection(Box::new(connection));
                         Ok(tls::TLS_SUCCESS_STATUS)

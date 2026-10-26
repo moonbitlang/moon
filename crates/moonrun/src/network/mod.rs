@@ -55,6 +55,13 @@ impl HostNetwork {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn allows_unrestricted_connect(&self) -> bool {
+        self.policy
+            .as_ref()
+            .is_none_or(NetPolicy::allows_unrestricted_connect)
+    }
+
     pub(crate) fn make_tcp_socket(&self, family: i32) -> AsyncHostResult<Resource> {
         let socket = sys::make_tcp_socket(family)?;
         Ok(Resource::tcp_socket(socket, family))
@@ -305,6 +312,12 @@ mod tests {
 
     fn network(mut policy: Policy) -> HostNetwork {
         HostNetwork::new(policy.take_network_policy())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ambient_network_allows_platform_certificate_fetches() {
+        assert!(network(Policy::allow_all()).allows_unrestricted_connect());
     }
 
     #[test]

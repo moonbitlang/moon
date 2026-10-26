@@ -27,6 +27,8 @@ use openssl::ssl::{
     Error as SslError, ErrorCode, Ssl, SslContextBuilder, SslFiletype, SslMethod, SslMode,
     SslStream, SslVerifyMode,
 };
+#[cfg(target_os = "macos")]
+use openssl::ssl::{SslOptions, SslSessionCacheMode, StatusType};
 use openssl::x509::{X509, X509Ref, store::X509StoreBuilder, verify::X509CheckFlags};
 
 use super::{
@@ -34,9 +36,19 @@ use super::{
     TLS_WOULD_BLOCK_STATUS, TlsConfig, TlsFileType, TlsTrust,
 };
 
+#[cfg(all(test, target_os = "macos"))]
+#[path = "openssl_tests.rs"]
+mod tests;
+
+#[cfg(target_os = "macos")]
+#[path = "sectrust.rs"]
+mod sectrust;
+
 pub(crate) struct TlsConnection {
     stream: Option<SslStream<QueueStream>>,
     pending_ssl: Option<Ssl>,
+    #[cfg(target_os = "macos")]
+    server_trust: Option<sectrust::ServerTrust>,
     // TlsConnection and OpenSSL's QueueStream adapter stay on the same
     // execution thread. RefCell scopes their temporary mutable access without
     // a lock.
@@ -56,6 +68,8 @@ impl TlsConnection {
         let TlsConfig::Client {
             trust,
             root_certificates,
+            #[cfg(target_os = "macos")]
+            allow_network_fetch,
         } = config
         else {
             return Err("TLS client requires client configuration".to_string());
@@ -63,15 +77,30 @@ impl TlsConnection {
         if trust != TlsTrust::CustomRoot && !root_certificates.is_empty() {
             return Err("TLS root certificates require custom root trust".to_string());
         }
+        if host.contains('\0') {
+            return Err("TLS hostname contains NUL".to_string());
+        }
         let mut ctx = SslContextBuilder::new(SslMethod::tls())
             .map_err(|error| format!("failed to create TLS client context: {error}"))?;
         ctx.set_mode(SslMode::ENABLE_PARTIAL_WRITE | SslMode::ACCEPT_MOVING_WRITE_BUFFER);
         match trust {
             TlsTrust::NoVerification => ctx.set_verify(SslVerifyMode::NONE),
             TlsTrust::SystemRoot => {
-                ctx.set_verify(SslVerifyMode::PEER);
-                load_system_root_paths(&mut ctx)
-                    .map_err(|error| format!("failed to load system TLS roots: {error}"))?;
+                #[cfg(target_os = "macos")]
+                {
+                    // SecTrust owns acceptance. Complete the protocol handshake
+                    // first so TLS 1.2's later CertificateStatus is available.
+                    // Application I/O remains gated on its verdict below.
+                    ctx.set_verify(SslVerifyMode::NONE);
+                    ctx.set_session_cache_mode(SslSessionCacheMode::OFF);
+                    ctx.set_options(SslOptions::NO_TICKET | SslOptions::NO_RENEGOTIATION);
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    ctx.set_verify(SslVerifyMode::PEER);
+                    load_system_root_paths(&mut ctx)
+                        .map_err(|error| format!("failed to load system TLS roots: {error}"))?;
+                }
             }
             TlsTrust::CustomRoot => {
                 ctx.set_verify(SslVerifyMode::PEER);
@@ -82,6 +111,11 @@ impl TlsConnection {
             .map_err(|error| format!("failed to create TLS client: {error}"))?;
         if trust == TlsTrust::CustomRoot {
             configure_custom_root_store(&mut ssl, &root_certificates)?;
+        }
+        #[cfg(target_os = "macos")]
+        if trust == TlsTrust::SystemRoot {
+            ssl.set_status_type(StatusType::OCSP)
+                .map_err(|error| format!("failed to request TLS OCSP response: {error}"))?;
         }
         ssl.set_connect_state();
         if !host.is_empty() {
@@ -96,7 +130,14 @@ impl TlsConnection {
             }
         }
 
-        Self::new(ssl, TlsMode::Client)
+        let connection = Self::new(ssl, TlsMode::Client)?;
+        #[cfg(target_os = "macos")]
+        let connection = Self {
+            server_trust: (trust == TlsTrust::SystemRoot)
+                .then(|| sectrust::ServerTrust::new(host, allow_network_fetch)),
+            ..connection
+        };
+        Ok(connection)
     }
 
     pub(crate) fn server(config: TlsConfig) -> Result<Self, String> {
@@ -149,6 +190,8 @@ impl TlsConnection {
         Ok(Self {
             stream: None,
             pending_ssl: Some(ssl),
+            #[cfg(target_os = "macos")]
+            server_trust: None,
             state,
             mode,
             shutdown_started: false,
@@ -375,6 +418,12 @@ impl TlsConnection {
         };
         match result {
             Ok(()) => {
+                #[cfg(target_os = "macos")]
+                if let (Some(trust), Some(stream)) = (&self.server_trust, &self.stream)
+                    && let Err(error) = trust.verify(stream.ssl())
+                {
+                    return self.error(error);
+                }
                 self.last_want_read = false;
                 self.last_want_write = self.output_pending();
                 TLS_SUCCESS_STATUS
@@ -488,6 +537,16 @@ impl TlsConnection {
     }
 
     fn is_init_finished(&self) -> bool {
+        // An Untrusted Guest may call read/write after a failed connect, or
+        // clear its diagnostic and retry. Neither may bypass platform trust.
+        #[cfg(target_os = "macos")]
+        if self
+            .server_trust
+            .as_ref()
+            .is_some_and(|trust| !trust.is_verified())
+        {
+            return false;
+        }
         self.stream
             .as_ref()
             .is_some_and(|stream| stream.ssl().is_init_finished())
@@ -718,17 +777,11 @@ fn configure_hostname_verification(
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn load_system_root_paths(ctx: &mut SslContextBuilder) -> Result<(), openssl::error::ErrorStack> {
     let mut loaded = false;
     let probe = openssl_probe::probe();
 
-    #[cfg(target_os = "macos")]
-    let cert_file = probe.cert_file.or_else(|| {
-        let cert_file = std::path::PathBuf::from("/etc/ssl/cert.pem");
-        cert_file.exists().then_some(cert_file)
-    });
-
-    #[cfg(not(target_os = "macos"))]
     let cert_file = probe.cert_file;
 
     if let Some(cert_file) = cert_file {

@@ -183,6 +183,33 @@ unread Job preserves that result. Exiting parents leave children with the
 supervisor. `Terminating` does not promise
 bounded teardown. See `tests/process_tree.rs` and `tests/guest_process_control.rs`.
 
+## TLS certificate verification on macOS
+
+For `SystemRoot` clients, OpenSSL performs the TLS protocol and macOS SecTrust
+decides whether the server certificate is trusted. This includes macOS trust
+settings and automatically distributed certificate distrust information that a
+PEM root bundle cannot express. `CustomRoot` remains an exclusive OpenSSL trust
+store; `NoVerification` keeps its explicit opt-out behavior.
+
+SecTrust runs synchronously after OpenSSL's protocol handshake, before the host
+reports connection success. This makes stapled OCSP available for both TLS 1.2
+and TLS 1.3. The hostname is checked independently of SNI; an omitted hostname
+keeps chain validation without a name check. Peer certificates are supplied as
+chain-building candidates, never as trust anchors.
+
+The connection becomes ready only after SecTrust accepts. Host reads and writes
+use that readiness check even if a guest ignores a failed connect, consumes the
+diagnostic, or retries. The verdict is retained only for that connection.
+Session reuse and TLS 1.2 renegotiation are disabled for these clients so neither
+can bypass a fresh trust decision.
+
+Normal runs retain Apple's network-fetch policy. Evaluation can therefore
+block on system services or issuer/revocation requests. When Moonrun network
+permissions restrict outgoing connections, evaluation disables its own network
+fetches because SecTrust cannot enforce Moonrun's per-destination rules.
+Installed distrust data, cached responses, and supplied OCSP responses still
+participate in that evaluation; failure never falls back to the PEM bundle.
+
 ## Worker cancellation
 
 The cancellation protocol follows upstream async #595. Workers acknowledge a
