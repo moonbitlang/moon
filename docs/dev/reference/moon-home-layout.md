@@ -134,9 +134,10 @@ $MOON_HOME/
   multiple-registry credential store.
 - The login producer verifies the token and its corresponding username with the
   registry before saving the complete token/username/registry tuple. The consumer
-  reads one snapshot when the operation first needs authentication or resolver
-  metadata and retains it for the RegistryClient lifetime, including cache hits,
-  HTTP retries, response processing and capability renewal. Changes to the file
+  reads one snapshot when the operation first needs authentication or private
+  metadata. Configured clients created in different phases of the same CLI
+  command share that snapshot, including cache hits, HTTP retries, response
+  processing and capability renewal. Changes to the file
   affect subsequent operations, never the in-progress request or its response.
   Account switches and logout deny private dependency use during resolution even
   when the shared content exists; same-owner token rotation reuses content.
