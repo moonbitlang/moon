@@ -71,15 +71,6 @@ struct SocketAddr {
 }
 
 impl NetPolicy {
-    // Platform trust evaluation makes its own connections, so it cannot apply
-    // our per-destination rules. Only an unrestricted grant permits fetching.
-    #[cfg(target_os = "macos")]
-    pub(crate) fn allows_unrestricted_connect(&self) -> bool {
-        self.connect
-            .iter()
-            .any(|rule| rule.host == SocketHostRule::Any && rule.port == SocketPortRule::Any)
-    }
-
     pub(super) fn from_config(config: NetConfig) -> anyhow::Result<Self> {
         let dns = config
             .dns
@@ -377,27 +368,6 @@ fn parse_socket_addr(addr: &[u8]) -> AsyncHostResult<SocketAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn platform_fetching_requires_unrestricted_connect_authority() {
-        for (connect, expected) in [
-            (vec![], false),
-            (vec!["example.com:443"], false),
-            (vec!["*:443"], false),
-            (vec!["127.0.0.1:*"], false),
-            (vec!["*:*"], true),
-        ] {
-            let policy = NetPolicy::from_config(NetConfig {
-                // DNS permission alone does not authorize certificate fetches.
-                dns: vec!["*".to_owned()],
-                connect: connect.into_iter().map(str::to_owned).collect(),
-                bind: vec!["*:*".to_owned()],
-            })
-            .unwrap();
-            assert_eq!(policy.allows_unrestricted_connect(), expected);
-        }
-    }
 
     #[test]
     fn dns_wildcard_matches_only_subdomains() {

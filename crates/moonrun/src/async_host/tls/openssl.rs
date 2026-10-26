@@ -28,7 +28,7 @@ use openssl::ssl::{
     SslStream, SslVerifyMode,
 };
 #[cfg(target_os = "macos")]
-use openssl::ssl::{SslOptions, SslSessionCacheMode, StatusType};
+use openssl::ssl::{SslOptions, StatusType};
 use openssl::x509::{X509, X509Ref, store::X509StoreBuilder, verify::X509CheckFlags};
 
 use super::{
@@ -68,8 +68,6 @@ impl TlsConnection {
         let TlsConfig::Client {
             trust,
             root_certificates,
-            #[cfg(target_os = "macos")]
-            allow_network_fetch,
         } = config
         else {
             return Err("TLS client requires client configuration".to_string());
@@ -92,8 +90,7 @@ impl TlsConnection {
                     // first so TLS 1.2's later CertificateStatus is available.
                     // Application I/O remains gated on its verdict below.
                     ctx.set_verify(SslVerifyMode::NONE);
-                    ctx.set_session_cache_mode(SslSessionCacheMode::OFF);
-                    ctx.set_options(SslOptions::NO_TICKET | SslOptions::NO_RENEGOTIATION);
+                    ctx.set_options(SslOptions::NO_RENEGOTIATION);
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -133,8 +130,7 @@ impl TlsConnection {
         let connection = Self::new(ssl, TlsMode::Client)?;
         #[cfg(target_os = "macos")]
         let connection = Self {
-            server_trust: (trust == TlsTrust::SystemRoot)
-                .then(|| sectrust::ServerTrust::new(host, allow_network_fetch)),
+            server_trust: (trust == TlsTrust::SystemRoot).then(|| sectrust::ServerTrust::new(host)),
             ..connection
         };
         Ok(connection)

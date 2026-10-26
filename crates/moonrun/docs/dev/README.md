@@ -200,15 +200,21 @@ chain-building candidates, never as trust anchors.
 The connection becomes ready only after SecTrust accepts. Host reads and writes
 use that readiness check even if a guest ignores a failed connect, consumes the
 diagnostic, or retries. The verdict is retained only for that connection.
-Session reuse and TLS 1.2 renegotiation are disabled for these clients so neither
-can bypass a fresh trust decision.
+Clients create a fresh OpenSSL context and do not install a previous session.
+TLS 1.2 renegotiation is disabled so another handshake cannot bypass the trust
+decision. Servers requiring renegotiation are therefore unsupported.
 
-Normal runs retain Apple's network-fetch policy. Evaluation can therefore
-block on system services or issuer/revocation requests. When Moonrun network
-permissions restrict outgoing connections, evaluation disables its own network
-fetches because SecTrust cannot enforce Moonrun's per-destination rules.
-Installed distrust data, cached responses, and supplied OCSP responses still
-participate in that evaluation; failure never falls back to the PEM bundle.
+SecTrust retains Apple's default network-fetch policy independently of Moonrun's
+guest socket permissions. System trust services may fetch missing issuer
+certificates and revocation information using URLs from the certificate chain;
+destinations include CA-operated services and are not limited to Apple servers.
+These requests can occur before the peer is accepted, disclose certificate
+identifiers and network metadata to responders, and delay the synchronous
+handshake. Moonrun's guest network policy does not provide complete network
+isolation for these system-service interactions.
+
+Installed distrust data, cached responses, and supplied OCSP responses also
+participate in evaluation; failure never falls back to the PEM bundle.
 
 ## Worker cancellation
 

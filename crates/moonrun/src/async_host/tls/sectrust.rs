@@ -26,7 +26,6 @@ use security_framework::{
 
 pub(super) struct ServerTrust {
     hostname: Option<String>,
-    allow_network_fetch: bool,
     result: OnceCell<Result<(), String>>,
     // Test anchors belong only to this evaluation; never modify system trust.
     #[cfg(test)]
@@ -34,10 +33,9 @@ pub(super) struct ServerTrust {
 }
 
 impl ServerTrust {
-    pub(super) fn new(host: &str, allow_network_fetch: bool) -> Self {
+    pub(super) fn new(host: &str) -> Self {
         Self {
             hostname: (!host.is_empty()).then(|| host.to_owned()),
-            allow_network_fetch,
             result: OnceCell::new(),
             #[cfg(test)]
             test_anchors: Vec::new(),
@@ -50,14 +48,14 @@ impl ServerTrust {
 
     pub(super) fn verify(&self, ssl: &SslRef) -> Result<(), String> {
         // Cache only this connection's verdict, including rejection. Each new
-        // connection evaluates current system trust; session reuse and TLS 1.2
-        // renegotiation are disabled so they cannot reuse this decision.
+        // connection evaluates current system trust. Clients do not reuse TLS
+        // sessions, and TLS 1.2 renegotiation is disabled.
         self.result
             .get_or_init(|| {
                 let trust = self.create_trust(ssl)?;
-                // Synchronous by design, like the existing OpenSSL verifier. Leave
-                // Apple's revocation/network policy intact unless Moonrun's network
-                // permissions prohibit its independent issuer/OCSP fetches.
+                // Synchronous by design, like the existing OpenSSL verifier.
+                // System trust services retain Apple's network policy; their
+                // issuer/revocation fetches are outside guest socket permissions.
                 trust.evaluate_with_error().map_err(|error| {
                     format!(
                         "macOS certificate verification failed ({}): {error}",
@@ -88,11 +86,6 @@ impl ServerTrust {
         // The peer's chain supplies candidates, never trust anchors.
         let mut trust = SecTrust::create_with_certificates(&certificates, &[policy])
             .map_err(|error| error.to_string())?;
-        if !self.allow_network_fetch {
-            trust
-                .set_network_fetch_allowed(false)
-                .map_err(|error| error.to_string())?;
-        }
         if let Some(response) = ssl.ocsp_status() {
             trust
                 .set_trust_ocsp_response(std::iter::once(response))

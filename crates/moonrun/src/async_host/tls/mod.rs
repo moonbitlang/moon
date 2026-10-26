@@ -122,8 +122,6 @@ pub(crate) enum TlsConfig {
     Client {
         trust: TlsTrust,
         root_certificates: Vec<Vec<u8>>,
-        #[cfg(target_os = "macos")]
-        allow_network_fetch: bool,
     },
     ServerFiles {
         private_key_file: PathBuf,
@@ -172,16 +170,10 @@ impl TlsPending {
         TLS_SUCCESS_STATUS
     }
 
-    pub(crate) fn client_config(
-        &self,
-        trust: TlsTrust,
-        #[cfg(target_os = "macos")] allow_network_fetch: bool,
-    ) -> TlsConfig {
+    pub(crate) fn client_config(&self, trust: TlsTrust) -> TlsConfig {
         TlsConfig::Client {
             trust,
             root_certificates: self.root_certificates.clone(),
-            #[cfg(target_os = "macos")]
-            allow_network_fetch,
         }
     }
 

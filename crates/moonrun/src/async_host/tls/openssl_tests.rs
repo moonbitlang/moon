@@ -181,7 +181,6 @@ fn system_trust_rejects_an_openssl_only_anchor() {
             TlsConfig::Client {
                 trust: TlsTrust::SystemRoot,
                 root_certificates: vec![],
-                allow_network_fetch: false,
             },
         )
         .unwrap();
@@ -203,7 +202,6 @@ fn system_client(host: &str, sni: bool, anchor: Option<&X509>) -> TlsConnection 
         TlsConfig::Client {
             trust: TlsTrust::SystemRoot,
             root_certificates: vec![],
-            allow_network_fetch: false,
         },
     )
     .unwrap();
@@ -298,7 +296,6 @@ fn custom_roots_and_no_verification_keep_their_explicit_trust_modes() {
                 TlsConfig::Client {
                     trust,
                     root_certificates: roots,
-                    allow_network_fetch: false,
                 },
             )
             .unwrap();
@@ -319,7 +316,6 @@ fn invalid_hostname_is_an_error_without_sni() {
             TlsConfig::Client {
                 trust: TlsTrust::SystemRoot,
                 root_certificates: vec![],
-                allow_network_fetch: false,
             }
         )
         .is_err()
