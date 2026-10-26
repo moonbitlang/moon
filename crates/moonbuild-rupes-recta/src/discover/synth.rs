@@ -116,6 +116,8 @@ pub fn build_synth_single_file_package(
     }
     let moon_pkg = MoonPkg {
         name: None,
+        experimental: false,
+        allow_experimental_packages: None,
         is_main: run_mode || source_kind == SingleFileSourceKind::Mbtx,
         force_link: false,
         sub_package: None,

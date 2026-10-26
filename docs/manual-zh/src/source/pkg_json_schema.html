@@ -42,6 +42,17 @@
   "description": "A package of MoonBit language",
   "type": "object",
   "properties": {
+    "allow-experimental-packages": {
+      "description": "Acknowledge all experimental dependencies, or only the listed full package names.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AllowExperimentalPackages"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "bin-name": {
       "type": [
         "string",
@@ -51,6 +62,13 @@
     "bin-target": {
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "experimental": {
+      "description": "Mark this package as experimental, warning packages that depend on it.",
+      "type": [
+        "boolean",
         "null"
       ]
     },
@@ -238,6 +256,19 @@
     }
   },
   "definitions": {
+    "AllowExperimentalPackages": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "BoolOrLink": {
       "anyOf": [
         {

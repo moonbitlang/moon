@@ -1206,6 +1206,8 @@ mod tests {
     fn moon_pkg(supported_targets: IndexSet<TargetBackend>) -> MoonPkg {
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,

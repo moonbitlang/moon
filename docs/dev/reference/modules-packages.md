@@ -363,6 +363,24 @@ for common folder layouts with root `.` and root `src`:
       moon.pkg
 ```
 
+## Experimental packages
+
+A package can declare `experimental = true` in `moon.pkg` (or
+`"experimental": true` in `moon.pkg.json`). Omission or `false` leaves it stable.
+Package resolution warns for each direct dependency on an experimental package,
+using the active import graph for the requested backends. Ordinary and test
+imports are covered; implicit self-dependencies from tests are excluded. Warnings
+are deduplicated by importing/dependency package pair and across backends.
+Experimental status does not propagate to a package's dependents.
+
+The importing package can acknowledge dependencies through
+`options("allow-experimental-packages": ...)`: `true` allows all, `false` or
+omission allows none, and a string list allows exact fully qualified package names.
+Import aliases and package prefixes do not match. The allowance is local to the
+importer and does not propagate through the graph. Legacy JSON uses the same key
+at the top level. These warnings use `UserLog`, so `--quiet` suppresses them and
+they do not fail package resolution.
+
 ## Internal packages
 
 MoonBit has the notion of **internal package**s,

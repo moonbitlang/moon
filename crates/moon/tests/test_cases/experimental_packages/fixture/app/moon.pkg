@@ -1,0 +1,2 @@
+pkgtype(kind: "executable")
+import { "example/experimental/unstable" }

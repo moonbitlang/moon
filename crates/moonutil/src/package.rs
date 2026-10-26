@@ -194,6 +194,18 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
+    /// Mark this package as experimental, warning packages that depend on it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experimental: Option<bool>,
+
+    /// Acknowledge all experimental dependencies, or only the listed full package names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "allow-experimental-packages",
+        alias = "allow_experimental_packages"
+    )]
+    pub allow_experimental_packages: Option<AllowExperimentalPackages>,
+
     /// Specify whether this package is a main package or not.
     ///
     /// **Deprecated:** use `pkgtype(kind: "executable")` instead.
@@ -320,6 +332,13 @@ pub struct MoonPkgJSON {
     #[serde(alias = "regex-backend")]
     #[schemars(rename = "regex-backend")]
     pub regex_backend: Option<RegexBackend>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum AllowExperimentalPackages {
+    Bool(bool),
+    Packages(Vec<String>),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -708,6 +727,9 @@ pub struct SubPackageInMoonPkg {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkg {
     pub name: Option<String>,
+    #[serde(default)]
+    pub experimental: bool,
+    pub allow_experimental_packages: Option<AllowExperimentalPackages>,
     pub is_main: bool,
     pub force_link: bool,
     pub sub_package: Option<SubPackageInMoonPkg>,
@@ -869,6 +891,7 @@ fn normalize_pkg_dsl(
         ("rule", true),
         ("supported_targets", false),
         ("pkgtype", false),
+        ("experimental", false),
         ("proof_enabled", false),
         ("use_async_io", false),
         ("max_concurrent_tests", false),
@@ -979,6 +1002,12 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     let (map, imports) = normalize_pkg_dsl(dsl, emit_warnings, user_log)?;
     // Keep explicit declarations until their conflicts have been checked.
     let name: Option<String> = read_dsl_option(&map, "name", None)?;
+    let experimental: Option<bool> = read_dsl_option(&map, "experimental", None)?;
+    let allow_experimental_packages = read_dsl_option(
+        &map,
+        "allow_experimental_packages",
+        Some("allow-experimental-packages"),
+    )?;
     let is_main = read_dsl_option(&map, "is_main", Some("is-main"))?;
     let pkgtype = read_dsl_option(&map, "pkgtype", None)?;
     let link = read_dsl_option(&map, "link", None)?;
@@ -1026,6 +1055,8 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     Ok((
         MoonPkg {
             name: None,
+            experimental: experimental.unwrap_or(false),
+            allow_experimental_packages,
             is_main,
             force_link,
             sub_package: None,
@@ -1127,6 +1158,8 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
 
     let result = MoonPkg {
         name: None,
+        experimental: j.experimental.unwrap_or(false),
+        allow_experimental_packages: j.allow_experimental_packages,
         is_main,
         force_link,
         sub_package: None,
@@ -1364,8 +1397,53 @@ options(
 }
 
 #[test]
+fn experimental_package_configuration() {
+    for experimental in [false, true] {
+        for allowance in ["false", "true", "[]", r#"["example/experimental"]"#] {
+            let source = format!(
+                "experimental = {experimental}\noptions(\"allow-experimental-packages\": {allowance})"
+            );
+            let json = serde_json_lenient::from_str(&format!(
+                r#"{{"experimental": {experimental}, "allow-experimental-packages": {allowance}}}"#
+            ))
+            .unwrap();
+            assert_pkg_dsl_matches_json(&source, json);
+        }
+    }
+}
+
+#[test]
+fn experimental_package_configuration_rejects_invalid_values() {
+    for (key, value) in [
+        ("experimental", r#""true""#),
+        ("experimental", "[]"),
+        ("experimental", "1"),
+        ("allow-experimental-packages", r#""example/experimental""#),
+        ("allow-experimental-packages", "[true]"),
+        ("allow-experimental-packages", "{}"),
+        ("allow-experimental-packages", "1"),
+    ] {
+        let source = if key == "experimental" {
+            format!("experimental = {value}")
+        } else {
+            format!("options(\"{key}\": {value})")
+        };
+        assert!(
+            convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), false).is_err(),
+            "{source}"
+        );
+        assert!(
+            serde_json_lenient::from_str::<MoonPkgJSON>(&format!(r#"{{"{key}": {value}}}"#))
+                .is_err(),
+            "{key}: {value}"
+        );
+    }
+}
+
+#[test]
 fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
     for (key, value) in [
+        ("allow_experimental_packages", "true"),
         ("is_main", "true"),
         ("test_import_all", "false"),
         ("warn_list", r#""+1""#),
