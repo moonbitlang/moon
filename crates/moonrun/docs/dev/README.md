@@ -191,18 +191,24 @@ settings and automatically distributed certificate distrust information that a
 PEM root bundle cannot express. `CustomRoot` remains an exclusive OpenSSL trust
 store; `NoVerification` keeps its explicit opt-out behavior.
 
-SecTrust runs synchronously after OpenSSL's protocol handshake, before the host
-reports connection success. This makes stapled OCSP available for both TLS 1.2
-and TLS 1.3. The hostname is checked independently of SNI; an omitted hostname
-keeps chain validation without a name check. Peer certificates are supplied as
-chain-building candidates, never as trust anchors.
+SecTrust runs synchronously inside OpenSSL's client status callback, after the
+server certificate and optional OCSP staple are available. With OCSP requested,
+OpenSSL invokes this callback on full TLS 1.2 and TLS 1.3 handshakes even if the
+server supplies no staple. Unlike the earlier certificate callback, this point
+includes TLS 1.2's later CertificateStatus message. The hostname is checked
+independently of SNI; an omitted hostname keeps chain validation without a name
+check. Peer certificates are supplied as chain-building candidates, never as
+trust anchors.
 
-The connection becomes ready only after SecTrust accepts. Host reads and writes
-use that readiness check even if a guest ignores a failed connect, consumes the
-diagnostic, or retries. The verdict is retained only for that connection.
-Clients create a fresh OpenSSL context and do not install a previous session.
-TLS 1.2 renegotiation is disabled so another handshake cannot bypass the trust
-decision. Servers requiring renegotiation are therefore unsupported.
+Rejection aborts the OpenSSL handshake before the connection becomes usable.
+The diagnostic is retained in the SSL object's trust state so that consuming a
+guest error or retrying another operation cannot clear the rejection. TLS 1.2
+renegotiation remains supported: every full handshake evaluates current system
+trust, including handshakes advanced inside OpenSSL reads and writes. An
+abbreviated renegotiation exchanges no certificates and reuses the authenticated
+session without a new SecTrust evaluation, matching OpenSSL's session-resumption
+semantics. Clients create a fresh context for each connection and do not install
+a session from another connection.
 
 SecTrust retains Apple's default network-fetch policy independently of Moonrun's
 guest socket permissions. System trust services may fetch missing issuer

@@ -27,9 +27,9 @@ use openssl::ssl::{
     Error as SslError, ErrorCode, Ssl, SslContextBuilder, SslFiletype, SslMethod, SslMode,
     SslStream, SslVerifyMode,
 };
-#[cfg(target_os = "macos")]
-use openssl::ssl::{SslOptions, StatusType};
 use openssl::x509::{X509, X509Ref, store::X509StoreBuilder, verify::X509CheckFlags};
+#[cfg(target_os = "macos")]
+use openssl::{ex_data::Index, ssl::StatusType};
 
 use super::{
     TLS_CLOSED_STATUS, TLS_ERROR_STATUS, TLS_RENEGOTIATION_STATUS, TLS_SUCCESS_STATUS,
@@ -48,7 +48,7 @@ pub(crate) struct TlsConnection {
     stream: Option<SslStream<QueueStream>>,
     pending_ssl: Option<Ssl>,
     #[cfg(target_os = "macos")]
-    server_trust: Option<sectrust::ServerTrust>,
+    server_trust: Option<Index<Ssl, sectrust::ServerTrust>>,
     // TlsConnection and OpenSSL's QueueStream adapter stay on the same
     // execution thread. RefCell scopes their temporary mutable access without
     // a lock.
@@ -86,11 +86,9 @@ impl TlsConnection {
             TlsTrust::SystemRoot => {
                 #[cfg(target_os = "macos")]
                 {
-                    // SecTrust owns acceptance. Complete the protocol handshake
-                    // first so TLS 1.2's later CertificateStatus is available.
-                    // Application I/O remains gated on its verdict below.
+                    // SecTrust owns acceptance through the status callback,
+                    // after the peer's certificate and optional OCSP staple.
                     ctx.set_verify(SslVerifyMode::NONE);
-                    ctx.set_options(SslOptions::NO_RENEGOTIATION);
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -104,13 +102,18 @@ impl TlsConnection {
             }
         }
 
+        #[cfg(target_os = "macos")]
+        let server_trust = (trust == TlsTrust::SystemRoot)
+            .then(|| sectrust::configure(&mut ctx))
+            .transpose()?;
         let mut ssl = Ssl::new(&ctx.build())
             .map_err(|error| format!("failed to create TLS client: {error}"))?;
         if trust == TlsTrust::CustomRoot {
             configure_custom_root_store(&mut ssl, &root_certificates)?;
         }
         #[cfg(target_os = "macos")]
-        if trust == TlsTrust::SystemRoot {
+        if let Some(index) = server_trust {
+            ssl.set_ex_data(index, sectrust::ServerTrust::new(host));
             ssl.set_status_type(StatusType::OCSP)
                 .map_err(|error| format!("failed to request TLS OCSP response: {error}"))?;
         }
@@ -130,7 +133,7 @@ impl TlsConnection {
         let connection = Self::new(ssl, TlsMode::Client)?;
         #[cfg(target_os = "macos")]
         let connection = Self {
-            server_trust: (trust == TlsTrust::SystemRoot).then(|| sectrust::ServerTrust::new(host)),
+            server_trust,
             ..connection
         };
         Ok(connection)
@@ -320,12 +323,23 @@ impl TlsConnection {
     ) -> i32 {
         self.last_bytes_read = 0;
         self.last_bytes_to_write = 0;
+        // A failed trust decision terminates the connection even if the guest
+        // consumes its diagnostic and retries a different TLS operation.
+        #[cfg(target_os = "macos")]
+        if let Some(error) = self.platform_trust_error() {
+            return self.error(error.to_owned());
+        }
         let scoped = self.state.borrow_mut().begin_scoped(input, output);
         if let Err(error) = scoped {
             return self.error(error);
         }
 
         let status = f(self);
+        #[cfg(target_os = "macos")]
+        let status = match self.platform_trust_error() {
+            Some(error) => self.error(error.to_owned()),
+            None => status,
+        };
 
         let counters = self.state.borrow_mut().end_scoped();
         match counters {
@@ -414,12 +428,6 @@ impl TlsConnection {
         };
         match result {
             Ok(()) => {
-                #[cfg(target_os = "macos")]
-                if let (Some(trust), Some(stream)) = (&self.server_trust, &self.stream)
-                    && let Err(error) = trust.verify(stream.ssl())
-                {
-                    return self.error(error);
-                }
                 self.last_want_read = false;
                 self.last_want_write = self.output_pending();
                 TLS_SUCCESS_STATUS
@@ -532,17 +540,18 @@ impl TlsConnection {
         }
     }
 
-    fn is_init_finished(&self) -> bool {
-        // An Untrusted Guest may call read/write after a failed connect, or
-        // clear its diagnostic and retry. Neither may bypass platform trust.
-        #[cfg(target_os = "macos")]
-        if self
-            .server_trust
+    #[cfg(target_os = "macos")]
+    fn platform_trust_error(&self) -> Option<&str> {
+        let index = self.server_trust?;
+        let ssl = self
+            .stream
             .as_ref()
-            .is_some_and(|trust| !trust.is_verified())
-        {
-            return false;
-        }
+            .map(|stream| stream.ssl())
+            .or(self.pending_ssl.as_deref())?;
+        ssl.ex_data(index)?.error.as_deref()
+    }
+
+    fn is_init_finished(&self) -> bool {
         self.stream
             .as_ref()
             .is_some_and(|stream| stream.ssl().is_init_finished())

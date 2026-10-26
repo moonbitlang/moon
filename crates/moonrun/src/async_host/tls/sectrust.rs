@@ -16,9 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::cell::OnceCell;
+use std::sync::LazyLock;
 
-use openssl::ssl::SslRef;
+use openssl::{
+    error::ErrorStack,
+    ex_data::Index,
+    ssl::{Ssl, SslContextBuilder, SslRef},
+};
 use security_framework::{
     certificate::SecCertificate, policy::SecPolicy, secure_transport::SslProtocolSide,
     trust::SecTrust,
@@ -26,44 +30,57 @@ use security_framework::{
 
 pub(super) struct ServerTrust {
     hostname: Option<String>,
-    result: OnceCell<Result<(), String>>,
+    pub(super) error: Option<String>,
     // Test anchors belong only to this evaluation; never modify system trust.
     #[cfg(test)]
     pub(super) test_anchors: Vec<SecCertificate>,
+}
+
+// Allocate one typed slot, not a new OpenSSL ex-data index for every connection.
+static TRUST_INDEX: LazyLock<Result<Index<Ssl, ServerTrust>, ErrorStack>> =
+    LazyLock::new(Ssl::new_ex_index);
+
+pub(super) fn configure(ctx: &mut SslContextBuilder) -> Result<Index<Ssl, ServerTrust>, String> {
+    let index = TRUST_INDEX
+        .as_ref()
+        .copied()
+        .map_err(|error| error.to_string())?;
+    // Unlike the certificate callback, this runs after TLS 1.2's optional OCSP
+    // message. With status requested it runs even without a staple, on every
+    // full handshake, including renegotiation advanced inside SSL_read/write.
+    // Abbreviated handshakes reuse the already authenticated session instead.
+    ctx.set_status_callback(move |ssl| {
+        let trust = ssl.ex_data(index).ok_or_else(ErrorStack::get)?;
+        let error = trust.verify(ssl).err();
+        let accepted = error.is_none();
+        ssl.ex_data_mut(index).ok_or_else(ErrorStack::get)?.error = error;
+        Ok(accepted)
+    })
+    .map_err(|error| format!("failed to configure macOS certificate verification: {error}"))?;
+    Ok(index)
 }
 
 impl ServerTrust {
     pub(super) fn new(host: &str) -> Self {
         Self {
             hostname: (!host.is_empty()).then(|| host.to_owned()),
-            result: OnceCell::new(),
+            error: None,
             #[cfg(test)]
             test_anchors: Vec::new(),
         }
     }
 
-    pub(super) fn is_verified(&self) -> bool {
-        matches!(self.result.get(), Some(Ok(())))
-    }
-
-    pub(super) fn verify(&self, ssl: &SslRef) -> Result<(), String> {
-        // Cache only this connection's verdict, including rejection. Each new
-        // connection evaluates current system trust. Clients do not reuse TLS
-        // sessions, and TLS 1.2 renegotiation is disabled.
-        self.result
-            .get_or_init(|| {
-                let trust = self.create_trust(ssl)?;
-                // Synchronous by design, like the existing OpenSSL verifier.
-                // System trust services retain Apple's network policy; their
-                // issuer/revocation fetches are outside guest socket permissions.
-                trust.evaluate_with_error().map_err(|error| {
-                    format!(
-                        "macOS certificate verification failed ({}): {error}",
-                        error.code()
-                    )
-                })
-            })
-            .clone()
+    fn verify(&self, ssl: &SslRef) -> Result<(), String> {
+        let trust = self.create_trust(ssl)?;
+        // Synchronous by design, like the existing OpenSSL verifier. System
+        // trust services retain Apple's network policy; their issuer/revocation
+        // fetches are outside guest socket permissions.
+        trust.evaluate_with_error().map_err(|error| {
+            format!(
+                "macOS certificate verification failed ({}): {error}",
+                error.code()
+            )
+        })
     }
 
     fn create_trust(&self, ssl: &SslRef) -> Result<SecTrust, String> {

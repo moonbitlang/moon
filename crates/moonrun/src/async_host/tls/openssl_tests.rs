@@ -16,15 +16,18 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use foreign_types::ForeignType;
+use foreign_types::{ForeignType, ForeignTypeRef};
 use openssl::asn1::Asn1Time;
 use openssl::bn::BigNum;
 use openssl::ocsp::{OcspBasicResponse, OcspCertId, OcspResponse, OcspResponseStatus};
 use openssl::pkey::{PKey, Private};
 use openssl::rsa::Rsa;
-use openssl::ssl::SslVersion;
+use openssl::ssl::{ClientHelloResponse, SslOptions, SslVersion};
 use openssl::x509::X509NameBuilder;
 use openssl::x509::extension::{
     BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName,
@@ -54,7 +57,7 @@ impl Identity {
         }
     }
 
-    fn server(&self, version: SslVersion) -> TlsConnection {
+    fn server_context(&self, version: SslVersion) -> SslContextBuilder {
         let mut ctx = SslContextBuilder::new(SslMethod::tls_server()).unwrap();
         ctx.set_min_proto_version(Some(version)).unwrap();
         ctx.set_max_proto_version(Some(version)).unwrap();
@@ -62,6 +65,11 @@ impl Identity {
         ctx.set_certificate(&self.certificate).unwrap();
         ctx.set_private_key(&self.key).unwrap();
         ctx.add_extra_chain_cert(self.root.clone()).unwrap();
+        ctx
+    }
+
+    fn server(&self, version: SslVersion) -> TlsConnection {
+        let ctx = self.server_context(version);
         let mut ssl = Ssl::new(&ctx.build()).unwrap();
         ssl.set_accept_state();
         TlsConnection::new(ssl, TlsMode::Server).unwrap()
@@ -206,9 +214,12 @@ fn system_client(host: &str, sni: bool, anchor: Option<&X509>) -> TlsConnection 
     )
     .unwrap();
     if let Some(anchor) = anchor {
+        let index = client.server_trust.unwrap();
         client
-            .server_trust
+            .pending_ssl
             .as_mut()
+            .unwrap()
+            .ex_data_mut(index)
             .unwrap()
             .test_anchors
             .push(SecCertificate::from_der(&anchor.to_der().unwrap()).unwrap());
@@ -255,19 +266,35 @@ fn platform_trust_verifies_identity_before_application_io() {
                 );
                 assert_eq!(&received, b"ping");
             } else {
-                // OpenSSL finished, but SecTrust did not approve the peer.
-                assert!(client.stream.as_ref().unwrap().ssl().is_init_finished());
-                assert!(client.is_handshaking());
-                assert!(client.write_plain(&mut [], b"secret", &mut [0; 4096]) < 0);
-                assert_eq!(client.bytes_to_write(), 0);
-                assert!(client.read_plain(&mut [], &mut [0; 4], &mut [0; 4096]) < 0);
-                // Clearing the guest diagnostic must not clear the rejection.
-                client.take_error();
-                assert_eq!(client.connect(&mut [], &mut [0; 4096]), TLS_ERROR_STATUS);
-                assert_eq!(client.take_error(), result.err());
+                // SecTrust rejection aborts OpenSSL's handshake itself.
+                assert!(!client.stream.as_ref().unwrap().ssl().is_init_finished());
+                assert_rejected(&mut client, &result.unwrap_err());
             }
         }
     }
+}
+
+fn assert_rejected(client: &mut TlsConnection, error: &str) {
+    assert!(client.is_handshaking());
+    // Neither changing operations nor consuming the guest diagnostic may clear
+    // a rejection or emit application data after the failed handshake.
+    client.take_error();
+    assert_eq!(
+        client.write_plain(&mut [], b"secret", &mut [0; 4096]),
+        TLS_ERROR_STATUS
+    );
+    assert_eq!(client.bytes_to_write(), 0);
+    assert_eq!(client.take_error().as_deref(), Some(error));
+    let mut received = [0; 4];
+    assert_eq!(
+        client.read_plain(&mut [], &mut received, &mut [0; 4096]),
+        TLS_ERROR_STATUS
+    );
+    assert_eq!(received, [0; 4]);
+    assert_eq!(client.bytes_to_write(), 0);
+    client.take_error();
+    assert_eq!(client.connect(&mut [], &mut [0; 4096]), TLS_ERROR_STATUS);
+    assert_eq!(client.take_error().as_deref(), Some(error));
 }
 
 #[test]
@@ -322,9 +349,9 @@ fn invalid_hostname_is_an_error_without_sni() {
     );
 }
 
-// OpenSSL's response-construction functions are absent from the safe bindings.
-// Only the test fixture generator needs these two declarations.
+// These fixture-generation and renegotiation APIs are absent from the safe bindings.
 unsafe extern "C" {
+    fn SSL_renegotiate(ssl: *mut openssl_sys::SSL) -> std::ffi::c_int;
     fn OCSP_basic_add1_status(
         response: *mut openssl_sys::OCSP_BASICRESP,
         id: *mut openssl_sys::OCSP_CERTID,
@@ -342,6 +369,170 @@ unsafe extern "C" {
         certificates: *mut openssl_sys::stack_st_X509,
         flags: std::ffi::c_ulong,
     ) -> std::ffi::c_int;
+}
+
+// Like the guest, drive a renegotiation encountered during application reads
+// through connect/accept when the host requests it. Small buffers split records.
+fn renegotiate(client: &mut TlsConnection, server: &mut TlsConnection) -> Result<(), String> {
+    let previous_client = client.unique_channel_binding_bytes().unwrap();
+    let previous_server = server.unique_channel_binding_bytes().unwrap();
+    // The server owns this live SSL, and scheduling a handshake does no I/O.
+    assert_eq!(
+        unsafe { SSL_renegotiate(server.stream.as_ref().unwrap().ssl().as_ptr()) },
+        1
+    );
+    let mut to_client = Vec::new();
+    let mut to_server = Vec::new();
+    for _ in 0..1000 {
+        let mut output = [0; 127];
+        let status = if server.is_handshaking() {
+            server.accept(&mut to_server, &mut output)
+        } else {
+            server.read_plain(&mut to_server, &mut [0; 4], &mut output)
+        };
+        to_server.drain(..server.bytes_read());
+        to_client.extend_from_slice(&output[..server.bytes_to_write()]);
+        if status == TLS_ERROR_STATUS {
+            return Err(server.take_error().unwrap());
+        }
+        let status = if client.is_handshaking() {
+            client.connect(&mut to_client, &mut output)
+        } else {
+            client.read_plain(&mut to_client, &mut [0; 4], &mut output)
+        };
+        to_client.drain(..client.bytes_read());
+        to_server.extend_from_slice(&output[..client.bytes_to_write()]);
+        if status == TLS_ERROR_STATUS {
+            return Err(client.take_error().unwrap());
+        }
+        if !client.is_handshaking()
+            && !server.is_handshaking()
+            && client.unique_channel_binding_bytes().unwrap() != previous_client
+            && server.unique_channel_binding_bytes().unwrap() != previous_server
+            && to_client.is_empty()
+            && to_server.is_empty()
+        {
+            return Ok(());
+        }
+    }
+    panic!("TLS renegotiation stopped making progress");
+}
+
+#[test]
+fn tls12_full_and_abbreviated_renegotiation_preserve_application_io() {
+    let identity = Identity::new(false, false);
+    for resumed in [false, true] {
+        let mut ctx = identity.server_context(SslVersion::TLS1_2);
+        if !resumed {
+            ctx.set_options(SslOptions::NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
+        }
+        let mut ssl = Ssl::new(&ctx.build()).unwrap();
+        ssl.set_accept_state();
+        let mut server = TlsConnection::new(ssl, TlsMode::Server).unwrap();
+        let mut client = system_client("localhost", false, Some(&identity.root));
+        handshake(&mut client, &mut server).unwrap();
+        renegotiate(&mut client, &mut server).unwrap();
+        assert_eq!(
+            client.stream.as_ref().unwrap().ssl().session_reused(),
+            resumed
+        );
+        let mut encrypted = [0; 4096];
+        assert_eq!(client.write_plain(&mut [], b"ping", &mut encrypted), 4);
+        let mut received = [0; 4];
+        assert_eq!(
+            server.read_plain(
+                &mut encrypted[..client.bytes_to_write()],
+                &mut received,
+                &mut [0; 4096]
+            ),
+            4
+        );
+        assert_eq!(&received, b"ping");
+    }
+}
+
+#[test]
+fn tls12_renegotiation_rejects_a_changed_untrusted_certificate() {
+    let identity = Identity::new(false, false);
+    let expired = certificate(
+        &identity.key,
+        Some((&identity.root, &identity.root_key)),
+        true,
+        false,
+    );
+    let expired_der = expired.to_der().unwrap();
+    let mut ctx = identity.server_context(SslVersion::TLS1_2);
+    ctx.set_options(SslOptions::NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
+    let hellos = AtomicUsize::new(0);
+    ctx.set_client_hello_callback(move |ssl, _| {
+        if hellos.fetch_add(1, Ordering::Relaxed) > 0 {
+            ssl.set_certificate(&expired)?;
+        }
+        Ok(ClientHelloResponse::SUCCESS)
+    });
+    let mut ssl = Ssl::new(&ctx.build()).unwrap();
+    ssl.set_accept_state();
+    let mut server = TlsConnection::new(ssl, TlsMode::Server).unwrap();
+    let mut client = system_client("localhost", false, Some(&identity.root));
+    handshake(&mut client, &mut server).unwrap();
+    let error = renegotiate(&mut client, &mut server).unwrap_err();
+    assert!(
+        error.contains("macOS certificate verification failed"),
+        "{error}"
+    );
+    assert_eq!(client.peer_certificate_der().unwrap().unwrap(), expired_der);
+    assert_rejected(&mut client, &error);
+}
+
+#[test]
+fn tls12_renegotiation_evaluates_the_current_ocsp_staple() {
+    let identity = Identity::new(false, false);
+    for status in [
+        None,
+        Some(openssl_sys::V_OCSP_CERTSTATUS_GOOD),
+        Some(openssl_sys::V_OCSP_CERTSTATUS_REVOKED),
+    ] {
+        let good = ocsp_response(&identity, openssl_sys::V_OCSP_CERTSTATUS_GOOD);
+        let next = status.map(|status| ocsp_response(&identity, status));
+        let expected = next.clone();
+        let mut ctx = identity.server_context(SslVersion::TLS1_2);
+        ctx.set_options(SslOptions::NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
+        let requests = AtomicUsize::new(0);
+        ctx.set_status_callback(move |ssl| {
+            let response = if requests.fetch_add(1, Ordering::Relaxed) == 0 {
+                Some(good.as_slice())
+            } else {
+                next.as_deref()
+            };
+            if let Some(response) = response {
+                ssl.set_ocsp_status(response)?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        })
+        .unwrap();
+        let mut ssl = Ssl::new(&ctx.build()).unwrap();
+        ssl.set_accept_state();
+        let mut server = TlsConnection::new(ssl, TlsMode::Server).unwrap();
+        let mut client = system_client("localhost", false, Some(&identity.root));
+        handshake(&mut client, &mut server).unwrap();
+        let result = renegotiate(&mut client, &mut server);
+        assert_eq!(
+            client.stream.as_ref().unwrap().ssl().ocsp_status(),
+            expected.as_deref()
+        );
+        if status == Some(openssl_sys::V_OCSP_CERTSTATUS_REVOKED) {
+            let error = result.unwrap_err();
+            assert!(
+                error.contains("macOS certificate verification failed"),
+                "{error}"
+            );
+            assert_rejected(&mut client, &error);
+        } else {
+            result.unwrap();
+        }
+    }
 }
 
 fn ocsp_response(identity: &Identity, status: i32) -> Vec<u8> {
@@ -400,13 +591,7 @@ fn stapled_ocsp_is_evaluated_for_tls12_and_tls13() {
             (openssl_sys::V_OCSP_CERTSTATUS_REVOKED, false),
         ] {
             let response = ocsp_response(&identity, status);
-            let mut ctx = SslContextBuilder::new(SslMethod::tls_server()).unwrap();
-            ctx.set_min_proto_version(Some(version)).unwrap();
-            ctx.set_max_proto_version(Some(version)).unwrap();
-            ctx.set_num_tickets(0).unwrap();
-            ctx.set_certificate(&identity.certificate).unwrap();
-            ctx.set_private_key(&identity.key).unwrap();
-            ctx.add_extra_chain_cert(identity.root.clone()).unwrap();
+            let mut ctx = identity.server_context(version);
             ctx.set_status_callback(move |ssl| {
                 ssl.set_ocsp_status(&response)?;
                 Ok(true)
