@@ -139,7 +139,9 @@ impl MetadataSelector {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Module `{0}` not found or access denied; check your registry login")]
+#[error(
+    "Module `{0}` not found or access denied; check your registry login or run `moon login` again"
+)]
 pub(crate) struct RegistryMetadataDenied(ModuleName);
 
 struct RegistryEndpoints {
@@ -346,7 +348,11 @@ impl RegistryClient {
         !self.api_metadata && self.home.registry_index_file(name).exists()
     }
 
-    fn is_private_release(&self, name: &ModuleName, version: &Version) -> anyhow::Result<bool> {
+    pub(super) fn is_private_release(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<bool> {
         if self.uses_index(name) {
             return Ok(false);
         }
@@ -377,16 +383,14 @@ impl RegistryClient {
         }
         let denied = || RegistryMetadataDenied(name.clone());
         let saved = self
-            .authentication()?
+            .authentication()
+            .map_err(|_| denied())?
             .credentials
             .as_ref()
             .ok_or_else(denied)?;
-        if !saved.matches_registry(&self.endpoints.api)?
-            || saved.credentials.token.trim().is_empty()
-        {
-            return Err(denied().into());
-        }
-        let username = saved.confirmed_username(&self.endpoints.api)?;
+        let username = saved
+            .confirmed_username(&self.endpoints.api)
+            .map_err(|_| denied())?;
         if username != name.username {
             return Err(denied().into());
         }
@@ -536,7 +540,6 @@ impl RegistryClient {
         selector: &MetadataSelector,
     ) -> anyhow::Result<RegistryMetadata> {
         super::path::parse_module_path(&name.to_string())?;
-        self.authentication()?;
         if let MetadataSelector::Exact(version) = selector {
             if let Some(metadata) = self.cached_release(name, version)? {
                 return Ok(metadata);
@@ -1566,7 +1569,7 @@ mod tests {
             assert!(error.downcast_ref::<RegistryMetadataDenied>().is_some());
             assert_eq!(
                 error.to_string(),
-                "Module `alice/secret` not found or access denied; check your registry login"
+                "Module `alice/secret` not found or access denied; check your registry login or run `moon login` again"
             );
             assert!(registry.metadata.borrow().is_empty());
             assert!(registry.selections.borrow().is_empty());
@@ -1997,7 +2000,10 @@ mod tests {
             let offline = api_test_registry(home.path(), api).offline();
             assert!(offline.version_info(&public, &version).unwrap().is_some());
             let error = offline.version_info(&name, &version).unwrap_err();
-            assert!(error.to_string().contains("moon login"));
+            assert_eq!(
+                error.to_string(),
+                "Module `alice/secret` not found or access denied; check your registry login or run `moon login` again"
+            );
             assert!(!error.to_string().contains("legacy-token"));
         }
     }
@@ -2317,7 +2323,7 @@ mod tests {
                 .unwrap_err();
             assert_eq!(
                 error.to_string(),
-                "Module `alice/secret` not found or access denied; check your registry login"
+                "Module `alice/secret` not found or access denied; check your registry login or run `moon login` again"
             );
             assert!(!format!("{error:#}").contains("PRIVATE"));
             assert_eq!(server.join().unwrap().len(), 1);
@@ -3654,6 +3660,7 @@ mod tests {
         } else {
             format!("file://{bare}")
         };
+        let api = "https://registry.example.test";
         for has_local_index in [false, true] {
             let home = MoonHomeLayout::new(base.path().join(format!("home-{has_local_index}")));
             if has_local_index {
@@ -3661,7 +3668,7 @@ mod tests {
             }
             let mut registry = RegistryClient::with_home(
                 RegistryConfig {
-                    api: index.clone(),
+                    api: api.to_owned(),
                     index: index.clone(),
                     download: String::new(),
                     symbols: None,

@@ -90,6 +90,9 @@ impl RegistryClient {
                     user_log,
                 )?,
         };
+        // Check ownership before returning a coordinate satisfied by a local
+        // executable-artifact cache hit.
+        self.is_private_release(module.name(), module.version())?;
         Ok(ResolvedExecutablePackage {
             module,
             package_path,
