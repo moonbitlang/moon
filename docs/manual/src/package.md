@@ -5,6 +5,7 @@ Each example is an independent setting.
 
 | Declaration | Meaning |
 | --- | --- |
+| `experimental = true` | Mark the package as experimental and warn its direct importers. Defaults to `false`. |
 | `proof_enabled = true` | Enable proof workflows for the package. Defaults to `false`. |
 | `max_concurrent_tests = 4` | Set test concurrency using an unsigned 32-bit integer. |
 | `regex_backend = "table"` | Select `auto`, `block`, `table`, or `runtime` for regex compilation. |
@@ -32,6 +33,37 @@ recognize them report `Invalid configuration` (`E4192`); use the legacy
 `options(...)` form with those toolchains. Formatting and JSON-to-DSL migration
 are provided by the toolchain's `moonfmt`. Older formatter versions may rewrite
 direct declarations into their equivalent `options(...)` form.
+
+## Experimental packages
+
+Declare `experimental = true` at the top level of a package's `moon.pkg` to
+warn packages that directly depend on it. This includes ordinary, whitebox-test,
+and blackbox-test imports. Only imports enabled for a requested backend are
+checked. Each importing package receives one warning per experimental dependency,
+even when several test targets or backends use it. The warning does not make the
+command fail, and `--quiet` suppresses it.
+
+MoonBuild owns this check. Because the compiler also reads `moon.pkg`, compiling
+with this declaration requires a compiler whose manifest parser accepts
+`experimental`; older parsers may report `Invalid configuration` (`E4192`).
+
+In the importing package's `moon.pkg`, acknowledge specific dependencies by their
+full package names:
+
+```moonbit
+import { "user/library/unstable" }
+options("allow-experimental-packages": ["user/library/unstable"])
+```
+
+Set `options("allow-experimental-packages": true)` to acknowledge all experimental
+dependencies. `false`, an empty list, or omitting the option acknowledges none.
+List entries match full package names exactly, rather than aliases or prefixes.
+The option applies only to that package's direct dependencies; it does not
+propagate to other packages. A stable wrapper around an experimental package does
+not itself become experimental.
+
+Legacy `moon.pkg.json` accepts `"experimental": true` and
+`"allow-experimental-packages": true` (or a string list) as top-level fields.
 
 ## Lexer and parser generation
 

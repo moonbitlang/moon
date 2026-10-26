@@ -50,6 +50,7 @@ mod diagnostics_format;
 mod diamond_pkg;
 mod docs_examples;
 mod dummy_core;
+mod experimental_packages;
 mod extra_flags;
 mod fancy_import;
 mod filter_by_path;

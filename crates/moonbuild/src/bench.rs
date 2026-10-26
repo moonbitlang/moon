@@ -103,6 +103,8 @@ pub fn f() -> Unit {{
             }
             let pkg = MoonPkgJSON {
                 name: None,
+                experimental: None,
+                allow_experimental_packages: None,
                 is_main: None,
                 pkgtype: None,
                 import: if import.is_empty() {
@@ -205,6 +207,8 @@ pub fn write(config: &Config, base_dir: &Path) {
 
     let pkg = MoonPkgJSON {
         name: None,
+        experimental: None,
+        allow_experimental_packages: None,
         is_main: Some(true),
         pkgtype: None,
         import: if import.is_empty() {

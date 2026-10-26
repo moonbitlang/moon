@@ -4,6 +4,7 @@
 
 | 声明 | 含义 |
 | --- | --- |
+| `experimental = true` | 标记实验性包，并向直接依赖它的包报告警告，默认值为 `false`。 |
 | `proof_enabled = true` | 为包启用证明流程，默认值为 `false`。 |
 | `max_concurrent_tests = 4` | 设置测试并发数，取值为 32 位无符号整数。 |
 | `regex_backend = "table"` | 选择正则表达式编译后端，可选 `auto`、`block`、`table` 或 `runtime`。 |
@@ -28,6 +29,33 @@
 `Invalid configuration`（`E4192`）；使用这些工具链时，请继续使用旧的
 `options(...)` 形式。格式化和 JSON 到 DSL 的迁移由工具链中的 `moonfmt`
 提供。较旧的格式化工具可能会把直接声明改写成等价的 `options(...)` 形式。
+
+## 实验性包
+
+在包的 `moon.pkg` 顶层声明 `experimental = true` 后，直接依赖它的包会收到警告。
+普通导入、白盒测试导入和黑盒测试导入均会检查，但只检查当前请求的后端启用的导入。
+同一对包即使涉及多个测试目标或后端，也只报告一次警告。
+该警告不会导致命令失败，`--quiet` 可以隐藏它。
+
+此检查由 MoonBuild 执行。由于编译器也会读取 `moon.pkg`，实际编译时需要
+编译器的配置解析器接受 `experimental` 字段；旧解析器可能报告
+`Invalid configuration`（`E4192`）。
+
+在使用方的 `moon.pkg` 中，可以按完整包名确认允许使用的实验性依赖：
+
+```moonbit
+import { "user/library/unstable" }
+options("allow-experimental-packages": ["user/library/unstable"])
+```
+
+设置 `options("allow-experimental-packages": true)` 可以允许所有实验性依赖。
+设为 `false`、空列表或省略该配置时，不豁免任何实验性依赖的警告。
+列表项必须精确匹配完整包名，不匹配导入别名或包名前缀。
+该配置只作用于声明它的包的直接依赖，不会传递到其他包。
+稳定包仅依赖实验性包时，自身不会自动变成实验性包。
+
+旧版 `moon.pkg.json` 支持顶层字段 `"experimental": true` 和
+`"allow-experimental-packages": true`（或字符串列表）。
 
 ## 词法和语法分析器生成
 

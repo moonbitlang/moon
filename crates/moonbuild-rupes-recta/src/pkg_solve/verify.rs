@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use indexmap::IndexSet;
 use log::debug;
+use moonutil::package::AllowExperimentalPackages;
 use moonutil::target::TargetBackend;
 use petgraph::visit::IntoNodeIdentifiers;
 
@@ -62,6 +63,8 @@ pub(super) fn verify(
     debug!("Done internal import verification");
     warn_main_package_dependencies(dep, packages, user_log);
     debug!("Done main package deprecation warnings");
+    warn_experimental_package_dependencies(dep, packages, user_log);
+    debug!("Done experimental package warnings");
 
     debug!("Package dependency graph verification completed successfully");
     if errs.is_empty() {
@@ -268,6 +271,39 @@ fn verify_no_forbidden_internal_imports(
                     dependency: packages.fqn(to.package).into(),
                 });
             }
+        }
+    }
+}
+
+fn warn_experimental_package_dependencies(
+    dep: &PackageRelations,
+    packages: &DiscoverResult,
+    user_log: &UserLog,
+) {
+    // Source imports also create test-target edges. Warn once per package pair,
+    // excluding the implicit dependency from a package's tests to its own source.
+    let mut seen = HashSet::new();
+    for (from, to, _) in dep.dep_graph.all_edges() {
+        if from.package == to.package || !seen.insert((from.package, to.package)) {
+            continue;
+        }
+        let dependency = packages.get_package(to.package);
+        if !dependency.raw.experimental {
+            continue;
+        }
+        let importer = packages.get_package(from.package);
+        let dependency_name = dependency.fqn.to_string();
+        let allowed = match &importer.raw.allow_experimental_packages {
+            Some(AllowExperimentalPackages::Bool(allowed)) => *allowed,
+            Some(AllowExperimentalPackages::Packages(names)) => names.contains(&dependency_name),
+            None => false,
+        };
+        if !allowed {
+            user_log.warn(format!(
+                "Package `{}` depends on experimental package `{dependency_name}`. \
+Set `options(\"allow-experimental-packages\": [\"{dependency_name}\"])` in the importing package's moon.pkg to acknowledge this dependency.",
+                importer.fqn,
+            ));
         }
     }
 }

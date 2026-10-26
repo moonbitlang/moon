@@ -50,6 +50,8 @@ fn expect_import() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -141,6 +143,8 @@ fn expect_is_main() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: true,
             force_link: false,
             sub_package: None,
@@ -184,6 +188,8 @@ fn expect_formatter() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -240,6 +246,8 @@ fn expect_supported_targets() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -283,6 +291,8 @@ fn expect_supported_targets_expr() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -324,6 +334,8 @@ fn expect_supported_targets_expr_with_wasm_gc() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -362,6 +374,8 @@ fn expect_supported_targets_expr_with_wasm_gc() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -412,6 +426,8 @@ fn expect_build() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -479,6 +495,8 @@ fn expect_warnings() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -527,6 +545,8 @@ fn expect_supported_targets_prefers_new_config() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -622,6 +642,8 @@ fn expect_options() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -799,6 +821,8 @@ fn expect_max_concurrent_tests() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -844,6 +868,8 @@ fn expect_virtual_implement() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
