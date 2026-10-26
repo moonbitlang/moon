@@ -1529,6 +1529,94 @@ mod tests {
     }
 
     #[test]
+    fn anonymous_private_metadata_response_is_not_cached() {
+        for selector in [
+            MetadataSelector::Exact(Version::new(0, 1, 0)),
+            MetadataSelector::Latest,
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let api = format!("http://{}", listener.local_addr().unwrap());
+            let server = api_test_server(
+                listener,
+                vec![(
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+                )],
+            );
+            let registry = api_test_registry(home.path(), &api);
+            let name: ModuleName = "alice/secret".into();
+            let error = registry.resolver_metadata(&name, &selector).unwrap_err();
+            assert!(error.downcast_ref::<RegistryMetadataDenied>().is_some());
+            assert_eq!(
+                error.to_string(),
+                "Module `alice/secret` not found or access denied; check your registry login"
+            );
+            assert!(registry.metadata.borrow().is_empty());
+            assert!(registry.selections.borrow().is_empty());
+            assert!(!registry.home.registry_dir().join("private").exists());
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(!requests[0].to_ascii_lowercase().contains("authorization:"));
+        }
+    }
+
+    #[test]
+    fn anonymous_private_cache_is_rejected_in_memory_and_on_disk() {
+        let home = tempfile::tempdir().unwrap();
+        let api = "https://example.com";
+        let registry = api_test_registry(home.path(), api).offline();
+        let name: ModuleName = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        let cache = registry.metadata_cache(&name).unwrap();
+        let metadata: RegistryMetadata =
+            serde_json::from_str(&resolver_response("alice/secret", "PRIVATE", "0.1.0")).unwrap();
+        // Simulate private entries left in the anonymous namespace by an older client.
+        registry
+            .write_metadata_cache(&cache.release_path(&version), &metadata)
+            .unwrap();
+        registry
+            .write_metadata_cache(&cache.latest_path(), &version)
+            .unwrap();
+        registry
+            .metadata
+            .borrow_mut()
+            .insert(cache.release_path(&version), metadata);
+        registry
+            .selections
+            .borrow_mut()
+            .insert(cache.latest_path(), version.clone());
+        let memory_error = registry.version_info(&name, &version).unwrap_err();
+        assert!(
+            memory_error
+                .downcast_ref::<RegistryMetadataDenied>()
+                .is_some()
+        );
+        let memory_latest_error = registry.latest_version(&name).unwrap_err();
+        assert!(
+            memory_latest_error
+                .downcast_ref::<RegistryMetadataDenied>()
+                .is_some()
+        );
+
+        let fresh = api_test_registry(home.path(), api).offline();
+        let disk_error = fresh.version_info(&name, &version).unwrap_err();
+        assert!(
+            disk_error
+                .downcast_ref::<RegistryMetadataDenied>()
+                .is_some()
+        );
+        let disk_latest_error = fresh.cached_latest_version(&name).unwrap_err();
+        assert!(
+            disk_latest_error
+                .downcast_ref::<RegistryMetadataDenied>()
+                .is_some()
+        );
+        assert!(fresh.metadata.borrow().is_empty());
+    }
+
+    #[test]
     fn private_registry_cache_supports_long_paths() {
         let sandbox = tempfile::tempdir().unwrap();
         let home = sandbox.path().join("private-cache-home/".repeat(18));
@@ -1837,6 +1925,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "test-alice");
         let server = api_test_server(
             listener,
             vec![
