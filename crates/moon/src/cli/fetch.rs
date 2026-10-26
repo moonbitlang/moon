@@ -32,6 +32,7 @@ use super::UniversalFlags;
 #[derive(Debug, clap::Parser)]
 #[clap(
     about = "Download a package to .repos directory (unstable)",
+    long_about = "Download a package to .repos directory (unstable)\n\nWith MOON_REGISTRY_API=1, an explicit version refreshes that release's deprecation status, while an unversioned request queries latest online. --no-update reuses cached mutable information but may acquire missing exact metadata and source. An unversioned --no-update requires a cached latest answer. Already downloaded source does not suppress an explicit metadata refresh.",
     before_help = "Note: This is an unstable command and may change or be removed in future versions."
 )]
 pub(crate) struct FetchSubcommand {

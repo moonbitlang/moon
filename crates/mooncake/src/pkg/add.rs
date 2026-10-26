@@ -33,6 +33,11 @@ use std::sync::Arc;
 use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOutputOptions};
 
 /// Add a dependency
+///
+/// With MOON_REGISTRY_API=1, an explicit version refreshes that release's
+/// deprecation status, while an unversioned request queries latest online.
+/// --no-update reuses cached mutable information but may acquire missing exact
+/// metadata and source. An unversioned --no-update requires a cached latest answer.
 #[derive(Debug, clap::Parser)]
 pub struct AddSubcommand {
     /// The registry module name to add

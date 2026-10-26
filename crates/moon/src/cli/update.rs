@@ -23,6 +23,15 @@ use moonutil::command_output::CommandOutput;
 use super::UniversalFlags;
 
 /// Update the registry index, or refresh project dependency metadata in API mode
+///
+/// Without MOON_REGISTRY_API=1, this keeps the existing Git-index update behavior.
+/// In API mode, run it inside a module or workspace: it refreshes the deprecation
+/// status of selected direct/transitive registry dependencies, queries latest,
+/// and reports available updates. It does not change dependency declarations,
+/// install source archives, or execute package hooks. Deprecation and available
+/// updates do not fail the command; incomplete refreshes do, retaining successful
+/// cache writes. Ordinary builds reuse exact cached metadata without age-based
+/// refresh.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct UpdateSubcommand {}
 
