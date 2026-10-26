@@ -81,12 +81,12 @@ to exist, so a removed output subtree remains ignored.
 
 Consumer support still limits some commands. MSVC needs short source-file
 arguments simplified and does not accept long generated-C inputs. Node 22
-rejects long verbatim entrypoint paths. `moondoc` corrupts verbatim paths in
-options and package metadata, so its output directory is a compatibility
-exception: Moon simplifies it where possible to preserve ordinary documentation
-builds, but long documentation
-paths remain unsupported. Windows tests distinguish these downstream failures
-from MoonBit compiler output creation.
+rejects long verbatim entrypoint paths. `moondoc` joins package paths with `/`,
+which is invalid beneath a verbatim Windows prefix, so its output directory is
+a compatibility exception: Moon simplifies it where possible to preserve ordinary
+documentation builds. Long documentation paths still fail during output directory
+creation, after the compiler has produced the package interface. Windows tests
+distinguish these downstream failures from MoonBit compiler output creation.
 
 ### Build targets
 
