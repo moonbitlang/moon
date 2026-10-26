@@ -81,13 +81,31 @@ $MOON_HOME/
   range-selection cache is needed. Online latest lookups refresh across client
   instances and after `moon update`; locally-known-latest executable selectors
   deliberately prefer a cached latest pointer.
-- In API mode, `moon update` clears the in-memory latest selections without
-  fetching Git or symbols. Exact release records remain usable. Frozen module
-  synchronization reads only cached metadata and verified sources; a missing
-  exact release or source fails without HTTP or guessing another version.
+- In API mode, ordinary `check/build/test` reuse exact records without a TTL,
+  fetching only missing content. Frozen synchronization reads only cached
+  metadata and verified sources; a missing exact release or source fails without
+  HTTP or guessing another version. Visited but unselected MVS records remain
+  cached; deprecation warnings describe only final selected dependencies.
+- Explicit exact `add/fetch` refresh the requested release's deprecation state;
+  `--no-update` reuses status while allowing acquisition of missing exact content.
+  Unversioned `add/fetch` query current latest unless `--no-update` is passed,
+  which requires a cached latest pointer. Arbitrary cached releases do not
+  constitute a latest answer. Required latest queries never fall back to stale
+  results. Cached exact content may survive an advisory transport/server refresh
+  failure with a warning, but denials, malformed responses and immutable
+  conflicts still fail.
+- In API mode, `moon update` resolves the current project/workspace graph,
+  explicitly refreshes every selected registry version, and queries latest per
+  module to report available updates. It persists results without modifying
+  declarations, installing sources or executing hooks. It requires a project,
+  skips Git/symbols, and reports incomplete refreshes with a nonzero exit code;
+  successful writes remain cached. An explicit refresh always contacts the
+  server, even when a normal lookup would hit memory or disk.
 - Metadata is atomically written through owner-only temporary files; Unix
   directories are owner-only. Cached deprecation state is advisory and can be
-  stale: refreshing latest does not invalidate immutable release records.
+  stale. Fresh responses merge only deprecation status/reason into an existing
+  release. Conflicting dependencies, SHA-256 or visibility fail before any cache
+  replacement; publishing another version does not invalidate exact records.
 - `registry/symbols` is the symbols archive materialized by registry sync.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent

@@ -28,9 +28,12 @@ use std::{
     time::Duration,
 };
 
+type Responses = HashMap<String, (u16, Vec<u8>)>;
+
 struct Server {
     api: String,
     requests: Arc<Mutex<Vec<String>>>,
+    responses: Arc<Mutex<Responses>>,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -41,10 +44,12 @@ impl Server {
             .iter()
             .map(|(module, version, deps)| {
                 (format!("/api/v0/registry/modules/{module}?version={version}"),
-                serde_json::json!({"module": module, "visibility": "PUBLIC", "version": version,
-                    "deps": deps, "checksum": "a".repeat(64)}).to_string())
+                (200, serde_json::json!({"module": module, "visibility": "PUBLIC", "version": version,
+                    "deps": deps, "checksum": "a".repeat(64)}).to_string().into_bytes()))
             })
             .collect();
+        let responses = Arc::new(Mutex::new(releases));
+        let served = Arc::clone(&responses);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -77,19 +82,36 @@ impl Server {
                     request.push_str(&line);
                 }
                 let target = request.split_whitespace().nth(1).unwrap();
-                let (status, body) = releases
+                let (status, body) = served
+                    .lock()
+                    .unwrap()
                     .get(target)
-                    .map_or((404, "{}"), |body| (200, body.as_str()));
+                    .cloned()
+                    .unwrap_or((404, b"{}".to_vec()));
                 recorded.lock().unwrap().push(request);
-                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
             }
         });
         Self {
             api,
             requests,
+            responses,
             stop,
             thread: Some(thread),
         }
+    }
+
+    fn respond(&self, target: &str, status: u16, body: serde_json::Value) {
+        self.responses
+            .lock()
+            .unwrap()
+            .insert(target.to_owned(), (status, body.to_string().into_bytes()));
     }
 
     fn stop(&mut self) {
@@ -127,6 +149,333 @@ fn configure(home: &Path, api: &str) {
         .to_string(),
     )
     .unwrap();
+}
+
+fn release(
+    module: &str,
+    version: &str,
+    deps: serde_json::Value,
+    yanked: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "module": module, "visibility": "PUBLIC", "version": version,
+        "deps": deps, "checksum": "a".repeat(64), "yanked": yanked,
+        "yanked_reason": if yanked { Some("Use the replacement") } else { None },
+    })
+}
+
+fn source_archive() -> Vec<u8> {
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    zip.start_file("moon.mod", zip::write::FileOptions::default())
+        .unwrap();
+    zip.write_all(b"name = \"alice/module\"\nversion = \"0.1.0\"\n")
+        .unwrap();
+    zip.start_file("moon.pkg", zip::write::FileOptions::default())
+        .unwrap();
+    zip.write_all(b"").unwrap();
+    zip.start_file("lib.mbt", zip::write::FileOptions::default())
+        .unwrap();
+    zip.write_all(b"pub fn answer() -> Int { 42 }\n").unwrap();
+    zip.finish().unwrap().into_inner()
+}
+
+#[test]
+fn add_fetch_no_update_and_warm_builds_reuse_content_across_processes() {
+    use sha2::Digest;
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[]);
+    configure(home.path(), &server.api);
+    let archive = source_archive();
+    let checksum = format!("{:x}", sha2::Sha256::digest(&archive));
+    let mut metadata = release("alice/module", "0.1.0", serde_json::json!({}), false);
+    metadata["checksum"] = checksum.into();
+    server.respond(
+        "/api/v0/registry/modules/alice/module?version=0.1.0",
+        200,
+        metadata.clone(),
+    );
+    server.respond("/api/v0/registry/modules/alice/module", 200, metadata);
+    server
+        .responses
+        .lock()
+        .unwrap()
+        .insert("/user/alice/module/0.1.0.zip".to_owned(), (200, archive));
+    std::fs::write(project.path().join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    std::fs::write(
+        project.path().join("moon.pkg"),
+        "import { \"alice/module\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("app.mbt"),
+        "pub fn answer() -> Int { @module.answer() }\n",
+    )
+    .unwrap();
+
+    // A cached exact release is not a cached latest answer.
+    moon(project.path(), home.path(), true)
+        .args(["fetch", "alice/module", "--no-update"])
+        .assert()
+        .failure();
+    assert!(server.requests.lock().unwrap().is_empty());
+    moon(project.path(), home.path(), true)
+        .args(["add", "alice/module@0.1.0", "--no-update"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    moon(project.path(), home.path(), true)
+        .args(["fetch", "alice/module@0.1.0", "--no-update"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    moon(project.path(), home.path(), true)
+        .args(["fetch", "alice/module", "--no-update"])
+        .assert()
+        .failure();
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    // Exact fetch refreshes status despite already materialized source.
+    moon(project.path(), home.path(), true)
+        .args(["fetch", "alice/module@0.1.0"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 3);
+    moon(project.path(), home.path(), true)
+        .args(["fetch", "alice/module"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 4);
+    moon(project.path(), home.path(), true)
+        .args(["fetch", "alice/module", "--no-update"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 4);
+    moon(project.path(), home.path(), true)
+        .args(["add", "alice/module@0.1.0", "--upgrade"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 5);
+    server.stop();
+    moon(project.path(), home.path(), true)
+        .args(["check"])
+        .assert()
+        .success();
+    moon(project.path(), home.path(), true)
+        .args(["build"])
+        .assert()
+        .success();
+    moon(project.path(), home.path(), true)
+        .args(["test"])
+        .assert()
+        .success();
+    moon(project.path(), home.path(), true)
+        .args(["check", "--frozen"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 5);
+}
+
+#[test]
+fn update_at_workspace_root_refreshes_all_members_and_shared_dependencies_once() {
+    let home = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let server = Server::new(&[("alice/module", "0.1.0", serde_json::json!({}))]);
+    configure(home.path(), &server.api);
+    server.respond(
+        "/api/v0/registry/modules/alice/module",
+        200,
+        release("alice/module", "0.1.0", serde_json::json!({}), false),
+    );
+    std::fs::create_dir(workspace.path().join("a")).unwrap();
+    std::fs::create_dir(workspace.path().join("b")).unwrap();
+    std::fs::write(
+        workspace.path().join("moon.work"),
+        "members = [\"a\", \"b\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workspace.path().join("a/moon.mod"),
+        "name = \"test/a\"\nimport { \"alice/module@0.1.0\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workspace.path().join("b/moon.mod"),
+        "name = \"test/b\"\nimport { \"alice/module@0.1.0\" }\n",
+    )
+    .unwrap();
+    moon(workspace.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    assert_eq!(server.requests.lock().unwrap().len(), 3);
+    assert!(!workspace.path().join(".mooncakes").exists());
+}
+
+#[test]
+fn update_refreshes_selected_old_versions_and_persists_restoration_without_installing_sources() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let server = Server::new(&[
+        (
+            "alice/direct",
+            "0.1.0",
+            serde_json::json!({"alice/transitive": "0.1.0"}),
+        ),
+        ("alice/transitive", "0.1.0", serde_json::json!({})),
+    ]);
+    configure(home.path(), &server.api);
+    let manifest = "name = \"test/app\"\nimport { \"alice/direct@0.1.0\" }\n";
+    std::fs::write(project.path().join("moon.mod"), manifest).unwrap();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    server.respond(
+        "/api/v0/registry/modules/alice/direct?version=0.1.0",
+        200,
+        release(
+            "alice/direct",
+            "0.1.0",
+            serde_json::json!({"alice/transitive": "0.1.0"}),
+            true,
+        ),
+    );
+    server.respond(
+        "/api/v0/registry/modules/alice/direct",
+        200,
+        release("alice/direct", "0.1.1", serde_json::json!({}), false),
+    );
+    server.respond(
+        "/api/v0/registry/modules/alice/transitive?version=0.1.0",
+        200,
+        release("alice/transitive", "0.1.0", serde_json::json!({}), true),
+    );
+    server.respond(
+        "/api/v0/registry/modules/alice/transitive",
+        200,
+        release("alice/transitive", "0.1.1", serde_json::json!({}), false),
+    );
+    moon(project.path(), home.path(), true).args(["update"]).assert().success()
+        .stdout_eq("Update available: alice/direct@0.1.0 -> 0.1.1\nUpdate available: alice/transitive@0.1.0 -> 0.1.1\n");
+    assert_eq!(server.requests.lock().unwrap().len(), 6);
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Warning: Dependency `alice/direct@0.1.0` is deprecated: Use the replacement
+Warning: Dependency `alice/transitive@0.1.0` is deprecated: Use the replacement
+  required through test/app@0.0.0 -> alice/direct@0.1.0 -> alice/transitive@0.1.0
+
+"#]]);
+    assert_eq!(server.requests.lock().unwrap().len(), 6);
+    server.respond(
+        "/api/v0/registry/modules/alice/direct?version=0.1.0",
+        200,
+        release(
+            "alice/direct",
+            "0.1.0",
+            serde_json::json!({"alice/transitive": "0.1.0"}),
+            false,
+        ),
+    );
+    server.respond(
+        "/api/v0/registry/modules/alice/transitive?version=0.1.0",
+        200,
+        release("alice/transitive", "0.1.0", serde_json::json!({}), false),
+    );
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .success()
+        .stderr_eq("");
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq("");
+    assert_eq!(server.requests.lock().unwrap().len(), 10);
+    assert_eq!(
+        std::fs::read_to_string(project.path().join("moon.mod")).unwrap(),
+        manifest
+    );
+    assert!(!project.path().join(".mooncakes").exists());
+    assert!(!project.path().join(".repos").exists());
+    assert!(!home.path().join("registry/cache").exists());
+}
+
+#[test]
+fn update_reports_incomplete_refreshes_and_keeps_successful_status_writes() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let server = Server::new(&[
+        ("alice/a", "0.1.0", serde_json::json!({})),
+        ("alice/b", "0.1.0", serde_json::json!({})),
+    ]);
+    configure(home.path(), &server.api);
+    std::fs::write(
+        project.path().join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/a@0.1.0\", \"alice/b@0.1.0\" }\n",
+    )
+    .unwrap();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    server.respond(
+        "/api/v0/registry/modules/alice/a?version=0.1.0",
+        200,
+        release("alice/a", "0.1.0", serde_json::json!({}), true),
+    );
+    server.respond(
+        "/api/v0/registry/modules/alice/a",
+        200,
+        release("alice/a", "0.1.1", serde_json::json!({}), false),
+    );
+    server.respond(
+        "/api/v0/registry/modules/alice/b?version=0.1.0",
+        500,
+        serde_json::json!({}),
+    );
+    server.respond(
+        "/api/v0/registry/modules/alice/b",
+        500,
+        serde_json::json!({}),
+    );
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .failure()
+        .stdout_eq("Update available: alice/a@0.1.0 -> 0.1.1\n")
+        .stderr_eq(snapbox::str![[r#"
+Warning: Dependency `alice/a@0.1.0` is deprecated: Use the replacement
+Error: registry metadata refresh incomplete:
+status for alice/b@0.1.0: [..]
+latest for alice/b: [..]
+"#]]);
+    let requests = server.requests.lock().unwrap().len();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq("Warning: Dependency `alice/a@0.1.0` is deprecated: Use the replacement\n");
+    assert_eq!(server.requests.lock().unwrap().len(), requests);
+}
+
+#[test]
+fn api_update_outside_a_project_fails_before_requesting_metadata() {
+    let home = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let server = Server::new(&[]);
+    configure(home.path(), &server.api);
+    moon(outside.path(), home.path(), true).args(["update"]).assert().failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: not in a Moon project (no moon.mod, moon.mod.json, or moon.work found starting from [..] or its ancestors)
+
+"#]]);
+    assert!(server.requests.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -167,7 +516,7 @@ fn api_mode_preserves_exact_mvs_traversal_and_offline_resolution() {
             .any(|module| module["name"] == "alice/shared" && module["version"] == "0.1.5")
     );
     moon(project.path(), home.path(), true)
-        .args(["update"])
+        .args(["tree", "--json"])
         .assert()
         .success();
     server.stop();

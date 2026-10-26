@@ -52,7 +52,7 @@ pub(crate) fn fetch_cli(
     let path = parse_module_path(&cmd.package_path)?;
     let registry = RegistryClient::configured();
 
-    if !cmd.no_update {
+    if !registry.uses_metadata_api() && !cmd.no_update {
         let had_index = registry.has_cached_index();
         match registry.sync(user_log) {
             Ok(()) => {}
@@ -68,7 +68,7 @@ pub(crate) fn fetch_cli(
         }
     }
 
-    let module = path.resolve(&registry)?;
+    let module = registry.resolve_module_for_command(&path, cmd.no_update, user_log)?;
     let pkg_name = module.name();
     let version = module.version();
     if path.version.is_none() && !cli.quiet {

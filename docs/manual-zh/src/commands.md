@@ -78,7 +78,7 @@ This document contains the help content for the `moon` command-line program.
 * `publish` — Publish the current module
 * `package` — Package the current module
 * `deprecate` — Deprecate or restore all existing versions of a published module
-* `update` — Update the package registry index
+* `update` — Update the registry index, or refresh project dependency metadata in API mode
 * `coverage` — Code coverage utilities
 * `generate-build-matrix` — Generate build matrix for benchmarking (legacy feature)
 * `upgrade` — Upgrade toolchains
@@ -531,6 +531,10 @@ Add a dependency
 * `-u`, `--upgrade` — Upgrade an existing dependency
 * `--no-update` — Do not update the registry index before adding the dependency
 
+设置 `MOON_REGISTRY_API=1` 后，指定版本的请求会刷新该版本的弃用状态，
+未指定版本则在线查询最新版。`--no-update` 复用已有可变信息，但仍允许获取缺失的
+精确版本元数据及源码。未指定版本的 `--no-update` 请求必须已有 latest 查询缓存。
+
 
 
 ## `moon remove`
@@ -628,6 +632,9 @@ Note: This is an unstable command and may change or be removed in future version
 ###### **Options:**
 
 * `--no-update` — Do not update the registry index before fetching
+
+设置 `MOON_REGISTRY_API=1` 后，刷新和 `--no-update` 的规则与 `moon add` 相同。
+已经下载源码也不能跳过显式要求的元数据刷新。
 
 
 
@@ -804,10 +811,15 @@ With `--dry-run`, fetch the module's currently published versions and print the 
 
 ## `moon update`
 
-Update the package registry index
+Update the registry index, or refresh project dependency metadata in API mode
 
 **Usage:** `moon update`
 
+未设置 `MOON_REGISTRY_API=1` 时保持现有 Git index 更新行为。在 API 模式下，
+需要在 module 或 workspace 中运行：刷新最终选中的直接及间接 registry 依赖的
+弃用状态，查询 latest 并报告可用更新。不修改依赖声明、不安装源码、不执行 package
+hooks。仅发现弃用或更新版本不会失败；部分刷新失败会返回非零退出码，保留成功缓存。
+普通构建复用精确版本缓存，不因缓存时间变长而主动联网刷新。
 
 
 ## `moon coverage`

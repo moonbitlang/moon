@@ -78,7 +78,7 @@ This document contains the help content for the `moon` command-line program.
 * `publish` — Publish the current module
 * `package` — Package the current module
 * `deprecate` — Deprecate or restore all existing versions of a published module
-* `update` — Update the package registry index
+* `update` — Update the registry index, or refresh project dependency metadata in API mode
 * `coverage` — Code coverage utilities
 * `generate-build-matrix` — Generate build matrix for benchmarking (legacy feature)
 * `upgrade` — Upgrade toolchains
@@ -531,6 +531,11 @@ Add a dependency
 * `-u`, `--upgrade` — Upgrade an existing dependency
 * `--no-update` — Do not update the registry index before adding the dependency
 
+With `MOON_REGISTRY_API=1`, an explicit version refreshes that release's
+deprecation status, while an unversioned request queries latest online.
+`--no-update` reuses cached mutable information but may acquire missing exact
+metadata and source. An unversioned `--no-update` requires a cached latest answer.
+
 
 
 ## `moon remove`
@@ -628,6 +633,9 @@ Note: This is an unstable command and may change or be removed in future version
 ###### **Options:**
 
 * `--no-update` — Do not update the registry index before fetching
+
+With `MOON_REGISTRY_API=1`, refresh and `--no-update` behavior matches `moon add`.
+An already downloaded source does not suppress an explicit metadata refresh.
 
 
 
@@ -804,10 +812,17 @@ With `--dry-run`, fetch the module's currently published versions and print the 
 
 ## `moon update`
 
-Update the package registry index
+Update the registry index, or refresh project dependency metadata in API mode
 
 **Usage:** `moon update`
 
+Without `MOON_REGISTRY_API=1`, this keeps the existing Git-index update behavior.
+In API mode, run it inside a module or workspace: it refreshes the deprecation
+status of selected direct/transitive registry dependencies, queries latest, and
+reports available updates. It does not change dependency declarations, install
+source archives, or execute package hooks. Deprecation and available updates do
+not fail the command; incomplete refreshes do, retaining successful cache writes.
+Ordinary builds reuse exact cached metadata without age-based refresh.
 
 
 ## `moon coverage`

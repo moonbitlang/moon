@@ -49,6 +49,9 @@ use crate::{
     zip_util::extract_zip_to_dir,
 };
 
+#[cfg(test)]
+mod refresh_tests;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 struct RegistryIndexEntry {
@@ -494,6 +497,19 @@ impl RegistryClient {
         if self.offline {
             bail!("missing cached registry metadata for {name}; frozen mode cannot fetch it");
         }
+        self.fetch_metadata(name, selector)
+    }
+
+    // Explicit refresh deliberately bypasses resolver_metadata's cache fast path.
+    fn fetch_metadata(
+        &self,
+        name: &ModuleName,
+        selector: &MetadataSelector,
+    ) -> anyhow::Result<RegistryMetadata> {
+        super::path::parse_module_path(&name.to_string())?;
+        if self.offline {
+            bail!("cannot refresh registry metadata in frozen mode");
+        }
         let module_path = name
             .segments()
             .map(encode_path_segment)
@@ -519,7 +535,7 @@ impl RegistryClient {
         ) {
             return Err(RegistryMetadataDenied(name.clone()).into());
         }
-        let metadata: RegistryMetadata = response
+        let mut metadata: RegistryMetadata = response
             .error_for_status()
             .with_context(|| format!("registry metadata request failed for {name}"))?
             .json()
@@ -532,6 +548,28 @@ impl RegistryClient {
                 .as_deref()
                 .context("missing registry version")?,
         )?;
+        if let Some(mut cached) = self.cached_release(name, &version)? {
+            let cached_deps = cached.release.deps.as_ref().cloned().unwrap_or_default();
+            let fresh_deps = metadata.release.deps.as_ref().cloned().unwrap_or_default();
+            let same_deps = cached_deps.len() == fresh_deps.len()
+                && cached_deps.iter().all(|(name, dep)| {
+                    fresh_deps.get(name).is_some_and(|fresh| {
+                        dep.version() == fresh.version() && dep.path() == fresh.path()
+                    })
+                });
+            let same_checksum = cached
+                .release
+                .checksum
+                .as_deref()
+                .zip(metadata.release.checksum.as_deref())
+                .is_some_and(|(old, fresh)| old.eq_ignore_ascii_case(fresh));
+            if !same_deps || !same_checksum || cached.visibility != metadata.visibility {
+                bail!("registry returned conflicting immutable metadata for {name}@{version}");
+            }
+            cached.release.yanked = metadata.release.yanked;
+            cached.release.yanked_reason = metadata.release.yanked_reason;
+            metadata = cached;
+        }
         let path = self.metadata_release_path(name, &version)?;
         self.write_metadata_cache(&path, &metadata)?;
         self.metadata.borrow_mut().insert(path, metadata.clone());
@@ -541,6 +579,90 @@ impl RegistryClient {
             self.selections.borrow_mut().insert(path, version);
         }
         Ok(metadata)
+    }
+
+    /// Whether resolver metadata comes from the HTTP API rather than the Git index.
+    pub fn uses_metadata_api(&self) -> bool {
+        self.api_metadata
+    }
+
+    /// Refresh a release's mutable status without replacing its immutable content.
+    pub fn refresh_version_info(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        let metadata = self.fetch_metadata(name, &MetadataSelector::Exact(version.clone()))?;
+        Ok(Self::release_info(&metadata))
+    }
+
+    /// Query current latest online, even if this client already has a latest answer.
+    pub fn refresh_latest_version(&self, name: &ModuleName) -> anyhow::Result<Version> {
+        let metadata = self.fetch_metadata(name, &MetadataSelector::Latest)?;
+        Ok(Version::parse(
+            metadata
+                .release
+                .version
+                .as_deref()
+                .context("missing version")?,
+        )?)
+    }
+
+    /// Select add/fetch's release under the API refresh contract. Git mode keeps
+    /// its existing index policy, owned by the command.
+    pub fn resolve_module_for_command(
+        &self,
+        path: &super::path::RegistryPath,
+        no_update: bool,
+        user_log: &UserLog,
+    ) -> anyhow::Result<ModuleSource> {
+        use super::Registry;
+        if !self.api_metadata {
+            return path.resolve(self);
+        }
+        if let Some(module) = path.exact_module()? {
+            if no_update {
+                self.version_info(module.name(), module.version())?;
+            } else {
+                let cached = self.cached_release(module.name(), module.version())?;
+                if let Err(error) = self.refresh_version_info(module.name(), module.version()) {
+                    // Only transport/server failures of an advisory refresh can
+                    // continue. Denials, malformed records and conflicts fail.
+                    let advisory_failure =
+                        error.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+                            !error.is_decode()
+                                && (error.status().is_none()
+                                    || error
+                                        .status()
+                                        .is_some_and(|status| status.is_server_error()))
+                        });
+                    if cached.is_some() && advisory_failure {
+                        user_log.warn(format!("failed to refresh deprecation status for {module}; using cached metadata: {error:#}"));
+                    } else {
+                        return Err(error);
+                    }
+                }
+            }
+            return Ok(module);
+        }
+        let version = if no_update {
+            self.cached_selection(&path.module, &MetadataSelector::Latest)?
+                .with_context(|| {
+                    format!(
+                        "no cached latest version for {}; --no-update cannot query latest",
+                        path.module
+                    )
+                })?
+        } else {
+            self.refresh_latest_version(&path.module)?
+        };
+        // A cached latest pointer selects an identity, not a complete release.
+        // Validate/acquire its exact record even for add --upgrade, which does
+        // not run dependency installation afterwards.
+        if no_update {
+            self.version_info(&path.module, &version)?;
+        }
+        Ok(ModuleSource::from_version(path.module.clone(), version)?)
     }
 
     fn release_info(metadata: &RegistryMetadata) -> RegistryVersionInfo {

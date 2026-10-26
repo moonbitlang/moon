@@ -312,12 +312,11 @@ pub(crate) fn resolve_modules_with_solver(
             panic!("The resolver should not return `false` when no errors are found");
         }
         assert_no_duplicate_module_names(&module_graph)?;
-        warn_deprecated_dependencies(&module_graph, config.registry, user_log);
         Ok(module_graph)
     }
 }
 
-fn warn_deprecated_dependencies(
+pub(crate) fn warn_deprecated_dependencies(
     module_graph: &ModuleDependencyGraph,
     registry: &dyn Registry,
     user_log: &UserLog,
@@ -382,6 +381,17 @@ pub(crate) fn resolve_modules(
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
-    let mut resolver = MvsSolver;
-    resolve_modules_with_solver(config, &mut resolver, root, user_log)
+    let graph = resolve_modules_without_deprecation_warnings(config, root, user_log)?;
+    warn_deprecated_dependencies(&graph, config.registry, user_log);
+    Ok(graph)
+}
+
+/// Explicit updates emit deprecation warnings after refreshing the graph's status,
+/// rather than warning from the old snapshot during initial resolution.
+pub(crate) fn resolve_modules_without_deprecation_warnings(
+    config: &ModuleResolutionConfig,
+    root: ResolvedRootModules,
+    user_log: &UserLog,
+) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
+    resolve_modules_with_solver(config, &mut MvsSolver, root, user_log)
 }

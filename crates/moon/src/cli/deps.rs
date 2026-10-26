@@ -226,7 +226,10 @@ pub(crate) fn add_cli(
     // - If an index already exists, update failures are treated as warnings so users can proceed
     //   with the existing local index.
     let registry = RegistryClient::configured();
-    let index_updated = if !cmd.no_update && (!cmd.upgrade || path.version.is_none()) {
+    let index_updated = if !registry.uses_metadata_api()
+        && !cmd.no_update
+        && (!cmd.upgrade || path.version.is_none())
+    {
         let had_index = registry.has_cached_index();
         match registry.sync(user_log) {
             Ok(()) => true,
@@ -245,13 +248,15 @@ pub(crate) fn add_cli(
         false
     };
 
-    let module = path.resolve(&registry).map_err(|error| {
-        if !index_updated && error.is::<ModuleNotFound>() {
-            error.context("Please consider running `moon update` to update the index.")
-        } else {
-            error
-        }
-    })?;
+    let module = registry
+        .resolve_module_for_command(&path, cmd.no_update, user_log)
+        .map_err(|error| {
+            if !index_updated && error.is::<ModuleNotFound>() {
+                error.context("Please consider running `moon update` to update the index.")
+            } else {
+                error
+            }
+        })?;
     mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.upgrade, user_log)
 }
 

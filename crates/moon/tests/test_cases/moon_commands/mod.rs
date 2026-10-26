@@ -75,7 +75,7 @@ fn test_moon_help() {
               publish                Publish the current module
               package                Package the current module
               deprecate              Deprecate or restore all existing versions of a published module
-              update                 Update the package registry index
+              update                 Update the registry index, or refresh project dependency metadata in API mode
               coverage               Code coverage utilities
               generate-build-matrix  Generate build matrix for benchmarking (legacy feature)
               upgrade                Upgrade toolchains

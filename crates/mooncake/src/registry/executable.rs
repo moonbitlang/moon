@@ -112,6 +112,17 @@ impl RegistryClient {
         policy: LatestVersionResolutionPolicy,
         user_log: &UserLog,
     ) -> anyhow::Result<ModuleSource> {
+        if self.uses_metadata_api() {
+            if policy == LatestVersionResolutionPolicy::PreferLocal
+                && let Some(version) = self.cached_latest_version(module_name)?
+            {
+                return Ok(ModuleSource::from_version(module_name.clone(), version)?);
+            }
+            return Ok(ModuleSource::from_version(
+                module_name.clone(),
+                self.refresh_latest_version(module_name)?,
+            )?);
+        }
         resolve_latest_module_with(
             module_name,
             user_log,
