@@ -558,8 +558,12 @@ impl RegistryClient {
         use super::Registry;
 
         if self.uses_index(name) {
-            return Ok(self
-                .all_versions_of(name)?
+            let versions = match self.all_versions_of(name) {
+                Ok(versions) => versions,
+                Err(error) if error.is::<super::RegistryModuleNotFound>() => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            return Ok(versions
                 .last_key_value()
                 .map(|(version, _)| version.clone()));
         }
@@ -2991,6 +2995,119 @@ mod tests {
         let error = registry.all_versions_of(&module).unwrap_err();
         assert!(!error.is::<crate::registry::RegistryModuleNotFound>());
         assert!(error.is::<semver::Error>());
+
+        let error = registry.cached_latest_version(&module).unwrap_err();
+        assert!(error.is::<semver::Error>());
+    }
+
+    #[test]
+    fn executable_latest_refreshes_after_a_missing_local_module_index() {
+        let run_git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        let base = tempfile::tempdir().unwrap();
+        let source = base.path().join("source");
+        run_git(&["init", "--quiet", source.to_str().unwrap()]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "checkout",
+            "--quiet",
+            "-b",
+            "main",
+        ]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "config",
+            "user.name",
+            "Moon Test",
+        ]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "config",
+            "user.email",
+            "moon-test@example.invalid",
+        ]);
+        let index_file = source.join("user/alice/tool.index");
+        std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &index_file,
+            r#"{"version":"1.2.3","deps":{}}
+"#,
+        )
+        .unwrap();
+        run_git(&["-C", source.to_str().unwrap(), "add", "."]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "commit",
+            "--quiet",
+            "-m",
+            "add module",
+        ]);
+
+        let bare = base.path().join("index.git");
+        run_git(&[
+            "clone",
+            "--bare",
+            "--quiet",
+            source.to_str().unwrap(),
+            bare.to_str().unwrap(),
+        ]);
+        let bare = dunce::canonicalize(bare)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let index = if cfg!(windows) {
+            format!("file:///{bare}")
+        } else {
+            format!("file://{bare}")
+        };
+        for has_local_index in [false, true] {
+            let home = MoonHomeLayout::new(base.path().join(format!("home-{has_local_index}")));
+            if has_local_index {
+                std::fs::create_dir_all(home.registry_index_dir()).unwrap();
+            }
+            let mut registry = RegistryClient::with_home(
+                RegistryConfig {
+                    api: index.clone(),
+                    index: index.clone(),
+                    download: String::new(),
+                    symbols: None,
+                    legacy_asset_urls: false,
+                },
+                home,
+            );
+            registry.api_metadata = false;
+
+            let package = registry
+                .resolve_executable_package("alice/tool", &quiet_user_log())
+                .unwrap();
+            assert_eq!(package.module.name().to_string(), "alice/tool");
+            assert_eq!(package.module.version().to_string(), "1.2.3");
+        }
+    }
+
+    #[test]
+    fn cached_latest_version_preserves_index_io_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut registry = api_test_registry(dir.path(), "https://registry.example.test");
+        registry.api_metadata = false;
+        let module: ModuleName = "test/module".into();
+        std::fs::create_dir_all(registry.home.registry_index_file(&module)).unwrap();
+
+        let error = registry.cached_latest_version(&module).unwrap_err();
+        assert!(error.is::<std::io::Error>());
     }
 
     #[test]

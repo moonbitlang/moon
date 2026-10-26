@@ -169,7 +169,11 @@ fn api_mode_preserves_exact_mvs_traversal_and_offline_resolution() {
     moon(project.path(), home.path(), true)
         .args(["update"])
         .assert()
-        .success();
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: registry API metadata refresh is not implemented yet; `moon update` cannot be used with `MOON_REGISTRY_API=1`
+
+"#]]);
     server.stop();
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 4);

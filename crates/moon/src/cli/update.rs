@@ -34,6 +34,11 @@ pub(crate) fn update_cli(
     if cli.dry_run {
         bail!("dry-run is not supported for update")
     }
+    if std::env::var("MOON_REGISTRY_API").is_ok_and(|value| value == "1") {
+        bail!(
+            "registry API metadata refresh is not implemented yet; `moon update` cannot be used with `MOON_REGISTRY_API=1`"
+        )
+    }
     RegistryClient::configured().sync(user_log)?;
     Ok(0)
 }

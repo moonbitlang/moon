@@ -79,10 +79,10 @@ $MOON_HOME/
   beneath `registry/metadata`. The optional `latest.json` contains only a version
   pointer. Exact requests share release records directly; no generation or
   range-selection cache is needed. Online latest lookups refresh across client
-  instances and after `moon update`; locally-known-latest executable selectors
-  deliberately prefer a cached latest pointer.
-- In API mode, `moon update` clears the in-memory latest selections without
-  fetching Git or symbols. Exact release records remain usable. Frozen module
+  instances; locally-known-latest executable selectors deliberately prefer a
+  cached latest pointer.
+- In API mode, `moon update` reports that registry metadata refresh is not yet
+  implemented. Exact release records remain usable. Frozen module
   synchronization reads only cached metadata and verified sources; a missing
   exact release or source fails without HTTP or guessing another version.
 - Metadata is atomically written through owner-only temporary files; Unix
