@@ -290,15 +290,15 @@ fn bundle_handles_its_long_output_directory() {
 #[test]
 fn doc_reaches_moondoc_with_long_artifacts() {
     let case = LongPathCase::new();
-    // FIXME: moondoc must preserve verbatim paths in its options and package
-    // metadata. It currently normalizes the .mi path into an unusable spelling.
+    // FIXME: moondoc must handle output paths that exceed MAX_PATH after
+    // appending the package name. It currently fails to create the directory.
     moon_cmd(&case.dir)
         .arg("doc")
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
 Error: failed to build docs test/long-path@0.0.0 (local [..]) (wasm-gc): [..]moondoc[EXE] [..]
-missing .mi artifact for package test/long-path/[..]: /?/[..].mi
+Fatal error: exception Sys_error("[..]_build//doc/test/long-path/[..]: No such file or directory")
 ...
 "#]]);
     let interface = case
