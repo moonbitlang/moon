@@ -54,11 +54,11 @@ form_urlencoded = "1.2.1"
 snapbox = "0.6.23"
 tar = { version = "0.4.46", default-features = false }
 indexmap = { version = "2.2.6", features = ["serde"] }
-reqwest = { version = "0.12.28", default-features = false, features = [
+# Delegate certificate verification to the OS where supported; Linux uses system roots with webpki.
+reqwest = { version = "0.13.5", default-features = false, features = [
     "blocking",
     "json",
-    "rustls-tls",
-    "rustls-tls-native-roots",
+    "rustls",
     "http2",
     "system-proxy",
 ] }

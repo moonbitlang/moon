@@ -114,7 +114,8 @@ fn moon_search(
     let assert = moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("MOONCAKES_REGISTRY", registry)
-        .env("NO_PROXY", "*")
+        // The proxy matcher's wildcard matches domains, not IP literals.
+        .env("NO_PROXY", "127.0.0.1")
         .args(args)
         .assert();
     server.join().unwrap();
