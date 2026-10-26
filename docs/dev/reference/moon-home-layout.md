@@ -78,11 +78,14 @@ $MOON_HOME/
   Exact version identity, dependencies and SHA-256 are validated before caching.
 - API release records are keyed by normalized API URL, identity, module and exact
   version beneath `registry/private`. Identity is the saved username, a token
-  hash for older unnamed credentials, or anonymous. The optional `latest.json` contains only a version
-  pointer. Exact requests share release records directly; no generation or
-  range-selection cache is needed. Online latest lookups refresh across client
-  instances; locally-known-latest executable selectors deliberately prefer a
-  cached latest pointer.
+  hash for older unnamed credentials, or anonymous for public records only.
+  Private records are read and written only in a non-anonymous namespace selected
+  by nonempty credentials bound to this registry. This does not require an online
+  token check when reusing an account's existing cache. The optional `latest.json`
+  contains only a version pointer. Exact requests share release records directly;
+  no generation or range-selection cache is needed. Online latest lookups refresh across client
+  instances; locally-known-latest executable selectors
+  deliberately prefer a cached latest pointer.
 - In API mode, `moon update` reports that registry metadata refresh is not yet
   implemented. Exact release records remain usable. Frozen module
   synchronization reads only cached metadata and verified sources; a missing

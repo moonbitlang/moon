@@ -78,6 +78,39 @@ struct RegistryMetadata {
     release: RegistryIndexEntry,
 }
 
+/// Keep cache eligibility tied to the namespace chosen for this cache access.
+struct RegistryMetadataCache {
+    path: std::path::PathBuf,
+    has_credentials: bool,
+}
+
+impl RegistryMetadataCache {
+    fn release_path(&self, version: &Version) -> std::path::PathBuf {
+        self.path
+            .with_extension("metadata-v4")
+            .join("releases")
+            .join(format!(
+                "{}.json",
+                sha256_hex(version.to_string().as_bytes())
+            ))
+    }
+
+    fn latest_path(&self) -> std::path::PathBuf {
+        self.path.with_extension("metadata-v4").join("latest.json")
+    }
+
+    fn validate_visibility(
+        &self,
+        name: &ModuleName,
+        visibility: &RegistryVisibility,
+    ) -> anyhow::Result<()> {
+        if *visibility == RegistryVisibility::Private && !self.has_credentials {
+            return Err(RegistryMetadataDenied(name.clone()).into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MetadataSelector {
     Latest,
@@ -321,7 +354,7 @@ impl RegistryClient {
             == RegistryVisibility::Private)
     }
 
-    fn private_cache_namespace(&self) -> anyhow::Result<std::path::PathBuf> {
+    fn private_cache_namespace(&self) -> anyhow::Result<Option<std::path::PathBuf>> {
         let api = registry_api_url(&self.endpoints.api)?;
         let identity = match RegistryCredentials::load(&self.home.credentials_path())? {
             Some(saved)
@@ -336,47 +369,33 @@ impl RegistryClient {
                         format!("token:{}", sha256_hex(saved.credentials.token.as_bytes()))
                     })
             }
-            _ => "anonymous".to_owned(),
+            _ => return Ok(None),
         };
-        Ok(
+        Ok(Some(
             std::path::PathBuf::from(sha256_hex(api.as_str().as_bytes()))
                 .join(sha256_hex(identity.as_bytes())),
-        )
+        ))
     }
 
-    fn metadata_path(&self, name: &ModuleName) -> anyhow::Result<std::path::PathBuf> {
-        Ok(self
-            .home
-            .registry_dir()
-            .join("private")
-            .join(self.private_cache_namespace()?)
-            .join(format!("{}.json", sha256_hex(name.to_string().as_bytes()))))
-    }
-
-    fn metadata_query_path(
-        &self,
-        name: &ModuleName,
-        _: &MetadataSelector,
-    ) -> anyhow::Result<std::path::PathBuf> {
-        Ok(self
-            .metadata_path(name)?
-            .with_extension("metadata-v4")
-            .join("latest.json"))
-    }
-
-    fn metadata_release_path(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<std::path::PathBuf> {
-        Ok(self
-            .metadata_path(name)?
-            .with_extension("metadata-v4")
-            .join("releases")
-            .join(format!(
-                "{}.json",
-                sha256_hex(version.to_string().as_bytes())
-            )))
+    fn metadata_cache(&self, name: &ModuleName) -> anyhow::Result<RegistryMetadataCache> {
+        let namespace = self.private_cache_namespace()?;
+        let has_credentials = namespace.is_some();
+        let namespace = match namespace {
+            Some(namespace) => namespace,
+            None => std::path::PathBuf::from(sha256_hex(
+                registry_api_url(&self.endpoints.api)?.as_str().as_bytes(),
+            ))
+            .join(sha256_hex(b"anonymous")),
+        };
+        Ok(RegistryMetadataCache {
+            path: self
+                .home
+                .registry_dir()
+                .join("private")
+                .join(namespace)
+                .join(format!("{}.json", sha256_hex(name.to_string().as_bytes()))),
+            has_credentials,
+        })
     }
 
     fn cached_release(
@@ -384,7 +403,8 @@ impl RegistryClient {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<RegistryMetadata>> {
-        let path = self.metadata_release_path(name, version)?;
+        let cache = self.metadata_cache(name)?;
+        let path = cache.release_path(version);
         let memory = self.metadata.borrow().get(&path).cloned();
         let cached = match memory {
             Some(cached) => cached,
@@ -396,6 +416,7 @@ impl RegistryClient {
             },
         };
         Self::validate_metadata(name, &MetadataSelector::Exact(version.clone()), &cached)?;
+        cache.validate_visibility(name, &cached.visibility)?;
         self.metadata.borrow_mut().insert(path, cached.clone());
         Ok(Some(cached))
     }
@@ -405,7 +426,7 @@ impl RegistryClient {
         name: &ModuleName,
         selector: &MetadataSelector,
     ) -> anyhow::Result<Option<Version>> {
-        let path = self.metadata_query_path(name, selector)?;
+        let path = self.metadata_cache(name)?.latest_path();
         let memory = self.selections.borrow().get(&path).cloned();
         let cached = match memory {
             Some(cached) => cached,
@@ -512,7 +533,7 @@ impl RegistryClient {
             } else {
                 self.selections
                     .borrow()
-                    .get(&self.metadata_query_path(name, selector)?)
+                    .get(&self.metadata_cache(name)?.latest_path())
                     .cloned()
             };
             if let Some(version) = version
@@ -562,11 +583,13 @@ impl RegistryClient {
                 .as_deref()
                 .context("missing registry version")?,
         )?;
-        let path = self.metadata_release_path(name, &version)?;
+        let cache = self.metadata_cache(name)?;
+        cache.validate_visibility(name, &metadata.visibility)?;
+        let path = cache.release_path(&version);
         self.write_metadata_cache(&path, &metadata)?;
         self.metadata.borrow_mut().insert(path, metadata.clone());
         if matches!(selector, MetadataSelector::Latest) {
-            let path = self.metadata_query_path(name, selector)?;
+            let path = cache.latest_path();
             self.write_metadata_cache(&path, &version)?;
             self.selections.borrow_mut().insert(path, version);
         }
@@ -1092,7 +1115,10 @@ impl super::RegistrySource for RegistryClient {
         if !self.is_private_release(module.name(), module.version())? {
             Ok(None)
         } else {
-            Ok(Some(self.private_cache_namespace()?))
+            let namespace = self
+                .private_cache_namespace()?
+                .ok_or_else(|| RegistryMetadataDenied(module.name().clone()))?;
+            Ok(Some(namespace))
         }
     }
 
@@ -1262,7 +1288,10 @@ impl RegistryClient {
         validate_registry_module_name(name)?;
         let private = self.is_private_release(name, version)?;
         let cache_file = if private {
-            self.metadata_path(name)?
+            let cache = self.metadata_cache(name)?;
+            cache.validate_visibility(name, &RegistryVisibility::Private)?;
+            cache
+                .path
                 .with_extension("archives")
                 .join(format!("{version}.zip"))
         } else {
@@ -1483,18 +1512,37 @@ mod tests {
     }
 
     #[test]
+    fn private_cache_namespace_requires_registry_bound_nonempty_credentials() {
+        let home = tempfile::tempdir().unwrap();
+        let api = "https://example.com";
+        let registry = api_test_registry(home.path(), api);
+        assert_eq!(registry.private_cache_namespace().unwrap(), None);
+
+        save_test_login(home.path(), api, "alice", "test-alice");
+        assert!(registry.private_cache_namespace().unwrap().is_some());
+
+        save_test_login(home.path(), api, "alice", " ");
+        assert_eq!(registry.private_cache_namespace().unwrap(), None);
+
+        save_test_login(home.path(), "https://other.example", "alice", "test-alice");
+        assert_eq!(registry.private_cache_namespace().unwrap(), None);
+    }
+
+    #[test]
     fn private_registry_cache_supports_long_paths() {
         let sandbox = tempfile::tempdir().unwrap();
         let home = sandbox.path().join("private-cache-home/".repeat(18));
         assert!(home.to_string_lossy().len() > 260);
         std::fs::create_dir_all(&home).unwrap();
         let api = "https://example.com";
+        save_test_login(&home, api, "alice", "test-alice");
         let registry = api_test_registry(&home, api);
         let name: ModuleName = "alice/secret".into();
         let version = Version::new(0, 1, 0);
         let selector = MetadataSelector::Latest;
-        let release_path = registry.metadata_release_path(&name, &version).unwrap();
-        let query_path = registry.metadata_query_path(&name, &selector).unwrap();
+        let cache = registry.metadata_cache(&name).unwrap();
+        let release_path = cache.release_path(&version);
+        let query_path = cache.latest_path();
         let metadata: RegistryMetadata =
             serde_json::from_str(&resolver_response("alice/secret", "PRIVATE", "0.1.0")).unwrap();
         // Repeat each write to cover replacing an existing cache entry as well.
@@ -1516,8 +1564,9 @@ mod tests {
         registry.selections.borrow_mut().clear();
 
         let archive_path = registry
-            .metadata_path(&name)
+            .metadata_cache(&name)
             .unwrap()
+            .path
             .with_extension("archives")
             .join("0.1.0.zip");
         let bytes = test_archive();
@@ -1576,9 +1625,7 @@ mod tests {
                 .contains("authorization: bearer test-alice")
         );
         assert!(!registry.home.registry_index_dir().exists());
-        let cache = registry
-            .metadata_query_path(&name, &MetadataSelector::Latest)
-            .unwrap();
+        let cache = registry.metadata_cache(&name).unwrap().latest_path();
         assert!(
             !std::fs::read_to_string(&cache)
                 .unwrap()
@@ -1669,6 +1716,40 @@ mod tests {
     }
 
     #[test]
+    fn private_metadata_remains_available_offline_after_same_account_token_rotation() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+            )],
+        );
+        save_test_login(home.path(), &api, "alice", "before-rotation");
+        let name: ModuleName = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        let registry = api_test_registry(home.path(), &api);
+        assert_eq!(
+            registry.latest_version(&name).unwrap(),
+            Some(version.clone())
+        );
+        assert_eq!(server.join().unwrap().len(), 1);
+        let namespace = registry.private_cache_namespace().unwrap().unwrap();
+
+        save_test_login(home.path(), &api, "alice", "after-rotation");
+        let offline = api_test_registry(home.path(), &api).offline();
+        assert_eq!(offline.private_cache_namespace().unwrap(), Some(namespace));
+        assert_eq!(
+            offline.latest_version(&name).unwrap(),
+            Some(version.clone())
+        );
+        assert!(offline.version_info(&name, &version).unwrap().is_some());
+    }
+
+    #[test]
     fn metadata_connection_pool_tracks_token_rotation_for_the_same_account() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1744,7 +1825,7 @@ mod tests {
         assert!(cached.version_info(&name, &Version::new(0, 1, 1)).is_err());
         assert!(cached.latest_version(&name).is_err());
         assert!(cached.all_versions_of(&name).is_err());
-        let path = cached.metadata_release_path(&name, &version).unwrap();
+        let path = cached.metadata_cache(&name).unwrap().release_path(&version);
         let release: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(release["version"], "0.1.0");
@@ -1910,6 +1991,16 @@ mod tests {
             "not valid registry metadata"
         );
         assert!(!registry.home.registry_dir().join("symbols").exists());
+        let mut offline = api_test_registry(home.path(), &api).offline();
+        offline.api_metadata = true;
+        assert!(offline.version_info(&name, &version).unwrap().is_some());
+        offline
+            .materialize_source_to(
+                &module,
+                &home.path().join("offline-source"),
+                &quiet_user_log(),
+            )
+            .unwrap();
     }
 
     #[test]
@@ -2073,8 +2164,9 @@ mod tests {
             assert!(registry.latest_version(&name).is_err());
             assert!(
                 !registry
-                    .metadata_query_path(&name, &MetadataSelector::Latest)
+                    .metadata_cache(&name)
                     .unwrap()
+                    .latest_path()
                     .exists()
             );
             server.join().unwrap();
