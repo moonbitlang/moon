@@ -61,15 +61,25 @@ pub trait Registry {
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>>;
 
-    /// Read the registry's latest known version, or `None` if it has no versions.
-    /// The implementation owns version selection; callers need not enumerate
-    /// the complete history. The Git client reads its last synchronized index.
-    /// Preserve missing-module and read errors as in [`Self::version_info`].
-    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>>;
+    /// Read the locally known latest version without contacting the registry.
+    /// `None` means there is no cached latest answer, not that the remote module
+    /// does not exist. Preserve local read errors instead of treating them as misses.
+    /// A partial cache of exact releases cannot be used to infer latest.
+    fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>>;
+
+    /// Query the registry for its current latest version and retain the answer.
+    /// Every call must contact or revalidate against the registry, even when a
+    /// cached answer exists. Failure must not silently return a stale version.
+    /// Git synchronizes its index; an HTTP backend queries its latest endpoint.
+    fn query_latest_version(
+        &self,
+        name: &ModuleName,
+        user_log: &UserLog,
+    ) -> anyhow::Result<Version>;
 
     /// Resolve an unversioned import-style path into:
     /// - module path
-    /// - the latest version of the resolved module
+    /// - the cached latest version of the resolved module
     /// - full package path
     ///
     /// Resolution rules:
@@ -77,12 +87,15 @@ pub trait Registry {
     ///   [`DEFAULT_VERSION`] as its version.
     /// - Otherwise, resolve `user/module[/vN]` as the module name.
     ///
-    /// Returns an error if the path is malformed, contains an explicit version,
-    /// or no module can be resolved from registry metadata.
-    fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {
+    /// Does not refresh registry metadata. Returns an error if the path is
+    /// malformed, contains an explicit version, or has no cached latest answer.
+    fn resolve_cached_unversioned_path(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<(ModuleName, String, String)> {
         path::resolve_unversioned_registry_path(path, |module| {
             Ok(self
-                .latest_version(module)?
+                .cached_latest_version(module)?
                 .map(|version| version.to_string()))
         })
     }
@@ -131,12 +144,23 @@ where
         (**self).version_info(name, version)
     }
 
-    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
-        (**self).latest_version(name)
+    fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        (**self).cached_latest_version(name)
     }
 
-    fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {
-        (**self).resolve_unversioned_path(path)
+    fn query_latest_version(
+        &self,
+        name: &ModuleName,
+        user_log: &UserLog,
+    ) -> anyhow::Result<Version> {
+        (**self).query_latest_version(name, user_log)
+    }
+
+    fn resolve_cached_unversioned_path(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<(ModuleName, String, String)> {
+        (**self).resolve_cached_unversioned_path(path)
     }
 }
 
@@ -152,12 +176,23 @@ where
         (**self).version_info(name, version)
     }
 
-    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
-        (**self).latest_version(name)
+    fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        (**self).cached_latest_version(name)
     }
 
-    fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {
-        (**self).resolve_unversioned_path(path)
+    fn query_latest_version(
+        &self,
+        name: &ModuleName,
+        user_log: &UserLog,
+    ) -> anyhow::Result<Version> {
+        (**self).query_latest_version(name, user_log)
+    }
+
+    fn resolve_cached_unversioned_path(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<(ModuleName, String, String)> {
+        (**self).resolve_cached_unversioned_path(path)
     }
 }
 
@@ -173,14 +208,14 @@ mod tests {
     use moonutil::{constants::MOONBITLANG_CORE, resolution::DEFAULT_VERSION};
 
     #[test]
-    fn resolve_unversioned_path_uses_latest_version() {
+    fn resolve_cached_unversioned_path_uses_latest_version() {
         let mut registry = MockRegistry::new();
         registry
             .add_module_full("path/to", "0.2.0", [])
             .add_module_full("path/to", "0.1.0", []);
 
         let (name, version, full_path) = registry
-            .resolve_unversioned_path("path/to/module/a/b")
+            .resolve_cached_unversioned_path("path/to/module/a/b")
             .expect("module path should resolve");
         assert_eq!(name.to_string(), "path/to");
         assert_eq!(version, "0.2.0");
@@ -188,14 +223,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unversioned_path_latest_prefers_release_over_same_base_prerelease() {
+    fn resolve_cached_unversioned_path_latest_prefers_release_over_same_base_prerelease() {
         let mut registry = MockRegistry::new();
         registry
             .add_module_full("path/to", "1.2.0-rc.1", [])
             .add_module_full("path/to", "1.2.0", []);
 
         let (name, version, full_path) = registry
-            .resolve_unversioned_path("path/to/module/a/b")
+            .resolve_cached_unversioned_path("path/to/module/a/b")
             .expect("module path should resolve");
         assert_eq!(name.to_string(), "path/to");
         assert_eq!(version, "1.2.0");
@@ -203,14 +238,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unversioned_path_latest_uses_prerelease_when_it_is_semver_max() {
+    fn resolve_cached_unversioned_path_latest_uses_prerelease_when_it_is_semver_max() {
         let mut registry = MockRegistry::new();
         registry
             .add_module_full("path/to", "1.2.9", [])
             .add_module_full("path/to", "1.3.0-rc.1", []);
 
         let (name, version, full_path) = registry
-            .resolve_unversioned_path("path/to/module/a/b")
+            .resolve_cached_unversioned_path("path/to/module/a/b")
             .expect("module path should resolve");
         assert_eq!(name.to_string(), "path/to");
         assert_eq!(version, "1.3.0-rc.1");
@@ -218,14 +253,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unversioned_path_uses_first_two_segments_as_module() {
+    fn resolve_cached_unversioned_path_uses_first_two_segments_as_module() {
         let mut registry = MockRegistry::new();
         registry
             .add_module_full("a/b", "0.2.0", [])
             .add_module_full("a/b", "0.1.0", []);
 
         let (name, version, full_path) = registry
-            .resolve_unversioned_path("a/b/c/d/e/f/g")
+            .resolve_cached_unversioned_path("a/b/c/d/e/f/g")
             .expect("module path should resolve");
         assert_eq!(name.to_string(), "a/b");
         assert_eq!(version, "0.2.0");
@@ -233,17 +268,17 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unversioned_path_returns_default_version_for_core() {
+    fn resolve_cached_unversioned_path_returns_default_version_for_core() {
         let registry = MockRegistry::new();
         let (root_name, root_version, root_full_path) = registry
-            .resolve_unversioned_path("moonbitlang/core")
+            .resolve_cached_unversioned_path("moonbitlang/core")
             .expect("core root path should resolve");
         assert_eq!(root_name.to_string(), MOONBITLANG_CORE);
         assert_eq!(root_version, DEFAULT_VERSION.to_string());
         assert_eq!(root_full_path, "moonbitlang/core");
 
         let (name, version, full_path) = registry
-            .resolve_unversioned_path("moonbitlang/core/list")
+            .resolve_cached_unversioned_path("moonbitlang/core/list")
             .expect("core path should resolve");
         assert_eq!(name.to_string(), MOONBITLANG_CORE);
         assert_eq!(version, DEFAULT_VERSION.to_string());
@@ -251,11 +286,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unversioned_path_does_not_treat_corexx_as_core() {
+    fn resolve_cached_unversioned_path_does_not_treat_corexx_as_core() {
         let mut registry = MockRegistry::new();
         registry.add_module_full("moonbitlang/corexx", "0.1.0", []);
         let (name, version, full_path) = registry
-            .resolve_unversioned_path("moonbitlang/corexx/list")
+            .resolve_cached_unversioned_path("moonbitlang/corexx/list")
             .expect("corexx path should resolve as a normal module");
         assert_eq!(name.to_string(), "moonbitlang/corexx");
         assert_eq!(version, "0.1.0");
@@ -263,11 +298,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unversioned_path_rejects_explicit_version() {
+    fn resolve_cached_unversioned_path_rejects_explicit_version() {
         let registry = MockRegistry::new();
         assert!(
             registry
-                .resolve_unversioned_path("moonbitlang/x@0.4.39/fs")
+                .resolve_cached_unversioned_path("moonbitlang/x@0.4.39/fs")
                 .is_err()
         );
     }

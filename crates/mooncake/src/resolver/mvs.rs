@@ -983,7 +983,15 @@ mod test {
                 .context("could not read registry metadata"))
             }
 
-            fn latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+            fn cached_latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+                unreachable!("MVS only queries exact versions")
+            }
+
+            fn query_latest_version(
+                &self,
+                _name: &ModuleName,
+                _user_log: &UserLog,
+            ) -> anyhow::Result<Version> {
                 unreachable!("MVS only queries exact versions")
             }
         }
@@ -1021,7 +1029,15 @@ mod test {
                 Ok(Some(RegistryVersionInfo::default()))
             }
 
-            fn latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+            fn cached_latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+                unreachable!("MVS only queries exact versions")
+            }
+
+            fn query_latest_version(
+                &self,
+                _name: &ModuleName,
+                _user_log: &UserLog,
+            ) -> anyhow::Result<Version> {
                 unreachable!("MVS only queries exact versions")
             }
         }

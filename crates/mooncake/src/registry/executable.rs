@@ -47,13 +47,6 @@ impl ResolvedExecutablePackage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum LatestVersionLookup {
-    Found(Version),
-    NoVersionInformation,
-    NotFound,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 enum ExecutablePackageVersionSelector {
     Exact(ModuleSource),
     LocallyKnownLatest,
@@ -115,74 +108,26 @@ impl RegistryClient {
         resolve_latest_module_with(
             module_name,
             user_log,
-            self.has_cached_index(),
             policy,
-            || latest_version_from_registry(self, module_name),
-            || self.sync(user_log),
+            || self.cached_latest_version(module_name),
+            || self.query_latest_version(module_name, user_log),
         )
-    }
-}
-
-fn latest_version_from_registry(
-    registry: &impl Registry,
-    module_name: &ModuleName,
-) -> anyhow::Result<LatestVersionLookup> {
-    match registry.latest_version(module_name) {
-        Ok(Some(version)) => Ok(LatestVersionLookup::Found(version)),
-        Ok(None) => Ok(LatestVersionLookup::NoVersionInformation),
-        Err(error) if error.is::<super::RegistryModuleNotFound>() => {
-            Ok(LatestVersionLookup::NotFound)
-        }
-        Err(error) => Err(error),
     }
 }
 
 fn resolve_latest_module_with(
     module_name: &ModuleName,
     user_log: &UserLog,
-    had_index: bool,
     policy: LatestVersionResolutionPolicy,
-    mut lookup_latest_version: impl FnMut() -> anyhow::Result<LatestVersionLookup>,
-    mut update_registry: impl FnMut() -> anyhow::Result<()>,
+    mut cached_latest_version: impl FnMut() -> anyhow::Result<Option<Version>>,
+    mut query_latest_version: impl FnMut() -> anyhow::Result<Version>,
 ) -> anyhow::Result<ModuleSource> {
-    if policy == LatestVersionResolutionPolicy::PreferLocal
-        && let LatestVersionLookup::Found(version) = lookup_latest_version()?
-    {
-        let module = ModuleSource::from_version(module_name.clone(), version)?;
-        user_log.info(format!(
-            "Resolved {module_name} latest version to {}",
-            module.version()
-        ));
-        return Ok(module);
-    }
-
-    match update_registry() {
-        Ok(()) => {}
-        Err(error) if policy == LatestVersionResolutionPolicy::Refresh => {
-            return Err(error).context("Failed to update registry index");
-        }
-        Err(error) => {
-            if had_index {
-                user_log.warn(format!(
-                    "Failed to update registry index, using cached index: {error}"
-                ));
-            } else {
-                return Err(error).context("Failed to update registry index");
-            }
-        }
-    }
-
-    let version = match lookup_latest_version()? {
-        LatestVersionLookup::Found(version) => version,
-        LatestVersionLookup::NoVersionInformation => {
-            bail!("Module `{module_name}` has no version information")
-        }
-        LatestVersionLookup::NotFound if had_index => {
-            bail!("Module `{module_name}` not found in registry")
-        }
-        LatestVersionLookup::NotFound => {
-            bail!("Module `{module_name}` not found in registry after updating the index")
-        }
+    let version = match policy {
+        LatestVersionResolutionPolicy::PreferLocal => match cached_latest_version()? {
+            Some(version) => version,
+            None => query_latest_version()?,
+        },
+        LatestVersionResolutionPolicy::Refresh => query_latest_version()?,
     };
     let module = ModuleSource::from_version(module_name.clone(), version)?;
     user_log.info(format!(
@@ -230,7 +175,6 @@ fn parse_executable_package_coordinate(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
 
     use super::*;
 
@@ -283,10 +227,9 @@ mod tests {
             let error = resolve_latest_module_with(
                 &"a/b/v2".into(),
                 &UserLog::new(log::LevelFilter::Error),
-                true,
                 policy,
-                || Ok(LatestVersionLookup::Found(Version::new(1, 5, 0))),
-                || Ok(()),
+                || Ok(Some(Version::new(1, 5, 0))),
+                || Ok(Version::new(1, 5, 0)),
             )
             .unwrap_err();
             assert_eq!(
@@ -343,139 +286,101 @@ mod tests {
     }
 
     #[test]
-    fn latest_resolution_uses_local_registry_before_updating() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let mut update_called = false;
-
-        let version = resolve_latest_module_with(
-            &module_name,
+    fn unpinned_coordinate_uses_cached_latest_without_querying() {
+        let module = resolve_latest_module_with(
+            &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
-            true,
             LatestVersionResolutionPolicy::PreferLocal,
-            || Ok(LatestVersionLookup::Found("0.3.3".parse().unwrap())),
-            || {
-                update_called = true;
-                Ok(())
-            },
+            || Ok(Some(Version::new(0, 3, 3))),
+            || panic!("cached latest should satisfy an unpinned coordinate"),
         )
         .unwrap();
-
-        assert_eq!(version.version().to_string(), "0.3.3");
-        assert!(!update_called);
+        assert_eq!(module.version(), &Version::new(0, 3, 3));
     }
 
     #[test]
-    fn latest_resolution_updates_after_local_registry_miss() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let mut lookup_count = 0;
-        let mut update_called = false;
-
-        let version = resolve_latest_module_with(
-            &module_name,
+    fn unpinned_coordinate_queries_latest_after_cache_miss() {
+        let mut cached_reads = 0;
+        let mut queries = 0;
+        let module = resolve_latest_module_with(
+            &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
-            true,
             LatestVersionResolutionPolicy::PreferLocal,
             || {
-                lookup_count += 1;
-                Ok(if lookup_count > 1 {
-                    LatestVersionLookup::Found("0.3.3".parse().unwrap())
-                } else {
-                    LatestVersionLookup::NotFound
-                })
+                cached_reads += 1;
+                Ok(None)
             },
             || {
-                update_called = true;
-                Ok(())
+                queries += 1;
+                Ok(Version::new(0, 3, 3))
             },
         )
         .unwrap();
-
-        assert_eq!(version.version().to_string(), "0.3.3");
-        assert_eq!(lookup_count, 2);
-        assert!(update_called);
+        assert_eq!(module.version(), &Version::new(0, 3, 3));
+        assert_eq!(cached_reads, 1);
+        assert_eq!(queries, 1);
     }
 
     #[test]
-    fn explicit_latest_refreshes_before_resolving() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let registry_updated = Cell::new(false);
-        let lookup_count = Cell::new(0);
-
-        let version = resolve_latest_module_with(
-            &module_name,
+    fn explicit_latest_queries_without_reading_cached_latest() {
+        let module = resolve_latest_module_with(
+            &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
-            true,
             LatestVersionResolutionPolicy::Refresh,
-            || {
-                lookup_count.set(lookup_count.get() + 1);
-                Ok(LatestVersionLookup::Found(
-                    if registry_updated.get() {
-                        "0.4.0"
-                    } else {
-                        "0.3.3"
-                    }
-                    .parse()
-                    .unwrap(),
-                ))
-            },
-            || {
-                registry_updated.set(true);
-                Ok(())
-            },
+            || panic!("explicit latest must query the registry"),
+            || Ok(Version::new(0, 4, 0)),
         )
         .unwrap();
-
-        assert_eq!(version.version().to_string(), "0.4.0");
-        assert!(registry_updated.get());
-        assert_eq!(lookup_count.get(), 1);
+        assert_eq!(module.version(), &Version::new(0, 4, 0));
     }
 
     #[test]
-    fn explicit_latest_fails_when_refresh_fails() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let lookup_called = Cell::new(false);
-
+    fn explicit_latest_preserves_query_failure_without_stale_fallback() {
         let error = resolve_latest_module_with(
-            &module_name,
+            &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
-            true,
             LatestVersionResolutionPolicy::Refresh,
-            || {
-                lookup_called.set(true);
-                Ok(LatestVersionLookup::Found("0.3.3".parse().unwrap()))
-            },
-            || Err(anyhow::anyhow!("offline")),
+            || panic!("a failed query must not fall back to cached latest"),
+            || Err(anyhow::anyhow!("offline").context("Failed to update registry index")),
         )
         .unwrap_err();
-
         assert_eq!(error.to_string(), "Failed to update registry index");
         assert_eq!(error.source().unwrap().to_string(), "offline");
-        assert!(!lookup_called.get());
     }
 
     #[test]
-    fn latest_resolution_preserves_no_version_information_after_update() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let mut update_called = false;
+    fn unpinned_coordinate_preserves_query_errors_after_cache_miss() {
+        for message in [
+            "offline",
+            "Module `moonbitlang/parser` has no version information",
+            "Module `moonbitlang/parser` not found in registry",
+        ] {
+            let error = resolve_latest_module_with(
+                &"moonbitlang/parser".into(),
+                &UserLog::new(log::LevelFilter::Warn),
+                LatestVersionResolutionPolicy::PreferLocal,
+                || Ok(None),
+                || Err(anyhow::anyhow!("{message}")),
+            )
+            .unwrap_err();
+            assert_eq!(error.to_string(), message);
+        }
+    }
 
+    #[test]
+    fn cached_read_error_does_not_trigger_a_query() {
         let error = resolve_latest_module_with(
-            &module_name,
+            &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
-            true,
             LatestVersionResolutionPolicy::PreferLocal,
-            || Ok(LatestVersionLookup::NoVersionInformation),
-            || {
-                update_called = true;
-                Ok(())
-            },
+            || Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into()),
+            || panic!("an unreadable cache is not a cache miss"),
         )
         .unwrap_err();
-
         assert_eq!(
-            error.to_string(),
-            "Module `moonbitlang/parser` has no version information"
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::PermissionDenied
         );
-        assert!(update_called);
     }
 
     #[test]

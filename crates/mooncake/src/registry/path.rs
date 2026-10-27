@@ -55,21 +55,14 @@ impl RegistryPath {
             .transpose()
     }
 
-    /// Select an exact version using the current registry index, without refreshing it.
+    /// Select an exact version using cached registry metadata, without refreshing it.
     /// An explicit version does not require a registry entry.
     pub fn resolve(&self, registry: &impl Registry) -> anyhow::Result<ModuleSource> {
         match self.exact_module()? {
             Some(module) => Ok(module),
             None => {
                 let version = registry
-                    .latest_version(&self.module)
-                    .map_err(|error| {
-                        if error.is::<super::RegistryModuleNotFound>() {
-                            anyhow::Error::new(ModuleNotFound(self.module.clone()))
-                        } else {
-                            error
-                        }
-                    })?
+                    .cached_latest_version(&self.module)?
                     .ok_or_else(|| ModuleNotFound(self.module.clone()))?;
                 Ok(ModuleSource::from_version(self.module.clone(), version)?)
             }

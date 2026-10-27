@@ -44,6 +44,14 @@ _Avoid_: Partial resolve, incomplete build command
 Selecting concrete module sources and versions and determining their dependency relationships.
 _Avoid_: Package resolution, unqualified dependency resolution when the domain is unclear
 
+**Cached Latest Version**:
+The latest version of a module known locally from an earlier registry observation. It may be stale; the newest of an arbitrary subset of downloaded releases is not a cached latest version.
+_Avoid_: Current latest version, newest downloaded version
+
+**Current Latest Query**:
+An operation that asks the registry for a module's current latest version. A previously cached answer alone cannot satisfy it.
+_Avoid_: Cached latest lookup, latest without specifying freshness
+
 **Package Resolution**:
 Binding package imports and virtual-package references to packages and validating the resulting relationships.
 _Avoid_: Module resolution, unqualified dependency resolution when the domain is unclear

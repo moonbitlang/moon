@@ -413,13 +413,25 @@ Current registry configuration behavior today is:
   local index, and downloading and verifying HTTP package archives and
   prebuilt wasm assets. Resolver code sees only the narrower `Registry`
   capability.
-- The public `Registry` trait exposes separate exact-version and latest-version
-  queries. MVS and deprecation checks read exact releases; unversioned command
-  inputs query the latest known version. The Git client's complete version map
-  is an internal cache, not part of the trait. Queries preserve registry read
-  failures instead of reporting them as missing modules.
+- The public `Registry` trait exposes exact-version metadata and two distinct
+  latest operations. `cached_latest_version` reads the locally known answer
+  without network access; `None` means no cached answer, not remote absence.
+  `query_latest_version` contacts the registry and retains the answer; it must
+  not silently fall back to a stale version. The Git client implements the
+  latter by synchronizing its index before reading it. MVS and deprecation
+  checks read exact releases. `resolve_cached_unversioned_path` resolves import
+  paths using cached latest answers only. The complete Git version map is an
+  internal cache, not a public cache trait. Queries preserve registry read
+  failures instead of reporting them as missing modules or cache misses.
   Package source acquisition remains on `RegistryClient`; dependency-source
   tests replace it through a crate-private seam.
+- `moonx` and `moon runwasm` use cached latest for unpinned coordinates and
+  query current latest on a cache miss or for explicit `@latest`. `moon add`,
+  `moon fetch`, and registry binary installation retain their existing Git
+  synchronization before cached version selection. `add/fetch --no-update`
+  skips that synchronization; `add --upgrade` with an explicit version skips
+  both synchronization and version selection. These command policies are
+  separate from the two latest-query contracts.
 - `RegistryConfig.api` controls dynamic registry requests such as search.
   `RegistryConfig.index` controls how `moon update` populates the local
   registry index over Git. `RegistryConfig.download` controls immutable package

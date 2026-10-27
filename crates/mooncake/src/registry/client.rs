@@ -669,11 +669,42 @@ impl super::Registry for RegistryClient {
         Ok(self.all_versions_of(name)?.get(version).cloned())
     }
 
-    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
-        Ok(self
-            .all_versions_of(name)?
+    fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        let versions = match self.all_versions_of(name) {
+            Ok(versions) => versions,
+            Err(error) if error.is::<super::RegistryModuleNotFound>() => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        Ok(versions
             .last_key_value()
             .map(|(version, _)| version.clone()))
+    }
+
+    fn query_latest_version(
+        &self,
+        name: &ModuleName,
+        user_log: &UserLog,
+    ) -> anyhow::Result<Version> {
+        let had_index = self.has_cached_index();
+        self.sync(user_log)
+            .context("Failed to update registry index")?;
+        let versions = match self.all_versions_of(name) {
+            Ok(versions) => versions,
+            Err(error) if error.is::<super::RegistryModuleNotFound>() => {
+                return Err(error).with_context(|| {
+                    if had_index {
+                        format!("Module `{name}` not found in registry")
+                    } else {
+                        format!("Module `{name}` not found in registry after updating the index")
+                    }
+                });
+            }
+            Err(error) => return Err(error),
+        };
+        versions
+            .last_key_value()
+            .map(|(version, _)| version.clone())
+            .with_context(|| format!("Module `{name}` has no version information"))
     }
 }
 
@@ -2164,7 +2195,7 @@ mod tests {
         std::fs::create_dir_all(registry.home.registry_index_file(&module)).unwrap();
 
         let error = registry
-            .resolve_unversioned_path("test/module/pkg")
+            .resolve_cached_unversioned_path("test/module/pkg")
             .unwrap_err();
         assert!(error.is::<std::io::Error>(), "{error:#}");
         let path = crate::registry::path::parse_install_style_path("test/module").unwrap();
@@ -2181,7 +2212,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let registry = api_test_registry(dir.path(), "https://registry.example.test");
         let module: ModuleName = "test/module".into();
-        let error = registry.latest_version(&module).unwrap_err();
+        assert_eq!(registry.cached_latest_version(&module).unwrap(), None);
+        let error = registry
+            .version_info(&module, &Version::new(1, 0, 0))
+            .unwrap_err();
         assert!(error.is::<crate::registry::RegistryModuleNotFound>());
 
         let index_file = registry.home.registry_index_file(&module);
@@ -2191,13 +2225,13 @@ mod tests {
             serde_json::json!({"version": "invalid", "checksum": "b".repeat(64)}).to_string(),
         )
         .unwrap();
-        let error = registry.latest_version(&module).unwrap_err();
+        let error = registry.cached_latest_version(&module).unwrap_err();
         assert!(!error.is::<crate::registry::RegistryModuleNotFound>());
         assert!(error.is::<semver::Error>());
     }
 
     #[test]
-    fn executable_latest_refreshes_after_a_missing_local_module_index() {
+    fn git_latest_queries_distinguish_cached_answers_from_current_answers() {
         let run_git = |args: &[&str]| {
             let output = std::process::Command::new("git")
                 .args(args)
@@ -2269,12 +2303,13 @@ mod tests {
         } else {
             format!("file://{bare}")
         };
-        for has_local_index in [false, true] {
+        let module: ModuleName = "alice/tool".into();
+        let registries = [false, true].map(|has_local_index| {
             let home = MoonHomeLayout::new(base.path().join(format!("home-{has_local_index}")));
             if has_local_index {
                 std::fs::create_dir_all(home.registry_index_dir()).unwrap();
             }
-            let registry = RegistryClient::with_home(
+            RegistryClient::with_home(
                 RegistryConfig {
                     api: index.clone(),
                     index: index.clone(),
@@ -2283,13 +2318,79 @@ mod tests {
                     legacy_asset_urls: false,
                 },
                 home,
-            );
+            )
+        });
 
+        for registry in &registries {
+            assert_eq!(registry.cached_latest_version(&module).unwrap(), None);
+            assert!(!registry.home.registry_index_file(&module).exists());
+            // Both a missing index and an index missing this module trigger a
+            // current query for an unpinned executable coordinate.
             let package = registry
                 .resolve_executable_package("alice/tool", &quiet_user_log())
                 .unwrap();
             assert_eq!(package.module.name().to_string(), "alice/tool");
             assert_eq!(package.module.version().to_string(), "1.2.3");
+        }
+
+        std::fs::write(
+            &index_file,
+            ["1.2.3", "1.2.4"]
+                .map(|version| {
+                    serde_json::json!({"version": version, "checksum": "b".repeat(64)}).to_string()
+                })
+                .join("\n"),
+        )
+        .unwrap();
+        run_git(&["-C", source.to_str().unwrap(), "add", "."]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "commit",
+            "--quiet",
+            "-m",
+            "publish another version",
+        ]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "push",
+            "--quiet",
+            &bare,
+            "main",
+        ]);
+
+        for registry in &registries {
+            assert_eq!(
+                registry.cached_latest_version(&module).unwrap(),
+                Some(Version::new(1, 2, 3))
+            );
+            assert_eq!(
+                registry
+                    .query_latest_version(&module, &quiet_user_log())
+                    .unwrap(),
+                Version::new(1, 2, 4)
+            );
+            assert_eq!(
+                registry.cached_latest_version(&module).unwrap(),
+                Some(Version::new(1, 2, 4))
+            );
+            let error = registry
+                .query_latest_version(&"alice/missing".into(), &quiet_user_log())
+                .unwrap_err();
+            assert!(error.is::<crate::registry::RegistryModuleNotFound>());
+        }
+
+        std::fs::rename(&bare, base.path().join("unavailable.git")).unwrap();
+        for registry in &registries {
+            let error = registry
+                .query_latest_version(&module, &quiet_user_log())
+                .unwrap_err();
+            assert_eq!(error.to_string(), "Failed to update registry index");
+            assert_eq!(
+                registry.cached_latest_version(&module).unwrap(),
+                Some(Version::new(1, 2, 4))
+            );
         }
     }
 

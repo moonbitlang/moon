@@ -23,7 +23,9 @@ use std::{
     sync::Arc,
 };
 
-use moonutil::{dependency::SourceDependencyInfo, manifest::MoonMod, resolution::ModuleName};
+use moonutil::{
+    dependency::SourceDependencyInfo, manifest::MoonMod, resolution::ModuleName, user_log::UserLog,
+};
 use semver::Version;
 
 use super::{Registry, RegistryVersionInfo};
@@ -162,14 +164,22 @@ impl Registry for MockRegistry {
         }))
     }
 
-    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
-        let versions = self
+    fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        Ok(self
             .modules
             .get(name)
-            .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))?;
-        Ok(versions
-            .last_key_value()
+            .and_then(|versions| versions.last_key_value())
             .map(|(version, _)| version.clone()))
+    }
+
+    fn query_latest_version(
+        &self,
+        name: &ModuleName,
+        _user_log: &UserLog,
+    ) -> anyhow::Result<Version> {
+        // The fixture is the authoritative registry and has no separate cache.
+        self.cached_latest_version(name)?
+            .ok_or_else(|| super::RegistryModuleNotFound(name.clone()).into())
     }
 }
 
@@ -200,7 +210,7 @@ mod test {
                 .is_none()
         );
         assert_eq!(
-            registry.latest_version(&name).unwrap(),
+            registry.cached_latest_version(&name).unwrap(),
             Some(Version::new(0, 2, 0))
         );
     }
