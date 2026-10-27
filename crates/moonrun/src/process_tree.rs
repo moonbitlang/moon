@@ -117,6 +117,8 @@ type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
 /// precedence), and a fixed cwd. Parent links do not imply configuration
 /// inheritance. Guest spawn/wait/kill imports still use their existing native
 /// implementation; this API does not yet route them through the tree.
+/// Native stacks retain at least the creator's size; Run startup checks the
+/// guest budget against the executing thread's remaining native stack.
 ///
 /// The supervisor can wait for any member. Exiting parents leave children
 /// running under the supervisor. Dropping the tree neither stops nor joins
@@ -125,6 +127,7 @@ pub struct VirtualProcessTree {
     engine: Engine,
     table: Table,
     thread_stack_size: usize,
+    guest_stack_budget: usize,
 }
 
 impl VirtualProcessTree {
@@ -133,21 +136,29 @@ impl VirtualProcessTree {
         if !SUPPORTS_RUN_TERMINATION {
             return Err(ProcessError::UnsupportedBackend);
         }
-        // V8's default guest limit fits in 1 MiB. Reserve another 2 MiB for
-        // Rust/host calls and overflow reporting, even with RUST_MIN_STACK set.
-        // A custom guest limit must never exceed the thread we allocate.
-        let thread_stack_size = engine
+        // Preserve the creator's actual native stack size, enlarging it when
+        // the guest budget requires more room. Each supervised Run checks its
+        // executing thread's remaining stack separately, including host reserve.
+        // The pinned V8's default guest limit fits in 1 MiB.
+        let guest_stack_budget = engine
             .config
             .stack_size
             .unwrap_or(1024)
             .checked_mul(1024)
             .filter(|bytes| *bytes != 0)
-            .and_then(|bytes| bytes.checked_add(2 * 1024 * 1024))
             .ok_or(ProcessError::InvalidStackSize)?;
+        let thread_stack_size = guest_stack_budget
+            .checked_add(2 * 1024 * 1024)
+            .ok_or(ProcessError::InvalidStackSize)?;
+        let (low, high) = crate::native_stack::bounds()?;
+        let native_stack_size = high
+            .checked_sub(low)
+            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
         Ok(Self {
             engine,
             table: Arc::new(Mutex::new(BTreeMap::new())),
-            thread_stack_size,
+            thread_stack_size: thread_stack_size.max(native_stack_size),
+            guest_stack_budget,
         })
     }
 
@@ -165,6 +176,7 @@ impl VirtualProcessTree {
         if options.termination_receiver.is_some() {
             return Err(ProcessError::TerminationAlreadyConfigured);
         }
+        options.native_stack_budget = Some(self.guest_stack_budget);
         options.default_environment = Some(std::env::vars_os().collect());
         if matches!(options.working_directory, WorkingDirectory::Ambient) {
             options.working_directory = WorkingDirectory::Fixed(std::env::current_dir()?);
@@ -305,6 +317,61 @@ mod tests {
                 Err(ProcessError::InvalidStackSize)
             ));
         }
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn supervisor_preserves_the_creating_threads_native_stack_size() {
+        thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let (low, high) = crate::native_stack::bounds().unwrap();
+                let tree = VirtualProcessTree::new(Engine::default()).unwrap();
+                assert!(tree.thread_stack_size >= high - low);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn undersized_native_stack_is_rejected_before_guest_execution() {
+        use std::time::Duration;
+
+        if std::env::var_os("MOONRUN_SMALL_NATIVE_STACK_TEST").is_none() {
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "process_tree::tests::undersized_native_stack_is_rejected_before_guest_execution",
+                    "--nocapture",
+                ])
+                .env("MOONRUN_SMALL_NATIVE_STACK_TEST", "1")
+                .timeout(Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
+        let engine = Engine::default();
+        let module = engine
+            .compile(
+                "recursive.wasm",
+                wat::parse_str(
+                    r#"(module
+            (func $recurse (result i32) call $recurse i32.const 1 i32.add)
+            (func (export "_start") call $recurse drop))"#,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let mut tree = VirtualProcessTree::new(engine).unwrap();
+        // Bypass creation-time sizing to verify that the executing thread
+        // checks its own native stack before entering V8.
+        tree.thread_stack_size = 512 * 1024;
+        let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
+        assert!(matches!(tree.wait(pid), Err(ProcessError::RunFailed(error))
+            if error.to_string().contains("native thread stack")));
+        assert!(tree.snapshot().is_empty());
     }
 
     #[cfg(feature = "v8")]

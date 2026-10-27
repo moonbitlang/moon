@@ -67,6 +67,9 @@ pub struct RunOptions {
     // A supervisor supplies an owned fallback; explicit policy provisioning
     // still determines the environment when present.
     pub(crate) default_environment: Option<Vec<(OsString, OsString)>>,
+    // Required guest headroom in bytes for a supervisor-owned execution thread.
+    // Ordinary Runs leave native stack placement and sizing to the caller.
+    pub(crate) native_stack_budget: Option<usize>,
     pub(crate) termination_receiver: Option<RunTerminationReceiver>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
@@ -423,6 +426,9 @@ impl Engine {
         let result = (|| {
             if let Some(outcome) = termination.get() {
                 return Ok(BackendRunOutcome::Terminated(outcome));
+            }
+            if let Some(bytes) = options.native_stack_budget {
+                crate::native_stack::checked_limit(bytes)?;
             }
             let test_args = options.parsed_test_args()?;
             #[cfg(unix)]

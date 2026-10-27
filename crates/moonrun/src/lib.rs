@@ -44,6 +44,7 @@ mod guest_memory;
 mod host_imports;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
+mod native_stack;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod network;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
