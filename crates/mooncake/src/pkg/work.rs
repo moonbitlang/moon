@@ -210,6 +210,7 @@ fn resolve_workspace(
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: !includes_core,
+        warn_deprecated: true,
     };
     resolve_modules(&module_resolution_config, roots, user_log).map_err(Into::into)
 }

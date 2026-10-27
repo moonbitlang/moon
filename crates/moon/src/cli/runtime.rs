@@ -249,7 +249,7 @@ fn dispatch(
         View(command) => super::run_view(command, output).map(Into::into),
         Test(command) => super::run_test(flags, command, output).map(Into::into),
         Tree(command) => super::tree_cli(flags, command, output).map(Into::into),
-        Update(command) => super::update_cli(flags, command, output.user_log()).map(Into::into),
+        Update(command) => super::update_cli(flags, command, output).map(Into::into),
         Upgrade(command) => super::run_upgrade(flags, command).map(Into::into),
         ShellCompletion(command) => super::gen_shellcomp(&flags, command).map(Into::into),
         Version(command) => super::run_version(&flags, command).map(Into::into),

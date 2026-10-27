@@ -29,6 +29,12 @@ pub(crate) struct CleanSubcommand {
     /// Remove the global build-artifact cache instead of `_build`.
     #[arg(long)]
     build_cache: bool,
+
+    /// Remove cached HTTP registry metadata instead of `_build`.
+    /// Uses MOON_REGISTRY_CACHE when set; leaves the Git index, source archives,
+    /// and credentials intact. This also works outside a project.
+    #[arg(long)]
+    registry_cache: bool,
 }
 
 pub(crate) fn run_clean(
@@ -40,12 +46,15 @@ pub(crate) fn run_clean(
         bail!("dry-run is not supported for clean");
     }
 
-    if cmd.dep_cache || cmd.build_cache {
+    if cmd.dep_cache || cmd.build_cache || cmd.registry_cache {
         if cmd.dep_cache {
             moonutil::cache::clean_cache(moonutil::cache::CacheKind::DependencySources)?;
         }
         if cmd.build_cache {
             moonutil::cache::clean_cache(moonutil::cache::CacheKind::BuildArtifacts)?;
+        }
+        if cmd.registry_cache {
+            mooncake::registry::clean_metadata_cache(&moonutil::MOON_HOME)?;
         }
         return Ok(0);
     }

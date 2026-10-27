@@ -20,7 +20,7 @@
 
 use super::{RegistryUnavailable, RegistryVersionInfo, encode_path_segment};
 
-mod cache;
+pub(super) mod cache;
 use anyhow::{Context, bail};
 use cache::MetadataCache;
 use indexmap::IndexMap;
@@ -81,8 +81,8 @@ pub(super) struct HttpMetadata {
 impl HttpMetadata {
     pub(super) fn new(api: String, home: MoonHomeLayout) -> Self {
         Self {
+            cache: MetadataCache::new(home, api.clone()),
             api,
-            cache: MetadataCache::new(home),
             client: OnceCell::new(),
         }
     }
@@ -102,10 +102,7 @@ impl HttpMetadata {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>> {
-        Ok(self
-            .cache
-            .release(&self.api, name, version)?
-            .map(Into::into))
+        Ok(self.cache.release(name, version)?.map(Into::into))
     }
 
     pub(super) fn refresh_version_info(
@@ -136,7 +133,7 @@ impl HttpMetadata {
         frozen: bool,
     ) -> anyhow::Result<ModuleMetadata> {
         super::path::parse_module_path(&name.to_string())?;
-        if let Some(metadata) = self.cache.release(&self.api, name, version)? {
+        if let Some(metadata) = self.cache.release(name, version)? {
             return Ok(metadata);
         }
         if frozen {
@@ -148,8 +145,7 @@ impl HttpMetadata {
     pub(super) fn query_latest_version(&self, name: &ModuleName) -> anyhow::Result<Version> {
         super::path::parse_module_path(&name.to_string())?;
         let metadata = self.fetch_release(name, None)?;
-        self.cache
-            .store_latest(&self.api, name, &metadata.version)?;
+        self.cache.store_latest(name, &metadata.version)?;
         Ok(metadata.version)
     }
 
@@ -157,7 +153,7 @@ impl HttpMetadata {
         &self,
         name: &ModuleName,
     ) -> anyhow::Result<Option<Version>> {
-        self.cache.latest(&self.api, name)
+        self.cache.latest(name)
     }
 
     /// This endpoint returns latest when the version query parameter is absent.
@@ -224,7 +220,7 @@ impl HttpMetadata {
         let metadata: ModuleMetadata = serde_json::from_slice(&bytes)
             .with_context(|| format!("invalid registry metadata response for {name}"))?;
         metadata.validate(name, version)?;
-        self.cache.store_release(&self.api, name, metadata)
+        self.cache.store_release(name, metadata)
     }
 
     fn http_client(&self) -> anyhow::Result<&reqwest::blocking::Client> {

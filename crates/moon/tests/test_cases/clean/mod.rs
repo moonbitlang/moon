@@ -37,6 +37,14 @@ fn test_clean_disabled_global_caches_without_project() {
         .stderr_eq("");
 
     moon_cmd(&dir)
+        .env("MOON_REGISTRY_CACHE", "off")
+        .args(["clean", "--registry-cache"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+
+    moon_cmd(&dir)
         .env("MOON_BUILD_CACHE", "off")
         .args(["clean", "--build-cache"])
         .assert()
@@ -52,6 +60,11 @@ fn test_clean_removes_owned_custom_cache_roots() {
     for (environment, flag, ownership) in [
         ("MOON_DEP_CACHE", "--dep-cache", "dependency-sources\n"),
         ("MOON_BUILD_CACHE", "--build-cache", "build-artifacts\n"),
+        (
+            "MOON_REGISTRY_CACHE",
+            "--registry-cache",
+            "registry-metadata\n",
+        ),
     ] {
         let parent = tempfile::TempDir::new().unwrap();
         let cache = parent.path().join("cache");
@@ -124,13 +137,18 @@ fn test_clean_refuses_unowned_custom_cache_root() {
     let cache = tempfile::TempDir::new().unwrap();
     std::fs::write(cache.path().join("user-data"), "must survive").unwrap();
 
-    moon_cmd(&dir)
-        .env("MOON_DEP_CACHE", cache.path())
-        .args(["clean", "--dep-cache"])
-        .assert()
-        .failure()
-        .stdout_eq("")
-        .stderr_eq("Error: refusing to clean unrecognized Moon cache root `[..]`\n");
+    for (environment, flag) in [
+        ("MOON_DEP_CACHE", "--dep-cache"),
+        ("MOON_REGISTRY_CACHE", "--registry-cache"),
+    ] {
+        moon_cmd(&dir)
+            .env(environment, cache.path())
+            .args(["clean", flag])
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq("Error: refusing to clean unrecognized Moon cache root `[..]`\n");
+    }
 
     assert_eq!(
         std::fs::read_to_string(cache.path().join("user-data")).unwrap(),
@@ -182,6 +200,12 @@ fn test_clean_uses_default_cache_roots() {
             "--build-cache",
             "cache/build",
             "build-artifacts\n",
+        ),
+        (
+            "MOON_REGISTRY_CACHE",
+            "--registry-cache",
+            "cache/registry/metadata",
+            "registry-metadata\n",
         ),
     ] {
         let cache = moon_home.path().join(relative);

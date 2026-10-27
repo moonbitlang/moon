@@ -29,6 +29,8 @@ use std::path::Path;
 
 use anyhow::Context;
 
+pub use http::cache::clean_metadata_cache;
+
 pub use client::{
     RegistryClient, RegistryModuleManifest, RegistryPackageMatch, RegistryPublishedModule,
     RegistryRelease, RegistrySearchResult, RegistrySummaryFragment, RegistryUserModules,

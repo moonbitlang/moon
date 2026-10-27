@@ -50,6 +50,7 @@ pub fn tree(
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: false,
+        warn_deprecated: true,
     };
     let resolved = resolve_modules(&module_resolution_config, roots, user_log)?;
 

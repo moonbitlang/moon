@@ -294,6 +294,11 @@ impl RegistryClient {
         }
     }
 
+    /// Whether metadata is acquired per release instead of synchronizing an index.
+    pub fn uses_http_metadata(&self) -> bool {
+        matches!(self.metadata, MetadataBackend::Http(_))
+    }
+
     /// Use only cached metadata and sources for frozen dependency resolution.
     /// Other API operations, such as search, are unaffected.
     pub fn for_frozen_dependencies(mut self) -> Self {
@@ -310,10 +315,7 @@ impl RegistryClient {
         match &self.metadata {
             MetadataBackend::Git(index) => index.sync(&self.config, user_log),
             MetadataBackend::Http(_) => {
-                // TODO(#2368): replace whole-index update with project-scoped refresh.
-                bail!(
-                    "registry API metadata refresh is not implemented yet; `moon update` cannot be used with `MOON_REGISTRY_API=1`"
-                )
+                bail!("HTTP registry metadata must be refreshed per module")
             }
         }
     }
@@ -3075,6 +3077,7 @@ mod tests {
         let config = ModuleResolutionConfig {
             registry: &registry,
             inject_std: false,
+            warn_deprecated: true,
         };
         for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
             let (user_log, capture) = UserLog::captured(level);

@@ -21,70 +21,104 @@
 use super::ModuleMetadata;
 use crate::registry::{sha256_hex, stage_registry_cache_file};
 use anyhow::{Context, bail};
-use moonutil::{MoonHomeLayout, registry::registry_api_url, resolution::ModuleName};
+use moonutil::{
+    MoonHomeLayout,
+    cache::{CacheKind, CacheRoot, clean_cache_root, resolve_cache_root_for_home},
+    registry::registry_api_url,
+    resolution::ModuleName,
+};
 use semver::Version;
 use serde::Serialize;
 use std::{
-    cell::RefCell,
+    cell::{OnceCell, RefCell},
     collections::HashMap,
     path::{Path, PathBuf},
 };
 
-/// Store validated release records by registry namespace, module and version.
-/// Memory entries use the same keys as disk entries; latest is a separate pointer.
+/// One registry's exact releases and observed latest answers. Memory lookups use
+/// module/version keys; only disk access needs the hashed filesystem namespace.
 pub(super) struct MetadataCache {
-    root: PathBuf,
-    releases: RefCell<HashMap<PathBuf, ModuleMetadata>>,
+    home: MoonHomeLayout,
+    api: String,
+    directory: OnceCell<Option<PathBuf>>,
+    releases: RefCell<HashMap<ModuleName, HashMap<Version, ModuleMetadata>>>,
+    latest: RefCell<HashMap<ModuleName, Version>>,
 }
 
 impl MetadataCache {
-    pub(super) fn new(home: MoonHomeLayout) -> Self {
+    pub(super) fn new(home: MoonHomeLayout, api: String) -> Self {
         Self {
-            root: home.registry_dir().join("metadata").join("v1"),
+            home,
+            api,
+            directory: OnceCell::new(),
             releases: RefCell::new(HashMap::new()),
+            latest: RefCell::new(HashMap::new()),
         }
     }
 
-    fn metadata_cache_dir(&self, api: &str, name: &ModuleName) -> anyhow::Result<PathBuf> {
+    fn metadata_cache_dir(&self, name: &ModuleName) -> anyhow::Result<Option<PathBuf>> {
+        if self.directory.get().is_none() {
+            let root = prepare_cache_root(&self.home)?;
+            let directory = match root {
+                CacheRoot::Disabled => None,
+                CacheRoot::Path { path, .. } => Some(
+                    path.join("v1")
+                        .join(sha256_hex(registry_api_url(&self.api)?.as_str().as_bytes())),
+                ),
+            };
+            self.directory.get_or_init(|| directory);
+        }
         Ok(self
-            .root
-            .join(sha256_hex(registry_api_url(api)?.as_str().as_bytes()))
-            .join(sha256_hex(name.to_string().as_bytes())))
+            .directory
+            .get()
+            .unwrap()
+            .as_ref()
+            .map(|root| root.join(sha256_hex(name.to_string().as_bytes()))))
     }
 
-    fn latest_cache_path(&self, api: &str, name: &ModuleName) -> anyhow::Result<PathBuf> {
-        Ok(self.metadata_cache_dir(api, name)?.join("latest.json"))
+    fn latest_cache_path(&self, name: &ModuleName) -> anyhow::Result<Option<PathBuf>> {
+        Ok(self
+            .metadata_cache_dir(name)?
+            .map(|path| path.join("latest.json")))
     }
 
     fn release_cache_path(
         &self,
-        api: &str,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<PathBuf> {
-        Ok(self
-            .metadata_cache_dir(api, name)?
-            .join("releases")
-            .join(format!(
+    ) -> anyhow::Result<Option<PathBuf>> {
+        Ok(self.metadata_cache_dir(name)?.map(|path| {
+            path.join("releases").join(format!(
                 "{}.json",
                 sha256_hex(version.to_string().as_bytes())
-            )))
+            ))
+        }))
     }
 
     pub(super) fn release(
         &self,
-        api: &str,
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<ModuleMetadata>> {
-        let path = self.release_cache_path(api, name, version)?;
-        if let Some(cached) = self.releases.borrow().get(&path) {
+        if let Some(cached) = self
+            .releases
+            .borrow()
+            .get(name)
+            .and_then(|versions| versions.get(version))
+        {
             return Ok(Some(cached.clone()));
         }
+        let Some(path) = self.release_cache_path(name, version)? else {
+            return Ok(None);
+        };
         let Some(cached) = Self::read_release(&path, name, version)? else {
             return Ok(None);
         };
-        self.releases.borrow_mut().insert(path, cached.clone());
+        self.releases
+            .borrow_mut()
+            .entry(name.clone())
+            .or_default()
+            .insert(version.clone(), cached.clone());
         Ok(Some(cached))
     }
 
@@ -103,17 +137,26 @@ impl MetadataCache {
         Ok(Some(cached))
     }
 
-    pub(super) fn latest(&self, api: &str, name: &ModuleName) -> anyhow::Result<Option<Version>> {
-        let path = self.latest_cache_path(api, name)?;
-        match std::fs::read(path) {
-            Ok(bytes) => {
-                let version = serde_json::from_slice::<Version>(&bytes)
-                    .context("failed to parse cached latest version")?;
-                Ok(self.release(api, name, &version)?.map(|_| version))
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error).context("failed to read cached latest version"),
+    pub(super) fn latest(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        if let Some(version) = self.latest.borrow().get(name) {
+            return Ok(Some(version.clone()));
         }
+        let Some(path) = self.latest_cache_path(name)? else {
+            return Ok(None);
+        };
+        let version = match std::fs::read(path) {
+            Ok(bytes) => serde_json::from_slice::<Version>(&bytes)
+                .context("failed to parse cached latest version")?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error).context("failed to read cached latest version"),
+        };
+        if self.release(name, &version)?.is_none() {
+            return Ok(None);
+        }
+        self.latest
+            .borrow_mut()
+            .insert(name.clone(), version.clone());
+        Ok(Some(version))
     }
 
     fn write_metadata_cache<T: Serialize>(&self, path: &Path, value: &T) -> anyhow::Result<()> {
@@ -130,24 +173,38 @@ impl MetadataCache {
     /// would let concurrent, conflicting responses overwrite one another.
     pub(super) fn store_release(
         &self,
-        api: &str,
         name: &ModuleName,
         mut metadata: ModuleMetadata,
     ) -> anyhow::Result<ModuleMetadata> {
-        let path = self.release_cache_path(api, name, &metadata.version)?;
-        let parent = path.parent().expect("release cache has a parent");
-        create_cache_directory(parent)?;
-        let lock_path = std::fs::canonicalize(parent)?
-            .join(path.file_name().unwrap())
-            .with_extension("json.lock");
-        let lock = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path)?;
-        lock.lock()?;
-        if let Some(mut cached) = Self::read_release(&path, name, &metadata.version)? {
+        let path = self.release_cache_path(name, &metadata.version)?;
+        // Keep the lock until comparison and publication have both completed.
+        let _lock = if let Some(path) = &path {
+            let parent = path.parent().expect("release cache has a parent");
+            create_cache_directory(parent)?;
+            let lock_path = std::fs::canonicalize(parent)?
+                .join(path.file_name().unwrap())
+                .with_extension("json.lock");
+            let lock = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(lock_path)?;
+            lock.lock()?;
+            Some(lock)
+        } else {
+            None
+        };
+        let cached = match &path {
+            Some(path) => Self::read_release(path, name, &metadata.version)?,
+            None => self
+                .releases
+                .borrow()
+                .get(name)
+                .and_then(|versions| versions.get(&metadata.version))
+                .cloned(),
+        };
+        if let Some(mut cached) = cached {
             // Compare dependency meaning, not JSON spelling or map order. Both
             // records have already been validated as exact registry dependencies.
             let same_dependencies = cached.deps.len() == metadata.deps.len()
@@ -163,33 +220,92 @@ impl MetadataCache {
                     metadata.version
                 );
             }
-            // Only advisory status is mutable, including when a latest query
-            // returns a version already used by exact resolution.
+            // Advisory status is mutable; dependency and archive identity is not.
             cached.yanked = metadata.yanked;
             cached.yanked_reason = metadata.yanked_reason;
             metadata = cached;
         }
-        self.write_metadata_cache(&path, &metadata)?;
-        self.releases.borrow_mut().insert(path, metadata.clone());
+        if let Some(path) = &path {
+            self.write_metadata_cache(path, &metadata)?;
+        }
+        self.releases
+            .borrow_mut()
+            .entry(name.clone())
+            .or_default()
+            .insert(metadata.version.clone(), metadata.clone());
         Ok(metadata)
     }
 
-    pub(super) fn store_latest(
-        &self,
-        api: &str,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<()> {
-        self.write_metadata_cache(&self.latest_cache_path(api, name)?, version)
+    pub(super) fn store_latest(&self, name: &ModuleName, version: &Version) -> anyhow::Result<()> {
+        if let Some(path) = self.latest_cache_path(name)? {
+            self.write_metadata_cache(&path, version)?;
+        }
+        self.latest
+            .borrow_mut()
+            .insert(name.clone(), version.clone());
+        Ok(())
     }
+}
+
+fn prepare_cache_root(home: &MoonHomeLayout) -> anyhow::Result<CacheRoot> {
+    let root = resolve_cache_root_for_home(CacheKind::RegistryMetadata, home)?;
+    let CacheRoot::Path { path, .. } = &root else {
+        return Ok(root);
+    };
+    create_cache_directory(path)?;
+    root.initialize()?;
+    // The old format has the same versioned contents. Move it atomically on
+    // first use of the default root; a custom cache starts independently.
+    let legacy = home.registry_dir().join("metadata").join("v1");
+    let destination = path.join("v1");
+    if path == &home.registry_metadata_cache_dir() && !destination.exists() {
+        let metadata = match std::fs::symlink_metadata(&legacy) {
+            Ok(metadata) => metadata,
+            // Another process may already have moved the legacy tree.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(root),
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.file_type().is_symlink()
+            || std::fs::symlink_metadata(legacy.parent().unwrap())?
+                .file_type()
+                .is_symlink()
+        {
+            bail!("refusing to migrate symlinked registry metadata cache");
+        }
+        match std::fs::rename(&legacy, &destination) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && destination.is_dir() => {}
+            Err(error) => return Err(error).context("failed to migrate registry metadata cache"),
+        }
+    }
+    Ok(root)
+}
+
+/// Remove only HTTP metadata. Indexes, source archives and configuration remain
+/// separate. Old default metadata is also removed so it cannot reappear later.
+pub fn clean_metadata_cache(home: &MoonHomeLayout) -> anyhow::Result<()> {
+    let root = resolve_cache_root_for_home(CacheKind::RegistryMetadata, home)?;
+    clean_cache_root(&root)?;
+    if matches!(&root, CacheRoot::Path { path, .. } if path == &home.registry_metadata_cache_dir())
+    {
+        let legacy = home.registry_dir().join("metadata");
+        match std::fs::symlink_metadata(&legacy) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                bail!("refusing to clean symlinked registry metadata cache")
+            }
+            Ok(_) => std::fs::remove_dir_all(legacy)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 fn create_cache_directory(parent: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
-        // This per-user cache is not shared between OS accounts. Apply the
-        // same owner-only permissions to every newly created parent.
+        // Apply owner-only permissions to every newly created parent.
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -212,7 +328,7 @@ mod tests {
         let home = MoonHomeLayout::new(sandbox.path().join("metadata-cache-home/".repeat(18)));
         assert!(home.root().to_string_lossy().len() > 260);
         let api = "https://example.com";
-        let registry = MetadataCache::new(home.clone());
+        let registry = MetadataCache::new(home.clone(), api.to_owned());
         let name: ModuleName = "alice/example".into();
         let version = Version::new(0, 1, 0);
         let metadata = ModuleMetadata {
@@ -230,34 +346,34 @@ mod tests {
             record["deps"] = deps;
             registry
                 .write_metadata_cache(
-                    &registry.release_cache_path(api, &name, &version).unwrap(),
+                    &registry
+                        .release_cache_path(&name, &version)
+                        .unwrap()
+                        .unwrap(),
                     &record,
                 )
                 .unwrap();
             registry
-                .write_metadata_cache(&registry.latest_cache_path(api, &name).unwrap(), &version)
+                .write_metadata_cache(
+                    &registry.latest_cache_path(&name).unwrap().unwrap(),
+                    &version,
+                )
                 .unwrap();
-            registry
-                .store_release(api, &name, metadata.clone())
-                .unwrap();
-            let fresh = MetadataCache::new(home.clone());
+            registry.store_release(&name, metadata.clone()).unwrap();
+            let fresh = MetadataCache::new(home.clone(), api.to_owned());
             assert!(
                 fresh
-                    .release(api, &name, &version)
+                    .release(&name, &version)
                     .unwrap()
                     .unwrap()
                     .deps
                     .is_empty()
             );
             assert_eq!(
-                fresh
-                    .release(api, &name, &version)
-                    .unwrap()
-                    .unwrap()
-                    .checksum,
+                fresh.release(&name, &version).unwrap().unwrap().checksum,
                 "b".repeat(64)
             );
-            assert_eq!(fresh.latest(api, &name).unwrap(), Some(version.clone()));
+            assert_eq!(fresh.latest(&name).unwrap(), Some(version.clone()));
         }
     }
 
@@ -274,7 +390,7 @@ mod tests {
                 let name = &name;
                 let barrier = &barrier;
                 scope.spawn(move || {
-                    let cache = MetadataCache::new(home);
+                    let cache = MetadataCache::new(home, api.to_owned());
                     let metadata = ModuleMetadata {
                         module: name.to_string(),
                         visibility: ModuleVisibility::Public,
@@ -285,7 +401,7 @@ mod tests {
                         yanked_reason: None,
                     };
                     barrier.wait();
-                    cache.store_release(api, name, metadata)
+                    cache.store_release(name, metadata)
                 })
             });
             threads.map(|thread| thread.join().unwrap())
@@ -299,13 +415,58 @@ mod tests {
                 .to_string()
                 .contains("immutable")
         );
-        let published = MetadataCache::new(home)
-            .release(api, &name, &Version::new(0, 1, 0))
+        let published = MetadataCache::new(home, api.to_owned())
+            .release(&name, &Version::new(0, 1, 0))
             .unwrap()
             .unwrap();
         assert_eq!(
             published.checksum,
             outcomes.into_iter().find_map(Result::ok).unwrap().checksum
         );
+    }
+
+    #[test]
+    fn concurrent_readers_migrate_the_legacy_tree() {
+        let sandbox = tempfile::tempdir().unwrap();
+        let home = MoonHomeLayout::new(sandbox.path().to_owned());
+        let name: ModuleName = "alice/example".into();
+        let version = Version::new(0, 1, 0);
+        let api = "https://example.com";
+        let cache = MetadataCache::new(home.clone(), api.to_owned());
+        cache
+            .store_release(
+                &name,
+                ModuleMetadata {
+                    module: name.to_string(),
+                    visibility: ModuleVisibility::Public,
+                    version: version.clone(),
+                    checksum: "a".repeat(64),
+                    deps: IndexMap::new(),
+                    yanked: false,
+                    yanked_reason: None,
+                },
+            )
+            .unwrap();
+        let legacy = home.registry_dir().join("metadata");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::rename(
+            home.registry_metadata_cache_dir().join("v1"),
+            legacy.join("v1"),
+        )
+        .unwrap();
+        let barrier = std::sync::Barrier::new(4);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    let cache = MetadataCache::new(home.clone(), api.to_owned());
+                    barrier.wait();
+                    assert_eq!(
+                        cache.release(&name, &version).unwrap().unwrap().checksum,
+                        "a".repeat(64)
+                    );
+                });
+            }
+        });
+        assert!(!legacy.join("v1").exists());
     }
 }

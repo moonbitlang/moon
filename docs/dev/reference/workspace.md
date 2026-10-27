@@ -101,6 +101,7 @@ Representative examples:
 - `moon test`
 - `moon fmt`
 - `moon info`
+- `moon update` with `MOON_REGISTRY_API=1` (registry metadata only)
 
 When the selected manifest is a workspace manifest, these commands operate on
 the whole workspace. They can be run from:

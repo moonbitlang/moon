@@ -34,6 +34,7 @@ const OWNERSHIP_MARKER: &str = ".moon-cache";
 pub enum CacheKind {
     DependencySources,
     BuildArtifacts,
+    RegistryMetadata,
 }
 
 impl CacheKind {
@@ -41,6 +42,7 @@ impl CacheKind {
         match self {
             Self::DependencySources => "MOON_DEP_CACHE",
             Self::BuildArtifacts => "MOON_BUILD_CACHE",
+            Self::RegistryMetadata => "MOON_REGISTRY_CACHE",
         }
     }
 
@@ -48,6 +50,7 @@ impl CacheKind {
         match self {
             Self::DependencySources => b"dependency-sources\n",
             Self::BuildArtifacts => b"build-artifacts\n",
+            Self::RegistryMetadata => b"registry-metadata\n",
         }
     }
 }
@@ -94,6 +97,13 @@ impl CacheRoot {
 }
 
 pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
+    resolve_cache_root_for_home(kind, &crate::MOON_HOME)
+}
+
+pub fn resolve_cache_root_for_home(
+    kind: CacheKind,
+    home: &crate::MoonHomeLayout,
+) -> anyhow::Result<CacheRoot> {
     let environment = kind.environment_variable();
     match std::env::var_os(environment) {
         Some(value) if value == "off" => Ok(CacheRoot::Disabled),
@@ -107,8 +117,9 @@ pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
         None => Ok(CacheRoot::Path {
             kind,
             path: match kind {
-                CacheKind::DependencySources => crate::MOON_HOME.dependency_cache_dir(),
-                CacheKind::BuildArtifacts => crate::MOON_HOME.build_cache_dir(),
+                CacheKind::DependencySources => home.dependency_cache_dir(),
+                CacheKind::BuildArtifacts => home.build_cache_dir(),
+                CacheKind::RegistryMetadata => home.registry_metadata_cache_dir(),
             },
         }),
     }
@@ -183,10 +194,15 @@ fn validate_existing_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::R
 }
 
 pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
-    let CacheRoot::Path { path: root, .. } = resolve_cache_root(kind)? else {
+    clean_cache_root(&resolve_cache_root(kind)?)
+}
+
+/// Remove an explicitly selected cache after checking its ownership marker.
+pub fn clean_cache_root(cache: &CacheRoot) -> anyhow::Result<()> {
+    let CacheRoot::Path { path: root, kind } = cache else {
         return Ok(());
     };
-    let metadata = match std::fs::symlink_metadata(&root) {
+    let metadata = match std::fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
@@ -197,11 +213,11 @@ pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
             root.display()
         );
     }
-    if metadata.is_dir() && std::fs::read_dir(&root)?.next().transpose()?.is_none() {
+    if metadata.is_dir() && std::fs::read_dir(root)?.next().transpose()?.is_none() {
         std::fs::remove_dir(root)?;
         return Ok(());
     }
-    if metadata.is_dir() && validate_existing_ownership_marker(&root, kind)? {
+    if metadata.is_dir() && validate_existing_ownership_marker(root, *kind)? {
         std::fs::remove_dir_all(root)?;
         return Ok(());
     }
