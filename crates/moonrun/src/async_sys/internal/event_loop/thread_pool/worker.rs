@@ -489,6 +489,33 @@ pub(crate) fn cancel_worker(worker: &Worker) -> AsyncHostResult<CancellationOutc
     worker.cancel()
 }
 
+/// Stop and reclaim Workers after their guest scheduler can no longer drive cancellation.
+pub(crate) fn shutdown_workers(workers: impl IntoIterator<Item = Worker>) -> Vec<WorkerJob> {
+    let workers: Vec<_> = workers.into_iter().collect();
+    // Close admission before cancelling: a queued Job must not start later and
+    // reset the cancellation state. Keep its ownership for the caller to restore.
+    let mut pending: Vec<_> = workers.iter().filter_map(Worker::request_stop).collect();
+    let mut retrying: Vec<_> = workers.iter().collect();
+    loop {
+        // Fan out both initial cancellation and retries before joining any
+        // Worker. A Worker's cleanup can depend on another being interrupted.
+        // Legacy cancellation disables guest retry notifications; teardown owns
+        // the timer instead, including when the completion source was closed.
+        retrying.retain(|worker| {
+            !worker.thread.is_finished()
+                && matches!(worker.cancel(), Ok(CancellationOutcome::RetryLater))
+        });
+        if retrying.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // Acknowledgement (or a cancellation error) never permits early disposal.
+    // Non-cancellable operations must still finish before their state is freed.
+    pending.extend(workers.into_iter().filter_map(free_worker));
+    pending
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
