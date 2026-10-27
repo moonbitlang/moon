@@ -393,21 +393,19 @@ pub(crate) fn run(
 
     let result = (|| -> anyhow::Result<BackendRunOutcome> {
         let instance_arguments = [wasm_module.into(), module_imports.into()];
-        let instance = match invoke(scope, termination_request, classifier, |scope| {
-            instance_constructor
-                .new_instance(scope, &instance_arguments)
-                .map(Into::into)
+        let exports = match invoke(scope, termination_request, classifier, |scope| {
+            let instance = instance_constructor.new_instance(scope, &instance_arguments)?;
+            // `exports` is a V8 accessor: reading it can execute code and throw
+            // under a tiny stack budget, just like the constructor itself.
+            let exports_key = scope.string("exports");
+            instance.get(scope, exports_key.into())
         })
         .with_context(|| format!("failed to instantiate `{module_name}`"))?
         {
-            CallOutcome::Returned(instance) => v8::Local::<v8::Object>::try_from(instance).unwrap(),
+            CallOutcome::Returned(exports) => v8::Local::<v8::Object>::try_from(exports)
+                .context("WebAssembly.Instance.exports did not return an object")?,
             CallOutcome::Stopped(outcome) => return complete_run_call(outcome, &stdio),
         };
-        let exports_key = scope.string("exports");
-        let exports =
-            v8::Local::<v8::Object>::try_from(instance.get(scope, exports_key.into()).unwrap())
-                .unwrap();
-
         let memory_key = scope.string("memory");
         let memory = exports.get(scope, memory_key.into()).unwrap();
         if let Ok(memory) = v8::Local::<v8::WasmMemoryObject>::try_from(memory) {
