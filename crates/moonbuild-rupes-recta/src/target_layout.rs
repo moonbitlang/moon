@@ -1132,13 +1132,27 @@ fn object_file_ext(os: OperatingSystem) -> &'static str {
 }
 
 pub fn stdlib_mi_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN) -> PathBuf {
-    let package_name = fqn.package().as_str();
+    let (package_name, package_last_segment) = stdlib_package_path_parts(fqn);
+    moonutil::toolchain::core_package_mi_in(core_root, backend, package_name, package_last_segment)
+}
+
+pub fn stdlib_core_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN) -> PathBuf {
+    let (package_name, package_last_segment) = stdlib_package_path_parts(fqn);
+    moonutil::toolchain::core_package_core_in(
+        core_root,
+        backend,
+        package_name,
+        package_last_segment,
+    )
+}
+
+fn stdlib_package_path_parts(fqn: &PackageFQN) -> (&str, &str) {
     let package_last_segment = fqn
         .package()
         .segments()
         .next_back()
         .expect("Package must have at least one segment");
-    moonutil::toolchain::core_package_mi_in(core_root, backend, package_name, package_last_segment)
+    (fqn.package().as_str(), package_last_segment)
 }
 
 #[cfg(test)]

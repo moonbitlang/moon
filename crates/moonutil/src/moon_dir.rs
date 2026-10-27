@@ -285,25 +285,51 @@ pub fn core_bundle(backend: TargetBackend) -> PathBuf {
     core_bundle_in(&core(), backend)
 }
 
+/// Path to the prebuilt default implementation of `moonbitlang/core/abort`.
 pub fn abort_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    core_bundle_in(core_root, backend)
-        .join("abort")
-        .join("abort.core")
+    core_package_core_in(core_root, backend, "abort", "abort")
 }
 
 pub fn core_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
     core_bundle_in(core_root, backend).join("core.core")
 }
 
+/// Path to the prebuilt `.mi` of one stdlib package.
 pub fn core_package_mi_in(
     core_root: &Path,
     backend: TargetBackend,
     package_path: &str,
     package_last_segment: &str,
 ) -> PathBuf {
+    core_package_artifact_in(core_root, backend, package_path, package_last_segment, "mi")
+}
+
+/// Path to the prebuilt `.core` of one stdlib package.
+pub fn core_package_core_in(
+    core_root: &Path,
+    backend: TargetBackend,
+    package_path: &str,
+    package_last_segment: &str,
+) -> PathBuf {
+    core_package_artifact_in(
+        core_root,
+        backend,
+        package_path,
+        package_last_segment,
+        "core",
+    )
+}
+
+fn core_package_artifact_in(
+    core_root: &Path,
+    backend: TargetBackend,
+    package_path: &str,
+    package_last_segment: &str,
+    extension: &str,
+) -> PathBuf {
     core_bundle_in(core_root, backend)
         .join(package_path)
-        .join(format!("{package_last_segment}.mi"))
+        .join(format!("{package_last_segment}.{extension}"))
 }
 
 // core.core & abort.core(virtual pkg default impl)
