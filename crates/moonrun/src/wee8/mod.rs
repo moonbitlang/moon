@@ -38,6 +38,9 @@ use crate::wasm_imports::{Caller, ImportRegistry};
 use anyhow::Context;
 use std::sync::Arc;
 
+// TODO: enable after the wee8 binding exposes cross-thread execution interruption.
+pub(crate) const SUPPORTS_RUN_TERMINATION: bool = false;
+
 #[derive(Debug)]
 pub(crate) struct Engine {
     initialization: Result<(), String>,
@@ -128,11 +131,11 @@ impl Engine {
         test_args: Option<TestArgs>,
         no_stack_trace: bool,
         runtime: Runtime,
+        termination: TerminationRequest,
     ) -> anyhow::Result<BackendRunOutcome> {
         self.initialization
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
-        let termination = TerminationRequest::default();
         let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
         let stdio = Arc::clone(runtime.stdio());
         let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
@@ -184,7 +187,7 @@ impl Engine {
                 );
             }
         };
-        if let Some(termination) = termination.take() {
+        if let Some(termination) = termination.get() {
             return Ok(BackendRunOutcome::Terminated(termination));
         }
 
@@ -271,7 +274,7 @@ fn call_outcome(
     // Release an uncaught exception's native root before executing another test,
     // including when a host exit takes precedence over the guest exception.
     let exception = store.take_exception();
-    if let Some(termination) = termination.take() {
+    if let Some(termination) = termination.get() {
         return Ok(BackendCallOutcome::Terminated(termination));
     }
     Ok(match result {

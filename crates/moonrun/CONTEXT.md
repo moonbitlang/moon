@@ -231,11 +231,13 @@ An uncaught Wasm trap or exception observed by an Engine Backend. The backend
 extracts engine-specific diagnostic frames, the shared Wasm diagnostic renderer
 formats them, and the common Engine maps the failure to the public unsuccessful
 Run outcome. A Guest Failure is distinct from a Host Error raised by a Wasm
-Adapter and from Run Termination explicitly requested by guest code.
+Adapter and from Run Termination explicitly requested by guest code or its caller.
 _Avoid_: Run Termination, Host Error, implicit exit request
 
 **Run Termination**:
-A per-Wasm-run outcome requested by guest code, either an exit code or termination by signal. A runtime adapter records Run Termination and interrupts guest execution without terminating its embedding process; only the outer CLI adapter applies the outcome after guest and host state have been torn down.
+An exit code or signal termination requested by guest code or its caller for
+one Run. The first request wins; the outcome is returned after Run teardown.
+Only the CLI adapter applies it to the host process.
 _Avoid_: Host exit, import-side exit, process-global termination state
 
 **Run Signals**:
@@ -255,8 +257,8 @@ pending-signal mask. Its cancellation hook records cancellation before waking
 the same pipe, and remains isolated from the direct delivery path.
 Ordinary Unix Jobs retain the default `SIGUSR2` interruption path. Signals sent
 before guest registration and delivery startup are ready are not retained.
-Forced interruption and broader Run lifecycle belong to a later control layer
-rather than this delivery seam.
+Forced interruption uses a separate Run termination channel. Grace periods
+and broader Run lifecycle remain the caller's responsibility.
 _Avoid_: process signal handler, global completion target, Run lifecycle
 
 **Process Signals**:

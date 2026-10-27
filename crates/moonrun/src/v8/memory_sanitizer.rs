@@ -107,6 +107,9 @@ fn register_object_alloc(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let Ok(_termination) = super::context::enter_host_call(scope) else {
+        return;
+    };
     let context = callback_context(&args);
     let result = (|| -> Result<(), AdapterError> {
         let size = read_u32_arg(scope, &args, 0)?;
@@ -126,6 +129,9 @@ fn register_object_free(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let Ok(_termination) = super::context::enter_host_call(scope) else {
+        return;
+    };
     let context = callback_context(&args);
     let result = read_u32_arg(scope, &args, 0)
         .and_then(|ptr| context.register_object_free(ptr).map_err(Into::into));
@@ -140,6 +146,9 @@ fn object_is_valid(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let Ok(_termination) = super::context::enter_host_call(scope) else {
+        return;
+    };
     let context = callback_context(&args);
     let result = read_u32_arg(scope, &args, 0).map(|ptr| context.object_is_valid(ptr));
     match result {

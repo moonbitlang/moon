@@ -16,34 +16,188 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::cell::Cell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
+/// The outcome requested when ending one Run, without terminating the host process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RunTermination {
+pub enum RunTermination {
+    /// Record an exit status, including a caller-selected Windows termination status.
     Exit(i32),
+    /// Record termination by a signal. This does not send an operating-system signal.
     KilledBySignal(i32),
 }
 
-// The current V8 adapter invokes imports synchronously on one isolate thread.
-// Keeping the request independent of that adapter lets another Wasm engine
-// surface the same per-run outcome without inheriting V8-specific state.
-#[derive(Clone, Default)]
-pub(crate) struct TerminationRequest(Rc<Cell<Option<RunTermination>>>);
+/// Thread-safe control for forcibly ending the Run bound to its receiver.
+///
+/// Requests are retained before execution starts. Dropping a terminator does
+/// not stop the Run; after the receiver is dropped, this handle is disconnected.
+#[derive(Clone)]
+pub struct RunTerminator {
+    request: TerminationRequest,
+}
+
+/// The single-use receiving half of a Run termination channel.
+/// Pass it to [`crate::RunOptions::with_termination_receiver`].
+/// It closes when the Run returns (including errors) or the receiver is dropped.
+pub struct RunTerminationReceiver {
+    pub(crate) request: TerminationRequest,
+}
+
+/// Create a termination channel for exactly one Run.
+pub fn termination_channel() -> (RunTerminator, RunTerminationReceiver) {
+    let request = TerminationRequest::default();
+    request.0.lock().unwrap().connected = true;
+    (
+        RunTerminator {
+            request: request.clone(),
+        },
+        RunTerminationReceiver { request },
+    )
+}
+
+impl RunTerminator {
+    /// Record the first termination request and interrupt guest execution.
+    ///
+    /// `true` means this request was accepted, not that the Run has finished.
+    /// `false` means an outcome was already requested or the receiver is closed.
+    /// This provides no grace period and cannot forcibly unwind a synchronous
+    /// host operation. Such an operation must return before the Run can finish.
+    pub fn terminate(&self, outcome: RunTermination) -> bool {
+        // TODO: wake registered host waits before promising bounded-time Run
+        // shutdown; interrupting V8 alone cannot release a blocked Rust call.
+        let mut state = self.request.0.lock().unwrap();
+        if !state.connected || state.outcome.is_some() {
+            return false;
+        }
+        state.outcome = Some(outcome);
+        if state.suspended == 0
+            && let Some(interrupt) = &state.interrupt
+        {
+            interrupt();
+        }
+        true
+    }
+}
+
+impl RunTerminationReceiver {
+    pub(crate) fn close(&self) -> Option<RunTermination> {
+        let mut state = self.request.0.lock().unwrap();
+        state.connected = false;
+        state.interrupt = None;
+        state.outcome
+    }
+}
+
+impl Drop for RunTerminationReceiver {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+impl std::fmt::Debug for RunTerminationReceiver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunTerminationReceiver")
+            .finish_non_exhaustive()
+    }
+}
+
+struct State {
+    outcome: Option<RunTermination>,
+    connected: bool,
+    interrupt: Option<Box<dyn Fn() + Send + Sync>>,
+    suspended: usize,
+}
+
+// The same outcome is shared by guest exit imports and external requests.
+// It stays latched until Run completion; reading it never admits a later exit.
+#[derive(Clone)]
+pub(crate) struct TerminationRequest(Arc<Mutex<State>>);
+
+impl Default for TerminationRequest {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(State {
+            outcome: None,
+            connected: false,
+            interrupt: None,
+            suspended: 0,
+        })))
+    }
+}
 
 impl TerminationRequest {
     pub(crate) fn request(&self, termination: RunTermination) {
-        if self.0.get().is_none() {
-            self.0.set(Some(termination));
-        }
+        // Imports record their outcome while Guest Memory may still be borrowed.
+        // Their adapter interrupts only after the host call has returned.
+        self.0.lock().unwrap().outcome.get_or_insert(termination);
     }
 
     pub(crate) fn is_requested(&self) -> bool {
-        self.0.get().is_some()
+        self.get().is_some()
     }
 
-    pub(crate) fn take(&self) -> Option<RunTermination> {
-        self.0.take()
+    pub(crate) fn get(&self) -> Option<RunTermination> {
+        self.0.lock().unwrap().outcome
+    }
+
+    #[cfg(feature = "v8")]
+    pub(crate) fn is_connected(&self) -> bool {
+        self.0.lock().unwrap().connected
+    }
+
+    /// Bind only while engine interruption is safe. The callback must not
+    /// re-enter this state: it runs under the lock to serialize with unbinding.
+    #[cfg(feature = "v8")]
+    pub(crate) fn bind_interrupt(
+        &self,
+        interrupt: impl Fn() + Send + Sync + 'static,
+    ) -> Option<InterruptGuard> {
+        let mut state = self.0.lock().unwrap();
+        if !state.connected {
+            return None;
+        }
+        assert!(state.interrupt.is_none() && state.suspended == 0);
+        state.interrupt = Some(Box::new(interrupt));
+        if state.outcome.is_some() {
+            state.interrupt.as_ref().unwrap()();
+        }
+        Some(InterruptGuard(self.clone()))
+    }
+
+    /// Defer engine interruption while V8 callbacks convert values or borrow
+    /// Guest Memory. Clear any already-issued interrupt under the same lock.
+    #[cfg(feature = "v8")]
+    pub(crate) fn suspend_interrupt(&self, clear: impl FnOnce()) -> InterruptSuspension {
+        let mut state = self.0.lock().unwrap();
+        state.suspended += 1;
+        clear();
+        InterruptSuspension(self.clone())
+    }
+}
+
+#[cfg(feature = "v8")]
+pub(crate) struct InterruptGuard(TerminationRequest);
+
+#[cfg(feature = "v8")]
+impl Drop for InterruptGuard {
+    fn drop(&mut self) {
+        self.0.0.lock().unwrap().interrupt = None;
+    }
+}
+
+#[cfg(feature = "v8")]
+pub(crate) struct InterruptSuspension(TerminationRequest);
+
+#[cfg(feature = "v8")]
+impl Drop for InterruptSuspension {
+    fn drop(&mut self) {
+        let mut state = self.0.0.lock().unwrap();
+        state.suspended -= 1;
+        if state.suspended == 0
+            && state.outcome.is_some()
+            && let Some(interrupt) = &state.interrupt
+        {
+            interrupt();
+        }
     }
 }
 
@@ -52,13 +206,85 @@ mod tests {
     use super::*;
 
     #[test]
+    fn receiver_drop_disconnects_all_terminators() {
+        let (terminator, receiver) = termination_channel();
+        let second = terminator.clone();
+        drop(receiver);
+        assert!(!terminator.terminate(RunTermination::Exit(1)));
+        assert!(!second.terminate(RunTermination::Exit(2)));
+    }
+
+    #[test]
+    fn guest_and_external_termination_share_the_first_outcome() {
+        for guest_first in [true, false] {
+            let (terminator, receiver) = termination_channel();
+            if guest_first {
+                receiver.request.request(RunTermination::Exit(7));
+            }
+            assert_eq!(
+                terminator.terminate(RunTermination::KilledBySignal(9)),
+                !guest_first
+            );
+            receiver.request.request(RunTermination::Exit(8));
+            let expected = if guest_first {
+                RunTermination::Exit(7)
+            } else {
+                RunTermination::KilledBySignal(9)
+            };
+            assert_eq!(receiver.request.get(), Some(expected));
+            assert_eq!(receiver.close(), Some(expected));
+            assert!(!terminator.terminate(RunTermination::Exit(0)));
+        }
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn early_requests_interrupt_when_bound_and_unbinding_retires_the_target() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (terminator, receiver) = termination_channel();
+        assert!(terminator.terminate(RunTermination::Exit(7)));
+        let calls = Arc::new(AtomicUsize::new(0));
+        for _ in 0..2 {
+            let calls = Arc::clone(&calls);
+            let interrupt = receiver.request.bind_interrupt(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+            });
+            drop(interrupt);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(!terminator.terminate(RunTermination::Exit(8)));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn host_calls_defer_interruption_until_the_outermost_call_returns() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (terminator, receiver) = termination_channel();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&calls);
+        let _interrupt = receiver.request.bind_interrupt(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+        let outer = receiver.request.suspend_interrupt(|| {});
+        let inner = receiver.request.suspend_interrupt(|| {});
+        let sender = std::thread::spawn(move || terminator.terminate(RunTermination::Exit(7)));
+        assert!(sender.join().unwrap());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        drop(inner);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        drop(outer);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn records_killed_by_signal() {
         let request = TerminationRequest::default();
 
         request.request(RunTermination::KilledBySignal(15));
 
-        assert_eq!(request.take(), Some(RunTermination::KilledBySignal(15)));
-        assert_eq!(request.take(), None);
+        assert_eq!(request.get(), Some(RunTermination::KilledBySignal(15)));
+        assert_eq!(request.get(), Some(RunTermination::KilledBySignal(15)));
     }
 
     #[test]
@@ -68,6 +294,6 @@ mod tests {
         request.request(RunTermination::KilledBySignal(15));
         request.request(RunTermination::Exit(1));
 
-        assert_eq!(request.take(), Some(RunTermination::KilledBySignal(15)));
+        assert_eq!(request.get(), Some(RunTermination::KilledBySignal(15)));
     }
 }

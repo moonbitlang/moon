@@ -118,6 +118,9 @@ fn invoke<'s, T, P: WasmParams, R: WasmResult, F: HostFunction<T, P, R>>(
     args: v8::FunctionCallbackArguments<'s>,
     mut ret: v8::ReturnValue,
 ) {
+    let Ok(_termination) = super::context::enter_host_call(scope) else {
+        return;
+    };
     let external = v8::Local::<v8::External>::try_from(args.data()).unwrap();
     // Registry retains this exact allocation until the run's callbacks are gone.
     let binding = unsafe { &*external.value().cast::<Binding<T, F>>() };

@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::run_signal::{SignalReceiver, signal_channel};
-use crate::run_termination::RunTermination;
+use crate::run_termination::{RunTermination, RunTerminationReceiver};
 use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
 use crate::source_map;
 #[cfg(feature = "v8")]
@@ -61,6 +61,7 @@ pub struct RunOptions {
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
     pub(crate) stdio: Stdio,
+    termination_receiver: Option<RunTerminationReceiver>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -72,6 +73,15 @@ pub(crate) struct TestArgs {
 }
 
 impl RunOptions {
+    /// Bind a single-use receiver for external forced termination (V8 only).
+    ///
+    /// Other backends reject this option. See [`crate::RunTerminator::terminate`]
+    /// for acceptance and completion semantics.
+    pub fn with_termination_receiver(mut self, receiver: RunTerminationReceiver) -> Self {
+        self.termination_receiver = Some(receiver);
+        self
+    }
+
     pub fn with_args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -382,35 +392,59 @@ impl Engine {
     pub fn run_with_signal_receiver(
         &self,
         module: &Module,
-        options: RunOptions,
+        mut options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        #[cfg(unix)]
-        let child_signal_mask = match options.preserved_child_signal_mask {
-            Some(signal_mask) => signal_mask,
-            None => current_signal_mask()?,
-        };
-        let test_args = options.parsed_test_args()?;
-        let runtime = Runtime::new(
-            options.policy_file.as_deref(),
-            options.policy_source_dir.as_deref(),
-            options.inherited_policy.as_deref(),
-            options.working_directory,
-            options.stdio,
-            module.executable().clone(),
-            signals,
+        if options.termination_receiver.is_some() && !backend::SUPPORTS_RUN_TERMINATION {
+            anyhow::bail!("the selected engine backend does not support external Run termination");
+        }
+        let receiver =
+            options
+                .termination_receiver
+                .take()
+                .unwrap_or_else(|| RunTerminationReceiver {
+                    request: Default::default(),
+                });
+        let termination = receiver.request.clone();
+        let result = (|| {
+            if let Some(outcome) = termination.get() {
+                return Ok(BackendRunOutcome::Terminated(outcome));
+            }
+            let test_args = options.parsed_test_args()?;
             #[cfg(unix)]
-            child_signal_mask,
-        )?;
-        let outcome = self.backend.run(
-            module.name(),
-            module.compiled(),
-            module.source_map(),
-            &options.args,
-            test_args,
-            options.no_stack_trace,
-            runtime,
-        )?;
+            let child_signal_mask = match options.preserved_child_signal_mask {
+                Some(signal_mask) => signal_mask,
+                None => current_signal_mask()?,
+            };
+            let runtime = Runtime::new(
+                options.policy_file.as_deref(),
+                options.policy_source_dir.as_deref(),
+                options.inherited_policy.as_deref(),
+                options.working_directory,
+                options.stdio,
+                module.executable().clone(),
+                signals,
+                #[cfg(unix)]
+                child_signal_mask,
+            )?;
+            self.backend.run(
+                module.name(),
+                module.compiled(),
+                module.source_map(),
+                &options.args,
+                test_args,
+                options.no_stack_trace,
+                runtime,
+                termination,
+            )
+        })();
+        // Finalize under the same lock as external requests. An accepted
+        // request wins until this point; after it, old handles cannot affect
+        // this or any later Run. Backend teardown has already completed.
+        let outcome = match receiver.close() {
+            Some(termination) => BackendRunOutcome::Terminated(termination),
+            None => result?,
+        };
         Ok(match outcome {
             BackendRunOutcome::Completed => RunOutcome::Completed,
             BackendRunOutcome::GuestFailure => RunOutcome::Exited(1),
