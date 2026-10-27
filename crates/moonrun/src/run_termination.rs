@@ -144,6 +144,7 @@ impl TerminationRequest {
         self.0.lock().unwrap().outcome
     }
 
+    #[cfg(feature = "v8")]
     pub(crate) fn is_connected(&self) -> bool {
         self.0.lock().unwrap().connected
     }
@@ -151,6 +152,7 @@ impl TerminationRequest {
     /// Register one synchronous host wait. Wakeups must be nonblocking, remain
     /// pending until observed, and not re-enter this state. Binding and
     /// termination share the lock so registration cannot miss an early request.
+    /// Without an external termination receiver, binding is a no-op.
     pub(crate) fn bind_host_wake(
         &self,
         wake: impl Fn() + Send + Sync + 'static,

@@ -1506,19 +1506,15 @@ impl AsyncHost {
         let mut polls = self.polls.borrow_mut();
         let result = {
             let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
-            let wait = if termination.is_connected() {
-                if poll.termination_waker.is_none() {
-                    poll.termination_waker = Some(Arc::new(poll::PollWaker::new(&poll.instance)?));
+            if poll.termination_waker.is_none() {
+                poll.termination_waker = Some(Arc::new(poll::PollWaker::new(&poll.instance)?));
+            }
+            let waker = Arc::clone(poll.termination_waker.as_ref().unwrap());
+            let wait = termination.bind_host_wake(move || {
+                if let Err(error) = waker.wake() {
+                    tracing::error!(?error, "failed to wake a terminating Run's poll");
                 }
-                let waker = Arc::clone(poll.termination_waker.as_ref().unwrap());
-                termination.bind_host_wake(move || {
-                    if let Err(error) = waker.wake() {
-                        tracing::error!(?error, "failed to wake a terminating Run's poll");
-                    }
-                })
-            } else {
-                None
-            };
+            });
             let result = poll::poll_wait(&mut poll.instance, timeout_ms);
             drop(wait);
             // The shared import adapter turns the latched outcome into Run
@@ -7872,32 +7868,47 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn poll_reports_registered_pipe_readiness_as_guest_fd() {
-        let host = default_host();
-        let poll = host.poll_create().unwrap();
-        let [read, write] = host.pipe(true, true).unwrap();
-        host.poll_register(poll, read, true).unwrap();
+        let (_, receiver) = crate::termination_channel();
+        for termination in [TerminationRequest::default(), receiver.request.clone()] {
+            let host = default_host();
+            let poll = host.poll_create().unwrap();
+            let [read, write] = host.pipe(true, true).unwrap();
+            host.poll_register(poll, read, true).unwrap();
 
-        let fd = host
-            .acquire_resource(write)
-            .unwrap()
-            .as_fd()
-            .unwrap()
-            .as_raw_fd();
-        let byte = b"x";
-        let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
-        assert_eq!(ret, 1);
+            let fd = host
+                .acquire_resource(write)
+                .unwrap()
+                .as_fd()
+                .unwrap()
+                .as_raw_fd();
+            // The same byte as the private wake source remains ordinary guest data.
+            let byte = b"x";
+            let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
+            assert_eq!(ret, 1);
 
-        assert_eq!(host.poll_wait(poll, 100, &Default::default()).unwrap(), 1);
-        let event = host.poll_get_event(poll, 0).unwrap();
-        assert_eq!(event, 0);
-        assert_eq!(host.poll_get_event(poll, 0).unwrap(), event);
-        assert_eq!(host.poll_event_fd(event).unwrap(), read);
-        assert_eq!(
-            host.poll_event_events(event).unwrap() & poll::READ_EVENT,
-            poll::READ_EVENT
-        );
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
+            assert_eq!(host.poll_wait(poll, 100, &termination).unwrap(), 1);
+            let event = host.poll_get_event(poll, 0).unwrap();
+            assert_eq!(event, 0);
+            assert_eq!(host.poll_get_event(poll, 0).unwrap(), event);
+            assert_eq!(host.poll_event_fd(event).unwrap(), read);
+            assert_eq!(
+                host.poll_event_events(event).unwrap() & poll::READ_EVENT,
+                poll::READ_EVENT
+            );
+            let fd = host
+                .acquire_resource(read)
+                .unwrap()
+                .as_fd()
+                .unwrap()
+                .as_raw_fd();
+            let mut data = [0; 1];
+            assert_eq!(unsafe { libc::read(fd, data.as_mut_ptr().cast(), 1) }, 1);
+            assert_eq!(&data, byte);
+            assert_eq!(host.poll_wait(poll, 0, &termination).unwrap(), 0);
+
+            host.close_fd(read).unwrap();
+            host.close_fd(write).unwrap();
+        }
     }
 
     #[cfg(unix)]

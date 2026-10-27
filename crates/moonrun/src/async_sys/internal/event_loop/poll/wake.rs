@@ -26,6 +26,8 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use super::PollInstance;
 
 /// A host-only wake source, retained by its poll and any in-flight sender.
+/// On Unix, both pipe ends stay here, outside the guest's Resource Handle table.
+/// No code reads the byte: readiness stays pending until Run teardown.
 /// It is used only after a Run requests termination; the import adapter consumes
 /// that outcome before guest code can observe the internal event.
 #[derive(Debug)]
