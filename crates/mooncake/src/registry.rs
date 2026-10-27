@@ -23,7 +23,7 @@ mod executable;
 pub(crate) mod mock;
 pub mod path;
 
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::path::Path;
 
 pub use client::{
     RegistryClient, RegistryModuleManifest, RegistryPackageMatch, RegistryPublishedModule,
@@ -50,14 +50,22 @@ pub struct RegistryVersionInfo {
 pub struct RegistryModuleNotFound(pub ModuleName);
 
 pub trait Registry {
-    /// Get all versions of a module.
+    /// Read one exact published version. Never substitute another version.
     ///
-    /// Return [`RegistryModuleNotFound`] if the module has no registry entry.
-    /// Preserve other errors so callers can distinguish absence from a failed read.
-    fn all_versions_of(
+    /// `None` means the version is absent from a known module. Return
+    /// [`RegistryModuleNotFound`] if the module has no registry entry, and
+    /// preserve read errors so callers can distinguish failures from absence.
+    fn version_info(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>>;
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>>;
+
+    /// Read the registry's latest known version, or `None` if it has no versions.
+    /// The implementation owns version selection; callers need not enumerate
+    /// the complete history. The Git client reads its last synchronized index.
+    /// Preserve missing-module and read errors as in [`Self::version_info`].
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>>;
 
     /// Resolve an unversioned import-style path into:
     /// - module path
@@ -73,19 +81,10 @@ pub trait Registry {
     /// or no module can be resolved from registry metadata.
     fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {
         path::resolve_unversioned_registry_path(path, |module| {
-            self.all_versions_of(module).ok().and_then(|versions| {
-                versions
-                    .last_key_value()
-                    .map(|(latest_version, _)| latest_version.to_string())
-            })
+            Ok(self
+                .latest_version(module)?
+                .map(|version| version.to_string()))
         })
-    }
-
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
-        let all_versions = self.all_versions_of(name).ok()?;
-        all_versions
-            .last_key_value()
-            .map(|(version, _)| version.clone())
     }
 }
 
@@ -115,7 +114,7 @@ pub(crate) trait RegistrySource {
         user_log: &UserLog,
     ) -> anyhow::Result<()>;
 
-    /// Return the registry index's SHA-256 checksum for the published source
+    /// Return the registry's SHA-256 checksum for the published source
     /// ZIP archive.
     fn source_archive_checksum(&self, module: &ModuleSource) -> anyhow::Result<String>;
 }
@@ -124,15 +123,16 @@ impl<R> Registry for &mut R
 where
     R: Registry,
 {
-    fn all_versions_of(
+    fn version_info(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
-        (**self).all_versions_of(name)
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        (**self).version_info(name, version)
     }
 
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
-        (**self).get_latest_version(name)
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        (**self).latest_version(name)
     }
 
     fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {
@@ -144,15 +144,16 @@ impl<R> Registry for Box<R>
 where
     R: Registry + ?Sized,
 {
-    fn all_versions_of(
+    fn version_info(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
-        (**self).all_versions_of(name)
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        (**self).version_info(name, version)
     }
 
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
-        (**self).get_latest_version(name)
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        (**self).latest_version(name)
     }
 
     fn resolve_unversioned_path(&self, path: &str) -> anyhow::Result<(ModuleName, String, String)> {

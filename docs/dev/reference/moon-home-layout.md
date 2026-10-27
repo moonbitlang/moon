@@ -62,7 +62,9 @@ $MOON_HOME/
   merging or rebasing. Existing full clones also get a shallow boundary at the
   fetched commit; previously stored objects are not immediately removed.
 - Module metadata is read from
-  `registry/index/user/<username>/<module>.index`.
+  `registry/index/user/<username>/<module>.index`. Each JSONL release record
+  requires a version and checksum. An omitted `deps` field means an empty
+  dependency map; a present `deps` field must be an object.
 - `registry/symbols` is the symbols archive materialized by registry sync.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent

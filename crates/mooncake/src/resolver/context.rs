@@ -67,7 +67,7 @@ impl<'a> ModuleResolutionContext<'a> {
         version: &Version,
         dependant: &ModuleName,
     ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
-        let versions = self.registry.all_versions_of(name).map_err(|error| {
+        let info = self.registry.version_info(name, version).map_err(|error| {
             if error.is::<RegistryModuleNotFound>() {
                 ModuleResolutionError::ModuleMissing {
                     dependency: name.clone(),
@@ -82,17 +82,15 @@ impl<'a> ModuleResolutionContext<'a> {
                 }
             }
         })?;
-        let info = versions
-            .get(version)
-            .ok_or_else(|| ModuleResolutionError::VersionMissing {
-                dependency: name.clone(),
-                dependant: dependant.clone(),
-                required: version.clone(),
-            })?;
+        let info = info.ok_or_else(|| ModuleResolutionError::VersionMissing {
+            dependency: name.clone(),
+            dependant: dependant.clone(),
+            required: version.clone(),
+        })?;
         Ok(Arc::new(MoonMod {
             name: name.to_string(),
             version: Some(version.clone()),
-            deps: info.deps.clone(),
+            deps: info.deps,
             ..Default::default()
         }))
     }

@@ -62,7 +62,14 @@ impl RegistryPath {
             Some(module) => Ok(module),
             None => {
                 let version = registry
-                    .get_latest_version(&self.module)
+                    .latest_version(&self.module)
+                    .map_err(|error| {
+                        if error.is::<super::RegistryModuleNotFound>() {
+                            anyhow::Error::new(ModuleNotFound(self.module.clone()))
+                        } else {
+                            error
+                        }
+                    })?
                     .ok_or_else(|| ModuleNotFound(self.module.clone()))?;
                 Ok(ModuleSource::from_version(self.module.clone(), version)?)
             }
@@ -254,7 +261,7 @@ pub fn parse_front_matter_import_path(path: &str) -> anyhow::Result<RegistryPath
 /// Resolve unversioned import-style registry paths.
 pub fn resolve_unversioned_registry_path(
     path: &str,
-    mut latest_version_of: impl FnMut(&ModuleName) -> Option<String>,
+    mut latest_version_of: impl FnMut(&ModuleName) -> anyhow::Result<Option<String>>,
 ) -> anyhow::Result<(ModuleName, String, String)> {
     if path.contains('@') {
         anyhow::bail!("explicit versions are not allowed in this registry path");
@@ -269,7 +276,7 @@ pub fn resolve_unversioned_registry_path(
         ));
     }
 
-    let latest_version = latest_version_of(&parsed.module)
+    let latest_version = latest_version_of(&parsed.module)?
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", parsed.module))?;
     if parsed.module.major_version_suffix()?.is_some() {
         ModuleSource::from_version(parsed.module.clone(), latest_version.parse()?)?;
@@ -487,7 +494,7 @@ mod tests {
             }
             assert!(parse_package_at_version_path(&format!("a/b/v2/pkg@{version}")).is_err());
             let error =
-                resolve_unversioned_registry_path("a/b/v2/pkg", |_| Some(version.to_string()))
+                resolve_unversioned_registry_path("a/b/v2/pkg", |_| Ok(Some(version.to_string())))
                     .unwrap_err();
             assert!(error.to_string().contains("requires major version 2"));
         }
@@ -537,7 +544,7 @@ mod tests {
 
             let resolved = resolve_unversioned_registry_path(&path, |module| {
                 assert_eq!(module.to_string(), "a/b");
-                Some("0.1.0".to_owned())
+                Ok(Some("0.1.0".to_owned()))
             })
             .unwrap();
             assert_eq!(resolved, ("a/b".into(), "0.1.0".into(), path));
@@ -585,7 +592,7 @@ mod tests {
             let path = format!("{module}/pkg");
             let resolved = resolve_unversioned_registry_path(&path, |name| {
                 assert_eq!(name.to_string(), module);
-                Some("2.1.0".to_string())
+                Ok(Some("2.1.0".to_string()))
             })
             .unwrap();
             assert_eq!(resolved.0.to_string(), module);
@@ -641,7 +648,7 @@ mod tests {
     #[test]
     fn resolve_unversioned_registry_path_uses_first_two_segments() {
         let resolved = resolve_unversioned_registry_path("a/b/c/d", |module| {
-            (module.to_string() == "a/b").then(|| "1.0.0".to_string())
+            Ok((module.to_string() == "a/b").then(|| "1.0.0".to_string()))
         })
         .unwrap();
         assert_eq!(resolved.0.to_string(), "a/b");

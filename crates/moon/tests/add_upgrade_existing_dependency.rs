@@ -35,9 +35,14 @@ fn write_registry_index(moon_home: &Path) {
     std::fs::create_dir_all(index.parent().unwrap()).unwrap();
     std::fs::write(
         index,
-        r#"{"name":"example/dep","version":"0.2.0"}
-{"name":"example/dep","version":"0.3.0"}
-"#,
+        ["0.2.0", "0.3.0"]
+            .map(|version| {
+                serde_json::json!({
+                    "name": "example/dep", "version": version, "checksum": "b".repeat(64)
+                })
+                .to_string()
+            })
+            .join("\n"),
     )
     .unwrap();
 }

@@ -495,7 +495,7 @@ fn resolve_module_dependency(
 
 #[cfg(test)]
 mod test {
-    use std::{cell::Cell, collections::BTreeMap};
+    use std::cell::Cell;
 
     use expect_test::expect;
     use moonutil::resolution::ModuleId;
@@ -971,15 +971,20 @@ mod test {
         struct UnreadableRegistry;
 
         impl Registry for UnreadableRegistry {
-            fn all_versions_of(
+            fn version_info(
                 &self,
                 _name: &ModuleName,
-            ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
+                _version: &Version,
+            ) -> anyhow::Result<Option<RegistryVersionInfo>> {
                 Err(anyhow::Error::new(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
                     "permission denied by registry fixture",
                 ))
                 .context("could not read registry metadata"))
+            }
+
+            fn latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+                unreachable!("MVS only queries exact versions")
             }
         }
 
@@ -1006,15 +1011,18 @@ mod test {
         struct SingleReadRegistry(Cell<bool>);
 
         impl Registry for SingleReadRegistry {
-            fn all_versions_of(
+            fn version_info(
                 &self,
                 _name: &ModuleName,
-            ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
+                version: &Version,
+            ) -> anyhow::Result<Option<RegistryVersionInfo>> {
                 anyhow::ensure!(!self.0.replace(true), "registry metadata was read again");
-                Ok(Arc::new(BTreeMap::from([(
-                    Version::new(1, 2, 3),
-                    RegistryVersionInfo::default(),
-                )])))
+                assert_eq!(version, &Version::new(1, 2, 3));
+                Ok(Some(RegistryVersionInfo::default()))
+            }
+
+            fn latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+                unreachable!("MVS only queries exact versions")
             }
         }
 

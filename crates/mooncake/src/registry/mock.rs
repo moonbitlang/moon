@@ -147,28 +147,29 @@ impl Default for MockRegistry {
 }
 
 impl Registry for MockRegistry {
-    fn all_versions_of(
+    fn version_info(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
-        self.modules
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        let versions = self
+            .modules
             .get(name)
-            .map(|versions| {
-                versions
-                    .iter()
-                    .map(|(version, module)| {
-                        (
-                            version.clone(),
-                            RegistryVersionInfo {
-                                deps: module.deps.clone(),
-                                ..Default::default()
-                            },
-                        )
-                    })
-                    .collect()
-            })
-            .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))
-            .map(Arc::new)
+            .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))?;
+        Ok(versions.get(version).map(|module| RegistryVersionInfo {
+            deps: module.deps.clone(),
+            ..Default::default()
+        }))
+    }
+
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        let versions = self
+            .modules
+            .get(name)
+            .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))?;
+        Ok(versions
+            .last_key_value()
+            .map(|(version, _)| version.clone()))
     }
 }
 
@@ -183,12 +184,24 @@ mod test {
             .add_module_full("foo/bar", "0.2.0", [])
             .add_module_full("foo/bar", "0.1.0", [])
             .add_module_full("foo/bar", "0.1.2", []);
-        let module = registry
-            .all_versions_of(&"foo/bar".parse().unwrap())
-            .unwrap();
+        let name = "foo/bar".parse().unwrap();
+        for version in ["0.1.0", "0.1.2", "0.2.0"] {
+            assert!(
+                registry
+                    .version_info(&name, &version.parse().unwrap())
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 1, 1))
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
-            module.keys().map(|x| x.to_string()).collect::<Vec<_>>(),
-            vec!["0.1.0", "0.1.2", "0.2.0"]
-        )
+            registry.latest_version(&name).unwrap(),
+            Some(Version::new(0, 2, 0))
+        );
     }
 }
