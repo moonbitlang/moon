@@ -1506,15 +1506,17 @@ impl AsyncHost {
         let mut polls = self.polls.borrow_mut();
         let result = {
             let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
-            if poll.termination_waker.is_none() {
-                poll.termination_waker = Some(Arc::new(poll::PollWaker::new(&poll.instance)?));
-            }
-            let waker = Arc::clone(poll.termination_waker.as_ref().unwrap());
-            let wait = termination.bind_host_wake(move || {
-                if let Err(error) = waker.wake() {
-                    tracing::error!(?error, "failed to wake a terminating Run's poll");
+            let wait = termination.bind_host_wake(|| {
+                if poll.termination_waker.is_none() {
+                    poll.termination_waker = Some(Arc::new(poll::PollWaker::new(&poll.instance)?));
                 }
-            });
+                let waker = Arc::clone(poll.termination_waker.as_ref().unwrap());
+                Ok::<_, AsyncHostError>(move || {
+                    if let Err(error) = waker.wake() {
+                        tracing::error!(?error, "failed to wake a terminating Run's poll");
+                    }
+                })
+            })?;
             let result = poll::poll_wait(&mut poll.instance, timeout_ms);
             drop(wait);
             // The shared import adapter turns the latched outcome into Run
@@ -4305,6 +4307,59 @@ mod tests {
 
     fn default_host() -> AsyncHost {
         test_host(Policy::allow_all(), Env::ambient())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn poll_wait_without_external_termination_needs_no_spare_fds() {
+        // Descriptor limits are process-global; isolate this test from other tests.
+        const CHILD: &str = "MOONRUN_TEST_POLL_FD_LIMIT_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "async_host::tests::poll_wait_without_external_termination_needs_no_spare_fds",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
+
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        let termination = TerminationRequest::default();
+        let (_, receiver) = crate::termination_channel();
+        let mut original = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut original) },
+            0
+        );
+        // Existing descriptors remain valid, but no new pipe can be created.
+        let limited = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: original.rlim_max,
+        };
+        assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limited) }, 0);
+        let ordinary_wait = host.poll_wait(poll, 0, &termination);
+        let interruptible_wait = host.poll_wait(poll, 0, &receiver.request);
+        assert_eq!(
+            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &original) },
+            0
+        );
+
+        assert_eq!(ordinary_wait, Ok(0));
+        assert_eq!(
+            interruptible_wait,
+            Err(AsyncHostError::Native(libc::EMFILE))
+        );
+        // A failed wake-source allocation must leave binding retryable.
+        assert_eq!(host.poll_wait(poll, 0, &receiver.request), Ok(0));
     }
 
     #[test]

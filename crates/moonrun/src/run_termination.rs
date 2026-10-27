@@ -149,24 +149,27 @@ impl TerminationRequest {
         self.0.lock().unwrap().connected
     }
 
-    /// Register one synchronous host wait. Wakeups must be nonblocking, remain
-    /// pending until observed, and not re-enter this state. Binding and
-    /// termination share the lock so registration cannot miss an early request.
-    /// Without an external termination receiver, binding is a no-op.
-    pub(crate) fn bind_host_wake(
+    /// Register one synchronous host wait. Without an external receiver, skip
+    /// creation entirely. Creation and binding share the termination lock so an
+    /// early request cannot be missed; neither callback may re-enter this state.
+    /// Wakeups must be nonblocking and remain pending until observed.
+    pub(crate) fn bind_host_wake<W, E>(
         &self,
-        wake: impl Fn() + Send + Sync + 'static,
-    ) -> Option<HostWaitGuard> {
+        create_wake: impl FnOnce() -> Result<W, E>,
+    ) -> Result<Option<HostWaitGuard>, E>
+    where
+        W: Fn() + Send + Sync + 'static,
+    {
         let mut state = self.0.lock().unwrap();
         if !state.connected {
-            return None;
+            return Ok(None);
         }
         assert!(state.host_wake.is_none());
-        state.host_wake = Some(Box::new(wake));
+        state.host_wake = Some(Box::new(create_wake()?));
         if state.outcome.is_some() {
             state.host_wake.as_ref().unwrap()();
         }
-        Some(HostWaitGuard(self.clone()))
+        Ok(Some(HostWaitGuard(self.clone())))
     }
 
     /// Bind only while engine interruption is safe. The callback must not
@@ -303,9 +306,14 @@ mod tests {
         let inner = receiver.request.suspend_interrupt(|| {});
         let wakes = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&wakes);
-        let wait = receiver.request.bind_host_wake(move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-        });
+        let wait = receiver
+            .request
+            .bind_host_wake(|| {
+                Ok::<_, ()>(move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                })
+            })
+            .unwrap();
         let sender = std::thread::spawn(move || terminator.terminate(RunTermination::Exit(7)));
         assert!(sender.join().unwrap());
         assert_eq!(wakes.load(Ordering::SeqCst), 1);
@@ -324,22 +332,29 @@ mod tests {
         let (terminator, receiver) = termination_channel();
         let old = receiver
             .request
-            .bind_host_wake(|| panic!("retired wait woke"));
+            .bind_host_wake(|| Ok::<_, ()>(|| panic!("retired wait woke")))
+            .unwrap();
         drop(old);
         assert!(terminator.terminate(RunTermination::Exit(7)));
 
         let wakes = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&wakes);
-        let wait = receiver.request.bind_host_wake(move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-        });
+        let wait = receiver
+            .request
+            .bind_host_wake(|| {
+                Ok::<_, ()>(move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                })
+            })
+            .unwrap();
         assert_eq!(wakes.load(Ordering::SeqCst), 1);
         drop(wait);
         receiver.close();
         assert!(
             receiver
                 .request
-                .bind_host_wake(|| panic!("closed Run woke"))
+                .bind_host_wake::<fn(), ()>(|| panic!("closed Run created a wake source"))
+                .unwrap()
                 .is_none()
         );
     }
@@ -351,13 +366,16 @@ mod tests {
         for terminate_before_binding in [true, false] {
             let (terminator, receiver) = termination_channel();
             let mut poll = poll::poll_create().unwrap();
-            let waker = poll::PollWaker::new(&poll).unwrap();
             if terminate_before_binding {
                 assert!(terminator.terminate(RunTermination::Exit(7)));
             }
             let _wait = receiver
                 .request
-                .bind_host_wake(move || waker.wake().unwrap());
+                .bind_host_wake(|| {
+                    let waker = poll::PollWaker::new(&poll)?;
+                    Ok::<_, crate::async_host::AsyncHostError>(move || waker.wake().unwrap())
+                })
+                .unwrap();
             if !terminate_before_binding {
                 assert!(terminator.terminate(RunTermination::Exit(7)));
             }
