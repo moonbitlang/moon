@@ -29,7 +29,7 @@ fn run_moon(dir: &Path, moon_home: &Path) -> snapbox::cmd::Command {
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
 }
 
-fn write_registry_index(moon_home: &Path) {
+fn prepare_installed_dependency(project: &Path, moon_home: &Path, version: &str) {
     let layout = moonutil::MoonHomeLayout::new(moon_home.to_path_buf());
     let index = layout.registry_index_file(&"example/dep".into());
     std::fs::create_dir_all(index.parent().unwrap()).unwrap();
@@ -43,6 +43,14 @@ fn write_registry_index(moon_home: &Path) {
                 .to_string()
             })
             .join("\n"),
+    )
+    .unwrap();
+
+    let installed = project.join(".mooncakes/example/dep");
+    std::fs::create_dir_all(&installed).unwrap();
+    std::fs::write(
+        installed.join("moon.mod"),
+        format!("name = \"example/dep\"\nversion = \"{version}\"\n"),
     )
     .unwrap();
 }
@@ -76,6 +84,7 @@ import {
 fn moon_add_upgrade_dependency_to_explicit_version_in_moon_mod_succeeds() {
     let project = tempfile::tempdir().unwrap();
     let moon_home = tempfile::tempdir().unwrap();
+    prepare_installed_dependency(project.path(), moon_home.path(), "0.2.0");
     let manifest = project.path().join("moon.mod");
     std::fs::write(
         &manifest,
@@ -91,7 +100,7 @@ import {
     .unwrap();
 
     run_moon(project.path(), moon_home.path())
-        .args(["add", "--upgrade", "example/dep@0.2.0"])
+        .args(["add", "--upgrade", "--no-update", "example/dep@0.2.0"])
         .assert()
         .success()
         .stdout_eq("")
@@ -114,8 +123,7 @@ import {
 fn moon_add_upgrade_dependency_to_latest_in_moon_mod_succeeds() {
     let project = tempfile::tempdir().unwrap();
     let moon_home = tempfile::tempdir().unwrap();
-    let registry_base = tempfile::tempdir().unwrap();
-    write_registry_index(moon_home.path());
+    prepare_installed_dependency(project.path(), moon_home.path(), "0.3.0");
     let manifest = project.path().join("moon.mod");
     std::fs::write(
         &manifest,
@@ -127,8 +135,7 @@ import { "example/dep@0.1.0" }
     .unwrap();
 
     run_moon(project.path(), moon_home.path())
-        .env("MOONCAKES_REGISTRY", registry_base.path())
-        .args(["add", "-u", "example/dep"])
+        .args(["add", "-u", "--no-update", "example/dep"])
         .assert()
         .success();
 

@@ -42,6 +42,7 @@ pub(crate) mod profile;
 pub(crate) mod prove;
 #[cfg(test)]
 mod registry_output_tests;
+mod registry_queries;
 pub(crate) mod registry_runner;
 pub(crate) mod run;
 pub(crate) mod runtime;

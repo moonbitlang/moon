@@ -80,15 +80,16 @@ After retrying any needed registry update, version lookup has three outcomes:
 - Module found but no version metadata: fail with a no-version-information error.
 - Module not found: fail with a module-not-found error.
 
-For unpinned coordinates, if a registry update fails while a local index already
-exists, the command warns and continues with the existing local index. If no
-local index exists, registry update failure is fatal because there is no cached
-metadata to use. An explicit latest coordinate always treats update failure as
-fatal because falling back would not satisfy the requested refresh.
+For unpinned coordinates, a cached latest answer avoids a remote query. If
+there is no cached answer, failure to query the registry is fatal and retains
+the query error. An explicit latest coordinate always queries the registry and
+treats query failure as fatal because falling back would not satisfy the
+requested refresh.
 
-Unreadable or corrupt local index data follows the existing registry behavior:
-it is treated as not resolving a latest version, so `runwasm` attempts the
-update/retry path.
+Local index read errors are preserved instead of being treated as cache misses
+or triggering a remote query. The Git index reader still skips malformed JSONL
+records; a valid record with an invalid semantic version propagates a parse
+error.
 
 ## Asset cache policy
 
