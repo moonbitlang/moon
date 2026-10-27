@@ -40,15 +40,19 @@ pub(super) fn resolve_module(
     match request {
         ModuleRequest::Versioned(module) => {
             if allow_remote {
-                // TODO: Replace this Git compatibility path when exact-version
-                // refresh is supported by every metadata backend. Pinned requests
-                // still synchronize for subsequent source/dependency acquisition.
-                let had_index = registry.has_cached_index();
-                match registry.sync(user_log) {
-                    Ok(()) => {}
-                    Err(error) if had_index => user_log.warn(format!(
-                        "failed to update registry index, continuing with existing index: {error}"
-                    )),
+                let name = module.name();
+                let version = module.version();
+                match registry.refresh_version_info(name, version, user_log) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => anyhow::bail!("Module `{name}` has no version {version}"),
+                    Err(error) if error.is::<RegistryUnavailable>() => {
+                        if registry.cached_version_info(name, version)?.is_none() {
+                            return Err(error);
+                        }
+                        user_log.warn(format!(
+                            "failed to refresh {name}@{version}, using cached metadata: {error:#}"
+                        ));
+                    }
                     Err(error) => return Err(error),
                 }
             }

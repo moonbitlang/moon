@@ -43,7 +43,7 @@ pub struct AddSubcommand {
     #[clap(short = 'u', long)]
     pub upgrade: bool,
 
-    /// Do not update the registry index before adding the dependency
+    /// Do not refresh registry metadata before adding the dependency
     #[clap(long)]
     pub no_update: bool,
 }

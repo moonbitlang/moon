@@ -529,7 +529,7 @@ Add a dependency
 ###### **Options:**
 
 * `-u`, `--upgrade` — Allow changing the version of an existing dependency
-* `--no-update` — Do not update the registry index before adding the dependency
+* `--no-update` — Do not refresh registry metadata before adding the dependency
 
 
 
@@ -627,7 +627,7 @@ Note: This is an unstable command and may change or be removed in future version
 
 ###### **Options:**
 
-* `--no-update` — Do not update the registry index before fetching
+* `--no-update` — Do not refresh registry metadata before fetching
 
 
 
