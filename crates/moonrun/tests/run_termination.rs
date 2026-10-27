@@ -169,10 +169,12 @@ mod v8 {
             }
             return;
         };
+        eprintln!("termination case: {case}");
 
-        let (imports, body) = match case.as_str() {
-            "loop" | "start" => ("", "(loop br 0)"),
+        let (imports, setup, body) = match case.as_str() {
+            "loop" | "start" => ("", "", "(loop br 0)"),
             "catch" => (
+                "",
                 "",
                 "(block $caught (try_table (catch_all $caught) (loop br 0)) return) i32.const 88 call $ready",
             ),
@@ -180,14 +182,23 @@ mod v8 {
                 r#"(import "__moonbit_fs_unstable" "begin_create_string" (func $builder (result externref)))
                     (import "__moonbit_fs_unstable" "string_append_char" (func $append (param externref i32)))
                     (import "__moonbit_fs_unstable" "finish_create_string" (func $finish (param externref) (result externref)))"#,
+                "",
                 "(loop call $builder local.tee $value i32.const 65 call $append local.get $value call $finish drop br 0)",
             ),
             "workers" => (
                 r#"(import "moonbitlang/async" "event_bus/create" (func $poll (result i64)))
                     (import "moonbitlang/async" "thread_pool/init_thread_pool" (func $init (param i64) (result i64)))
-                    (import "moonbitlang/async" "thread_pool/make_sleep_job" (func $sleep (param i32) (result i64)))
+                    (import "moonbitlang/async" "fd_util/pipe" (func $pipe (param i32 i32 i32 i32) (result i32)))
+                    (import "moonbitlang/async" "thread_pool/make_read_job" (func $read (param i64 i32 i64) (result i64)))
                     (import "moonbitlang/async" "thread_pool/spawn_worker" (func $spawn (param i32 i64) (result i64)))"#,
-                "call $poll call $init drop i32.const 1 i32.const 60000 call $sleep call $spawn drop (loop br 0)",
+                // Keep the writer open so teardown must cancel the blocking read.
+                // The test-only sleep Job uses uncancellable Sleep on Windows.
+                r#"call $poll call $init drop
+                    (if (call $pipe (i32.const 0) (i32.const 2)
+                        (i32.const 0) (i32.const 0)) (then unreachable))
+                    (drop (call $spawn (i32.const 1)
+                        (call $read (i64.load (i32.const 0)) (i32.const 1) (i64.const -1))))"#,
+                "(loop br 0)",
             ),
             _ => panic!("unknown case: {case}"),
         };
@@ -211,7 +222,7 @@ mod v8 {
             {imports}
             (memory (export "memory") 1)
             (func $entry {entry} (local $value externref)
-                i32.const 82 call $ready {body})
+                {setup} i32.const 82 call $ready {body})
             {start})"#
                 ))
                 .unwrap(),
